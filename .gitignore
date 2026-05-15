@@ -1,0 +1,34 @@
+# Auth / secrets — never commit
+.garmin_tokens/
+.env
+.env.*
+
+# Personal local config
+clubs.json
+.claude/
+
+# Personal / downloaded data
+data/
+downloads/
+
+# Research dumps and local reverse-engineering artifacts
+archive/
+tools/il2cppdumper/
+tools/il2cppdumper_net7/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Generated
+output/
+logs/
+*.log
+
+# OS
+.DS_Store
+.AppleDouble

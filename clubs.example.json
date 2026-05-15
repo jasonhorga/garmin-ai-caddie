@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy this to clubs.json for local shot-distance labeling. Keys are Garmin clubId values.",
+  "_active_bag": ["1W", "3W", "3H", "5I", "6I", "7I", "8I", "9I", "PW", "AW", "50", "54", "58", "Putter"],
+  "12345678": {"name": "1W", "retired": false},
+  "23456789": {"name": "7I", "retired": false},
+  "34567890": {"name": "56 retired", "retired": true}
+}

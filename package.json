@@ -1,0 +1,18 @@
+{
+  "name": "garmin",
+  "version": "1.0.0",
+  "description": "把 connect.garmin.cn 上的高尔夫成绩单拉下来本地存着，做统计、画图、生成 dashboard。",
+  "main": "fetch_courseview_geometry_key.js",
+  "scripts": {
+    "decode:geometry": "node decode_courseview_geometry.js",
+    "fetch:geometry-key": "node fetch_courseview_geometry_key.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "draco3d": "^1.5.7"
+  }
+}

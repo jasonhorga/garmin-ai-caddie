@@ -1,0 +1,12 @@
+[project]
+name = "garmin"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.100.0",
+    "garminconnect>=0.3.3",
+    "garth>=0.8.0",
+    "matplotlib>=3.10.9",
+    "opencv-python-headless>=4.13.0.92",
+    "pillow>=12.2.0",
+]
