@@ -44,6 +44,27 @@ Working files:
 This means IMG is still worth reverse-engineering for coarse layers/anchors, but
 the production AI-caddie hazard model should start from `prodgeometry` meshes.
 
+Batch validation has now been run for 黑骑士 B holes 1-9:
+
+- 9/9 holes downloaded, decrypted, extracted, and decoded successfully.
+- Holes 1-7 and 9 each decoded 13 mesh sources.
+- Hole 8 decoded 11 mesh sources; `Fairway.drc` and `TreeArea.drc` are absent,
+  likely because Garmin does not provide separate fairway/tree-area meshes for
+  that short hole.
+- 9/9 holes generated `hazards.json`, tee distance JSON, and overlay PNGs.
+
+Working batch scripts:
+
+- [batch_prodgeometry_course.py](/Users/jason/workspace/garmin/batch_prodgeometry_course.py)
+- [export_prodgeometry_hazards.py](/Users/jason/workspace/garmin/export_prodgeometry_hazards.py)
+
+Key local outputs:
+
+- `output/prodgeometry_batch/gid31795_holes_01-09_summary.json`
+- `output/prodgeometry_hazards/gid31795_h01_hazards.json` through
+  `output/prodgeometry_hazards/gid31795_h09_hazards.json`
+- `output/prodgeometry_overlay/gid31795_prodgeometry_h01-h09_contact_sheet.png`
+
 ---
 
 ## 2. Data Layers Available

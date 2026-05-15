@@ -106,6 +106,24 @@ node decode_courseview_geometry.js \
   --mesh-json output/prodgeometry/gid31795_h02_meshes.json
 ```
 
+整场/9 洞批量验证：
+
+```bash
+.venv/bin/python batch_prodgeometry_course.py 31795 \
+  --profile-id '<playerProfileId>' \
+  --holes 1-9 \
+  --live
+```
+
+批量脚本会生成：
+
+- `output/prodgeometry/gid<course>_h<hole>_meshes.json`
+- `output/prodgeometry/gid<course>_h<hole>_stats.json`
+- `output/prodgeometry_hazards/gid<course>_h<hole>_hazards.json`
+- `output/prodgeometry/gid<course>_h<hole>_tee_distances.json`
+- `output/prodgeometry_overlay/gid<course>_rasterh<hole>_prodgeometry_h<hole>_overlay.png`
+- `output/prodgeometry_batch/..._summary.json`
+
 本地认证、个人 Garmin 数据、下载的 CourseView/prodgeometry 文件和生成图都由
 `.gitignore` 排除，不要上传到 GitHub。
 
