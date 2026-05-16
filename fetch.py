@@ -15,6 +15,8 @@ from pathlib import Path
 
 import requests
 
+from garmin_auth import auth_headers, ensure_web_auth
+
 ROOT = Path(__file__).parent
 TOKEN_DIR = ROOT / ".garmin_tokens"
 COOKIE_FILE = TOKEN_DIR / "web_cookie.txt"
@@ -27,31 +29,28 @@ SHOT_DIR = DATA_DIR / "shots"
 GOLF_BASE = "https://connect.garmin.cn/golf-api/gcs-golfcommunity/api/v2"
 
 
-def make_session() -> requests.Session:
-    if not COOKIE_FILE.exists() or not CSRF_FILE.exists():
+def make_session(*, force_refresh_auth: bool = False) -> requests.Session:
+    try:
+        auth = ensure_web_auth(force=force_refresh_auth, validate=False)
+    except Exception as exc:
         sys.exit(
-            f"missing {COOKIE_FILE} or {CSRF_FILE}\n"
-            "Export Cookie header + connect-csrf-token from a logged-in browser session."
+            f"missing or expired Garmin web auth: {exc}\n"
+            "Log in to https://connect.garmin.cn in Chrome/Safari, then rerun."
         )
-    cookie = COOKIE_FILE.read_text().strip()
-    csrf = CSRF_FILE.read_text().strip()
     s = requests.Session()
-    s.headers.update({
-        "Cookie": cookie,
-        "connect-csrf-token": csrf,
-        "accept": "application/json, text/javascript, */*; q=0.01",
-        "accept-language": "zh-CN,zh;q=0.9",
-        "nk": "NT",
-        "x-app-ver": "5.24.1.3a",
-        "x-lang": "zh-CN",
-        "x-requested-with": "XMLHttpRequest",
-        "user-agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
-        ),
-        "referer": "https://connect.garmin.cn/modern/",
-    })
+    s.headers.update(auth_headers(auth))
     return s
+
+
+def refresh_session_auth(s: requests.Session) -> bool:
+    try:
+        auth = ensure_web_auth(force=True, validate=False)
+    except Exception as exc:
+        print(f"[!!] Garmin auth refresh failed: {exc}")
+        return False
+    s.headers.update(auth_headers(auth))
+    print(f"[ok] Garmin auth refreshed from browser ({auth.source}; cookies={auth.cookie_count})")
+    return True
 
 
 def fetch_summary(s: requests.Session, limit: int = 10000) -> list[dict]:
@@ -59,6 +58,10 @@ def fetch_summary(s: requests.Session, limit: int = 10000) -> list[dict]:
     print(f"[..] fetching scorecard summary (limit={limit})")
     url = f"{GOLF_BASE}/scorecard/summary"
     r = s.get(url, params={"user-locale": "zh_CN", "per-page": str(limit)}, timeout=30)
+    if r.status_code in (401, 403):
+        print(f"[!!] summary auth-failed ({r.status_code}); refreshing browser auth once")
+        if refresh_session_auth(s):
+            r = s.get(url, params={"user-locale": "zh_CN", "per-page": str(limit)}, timeout=30)
     r.raise_for_status()
     raw = r.json()
     cards = raw.get("scorecardSummaries", []) or []
@@ -92,6 +95,23 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
                     timeout=30,
                 )
                 if r.status_code in (401, 403):
+                    if auth_failures == 0 and refresh_session_auth(s):
+                        r = s.get(
+                            f"{GOLF_BASE}/scorecard/detail",
+                            params={
+                                "scorecard-ids": str(sid),
+                                "include-longest-shot-distance": "true",
+                                "user-locale": "zh_CN",
+                            },
+                            timeout=30,
+                        )
+                    if r.status_code not in (401, 403):
+                        r.raise_for_status()
+                        auth_failures = 0
+                        out.write_text(json.dumps(r.json(), ensure_ascii=False, indent=2))
+                        print(f"  [{i:>3}/{len(cards)}] {sid} saved")
+                        time.sleep(0.5)
+                        continue
                     auth_failures += 1
                     print(f"  [{i:>3}/{len(cards)}] {sid} auth-failed ({r.status_code}); aborting if {auth_failures} >= 3")
                     if auth_failures >= 3:
@@ -122,6 +142,12 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
                     params={"user-locale": "zh_CN", "per-page": "10000"},
                     timeout=30,
                 )
+                if r.status_code in (401, 403) and auth_failures == 0 and refresh_session_auth(s):
+                    r = s.get(
+                        f"{GOLF_BASE}/shot/scorecard/{sid}/hole",
+                        params={"user-locale": "zh_CN", "per-page": "10000"},
+                        timeout=30,
+                    )
                 if r.status_code == 200:
                     shot_out.write_text(json.dumps(r.json(), ensure_ascii=False, indent=2))
                     auth_failures = 0
@@ -149,7 +175,8 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
 
 def main() -> int:
     with_shots = "--shots" in sys.argv
-    s = make_session()
+    force_refresh_auth = "--refresh-auth" in sys.argv
+    s = make_session(force_refresh_auth=force_refresh_auth)
     cards = fetch_summary(s)
     if not cards:
         print("[!!] no scorecards returned.")

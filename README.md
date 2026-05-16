@@ -35,7 +35,19 @@ npm install
 
 ## 抓取数据
 
-### Step 1 — 从浏览器导出认证
+### Step 1 — 认证
+
+推荐做法：浏览器登录 https://connect.garmin.cn 后直接运行脚本，`fetch.py`
+会尝试从本机 Chrome/Safari/Firefox 读取 Garmin web session，自动更新
+`.garmin_tokens/web_cookie.txt` 和 `.garmin_tokens/csrf.txt`。不会读取或保存
+Garmin 密码。
+
+```bash
+uv run python garmin_auth.py
+uv run python fetch.py --refresh-auth
+```
+
+如果自动读取失败，可以继续手动导出：
 
 1. 浏览器登录 https://connect.garmin.cn ，进入"高尔夫"页
 2. 打开开发者工具 → Network 标签 → Fetch/XHR 过滤
@@ -65,6 +77,41 @@ uv run python fetch.py --shots     # 加上每杆 GPS 点位（慢，可选）
 ### Cookie 过期后
 
 JWT_WEB cookie 有效期约 ~9 小时。过期后 fetch 会 401/403。重做 Step 1 即可，CSRF token 通常较长期有效但顺手一起更新最稳。
+
+## AI Caddie MVP
+
+本地 Web 入口：
+
+```bash
+uv run python ai_caddie_web.py --port 8765
+open http://127.0.0.1:8765
+```
+
+当前 Web MVP 提供：
+
+- Garmin round 列表、同步按钮、洞级分析
+- prodgeometry hazard/mesh 与 shot 的本地坐标 join
+- 规则化路线候选、风险提示、数据置信度
+- SVG overlay
+- 手动记杆 round：选择已有 geometry、录入/GPS 填 start/end、生成同格式分析
+
+命令行单洞分析：
+
+```bash
+uv run python ai_caddie_analyze.py --latest --hole 1
+uv run python ai_caddie_analyze.py --scorecard-id 15215497 --hole 1
+uv run python ai_caddie_analyze.py --latest --round
+uv run python ai_caddie_analyze.py --latest --round --llm  # 需要 ANTHROPIC_API_KEY
+```
+
+批量补常打球场的 prodgeometry hazard index：
+
+```bash
+uv run python ai_caddie_batch_geometry.py --limit 10 --dry-run
+uv run python ai_caddie_batch_geometry.py --limit 10
+```
+
+`--llm` 只会发送 `llmBrief` 里的结构化事实，不会把 Garmin token/cookie 或原始本地 JSON 发给模型。
 
 ## 分析脚本
 

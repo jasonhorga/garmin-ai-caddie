@@ -1,6 +1,6 @@
 # Garmin Golf Project — Status
 
-**Last updated**: 2026-05-15
+**Last updated**: 2026-05-17
 **Working directory**: `/Users/jason/workspace/garmin/`
 
 ---
@@ -12,6 +12,100 @@
 **Current focus (this week)**: extract per-hole hazard data (fairway / green / bunker / water polygons) from Garmin and overlay it with shot data, so the AI has a complete picture of where each shot landed relative to course features.
 
 **User**: ~10-year Garmin golfer. 14-club bag (1W, 3W, 3H, 5I–9I, PW, A, 50°, 54°, 58°, putter). Plays mostly in Beijing/China. ~443 rounds in Garmin (after dedup, 418 rounds covering ~90 unique courses).
+
+---
+
+## 0.1 History MVP Completion Log — Recommended Package
+
+Implemented the recommended history package in the local/private Web app. The
+old static `build_dashboard.py` remains as a reference, but the active product
+entry is now `ai_caddie_web.py`.
+
+Completed:
+
+- Added `ai_caddie/history.py` as the shared history service layer.
+- Migrated the validated dashboard logic into structured JSON services:
+  round timeline, same-day 9-hole merge, scorecards, monthly/quarterly trends,
+  score distribution, course aggregation, club distance profiles, shot table,
+  per-hole history, AI report archive, and data quality.
+- Added Web APIs:
+  `/api/history/overview`, `/api/history/rounds`,
+  `/api/history/trends`, `/api/history/distribution`,
+  `/api/history/courses`, `/api/history/course`,
+  `/api/history/clubs`, `/api/history/shots`,
+  `/api/history/hole`, `/api/history/reports`,
+  `/api/history/data-quality`.
+- Extended `/api/status` with history coverage counts.
+- Added the Web `历史记录` tab with subviews for overview, timeline,
+  scorecards, trends, distribution, WGS84 course map, course detail, club
+  profiles, shot records, hole history overlay, AI reports, and data quality.
+- Kept WGS84 as the coordinate source. Course map uses Esri Web Mercator tiles
+  from WGS84 lon/lat markers. Garmin `730x730` remains a hole-level overlay
+  reference only, not the history map base layer.
+- Added history tests for 9-hole merge, core history schemas, course history,
+  and prodgeometry-backed hole history overlay.
+- Added hole-level comparison overlays in the active Web app:
+  prodgeometry SVG, Esri WGS84 satellite, and Garmin CourseView raster now
+  stack vertically. The satellite panel uses the same hole overlay data,
+  crops to a focused hole bounds, and adopts the Garmin raster aspect ratio
+  when the raster is available.
+- Added a first-pass strategy-distance UI for hole maps. The Web overlay now
+  supports `回放` and `策略距离` modes, plus `码` / `米` display units. Strategy
+  mode labels target distance, target-line carry/clear distances, and nearby
+  bunker/water/tree/green reference distances from the selected tee/first-shot
+  reference point.
+
+Current local validation snapshot:
+
+- Raw scorecards: 448.
+- Rounds after same-day 9-hole merge: 423.
+- Merged 9-hole pairs: 25.
+- 18-hole rounds: 363.
+- Courses after canonical merge: 69.
+- Shot rows loaded: 20,814.
+- Scorecards with usable shot files: 448.
+- Prodgeometry hazard files: 117.
+- Prodgeometry mesh files: 117.
+- AI reports indexed: 3.
+- Example hole history validation: `globalId=31702`, `localHole=1` has 7 rounds
+  and 20 shots, with SVG overlay generated from prodgeometry.
+
+Verification commands run:
+
+```bash
+uv run python -m py_compile ai_caddie/history.py ai_caddie_web.py
+uv run python -m unittest discover -s tests -v
+curl http://127.0.0.1:8765/api/history/overview
+curl 'http://127.0.0.1:8765/api/history/courses'
+curl 'http://127.0.0.1:8765/api/history/hole?global_id=31702&local_hole=1&overlay=1'
+curl 'http://127.0.0.1:8765/api/overlay-geojson?source=garmin&id=17368475&hole=2'
+```
+
+Test result:
+
+- `10` tests passed.
+- Browser check: latest round `17368475`, hole `2`; satellite map and Garmin
+  raster both rendered at `728x1125` in the current viewport, with 21 polygon /
+  line paths plus shot `1` and target `T` markers.
+- Browser check after strategy-distance UI: latest round `17368475`, hole `2`;
+  strategy mode rendered 9 distance labels, with unit toggle switching labels
+  between `码` and `米`.
+
+Remaining backlog:
+
+- Par 3/4/5 performance.
+- Birdie/Par/Bogey/Double+ distribution.
+- Handicap/rating/slope-aware analysis.
+- Lie/result history.
+- Tee shot left/right and miss tendency.
+- Approach/short-game profiles.
+- Long-term actual route vs candidate route comparison.
+- Strategy-aware data gap recommendations.
+- Multi-round trend AI review.
+- Course/hole-specific AI review.
+- LLM brief viewer.
+- CSV/JSON/Markdown export.
+- Favorites/tags.
 
 ---
 
