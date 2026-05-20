@@ -139,13 +139,13 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
             try:
                 r = s.get(
                     f"{GOLF_BASE}/shot/scorecard/{sid}/hole",
-                    params={"user-locale": "zh_CN", "per-page": "10000"},
+                    params={"user-locale": "zh_CN", "per-page": "10000", "image-size": "IMG_730X730"},
                     timeout=30,
                 )
                 if r.status_code in (401, 403) and auth_failures == 0 and refresh_session_auth(s):
                     r = s.get(
                         f"{GOLF_BASE}/shot/scorecard/{sid}/hole",
-                        params={"user-locale": "zh_CN", "per-page": "10000"},
+                        params={"user-locale": "zh_CN", "per-page": "10000", "image-size": "IMG_730X730"},
                         timeout=30,
                     )
                 if r.status_code == 200:

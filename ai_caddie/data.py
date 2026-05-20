@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 SCORECARD_DIR = DATA_DIR / "scorecards"
 SHOT_DIR = DATA_DIR / "shots"
+SNAPSHOT_DIR = DATA_DIR / "snapshots"
 MANUAL_DIR = DATA_DIR / "manual_rounds"
 HAZARD_DIR = ROOT / "output" / "prodgeometry_hazards"
 MESH_DIR = ROOT / "output" / "prodgeometry"
@@ -114,6 +115,34 @@ def load_shot_file(scorecard_id: int | str) -> dict[str, Any] | None:
     return data
 
 
+def scorecard_snapshot_id(raw: dict[str, Any]) -> int | None:
+    try:
+        value = raw["scorecardDetails"][0]["scorecard"].get("courseSnapshotId")
+    except Exception:
+        value = None
+    if value is None:
+        snapshots = raw.get("courseSnapshots") or []
+        value = (snapshots[0] or {}).get("courseSnapshotId") if snapshots else None
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def snapshot_file(snapshot_id: int | str) -> Path:
+    return SNAPSHOT_DIR / f"{snapshot_id}_hole.json"
+
+
+def load_snapshot_file(snapshot_id: int | str) -> dict[str, Any] | None:
+    path = snapshot_file(snapshot_id)
+    if not path.exists():
+        return None
+    data = read_json(path)
+    if data.get("_no_data"):
+        return None
+    return data
+
+
 def scorecard_summary(raw: dict[str, Any]) -> dict[str, Any]:
     detail = raw["scorecardDetails"][0]
     sc = detail["scorecard"]
@@ -205,7 +234,45 @@ def _loc_to_wgs84(loc: dict[str, Any] | None) -> dict[str, Any] | None:
         "lon": lon,
         "lie": loc.get("lie"),
         "lieSource": loc.get("lieSource"),
+        **({"x": float(loc["x"]), "y": float(loc["y"])} if loc.get("x") is not None and loc.get("y") is not None else {}),
     }
+
+
+def _merge_pixel(loc: dict[str, Any] | None, pixel_loc: dict[str, Any] | None) -> dict[str, Any] | None:
+    if loc is None or not pixel_loc:
+        return loc
+    if loc.get("x") is None and pixel_loc.get("x") is not None:
+        loc["x"] = float(pixel_loc["x"])
+    if loc.get("y") is None and pixel_loc.get("y") is not None:
+        loc["y"] = float(pixel_loc["y"])
+    return loc
+
+
+def _snapshot_pixel_lookup(scorecard: dict[str, Any], scorecard_id: int | str, absolute_hole: int) -> dict[str, dict[str, dict[str, Any]]]:
+    snapshot_id = scorecard_snapshot_id(scorecard)
+    if snapshot_id is None:
+        return {}
+    snapshot = load_snapshot_file(snapshot_id)
+    if not snapshot:
+        return {}
+    raw_hole = next(
+        (h for h in snapshot.get("holeShots", []) or [] if int(h.get("holeNumber", -1)) == int(absolute_hole)),
+        None,
+    )
+    if not raw_hole:
+        return {}
+    lookup: dict[str, dict[str, dict[str, Any]]] = {}
+    for shot in raw_hole.get("shots", []) or []:
+        if str(shot.get("scorecardId")) != str(scorecard_id):
+            continue
+        shot_id = shot.get("id")
+        if shot_id is None:
+            continue
+        lookup[str(shot_id)] = {
+            "startLoc": shot.get("startLoc") or {},
+            "endLoc": shot.get("endLoc") or {},
+        }
+    return lookup
 
 
 def normalize_garmin_hole(scorecard_id: int | str, absolute_hole: int) -> dict[str, Any]:
@@ -215,7 +282,13 @@ def normalize_garmin_hole(scorecard_id: int | str, absolute_hole: int) -> dict[s
         raise FileNotFoundError(f"missing shot data for scorecard {scorecard_id}")
 
     summary = scorecard_summary(scorecard)
+    sc = scorecard["scorecardDetails"][0]["scorecard"]
+    score_hole = next(
+        (h for h in sc.get("holes", []) or [] if int(h.get("number", -1)) == int(absolute_hole)),
+        {},
+    )
     ref = round_hole_ref(scorecard, absolute_hole)
+    pixel_lookup = _snapshot_pixel_lookup(scorecard, scorecard_id, absolute_hole)
     raw_hole = next(
         (h for h in shot_data.get("holeShots", []) or [] if int(h.get("holeNumber", -1)) == absolute_hole),
         None,
@@ -226,6 +299,15 @@ def normalize_garmin_hole(scorecard_id: int | str, absolute_hole: int) -> dict[s
     shots = []
     for shot in raw_hole.get("shots", []) or []:
         club_id = shot.get("clubId")
+        pixel_row = pixel_lookup.get(str(shot.get("id")), {})
+        start = _loc_to_wgs84(shot.get("startLoc"))
+        end = _loc_to_wgs84(shot.get("endLoc"))
+        had_pixel = bool(
+            (start and start.get("x") is not None and start.get("y") is not None)
+            or (end and end.get("x") is not None and end.get("y") is not None)
+        )
+        start = _merge_pixel(start, pixel_row.get("startLoc"))
+        end = _merge_pixel(end, pixel_row.get("endLoc"))
         shots.append({
             "id": shot.get("id"),
             "source": "garmin",
@@ -237,10 +319,11 @@ def normalize_garmin_hole(scorecard_id: int | str, absolute_hole: int) -> dict[s
             "shotType": shot.get("shotType"),
             "autoShotType": shot.get("autoShotType"),
             "meters": shot.get("meters"),
-            "start": _loc_to_wgs84(shot.get("startLoc")),
-            "end": _loc_to_wgs84(shot.get("endLoc")),
+            "start": start,
+            "end": end,
             "penalty": False,
             "confidence": "high" if shot.get("shotSource") == "DEVICE_AUTO" else "medium",
+            "pixelSource": "garmin-shot-map" if had_pixel else "course-snapshot" if pixel_row else None,
         })
 
     pin = _loc_to_wgs84(raw_hole.get("pinPosition"))
@@ -253,7 +336,12 @@ def normalize_garmin_hole(scorecard_id: int | str, absolute_hole: int) -> dict[s
         "globalId": ref.global_id,
         "localHole": ref.local_hole,
         "teeBox": summary.get("teeBox"),
+        "strokes": score_hole.get("strokes"),
+        "putts": score_hole.get("putts"),
+        "penalties": score_hole.get("penalties"),
+        "fairwayShotOutcome": score_hole.get("fairwayShotOutcome"),
         "pin": pin,
+        "holeImageUrl": raw_hole.get("holeImageUrl"),
         "shots": sorted(shots, key=lambda s: s.get("shotOrder") or 0),
     }
 
@@ -289,6 +377,10 @@ def normalize_manual_hole(manual_round_id: str, absolute_hole: int | None = None
         "globalId": int(raw["globalId"]),
         "localHole": int(raw["localHole"]),
         "teeBox": raw.get("teeBox"),
+        "strokes": raw.get("strokes"),
+        "putts": raw.get("putts"),
+        "penalties": raw.get("penalties"),
+        "fairwayShotOutcome": raw.get("fairwayShotOutcome"),
         "pin": raw.get("pin"),
         "shots": sorted(shots, key=lambda s: s.get("shotOrder") or 0),
     }

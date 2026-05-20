@@ -81,6 +81,60 @@ def _round_point(point: list[float] | tuple[float, float] | None) -> list[float]
     return [round(float(point[0]), 2), round(float(point[1]), 2)]
 
 
+TEE_SET_BY_BOX = {
+    "black": 1,
+    "blue": 2,
+    "white": 3,
+    "gold": 4,
+    "yellow": 4,
+    "red": 5,
+}
+
+
+def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[str, Any] | None:
+    tees = (geometry.get("hazards") or {}).get("tees") or []
+    tees = [t for t in tees if t.get("position")]
+    if not tees:
+        return None
+
+    tee_set = TEE_SET_BY_BOX.get(str(tee_box or "").strip().lower())
+    if tee_set is not None:
+        match = next((t for t in tees if tee_set in (t.get("sets") or [])), None)
+        if match:
+            return match
+
+    return max(tees, key=lambda t: float(t.get("target_distance_m") or 0.0))
+
+
+def _looks_like_tee_start(shot: dict[str, Any]) -> bool:
+    lie = str(((shot.get("start") or {}).get("lie")) or "").lower()
+    return lie in {"teebox", "tee box", "tee", "teeboxes"}
+
+
+def _overlay_tee_start(
+    first_shot: dict[str, Any],
+    selected_tee: dict[str, Any] | None,
+) -> tuple[tuple[float, float] | None, str | None]:
+    """Return the Tee marker/reference point, without rewriting shot starts."""
+    start = (first_shot.get("start") or {}).get("local")
+    selected_pos = (selected_tee or {}).get("position")
+    start_point = (float(start[0]), float(start[1])) if start else None
+    selected_point = (float(selected_pos[0]), float(selected_pos[1])) if selected_pos else None
+    if not selected_point:
+        return start_point, "shot_start" if start_point else None
+    if not start_point:
+        return selected_point, "selected_tee"
+    if _looks_like_tee_start(first_shot):
+        return start_point, "shot_start"
+    if math.hypot(start_point[0] - selected_point[0], start_point[1] - selected_point[1]) <= 35.0:
+        return start_point, "shot_start"
+    return selected_point, "selected_tee_reference"
+
+
+def _first_recorded_shot_is_from_tee(first_shot: dict[str, Any], selected_tee: dict[str, Any] | None) -> bool:
+    return _overlay_tee_start(first_shot, selected_tee)[1] == "shot_start"
+
+
 @lru_cache(maxsize=128)
 def load_geometry(global_id: int, local_hole: int) -> dict[str, Any]:
     h_path = hazard_path(global_id, local_hole)
@@ -197,10 +251,10 @@ def _strategy_reference(analysis: dict[str, Any], geometry: dict[str, Any]) -> t
     start_local = (first.get("start") or {}).get("local")
     if start_local:
         return "第 1 杆起点", (float(start_local[0]), float(start_local[1]))
-    tees = (geometry.get("hazards") or {}).get("tees") or []
-    if tees and tees[0].get("position"):
-        pos = tees[0]["position"]
-        return "Tee", (float(pos[0]), float(pos[1]))
+    tee = _selected_tee(geometry, analysis.get("teeBox"))
+    if tee and tee.get("position"):
+        pos = tee["position"]
+        return f"{analysis.get('teeBox') or 'Tee'} Tee", (float(pos[0]), float(pos[1]))
     return None
 
 
@@ -219,7 +273,7 @@ def strategy_distances(analysis: dict[str, Any], *, max_labels: int = 9) -> dict
     """
     ref_lat = analysis.get("geometry", {}).get("refLat")
     ref_lon = analysis.get("geometry", {}).get("refLon")
-    target = (analysis.get("geometry") or {}).get("target", {}).get("position")
+    target = ((analysis.get("geometry") or {}).get("target") or {}).get("position")
     if ref_lat is None or ref_lon is None or not target:
         return {"status": "missing geometry reference", "labels": []}
 
@@ -439,6 +493,8 @@ def data_quality(hole: dict[str, Any], shots: list[dict[str, Any]], geometry: di
         issues.append("missing decoded mesh JSON; feature hit tests are unavailable")
     if not shots:
         issues.append("no shots on this hole")
+    elif not _first_recorded_shot_is_from_tee(shots[0], _selected_tee(geometry, hole.get("teeBox"))):
+        issues.append("Garmin tee shot not recorded; first recorded shot starts after tee")
     for shot in shots:
         if not shot.get("start") or not shot.get("end"):
             issues.append(f"shot {shot.get('shotOrder')} missing start/end location")
@@ -472,24 +528,39 @@ def rule_review(analysis: dict[str, Any]) -> str:
     ]
     if shots:
         first = shots[0]
+        first_from_tee = _first_recorded_shot_is_from_tee(
+            first,
+            _selected_tee(load_geometry(int(analysis["globalId"]), int(analysis["localHole"])), analysis.get("teeBox")),
+        )
         surface = ((first.get("end") or {}).get("feature") or {}).get("surface") or {}
         surface_text = kind_cn.get(surface.get("kind"), (first.get("end") or {}).get("lie") or "未知区域")
         remain = first.get("remainingToTarget_m")
         remain_text = f"剩余目标约 {remain} 米" if remain is not None else "剩余距离暂时无法计算"
+        shot_label = "开球" if first_from_tee else "记录的第 1 杆"
+        if not first_from_tee:
+            start_lie_raw = (first.get("start") or {}).get("lie") or "未知位置"
+            start_lie = kind_cn.get(str(start_lie_raw).lower(), str(start_lie_raw))
+            lines.append(f"Garmin 没有记录 Tee 台发球；当前回放从{start_lie}开始。")
         lines.append(
-            f"开球用 {first.get('clubName') or '未知球杆'}，落在{surface_text}，{remain_text}。"
+            f"{shot_label}用 {first.get('clubName') or '未知球杆'}，落在{surface_text}，{remain_text}。"
         )
         risks = ((first.get("end") or {}).get("feature") or {}).get("nearRisks") or []
         if risks:
             risk_text = "，".join(f"{kind_cn.get(r['kind'], r['kind'])} {r['distance_m']} 米" for r in risks[:3])
-            lines.append(f"开球落点附近主要风险：{risk_text}。")
+            lines.append(f"{shot_label}落点附近主要风险：{risk_text}。")
     if candidates:
         best = candidates[0]
         lines.append(
             f"当前规则模型给出的低风险候选是「{best['label']}」，目标 carry 约 {best['carry_m']} 米，风险分 {best['riskScore']}。"
         )
     if quality["issues"]:
-        lines.append("还需要补的数据：" + "；".join(quality["issues"][:4]) + "。")
+        issue_cn = {
+            "Garmin tee shot not recorded; first recorded shot starts after tee": "缺 Tee 台发球记录",
+            "missing prodgeometry hazard index": "缺 prodgeometry 障碍索引",
+            "missing decoded mesh JSON; feature hit tests are unavailable": "缺 decoded mesh JSON，无法做 feature 命中判断",
+            "no shots on this hole": "本洞没有击球记录",
+        }
+        lines.append("还需要补的数据：" + "；".join(issue_cn.get(issue, issue) for issue in quality["issues"][:4]) + "。")
     return " ".join(lines)
 
 
@@ -525,6 +596,7 @@ def build_hole_analysis(
     scorecard_id: int | str | None = None,
     manual_round_id: str | None = None,
     hole_number: int,
+    ensure_geometry: bool = False,
     write_outputs: bool = False,
 ) -> dict[str, Any]:
     if scorecard_id is None and manual_round_id is None:
@@ -536,11 +608,26 @@ def build_hole_analysis(
     if hole["globalId"] is None:
         raise ValueError("hole has no globalId")
 
+    geometry_sync: dict[str, Any] | None = None
+    if ensure_geometry:
+        from .geometry_sync import ensure_prodgeometry
+
+        geometry_sync = ensure_prodgeometry(int(hole["globalId"]), int(hole["localHole"]))
+        if geometry_sync.get("ok"):
+            load_geometry.cache_clear()
+
     geometry = load_geometry(int(hole["globalId"]), int(hole["localHole"]))
     club_profiles = build_club_profiles()
     shots = enrich_shots(hole, geometry)
     candidates = candidate_routes(hole, shots, geometry, club_profiles)
     quality = data_quality(hole, shots, geometry, club_profiles)
+    pin = dict(hole.get("pin") or {})
+    ref_lat = (geometry.get("hazards") or {}).get("refLat")
+    ref_lon = (geometry.get("hazards") or {}).get("refLon")
+    if pin.get("lat") is not None and pin.get("lon") is not None and ref_lat is not None and ref_lon is not None:
+        local = wgs84_to_local(float(pin["lat"]), float(pin["lon"]), float(ref_lat), float(ref_lon))
+        pin["local"] = _round_point(local)
+        pin["feature"] = classify_point((local[0], local[1]), geometry) if geometry["components"] else None
     relevant_profiles = {
         name: club_profiles[name]
         for name in sorted({s.get("clubName") for s in shots if s.get("clubName")} & set(club_profiles))
@@ -555,6 +642,12 @@ def build_hole_analysis(
         "globalId": hole["globalId"],
         "localHole": hole["localHole"],
         "teeBox": hole.get("teeBox"),
+        "strokes": hole.get("strokes"),
+        "putts": hole.get("putts"),
+        "penalties": hole.get("penalties"),
+        "fairwayShotOutcome": hole.get("fairwayShotOutcome"),
+        "pin": pin or None,
+        "holeImageUrl": hole.get("holeImageUrl"),
         "geometry": {
             "hasHazards": geometry["hasHazards"],
             "hasMeshes": geometry["hasMeshes"],
@@ -563,6 +656,14 @@ def build_hole_analysis(
             "target": (geometry.get("hazards") or {}).get("target"),
             "hazardCount": len((geometry.get("hazards") or {}).get("hazards", [])),
         },
+        "geometrySync": geometry_sync,
+        "rasterPixelSource": next(
+            (s.get("pixelSource") or "garmin-shot-map" for s in shots if (
+                ((s.get("start") or {}).get("x") is not None and (s.get("start") or {}).get("y") is not None)
+                or ((s.get("end") or {}).get("x") is not None and (s.get("end") or {}).get("y") is not None)
+            )),
+            None,
+        ),
         "shots": shots,
         "clubProfiles": relevant_profiles,
         "candidateRoutes": candidates,
@@ -609,82 +710,300 @@ def _convex_hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]
     return lower[:-1] + upper[:-1]
 
 
+def _local_overlay_frame(
+    points: list[tuple[float, float]],
+    tee_point: tuple[float, float] | None,
+    target_point: tuple[float, float] | None,
+) -> dict[str, Any] | None:
+    if not points or not tee_point or not target_point:
+        return None
+    dx = target_point[0] - tee_point[0]
+    dy = target_point[1] - tee_point[1]
+    length = math.hypot(dx, dy)
+    if length < 1.0:
+        ux, uy = 1.0, 0.0
+        vx, vy = 0.0, 1.0
+    else:
+        vx, vy = -dx / length, -dy / length
+        ux, uy = dy / length, -dx / length
+
+    def rot(point: tuple[float, float]) -> tuple[float, float]:
+        nx = point[0] - tee_point[0]
+        ny = point[1] - tee_point[1]
+        return nx * ux + ny * uy, nx * vx + ny * vy
+
+    rotated = [rot(point) for point in points]
+    min_x, max_x = min(p[0] for p in rotated), max(p[0] for p in rotated)
+    min_y, max_y = min(p[1] for p in rotated), max(p[1] for p in rotated)
+    return {
+        "tee": _round_point(tee_point),
+        "target": _round_point(target_point),
+        "minX": round(min_x, 2),
+        "maxX": round(max_x, 2),
+        "minY": round(min_y, 2),
+        "maxY": round(max_y, 2),
+    }
+
+
 def render_svg(analysis: dict[str, Any]) -> str:
     geometry = load_geometry(int(analysis["globalId"]), int(analysis["localHole"]))
     all_points: list[tuple[float, float]] = []
-    hulls = []
+    selected_tee = _selected_tee(geometry, analysis.get("teeBox"))
+    selected_tee_pos = selected_tee.get("position") if selected_tee else None
+
+    # Collect all points for bounding box and rotation
     for component in geometry["components"]:
         if component["kind"] not in COLORS:
             continue
-        pts = _component_points(component)
-        hull = _convex_hull(pts)
-        if len(hull) >= 3:
-            hulls.append((component["kind"], component["id"], hull))
-            all_points.extend(hull)
-    for shot in analysis["shots"]:
+        for tri in component["triangles"]:
+            for p in tri:
+                all_points.append((float(p[0]), float(p[1])))
+
+    shot_points = []
+    for shot in analysis.get("shots", []):
         for key in ("start", "end"):
             local = (shot.get(key) or {}).get("local")
             if local:
+                shot_points.append((float(local[0]), float(local[1])))
                 all_points.append((float(local[0]), float(local[1])))
+
+    if selected_tee_pos:
+        all_points.append((float(selected_tee_pos[0]), float(selected_tee_pos[1])))
+
     target = (analysis.get("geometry", {}).get("target") or {}).get("position")
     if target:
         all_points.append((float(target[0]), float(target[1])))
+    pin_local = (analysis.get("pin") or {}).get("local")
+    if pin_local:
+        all_points.append((float(pin_local[0]), float(pin_local[1])))
+
+    # Also collect foliage points
+    meshes = geometry.get("meshes") or {}
+    foliage_data = meshes.get("foliage") or {}
+    for f_type in ["trees", "foliage", "rocks"]:
+        for item in foliage_data.get(f_type) or []:
+            all_points.append((-float(item["x"]), float(item["z"])))
+
     if not all_points:
-        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"900\" height=\"640\"></svg>"
+        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" style="background:#80b3ff; border-radius:12px;"></svg>'
 
-    min_x = min(p[0] for p in all_points) - 30
-    max_x = max(p[0] for p in all_points) + 30
-    min_y = min(p[1] for p in all_points) - 30
-    max_y = max(p[1] for p in all_points) + 30
-    width = max(1.0, max_x - min_x)
-    height = max(1.0, max_y - min_y)
+    # Auto-rotation: Tee at bottom, Target at top
+    first_shot = (analysis.get("shots") or [{}])[0]
+    first_start = (first_shot.get("start") or {}).get("local")
+    tee_start, tee_source = _overlay_tee_start(first_shot, selected_tee)
+    if tee_start:
+        tee_pt = tee_start
+    elif shot_points:
+        tee_pt = shot_points[0]
+    else:
+        tee_pt = all_points[0] if all_points else (0, 0)
+    target_pt = (float(target[0]), float(target[1])) if target else (
+        sum(p[0] for p in all_points) / len(all_points),
+        sum(p[1] for p in all_points) / len(all_points)
+    )
 
-    def sx(x: float) -> float:
-        return (x - min_x) / width * 860 + 20
+    dx = target_pt[0] - tee_pt[0]
+    dy = target_pt[1] - tee_pt[1]
+    L = math.hypot(dx, dy)
 
-    def sy(y: float) -> float:
-        return 620 - ((y - min_y) / height * 580 + 20)
+    if L < 1.0:
+        ux, uy = 1.0, 0.0
+        vx, vy = 0.0, 1.0
+    else:
+        vx, vy = -dx / L, -dy / L
+        ux, uy = dy / L, -dx / L
+
+    def rot(x: float, y: float) -> tuple[float, float]:
+        nx = x - tee_pt[0]
+        ny = y - tee_pt[1]
+        return nx * ux + ny * uy, nx * vx + ny * vy
+
+    rotated_pts = [rot(x, y) for x, y in all_points]
+    min_x, max_x = min(p[0] for p in rotated_pts), max(p[0] for p in rotated_pts)
+    min_y, max_y = min(p[1] for p in rotated_pts), max(p[1] for p in rotated_pts)
+
+    pad = 40
+    width = max(1.0, max_x - min_x) + 2 * pad
+    height = max(1.0, max_y - min_y) + 2 * pad
+
+    def svg_p(x: float, y: float) -> tuple[float, float]:
+        rx, ry = rot(x, y)
+        return rx - min_x + pad, ry - min_y + pad
+
+    # Garmin-like rich palette
+    VIVID_COLORS = {
+        "playable_bounds": "none",
+        "rough": "#8eb072",
+        "tree_area": "#77965b",
+        "fairway": "url(#fairway-pattern)", # using pattern
+        "water": "#4da6ff",
+        "water_edge": "#3b82f6",
+        "teebox": "#a3d977",
+        "bunker": "#e6d596",
+        "green": "#79c968",
+    }
 
     parts = [
-        '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="640" viewBox="0 0 900 640">',
-        '<rect width="900" height="640" fill="#f6f4ef"/>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.1f} {height:.1f}" '
+        f'style="width:100%; height:auto; max-height:85vh; border-radius:12px; background:#90c2f9; '
+        f'box-shadow: inset 0 2px 10px rgba(0,0,0,0.05); font-family: system-ui, -apple-system, sans-serif;">',
+        f'<defs>',
+        f'<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">',
+        f'<feDropShadow dx="1" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.3"/>',
+        f'</filter>',
+        f'<filter id="tree-shadow" x="-30%" y="-30%" width="160%" height="160%">',
+        f'<feDropShadow dx="2" dy="3" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.4"/>',
+        f'</filter>',
+        # Fairway diagonal stripes
+        f'<pattern id="fairway-pattern" width="12" height="12" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">',
+        f'<rect width="12" height="12" fill="#a1d374"/>',
+        f'<line x1="0" y1="0" x2="0" y2="12" stroke="#95ca65" stroke-width="6"/>',
+        f'</pattern>',
+        # Tree 3D gradients
+        f'<radialGradient id="tree-grad" cx="30%" cy="30%" r="70%">',
+        f'<stop offset="0%" stop-color="#5fa33f"/>',
+        f'<stop offset="70%" stop-color="#3b7022"/>',
+        f'<stop offset="100%" stop-color="#1e400e"/>',
+        f'</radialGradient>',
+        f'<radialGradient id="bush-grad" cx="30%" cy="30%" r="70%">',
+        f'<stop offset="0%" stop-color="#79c251"/>',
+        f'<stop offset="70%" stop-color="#53962f"/>',
+        f'<stop offset="100%" stop-color="#316117"/>',
+        f'</radialGradient>',
+        f'</defs>',
     ]
-    for kind, cid, hull in hulls:
-        color = COLORS[kind]
-        if color == "none":
-            fill = "none"
-            stroke = "#6b7280"
-            opacity = "0.45"
-        else:
-            fill = color
-            stroke = "#334155"
-            opacity = "0.55" if kind in {"fairway", "rough"} else "0.78"
-        pts = " ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in hull)
-        parts.append(
-            f'<polygon points="{pts}" fill="{fill}" stroke="{stroke}" stroke-width="1" opacity="{opacity}">'
-            f'<title>{html.escape(cid)}</title></polygon>'
-        )
 
-    for shot in analysis["shots"]:
-        start = (shot.get("start") or {}).get("local")
+    # Fixed Z-order: rough is at the bottom, then tree_area, fairway, water, teebox, bunker, green
+    order = {"playable_bounds":-1, "rough":0, "tree_area":1, "fairway":2, "water":3, "water_edge":4, "teebox":5, "bunker":6, "green":7}
+
+    # Group triangles by kind to optimize SVG size
+    kind_paths = {k: [] for k in VIVID_COLORS}
+    for component in geometry["components"]:
+        kind = component["kind"]
+        if kind not in VIVID_COLORS or kind == "playable_bounds":
+            continue
+        for tri in component["triangles"]:
+            p1, p2, p3 = [svg_p(p[0], p[1]) for p in tri]
+            kind_paths[kind].append(f"M {p1[0]:.1f},{p1[1]:.1f} L {p2[0]:.1f},{p2[1]:.1f} L {p3[0]:.1f},{p3[1]:.1f} Z")
+
+    for kind in sorted(kind_paths.keys(), key=lambda k: order.get(k, 99)):
+        if not kind_paths[kind]:
+            continue
+        fill = VIVID_COLORS[kind]
+        stroke = fill if kind != "fairway" else "none"
+        parts.append(f'<path d="{" ".join(kind_paths[kind])}" fill="{fill}" stroke="{stroke}" stroke-width="0.5" />')
+
+    # Draw trees with much smaller scale and 3D gradient
+    for f_type, grad, r_scale in [("trees", "url(#tree-grad)", 0.6), ("foliage", "url(#bush-grad)", 0.3)]:
+        for item in foliage_data.get(f_type) or []:
+            tx, ty = svg_p(-float(item["x"]), float(item["z"]))
+            r = max(0.5, float(item.get("s", 1.0)) * r_scale)
+            parts.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="{r:.1f}" fill="{grad}" filter="url(#tree-shadow)"/>')
+
+    # Draw shot lines first
+    shots = analysis.get("shots", [])
+    def route_start_for(shot: dict[str, Any], index: int) -> list[float] | tuple[float, float] | None:
+        return (shot.get("start") or {}).get("local")
+
+    for i, shot in enumerate(shots):
+        start = route_start_for(shot, i)
         end = (shot.get("end") or {}).get("local")
         if start and end:
+            sx, sy = svg_p(start[0], start[1])
+            ex, ey = svg_p(end[0], end[1])
             parts.append(
-                f'<line x1="{sx(start[0]):.1f}" y1="{sy(start[1]):.1f}" '
-                f'x2="{sx(end[0]):.1f}" y2="{sy(end[1]):.1f}" stroke="#111827" stroke-width="2.5" opacity="0.85"/>'
+                f'<line x1="{sx:.1f}" y1="{sy:.1f}" x2="{ex:.1f}" y2="{ey:.1f}" '
+                f'stroke="#ffffff" stroke-width="3.5" filter="url(#shadow)"/>'
             )
-            parts.append(f'<circle cx="{sx(start[0]):.1f}" cy="{sy(start[1]):.1f}" r="5" fill="#ffffff" stroke="#111827" stroke-width="2"/>')
-            parts.append(f'<circle cx="{sx(end[0]):.1f}" cy="{sy(end[1]):.1f}" r="6" fill="#ef4444" stroke="#ffffff" stroke-width="2"/>')
-            parts.append(
-                f'<text x="{sx(end[0]) + 7:.1f}" y="{sy(end[1]) - 7:.1f}" '
-                f'font-family="Arial" font-size="12" fill="#111827">{shot.get("shotOrder")}</text>'
-            )
+
+    def shot_color(order):
+        if order == 1: return "#fef08a" # Tee (Yellow)
+        if order == 2: return "#cbd5e1" # 2nd (Grey)
+        if order == 3: return "#fdba74" # Approach (Orange)
+        return "#a78bfa" # Putt (Purple)
+
+    for i, shot in enumerate(shots):
+        start = route_start_for(shot, i)
+        end = (shot.get("end") or {}).get("local")
+        if not (start and end):
+            continue
+
+        sx, sy = svg_p(start[0], start[1])
+        order = int(shot.get("shotOrder", i + 1))
+        color = shot_color(order)
+
+        meters = shot.get("meters", 0)
+        yards = int(meters * 1.09361) if meters else 0
+
+        # Determine label text
+        is_putt = shot.get("shotType") in ("PUTT", "PENALTY_PUTT", "UNKNOWN") and shot.get("start", {}).get("lie") == "Green"
+        if is_putt:
+            # Count remaining putts from this shot onwards
+            putts = sum(1 for s in shots[i:] if s.get("shotType") in ("PUTT", "PENALTY_PUTT", "UNKNOWN") and s.get("start", {}).get("lie") == "Green")
+            if putts == 0: putts = 1
+            label = f"{putts} 次推杆"
+        else:
+            label = f"{yards} 码"
+
+        # Alternate left (-40) and right (+40) based on index
+        point_left = (i % 2 != 0)
+        if is_putt:
+            point_left = True # Prefer pointing left for putts on the green
+
+        box_x = -80 if point_left else 0
+        text_x = -40 if point_left else 40
+
+        parts.append(
+            f'<g transform="translate({sx:.1f}, {sy:.1f})" filter="url(#shadow)">'
+            f'<rect x="{box_x}" y="-14" width="80" height="28" rx="14" fill="#1f2937" fill-opacity="0.85" stroke="#ffffff" stroke-opacity="0.6" stroke-width="2.5"/>'
+            f'<text x="{text_x}" y="5" font-size="13" font-weight="500" fill="#ffffff" text-anchor="middle">{label}</text>'
+            f'<circle cx="0" cy="0" r="12" fill="#1f2937" fill-opacity="0.85" stroke="#ffffff" stroke-opacity="0.6" stroke-width="2.5"/>'
+            f'<circle cx="0" cy="0" r="5" fill="{color}"/>'
+            f'</g>'
+        )
+
+    tee_marker_pos = tee_start or first_start or selected_tee_pos
+    if tee_marker_pos:
+        tx, ty = svg_p(tee_marker_pos[0], tee_marker_pos[1])
+        parts.append(
+            f'<g transform="translate({tx:.1f}, {ty:.1f})" filter="url(#shadow)">'
+            f'<circle cx="0" cy="0" r="12" fill="#1f2937" fill-opacity="0.82" stroke="#ffffff" stroke-width="2.5"/>'
+            f'<circle cx="0" cy="0" r="7" fill="#2563eb"/>'
+            f'<text x="0" y="4" font-size="10" font-weight="800" fill="#ffffff" text-anchor="middle">T</text>'
+            f'</g>'
+        )
+
     if target:
-        parts.append(f'<circle cx="{sx(target[0]):.1f}" cy="{sy(target[1]):.1f}" r="7" fill="#10b981" stroke="#064e3b" stroke-width="2"/>')
-        parts.append(f'<text x="{sx(target[0]) + 9:.1f}" y="{sy(target[1]) - 9:.1f}" font-family="Arial" font-size="12" fill="#064e3b">target</text>')
+        tx, ty = svg_p(target[0], target[1])
+        parts.append(
+            f'<g transform="translate({tx:.1f}, {ty:.1f})" filter="url(#shadow)">'
+            f'<path d="M 0,-4 L 12,-10 L 0,-16 Z M 0,6 L 0,-16" stroke="#ef4444" fill="#ef4444" stroke-width="2"/>'
+            f'<circle cx="0" cy="0" r="12" fill="#1f2937" fill-opacity="0.85" stroke="#ffffff" stroke-opacity="0.6" stroke-width="2.5"/>'
+            f'<circle cx="0" cy="0" r="4" fill="#ef4444"/>'
+            f'</g>'
+        )
+
+    putts = analysis.get("putts")
+    putt_local = pin_local or target
+    if putts is not None and putt_local:
+        px, py = svg_p(putt_local[0], putt_local[1])
+        putt_label = html.escape(f"{putts} 次推杆")
+        parts.append(
+            f'<g transform="translate({px:.1f}, {py:.1f})" filter="url(#shadow)">'
+            f'<rect x="-82" y="-14" width="82" height="28" rx="14" fill="#1f2937" fill-opacity="0.86" stroke="#ffffff" stroke-opacity="0.65" stroke-width="2.5"/>'
+            f'<text x="-41" y="5" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle">{putt_label}</text>'
+            f'<circle cx="0" cy="0" r="12" fill="#1f2937" fill-opacity="0.86" stroke="#ffffff" stroke-opacity="0.65" stroke-width="2.5"/>'
+            f'<circle cx="0" cy="0" r="5" fill="#7c3aed"/>'
+            f'</g>'
+        )
+
+    course_name = html.escape(str(analysis.get("courseName", "Unknown Course")))
+    hole_num = analysis.get("hole", "?")
     parts.append(
-        f'<text x="20" y="28" font-family="Arial" font-size="16" font-weight="700" fill="#111827">'
-        f'{html.escape(str(analysis["courseName"]))} hole {analysis["hole"]}</text>'
+        f'<g transform="translate(15, 30)">'
+        f'<text x="0" y="0" font-size="18" font-weight="800" fill="#1e293b" filter="url(#shadow)">{course_name}</text>'
+        f'<text x="0" y="20" font-size="14" font-weight="600" fill="#334155" filter="url(#shadow)">HOLE {hole_num}</text>'
+        f'</g>'
     )
     parts.append("</svg>")
     return "\n".join(parts)
@@ -710,16 +1029,25 @@ def overlay_geojson(analysis: dict[str, Any]) -> dict[str, Any]:
     features: list[dict[str, Any]] = []
     bounds_points: list[tuple[float, float]] = []
     focus_points: list[tuple[float, float]] = []
-    focus_kinds = {"fairway", "green", "bunker", "water", "water_edge", "teebox", "tree_area"}
+    local_points: list[tuple[float, float]] = []
+    focus_kinds = {"fairway", "green", "bunker", "water", "water_edge", "teebox"}
 
     def point_from_local(point: list[float] | tuple[float, float]) -> tuple[float, float]:
         lat, lon = local_to_wgs84(float(point[0]), float(point[1]), float(ref_lat), float(ref_lon))
         return lon, lat
 
+    selected_tee = _selected_tee(geometry, analysis.get("teeBox"))
+    first_shot = (analysis.get("shots") or [{}])[0]
+    tee_local, tee_source = _overlay_tee_start(first_shot, selected_tee)
+    target = (analysis.get("geometry") or {}).get("target") or {}
+    target_local = tuple(float(v) for v in target["position"]) if target.get("position") else None
+
     for component in geometry["components"]:
         if component["kind"] not in COLORS:
             continue
-        hull = _convex_hull(_component_points(component))
+        component_points = _component_points(component)
+        local_points.extend(component_points)
+        hull = _convex_hull(component_points)
         if len(hull) < 3:
             continue
         ring = [point_from_local(point) for point in hull]
@@ -735,16 +1063,60 @@ def overlay_geojson(analysis: dict[str, Any]) -> dict[str, Any]:
                 "kind": component["kind"],
                 "id": component["id"],
                 "source": component["source"],
+                "localRing": [_round_point(point) for point in hull] + [_round_point(hull[0])],
+                "localTriangles": [
+                    [_round_point(point) for point in tri]
+                    for tri in component["triangles"]
+                ] if component["kind"] in (focus_kinds | {"rough", "tree_area"}) else None,
             },
         })
 
-    for shot in analysis.get("shots", []):
+    if tee_local:
+        tee_lon, tee_lat = point_from_local(tee_local)
+        bounds_points.append((tee_lon, tee_lat))
+        focus_points.append((tee_lon, tee_lat))
+        local_points.append(tee_local)
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [tee_lon, tee_lat]},
+            "properties": {
+                "layer": "tee",
+                "kind": "tee",
+                "teeBox": analysis.get("teeBox"),
+                "local": _round_point(tee_local),
+                "source": tee_source,
+            },
+        })
+
+    previous_end: dict[str, Any] | None = None
+    for index, shot in enumerate(analysis.get("shots", [])):
         start = shot.get("start")
         end = shot.get("end")
-        if start and end and start.get("lat") is not None and end.get("lat") is not None:
+        start_coord = None
+        start_local = (start or {}).get("local")
+        start_source = "shot"
+        if start and start.get("lat") is not None and start.get("lon") is not None:
+            start_coord = (float(start["lon"]), float(start["lat"]))
+        elif previous_end:
+            start_coord = previous_end.get("coord")
+            start_local = previous_end.get("local")
+            start_source = "previous_end"
+
+        if end and end.get("lat") is not None and end.get("lon") is not None:
+            end_coord = (float(end["lon"]), float(end["lat"]))
+            end_local = (end or {}).get("local")
+            if end_local:
+                local_points.append((float(end_local[0]), float(end_local[1])))
+            if start_local:
+                local_points.append((float(start_local[0]), float(start_local[1])))
+            previous_end = {"coord": end_coord, "local": end_local}
+        else:
+            end_coord = None
+
+        if start_coord and end_coord:
             coords = [
-                [float(start["lon"]), float(start["lat"])],
-                [float(end["lon"]), float(end["lat"])],
+                [float(start_coord[0]), float(start_coord[1])],
+                [float(end_coord[0]), float(end_coord[1])],
             ]
             bounds_points.extend((tuple(coords[0]), tuple(coords[1])))
             focus_points.extend((tuple(coords[0]), tuple(coords[1])))
@@ -757,6 +1129,21 @@ def overlay_geojson(analysis: dict[str, Any]) -> dict[str, Any]:
                     "club": shot.get("clubName"),
                     "meters": shot.get("meters"),
                     "type": shot.get("shotType"),
+                    "startLie": (start or {}).get("lie"),
+                    "endLie": (end or {}).get("lie"),
+                    "startLocal": _round_point(start_local),
+                    "endLocal": _round_point(end_local),
+                    "startPixel": (
+                        {"x": float(start["x"]), "y": float(start["y"])}
+                        if start and start.get("x") is not None and start.get("y") is not None
+                        else None
+                    ),
+                    "endPixel": (
+                        {"x": float(end["x"]), "y": float(end["y"])}
+                        if end and end.get("x") is not None and end.get("y") is not None
+                        else None
+                    ),
+                    "startSource": start_source,
                 },
             })
             features.append({
@@ -767,27 +1154,58 @@ def overlay_geojson(analysis: dict[str, Any]) -> dict[str, Any]:
                     "order": shot.get("shotOrder"),
                     "club": shot.get("clubName"),
                     "lie": (end or {}).get("lie"),
+                    "local": _round_point(end_local),
+                    "pixel": (
+                        {"x": float(end["x"]), "y": float(end["y"])}
+                        if end and end.get("x") is not None and end.get("y") is not None
+                        else None
+                    ),
                 },
             })
-        elif end and end.get("lat") is not None:
-            coord = [float(end["lon"]), float(end["lat"])]
+        elif end_coord:
+            coord = [float(end_coord[0]), float(end_coord[1])]
             bounds_points.append(tuple(coord))
             focus_points.append(tuple(coord))
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": coord},
-                "properties": {"layer": "shot_end", "order": shot.get("shotOrder"), "club": shot.get("clubName")},
+                "properties": {
+                    "layer": "shot_end",
+                    "order": shot.get("shotOrder"),
+                    "club": shot.get("clubName"),
+                    "lie": (end or {}).get("lie"),
+                    "local": _round_point((end or {}).get("local")),
+                },
             })
 
-    target = (analysis.get("geometry") or {}).get("target") or {}
-    if target.get("position"):
-        lon, lat = point_from_local(target["position"])
+    if target_local:
+        lon, lat = point_from_local(target_local)
         bounds_points.append((lon, lat))
         focus_points.append((lon, lat))
+        local_points.append(target_local)
         features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [lon, lat]},
-            "properties": {"layer": "target", "kind": "target"},
+            "properties": {"layer": "target", "kind": "target", "local": _round_point(target_local)},
+        })
+
+    pin = analysis.get("pin") or {}
+    if pin.get("lat") is not None and pin.get("lon") is not None:
+        pin_coord = (float(pin["lon"]), float(pin["lat"]))
+        bounds_points.append(pin_coord)
+        focus_points.append(pin_coord)
+        pin_local = pin.get("local")
+        if pin_local:
+            local_points.append((float(pin_local[0]), float(pin_local[1])))
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [pin_coord[0], pin_coord[1]]},
+            "properties": {
+                "layer": "pin",
+                "kind": "pin",
+                "putts": analysis.get("putts"),
+                "local": _round_point(pin_local),
+            },
         })
 
     def bounds_for(points: list[tuple[float, float]]) -> dict[str, float] | None:
@@ -809,6 +1227,8 @@ def overlay_geojson(analysis: dict[str, Any]) -> dict[str, Any]:
         "features": features,
         "bounds": bounds,
         "focusBounds": focus_bounds,
+        "localFrame": _local_overlay_frame(local_points, tee_local, target_local),
+        "putts": analysis.get("putts"),
         "status": "ok",
     }
 
@@ -834,6 +1254,10 @@ def _hole_summary(analysis: dict[str, Any]) -> dict[str, Any]:
             })
     first = (analysis.get("shots") or [{}])[0]
     first_surface = (((first.get("end") or {}).get("feature") or {}).get("surface") or {}).get("kind")
+    first_from_tee = _first_recorded_shot_is_from_tee(
+        first,
+        _selected_tee(load_geometry(int(analysis["globalId"]), int(analysis["localHole"])), analysis.get("teeBox")),
+    )
     return {
         "hole": analysis["hole"],
         "globalId": analysis["globalId"],
@@ -841,16 +1265,25 @@ def _hole_summary(analysis: dict[str, Any]) -> dict[str, Any]:
         "confidence": analysis["dataQuality"]["confidence"],
         "hasGeometry": bool(analysis["geometry"]["hasHazards"] and analysis["geometry"]["hasMeshes"]),
         "shotCount": len(analysis.get("shots", [])),
-        "teeShotClub": first.get("clubName"),
-        "teeShotMeters": first.get("meters"),
-        "teeShotSurface": first_surface or (first.get("end") or {}).get("lie"),
+        "teeShotRecorded": first_from_tee,
+        "teeShotClub": first.get("clubName") if first_from_tee else None,
+        "teeShotMeters": first.get("meters") if first_from_tee else None,
+        "teeShotSurface": first_surface or (first.get("end") or {}).get("lie") if first_from_tee else None,
+        "firstRecordedClub": first.get("clubName"),
+        "firstRecordedMeters": first.get("meters"),
+        "firstRecordedSurface": first_surface or (first.get("end") or {}).get("lie"),
         "risks": risks[:4],
         "bestRoute": (analysis.get("candidateRoutes") or [{}])[0],
         "review": analysis["review"],
     }
 
 
-def build_round_analysis(*, scorecard_id: int | str, write_outputs: bool = False) -> dict[str, Any]:
+def build_round_analysis(
+    *,
+    scorecard_id: int | str,
+    ensure_geometry: bool = False,
+    write_outputs: bool = False,
+) -> dict[str, Any]:
     scorecard = load_scorecard(scorecard_id)
     detail = scorecard["scorecardDetails"][0]
     sc = detail["scorecard"]
@@ -864,7 +1297,11 @@ def build_round_analysis(*, scorecard_id: int | str, write_outputs: bool = False
     errors = []
     for hole in sorted(holes_with_shots):
         try:
-            analysis = build_hole_analysis(scorecard_id=scorecard_id, hole_number=hole)
+            analysis = build_hole_analysis(
+                scorecard_id=scorecard_id,
+                hole_number=hole,
+                ensure_geometry=ensure_geometry,
+            )
             holes.append(_hole_summary(analysis))
         except Exception as exc:
             ref = round_hole_ref(scorecard, hole)

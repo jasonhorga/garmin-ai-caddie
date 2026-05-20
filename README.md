@@ -87,6 +87,8 @@ uv run python ai_caddie_web.py --port 8765
 open http://127.0.0.1:8765
 ```
 
+远程服务器开发迁移见 `REMOTE_DEV.md`。
+
 当前 Web MVP 提供：
 
 - Garmin round 列表、同步按钮、洞级分析

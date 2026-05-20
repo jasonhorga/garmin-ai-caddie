@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from ai_caddie.analysis import build_hole_analysis, build_round_analysis, overlay_geojson, render_svg, strategy_distances
@@ -19,6 +20,7 @@ from ai_caddie.history import (
     history_rounds,
     merge_same_day_halves,
 )
+from ai_caddie import geometry_sync
 from garmin_auth import CSRF_META_RE, _cookie_domain_matches
 
 
@@ -47,6 +49,27 @@ class GarminRoundTests(unittest.TestCase):
         self.assertEqual(front.local_hole, 1)
         self.assertEqual(back.global_id, 31794)
         self.assertEqual(back.local_hole, 1)
+
+
+class GeometrySyncTests(unittest.TestCase):
+    def test_ensure_prodgeometry_returns_cached_without_network(self) -> None:
+        old_hazard_path = geometry_sync.hazard_path
+        old_mesh_path = geometry_sync.mesh_path
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "hazards.json"
+            mesh = root / "meshes.json"
+            hazard.write_text("{}")
+            mesh.write_text("{}")
+            try:
+                geometry_sync.hazard_path = lambda _gid, _hole: hazard
+                geometry_sync.mesh_path = lambda _gid, _hole: mesh
+                result = geometry_sync.ensure_prodgeometry(1, 2)
+            finally:
+                geometry_sync.hazard_path = old_hazard_path
+                geometry_sync.mesh_path = old_mesh_path
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "cached")
 
 
 class AnalysisTests(unittest.TestCase):
@@ -88,6 +111,31 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(analysis["schema"], "ai-caddie-round-analysis-v1")
         self.assertGreaterEqual(analysis["summary"]["analyzedHoles"], 9)
         self.assertGreaterEqual(analysis["summary"]["confidenceCounts"].get("high", 0), 9)
+
+    def test_overlay_does_not_rewrite_missing_tee_shot(self) -> None:
+        required = [
+            ROOT / "data" / "scorecards" / "17373152.json",
+            ROOT / "data" / "shots" / "17373152.json",
+            ROOT / "output" / "prodgeometry_hazards" / "gid31795_h01_hazards.json",
+            ROOT / "output" / "prodgeometry" / "gid31795_h01_meshes.json",
+        ]
+        if not all(p.exists() for p in required):
+            self.skipTest("local Garmin/prodgeometry fixtures not present")
+        analysis = build_hole_analysis(scorecard_id=17373152, hole_number=1)
+        geojson = overlay_geojson(analysis)
+        shots = [
+            f["properties"]
+            for f in geojson["features"]
+            if f["properties"].get("layer") == "shot"
+        ]
+        tee = next(
+            f["properties"]
+            for f in geojson["features"]
+            if f["properties"].get("layer") == "tee"
+        )
+        self.assertEqual(shots[0]["startSource"], "shot")
+        self.assertEqual(shots[0]["startLocal"], analysis["shots"][0]["start"]["local"])
+        self.assertNotEqual(shots[0]["startLocal"], tee["local"])
 
 
 class HistoryTests(unittest.TestCase):

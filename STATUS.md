@@ -54,6 +54,11 @@ Completed:
   mode labels target distance, target-line carry/clear distances, and nearby
   bunker/water/tree/green reference distances from the selected tee/first-shot
   reference point.
+- Added on-demand prodgeometry sync in the Web analysis path. When a selected
+  hole is missing local hazards or meshes, the server now reads the CourseView
+  release, downloads/decrypts/decodes that hole's prodgeometry, exports hazards,
+  clears the geometry cache, and then continues the analysis. CLI/test code
+  remains offline by default.
 
 Current local validation snapshot:
 

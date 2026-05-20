@@ -241,13 +241,20 @@ def main() -> int:
     parser.add_argument("--mesh-json", type=Path, default=DEFAULT_MESH_JSON)
     parser.add_argument("--snapshot", type=Path, default=DEFAULT_SNAPSHOT)
     parser.add_argument("--hole", type=int, default=None)
+    parser.add_argument(
+        "--snapshot-hole",
+        type=int,
+        default=None,
+        help="Absolute hole number in the snapshot JSON when it differs from the prodgeometry local hole.",
+    )
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     args = parser.parse_args()
 
     decoded = json.loads(args.mesh_json.read_text())
     hole_meta = decoded["hole"]
     hole_number = args.hole if args.hole is not None else int(hole_meta["HoleNumber"])
-    snapshot = snapshot_hole(args.snapshot, hole_number)
+    snapshot_hole_number = args.snapshot_hole if args.snapshot_hole is not None else hole_number
+    snapshot = snapshot_hole(args.snapshot, snapshot_hole_number)
     course_id, raster_hole_number = raster_course_and_hole(snapshot)
     raster = fetch_raster(snapshot["holeImageUrl"])
 
@@ -268,6 +275,7 @@ def main() -> int:
         "course_id": course_id,
         "raster_hole_number": raster_hole_number,
         "hole_number": hole_number,
+        "snapshot_hole_number": snapshot_hole_number,
         "raster_size": raster.size,
         "refLat": ref_lat,
         "refLon": ref_lon,
