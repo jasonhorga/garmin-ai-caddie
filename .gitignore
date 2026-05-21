@@ -1,4 +1,5 @@
 # Auth / secrets — never commit
+.garmin_tokens
 .garmin_tokens/
 .env
 .env.*
@@ -7,7 +8,9 @@
 clubs.json
 
 # Personal / downloaded data
+data
 data/
+downloads
 downloads/
 
 # Research dumps and local reverse-engineering artifacts
@@ -24,7 +27,9 @@ __pycache__/
 node_modules/
 
 # Generated
+output
 output/
+logs
 logs/
 *.log
 
