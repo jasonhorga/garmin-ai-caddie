@@ -28,35 +28,56 @@ Required tools:
 
 ## 2. Private Local Data
 
-These paths are intentionally ignored by git and must be copied separately if
-the remote server should behave like the local machine:
+These paths are intentionally ignored by git. Keep code and private/runtime data
+separate on both machines.
 
 ```text
 .garmin_tokens/
 clubs.json
 data/
-output/hole_overlays/
-output/prodgeometry/
-output/prodgeometry_overlay/
-output/satellite_cache/
 logs/
 downloads/
+output/
 ```
 
-Suggested copy command from the local machine:
+Recommended remote layout:
 
-```bash
-rsync -av \
-  .garmin_tokens clubs.json data output/hole_overlays output/prodgeometry \
-  output/prodgeometry_overlay output/satellite_cache logs downloads \
-  USER@REMOTE:/path/to/garmin-ai-caddie/
+```text
+/home/ubuntu/claude-web-data/repo/garmin-ai-caddie
+/home/ubuntu/claude-web-data/data/garmin-ai-caddie
 ```
 
-After copying auth files:
+Inside the repo, create symlinks for ignored data paths:
 
 ```bash
-chmod 700 .garmin_tokens
-chmod 600 .garmin_tokens/*
+ln -s /home/ubuntu/claude-web-data/data/garmin-ai-caddie/.garmin_tokens .garmin_tokens
+ln -s /home/ubuntu/claude-web-data/data/garmin-ai-caddie/clubs.json clubs.json
+ln -s /home/ubuntu/claude-web-data/data/garmin-ai-caddie/data data
+ln -s /home/ubuntu/claude-web-data/data/garmin-ai-caddie/logs logs
+ln -s /home/ubuntu/claude-web-data/data/garmin-ai-caddie/downloads downloads
+ln -s /home/ubuntu/claude-web-data/data/garmin-ai-caddie/output output
+```
+
+Default migration policy:
+
+- Copy only `.garmin_tokens/` and `clubs.json` from the local Mac.
+- Do not copy `downloads/`; remote tests should download raw assets again.
+- Do not copy `output/`; remote tests should regenerate overlays, reports, and
+  cache images.
+- `data/` can also be regenerated remotely. Copy it only when you explicitly
+  want to avoid re-fetching Garmin history.
+
+Minimal copy command from the local machine:
+
+```bash
+rsync -az .garmin_tokens clubs.json yue:/home/ubuntu/claude-web-data/data/garmin-ai-caddie/
+```
+
+After copying auth files on the remote:
+
+```bash
+chmod 700 /home/ubuntu/claude-web-data/data/garmin-ai-caddie/.garmin_tokens
+find /home/ubuntu/claude-web-data/data/garmin-ai-caddie/.garmin_tokens -type f -exec chmod 600 {} \;
 ```
 
 ## 3. Garmin Auth on a Remote Server
@@ -66,8 +87,8 @@ server, it usually cannot read the browser session automatically.
 
 Practical options:
 
-1. Keep Garmin sync/auth on the local Mac and rsync `data/` plus `.garmin_tokens/`
-   to the remote server when needed.
+1. Copy `.garmin_tokens/` from the local Mac, then let the remote server fetch
+   and regenerate runtime data.
 2. Use a remote desktop/browser on the server, log in to `connect.garmin.cn`,
    then run:
 
@@ -120,14 +141,14 @@ Expected signs:
 
 ## 6. Recommended Workflow
 
-Use GitHub for code and `rsync` for private data:
+Use GitHub for code and `rsync` only for private auth/config:
 
 ```bash
 # code
 git pull
 
-# private data from local Mac when needed
-rsync -av USER@LOCAL:/Users/jason/workspace/garmin/data/ data/
+# private auth/config from local Mac when needed
+rsync -az .garmin_tokens clubs.json yue:/home/ubuntu/claude-web-data/data/garmin-ai-caddie/
 ```
 
 Before pushing code from the remote server:
