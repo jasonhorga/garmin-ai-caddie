@@ -3,6 +3,7 @@ import { fetchHistoryOverview } from './api'
 
 describe('fetchHistoryOverview', () => {
   afterEach(() => {
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
