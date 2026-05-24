@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+from collections import Counter
+from typing import Any
+
+from ai_caddie.history import HistoryData, average, load_history_data
+
+from .models import (
+    DataQualityBadge,
+    DistributionBucket,
+    DistributionFamily,
+    EmptyState,
+    HistoryMetricSet,
+    HistoryOverviewResponse,
+    RoundCard,
+    ScoreDistribution,
+    ScoreStripCell,
+)
+
+
+def score_class_for_hole(score: int | None, par: int | None) -> str:
+    if score is None or par is None:
+        return "missing"
+    delta = int(score) - int(par)
+    if delta <= -2:
+        return "eagle"
+    if delta == -1:
+        return "birdie"
+    if delta == 0:
+        return "par"
+    if delta == 1:
+        return "bogey"
+    return "double"
+
+
+def _par_for_hole(hole_number: int, hole_pars: str | None) -> int | None:
+    if not hole_pars or hole_number < 1 or hole_number > len(hole_pars):
+        return None
+    try:
+        return int(hole_pars[hole_number - 1])
+    except ValueError:
+        return None
+
+
+def score_strip_for_round(row: dict[str, Any]) -> list[ScoreStripCell]:
+    hole_pars = str(row.get("holePars") or "")
+    cells: list[ScoreStripCell] = []
+    for index, hole in enumerate(row.get("holes") or [], start=1):
+        hole_number = int(hole.get("number") or index)
+        par = _par_for_hole(hole_number, hole_pars)
+        score = hole.get("strokes")
+        score_int = int(score) if score is not None else None
+        to_par = score_int - par if score_int is not None and par is not None else None
+        cells.append(ScoreStripCell(
+            hole=hole_number,
+            par=par,
+            score=score_int,
+            toPar=to_par,
+            className=score_class_for_hole(score_int, par),
+        ))
+    return cells
+
+
+def _pct(count: int, total: int) -> float:
+    return round(count / total * 100, 1) if total else 0.0
+
+
+def _score_distribution(rounds18: list[dict[str, Any]]) -> ScoreDistribution:
+    scores = [int(r["strokes"]) for r in rounds18 if r.get("strokes") is not None]
+    families = Counter({"70s": 0, "80s": 0, "90s": 0, "100+": 0})
+    histogram: Counter[int] = Counter()
+    for score in scores:
+        if score < 80:
+            families["70s"] += 1
+        elif score < 90:
+            families["80s"] += 1
+        elif score < 100:
+            families["90s"] += 1
+        else:
+            families["100+"] += 1
+        histogram[(score // 5) * 5] += 1
+    total = len(scores)
+    class_by_family = {
+        "70s": "eagle",
+        "80s": "birdie",
+        "90s": "bogey",
+        "100+": "double",
+    }
+    return ScoreDistribution(
+        total=total,
+        average=average(scores),
+        best=min(scores) if scores else None,
+        worst=max(scores) if scores else None,
+        families=[
+            DistributionFamily(
+                label=label,
+                count=families[label],
+                pct=_pct(families[label], total),
+                className=class_by_family[label],
+            )
+            for label in ("70s", "80s", "90s", "100+")
+        ],
+        histogram=[
+            DistributionBucket(label=f"{start}-{start + 4}", start=start, count=histogram[start])
+            for start in sorted(histogram)
+        ],
+    )
+
+
+def _quality_badges(data: HistoryData) -> list[DataQualityBadge]:
+    scorecards = len(data.raw_rounds)
+    shots_ready = sum(1 for row in data.raw_rounds if row.get("hasShots"))
+    shot_pct = _pct(shots_ready, scorecards)
+    shot_state = "good" if shot_pct >= 90 else "partial" if shot_pct > 0 else "missing"
+    return [
+        DataQualityBadge(
+            label="shots",
+            state=shot_state,
+            value=f"{shot_pct:.0f}%",
+            reason=f"{shots_ready}/{scorecards} scorecards have usable shot files",
+        ),
+        DataQualityBadge(
+            label="shot rows",
+            state="good" if data.shots else "missing",
+            value=str(len(data.shots)),
+            reason="normalized Garmin shot rows loaded into history",
+        ),
+    ]
+
+
+def _round_badges(row: dict[str, Any]) -> list[DataQualityBadge]:
+    has_shots = bool(row.get("hasShots"))
+    return [
+        DataQualityBadge(
+            label="shots",
+            state="good" if has_shots else "missing",
+            value="ready" if has_shots else "missing",
+            reason=str(row.get("shotStatus") or ("ready" if has_shots else "missing")),
+        )
+    ]
+
+
+def _round_card(row: dict[str, Any]) -> RoundCard:
+    strokes = row.get("strokes")
+    par = row.get("par")
+    return RoundCard(
+        id=str(row.get("id")),
+        date=row.get("date"),
+        courseName=str(row.get("course") or "Unknown course"),
+        courseKey=row.get("courseKey"),
+        holesCompleted=row.get("holesCompleted"),
+        score=strokes,
+        par=par,
+        toPar=(int(strokes) - int(par)) if isinstance(strokes, int) and isinstance(par, int) else None,
+        scoreStrip=score_strip_for_round(row),
+        badges=_round_badges(row),
+        primaryIssue=None if row.get("hasShots") else "missing_shots",
+    )
+
+
+def build_history_overview_response(data: HistoryData) -> HistoryOverviewResponse:
+    rounds = list(data.rounds)
+    rounds18 = [r for r in rounds if r.get("holesCompleted") == 18 and r.get("strokes")]
+    scores18 = [int(r["strokes"]) for r in rounds18]
+    recent10_scores = [int(r["strokes"]) for r in sorted(rounds18, key=lambda row: row.get("date") or "")[-10:]]
+    recent_rounds = sorted(rounds, key=lambda row: row.get("date") or "", reverse=True)[:6]
+    return HistoryOverviewResponse(
+        schema="ai-caddie-history-overview-v2",
+        metrics=HistoryMetricSet(
+            totalRounds=len(rounds),
+            eighteenHoleRounds=len(rounds18),
+            nineHoleRounds=sum(1 for r in rounds if r.get("holesCompleted") == 9),
+            courseCount=len({r.get("courseKey") for r in rounds if r.get("courseKey")}),
+            shotCount=len(data.shots),
+            average18=average(scores18),
+            recent10Average=average(recent10_scores),
+            bestScore=min(scores18) if scores18 else None,
+        ),
+        recentRounds=[_round_card(row) for row in recent_rounds],
+        distribution=_score_distribution(rounds18),
+        dataQuality=_quality_badges(data),
+        emptyState=EmptyState(
+            kind="no_rounds",
+            title="No Garmin rounds loaded",
+            detail="Fetch Garmin scorecards locally, then refresh this view.",
+        ) if not rounds else None,
+    )
+
+
+def load_history_overview_response() -> HistoryOverviewResponse:
+    return build_history_overview_response(load_history_data())

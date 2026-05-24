@@ -3,6 +3,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .history_overview import load_history_overview_response
+from .models import HistoryOverviewResponse
+
 
 app = FastAPI(title="AI Caddie v2", version="0.1.0")
 
@@ -25,3 +28,8 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "server_v2",
     }
+
+
+@app.get("/api/v2/history/overview", response_model=HistoryOverviewResponse)
+def history_overview() -> HistoryOverviewResponse:
+    return load_history_overview_response()
