@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
+
+DataQualityState = Literal["good", "partial", "missing"]
+ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
+DistributionClass = Literal["eagle", "birdie", "bogey", "double"]
 
 
 class DataQualityBadge(BaseModel):
     label: str
-    state: str
+    state: DataQualityState
     value: str
     reason: str
 
@@ -15,7 +21,7 @@ class ScoreStripCell(BaseModel):
     par: int | None
     score: int | None
     toPar: int | None
-    className: str
+    className: ScoreClass
 
 
 class RoundCard(BaseModel):
@@ -47,7 +53,7 @@ class DistributionFamily(BaseModel):
     label: str
     count: int
     pct: float
-    className: str
+    className: DistributionClass
 
 
 class DistributionBucket(BaseModel):
@@ -74,7 +80,7 @@ class EmptyState(BaseModel):
 class HistoryOverviewResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
-    schema_: str = Field(alias="schema")
+    schema_: Literal["ai-caddie-history-overview-v2"] = Field(alias="schema")
     metrics: HistoryMetricSet
     recentRounds: list[RoundCard]
     distribution: ScoreDistribution

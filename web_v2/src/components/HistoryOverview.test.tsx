@@ -61,7 +61,7 @@ describe('HistoryOverview', () => {
     expect(screen.getByText('Total rounds')).toBeInTheDocument()
     expect(screen.getAllByText('2').length).toBeGreaterThan(0)
     expect(screen.getByText('Black Knight B')).toBeInTheDocument()
-    expect(screen.getByLabelText('Hole 2: birdie')).toBeInTheDocument()
+    expect(screen.getByLabelText('Hole 2: birdie, par 5, score 4')).toBeInTheDocument()
     expect(screen.getByText('80s')).toBeInTheDocument()
     expect(screen.getAllByText('shots').length).toBeGreaterThan(0)
     expect(container.querySelectorAll('.topbar nav a')).toHaveLength(0)

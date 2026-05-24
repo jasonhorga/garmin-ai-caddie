@@ -12,7 +12,7 @@ export function ScoreStrip({ cells }: ScoreStripProps) {
         <span
           key={cell.hole}
           className={`score-cell score-${cell.className}`}
-          aria-label={`Hole ${cell.hole}: ${cell.className}`}
+          aria-label={`Hole ${cell.hole}: ${cell.className}, par ${cell.par ?? '-'}, score ${cell.score ?? '-'}`}
           title={`Hole ${cell.hole} - par ${cell.par ?? '-'} - score ${cell.score ?? '-'}`}
         >
           {cell.score ?? '-'}

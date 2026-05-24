@@ -42,11 +42,34 @@ def _par_for_hole(hole_number: int, hole_pars: str | None) -> int | None:
         return None
 
 
+def _score_strip_length(row: dict[str, Any], hole_pars: str, holes_by_number: dict[int, dict[str, Any]]) -> int:
+    holes_completed = row.get("holesCompleted")
+    if holes_completed in (9, 18):
+        return int(holes_completed)
+    if len(hole_pars) in (9, 18):
+        return len(hole_pars)
+    max_hole = max(holes_by_number, default=0)
+    if max_hole > 9:
+        return 18
+    if max_hole > 0:
+        return 9 if max_hole <= 9 else max_hole
+    return 0
+
+
 def score_strip_for_round(row: dict[str, Any]) -> list[ScoreStripCell]:
     hole_pars = str(row.get("holePars") or "")
-    cells: list[ScoreStripCell] = []
+    holes_by_number: dict[int, dict[str, Any]] = {}
     for index, hole in enumerate(row.get("holes") or [], start=1):
-        hole_number = int(hole.get("number") or index)
+        try:
+            hole_number = int(hole.get("number") or index)
+        except (TypeError, ValueError):
+            continue
+        holes_by_number[hole_number] = hole
+
+    strip_length = _score_strip_length(row, hole_pars, holes_by_number)
+    cells: list[ScoreStripCell] = []
+    for hole_number in range(1, strip_length + 1):
+        hole = holes_by_number.get(hole_number, {})
         par = _par_for_hole(hole_number, hole_pars)
         score = hole.get("strokes")
         score_int = int(score) if score is not None else None

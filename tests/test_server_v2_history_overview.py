@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+from fastapi.testclient import TestClient
+
 from ai_caddie.history import HistoryData
+from server_v2.main import app
 from server_v2.history_overview import (
     build_history_overview_response,
     score_class_for_hole,
@@ -23,6 +26,7 @@ class ServerV2HistoryOverviewTests(unittest.TestCase):
     def test_score_strip_for_round_returns_fixed_hole_cells(self) -> None:
         row = {
             "id": 1,
+            "holesCompleted": 18,
             "holePars": "454",
             "holes": [
                 {"number": 1, "strokes": 4},
@@ -33,11 +37,27 @@ class ServerV2HistoryOverviewTests(unittest.TestCase):
 
         cells = [cell.model_dump() for cell in score_strip_for_round(row)]
 
-        self.assertEqual(cells, [
+        self.assertEqual(cells[:4], [
             {"hole": 1, "par": 4, "score": 4, "toPar": 0, "className": "par"},
             {"hole": 2, "par": 5, "score": 3, "toPar": -2, "className": "eagle"},
             {"hole": 3, "par": 4, "score": 6, "toPar": 2, "className": "double"},
+            {"hole": 4, "par": None, "score": None, "toPar": None, "className": "missing"},
         ])
+        self.assertEqual(len(cells), 18)
+
+    def test_score_strip_for_nine_hole_round_returns_nine_cells(self) -> None:
+        row = {
+            "id": 1,
+            "holesCompleted": 9,
+            "holePars": "444444444",
+            "holes": [{"number": 1, "strokes": 4}],
+        }
+
+        cells = [cell.model_dump() for cell in score_strip_for_round(row)]
+
+        self.assertEqual(len(cells), 9)
+        self.assertEqual(cells[0], {"hole": 1, "par": 4, "score": 4, "toPar": 0, "className": "par"})
+        self.assertEqual(cells[8], {"hole": 9, "par": 4, "score": None, "toPar": None, "className": "missing"})
 
     def test_empty_history_overview_is_safe(self) -> None:
         response = build_history_overview_response(HistoryData(raw_rounds=[], rounds=[], shots=[]))
@@ -48,6 +68,16 @@ class ServerV2HistoryOverviewTests(unittest.TestCase):
         self.assertEqual(payload["recentRounds"], [])
         self.assertEqual(payload["distribution"]["total"], 0)
         self.assertEqual(payload["emptyState"]["kind"], "no_rounds")
+
+    def test_history_overview_endpoint_uses_public_schema_alias(self) -> None:
+        client = TestClient(app)
+
+        response = client.get("/api/v2/history/overview")
+        payload = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["schema"], "ai-caddie-history-overview-v2")
+        self.assertNotIn("schema_", payload)
 
     def test_history_overview_builds_metrics_rounds_distribution_and_quality(self) -> None:
         data = HistoryData(
