@@ -55,7 +55,7 @@ const payload: HistoryOverviewResponse = {
 
 describe('HistoryOverview', () => {
   it('renders metrics, recent rounds, score strip, distribution, and quality chips', () => {
-    render(<HistoryOverview data={payload} />)
+    const { container } = render(<HistoryOverview data={payload} />)
 
     expect(screen.getByText('History Overview')).toBeInTheDocument()
     expect(screen.getByText('Total rounds')).toBeInTheDocument()
@@ -64,6 +64,8 @@ describe('HistoryOverview', () => {
     expect(screen.getByLabelText('Hole 2: birdie')).toBeInTheDocument()
     expect(screen.getByText('80s')).toBeInTheDocument()
     expect(screen.getAllByText('shots').length).toBeGreaterThan(0)
+    expect(container.querySelectorAll('.topbar nav a')).toHaveLength(0)
+    expect(screen.getByLabelText('shots: 50%, partial - 1/2 scorecards have usable shot files')).toBeInTheDocument()
   })
 
   it('renders the empty state without round cards', () => {
@@ -83,6 +85,7 @@ describe('HistoryOverview', () => {
     )
 
     expect(screen.getByText('No Garmin rounds loaded')).toBeInTheDocument()
+    expect(screen.getByText('No recent Garmin rounds')).toBeInTheDocument()
     expect(screen.queryByText('Black Knight B')).not.toBeInTheDocument()
   })
 })

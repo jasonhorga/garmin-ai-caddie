@@ -68,7 +68,7 @@ a {
   flex: 0 0 auto;
 }
 
-nav {
+.topbar nav {
   display: flex;
   gap: 6px;
   overflow-x: auto;
@@ -77,13 +77,13 @@ nav {
   font-weight: 700;
 }
 
-nav a {
+.topbar nav span {
   border-radius: 7px;
   padding: 7px 10px;
   white-space: nowrap;
 }
 
-nav a.active {
+.topbar nav span[aria-current="page"] {
   color: var(--green);
   background: #e9f2ea;
 }
@@ -199,6 +199,17 @@ p {
 .round-list {
   display: grid;
   gap: 10px;
+}
+
+.round-empty {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .round-card {

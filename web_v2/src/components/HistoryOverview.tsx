@@ -3,6 +3,8 @@ import { DataQualityChips } from './DataQualityChips'
 import { DistributionPanel } from './DistributionPanel'
 import { RoundCard } from './RoundCard'
 
+const navItems = ['Overview', 'History', 'Rounds', 'Courses', 'Clubs', 'Caddie']
+
 interface HistoryOverviewProps {
   data: HistoryOverviewResponse
 }
@@ -18,13 +20,12 @@ export function HistoryOverview({ data }: HistoryOverviewProps) {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-mark" aria-hidden="true" />
-        <nav>
-          <a className="active">Overview</a>
-          <a>History</a>
-          <a>Rounds</a>
-          <a>Courses</a>
-          <a>Clubs</a>
-          <a>Caddie</a>
+        <nav aria-label="Primary">
+          {navItems.map((item) => (
+            <span key={item} className={item === 'Overview' ? 'active' : undefined} aria-current={item === 'Overview' ? 'page' : undefined}>
+              {item}
+            </span>
+          ))}
         </nav>
       </header>
 
@@ -80,9 +81,11 @@ export function HistoryOverview({ data }: HistoryOverviewProps) {
             </div>
           </div>
           <div className="round-list">
-            {data.recentRounds.map((round) => (
-              <RoundCard key={round.id} round={round} />
-            ))}
+            {data.recentRounds.length === 0 ? (
+              <p className="round-empty">No recent Garmin rounds</p>
+            ) : (
+              data.recentRounds.map((round) => <RoundCard key={round.id} round={round} />)
+            )}
           </div>
         </section>
 

@@ -4,6 +4,14 @@ interface DistributionPanelProps {
   distribution: ScoreDistribution
 }
 
+function barWidth(count: number, maxCount: number) {
+  if (count === 0) {
+    return '0%'
+  }
+
+  return `${Math.max(6, (count / maxCount) * 100)}%`
+}
+
 export function DistributionPanel({ distribution }: DistributionPanelProps) {
   const maxFamily = Math.max(...distribution.families.map((family) => family.count), 1)
   const maxBucket = Math.max(...distribution.histogram.map((bucket) => bucket.count), 1)
@@ -24,7 +32,7 @@ export function DistributionPanel({ distribution }: DistributionPanelProps) {
             <div key={family.label} className="pyramid-row">
               <span>{family.label}</span>
               <div className="pyramid-track">
-                <i className={`score-${family.className}`} style={{ width: `${Math.max(6, (family.count / maxFamily) * 100)}%` }} />
+                <i className={`score-${family.className}`} style={{ width: barWidth(family.count, maxFamily) }} />
               </div>
               <b>{family.count}</b>
             </div>
@@ -34,7 +42,7 @@ export function DistributionPanel({ distribution }: DistributionPanelProps) {
           {distribution.histogram.map((bucket) => (
             <div key={bucket.label} className="histogram-row">
               <span>{bucket.label}</span>
-              <i style={{ width: `${Math.max(6, (bucket.count / maxBucket) * 100)}%` }} />
+              <i style={{ width: barWidth(bucket.count, maxBucket) }} />
               <b>{bucket.count}</b>
             </div>
           ))}

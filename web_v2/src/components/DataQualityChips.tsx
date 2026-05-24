@@ -12,7 +12,12 @@ export function DataQualityChips({ badges }: DataQualityChipsProps) {
   return (
     <div className="quality-row">
       {badges.map((badge) => (
-        <span key={`${badge.label}-${badge.value}`} className={`quality-chip quality-${badge.state}`} title={badge.reason}>
+        <span
+          key={`${badge.label}-${badge.value}`}
+          className={`quality-chip quality-${badge.state}`}
+          title={badge.reason}
+          aria-label={`${badge.label}: ${badge.value}, ${badge.state} - ${badge.reason}`}
+        >
           <span>{badge.label}</span>
           <b>{badge.value}</b>
         </span>
