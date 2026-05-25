@@ -13,6 +13,7 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let course: Course
     public let holes: [Hole]
     public let geometryCoverage: GeometryCoverage
+    public let weatherSnapshot: WeatherSnapshot
     public let clubProfiles: [ClubProfile]
     public let caddieDecisionEndpoint: String
     public let generatedAt: String
@@ -24,6 +25,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         course: Course,
         holes: [Hole],
         geometryCoverage: GeometryCoverage,
+        weatherSnapshot: WeatherSnapshot,
         clubProfiles: [ClubProfile],
         caddieDecisionEndpoint: String,
         generatedAt: String
@@ -34,6 +36,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.course = course
         self.holes = holes
         self.geometryCoverage = geometryCoverage
+        self.weatherSnapshot = weatherSnapshot
         self.clubProfiles = clubProfiles
         self.caddieDecisionEndpoint = caddieDecisionEndpoint
         self.generatedAt = generatedAt
@@ -65,6 +68,19 @@ public struct GeometryCoverage: Codable, Equatable {
     public let state: GeometryCoverageState
     public let readyHoles: Int
     public let totalHoles: Int
+}
+
+public struct WeatherSnapshot: Codable, Equatable {
+    public let schema: String
+    public let state: String
+    public let source: String
+    public let confidence: String
+    public let missingData: [WeatherMissingData]
+}
+
+public struct WeatherMissingData: Codable, Equatable {
+    public let label: String
+    public let reason: String
 }
 
 public struct ClubProfile: Codable, Equatable, Identifiable {

@@ -24,6 +24,18 @@
     "readyHoles": 12,
     "totalHoles": 18
   },
+  "weatherSnapshot": {
+    "schema": "ai-caddie-weather-snapshot-v1",
+    "state": "missing",
+    "source": "missing",
+    "confidence": "low",
+    "missingData": [
+      {
+        "label": "weather_values",
+        "reason": "not cached"
+      }
+    ]
+  },
   "clubProfiles": [
     {
       "clubName": "8I",

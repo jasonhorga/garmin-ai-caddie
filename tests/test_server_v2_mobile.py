@@ -21,6 +21,8 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v1")
         self.assertEqual(payload["roundId"], "live-round-1")
         self.assertEqual(payload["caddieDecisionEndpoint"], "/api/v2/caddie/decision")
+        self.assertEqual(payload["weatherSnapshot"]["schema"], "ai-caddie-weather-snapshot-v1")
+        self.assertIn(payload["weatherSnapshot"]["state"], {"ready", "missing"})
         self.assertGreaterEqual(len(payload["holes"]), 1)
         self.assertGreaterEqual(len(payload["clubProfiles"]), 1)
 

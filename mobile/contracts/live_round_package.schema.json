@@ -10,6 +10,7 @@
     "course",
     "holes",
     "geometryCoverage",
+    "weatherSnapshot",
     "clubProfiles",
     "caddieDecisionEndpoint",
     "generatedAt"
@@ -92,6 +93,32 @@
         },
         "totalHoles": {
           "type": "integer"
+        }
+      }
+    },
+    "weatherSnapshot": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "state", "source", "confidence", "missingData"],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "ai-caddie-weather-snapshot-v1"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["ready", "missing"]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["manual", "open_meteo", "missing"]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "missingData": {
+          "type": "array"
         }
       }
     },

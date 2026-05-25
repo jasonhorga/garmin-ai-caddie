@@ -16,6 +16,7 @@ from .history_stats import load_history_stats_response
 from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response
 from .media import analyze_media_response, create_media_response, list_target_media_response
 from .mobile import append_mobile_events_response, build_mobile_round_package_response
+from .weather import load_weather_snapshot_response
 from .models import (
     AnnotationCreateRequest,
     AnnotationCreateResponse,
@@ -39,6 +40,7 @@ from .models import (
     SyncRunResponse,
     SyncStatusResponse,
     VisionAnalysisResponse,
+    WeatherSnapshotResponse,
 )
 from .reports import generate_round_report_response, load_round_report_response
 from .sync_status import load_sync_status_response
@@ -80,6 +82,7 @@ def service_index() -> dict[str, object]:
             "analyzeMedia": "/api/v2/media/{media_id}/analyze",
             "mobileRoundPackage": "/api/v2/mobile/rounds/{round_id}/package",
             "mobileRoundEvents": "/api/v2/mobile/rounds/{round_id}/events",
+            "weatherSnapshot": "/api/v2/weather/snapshot",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
             "syncStatus": "/api/v2/sync/status",
@@ -172,6 +175,31 @@ def mobile_round_events(
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
 ) -> LiveRoundEventBatchResponse:
     return append_mobile_events_response(round_id, request, idempotency_key=idempotency_key)
+
+
+@app.get("/api/v2/weather/snapshot", response_model=WeatherSnapshotResponse)
+def weather_snapshot(
+    round_id: str | None = None,
+    hole: int | None = None,
+    captured_at: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    wind_speed_mps: float | None = None,
+    wind_direction_deg: int | None = None,
+    temperature_c: float | None = None,
+    precipitation_mm: float | None = None,
+) -> WeatherSnapshotResponse:
+    return load_weather_snapshot_response(
+        round_id=round_id,
+        hole=hole,
+        captured_at=captured_at,
+        latitude=latitude,
+        longitude=longitude,
+        wind_speed_mps=wind_speed_mps,
+        wind_direction_deg=wind_direction_deg,
+        temperature_c=temperature_c,
+        precipitation_mm=precipitation_mm,
+    )
 
 
 @app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)

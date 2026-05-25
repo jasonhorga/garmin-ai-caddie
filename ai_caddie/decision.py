@@ -166,6 +166,10 @@ def _confidence(analysis: dict[str, Any], options: list[dict[str, Any]], selecte
     if selected and _has_weak_club_sample(selected):
         level = "medium" if level == "high" else level
         reasons.append("selected club profile sample is below confidence threshold")
+    weather = _weather_snapshot(analysis)
+    if weather and weather.get("state") != "ready":
+        level = "medium" if level == "high" else level
+        reasons.append("weather context is missing or incomplete")
     if not reasons:
         reasons.append("geometry, route candidates, and club profiles are available")
     return {"level": level, "reasons": sorted(set(reasons))}
@@ -190,6 +194,9 @@ def _evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) -> list
         if clubs:
             club_text = ", ".join(f"{c['clubName']} n={c.get('sampleSize', 0)}" for c in clubs[:2])
             rows.append({"kind": "club_profile", "text": f"matching club profiles: {club_text}"})
+    weather = _weather_snapshot(analysis)
+    if weather:
+        rows.append({"kind": "weather", "text": _weather_text(weather)})
     return rows[:3]
 
 
@@ -204,6 +211,9 @@ def _missing_data(analysis: dict[str, Any], options: list[dict[str, Any]], selec
         rows.append({"label": "routes", "reason": "candidate route data missing"})
     if selected and _has_weak_club_sample(selected):
         rows.append({"label": "club_profiles", "reason": "matching club sample data missing or weak"})
+    weather = _weather_snapshot(analysis)
+    if weather and weather.get("state") != "ready":
+        rows.append({"label": "weather", "reason": "weather snapshot missing or incomplete"})
     for issue in (analysis.get("dataQuality") or {}).get("issues") or []:
         rows.append({"label": "data_quality", "reason": str(issue)})
     return rows
@@ -230,6 +240,24 @@ def _audit_criteria(selected: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 def _ordered_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(options, key=lambda row: OPTION_ORDER.get(row["id"], 9))
+
+
+def _weather_snapshot(analysis: dict[str, Any]) -> dict[str, Any] | None:
+    weather = analysis.get("weatherSnapshot") or analysis.get("weather")
+    return weather if isinstance(weather, dict) else None
+
+
+def _weather_text(weather: dict[str, Any]) -> str:
+    if weather.get("state") != "ready":
+        return "weather snapshot is missing or incomplete"
+    parts = []
+    if weather.get("windSpeedMps") is not None:
+        parts.append(f"wind={weather.get('windSpeedMps')}m/s")
+    if weather.get("windDirectionDeg") is not None:
+        parts.append(f"dir={weather.get('windDirectionDeg')}deg")
+    if weather.get("temperatureC") is not None:
+        parts.append(f"temp={weather.get('temperatureC')}C")
+    return ", ".join(parts) if parts else "weather snapshot available"
 
 
 def _context_with_default_quality(context: dict[str, Any]) -> dict[str, Any]:
@@ -408,6 +436,9 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
         rows.append({"kind": "lie", "text": f"current lie={lie}"})
     if analysis.get("blockedView"):
         rows.append({"kind": "blocked_view", "text": "direct view or swing window is blocked"})
+    weather = _weather_snapshot(analysis)
+    if weather:
+        rows.append({"kind": "weather", "text": _weather_text(weather)})
     if selected:
         rows.append({
             "kind": "route_risk",

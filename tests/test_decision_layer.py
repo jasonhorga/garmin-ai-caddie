@@ -10,6 +10,7 @@ from ai_caddie.decision import (
     recommend_approach,
     recommend_recovery,
 )
+from ai_caddie.weather_context import build_weather_snapshot
 from ai_caddie_web import INDEX_HTML
 
 
@@ -156,6 +157,16 @@ class DecisionLayerTests(unittest.TestCase):
         plan = recommend_approach(approach_fixture(sample_size=1))
 
         self.assertIn("club_profiles", {row["label"] for row in plan["missingData"]})
+
+    def test_weather_snapshot_is_included_in_decision_evidence_and_missing_data(self) -> None:
+        context = approach_fixture()
+        context["weatherSnapshot"] = build_weather_snapshot(round_id="round-1", hole=4)
+
+        plan = recommend_approach(context)
+
+        self.assertTrue(any(row["kind"] == "weather" for row in plan["evidence"]))
+        self.assertIn("weather", {row["label"] for row in plan["missingData"]})
+        self.assertEqual(plan["confidence"]["level"], "medium")
 
     def test_outcome_execution_when_selected_plan_hits_known_risk(self) -> None:
         shot = {

@@ -343,6 +343,7 @@ class LiveRoundPackageResponse(BaseModel):
     course: dict[str, Any]
     holes: list[dict[str, Any]]
     geometryCoverage: dict[str, Any]
+    weatherSnapshot: dict[str, Any]
     clubProfiles: list[dict[str, Any]]
     caddieDecisionEndpoint: str
     generatedAt: str
@@ -366,3 +367,21 @@ class LiveRoundEventBatchRequest(BaseModel):
 class LiveRoundEventBatchResponse(BaseModel):
     accepted: int
     duplicate: bool
+
+
+class WeatherSnapshotResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-weather-snapshot-v1"] = Field(alias="schema")
+    state: Literal["ready", "missing"]
+    source: Literal["manual", "open_meteo", "missing"]
+    roundId: str | None = None
+    hole: int | None = None
+    capturedAt: str | None = None
+    location: dict[str, float] | None = None
+    windSpeedMps: float | None = None
+    windDirectionDeg: int | None = None
+    temperatureC: float | None = None
+    precipitationMm: float | None = None
+    confidence: Literal["low", "medium", "high"]
+    missingData: list[dict[str, Any]]

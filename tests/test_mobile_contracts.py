@@ -56,6 +56,13 @@ class MobileContractTests(unittest.TestCase):
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
             "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
             "geometryCoverage": {"state": "partial", "readyHoles": 12, "totalHoles": 18},
+            "weatherSnapshot": {
+                "schema": "ai-caddie-weather-snapshot-v1",
+                "state": "missing",
+                "source": "missing",
+                "confidence": "low",
+                "missingData": [{"label": "weather_values", "reason": "not cached"}],
+            },
             "clubProfiles": [{"clubName": "8I", "sampleSize": 24, "median_m": 144.0, "p10_m": 132.0, "p90_m": 153.0}],
             "caddieDecisionEndpoint": "/api/v2/caddie/decision",
             "generatedAt": "2026-05-25T00:00:00Z",
@@ -95,6 +102,7 @@ class MobileContractTests(unittest.TestCase):
         event_swift = (IOS_DIR / "Models" / "LiveRoundEvent.swift").read_text(encoding="utf-8")
 
         self.assertIn("struct LiveRoundPackage: Codable", package_swift)
+        self.assertIn("let weatherSnapshot: WeatherSnapshot", package_swift)
         self.assertIn("struct LiveRoundEvent: Codable", event_swift)
         self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
         self.assertIn('case syncMarker = "sync_marker"', event_swift)
