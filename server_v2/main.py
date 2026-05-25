@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
+
+from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error
+from ai_caddie.connectors.snapshot import snapshot_to_payload
 
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
-from .models import HistoryOverviewResponse, HistoryRoundsResponse, SyncStatusResponse
+from .models import HistoryOverviewResponse, HistoryRoundsResponse, SyncRunResponse, SyncStatusResponse
 from .sync_status import load_sync_status_response
 
 
@@ -18,7 +21,7 @@ app.add_middleware(
         "http://localhost:5173",
     ],
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -35,6 +38,7 @@ def service_index() -> dict[str, object]:
             "historyOverview": "/api/v2/history/overview",
             "historyRounds": "/api/v2/history/rounds",
             "syncStatus": "/api/v2/sync/status",
+            "syncGarmin": "/api/v2/sync/garmin",
         },
     }
 
@@ -61,3 +65,28 @@ def history_rounds() -> HistoryRoundsResponse:
 @app.get("/api/v2/sync/status", response_model=SyncStatusResponse)
 def sync_status() -> SyncStatusResponse:
     return load_sync_status_response()
+
+
+@app.post("/api/v2/sync/garmin", response_model=SyncRunResponse)
+def sync_garmin(
+    response: Response,
+    with_shots: bool = True,
+    force_refresh_auth: bool = False,
+) -> SyncRunResponse:
+    result = GarminCnWebSessionConnector().sync(
+        with_shots=with_shots,
+        force_refresh_auth=force_refresh_auth,
+    )
+    if result.state == "reauth_required":
+        response.status_code = 409
+    elif result.state == "error":
+        response.status_code = 500
+    return SyncRunResponse(
+        schema="ai-caddie-sync-run-v2",
+        connector=result.connector,
+        state=result.state,
+        detail=sanitize_error(result.detail),
+        reauthRequired=result.state == "reauth_required",
+        errorCode=result.error_code,
+        snapshot=snapshot_to_payload(result.snapshot) if result.snapshot else None,
+    )

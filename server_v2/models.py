@@ -130,3 +130,23 @@ class SyncStatusResponse(BaseModel):
     schema_: Literal["ai-caddie-sync-status-v2"] = Field(alias="schema")
     connector: ConnectorStatus
     snapshot: SnapshotStatus
+
+
+class SyncSnapshotPayload(BaseModel):
+    snapshotId: str
+    scorecardCount: int
+    shotFileCount: int
+    summaryPresent: bool
+    files: list[str]
+
+
+class SyncRunResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-sync-run-v2"] = Field(alias="schema")
+    connector: Literal["garmin_cn_web_session"]
+    state: ConnectorState
+    detail: str
+    reauthRequired: bool
+    errorCode: str | None
+    snapshot: SyncSnapshotPayload | None
