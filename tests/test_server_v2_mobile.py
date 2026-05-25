@@ -26,6 +26,19 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["holes"]), 1)
         self.assertGreaterEqual(len(payload["clubProfiles"]), 1)
 
+    def test_mobile_round_package_selects_requested_fixture_round(self) -> None:
+        client = TestClient(app)
+
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            response = client.get("/api/v2/mobile/rounds/900003/package")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["roundId"], "900003")
+        self.assertEqual(payload["course"]["name"], "Bay Practice Nine")
+        self.assertEqual(payload["course"]["globalId"], 41825)
+        self.assertEqual(len(payload["holes"]), 9)
+
     def test_mobile_event_batch_is_idempotent_and_temp_rooted(self) -> None:
         client = TestClient(app)
         event = {

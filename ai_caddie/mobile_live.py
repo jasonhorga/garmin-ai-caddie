@@ -23,7 +23,16 @@ def _now() -> str:
 def build_live_round_package(round_id: str, data: HistoryData | None = None) -> dict[str, Any]:
     source = data or fixture_history_data()
     stats = build_history_stats(source, data_mode="fixture", annotations_root=Path("/nonexistent-ai-caddie-annotations"))
-    round_row = source.rounds[0] if source.rounds else {}
+    requested_id = str(round_id)
+    round_row = next(
+        (
+            row
+            for row in source.rounds
+            if requested_id in {str(row.get("id") or ""), *(str(item) for item in (row.get("ids") or []))}
+        ),
+        {},
+    )
+    course_key = str(round_row.get("courseKey") or "")
     holes = [
         {
             "number": int(hole.get("number") or index),
@@ -34,6 +43,7 @@ def build_live_round_package(round_id: str, data: HistoryData | None = None) -> 
                     str(row.get("geometryCoverage") or "missing")
                     for row in stats["holes"]
                     if row.get("hole") == int(hole.get("number") or index)
+                    and (not course_key or str(row.get("courseKey") or "") == course_key)
                 ),
                 "missing",
             ),
