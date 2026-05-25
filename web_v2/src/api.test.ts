@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  createCaddieDecisionAudit,
   createAnnotation,
   fetchCaddieDecision,
   fetchAnnotations,
@@ -8,6 +9,7 @@ import {
   fetchHistoryDrilldown,
   fetchHistoryRounds,
   fetchHistoryStats,
+  fetchLatestCaddieDecisionAudit,
   fetchReadiness,
   fetchTrendReport,
   generateTrendReport,
@@ -235,6 +237,48 @@ describe('fetchCaddieDecision', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     })
+  })
+})
+
+describe('caddie audit API helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('creates and loads decision audits with encoded decision ids', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-decision-audit-store-v1',
+        record: {
+          id: 'audit-1',
+          storedAt: '2026-05-25T00:00:00Z',
+          decisionId: 'round-1:4:2',
+          audit: {
+            schema: 'ai-caddie-decision-audit-v1',
+            classification: 'execution',
+            plannedOptionId: 'stock',
+            actualOptionId: 'stock',
+          },
+        },
+      }),
+    }))
+
+    const request = {
+      decision: { selectedOptionId: 'stock' },
+      actualShot: { clubName: '8I', meters: 143 },
+    }
+    const created = await createCaddieDecisionAudit('round-1:4:2', request)
+    await fetchLatestCaddieDecisionAudit('round-1:4:2')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/caddie/decisions/round-1%3A4%3A2/audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/caddie/decisions/round-1%3A4%3A2/audit/latest')
+    expect(created.record.audit.classification).toBe('execution')
   })
 })
 

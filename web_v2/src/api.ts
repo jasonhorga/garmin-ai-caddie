@@ -4,6 +4,9 @@ import type {
   AnnotationListResponse,
   AnnotationTargetType,
   CaddieDecisionRequest,
+  CaddieDecisionAuditLatestResponse,
+  CaddieDecisionAuditRequest,
+  CaddieDecisionAuditStoreResponse,
   CaddieDecisionResponse,
   HistoryOverviewResponse,
   HistoryDrilldownResponse,
@@ -41,6 +44,22 @@ export function fetchHistoryOverview(): Promise<HistoryOverviewResponse> {
 
 export function fetchCaddieDecision(request: CaddieDecisionRequest): Promise<CaddieDecisionResponse> {
   return postJson<CaddieDecisionResponse>('/api/v2/caddie/decision', request)
+}
+
+export function createCaddieDecisionAudit(
+  decisionId: string,
+  request: CaddieDecisionAuditRequest,
+): Promise<CaddieDecisionAuditStoreResponse> {
+  return postJson<CaddieDecisionAuditStoreResponse>(
+    `/api/v2/caddie/decisions/${encodeURIComponent(decisionId)}/audit`,
+    request,
+  )
+}
+
+export function fetchLatestCaddieDecisionAudit(decisionId: string): Promise<CaddieDecisionAuditLatestResponse> {
+  return getJson<CaddieDecisionAuditLatestResponse>(
+    `/api/v2/caddie/decisions/${encodeURIComponent(decisionId)}/audit/latest`,
+  )
 }
 
 export function fetchHistoryRounds(): Promise<HistoryRoundsResponse> {

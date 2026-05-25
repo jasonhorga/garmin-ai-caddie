@@ -203,7 +203,7 @@ function caddieDecisionPayload() {
     schema: 'ai-caddie-decision-v2',
     shotType: 'approach',
     phase: 'Approach',
-    context: { distanceToPin_m: 142 },
+    context: { courseName: 'Fixture Links', hole: 4, distanceToPin_m: 142 },
     options: [
       { id: 'safe', label: 'Safe', recommendedClub: '9I' },
       { id: 'stock', label: 'Stock', recommendedClub: '8I' },
@@ -219,6 +219,27 @@ function caddieDecisionPayload() {
     confidence: { level: 'medium' },
     missingData: [],
     auditCriteria: [],
+  }
+}
+
+function caddieAuditPayload() {
+  return {
+    schema: 'ai-caddie-decision-audit-store-v1',
+    record: {
+      id: 'audit-1',
+      storedAt: '2026-05-25T00:00:00Z',
+      decisionId: 'fixture-links-4-approach',
+      audit: {
+        schema: 'ai-caddie-decision-audit-v1',
+        phase: 'Approach',
+        plannedOptionId: 'stock',
+        actualOptionId: 'stock',
+        classification: 'execution',
+        executionMatch: { hasFirstShot: true, clubMatch: true, distanceDelta_m: -1 },
+        result: { clubName: '8I', meters: 143, surface: 'green' },
+        modelUpdateSuggestion: { kind: 'none' },
+      },
+    },
   }
 }
 
@@ -427,6 +448,7 @@ describe('App navigation', () => {
       ok: true,
       json: async () => {
         if (path === '/api/v2/caddie/decision') return caddieDecisionPayload()
+        if (path === '/api/v2/caddie/decisions/fixture-links-4-approach/audit') return caddieAuditPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayload()
       },
@@ -443,5 +465,13 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('8I')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decision', expect.objectContaining({ method: 'POST' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Audit with fixture outcome' }))
+
+    expect(await screen.findByText('execution')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/caddie/decisions/fixture-links-4-approach/audit',
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 })

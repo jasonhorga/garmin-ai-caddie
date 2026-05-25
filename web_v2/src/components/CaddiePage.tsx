@@ -1,12 +1,20 @@
 import { useState } from 'react'
-import type { CaddieDecisionRequest, CaddieDecisionResponse, CaddieShotType } from '../types'
+import type { CaddieDecisionAuditRecord, CaddieDecisionRequest, CaddieDecisionResponse, CaddieShotType } from '../types'
+
+type AuditState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; data: CaddieDecisionAuditRecord | null }
 
 interface CaddiePageProps {
   decisionState: { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: CaddieDecisionResponse }
+  auditState?: AuditState
   onRequestDecision: (request: CaddieDecisionRequest) => void
+  onCreateAudit?: (decision: CaddieDecisionResponse) => void
 }
 
-export function CaddiePage({ decisionState, onRequestDecision }: CaddiePageProps) {
+export function CaddiePage({ decisionState, auditState = { status: 'idle' }, onRequestDecision, onCreateAudit }: CaddiePageProps) {
   const [shotType, setShotType] = useState<CaddieShotType>('approach')
 
   return (
@@ -31,12 +39,20 @@ export function CaddiePage({ decisionState, onRequestDecision }: CaddiePageProps
         </button>
       </section>
 
-      <DecisionDetail state={decisionState} />
+      <DecisionDetail state={decisionState} auditState={auditState} onCreateAudit={onCreateAudit} />
     </section>
   )
 }
 
-function DecisionDetail({ state }: { state: CaddiePageProps['decisionState'] }) {
+function DecisionDetail({
+  state,
+  auditState,
+  onCreateAudit,
+}: {
+  state: CaddiePageProps['decisionState']
+  auditState: AuditState
+  onCreateAudit?: (decision: CaddieDecisionResponse) => void
+}) {
   if (state.status === 'loading') {
     return (
       <section className="decision-detail" aria-label="Caddie decision">
@@ -97,6 +113,60 @@ function DecisionDetail({ state }: { state: CaddiePageProps['decisionState'] }) 
         <EvidenceList title="Avoid Zones" rows={decision.avoidZones} />
         <EvidenceList title="Audit" rows={decision.auditCriteria} />
       </div>
+      {onCreateAudit ? <DecisionAuditPanel state={auditState} onCreateAudit={() => onCreateAudit(decision)} /> : null}
+    </section>
+  )
+}
+
+function DecisionAuditPanel({ state, onCreateAudit }: { state: AuditState; onCreateAudit: () => void }) {
+  if (state.status === 'loading') {
+    return (
+      <section className="decision-outcome-audit" aria-label="Decision outcome audit">
+        <div className="report-title-row">
+          <div>
+            <p className="eyebrow">Outcome audit</p>
+            <h3>Auditing outcome</h3>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  if (state.status === 'error') {
+    return (
+      <section className="decision-outcome-audit" aria-label="Decision outcome audit">
+        <div className="report-title-row">
+          <div>
+            <p className="eyebrow">Outcome audit</p>
+            <h3>Audit unavailable</h3>
+            <p>{state.message}</p>
+          </div>
+          <button type="button" onClick={onCreateAudit}>
+            Audit with fixture outcome
+          </button>
+        </div>
+      </section>
+    )
+  }
+
+  const audit = state.status === 'ready' ? state.data?.audit : null
+  const classification = audit ? String(audit.classification ?? 'unknown') : null
+  const planned = audit ? String(audit.plannedOptionId ?? '-') : '-'
+  const actual = audit ? String(audit.actualOptionId ?? '-') : '-'
+
+  return (
+    <section className="decision-outcome-audit" aria-label="Decision outcome audit">
+      <div className="report-title-row">
+        <div>
+          <p className="eyebrow">Outcome audit</p>
+          <h3>{audit ? 'Latest decision audit' : 'No outcome audit yet'}</h3>
+          <p>{audit ? `planned ${planned} -> actual ${actual}` : 'Compare the selected plan with the first actual shot.'}</p>
+        </div>
+        <button type="button" onClick={onCreateAudit}>
+          Audit with fixture outcome
+        </button>
+      </div>
+      {classification ? <span className={`audit-classification audit-${classification}`}>{classification}</span> : null}
     </section>
   )
 }

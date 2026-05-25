@@ -115,6 +115,29 @@ export interface CaddieDecisionResponse {
   auditCriteria: Array<Record<string, unknown>>
 }
 
+export interface CaddieDecisionAuditRequest {
+  decision: CaddieDecisionResponse | Record<string, unknown>
+  actualShot: Record<string, unknown> | null
+}
+
+export interface CaddieDecisionAuditRecord {
+  id: string
+  storedAt: string
+  decisionId: string
+  audit: Record<string, unknown>
+}
+
+export interface CaddieDecisionAuditStoreResponse {
+  schema: 'ai-caddie-decision-audit-store-v1'
+  record: CaddieDecisionAuditRecord
+}
+
+export interface CaddieDecisionAuditLatestResponse {
+  schema: 'ai-caddie-decision-audit-latest-v1'
+  decisionId: string
+  record: CaddieDecisionAuditRecord | null
+}
+
 export interface MonthRoundGroup {
   key: string
   label: string

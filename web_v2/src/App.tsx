@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  createCaddieDecisionAudit,
   createAnnotation,
   fetchCaddieDecision,
   fetchAnnotations,
@@ -36,6 +37,7 @@ import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
   AnnotationListResponse,
+  CaddieDecisionAuditRecord,
   CaddieDecisionRequest,
   CaddieDecisionResponse,
   HistoryOverviewResponse,
@@ -65,6 +67,7 @@ export default function App() {
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [readinessState, setReadinessState] = useState<DeferredLoadState<ReadinessResponse>>({ status: 'idle' })
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
+  const [decisionAuditState, setDecisionAuditState] = useState<DeferredLoadState<CaddieDecisionAuditRecord | null>>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
@@ -248,11 +251,25 @@ export default function App() {
 
   async function handleRequestCaddieDecision(request: CaddieDecisionRequest) {
     setDecisionState({ status: 'loading' })
+    setDecisionAuditState({ status: 'idle' })
     try {
       const data = await fetchCaddieDecision(request)
       setDecisionState({ status: 'ready', data })
     } catch (error: unknown) {
       setDecisionState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+    }
+  }
+
+  async function handleCreateDecisionAudit(decision: CaddieDecisionResponse) {
+    setDecisionAuditState({ status: 'loading' })
+    try {
+      const response = await createCaddieDecisionAudit(decisionIdFromDecision(decision), {
+        decision,
+        actualShot: buildFixtureActualShot(decision),
+      })
+      setDecisionAuditState({ status: 'ready', data: response.record })
+    } catch (error: unknown) {
+      setDecisionAuditState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
     }
   }
 
@@ -349,7 +366,12 @@ export default function App() {
         {renderSyncPanel()}
         <main className="app-shell">
           <ProductNav activePage={activePage} onNavigate={navigate} />
-          <CaddiePage decisionState={decisionState} onRequestDecision={(request) => void handleRequestCaddieDecision(request)} />
+          <CaddiePage
+            decisionState={decisionState}
+            auditState={decisionAuditState}
+            onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
+            onCreateAudit={(decision) => void handleCreateDecisionAudit(decision)}
+          />
         </main>
       </>
     )
@@ -408,4 +430,28 @@ export default function App() {
       <HistoryOverview data={overviewState.data} onNavigate={navigate} />
     </>
   )
+}
+
+function decisionIdFromDecision(decision: CaddieDecisionResponse): string {
+  const context = decision.context ?? {}
+  const courseName = typeof context.courseName === 'string' ? context.courseName : 'fixture'
+  const hole = typeof context.hole === 'number' || typeof context.hole === 'string' ? String(context.hole) : 'unknown'
+  return [slug(courseName), hole, decision.shotType].join('-')
+}
+
+function buildFixtureActualShot(decision: CaddieDecisionResponse): Record<string, unknown> {
+  const selected = decision.selectedOption ?? decision.selected ?? {}
+  const clubName = String(selected.recommendedClub ?? selected.club ?? '-')
+  const carry = selected.carry_m ?? selected.carryM ?? decision.context.distanceToPin_m ?? 0
+  return {
+    shotOrder: 1,
+    clubName,
+    meters: carry,
+    end: { lie: 'Green', feature: { surface: { kind: 'green' }, nearRisks: [] } },
+  }
+}
+
+function slug(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return normalized || 'fixture'
 }

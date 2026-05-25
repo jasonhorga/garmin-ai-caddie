@@ -1355,6 +1355,53 @@ p {
   margin: 8px 0;
 }
 
+.decision-outcome-audit {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf7;
+  padding: 12px;
+}
+
+.decision-outcome-audit .report-title-row {
+  align-items: flex-start;
+}
+
+.decision-outcome-audit button {
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--green);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.audit-classification {
+  width: max-content;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.audit-execution {
+  background: #e4f2e8;
+  color: var(--green);
+}
+
+.audit-strategy {
+  background: #d9ecfb;
+  color: var(--eagle);
+}
+
+.audit-info-gap,
+.audit-unknown {
+  background: #f6edcf;
+  color: #765400;
+}
+
 .selected-pill {
   color: var(--birdie);
   font-size: 0.78rem;
