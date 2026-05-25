@@ -39,7 +39,13 @@ const baseStatus: SyncStatusResponse = {
     summaryPresent: true,
     lastSuccessfulSyncAt: '2026-05-25T00:00:00Z',
   },
-  lastRun: null,
+  lastRun: {
+    state: 'ready',
+    detail: 'Garmin CN sync completed.',
+    snapshotId: 'snap_123',
+    errorCode: null,
+    updatedAt: '2026-05-25T00:10:00Z',
+  },
 }
 
 describe('SyncStatusPanel', () => {
@@ -51,6 +57,10 @@ describe('SyncStatusPanel', () => {
     expect(screen.getByText('12 scorecards')).toBeInTheDocument()
     expect(screen.getByText('8 shot files')).toBeInTheDocument()
     expect(screen.getByText('local data')).toBeInTheDocument()
+    expect(screen.getByText('Last data update')).toBeInTheDocument()
+    expect(screen.getByText('2026-05-25T00:00:00Z')).toBeInTheDocument()
+    expect(screen.getByText('Last run')).toBeInTheDocument()
+    expect(screen.getByText('snapshot snap_123')).toBeInTheDocument()
     expect(screen.getByText('Official OAuth')).toBeInTheDocument()
     expect(screen.getByText('not available')).toHaveClass('quality-missing')
     expect(screen.getByText('Can official OAuth access golf scorecards?')).toBeInTheDocument()
@@ -75,6 +85,7 @@ describe('SyncStatusPanel', () => {
 
     expect(screen.getByText('reauth required')).toBeInTheDocument()
     expect(screen.getByText('Garmin session expired.')).toBeInTheDocument()
+    expect(screen.getByText('Reauthenticate the Garmin CN session before running another sync.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sync now/i })).toBeDisabled()
   })
 

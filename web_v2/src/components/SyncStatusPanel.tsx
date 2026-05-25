@@ -30,12 +30,26 @@ export function SyncStatusPanel({ status, onSync, syncState = 'idle' }: SyncStat
         <p className="eyebrow">Garmin CN</p>
         <h2>{stateLabel[status.connector.state]}</h2>
         <p>{status.connector.detail}</p>
-        {status.lastRun ? <p>Last run: {stateLabel[status.lastRun.state]}</p> : null}
+        {status.connector.reauthRequired ? (
+          <p className="sync-guidance">Reauthenticate the Garmin CN session before running another sync.</p>
+        ) : null}
       </div>
       <div className="sync-panel__facts">
         <span>{status.snapshot.scorecardCount} scorecards</span>
         <span>{status.snapshot.shotFileCount} shot files</span>
         <span>{status.snapshot.dataMode} data</span>
+      </div>
+      <div className="sync-run-meta" aria-label="Sync run metadata">
+        <article>
+          <span>Last data update</span>
+          <strong>{status.snapshot.lastSuccessfulSyncAt ?? 'not recorded'}</strong>
+        </article>
+        <article>
+          <span>Last run</span>
+          <strong>{status.lastRun ? stateLabel[status.lastRun.state] : 'not run'}</strong>
+          {status.lastRun?.snapshotId ? <em>snapshot {status.lastRun.snapshotId}</em> : null}
+          {status.lastRun?.errorCode ? <em>error {status.lastRun.errorCode}</em> : null}
+        </article>
       </div>
       <div className="sync-connectors" aria-label="Connector tracks">
         {connectors.map((connector) => (
