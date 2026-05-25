@@ -18,6 +18,7 @@ const statsFixture: HistoryStatsResponse = {
       average18: 82,
       bestScore: 77,
       worstScore: 87,
+      geometryCoverage: 'missing',
       roundIds: ['900001', '900002'],
     },
   ],
@@ -39,6 +40,7 @@ describe('CourseStats', () => {
     expect(screen.getByText('avg 82')).toBeInTheDocument()
     expect(screen.getByText('best 77')).toBeInTheDocument()
     expect(screen.getByText('worst 87')).toBeInTheDocument()
+    expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
     expect(screen.getByRole('button', { name: 'Open source 900001' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
   })
@@ -50,5 +52,12 @@ describe('CourseStats', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001' }))
 
     expect(onSelectRef).toHaveBeenCalledWith('900001')
+  })
+
+  it('renders an empty state when no course aggregates exist', () => {
+    render(<CourseStats data={{ ...statsFixture, courses: [] }} />)
+
+    expect(screen.getByText('No course stats yet')).toBeInTheDocument()
+    expect(screen.getByText('Sync Garmin rounds or switch to fixture mode to populate course distribution.')).toBeInTheDocument()
   })
 })

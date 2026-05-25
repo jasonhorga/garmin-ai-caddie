@@ -1,6 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
-import { asString, formatNumber, formatSigned } from './statsValues'
+import { asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface HoleStatsProps {
   data: HistoryStatsResponse
@@ -18,6 +18,12 @@ export function HoleStats({ data, onSelectRef }: HoleStatsProps) {
         </div>
       </div>
       <div className="stats-list">
+        {data.holes.length === 0 ? (
+          <article className="stats-empty">
+            <h2>No hole stats yet</h2>
+            <p>Hole-level scorecards are required before repeated patterns can be shown.</p>
+          </article>
+        ) : null}
         {data.holes.map((hole) => (
           <article key={`${asString(hole.courseKey) ?? 'course'}-${formatNumber(hole.hole)}`} className="stats-item">
             <div className="stats-item-main">
@@ -28,6 +34,9 @@ export function HoleStats({ data, onSelectRef }: HoleStatsProps) {
               <span>{formatNumber(hole.sampleCount)} samples</span>
               <span>{formatSigned(hole.averageToPar)} avg</span>
               <span>{formatSigned(hole.worstToPar)} worst</span>
+              {asString(hole.geometryCoverage) ? (
+                <span className={`semantic-chip ${semanticClass('quality', hole.geometryCoverage)}`}>geometry {asString(hole.geometryCoverage)}</span>
+              ) : null}
             </div>
             <p className="stats-refs">
               <SourceRefs refs={hole.holeRefs ?? hole.refs} onSelectRef={onSelectRef} />

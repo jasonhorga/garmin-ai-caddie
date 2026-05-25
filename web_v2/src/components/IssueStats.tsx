@@ -1,6 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
-import { asString, formatNumber } from './statsValues'
+import { asString, formatNumber, semanticClass } from './statsValues'
 
 interface IssueStatsProps {
   data: HistoryStatsResponse
@@ -18,6 +18,12 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
         </div>
       </div>
       <div className="stats-list">
+        {data.issues.length === 0 ? (
+          <article className="stats-empty">
+            <h2>No recurring issues yet</h2>
+            <p>Deterministic, AI-suggested, and manual issue tags will appear here after analysis.</p>
+          </article>
+        ) : null}
         {data.issues.map((issue) => (
           <article key={asString(issue.issue) ?? 'issue'} className="stats-item">
             <div className="stats-item-main">
@@ -25,6 +31,13 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
               <p>
                 <SourceRefs refs={issue.sourceRefs ?? issue.refs} onSelectRef={onSelectRef} />
               </p>
+            </div>
+            <div className="stats-item-facts">
+              {asString(issue.phase) ? <span>{asString(issue.phase)}</span> : null}
+              {asString(issue.source) ? <span>{asString(issue.source)}</span> : null}
+              <span className={`semantic-chip ${semanticClass('confidence', issue.confidence)}`}>
+                {asString(issue.confidence) ?? 'unknown'} confidence
+              </span>
             </div>
             <strong className="stats-count">{formatNumber(issue.count)}</strong>
           </article>

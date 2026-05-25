@@ -23,8 +23,15 @@ describe('DataQualityPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Data Quality' })).toBeInTheDocument()
     expect(screen.getByText('shots')).toBeInTheDocument()
-    expect(screen.getByText('partial')).toBeInTheDocument()
+    expect(screen.getByText('partial')).toHaveClass('quality-partial')
     expect(screen.getByText('1/3')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
+  })
+
+  it('renders an empty state when no quality findings exist', () => {
+    render(<DataQualityPage data={{ ...statsFixture, dataQuality: [] }} />)
+
+    expect(screen.getByText('No data quality findings yet')).toBeInTheDocument()
+    expect(screen.getByText('Coverage findings will appear after history, shot, geometry, weather, or report data is loaded.')).toBeInTheDocument()
   })
 })

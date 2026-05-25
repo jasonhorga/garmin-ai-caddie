@@ -1,6 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
-import { asString, formatNumber } from './statsValues'
+import { asString, formatNumber, semanticClass } from './statsValues'
 
 interface ClubStatsProps {
   data: HistoryStatsResponse
@@ -18,6 +18,12 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
         </div>
       </div>
       <div className="stats-list">
+        {data.clubs.length === 0 ? (
+          <article className="stats-empty">
+            <h2>No club samples yet</h2>
+            <p>Shot data or manual club input is required before the club model is useful.</p>
+          </article>
+        ) : null}
         {data.clubs.map((club) => (
           <article key={asString(club.club) ?? 'club'} className="stats-item">
             <div className="stats-item-main">
@@ -29,7 +35,9 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
               <span>p10 {formatNumber(club.p10)}</span>
               <span>p90 {formatNumber(club.p90)}</span>
               <span>max {formatNumber(club.max)}</span>
-              <span>{asString(club.confidence) ?? 'unknown'} confidence</span>
+              <span className={`semantic-chip ${semanticClass('confidence', club.confidence)}`}>
+                {asString(club.confidence) ?? 'unknown'} confidence
+              </span>
             </div>
             <p className="stats-refs">
               <SourceRefs refs={club.shotRefs ?? club.roundRefs ?? club.roundIds} onSelectRef={onSelectRef} />

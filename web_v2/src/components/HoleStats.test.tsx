@@ -17,6 +17,7 @@ const statsFixture: HistoryStatsResponse = {
       sampleCount: 2,
       averageToPar: 1.5,
       worstToPar: 3,
+      geometryCoverage: 'missing',
       refs: ['900001:7', '900002:7'],
     },
   ],
@@ -36,7 +37,15 @@ describe('HoleStats', () => {
     expect(screen.getByText('2 samples')).toBeInTheDocument()
     expect(screen.getByText('+1.5 avg')).toBeInTheDocument()
     expect(screen.getByText('+3 worst')).toBeInTheDocument()
+    expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
     expect(screen.getByRole('button', { name: 'Open source 900001:7' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900002:7' })).toBeInTheDocument()
+  })
+
+  it('renders an empty state when no hole aggregates exist', () => {
+    render(<HoleStats data={{ ...statsFixture, holes: [] }} />)
+
+    expect(screen.getByText('No hole stats yet')).toBeInTheDocument()
+    expect(screen.getByText('Hole-level scorecards are required before repeated patterns can be shown.')).toBeInTheDocument()
   })
 })

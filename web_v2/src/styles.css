@@ -17,6 +17,11 @@
   --par: #2f8f5f;
   --bogey: #d39a45;
   --double: #b55349;
+  --line-strong: #b9c3bb;
+  --text: var(--ink);
+  --accent: var(--green);
+  --par-soft: #e4f2e8;
+  --double-soft: #f7e2dd;
 }
 
 * {
@@ -604,6 +609,47 @@ p {
   border-radius: 8px;
   background: var(--panel);
   padding: 12px;
+}
+
+.stats-empty {
+  min-height: 96px;
+  display: grid;
+  gap: 6px;
+  align-content: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #f8faf7;
+  padding: 16px;
+}
+
+.stats-empty h2 {
+  font-size: 16px;
+}
+
+.semantic-chip {
+  border: 1px solid transparent;
+}
+
+.stats-item-facts .quality-good,
+.stats-item-facts .quality-ready,
+.stats-item-facts .confidence-high {
+  background: #e4f2e8;
+  color: var(--green);
+}
+
+.stats-item-facts .quality-partial,
+.stats-item-facts .confidence-medium {
+  background: #edf5f8;
+  color: #2f6f95;
+}
+
+.stats-item-facts .quality-missing,
+.stats-item-facts .quality-no-data,
+.stats-item-facts .quality-error,
+.stats-item-facts .quality-reauth-required,
+.stats-item-facts .confidence-low {
+  background: #f7e2dd;
+  color: var(--double);
 }
 
 .stats-item-main {

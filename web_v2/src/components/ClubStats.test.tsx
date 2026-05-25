@@ -19,7 +19,7 @@ const statsFixture: HistoryStatsResponse = {
       p10: 225,
       p90: 255,
       max: 270,
-      confidence: 'medium',
+      confidence: 'low',
       shotRefs: ['900001:1:0', '900002:5:4'],
     },
   ],
@@ -39,7 +39,14 @@ describe('ClubStats', () => {
     expect(screen.getByText('p10 225')).toBeInTheDocument()
     expect(screen.getByText('p90 255')).toBeInTheDocument()
     expect(screen.getByText('max 270')).toBeInTheDocument()
-    expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(screen.getByText('low confidence')).toHaveClass('confidence-low')
     expect(screen.getByRole('button', { name: 'Open source 900001:1:0' })).toBeInTheDocument()
+  })
+
+  it('renders an empty state when no club samples exist', () => {
+    render(<ClubStats data={{ ...statsFixture, clubs: [] }} />)
+
+    expect(screen.getByText('No club samples yet')).toBeInTheDocument()
+    expect(screen.getByText('Shot data or manual club input is required before the club model is useful.')).toBeInTheDocument()
   })
 })

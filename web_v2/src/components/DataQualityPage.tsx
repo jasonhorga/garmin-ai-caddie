@@ -1,6 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
-import { asString, formatNumber } from './statsValues'
+import { asString, formatNumber, semanticClass } from './statsValues'
 
 interface DataQualityPageProps {
   data: HistoryStatsResponse
@@ -18,6 +18,12 @@ export function DataQualityPage({ data, onSelectRef }: DataQualityPageProps) {
         </div>
       </div>
       <div className="stats-list">
+        {data.dataQuality.length === 0 ? (
+          <article className="stats-empty">
+            <h2>No data quality findings yet</h2>
+            <p>Coverage findings will appear after history, shot, geometry, weather, or report data is loaded.</p>
+          </article>
+        ) : null}
         {data.dataQuality.map((finding) => (
           <article key={asString(finding.label) ?? 'quality'} className="stats-item">
             <div className="stats-item-main">
@@ -27,7 +33,7 @@ export function DataQualityPage({ data, onSelectRef }: DataQualityPageProps) {
               </p>
             </div>
             <div className="stats-item-facts">
-              <span>{asString(finding.state) ?? 'unknown'}</span>
+              <span className={`semantic-chip ${semanticClass('quality', finding.state)}`}>{asString(finding.state) ?? 'unknown'}</span>
               <span>
                 {formatNumber(finding.ready)}/{formatNumber(finding.total)}
               </span>

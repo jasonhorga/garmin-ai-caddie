@@ -28,3 +28,8 @@ export function formatRefs(value: unknown): string {
   const refs = value.map((item) => String(item)).filter(Boolean)
   return refs.length ? refs.join(', ') : '-'
 }
+
+export function semanticClass(prefix: string, value: unknown): string {
+  const token = asString(value)?.toLowerCase().replace(/[^a-z0-9]+/g, '-') ?? 'unknown'
+  return `${prefix}-${token}`
+}

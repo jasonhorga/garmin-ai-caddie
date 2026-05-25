@@ -1,6 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
-import { asString, formatNumber } from './statsValues'
+import { asString, formatNumber, semanticClass } from './statsValues'
 
 interface CourseStatsProps {
   data: HistoryStatsResponse
@@ -20,6 +20,12 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
         </div>
       </div>
       <div className="stats-list">
+        {courses.length === 0 ? (
+          <article className="stats-empty">
+            <h2>No course stats yet</h2>
+            <p>Sync Garmin rounds or switch to fixture mode to populate course distribution.</p>
+          </article>
+        ) : null}
         {courses.map((course) => (
           <article key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="stats-item">
             <div className="stats-item-main">
@@ -31,6 +37,9 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
               <span>avg {formatNumber(course.average18)}</span>
               <span>best {formatNumber(course.bestScore)}</span>
               <span>worst {formatNumber(course.worstScore)}</span>
+              {asString(course.geometryCoverage) ? (
+                <span className={`semantic-chip ${semanticClass('quality', course.geometryCoverage)}`}>geometry {asString(course.geometryCoverage)}</span>
+              ) : null}
             </div>
             <p className="stats-refs">
               <SourceRefs refs={course.roundRefs ?? course.roundIds} onSelectRef={onSelectRef} />
