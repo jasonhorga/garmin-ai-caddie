@@ -14,6 +14,11 @@ def _load_schema(name: str) -> dict[str, object]:
     return json.loads((CONTRACT_DIR / name).read_text(encoding="utf-8"))
 
 
+def _read_required_source(testcase: unittest.TestCase, path: Path) -> str:
+    testcase.assertTrue(path.exists(), f"missing required source file: {path}")
+    return path.read_text(encoding="utf-8")
+
+
 def _assert_schema_accepts(testcase: unittest.TestCase, schema: dict[str, object], payload: dict[str, object]) -> None:
     testcase.assertEqual(schema["type"], "object")
     for field in schema.get("required", []):
@@ -120,6 +125,72 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func postEventBatch", sync_client)
         self.assertIn("Idempotency-Key", sync_client)
 
+    def test_ios_event_builder_supports_location_media_and_scoring_inputs(self) -> None:
+        builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
+
+        self.assertIn("import CoreLocation", builder)
+        self.assertIn("final class LiveRoundEventBuilder", builder)
+        self.assertIn("CLLocationCoordinate2D", builder)
+        for method in [
+            "makeLocationEvent",
+            "makePhotoEvent",
+            "makeVideoEvent",
+            "makeScoreEvent",
+            "makeClubEvent",
+            "makePuttEvent",
+            "makePenaltyEvent",
+            "makeNoteEvent",
+        ]:
+            self.assertIn(f"func {method}", builder)
+        for payload_key in [
+            '"latitude"',
+            '"longitude"',
+            '"horizontalAccuracyM"',
+            '"assetLocalId"',
+            '"fileURL"',
+            '"strokes"',
+            '"clubName"',
+            '"putts"',
+            '"penalties"',
+            '"note"',
+        ]:
+            self.assertIn(payload_key, builder)
+
+    def test_ios_caddie_decision_client_posts_shared_decision_contract(self) -> None:
+        client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
+
+        self.assertIn("struct CaddieDecisionRequest: Codable", client)
+        self.assertIn("struct CaddieDecisionResponse: Codable", client)
+        self.assertIn("final class CaddieDecisionClient", client)
+        self.assertIn("func fetchCaddieDecision", client)
+        self.assertIn('"/api/v2/caddie/decision"', client)
+        self.assertIn('request.httpMethod = "POST"', client)
+        self.assertIn("let shotType: String", client)
+        self.assertIn("let context: [String: JSONValue]", client)
+        for field in ["selectedOptionId", "options", "avoidZones", "evidence", "confidence", "missingData"]:
+            self.assertIn(field, client)
+
+    def test_ios_phone_bridge_maps_watch_inputs_to_offline_live_events(self) -> None:
+        bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
+
+        self.assertIn("import WatchConnectivity", bridge)
+        self.assertIn("final class WatchEventBridge", bridge)
+        self.assertIn("WCSessionDelegate", bridge)
+        self.assertIn("func mapWatchInputEvent", bridge)
+        self.assertIn("offlineStore.appendEvent", bridge)
+        self.assertIn('replyHandler(["accepted": true, "eventId": event.eventId])', bridge)
+        for mapping in [
+            "case .score:",
+            "case .putt:",
+            "case .penalty:",
+            "case .club:",
+            "kind: .score",
+            "kind: .putt",
+            "kind: .penalty",
+            "kind: .club",
+        ]:
+            self.assertIn(mapping, bridge)
+
     def test_ios_live_views_define_expected_controls(self) -> None:
         round_home = (IOS_DIR / "Views" / "RoundHomeView.swift").read_text(encoding="utf-8")
         current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
@@ -140,7 +211,19 @@ class MobileContractTests(unittest.TestCase):
         state_swift = (WATCH_DIR / "Models" / "WatchRoundState.swift").read_text(encoding="utf-8")
 
         self.assertIn("struct WatchRoundState: Codable", state_swift)
-        for field in ["roundId", "hole", "par", "distanceM", "selectedClub", "score", "putts", "penaltyCount", "caddieConfidence"]:
+        for field in [
+            "roundId",
+            "hole",
+            "par",
+            "distanceM",
+            "targetNote",
+            "suggestedClub",
+            "selectedClub",
+            "score",
+            "putts",
+            "penaltyCount",
+            "caddieConfidence",
+        ]:
             self.assertIn(field, state_swift)
 
     def test_watch_sync_client_defines_connectivity_and_queue(self) -> None:

@@ -11,8 +11,13 @@ public struct WatchCaddieGlanceView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Image(systemName: "scope")
-                Text(state.selectedClub ?? "--")
+                Text(state.suggestedClub ?? state.selectedClub ?? "--")
                     .font(.headline)
+            }
+            if let targetNote = state.targetNote {
+                Text(targetNote)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             Text(state.caddieConfidence)
                 .font(.caption)

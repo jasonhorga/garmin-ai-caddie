@@ -23,6 +23,11 @@ public struct WatchHoleView: View {
                         Text("\(Int(distanceM))m")
                             .font(.headline.monospacedDigit())
                     }
+                    if let targetNote = state.targetNote {
+                        Text(targetNote)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 WatchCaddieGlanceView(state: state)
                 NavigationLink("Input") {

@@ -7,6 +7,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let hole: Int
     public let par: Int
     public let distanceM: Double?
+    public let targetNote: String?
+    public let suggestedClub: String?
     public let selectedClub: String?
     public let score: Int
     public let putts: Int
@@ -18,6 +20,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         hole: Int,
         par: Int,
         distanceM: Double?,
+        targetNote: String? = nil,
+        suggestedClub: String? = nil,
         selectedClub: String?,
         score: Int,
         putts: Int,
@@ -28,6 +32,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.hole = hole
         self.par = par
         self.distanceM = distanceM
+        self.targetNote = targetNote
+        self.suggestedClub = suggestedClub
         self.selectedClub = selectedClub
         self.score = score
         self.putts = putts
