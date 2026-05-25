@@ -15,9 +15,11 @@ OPTION_LABELS = {
     "stock": "Stock",
     "attack": "Attack",
 }
+OPTION_ORDER = {"safe": 0, "stock": 1, "attack": 2}
 RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
 BAD_SURFACES = {"bunker", "water", "water_edge", "tree_area"}
 EXCLUDED_TEE_CLUBS = {"unknown", "?", "putter"}
+MIN_STRONG_CLUB_SAMPLE = 5
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -137,6 +139,16 @@ def _select_option(options: list[dict[str, Any]]) -> dict[str, Any] | None:
     return safest
 
 
+def _has_weak_club_sample(selected: dict[str, Any] | None) -> bool:
+    if not selected:
+        return False
+    recommendation = selected.get("clubRecommendation", {})
+    if recommendation.get("source") != "club_profiles":
+        return True
+    clubs = recommendation.get("clubs") or []
+    return not clubs or all(int(club.get("sampleSize") or 0) < MIN_STRONG_CLUB_SAMPLE for club in clubs)
+
+
 def _confidence(analysis: dict[str, Any], options: list[dict[str, Any]], selected: dict[str, Any] | None) -> dict[str, Any]:
     quality = analysis.get("dataQuality") or {}
     level = str(quality.get("confidence") or "low")
@@ -151,6 +163,9 @@ def _confidence(analysis: dict[str, Any], options: list[dict[str, Any]], selecte
     if selected and not selected.get("clubRecommendation", {}).get("clubs"):
         level = "medium" if level == "high" else level
         reasons.append("no matching club profile for selected carry")
+    if selected and _has_weak_club_sample(selected):
+        level = "medium" if level == "high" else level
+        reasons.append("selected club profile sample is below confidence threshold")
     if not reasons:
         reasons.append("geometry, route candidates, and club profiles are available")
     return {"level": level, "reasons": sorted(set(reasons))}
@@ -187,7 +202,7 @@ def _missing_data(analysis: dict[str, Any], options: list[dict[str, Any]], selec
         rows.append({"label": "meshes", "reason": "prodgeometry mesh data missing"})
     if not options:
         rows.append({"label": "routes", "reason": "candidate route data missing"})
-    if selected and selected.get("clubRecommendation", {}).get("source") != "club_profiles":
+    if selected and _has_weak_club_sample(selected):
         rows.append({"label": "club_profiles", "reason": "matching club sample data missing or weak"})
     for issue in (analysis.get("dataQuality") or {}).get("issues") or []:
         rows.append({"label": "data_quality", "reason": str(issue)})
@@ -213,11 +228,240 @@ def _audit_criteria(selected: dict[str, Any] | None) -> list[dict[str, Any]]:
     ]
 
 
+def _ordered_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(options, key=lambda row: OPTION_ORDER.get(row["id"], 9))
+
+
+def _context_with_default_quality(context: dict[str, Any]) -> dict[str, Any]:
+    analysis = dict(context)
+    analysis.setdefault("dataQuality", {"confidence": "high", "issues": []})
+    return analysis
+
+
+def _hazard_avoid_zones(context: dict[str, Any]) -> list[dict[str, Any]]:
+    zones = []
+    for hazard in context.get("hazards") or []:
+        kind = str(hazard.get("kind") or "")
+        if not kind:
+            continue
+        zones.append({
+            "kind": kind,
+            "id": hazard.get("id"),
+            "distance_m": hazard.get("distance_m"),
+            "carryToClear_m": hazard.get("carryToClear_m"),
+            "reason": "known hazard in approach context",
+        })
+    return zones
+
+
+def _pin_distance(context: dict[str, Any]) -> float:
+    return max(1.0, _float(context.get("distanceToPin_m"), 0.0))
+
+
+def _shot_option(
+    context: dict[str, Any],
+    *,
+    shot_type: str,
+    option_id: str,
+    label: str,
+    carry_m: float,
+    risk_score: float,
+    intent: str,
+    target: str,
+) -> dict[str, Any]:
+    route = {
+        "id": f"{shot_type}_{option_id}",
+        "label": label,
+        "carry_m": carry_m,
+    }
+    avoid_zones = _hazard_avoid_zones(context)
+    return {
+        "id": option_id,
+        "routeId": route["id"],
+        "label": OPTION_LABELS.get(option_id, label),
+        "routeLabel": label,
+        "carry_m": round(carry_m, 1),
+        "target": target,
+        "targetLocal": None,
+        "expectedSurface": {"kind": "green" if shot_type == "approach" else "safe_area"},
+        "riskScore": risk_score,
+        "intent": intent,
+        "forbiddenZones": avoid_zones,
+        "avoidZones": avoid_zones,
+        "clubRecommendation": _club_recommendation(route, context),
+    }
+
+
+def _approach_options(context: dict[str, Any]) -> list[dict[str, Any]]:
+    distance_m = _pin_distance(context)
+    hazards = context.get("hazards") or []
+    hazard_penalty = 1 if hazards else 0
+    return _ordered_options([
+        _shot_option(
+            context,
+            shot_type="approach",
+            option_id="safe",
+            label="center green",
+            carry_m=max(1.0, distance_m - 10.0),
+            risk_score=1 + hazard_penalty,
+            intent="Remove short-side and front-hazard risk before chasing the flag.",
+            target="green_center",
+        ),
+        _shot_option(
+            context,
+            shot_type="approach",
+            option_id="stock",
+            label="stock pin-side",
+            carry_m=distance_m,
+            risk_score=1 + hazard_penalty,
+            intent="Use the normal yardage when club profile and geometry support it.",
+            target="pin_side_middle",
+        ),
+        _shot_option(
+            context,
+            shot_type="approach",
+            option_id="attack",
+            label="attack flag",
+            carry_m=distance_m + 8.0,
+            risk_score=3 + hazard_penalty,
+            intent="Only chase the flag when dispersion and hazard clearance are both strong.",
+            target="flag",
+        ),
+    ])
+
+
+def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
+    distance_m = _pin_distance(context)
+    blocked = bool(context.get("blockedView"))
+    lie = str(context.get("lie") or "").lower()
+    recovery_penalty = 2 if blocked or lie in {"rough", "trees", "sand", "bunker"} else 0
+    return _ordered_options([
+        _shot_option(
+            context,
+            shot_type="recovery",
+            option_id="safe",
+            label="advance to widest safe area",
+            carry_m=max(40.0, distance_m - 46.0),
+            risk_score=0,
+            intent="Prioritize returning to a playable angle over reaching the green.",
+            target="widest_safe_area",
+        ),
+        _shot_option(
+            context,
+            shot_type="recovery",
+            option_id="stock",
+            label="controlled advance",
+            carry_m=max(60.0, distance_m - 34.0),
+            risk_score=1 + recovery_penalty,
+            intent="Advance with a normal swing only when the view and lie allow it.",
+            target="controlled_advance",
+        ),
+        _shot_option(
+            context,
+            shot_type="recovery",
+            option_id="attack",
+            label="direct recovery",
+            carry_m=max(80.0, distance_m - 22.0),
+            risk_score=3 + recovery_penalty,
+            intent="Take the direct route only when obstruction and lie penalties are low.",
+            target="direct_line",
+        ),
+    ])
+
+
+def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
+    return {
+        "roundId": analysis.get("roundId"),
+        "source": analysis.get("source"),
+        "courseName": analysis.get("courseName"),
+        "hole": analysis.get("hole"),
+        "globalId": analysis.get("globalId"),
+        "localHole": analysis.get("localHole"),
+        "shotType": shot_type,
+        "distanceToPin_m": analysis.get("distanceToPin_m"),
+        "lie": analysis.get("lie"),
+        "blockedView": analysis.get("blockedView"),
+    }
+
+
+def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) -> list[dict[str, Any]]:
+    geometry = analysis.get("geometry") or {}
+    rows = [{
+        "kind": "geometry",
+        "text": (
+            f"prodgeometry meshes available; hazard features={geometry.get('hazardCount', 0)}"
+            if geometry.get("hasMeshes")
+            else "prodgeometry mesh data is missing"
+        ),
+    }]
+    distance_m = analysis.get("distanceToPin_m")
+    if distance_m is not None:
+        rows.append({"kind": "green", "text": f"distance to pin={round(_float(distance_m), 1)}m"})
+    hazards = analysis.get("hazards") or []
+    if hazards:
+        rows.append({
+            "kind": "hazard",
+            "text": ", ".join(str(hazard.get("kind") or "hazard") for hazard in hazards[:3]),
+        })
+    lie = analysis.get("lie")
+    if lie:
+        rows.append({"kind": "lie", "text": f"current lie={lie}"})
+    if analysis.get("blockedView"):
+        rows.append({"kind": "blocked_view", "text": "direct view or swing window is blocked"})
+    if selected:
+        rows.append({
+            "kind": "route_risk",
+            "text": f"{selected['label']} option risk score={selected['riskScore']}",
+        })
+        clubs = selected.get("clubRecommendation", {}).get("clubs") or []
+        if clubs:
+            club_text = ", ".join(f"{c['clubName']} n={c.get('sampleSize', 0)}" for c in clubs[:2])
+            rows.append({"kind": "club_profile", "text": f"matching club profiles: {club_text}"})
+    return rows
+
+
+def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list[dict[str, Any]]) -> dict[str, Any]:
+    selected = _select_option(options)
+    avoid_zones = selected.get("avoidZones", []) if selected else []
+    return {
+        "schema": "ai-caddie-decision-v2",
+        "shotType": shot_type,
+        "phase": f"{shot_type}_shot",
+        "context": _shot_context(analysis, shot_type),
+        "options": options,
+        "selected": selected,
+        "selectedOptionId": selected.get("id") if selected else None,
+        "selectedOption": selected,
+        "avoidZones": avoid_zones,
+        "forbiddenZones": avoid_zones,
+        "acceptableMiss": {
+            "direction": "conservative",
+            "rationale": "prefer the side that keeps known hazards out of play",
+        },
+        "evidence": _shot_evidence(analysis, selected),
+        "confidence": _confidence(analysis, options, selected),
+        "missingData": _missing_data(analysis, options, selected),
+        "auditCriteria": _audit_criteria(selected),
+    }
+
+
+def recommend_approach(context: dict[str, Any]) -> dict[str, Any]:
+    """Recommend a deterministic approach-shot option from structured facts."""
+    analysis = _context_with_default_quality(context)
+    return _build_shot_decision(analysis, "approach", _approach_options(analysis))
+
+
+def recommend_recovery(context: dict[str, Any]) -> dict[str, Any]:
+    """Recommend a deterministic recovery option from lie, obstruction, and hazard facts."""
+    analysis = _context_with_default_quality(context)
+    return _build_shot_decision(analysis, "recovery", _recovery_options(analysis))
+
+
 def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     """Build a tee-shot decision plan from an existing hole analysis."""
     routes = analysis.get("candidateRoutes") or []
     options = [_option_from_route(route, analysis) for route in routes]
-    options.sort(key=lambda row: {"safe": 0, "stock": 1, "attack": 2}.get(row["id"], 9))
+    options = _ordered_options(options)
     selected = _select_option(options)
     forbidden = selected.get("forbiddenZones", []) if selected else []
     acceptable_miss = {

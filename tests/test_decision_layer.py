@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from ai_caddie.analysis import _hole_summary, llm_brief
-from ai_caddie.decision import build_decision_plan, judge_decision_outcome
+from ai_caddie.decision import build_decision_plan, judge_decision_outcome, recommend_approach, recommend_recovery
 from ai_caddie_web import INDEX_HTML
 
 
@@ -59,6 +59,38 @@ def analysis_fixture(*, stock_risk=1, first_shot=None):
     }
 
 
+def approach_fixture(*, has_geometry=True, sample_size=24):
+    return {
+        "roundId": "round-1",
+        "courseName": "Test Course",
+        "hole": 4,
+        "shotType": "approach",
+        "distanceToPin_m": 142.0,
+        "lie": "fairway",
+        "geometry": {"hasHazards": has_geometry, "hasMeshes": has_geometry, "hazardCount": 3},
+        "hazards": [{"kind": "water", "id": "water_front", "carryToClear_m": 126.0, "distance_m": 14.0}],
+        "clubProfiles": {
+            "9I": {"clubName": "9I", "sampleSize": sample_size, "median": 132.0, "p10": 120.0, "p90": 140.0},
+            "8I": {"clubName": "8I", "sampleSize": sample_size, "median": 144.0, "p10": 132.0, "p90": 153.0},
+            "7I": {"clubName": "7I", "sampleSize": sample_size, "median": 156.0, "p10": 142.0, "p90": 168.0},
+        },
+    }
+
+
+def recovery_fixture(*, lie="rough", blocked=True):
+    data = approach_fixture()
+    data.update(
+        {
+            "shotType": "recovery",
+            "distanceToPin_m": 178.0,
+            "lie": lie,
+            "blockedView": blocked,
+            "hazards": [{"kind": "tree_area", "id": "trees_right", "distance_m": 6.0}],
+        }
+    )
+    return data
+
+
 class DecisionLayerTests(unittest.TestCase):
     def test_decision_payload_uses_v2_contract(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
@@ -90,6 +122,34 @@ class DecisionLayerTests(unittest.TestCase):
         clubs = [club["clubName"] for club in plan["selectedOption"]["clubRecommendation"]["clubs"]]
         self.assertIn("3H", clubs)
         self.assertNotIn("Putter", clubs)
+
+    def test_recommend_approach_uses_green_and_hazard_evidence(self) -> None:
+        plan = recommend_approach(approach_fixture())
+
+        self.assertEqual(plan["schema"], "ai-caddie-decision-v2")
+        self.assertEqual(plan["shotType"], "approach")
+        self.assertEqual([option["id"] for option in plan["options"]], ["safe", "stock", "attack"])
+        self.assertEqual(plan["selected"]["id"], "stock")
+        self.assertIn("water", {zone["kind"] for zone in plan["avoidZones"]})
+        self.assertEqual(plan["confidence"]["level"], "high")
+
+    def test_recommend_recovery_from_rough_or_blocked_view_prefers_safe(self) -> None:
+        plan = recommend_recovery(recovery_fixture())
+
+        self.assertEqual(plan["shotType"], "recovery")
+        self.assertEqual(plan["selected"]["id"], "safe")
+        self.assertTrue(any(row["kind"] == "lie" for row in plan["evidence"]))
+
+    def test_missing_geometry_returns_low_confidence(self) -> None:
+        plan = recommend_approach(approach_fixture(has_geometry=False))
+
+        self.assertEqual(plan["confidence"]["level"], "low")
+        self.assertIn("meshes", {row["label"] for row in plan["missingData"]})
+
+    def test_low_club_sample_returns_missing_data(self) -> None:
+        plan = recommend_approach(approach_fixture(sample_size=1))
+
+        self.assertIn("club_profiles", {row["label"] for row in plan["missingData"]})
 
     def test_outcome_execution_when_selected_plan_hits_known_risk(self) -> None:
         shot = {
