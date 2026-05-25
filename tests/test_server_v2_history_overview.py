@@ -79,6 +79,23 @@ class ServerV2HistoryOverviewTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-history-overview-v2")
         self.assertNotIn("schema_", payload)
 
+    def test_history_overview_endpoint_can_use_fixture_mode(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        from ai_caddie.config import get_settings
+
+        with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
+            get_settings.cache_clear()
+            client = TestClient(app)
+            response = client.get("/api/v2/history/overview")
+            payload = response.json()
+        get_settings.cache_clear()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(payload["metrics"]["totalRounds"], 3)
+        self.assertIsNone(payload["emptyState"])
+
     def test_history_overview_builds_metrics_rounds_distribution_and_quality(self) -> None:
         data = HistoryData(
             raw_rounds=[

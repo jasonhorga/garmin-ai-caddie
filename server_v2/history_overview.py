@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from ai_caddie.history import HistoryData, average, load_history_data
+from ai_caddie.history import HistoryData, average
 
+from .data_source import load_history_data_for_mode
 from .models import (
     DataQualityBadge,
     DistributionBucket,
@@ -163,7 +164,7 @@ def _round_badges(row: dict[str, Any]) -> list[DataQualityBadge]:
     ]
 
 
-def _round_card(row: dict[str, Any]) -> RoundCard:
+def round_card_for_row(row: dict[str, Any]) -> RoundCard:
     strokes = row.get("strokes")
     par = row.get("par")
     return RoundCard(
@@ -199,7 +200,7 @@ def build_history_overview_response(data: HistoryData) -> HistoryOverviewRespons
             recent10Average=average(recent10_scores),
             bestScore=min(scores18) if scores18 else None,
         ),
-        recentRounds=[_round_card(row) for row in recent_rounds],
+        recentRounds=[round_card_for_row(row) for row in recent_rounds],
         distribution=_score_distribution(rounds18),
         dataQuality=_quality_badges(data),
         emptyState=EmptyState(
@@ -211,4 +212,5 @@ def build_history_overview_response(data: HistoryData) -> HistoryOverviewRespons
 
 
 def load_history_overview_response() -> HistoryOverviewResponse:
-    return build_history_overview_response(load_history_data())
+    data, _mode = load_history_data_for_mode()
+    return build_history_overview_response(data)
