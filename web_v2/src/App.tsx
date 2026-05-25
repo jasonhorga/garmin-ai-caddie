@@ -6,6 +6,7 @@ import {
   fetchHistoryRounds,
   fetchHistoryStats,
   fetchSyncStatus,
+  runGarminSync,
 } from './api'
 import { ClubStats } from './components/ClubStats'
 import { CorrectionsPage } from './components/CorrectionsPage'
@@ -45,6 +46,7 @@ export default function App() {
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
+  const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
 
   useEffect(() => {
     let cancelled = false
@@ -114,10 +116,24 @@ export default function App() {
     return response
   }
 
+  async function handleRunSync() {
+    setSyncRunState('running')
+    try {
+      await runGarminSync({ withShots: true, forceRefreshAuth: false })
+      const status = await fetchSyncStatus()
+      setSyncStatus(status)
+      setSyncRunState('idle')
+    } catch {
+      const status = await fetchSyncStatus().catch(() => null)
+      if (status) setSyncStatus(status)
+      setSyncRunState('error')
+    }
+  }
+
   function renderSyncPanel() {
     return syncStatus ? (
       <div className="app-shell sync-panel-shell">
-        <SyncStatusPanel status={syncStatus} />
+        <SyncStatusPanel status={syncStatus} onSync={handleRunSync} syncState={syncRunState} />
       </div>
     ) : null
   }

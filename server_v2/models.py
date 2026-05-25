@@ -161,12 +161,21 @@ class SnapshotStatus(BaseModel):
     lastSuccessfulSyncAt: str | None
 
 
+class SyncLastRunStatus(BaseModel):
+    state: ConnectorState
+    detail: str
+    snapshotId: str | None
+    errorCode: str | None
+    updatedAt: str | None
+
+
 class SyncStatusResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     schema_: Literal["ai-caddie-sync-status-v2"] = Field(alias="schema")
     connector: ConnectorStatus
     snapshot: SnapshotStatus
+    lastRun: SyncLastRunStatus | None
 
 
 class SyncSnapshotPayload(BaseModel):

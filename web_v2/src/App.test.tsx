@@ -105,6 +105,7 @@ function syncStatusPayload() {
       summaryPresent: true,
       lastSuccessfulSyncAt: null,
     },
+    lastRun: null,
   }
 }
 

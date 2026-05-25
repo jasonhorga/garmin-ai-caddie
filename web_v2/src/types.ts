@@ -132,6 +132,14 @@ export interface ConnectorStatus {
   reauthRequired: boolean
 }
 
+export interface SyncLastRunStatus {
+  state: ConnectorState
+  detail: string
+  snapshotId: string | null
+  errorCode: string | null
+  updatedAt: string | null
+}
+
 export interface SnapshotStatus {
   dataMode: ResolvedDataMode
   scorecardCount: number
@@ -144,6 +152,25 @@ export interface SyncStatusResponse {
   schema: 'ai-caddie-sync-status-v2'
   connector: ConnectorStatus
   snapshot: SnapshotStatus
+  lastRun: SyncLastRunStatus | null
+}
+
+export interface SyncSnapshotPayload {
+  snapshotId: string
+  scorecardCount: number
+  shotFileCount: number
+  summaryPresent: boolean
+  files: string[]
+}
+
+export interface SyncRunResponse {
+  schema: 'ai-caddie-sync-run-v2'
+  connector: 'garmin_cn_web_session'
+  state: ConnectorState
+  detail: string
+  reauthRequired: boolean
+  errorCode: string | null
+  snapshot: SyncSnapshotPayload | null
 }
 
 export interface AnnotationRecord {

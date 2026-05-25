@@ -6,6 +6,7 @@ import type {
   HistoryOverviewResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  SyncRunResponse,
   SyncStatusResponse,
 } from './types'
 
@@ -43,6 +44,19 @@ export function fetchHistoryStats(): Promise<HistoryStatsResponse> {
 
 export function fetchSyncStatus(): Promise<SyncStatusResponse> {
   return getJson<SyncStatusResponse>('/api/v2/sync/status')
+}
+
+export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: boolean }): Promise<SyncRunResponse> {
+  const params = new URLSearchParams({
+    with_shots: String(options.withShots),
+    force_refresh_auth: String(options.forceRefreshAuth),
+  })
+  return fetch(`/api/v2/sync/garmin?${params.toString()}`, { method: 'POST' }).then((response) => {
+    if (!response.ok) {
+      throw new Error(`POST /api/v2/sync/garmin failed: ${response.status} ${response.statusText}`)
+    }
+    return response.json() as Promise<SyncRunResponse>
+  })
 }
 
 export function fetchAnnotations(): Promise<AnnotationListResponse> {

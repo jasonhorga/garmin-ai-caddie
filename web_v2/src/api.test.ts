@@ -7,6 +7,7 @@ import {
   fetchHistoryRounds,
   fetchHistoryStats,
   fetchSyncStatus,
+  runGarminSync,
 } from './api'
 
 describe('fetchHistoryOverview', () => {
@@ -152,6 +153,7 @@ describe('fetchSyncStatus', () => {
           summaryPresent: false,
           lastSuccessfulSyncAt: null,
         },
+        lastRun: null,
       }),
     }))
 
@@ -160,6 +162,42 @@ describe('fetchSyncStatus', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v2/sync/status')
     expect(data.schema).toBe('ai-caddie-sync-status-v2')
     expect(data.connector.state).toBe('no_data')
+  })
+})
+
+describe('runGarminSync', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('posts the Garmin sync run request', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-sync-run-v2',
+        connector: 'garmin_cn_web_session',
+        state: 'ready',
+        detail: 'Garmin CN sync completed.',
+        reauthRequired: false,
+        errorCode: null,
+        snapshot: {
+          snapshotId: 'snap_1',
+          scorecardCount: 2,
+          shotFileCount: 1,
+          summaryPresent: true,
+          files: ['data/summary.json'],
+        },
+      }),
+    }))
+
+    const data = await runGarminSync({ withShots: true, forceRefreshAuth: false })
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=true&force_refresh_auth=false', {
+      method: 'POST',
+    })
+    expect(data.schema).toBe('ai-caddie-sync-run-v2')
+    expect(data.snapshot?.snapshotId).toBe('snap_1')
   })
 })
 

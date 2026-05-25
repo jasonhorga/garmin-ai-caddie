@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from ai_caddie.config import DataMode, get_settings
+from ai_caddie.connectors.garmin_cn import sanitize_error
 from ai_caddie.connectors.snapshot import read_connector_status
 from ai_caddie.data import ROOT
 
-from .models import ConnectorStatus, SnapshotStatus, SyncStatusResponse
+from .models import ConnectorStatus, SnapshotStatus, SyncLastRunStatus, SyncStatusResponse
 
 
 def _count_json_files(path: Path) -> int:
@@ -56,9 +57,18 @@ def build_sync_status_response(
         name="garmin_cn_web_session",
         state=state,
         detail=detail,
-        canSync=False,
+        canSync=state != "reauth_required",
         reauthRequired=state == "reauth_required",
     )
+    last_run = None
+    if persisted:
+        last_run = SyncLastRunStatus(
+            state=str(persisted.get("state") or "error"),
+            detail=sanitize_error(str(persisted.get("detail") or "")),
+            snapshotId=persisted.get("snapshotId"),
+            errorCode=persisted.get("errorCode"),
+            updatedAt=persisted.get("updatedAt"),
+        )
     return SyncStatusResponse(
         schema="ai-caddie-sync-status-v2",
         connector=connector,
@@ -69,6 +79,7 @@ def build_sync_status_response(
             summaryPresent=summary.exists(),
             lastSuccessfulSyncAt=_last_sync_at([summary, scorecard_dir, shot_dir]),
         ),
+        lastRun=last_run,
     )
 
 

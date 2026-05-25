@@ -19,8 +19,10 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-sync-status-v2")
         self.assertEqual(payload["connector"]["name"], "garmin_cn_web_session")
         self.assertEqual(payload["connector"]["state"], "no_data")
+        self.assertTrue(payload["connector"]["canSync"])
         self.assertEqual(payload["snapshot"]["scorecardCount"], 0)
         self.assertEqual(payload["snapshot"]["shotFileCount"], 0)
+        self.assertIsNone(payload["lastRun"])
         self.assertNotIn("cookie", str(payload).lower())
         self.assertNotIn("csrf", str(payload).lower())
 
@@ -68,6 +70,26 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertTrue(payload["connector"]["reauthRequired"])
         self.assertFalse(payload["connector"]["canSync"])
         self.assertEqual(payload["connector"]["detail"], "Garmin session expired.")
+        self.assertEqual(payload["lastRun"]["state"], "reauth_required")
+        self.assertEqual(payload["lastRun"]["errorCode"], "auth_failed")
+        self.assertIsNotNone(payload["lastRun"]["updatedAt"])
+
+    def test_build_sync_status_reports_last_successful_run_metadata(self) -> None:
+        from ai_caddie.connectors.snapshot import write_connector_status
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_connector_status(
+                root=root,
+                state="ready",
+                detail="Garmin CN sync completed.",
+                snapshot_id="snap_123",
+            )
+            payload = build_sync_status_response(root=root, data_mode="local").model_dump()
+
+        self.assertEqual(payload["lastRun"]["state"], "ready")
+        self.assertEqual(payload["lastRun"]["snapshotId"], "snap_123")
+        self.assertIsNone(payload["lastRun"]["errorCode"])
 
     def test_sync_status_endpoint_uses_public_schema_alias(self) -> None:
         client = TestClient(app)
