@@ -6,9 +6,11 @@ cookies, tokens, and local paths are not included.
 
 from __future__ import annotations
 
-from typing import Any
 import json
 import os
+from typing import Any
+
+from ai_caddie.llm_providers import AnthropicProvider, LLMMessage, TextProvider, build_text_provider, redact_secret_text
 
 DEFAULT_MODEL = os.getenv("AI_CADDIE_MODEL", "claude-sonnet-4-5-20250929")
 
@@ -23,22 +25,39 @@ def prompt_from_brief(brief: dict[str, Any]) -> str:
     )
 
 
-def call_anthropic(brief: dict[str, Any], *, model: str = DEFAULT_MODEL) -> str:
-    import anthropic
-
-    client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model=model,
-        max_tokens=1800,
-        messages=[{"role": "user", "content": prompt_from_brief(brief)}],
+def call_llm(brief: dict[str, Any], *, provider: TextProvider | None = None, max_tokens: int = 1800) -> str:
+    selected = provider or build_text_provider()
+    return selected.chat(
+        [
+            LLMMessage(
+                role="system",
+                content="Use only the supplied AI Caddie facts. Do not infer private data or missing context.",
+            ),
+            LLMMessage(role="user", content=prompt_from_brief(brief)),
+        ],
+        max_tokens=max_tokens,
     )
-    return msg.content[0].text
+
+
+def maybe_call_llm(brief: dict[str, Any]) -> tuple[str | None, str | None]:
+    try:
+        return call_llm(brief), None
+    except Exception as exc:
+        return None, redact_secret_text(exc)
+
+
+def call_anthropic(brief: dict[str, Any], *, model: str = DEFAULT_MODEL) -> str:
+    return call_llm(
+        brief,
+        provider=AnthropicProvider(
+            api_key_present=bool(os.getenv("ANTHROPIC_API_KEY")),
+            model=model,
+        ),
+    )
 
 
 def maybe_call_anthropic(brief: dict[str, Any]) -> tuple[str | None, str | None]:
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        return None, "ANTHROPIC_API_KEY is not set"
     try:
         return call_anthropic(brief), None
     except Exception as exc:
-        return None, str(exc)
+        return None, redact_secret_text(exc)

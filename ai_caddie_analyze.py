@@ -7,7 +7,7 @@ import json
 
 from ai_caddie.analysis import build_hole_analysis, build_round_analysis, save_analysis_artifacts
 from ai_caddie.data import latest_round_with_shots
-from ai_caddie.llm import maybe_call_anthropic, prompt_from_brief
+from ai_caddie.llm import maybe_call_llm, prompt_from_brief
 
 
 def main() -> int:
@@ -17,7 +17,7 @@ def main() -> int:
     parser.add_argument("--hole", type=int, default=1)
     parser.add_argument("--latest", action="store_true", help="Use latest Garmin round with shot data.")
     parser.add_argument("--round", action="store_true", help="Generate a round-level analysis instead of a single-hole analysis.")
-    parser.add_argument("--llm", action="store_true", help="Call Anthropic with the sanitized llmBrief if ANTHROPIC_API_KEY is set.")
+    parser.add_argument("--llm", action="store_true", help="Call the configured LLM provider with the sanitized llmBrief.")
     args = parser.parse_args()
 
     scorecard_id = args.scorecard_id
@@ -33,7 +33,7 @@ def main() -> int:
         analysis = build_round_analysis(scorecard_id=scorecard_id, write_outputs=True)
         llm_text, llm_error = (None, None)
         if args.llm:
-            llm_text, llm_error = maybe_call_anthropic(analysis["llmBrief"])
+            llm_text, llm_error = maybe_call_llm(analysis["llmBrief"])
         print(json.dumps({
             "paths": {
                 "analysis": f"output/ai_caddie/garmin_{scorecard_id}_round_analysis.json",
@@ -52,7 +52,7 @@ def main() -> int:
         paths = save_analysis_artifacts(analysis)
         llm_text, llm_error = (None, None)
         if args.llm:
-            llm_text, llm_error = maybe_call_anthropic(analysis["llmBrief"])
+            llm_text, llm_error = maybe_call_llm(analysis["llmBrief"])
         print(json.dumps({
             "paths": paths,
             "review": analysis["review"],

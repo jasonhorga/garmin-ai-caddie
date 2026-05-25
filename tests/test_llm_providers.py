@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import unittest
+import os
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from ai_caddie.config import get_settings
+from ai_caddie.llm import maybe_call_anthropic, maybe_call_llm
 from ai_caddie.llm_providers import (
     LLMMessage,
     ProviderConfigurationError,
@@ -63,6 +67,29 @@ class LLMProviderTests(unittest.TestCase):
         self.assertNotIn("csrf-secret", text)
         self.assertNotIn("/home/ubuntu/private/path", text)
         self.assertIn("[REDACTED]", text)
+
+    def test_maybe_call_llm_uses_configured_static_provider(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AI_CADDIE_LLM_PROVIDER": "static",
+                "AI_CADDIE_STATIC_LLM_REPLY": "static review",
+            },
+            clear=True,
+        ):
+            get_settings.cache_clear()
+            text, error = maybe_call_llm({"summary": "facts"})
+
+        self.assertEqual(text, "static review")
+        self.assertIsNone(error)
+
+    def test_maybe_call_anthropic_compatibility_reports_missing_key(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            get_settings.cache_clear()
+            text, error = maybe_call_anthropic({"summary": "facts"})
+
+        self.assertIsNone(text)
+        self.assertIn("ANTHROPIC_API_KEY is not configured", error or "")
 
 
 if __name__ == "__main__":

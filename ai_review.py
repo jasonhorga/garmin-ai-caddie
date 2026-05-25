@@ -1,4 +1,4 @@
-"""Tier-1 AI review prototype: feed one round to Claude, get a coaching write-up.
+"""Tier-1 AI review prototype: feed one round to the configured provider.
 
 Usage: uv run ai_review.py <scorecard_id>
        uv run ai_review.py            # uses most recent scorecard
@@ -13,12 +13,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from ai_caddie.llm_providers import LLMMessage, build_text_provider
+
 ROOT = Path(__file__).parent
 SCORECARD_DIR = ROOT / "data" / "scorecards"
 OUT_DIR = ROOT / "output" / "ai_reviews"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-MODEL = "claude-sonnet-4-5-20250929"
 
 
 def semicircle_to_deg(s: int) -> float:
@@ -110,15 +110,19 @@ PROMPT_TEMPLATE = """你是一个高尔夫教练，看过下面这场单场数�
 """
 
 
-def call_claude(brief: str) -> str:
-    import anthropic
-    client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model=MODEL,
+def call_configured_provider(brief: str) -> str:
+    provider = build_text_provider()
+    return provider.chat(
+        [
+            LLMMessage(role="user", content=PROMPT_TEMPLATE.format(brief=brief)),
+        ],
         max_tokens=1500,
-        messages=[{"role": "user", "content": PROMPT_TEMPLATE.format(brief=brief)}],
     )
-    return msg.content[0].text
+
+
+def call_claude(brief: str) -> str:
+    """Compatibility wrapper for older local scripts."""
+    return call_configured_provider(brief)
 
 
 def main() -> int:
@@ -133,9 +137,9 @@ def main() -> int:
     brief_path.write_text(brief)
     print(f"[ok] brief saved -> {brief_path.relative_to(ROOT)}  ({len(brief)} chars)")
 
-    print("[..] calling Claude API")
+    print("[..] calling configured AI provider")
     try:
-        review = call_claude(brief)
+        review = call_configured_provider(brief)
     except Exception as e:
         print(f"[!!] API call failed: {e}")
         print("    Brief was prepared but no review generated.")
