@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import unittest
+
+
+CONTRACT_DIR = Path("mobile") / "contracts"
+
+
+def _load_schema(name: str) -> dict[str, object]:
+    return json.loads((CONTRACT_DIR / name).read_text(encoding="utf-8"))
+
+
+def _assert_schema_accepts(testcase: unittest.TestCase, schema: dict[str, object], payload: dict[str, object]) -> None:
+    testcase.assertEqual(schema["type"], "object")
+    for field in schema.get("required", []):
+        testcase.assertIn(field, payload)
+    properties = schema.get("properties", {})
+    assert isinstance(properties, dict)
+    for key, value in payload.items():
+        if key not in properties:
+            continue
+        rules = properties[key]
+        assert isinstance(rules, dict)
+        if "enum" in rules:
+            testcase.assertIn(value, rules["enum"])
+        expected_type = rules.get("type")
+        if expected_type == "string":
+            testcase.assertIsInstance(value, str)
+        elif expected_type == "integer":
+            testcase.assertIsInstance(value, int)
+        elif expected_type == "number":
+            testcase.assertIsInstance(value, (int, float))
+        elif expected_type == "object":
+            testcase.assertIsInstance(value, dict)
+            _assert_schema_accepts(testcase, rules, value)
+        elif expected_type == "array":
+            testcase.assertIsInstance(value, list)
+            item_schema = rules.get("items")
+            if isinstance(item_schema, dict):
+                for item in value:
+                    testcase.assertIsInstance(item, dict)
+                    _assert_schema_accepts(testcase, item_schema, item)
+
+
+class MobileContractTests(unittest.TestCase):
+    def test_live_round_package_schema_accepts_fixture(self) -> None:
+        schema = _load_schema("live_round_package.schema.json")
+        package = {
+            "schema": "ai-caddie-live-round-package-v1",
+            "roundId": "live-round-1",
+            "playerProfile": {"playerId": "player-1", "displayName": "Test Player", "handedness": "right"},
+            "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
+            "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
+            "geometryCoverage": {"state": "partial", "readyHoles": 12, "totalHoles": 18},
+            "clubProfiles": [{"clubName": "8I", "sampleSize": 24, "median_m": 144.0, "p10_m": 132.0, "p90_m": 153.0}],
+            "caddieDecisionEndpoint": "/api/v2/caddie/decision",
+            "generatedAt": "2026-05-25T00:00:00Z",
+        }
+
+        _assert_schema_accepts(self, schema, package)
+        self.assertEqual(schema["properties"]["caddieDecisionEndpoint"]["const"], "/api/v2/caddie/decision")
+
+    def test_live_round_event_schema_accepts_all_event_kinds(self) -> None:
+        schema = _load_schema("live_round_event.schema.json")
+        kinds = schema["properties"]["kind"]["enum"]
+
+        self.assertEqual(kinds, ["score", "club", "putt", "penalty", "note", "location", "photo", "video", "sync_marker"])
+        for kind in kinds:
+            event = {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": f"event-{kind}",
+                "roundId": "live-round-1",
+                "timestamp": "2026-05-25T00:00:00Z",
+                "hole": 1,
+                "kind": kind,
+                "payload": {"source": "fixture"},
+            }
+            _assert_schema_accepts(self, schema, event)
+
+
+if __name__ == "__main__":
+    unittest.main()

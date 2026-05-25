@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Caddie Live Round Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "eventId",
+    "roundId",
+    "timestamp",
+    "hole",
+    "kind",
+    "payload"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "ai-caddie-live-round-event-v1"
+    },
+    "eventId": {
+      "type": "string"
+    },
+    "roundId": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "hole": {
+      "type": "integer"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "score",
+        "club",
+        "putt",
+        "penalty",
+        "note",
+        "location",
+        "photo",
+        "video",
+        "sync_marker"
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [],
+      "properties": {}
+    }
+  }
+}

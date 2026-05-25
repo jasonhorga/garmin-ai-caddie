@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Caddie Live Round Package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "roundId",
+    "playerProfile",
+    "course",
+    "holes",
+    "geometryCoverage",
+    "clubProfiles",
+    "caddieDecisionEndpoint",
+    "generatedAt"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "ai-caddie-live-round-package-v1"
+    },
+    "roundId": {
+      "type": "string"
+    },
+    "playerProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["playerId", "displayName", "handedness"],
+      "properties": {
+        "playerId": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "handedness": {
+          "type": "string",
+          "enum": ["right", "left", "unknown"]
+        }
+      }
+    },
+    "course": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["globalId", "name", "teeBox"],
+      "properties": {
+        "globalId": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "teeBox": {
+          "type": "string"
+        }
+      }
+    },
+    "holes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["number", "par", "geometryCoverage"],
+        "properties": {
+          "number": {
+            "type": "integer"
+          },
+          "par": {
+            "type": "integer"
+          },
+          "yards": {
+            "type": "integer"
+          },
+          "geometryCoverage": {
+            "type": "string",
+            "enum": ["ready", "partial", "missing"]
+          }
+        }
+      }
+    },
+    "geometryCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "readyHoles", "totalHoles"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["ready", "partial", "missing"]
+        },
+        "readyHoles": {
+          "type": "integer"
+        },
+        "totalHoles": {
+          "type": "integer"
+        }
+      }
+    },
+    "clubProfiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["clubName", "sampleSize", "median_m", "p10_m", "p90_m"],
+        "properties": {
+          "clubName": {
+            "type": "string"
+          },
+          "sampleSize": {
+            "type": "integer"
+          },
+          "median_m": {
+            "type": "number"
+          },
+          "p10_m": {
+            "type": "number"
+          },
+          "p90_m": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "caddieDecisionEndpoint": {
+      "type": "string",
+      "const": "/api/v2/caddie/decision"
+    },
+    "generatedAt": {
+      "type": "string"
+    }
+  }
+}
