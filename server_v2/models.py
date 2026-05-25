@@ -26,6 +26,7 @@ AnnotationKind = Literal[
 MediaTargetType = Literal["round", "hole", "shot"]
 MediaKind = Literal["photo", "video"]
 MediaPrivacyState = Literal["private_local", "synced", "redacted"]
+LiveRoundEventKind = Literal["score", "club", "putt", "penalty", "note", "location", "photo", "video", "sync_marker"]
 
 
 class DataQualityBadge(BaseModel):
@@ -331,3 +332,37 @@ class VisionAnalysisResponse(BaseModel):
     provider: str
     model: str
     findings: list[dict[str, Any]]
+
+
+class LiveRoundPackageResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-live-round-package-v1"] = Field(alias="schema")
+    roundId: str
+    playerProfile: dict[str, Any]
+    course: dict[str, Any]
+    holes: list[dict[str, Any]]
+    geometryCoverage: dict[str, Any]
+    clubProfiles: list[dict[str, Any]]
+    caddieDecisionEndpoint: str
+    generatedAt: str
+
+
+class LiveRoundEventRecord(BaseModel):
+    schema_: Literal["ai-caddie-live-round-event-v1"] = Field(alias="schema")
+    eventId: str
+    roundId: str
+    timestamp: str
+    hole: int
+    kind: LiveRoundEventKind
+    payload: dict[str, Any]
+
+
+class LiveRoundEventBatchRequest(BaseModel):
+    roundId: str
+    events: list[LiveRoundEventRecord]
+
+
+class LiveRoundEventBatchResponse(BaseModel):
+    accepted: int
+    duplicate: bool

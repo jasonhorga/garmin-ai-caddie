@@ -13,6 +13,7 @@ DATA_PATHS = [
     Path("data") / "sync",
     Path("data") / "annotations",
     Path("data") / "media",
+    Path("data") / "mobile_events",
 ]
 
 

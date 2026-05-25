@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+
+from server_v2.main import app
+
+
+class ServerV2MobileTests(unittest.TestCase):
+    def test_mobile_round_package_matches_ios_sync_client_endpoint(self) -> None:
+        client = TestClient(app)
+
+        response = client.get("/api/v2/mobile/rounds/live-round-1/package")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v1")
+        self.assertEqual(payload["roundId"], "live-round-1")
+        self.assertEqual(payload["caddieDecisionEndpoint"], "/api/v2/caddie/decision")
+        self.assertGreaterEqual(len(payload["holes"]), 1)
+        self.assertGreaterEqual(len(payload["clubProfiles"]), 1)
+
+    def test_mobile_event_batch_is_idempotent_and_temp_rooted(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "event-1",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+            "payload": {"strokes": 4},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                first = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "batch-1"},
+                    json={"roundId": "live-round-1", "events": [event]},
+                )
+                second = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "batch-1"},
+                    json={"roundId": "live-round-1", "events": [event]},
+                )
+                log_text = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json(), {"accepted": 1, "duplicate": False})
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json(), {"accepted": 0, "duplicate": True})
+        self.assertEqual(log_text.count("event-1"), 1)
+
+    def test_mobile_event_batch_requires_idempotency_key(self) -> None:
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v2/mobile/rounds/live-round-1/events",
+            json={"roundId": "live-round-1", "events": []},
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+
+if __name__ == "__main__":
+    unittest.main()

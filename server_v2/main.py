@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Query, Response
+from typing import Annotated
+
+from fastapi import FastAPI, Header, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error
@@ -13,6 +15,7 @@ from .history_rounds import load_history_rounds_response
 from .history_stats import load_history_stats_response
 from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response
 from .media import analyze_media_response, create_media_response, list_target_media_response
+from .mobile import append_mobile_events_response, build_mobile_round_package_response
 from .models import (
     AnnotationCreateRequest,
     AnnotationCreateResponse,
@@ -25,6 +28,9 @@ from .models import (
     HistoryOverviewResponse,
     HistoryRoundsResponse,
     HistoryStatsResponse,
+    LiveRoundEventBatchRequest,
+    LiveRoundEventBatchResponse,
+    LiveRoundPackageResponse,
     MediaCreateRequest,
     MediaCreateResponse,
     MediaListResponse,
@@ -72,6 +78,8 @@ def service_index() -> dict[str, object]:
             "media": "/api/v2/media",
             "mediaByTarget": "/api/v2/media/target/{target_type}/{target_id}",
             "analyzeMedia": "/api/v2/media/{media_id}/analyze",
+            "mobileRoundPackage": "/api/v2/mobile/rounds/{round_id}/package",
+            "mobileRoundEvents": "/api/v2/mobile/rounds/{round_id}/events",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
             "syncStatus": "/api/v2/sync/status",
@@ -150,6 +158,20 @@ def media_by_target(target_type: MediaTargetType, target_id: str) -> MediaListRe
 @app.post("/api/v2/media/{media_id}/analyze", response_model=VisionAnalysisResponse)
 def analyze_media(media_id: str) -> VisionAnalysisResponse:
     return analyze_media_response(media_id)
+
+
+@app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
+def mobile_round_package(round_id: str) -> LiveRoundPackageResponse:
+    return build_mobile_round_package_response(round_id)
+
+
+@app.post("/api/v2/mobile/rounds/{round_id}/events", response_model=LiveRoundEventBatchResponse)
+def mobile_round_events(
+    round_id: str,
+    request: LiveRoundEventBatchRequest,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+) -> LiveRoundEventBatchResponse:
+    return append_mobile_events_response(round_id, request, idempotency_key=idempotency_key)
 
 
 @app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)
