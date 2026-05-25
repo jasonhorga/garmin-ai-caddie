@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, Header, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -179,6 +179,8 @@ def mobile_round_events(
 
 @app.get("/api/v2/weather/snapshot", response_model=WeatherSnapshotResponse)
 def weather_snapshot(
+    source: Literal["manual", "open_meteo"] = "manual",
+    persist: bool = False,
     round_id: str | None = None,
     hole: int | None = None,
     captured_at: str | None = None,
@@ -190,6 +192,8 @@ def weather_snapshot(
     precipitation_mm: float | None = None,
 ) -> WeatherSnapshotResponse:
     return load_weather_snapshot_response(
+        source=source,
+        persist=persist,
         round_id=round_id,
         hole=hole,
         captured_at=captured_at,

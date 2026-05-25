@@ -9,6 +9,7 @@ from ai_caddie.annotations import list_annotations
 from ai_caddie.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData, average, percentile
 from ai_caddie.issue_taxonomy import issue_record
+from ai_caddie.weather_context import list_weather_snapshots
 
 DataModeName = Literal["local", "fixture"]
 CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction"}
@@ -394,7 +395,29 @@ def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) 
     return rows
 
 
-def _data_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+def _weather_quality(data: HistoryData, weather_snapshots: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    total_holes = sum(len(row.get("holes") or []) for row in data.rounds)
+    ready_refs = sorted(
+        {
+            f"{row.get('roundId')}:{row.get('hole')}"
+            for row in weather_snapshots or []
+            if row.get("state") == "ready" and row.get("roundId") is not None and row.get("hole") is not None
+        }
+    )
+    return {
+        "label": "weather",
+        "state": "good" if total_holes and len(ready_refs) >= total_holes else "partial" if ready_refs else "missing",
+        "ready": len(ready_refs),
+        "total": total_holes,
+        "refs": ready_refs,
+    }
+
+
+def _data_quality(
+    data: HistoryData,
+    annotations: list[dict[str, Any]] | None = None,
+    weather_snapshots: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     total = len(data.raw_rounds)
     shots_ready = sum(1 for row in data.raw_rounds if row.get("hasShots"))
     annotation_count = len(annotations or [])
@@ -428,6 +451,7 @@ def _data_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = 
             "total": annotation_count,
             "refs": [str(row.get("id")) for row in corrections],
         },
+        _weather_quality(data, weather_snapshots),
     ]
 
 
@@ -436,8 +460,10 @@ def build_history_stats(
     *,
     data_mode: DataModeName,
     annotations_root: Path | str | None = None,
+    weather_root: Path | str | None = None,
 ) -> dict[str, Any]:
     annotations = list_annotations(root=annotations_root)
+    weather_snapshots = list_weather_snapshots(root=weather_root)
     return {
         "schema": "ai-caddie-history-stats-v1",
         "dataMode": data_mode,
@@ -448,7 +474,7 @@ def build_history_stats(
         "holes": _holes(data),
         "clubs": _clubs(data, annotations),
         "issues": _issues(data, annotations),
-        "dataQuality": _data_quality(data, annotations),
+        "dataQuality": _data_quality(data, annotations, weather_snapshots),
         "drillDown": {
             "roundIds": [_round_id(row) for row in data.rounds],
             "shotRefs": [f"{shot.get('roundId')}:{shot.get('hole')}:{index}" for index, shot in enumerate(data.shots)],

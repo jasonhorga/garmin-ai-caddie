@@ -7,6 +7,7 @@ import unittest
 from ai_caddie.annotations import add_annotation
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history_stats import build_history_stats
+from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 
 
 class HistoryStatsCoreTests(unittest.TestCase):
@@ -163,6 +164,35 @@ class HistoryStatsCoreTests(unittest.TestCase):
         correction_quality = next(row for row in stats["dataQuality"] if row["label"] == "corrections")
         self.assertEqual(correction_quality["state"], "good")
         self.assertEqual(correction_quality["ready"], 4)
+
+    def test_weather_coverage_is_reported_from_persisted_snapshots(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_weather_snapshot(
+                build_weather_snapshot(
+                    round_id="900001",
+                    hole=7,
+                    captured_at="2026-05-25T08:00:00Z",
+                    latitude=22.279,
+                    longitude=114.162,
+                    source="open_meteo",
+                    observed={"windSpeedMps": 5.4, "windDirectionDeg": 110},
+                ),
+                root=root,
+            )
+
+            stats = build_history_stats(
+                fixture_history_data(),
+                data_mode="fixture",
+                annotations_root=root,
+                weather_root=root,
+            )
+
+        weather_quality = next(row for row in stats["dataQuality"] if row["label"] == "weather")
+        self.assertEqual(weather_quality["state"], "partial")
+        self.assertEqual(weather_quality["ready"], 1)
+        self.assertEqual(weather_quality["total"], 45)
+        self.assertEqual(weather_quality["refs"], ["900001:7"])
 
 
 if __name__ == "__main__":

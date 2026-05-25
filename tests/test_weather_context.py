@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from urllib.parse import parse_qs, urlparse
 
-from ai_caddie.weather_context import build_weather_snapshot
+from ai_caddie.weather_context import (
+    build_weather_snapshot,
+    fetch_open_meteo_weather_snapshot,
+    latest_weather_snapshot,
+    list_weather_snapshots,
+    store_weather_snapshot,
+)
 
 
 class WeatherContextTests(unittest.TestCase):
@@ -37,6 +46,96 @@ class WeatherContextTests(unittest.TestCase):
         self.assertEqual(snapshot["windSpeedMps"], 5.4)
         self.assertEqual(snapshot["windDirectionDeg"], 110)
         self.assertEqual(snapshot["missingData"], [])
+
+    def test_open_meteo_provider_maps_current_response_without_key(self) -> None:
+        captured_urls: list[str] = []
+
+        def fake_transport(url: str) -> dict[str, object]:
+            captured_urls.append(url)
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            self.assertEqual(parsed.netloc, "api.open-meteo.com")
+            self.assertEqual(params["latitude"], ["22.279"])
+            self.assertEqual(params["longitude"], ["114.162"])
+            self.assertEqual(params["wind_speed_unit"], ["ms"])
+            self.assertIn("temperature_2m", params["current"][0])
+            self.assertIn("wind_speed_10m", params["current"][0])
+            return {
+                "current": {
+                    "time": "2026-05-25T08:00",
+                    "temperature_2m": 28.5,
+                    "wind_speed_10m": 5.4,
+                    "wind_direction_10m": 110,
+                    "precipitation": 0.2,
+                }
+            }
+
+        snapshot = fetch_open_meteo_weather_snapshot(
+            round_id="round-1",
+            hole=7,
+            latitude=22.279,
+            longitude=114.162,
+            transport=fake_transport,
+        )
+
+        self.assertEqual(len(captured_urls), 1)
+        self.assertEqual(snapshot["state"], "ready")
+        self.assertEqual(snapshot["source"], "open_meteo")
+        self.assertEqual(snapshot["capturedAt"], "2026-05-25T08:00:00Z")
+        self.assertEqual(snapshot["windSpeedMps"], 5.4)
+        self.assertEqual(snapshot["windDirectionDeg"], 110)
+        self.assertEqual(snapshot["temperatureC"], 28.5)
+        self.assertEqual(snapshot["precipitationMm"], 0.2)
+        self.assertEqual(snapshot["confidence"], "high")
+
+    def test_open_meteo_provider_degrades_without_network_or_values(self) -> None:
+        def failing_transport(_url: str) -> dict[str, object]:
+            raise TimeoutError("provider timed out")
+
+        snapshot = fetch_open_meteo_weather_snapshot(
+            round_id="round-1",
+            hole=7,
+            captured_at="2026-05-25T08:00:00Z",
+            latitude=22.279,
+            longitude=114.162,
+            transport=failing_transport,
+        )
+
+        self.assertEqual(snapshot["state"], "missing")
+        self.assertEqual(snapshot["source"], "missing")
+        self.assertIn("weather_provider", {row["label"] for row in snapshot["missingData"]})
+
+    def test_weather_snapshot_store_round_trips_and_finds_latest(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = build_weather_snapshot(
+                round_id="round-1",
+                hole=7,
+                captured_at="2026-05-25T08:00:00Z",
+                latitude=22.279,
+                longitude=114.162,
+                source="manual",
+                observed={"windSpeedMps": 4.0},
+            )
+            second = build_weather_snapshot(
+                round_id="round-1",
+                hole=7,
+                captured_at="2026-05-25T09:00:00Z",
+                latitude=22.279,
+                longitude=114.162,
+                source="manual",
+                observed={"windSpeedMps": 6.0},
+            )
+
+            store_weather_snapshot(first, root=root)
+            store_weather_snapshot(second, root=root)
+
+            snapshots = list_weather_snapshots(root=root)
+            latest = latest_weather_snapshot("round-1", 7, root=root)
+
+        self.assertEqual(len(snapshots), 2)
+        self.assertEqual(latest["capturedAt"], "2026-05-25T09:00:00Z")
+        self.assertEqual(latest["windSpeedMps"], 6.0)
 
 
 if __name__ == "__main__":
