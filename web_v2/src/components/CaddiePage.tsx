@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import type { CaddieDecisionAuditRecord, CaddieDecisionRequest, CaddieDecisionResponse, CaddieShotType } from '../types'
+import type {
+  CaddieDecisionAuditRecord,
+  CaddieDecisionRequest,
+  CaddieDecisionResponse,
+  CaddieShotType,
+  WeatherSnapshotResponse,
+} from '../types'
 
 type AuditState =
   | { status: 'idle' }
@@ -7,15 +13,31 @@ type AuditState =
   | { status: 'error'; message: string }
   | { status: 'ready'; data: CaddieDecisionAuditRecord | null }
 
+type WeatherLoadState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; data: WeatherSnapshotResponse }
+
 interface CaddiePageProps {
   decisionState: { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: CaddieDecisionResponse }
   auditState?: AuditState
+  weatherState?: WeatherLoadState
   onRequestDecision: (request: CaddieDecisionRequest) => void
   onCreateAudit?: (decision: CaddieDecisionResponse) => void
+  onLoadWeather?: () => void
 }
 
-export function CaddiePage({ decisionState, auditState = { status: 'idle' }, onRequestDecision, onCreateAudit }: CaddiePageProps) {
+export function CaddiePage({
+  decisionState,
+  auditState = { status: 'idle' },
+  weatherState = { status: 'idle' },
+  onRequestDecision,
+  onCreateAudit,
+  onLoadWeather,
+}: CaddiePageProps) {
   const [shotType, setShotType] = useState<CaddieShotType>('approach')
+  const weatherSnapshot = weatherState.status === 'ready' ? weatherState.data : null
 
   return (
     <section className="caddie-workspace">
@@ -34,12 +56,61 @@ export function CaddiePage({ decisionState, auditState = { status: 'idle' }, onR
           <option value="tee">Tee</option>
           <option value="recovery">Recovery</option>
         </select>
-        <button type="button" onClick={() => onRequestDecision(buildFixtureRequest(shotType))}>
+        {onLoadWeather ? (
+          <button type="button" onClick={onLoadWeather}>
+            Load weather
+          </button>
+        ) : null}
+        <button type="button" onClick={() => onRequestDecision(buildFixtureRequest(shotType, weatherSnapshot))}>
           Request caddie plan
         </button>
       </section>
 
+      {onLoadWeather ? <WeatherContextPanel state={weatherState} /> : null}
       <DecisionDetail state={decisionState} auditState={auditState} onCreateAudit={onCreateAudit} />
+    </section>
+  )
+}
+
+function WeatherContextPanel({ state }: { state: WeatherLoadState }) {
+  if (state.status === 'loading') {
+    return (
+      <section className="weather-context-panel" aria-label="Weather context">
+        <h2>Loading weather</h2>
+      </section>
+    )
+  }
+
+  if (state.status === 'error') {
+    return (
+      <section className="weather-context-panel" aria-label="Weather context">
+        <h2>Weather unavailable</h2>
+        <p>{state.message}</p>
+      </section>
+    )
+  }
+
+  if (state.status === 'idle') {
+    return (
+      <section className="weather-context-panel" aria-label="Weather context">
+        <h2>Weather Context</h2>
+        <p>No weather snapshot loaded.</p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="weather-context-panel" aria-label="Weather context">
+      <div>
+        <p className="eyebrow">{state.data.source}</p>
+        <h2>Weather Context</h2>
+      </div>
+      <div className="weather-context-facts">
+        <span>{state.data.windSpeedMps ?? '-'} m/s</span>
+        <span>{state.data.windDirectionDeg ?? '-'} deg</span>
+        <span>{state.data.temperatureC ?? '-'} C</span>
+        <span>{state.data.confidence} confidence</span>
+      </div>
     </section>
   )
 }
@@ -189,11 +260,14 @@ function EvidenceList({ title, rows }: { title: string; rows: Array<Record<strin
   )
 }
 
-function buildFixtureRequest(shotType: CaddieShotType): CaddieDecisionRequest {
+function buildFixtureRequest(shotType: CaddieShotType, weatherSnapshot: WeatherSnapshotResponse | null): CaddieDecisionRequest {
+  const withWeather = (context: Record<string, unknown>) =>
+    weatherSnapshot ? { ...context, weatherSnapshot } : context
+
   if (shotType === 'tee') {
     return {
       shotType,
-      context: {
+      context: withWeather({
         courseName: 'Fixture Links',
         hole: 1,
         shotType,
@@ -201,25 +275,25 @@ function buildFixtureRequest(shotType: CaddieShotType): CaddieDecisionRequest {
           '1W': { clubName: '1W', sampleSize: 24, median: 221, p10: 190, p90: 249 },
           '3H': { clubName: '3H', sampleSize: 18, median: 178, p10: 158, p90: 198 },
         },
-      },
+      }),
     }
   }
   if (shotType === 'recovery') {
     return {
       shotType,
-      context: {
+      context: withWeather({
         courseName: 'Fixture Links',
         hole: 11,
         distanceToPin_m: 178,
         lie: 'rough',
         blockedView: true,
         hazards: [{ kind: 'tree_area', id: 'trees_right', distance_m: 6 }],
-      },
+      }),
     }
   }
   return {
     shotType,
-    context: {
+    context: withWeather({
       courseName: 'Fixture Links',
       hole: 4,
       distanceToPin_m: 142,
@@ -230,7 +304,7 @@ function buildFixtureRequest(shotType: CaddieShotType): CaddieDecisionRequest {
         '8I': { clubName: '8I', sampleSize: 24, median: 144, p10: 132, p90: 153 },
         '7I': { clubName: '7I', sampleSize: 24, median: 156, p10: 142, p90: 168 },
       },
-    },
+    }),
   }
 }
 

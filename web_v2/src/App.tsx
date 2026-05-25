@@ -11,6 +11,7 @@ import {
   fetchReadiness,
   fetchRoundReport,
   fetchTrendReport,
+  fetchWeatherSnapshot,
   generateRoundReport,
   generateTrendReport,
   fetchSyncStatus,
@@ -47,6 +48,7 @@ import type {
   ReadinessResponse,
   ReviewReportResponse,
   SyncStatusResponse,
+  WeatherSnapshotResponse,
 } from './types'
 
 type LoadState<T> =
@@ -68,6 +70,7 @@ export default function App() {
   const [readinessState, setReadinessState] = useState<DeferredLoadState<ReadinessResponse>>({ status: 'idle' })
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
   const [decisionAuditState, setDecisionAuditState] = useState<DeferredLoadState<CaddieDecisionAuditRecord | null>>({ status: 'idle' })
+  const [weatherState, setWeatherState] = useState<DeferredLoadState<WeatherSnapshotResponse>>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
@@ -273,6 +276,27 @@ export default function App() {
     }
   }
 
+  async function handleLoadWeather() {
+    setWeatherState({ status: 'loading' })
+    try {
+      const snapshot = await fetchWeatherSnapshot({
+        source: 'manual',
+        roundId: 'fixture-round',
+        hole: 4,
+        capturedAt: '2026-05-25T08:00:00Z',
+        latitude: 22.279,
+        longitude: 114.162,
+        windSpeedMps: 5.4,
+        windDirectionDeg: 110,
+        temperatureC: 28.5,
+        precipitationMm: 0,
+      })
+      setWeatherState({ status: 'ready', data: snapshot })
+    } catch (error: unknown) {
+      setWeatherState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+    }
+  }
+
   if (overviewState.status === 'loading') {
     return (
       <main className="app-shell">
@@ -369,8 +393,10 @@ export default function App() {
           <CaddiePage
             decisionState={decisionState}
             auditState={decisionAuditState}
+            weatherState={weatherState}
             onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
             onCreateAudit={(decision) => void handleCreateDecisionAudit(decision)}
+            onLoadWeather={() => void handleLoadWeather()}
           />
         </main>
       </>

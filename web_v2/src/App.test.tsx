@@ -243,6 +243,24 @@ function caddieAuditPayload() {
   }
 }
 
+function weatherPayload() {
+  return {
+    schema: 'ai-caddie-weather-snapshot-v1',
+    state: 'ready',
+    source: 'manual',
+    roundId: 'fixture-round',
+    hole: 4,
+    capturedAt: '2026-05-25T08:00:00Z',
+    location: { latitude: 22.279, longitude: 114.162 },
+    windSpeedMps: 5.4,
+    windDirectionDeg: 110,
+    temperatureC: 28.5,
+    precipitationMm: 0,
+    confidence: 'medium',
+    missingData: [],
+  }
+}
+
 function drilldownPayload() {
   return {
     schema: 'ai-caddie-history-drilldown-v1',
@@ -449,6 +467,7 @@ describe('App navigation', () => {
       json: async () => {
         if (path === '/api/v2/caddie/decision') return caddieDecisionPayload()
         if (path === '/api/v2/caddie/decisions/fixture-links-4-approach/audit') return caddieAuditPayload()
+        if (String(path).startsWith('/api/v2/weather/snapshot')) return weatherPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayload()
       },
@@ -461,9 +480,13 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Caddie' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
 
+    await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
+    expect(await screen.findByText('5.4 m/s')).toBeInTheDocument()
+
     await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
 
     expect(await screen.findByText('8I')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/v2/weather/snapshot?source=manual'))
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decision', expect.objectContaining({ method: 'POST' }))
 
     await userEvent.click(screen.getByRole('button', { name: 'Audit with fixture outcome' }))

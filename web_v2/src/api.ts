@@ -16,6 +16,8 @@ import type {
   ReviewReportResponse,
   SyncRunResponse,
   SyncStatusResponse,
+  WeatherSnapshotParams,
+  WeatherSnapshotResponse,
 } from './types'
 
 async function getJson<T>(path: string): Promise<T> {
@@ -36,6 +38,10 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     throw new Error(`POST ${path} failed: ${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<T>
+}
+
+function appendParam(query: URLSearchParams, key: string, value: string | number | boolean | undefined): void {
+  if (value !== undefined) query.append(key, String(value))
 }
 
 export function fetchHistoryOverview(): Promise<HistoryOverviewResponse> {
@@ -60,6 +66,23 @@ export function fetchLatestCaddieDecisionAudit(decisionId: string): Promise<Cadd
   return getJson<CaddieDecisionAuditLatestResponse>(
     `/api/v2/caddie/decisions/${encodeURIComponent(decisionId)}/audit/latest`,
   )
+}
+
+export function fetchWeatherSnapshot(params: WeatherSnapshotParams = {}): Promise<WeatherSnapshotResponse> {
+  const query = new URLSearchParams()
+  appendParam(query, 'source', params.source)
+  appendParam(query, 'persist', params.persist)
+  appendParam(query, 'round_id', params.roundId)
+  appendParam(query, 'hole', params.hole)
+  appendParam(query, 'captured_at', params.capturedAt)
+  appendParam(query, 'latitude', params.latitude)
+  appendParam(query, 'longitude', params.longitude)
+  appendParam(query, 'wind_speed_mps', params.windSpeedMps)
+  appendParam(query, 'wind_direction_deg', params.windDirectionDeg)
+  appendParam(query, 'temperature_c', params.temperatureC)
+  appendParam(query, 'precipitation_mm', params.precipitationMm)
+  const suffix = query.toString()
+  return getJson<WeatherSnapshotResponse>(`/api/v2/weather/snapshot${suffix ? `?${suffix}` : ''}`)
 }
 
 export function fetchHistoryRounds(): Promise<HistoryRoundsResponse> {

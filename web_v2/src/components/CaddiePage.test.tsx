@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CaddiePage } from './CaddiePage'
-import type { CaddieDecisionAuditRecord, CaddieDecisionResponse } from '../types'
+import type { CaddieDecisionAuditRecord, CaddieDecisionResponse, WeatherSnapshotResponse } from '../types'
 
 const decision: CaddieDecisionResponse = {
   schema: 'ai-caddie-decision-v2',
@@ -42,17 +42,36 @@ const auditRecord: CaddieDecisionAuditRecord = {
   },
 }
 
+const weatherSnapshot: WeatherSnapshotResponse = {
+  schema: 'ai-caddie-weather-snapshot-v1',
+  state: 'ready',
+  source: 'manual',
+  roundId: 'fixture-round',
+  hole: 4,
+  capturedAt: '2026-05-25T08:00:00Z',
+  location: { latitude: 22.279, longitude: 114.162 },
+  windSpeedMps: 5.4,
+  windDirectionDeg: 110,
+  temperatureC: 28.5,
+  precipitationMm: 0,
+  confidence: 'medium',
+  missingData: [],
+}
+
 describe('CaddiePage', () => {
   it('renders decision evidence and requests a fixture-backed plan', async () => {
     const onRequestDecision = vi.fn()
     const onCreateAudit = vi.fn()
+    const onLoadWeather = vi.fn()
 
     render(
       <CaddiePage
         decisionState={{ status: 'ready', data: decision }}
         auditState={{ status: 'ready', data: auditRecord }}
+        weatherState={{ status: 'ready', data: weatherSnapshot }}
         onRequestDecision={onRequestDecision}
         onCreateAudit={onCreateAudit}
+        onLoadWeather={onLoadWeather}
       />,
     )
 
@@ -62,16 +81,19 @@ describe('CaddiePage', () => {
     expect(screen.getByText('selected')).toBeInTheDocument()
     expect(screen.getAllByText('water_front').length).toBeGreaterThan(0)
     expect(screen.getByText('wind')).toBeInTheDocument()
-    expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)
     expect(screen.getByText('execution')).toHaveClass('audit-execution')
     expect(screen.getByText('planned stock -> actual stock')).toBeInTheDocument()
+    expect(screen.getByText('5.4 m/s')).toBeInTheDocument()
 
+    await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
     await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
     await userEvent.click(screen.getByRole('button', { name: 'Audit with fixture outcome' }))
 
+    expect(onLoadWeather).toHaveBeenCalledTimes(1)
     expect(onRequestDecision).toHaveBeenCalledWith({
       shotType: 'approach',
-      context: expect.objectContaining({ distanceToPin_m: 142, lie: 'fairway' }),
+      context: expect.objectContaining({ distanceToPin_m: 142, lie: 'fairway', weatherSnapshot }),
     })
     expect(onCreateAudit).toHaveBeenCalledWith(decision)
   })

@@ -138,6 +138,39 @@ export interface CaddieDecisionAuditLatestResponse {
   record: CaddieDecisionAuditRecord | null
 }
 
+export type WeatherState = 'ready' | 'missing'
+export type WeatherSource = 'manual' | 'open_meteo' | 'missing'
+
+export interface WeatherSnapshotResponse {
+  schema: 'ai-caddie-weather-snapshot-v1'
+  state: WeatherState
+  source: WeatherSource
+  roundId: string | null
+  hole: number | null
+  capturedAt: string | null
+  location: { latitude: number; longitude: number } | null
+  windSpeedMps: number | null
+  windDirectionDeg: number | null
+  temperatureC: number | null
+  precipitationMm: number | null
+  confidence: ReportConfidence
+  missingData: Array<Record<string, unknown>>
+}
+
+export interface WeatherSnapshotParams {
+  source?: 'manual' | 'open_meteo'
+  persist?: boolean
+  roundId?: string
+  hole?: number
+  capturedAt?: string
+  latitude?: number
+  longitude?: number
+  windSpeedMps?: number
+  windDirectionDeg?: number
+  temperatureC?: number
+  precipitationMm?: number
+}
+
 export interface MonthRoundGroup {
   key: string
   label: string

@@ -11,6 +11,7 @@ import {
   fetchHistoryStats,
   fetchLatestCaddieDecisionAudit,
   fetchReadiness,
+  fetchWeatherSnapshot,
   fetchTrendReport,
   generateTrendReport,
   fetchSyncStatus,
@@ -279,6 +280,52 @@ describe('caddie audit API helpers', () => {
     })
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/caddie/decisions/round-1%3A4%3A2/audit/latest')
     expect(created.record.audit.classification).toBe('execution')
+  })
+})
+
+describe('fetchWeatherSnapshot', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads manual weather snapshots with caddie context params', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-weather-snapshot-v1',
+        state: 'ready',
+        source: 'manual',
+        roundId: 'fixture-round',
+        hole: 4,
+        capturedAt: '2026-05-25T08:00:00Z',
+        location: { latitude: 22.279, longitude: 114.162 },
+        windSpeedMps: 5.4,
+        windDirectionDeg: 110,
+        temperatureC: 28.5,
+        precipitationMm: 0,
+        confidence: 'medium',
+        missingData: [],
+      }),
+    }))
+
+    const data = await fetchWeatherSnapshot({
+      source: 'manual',
+      roundId: 'fixture-round',
+      hole: 4,
+      capturedAt: '2026-05-25T08:00:00Z',
+      latitude: 22.279,
+      longitude: 114.162,
+      windSpeedMps: 5.4,
+      windDirectionDeg: 110,
+      temperatureC: 28.5,
+      precipitationMm: 0,
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v2/weather/snapshot?source=manual&round_id=fixture-round&hole=4&captured_at=2026-05-25T08%3A00%3A00Z&latitude=22.279&longitude=114.162&wind_speed_mps=5.4&wind_direction_deg=110&temperature_c=28.5&precipitation_mm=0',
+    )
+    expect(data.windSpeedMps).toBe(5.4)
   })
 })
 

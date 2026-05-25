@@ -1294,7 +1294,7 @@ p {
 
 .caddie-control-bar {
   display: grid;
-  grid-template-columns: minmax(150px, 180px) minmax(180px, 240px) auto;
+  grid-template-columns: minmax(130px, 170px) minmax(160px, 220px) auto auto;
   gap: 12px;
   align-items: end;
   border: 1px solid var(--line);
@@ -1323,6 +1323,34 @@ p {
 
 .caddie-control-bar button {
   cursor: pointer;
+}
+
+.weather-context-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf7;
+  padding: 14px;
+}
+
+.weather-context-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.weather-context-facts span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 5px 9px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
 }
 
 .decision-detail {
@@ -1429,6 +1457,14 @@ p {
 
   .readiness-grid {
     grid-template-columns: 1fr;
+  }
+
+  .weather-context-panel {
+    flex-direction: column;
+  }
+
+  .weather-context-facts {
+    justify-content: flex-start;
   }
 }
 
