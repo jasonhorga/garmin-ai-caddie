@@ -1,11 +1,13 @@
 import type { HistoryStatsResponse } from '../types'
-import { asString, formatNumber, formatRefs } from './statsValues'
+import { SourceRefs } from './SourceRefs'
+import { asString, formatNumber } from './statsValues'
 
 interface IssueStatsProps {
   data: HistoryStatsResponse
+  onSelectRef?: (sourceRef: string) => void
 }
 
-export function IssueStats({ data }: IssueStatsProps) {
+export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
   return (
     <section className="stats-page" aria-label="Issue statistics">
       <div className="section-head stats-head">
@@ -20,7 +22,9 @@ export function IssueStats({ data }: IssueStatsProps) {
           <article key={asString(issue.issue) ?? 'issue'} className="stats-item">
             <div className="stats-item-main">
               <h2>{asString(issue.issue) ?? 'Unknown issue'}</h2>
-              <p>{formatRefs(issue.refs)}</p>
+              <p>
+                <SourceRefs refs={issue.sourceRefs ?? issue.refs} onSelectRef={onSelectRef} />
+              </p>
             </div>
             <strong className="stats-count">{formatNumber(issue.count)}</strong>
           </article>

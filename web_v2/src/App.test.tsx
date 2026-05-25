@@ -81,7 +81,18 @@ function statsPayload() {
       },
     ],
     holes: [{ courseKey: 'black_knight', hole: 7, sampleCount: 2, averageToPar: 1.5, worstToPar: 3, refs: ['900001:7'] }],
-    clubs: [{ club: '1D', sampleCount: 2, median: 240, p10: 225, p90: 255, max: 270, confidence: 'medium' }],
+    clubs: [
+      {
+        club: '1D',
+        sampleCount: 2,
+        median: 240,
+        p10: 225,
+        p90: 255,
+        max: 270,
+        confidence: 'medium',
+        shotRefs: ['900001:1:0', '900002:5:4'],
+      },
+    ],
     issues: [{ issue: 'missing_shots', count: 1, refs: ['900003'] }],
     dataQuality: [{ label: 'shots', state: 'partial', ready: 2, total: 3, refs: ['900003'] }],
     drillDown: { roundIds: ['900001', '900002', '900003'], roundRefs: ['900001', '900002', '900003'] },
@@ -189,6 +200,22 @@ function caddieDecisionPayload() {
   }
 }
 
+function drilldownPayload() {
+  return {
+    schema: 'ai-caddie-history-drilldown-v1',
+    ref: '900001:1:0',
+    refType: 'shot',
+    found: true,
+    title: '1D on H1',
+    round: { id: '900001', score: 77 },
+    hole: { number: 1, par: 4, strokes: 4, toPar: 0 },
+    shot: { club: '1D', distance: 242, surface: 'fairway' },
+    relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:1'], shotRefs: ['900001:1:0'] },
+    sourceFields: { clubName: '1D', meters: 242 },
+    missingData: [{ label: 'geometry', state: 'partial' }],
+  }
+}
+
 describe('App navigation', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -233,6 +260,7 @@ describe('App navigation', () => {
       ok: true,
       json: async () => {
         if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/drilldown/900001%3A1%3A0') return drilldownPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayload()
       },
@@ -251,6 +279,12 @@ describe('App navigation', () => {
 
     expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
     expect(screen.getByText('1D')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
+
+    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(screen.getByText('1D on H1')).toBeInTheDocument()
+    expect(screen.getByText('geometry')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A0')
 
     await userEvent.click(screen.getByRole('button', { name: 'Issues' }))
 

@@ -1,11 +1,13 @@
 import type { HistoryStatsResponse } from '../types'
-import { asString, formatNumber, formatRefs } from './statsValues'
+import { SourceRefs } from './SourceRefs'
+import { asString, formatNumber } from './statsValues'
 
 interface CourseStatsProps {
   data: HistoryStatsResponse
+  onSelectRef?: (sourceRef: string) => void
 }
 
-export function CourseStats({ data }: CourseStatsProps) {
+export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
   const courses = data.courses
 
   return (
@@ -30,7 +32,9 @@ export function CourseStats({ data }: CourseStatsProps) {
               <span>best {formatNumber(course.bestScore)}</span>
               <span>worst {formatNumber(course.worstScore)}</span>
             </div>
-            <p className="stats-refs">{formatRefs(course.roundIds)}</p>
+            <p className="stats-refs">
+              <SourceRefs refs={course.roundRefs ?? course.roundIds} onSelectRef={onSelectRef} />
+            </p>
           </article>
         ))}
       </div>

@@ -1,11 +1,13 @@
 import type { HistoryStatsResponse } from '../types'
+import { SourceRefs } from './SourceRefs'
 import { asString, formatNumber } from './statsValues'
 
 interface ClubStatsProps {
   data: HistoryStatsResponse
+  onSelectRef?: (sourceRef: string) => void
 }
 
-export function ClubStats({ data }: ClubStatsProps) {
+export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
   return (
     <section className="stats-page" aria-label="Club statistics">
       <div className="section-head stats-head">
@@ -29,6 +31,9 @@ export function ClubStats({ data }: ClubStatsProps) {
               <span>max {formatNumber(club.max)}</span>
               <span>{asString(club.confidence) ?? 'unknown'} confidence</span>
             </div>
+            <p className="stats-refs">
+              <SourceRefs refs={club.shotRefs ?? club.roundRefs ?? club.roundIds} onSelectRef={onSelectRef} />
+            </p>
           </article>
         ))}
       </div>

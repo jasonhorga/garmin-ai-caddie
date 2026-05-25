@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { HistoryStatsResponse } from '../types'
 import { ClubStats } from './ClubStats'
 
@@ -20,7 +20,7 @@ const statsFixture: HistoryStatsResponse = {
       p90: 255,
       max: 270,
       confidence: 'medium',
-      roundIds: ['900001', '900002'],
+      shotRefs: ['900001:1:0', '900002:5:4'],
     },
   ],
   issues: [],
@@ -30,7 +30,7 @@ const statsFixture: HistoryStatsResponse = {
 
 describe('ClubStats', () => {
   it('renders club dispersion and confidence', () => {
-    render(<ClubStats data={statsFixture} />)
+    render(<ClubStats data={statsFixture} onSelectRef={vi.fn()} />)
 
     expect(screen.getByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
     expect(screen.getByText('1D')).toBeInTheDocument()
@@ -40,5 +40,6 @@ describe('ClubStats', () => {
     expect(screen.getByText('p90 255')).toBeInTheDocument()
     expect(screen.getByText('max 270')).toBeInTheDocument()
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900001:1:0' })).toBeInTheDocument()
   })
 })

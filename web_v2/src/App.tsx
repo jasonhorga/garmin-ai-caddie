@@ -3,6 +3,7 @@ import {
   createAnnotation,
   fetchCaddieDecision,
   fetchAnnotations,
+  fetchHistoryDrilldown,
   fetchHistoryOverview,
   fetchHistoryRounds,
   fetchHistoryStats,
@@ -19,6 +20,7 @@ import { CorrectionsPage } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
 import { HistoryOverview } from './components/HistoryOverview'
+import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
 import { HoleStats } from './components/HoleStats'
 import { IssueStats } from './components/IssueStats'
@@ -35,6 +37,7 @@ import type {
   CaddieDecisionRequest,
   CaddieDecisionResponse,
   HistoryOverviewResponse,
+  HistoryDrilldownResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
   ReviewReportResponse,
@@ -58,6 +61,7 @@ export default function App() {
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
+  const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
 
@@ -129,6 +133,22 @@ export default function App() {
     return response
   }
 
+  async function handleSelectSourceRef(sourceRef: string): Promise<HistoryDrilldownResponse | null> {
+    setDrilldownState({ status: 'loading', sourceRef })
+    try {
+      const data = await fetchHistoryDrilldown(sourceRef)
+      setDrilldownState({ status: 'ready', data })
+      return data
+    } catch (error: unknown) {
+      setDrilldownState({
+        status: 'error',
+        sourceRef,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      })
+      return null
+    }
+  }
+
   async function handleRunSync() {
     setSyncRunState('running')
     try {
@@ -152,10 +172,10 @@ export default function App() {
   }
 
   function renderStatsContent(data: HistoryStatsResponse) {
-    if (activePage === 'courses') return <CourseStats data={data} />
-    if (activePage === 'holes') return <HoleStats data={data} />
-    if (activePage === 'clubs') return <ClubStats data={data} />
-    if (activePage === 'issues') return <IssueStats data={data} />
+    if (activePage === 'courses') return <CourseStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+    if (activePage === 'holes') return <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+    if (activePage === 'clubs') return <ClubStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+    if (activePage === 'issues') return <IssueStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
     if (activePage === 'reports') {
       return (
         <ReportsPage
@@ -179,11 +199,11 @@ export default function App() {
             </div>
           </div>
           {syncStatus ? <SyncStatusPanel status={syncStatus} onSync={handleRunSync} syncState={syncRunState} /> : null}
-          <DataQualityPage data={data} />
+          <DataQualityPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
         </section>
       )
     }
-    return <StatsOverview data={data} />
+    return <StatsOverview data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
   }
 
   async function loadReport(loader: () => Promise<ReviewReportResponse>) {
@@ -281,6 +301,7 @@ export default function App() {
           <main className="app-shell">
             <ProductNav activePage={activePage} onNavigate={navigate} />
             {renderStatsContent(statsState.data)}
+            <HistoryDrilldownPanel state={drilldownState} />
           </main>
         </>
       )

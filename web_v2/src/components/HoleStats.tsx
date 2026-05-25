@@ -1,11 +1,13 @@
 import type { HistoryStatsResponse } from '../types'
-import { asString, formatNumber, formatRefs, formatSigned } from './statsValues'
+import { SourceRefs } from './SourceRefs'
+import { asString, formatNumber, formatSigned } from './statsValues'
 
 interface HoleStatsProps {
   data: HistoryStatsResponse
+  onSelectRef?: (sourceRef: string) => void
 }
 
-export function HoleStats({ data }: HoleStatsProps) {
+export function HoleStats({ data, onSelectRef }: HoleStatsProps) {
   return (
     <section className="stats-page" aria-label="Hole statistics">
       <div className="section-head stats-head">
@@ -27,7 +29,9 @@ export function HoleStats({ data }: HoleStatsProps) {
               <span>{formatSigned(hole.averageToPar)} avg</span>
               <span>{formatSigned(hole.worstToPar)} worst</span>
             </div>
-            <p className="stats-refs">{formatRefs(hole.refs)}</p>
+            <p className="stats-refs">
+              <SourceRefs refs={hole.holeRefs ?? hole.refs} onSelectRef={onSelectRef} />
+            </p>
           </article>
         ))}
       </div>

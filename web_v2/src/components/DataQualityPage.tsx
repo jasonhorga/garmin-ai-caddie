@@ -1,11 +1,13 @@
 import type { HistoryStatsResponse } from '../types'
-import { asString, formatNumber, formatRefs } from './statsValues'
+import { SourceRefs } from './SourceRefs'
+import { asString, formatNumber } from './statsValues'
 
 interface DataQualityPageProps {
   data: HistoryStatsResponse
+  onSelectRef?: (sourceRef: string) => void
 }
 
-export function DataQualityPage({ data }: DataQualityPageProps) {
+export function DataQualityPage({ data, onSelectRef }: DataQualityPageProps) {
   return (
     <section className="stats-page" aria-label="Data quality">
       <div className="section-head stats-head">
@@ -20,7 +22,9 @@ export function DataQualityPage({ data }: DataQualityPageProps) {
           <article key={asString(finding.label) ?? 'quality'} className="stats-item">
             <div className="stats-item-main">
               <h2>{asString(finding.label) ?? 'Unknown source'}</h2>
-              <p>{formatRefs(finding.refs)}</p>
+              <p>
+                <SourceRefs refs={finding.sourceRefs ?? finding.refs} onSelectRef={onSelectRef} />
+              </p>
             </div>
             <div className="stats-item-facts">
               <span>{asString(finding.state) ?? 'unknown'}</span>

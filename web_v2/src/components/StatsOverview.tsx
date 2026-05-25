@@ -1,7 +1,9 @@
 import type { HistoryStatsResponse } from '../types'
+import { SourceRefs } from './SourceRefs'
 
 interface StatsOverviewProps {
   data: HistoryStatsResponse
+  onSelectRef?: (sourceRef: string) => void
 }
 
 function asNumber(value: unknown): number | null {
@@ -21,7 +23,7 @@ function displayNumber(value: unknown) {
   return number === null ? '-' : String(number)
 }
 
-export function StatsOverview({ data }: StatsOverviewProps) {
+export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const scoreBands = asRows(data.scoring.scoreBands)
   const recentMonths = asRows(data.time.byMonth).slice(0, 4)
 
@@ -68,6 +70,7 @@ export function StatsOverview({ data }: StatsOverviewProps) {
               <div key={asString(band.label) ?? 'unknown'} className="stat-row">
                 <span>{asString(band.label) ?? 'Unknown'}</span>
                 <b>{displayNumber(band.count)}</b>
+                <SourceRefs refs={band.roundRefs ?? band.roundIds} onSelectRef={onSelectRef} />
               </div>
             ))}
           </div>
@@ -85,6 +88,7 @@ export function StatsOverview({ data }: StatsOverviewProps) {
               <div key={asString(month.key) ?? 'unknown'} className="stat-row">
                 <span>{asString(month.key) ?? 'Unknown'}</span>
                 <b>avg {displayNumber(month.average18)}</b>
+                <SourceRefs refs={month.roundRefs ?? month.roundIds} onSelectRef={onSelectRef} />
               </div>
             ))}
           </div>

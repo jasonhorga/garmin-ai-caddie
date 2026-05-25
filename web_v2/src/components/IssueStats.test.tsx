@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { HistoryStatsResponse } from '../types'
 import { IssueStats } from './IssueStats'
 
@@ -19,11 +19,12 @@ const statsFixture: HistoryStatsResponse = {
 
 describe('IssueStats', () => {
   it('renders issue counts and source refs', () => {
-    render(<IssueStats data={statsFixture} />)
+    render(<IssueStats data={statsFixture} onSelectRef={vi.fn()} />)
 
     expect(screen.getByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
     expect(screen.getByText('missing_shots')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
-    expect(screen.getByText('900002, 900003')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
   })
 })

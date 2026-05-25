@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { HistoryStatsResponse } from '../types'
 import { HoleStats } from './HoleStats'
 
@@ -28,7 +28,7 @@ const statsFixture: HistoryStatsResponse = {
 
 describe('HoleStats', () => {
   it('renders hole aggregates and source refs', () => {
-    render(<HoleStats data={statsFixture} />)
+    render(<HoleStats data={statsFixture} onSelectRef={vi.fn()} />)
 
     expect(screen.getByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
     expect(screen.getByText('black_knight')).toBeInTheDocument()
@@ -36,6 +36,7 @@ describe('HoleStats', () => {
     expect(screen.getByText('2 samples')).toBeInTheDocument()
     expect(screen.getByText('+1.5 avg')).toBeInTheDocument()
     expect(screen.getByText('+3 worst')).toBeInTheDocument()
-    expect(screen.getByText('900001:7, 900002:7')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900001:7' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900002:7' })).toBeInTheDocument()
   })
 })
