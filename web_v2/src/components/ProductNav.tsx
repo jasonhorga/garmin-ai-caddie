@@ -7,6 +7,7 @@ export type ProductPage =
   | 'holes'
   | 'clubs'
   | 'issues'
+  | 'reports'
   | 'quality'
 
 const navItems: Array<{ id: ProductPage; label: string }> = [
@@ -18,6 +19,7 @@ const navItems: Array<{ id: ProductPage; label: string }> = [
   { id: 'holes', label: 'Holes' },
   { id: 'clubs', label: 'Clubs' },
   { id: 'issues', label: 'Issues' },
+  { id: 'reports', label: 'Reports' },
   { id: 'quality', label: 'Quality' },
 ]
 

@@ -747,6 +747,124 @@ p {
   font-size: 14px;
 }
 
+.reports-workspace {
+  display: grid;
+  gap: 18px;
+}
+
+.reports-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.report-controls,
+.report-detail {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
+}
+
+.field-row,
+.button-row {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.field-row label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.field-row select {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.button-row button {
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+  padding: 10px 12px;
+}
+
+.button-row button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.button-row button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.report-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.confidence-pill {
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 6px 10px;
+  text-transform: uppercase;
+}
+
+.confidence-pill.high {
+  color: var(--par);
+  background: var(--par-soft);
+}
+
+.confidence-pill.medium {
+  color: #7c5b12;
+  background: #fff3c4;
+}
+
+.confidence-pill.low {
+  color: var(--double);
+  background: var(--double-soft);
+}
+
+.report-narrative {
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.report-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.report-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 9px 0;
+}
+
+.report-row span {
+  color: var(--muted);
+}
+
 @media (max-width: 760px) {
   .sync-panel {
     align-items: flex-start;
@@ -762,6 +880,8 @@ p {
   .overview-hero,
   .content-grid,
   .corrections-grid,
+  .reports-layout,
+  .report-evidence-grid,
   .stats-grid {
     grid-template-columns: 1fr;
   }

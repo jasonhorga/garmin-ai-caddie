@@ -5,6 +5,10 @@ import {
   fetchHistoryOverview,
   fetchHistoryRounds,
   fetchHistoryStats,
+  fetchRoundReport,
+  fetchTrendReport,
+  generateRoundReport,
+  generateTrendReport,
   fetchSyncStatus,
   runGarminSync,
 } from './api'
@@ -17,6 +21,7 @@ import { HistoryTimeline } from './components/HistoryTimeline'
 import { HoleStats } from './components/HoleStats'
 import { IssueStats } from './components/IssueStats'
 import { ProductNav } from './components/ProductNav'
+import { ReportsPage } from './components/ReportsPage'
 import { StatsOverview } from './components/StatsOverview'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import type { ProductPage } from './components/ProductNav'
@@ -27,6 +32,7 @@ import type {
   HistoryOverviewResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  ReviewReportResponse,
   SyncStatusResponse,
 } from './types'
 
@@ -37,7 +43,7 @@ type LoadState<T> =
 
 type DeferredLoadState<T> = { status: 'idle' } | LoadState<T>
 
-const statsPages: ProductPage[] = ['stats', 'courses', 'holes', 'clubs', 'issues', 'quality']
+const statsPages: ProductPage[] = ['stats', 'courses', 'holes', 'clubs', 'issues', 'reports', 'quality']
 
 export default function App() {
   const [activePage, setActivePage] = useState<ProductPage>('overview')
@@ -45,6 +51,7 @@ export default function App() {
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
+  const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
 
@@ -143,8 +150,46 @@ export default function App() {
     if (activePage === 'holes') return <HoleStats data={data} />
     if (activePage === 'clubs') return <ClubStats data={data} />
     if (activePage === 'issues') return <IssueStats data={data} />
+    if (activePage === 'reports') {
+      return (
+        <ReportsPage
+          stats={data}
+          reportState={reportState}
+          onLoadTrend={handleLoadTrendReport}
+          onGenerateTrend={handleGenerateTrendReport}
+          onLoadRound={handleLoadRoundReport}
+          onGenerateRound={handleGenerateRoundReport}
+        />
+      )
+    }
     if (activePage === 'quality') return <DataQualityPage data={data} />
     return <StatsOverview data={data} />
+  }
+
+  async function loadReport(loader: () => Promise<ReviewReportResponse>) {
+    setReportState({ status: 'loading' })
+    try {
+      const data = await loader()
+      setReportState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setReportState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+    }
+  }
+
+  function handleLoadTrendReport(period: string) {
+    void loadReport(() => fetchTrendReport(period))
+  }
+
+  function handleGenerateTrendReport(period: string) {
+    void loadReport(() => generateTrendReport(period))
+  }
+
+  function handleLoadRoundReport(roundId: string) {
+    void loadReport(() => fetchRoundReport(roundId))
+  }
+
+  function handleGenerateRoundReport(roundId: string) {
+    void loadReport(() => generateRoundReport(roundId))
   }
 
   if (overviewState.status === 'loading') {

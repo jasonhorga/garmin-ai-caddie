@@ -84,7 +84,7 @@ function statsPayload() {
     clubs: [{ club: '1D', sampleCount: 2, median: 240, p10: 225, p90: 255, max: 270, confidence: 'medium' }],
     issues: [{ issue: 'missing_shots', count: 1, refs: ['900003'] }],
     dataQuality: [{ label: 'shots', state: 'partial', ready: 2, total: 3, refs: ['900003'] }],
-    drillDown: { roundIds: ['900001', '900002', '900003'] },
+    drillDown: { roundIds: ['900001', '900002', '900003'], roundRefs: ['900001', '900002', '900003'] },
   }
 }
 
@@ -149,6 +149,19 @@ function createdAnnotationPayload() {
       payload: { from: '7I', to: '8I', note: 'Trackman confirmed the club' },
       source: 'manual',
     },
+  }
+}
+
+function trendReportPayload() {
+  return {
+    schema: 'ai-caddie-review-report-v1',
+    kind: 'trend',
+    provider: 'StaticProvider',
+    model: 'static',
+    factsUsed: [{ label: 'summary_trend', source: 'summary', value: { totalRounds: 3 } }],
+    missingData: [{ label: 'weather', state: 'partial' }],
+    narrative: 'Trend review from stored facts.',
+    confidence: 'medium',
   }
 }
 
@@ -260,5 +273,30 @@ describe('App navigation', () => {
     expect(await screen.findByText('round-1:8:shot-1')).toBeInTheDocument()
     expect(screen.getAllByText('7I -> 8I')).toHaveLength(2)
     expect(screen.getByText('Trackman confirmed the club')).toBeInTheDocument()
+  })
+
+  it('opens the reports workspace and loads a trend report', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/reports/trend/recent_10') return trendReportPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Reports' }))
+
+    expect(await screen.findByRole('heading', { name: 'Reports' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Load trend report' }))
+
+    expect(await screen.findByText('Trend review from stored facts.')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/trend/recent_10')
   })
 })
