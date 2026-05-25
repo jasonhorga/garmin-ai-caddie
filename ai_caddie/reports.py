@@ -109,6 +109,131 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
     }
 
 
+def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict[str, Any]:
+    summary = history_stats.get("summary") if isinstance(history_stats.get("summary"), dict) else {}
+    time_stats = history_stats.get("time") if isinstance(history_stats.get("time"), dict) else {}
+    scoring = history_stats.get("scoring") if isinstance(history_stats.get("scoring"), dict) else {}
+    data_quality = history_stats.get("dataQuality") if isinstance(history_stats.get("dataQuality"), list) else []
+    drill_down = history_stats.get("drillDown") if isinstance(history_stats.get("drillDown"), dict) else {}
+
+    facts_used = [
+        _fact(
+            "summary_trend",
+            {
+                "totalRounds": summary.get("totalRounds"),
+                "average18": summary.get("average18"),
+                "median18": summary.get("median18"),
+                "recent5Average": summary.get("recent5Average"),
+                "recent10Average": summary.get("recent10Average"),
+                "recent20Average": summary.get("recent20Average"),
+                "bestScore": summary.get("bestScore"),
+            },
+            "summary",
+        )
+    ]
+
+    period_row = _find_period_row(time_stats, period)
+    if period_row is not None:
+        facts_used.append(_fact("time_period", period_row, "time"))
+    elif period == "recent_10":
+        facts_used.append(
+            _fact(
+                "time_period",
+                {
+                    "key": "recent_10",
+                    "average18": summary.get("recent10Average"),
+                    "roundRefs": _as_string_list(drill_down.get("roundRefs") or drill_down.get("roundIds"))[:10],
+                },
+                "summary.recent10Average",
+            )
+        )
+
+    for phase in scoring.get("phaseStats", []) if isinstance(scoring.get("phaseStats"), list) else []:
+        if isinstance(phase, dict) and phase.get("phase"):
+            facts_used.append(_fact(f"phase_{phase.get('phase')}", phase, "scoring.phaseStats"))
+
+    score_bands = scoring.get("scoreBands")
+    if isinstance(score_bands, list):
+        facts_used.append(_fact("score_distribution", score_bands, "scoring.scoreBands"))
+
+    course_distribution = history_stats.get("courseDistribution")
+    if isinstance(course_distribution, list) and course_distribution:
+        facts_used.append(_fact("course_distribution", course_distribution[:8], "courseDistribution"))
+
+    issues = history_stats.get("issues")
+    if isinstance(issues, list) and issues:
+        top_issues = sorted(
+            [issue for issue in issues if isinstance(issue, dict)],
+            key=lambda issue: int(issue.get("count") or 0),
+            reverse=True,
+        )[:5]
+        facts_used.append(_fact("top_issues", top_issues, "issues"))
+
+    facts_used.append(
+        _fact(
+            "drilldown_refs",
+            {
+                "roundRefs": _as_string_list(drill_down.get("roundRefs") or drill_down.get("roundIds"))[:20],
+                "holeRefs": _as_string_list(drill_down.get("holeRefs"))[:40],
+                "shotRefs": _as_string_list(drill_down.get("shotRefs"))[:40],
+            },
+            "drillDown",
+        )
+    )
+
+    missing_data: list[dict[str, Any]] = []
+    if period_row is None and period != "recent_10":
+        missing_data.append({"label": "period", "reason": f"{period} not present in history time aggregates"})
+    for finding in data_quality:
+        if isinstance(finding, dict) and finding.get("state") != "good":
+            missing_data.append(
+                {
+                    "label": finding.get("label", "unknown"),
+                    "state": finding.get("state", "unknown"),
+                    "ready": finding.get("ready"),
+                    "total": finding.get("total"),
+                }
+            )
+
+    return {
+        "schema": "ai-caddie-report-facts-v1",
+        "kind": "trend",
+        "subjectId": str(period),
+        "factsUsed": facts_used,
+        "missingData": missing_data,
+    }
+
+
+def _find_period_row(time_stats: dict[str, Any], period: str) -> dict[str, Any] | None:
+    if period.startswith("year:"):
+        key = period.removeprefix("year:")
+        return _find_time_row(time_stats.get("byYear"), key)
+    if period.startswith("quarter:"):
+        key = period.removeprefix("quarter:")
+        return _find_time_row(time_stats.get("byQuarter"), key)
+    if period.startswith("month:"):
+        key = period.removeprefix("month:")
+        return _find_time_row(time_stats.get("byMonth"), key)
+    return None
+
+
+def _find_time_row(rows: Any, key: str) -> dict[str, Any] | None:
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("key") or row.get("year") or row.get("period") or "") == key:
+            return row
+    return None
+
+
+def _as_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item is not None]
+
+
 def _stored_at() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 

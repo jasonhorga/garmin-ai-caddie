@@ -7,6 +7,7 @@ import unittest
 from ai_caddie.llm_providers import LLMMessage
 from ai_caddie.reports import (
     build_round_report_facts,
+    build_trend_report_facts,
     generate_report,
     latest_report_record,
     list_report_records,
@@ -65,6 +66,55 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("top_issue", labels)
         self.assertIn("course_distribution", labels)
         self.assertIn(report["confidence"], {"low", "medium", "high"})
+
+    def test_trend_report_facts_bind_period_trends_issues_and_drilldown_refs(self) -> None:
+        facts = build_trend_report_facts(
+            {
+                "schema": "ai-caddie-history-stats-v1",
+                "summary": {"totalRounds": 3, "average18": 86.0, "recent10Average": 86.0, "bestScore": 77},
+                "time": {
+                    "byYear": [{"key": "2026", "year": "2026", "roundCount": 3, "average18": 86.0, "roundIds": ["900001"]}],
+                    "byQuarter": [{"key": "2026-Q2", "roundCount": 2, "average18": 86.0, "roundIds": ["900001", "900002"]}],
+                    "byMonth": [{"key": "2026-05", "roundCount": 1, "average18": 77.0, "roundIds": ["900001"]}],
+                },
+                "scoring": {
+                    "scoreBands": [{"label": "70s", "count": 1, "roundIds": ["900001"]}],
+                    "phaseStats": [{"phase": "Tee", "fairwaysRecorded": 45, "fairwaysHit": 28, "holeRefs": ["900001:1"]}],
+                },
+                "courseDistribution": [{"courseKey": "black_knight", "roundCount": 2, "roundRefs": ["900001", "900002"]}],
+                "issues": [{"issue": "approach_short", "count": 2, "sourceRefs": ["900001:7"]}],
+                "dataQuality": [{"label": "weather", "state": "partial", "ready": 1, "total": 45}],
+                "drillDown": {"roundRefs": ["900001", "900002", "900003"], "holeRefs": ["900001:1"], "shotRefs": ["900001:1:0"]},
+            },
+            "quarter:2026-Q2",
+        )
+
+        self.assertEqual(facts["schema"], "ai-caddie-report-facts-v1")
+        self.assertEqual(facts["kind"], "trend")
+        self.assertEqual(facts["subjectId"], "quarter:2026-Q2")
+        labels = {row["label"] for row in facts["factsUsed"]}
+        self.assertIn("summary_trend", labels)
+        self.assertIn("time_period", labels)
+        self.assertIn("phase_Tee", labels)
+        self.assertIn("top_issues", labels)
+        self.assertIn("drilldown_refs", labels)
+        self.assertEqual(facts["missingData"][0]["label"], "weather")
+
+    def test_trend_report_facts_expose_missing_period(self) -> None:
+        facts = build_trend_report_facts(
+            {
+                "schema": "ai-caddie-history-stats-v1",
+                "summary": {"totalRounds": 1},
+                "time": {"byYear": [{"key": "2026", "roundCount": 1}]},
+                "scoring": {},
+                "issues": [],
+                "dataQuality": [],
+                "drillDown": {"roundRefs": ["900001"]},
+            },
+            "year:2025",
+        )
+
+        self.assertIn({"label": "period", "reason": "year:2025 not present in history time aggregates"}, facts["missingData"])
 
     def test_prompt_excludes_cookie_csrf_token_secret_and_private_paths(self) -> None:
         facts = {

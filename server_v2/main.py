@@ -45,7 +45,12 @@ from .models import (
     VisionAnalysisResponse,
     WeatherSnapshotResponse,
 )
-from .reports import generate_round_report_response, load_round_report_response
+from .reports import (
+    generate_round_report_response,
+    generate_trend_report_response,
+    load_round_report_response,
+    load_trend_report_response,
+)
 from .sync_status import load_sync_status_response
 
 
@@ -90,6 +95,8 @@ def service_index() -> dict[str, object]:
             "weatherSnapshot": "/api/v2/weather/snapshot",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
+            "trendReport": "/api/v2/reports/trend/{period}",
+            "generateTrendReport": "/api/v2/reports/trend/{period}/generate",
             "syncStatus": "/api/v2/sync/status",
             "syncGarmin": "/api/v2/sync/garmin",
         },
@@ -229,6 +236,16 @@ def round_report(round_id: str) -> ReviewReportResponse:
 @app.post("/api/v2/reports/round/{round_id}/generate", response_model=ReviewReportResponse)
 def generate_round_report(round_id: str) -> ReviewReportResponse:
     return generate_round_report_response(round_id)
+
+
+@app.get("/api/v2/reports/trend/{period}", response_model=ReviewReportResponse)
+def trend_report(period: str) -> ReviewReportResponse:
+    return load_trend_report_response(period)
+
+
+@app.post("/api/v2/reports/trend/{period}/generate", response_model=ReviewReportResponse)
+def generate_trend_report(period: str) -> ReviewReportResponse:
+    return generate_trend_report_response(period)
 
 
 @app.get("/api/v2/sync/status", response_model=SyncStatusResponse)

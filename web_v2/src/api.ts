@@ -7,6 +7,7 @@ import type {
   HistoryDrilldownResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  ReviewReportResponse,
   SyncRunResponse,
   SyncStatusResponse,
 } from './types'
@@ -45,6 +46,32 @@ export function fetchHistoryStats(): Promise<HistoryStatsResponse> {
 
 export function fetchHistoryDrilldown(sourceRef: string): Promise<HistoryDrilldownResponse> {
   return getJson<HistoryDrilldownResponse>(`/api/v2/history/drilldown/${encodeURIComponent(sourceRef)}`)
+}
+
+export function fetchRoundReport(roundId: string): Promise<ReviewReportResponse> {
+  return getJson<ReviewReportResponse>(`/api/v2/reports/round/${encodeURIComponent(roundId)}`)
+}
+
+export function generateRoundReport(roundId: string): Promise<ReviewReportResponse> {
+  return fetch(`/api/v2/reports/round/${encodeURIComponent(roundId)}/generate`, { method: 'POST' }).then((response) => {
+    if (!response.ok) {
+      throw new Error(`POST /api/v2/reports/round/${roundId}/generate failed: ${response.status} ${response.statusText}`)
+    }
+    return response.json() as Promise<ReviewReportResponse>
+  })
+}
+
+export function fetchTrendReport(period: string): Promise<ReviewReportResponse> {
+  return getJson<ReviewReportResponse>(`/api/v2/reports/trend/${encodeURIComponent(period)}`)
+}
+
+export function generateTrendReport(period: string): Promise<ReviewReportResponse> {
+  return fetch(`/api/v2/reports/trend/${encodeURIComponent(period)}/generate`, { method: 'POST' }).then((response) => {
+    if (!response.ok) {
+      throw new Error(`POST /api/v2/reports/trend/${period}/generate failed: ${response.status} ${response.statusText}`)
+    }
+    return response.json() as Promise<ReviewReportResponse>
+  })
 }
 
 export function fetchSyncStatus(): Promise<SyncStatusResponse> {

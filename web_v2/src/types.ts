@@ -141,6 +141,20 @@ export interface HistoryDrilldownResponse {
   missingData: Array<Record<string, unknown>>
 }
 
+export type ReportKind = 'round' | 'trend'
+export type ReportConfidence = 'low' | 'medium' | 'high'
+
+export interface ReviewReportResponse {
+  schema: 'ai-caddie-review-report-v1'
+  kind: ReportKind
+  provider: string
+  model: string
+  factsUsed: Array<Record<string, unknown>>
+  missingData: Array<Record<string, unknown>>
+  narrative: string
+  confidence: ReportConfidence
+}
+
 export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error'
 export type ResolvedDataMode = 'local' | 'fixture'
 

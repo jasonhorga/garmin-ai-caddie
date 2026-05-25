@@ -7,6 +7,8 @@ import {
   fetchHistoryDrilldown,
   fetchHistoryRounds,
   fetchHistoryStats,
+  fetchTrendReport,
+  generateTrendReport,
   fetchSyncStatus,
   runGarminSync,
 } from './api'
@@ -159,6 +161,37 @@ describe('fetchHistoryDrilldown', () => {
     expect(payload.refType).toBe('shot')
     expect(payload.shot?.club).toBe('8I')
     expect(fetch).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A1')
+  })
+})
+
+describe('report API helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads and generates trend reports with encoded period ids', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-review-report-v1',
+        kind: 'trend',
+        provider: 'StaticProvider',
+        model: 'static',
+        factsUsed: [],
+        missingData: [],
+        narrative: 'trend review',
+        confidence: 'medium',
+      }),
+    })))
+
+    const loaded = await fetchTrendReport('quarter:2026-Q2')
+    const generated = await generateTrendReport('quarter:2026-Q2')
+
+    expect(loaded.kind).toBe('trend')
+    expect(generated.narrative).toBe('trend review')
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/reports/trend/quarter%3A2026-Q2')
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/trend/quarter%3A2026-Q2/generate', { method: 'POST' })
   })
 })
 
