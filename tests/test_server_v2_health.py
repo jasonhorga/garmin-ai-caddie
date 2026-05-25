@@ -18,6 +18,7 @@ class ServerV2HealthTests(unittest.TestCase):
         self.assertEqual(response.json()["service"], "server_v2")
         self.assertEqual(response.json()["endpoints"]["health"], "/api/v2/health")
         self.assertEqual(response.json()["endpoints"]["historyOverview"], "/api/v2/history/overview")
+        self.assertEqual(response.json()["endpoints"]["historyStats"], "/api/v2/history/stats")
         self.assertEqual(response.json()["endpoints"]["syncStatus"], "/api/v2/sync/status")
         self.assertEqual(response.json()["endpoints"]["syncGarmin"], "/api/v2/sync/garmin")
 

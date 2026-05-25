@@ -8,7 +8,14 @@ from ai_caddie.connectors.snapshot import snapshot_to_payload
 
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
-from .models import HistoryOverviewResponse, HistoryRoundsResponse, SyncRunResponse, SyncStatusResponse
+from .history_stats import load_history_stats_response
+from .models import (
+    HistoryOverviewResponse,
+    HistoryRoundsResponse,
+    HistoryStatsResponse,
+    SyncRunResponse,
+    SyncStatusResponse,
+)
 from .sync_status import load_sync_status_response
 
 
@@ -37,6 +44,7 @@ def service_index() -> dict[str, object]:
             "health": "/api/v2/health",
             "historyOverview": "/api/v2/history/overview",
             "historyRounds": "/api/v2/history/rounds",
+            "historyStats": "/api/v2/history/stats",
             "syncStatus": "/api/v2/sync/status",
             "syncGarmin": "/api/v2/sync/garmin",
         },
@@ -60,6 +68,11 @@ def history_overview() -> HistoryOverviewResponse:
 @app.get("/api/v2/history/rounds", response_model=HistoryRoundsResponse)
 def history_rounds() -> HistoryRoundsResponse:
     return load_history_rounds_response()
+
+
+@app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)
+def history_stats() -> HistoryStatsResponse:
+    return load_history_stats_response()
 
 
 @app.get("/api/v2/sync/status", response_model=SyncStatusResponse)

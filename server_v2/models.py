@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -106,6 +106,22 @@ class HistoryRoundsResponse(BaseModel):
     total: int
     groups: list[MonthRoundGroup]
     emptyState: EmptyState | None
+
+
+class HistoryStatsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-history-stats-v1"] = Field(alias="schema")
+    dataMode: ResolvedDataModeName
+    summary: dict[str, Any]
+    time: dict[str, Any]
+    scoring: dict[str, Any]
+    courses: list[dict[str, Any]]
+    holes: list[dict[str, Any]]
+    clubs: list[dict[str, Any]]
+    issues: list[dict[str, Any]]
+    dataQuality: list[dict[str, Any]]
+    drillDown: dict[str, Any]
 
 
 class ConnectorStatus(BaseModel):
