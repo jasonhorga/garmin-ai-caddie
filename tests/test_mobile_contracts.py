@@ -7,6 +7,7 @@ import unittest
 
 CONTRACT_DIR = Path("mobile") / "contracts"
 IOS_DIR = Path("mobile") / "ios" / "AICaddie"
+WATCH_DIR = Path("mobile") / "ios" / "AICaddieWatch"
 
 
 def _load_schema(name: str) -> dict[str, object]:
@@ -126,6 +127,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("safe", caddie_plan)
         self.assertIn("stock", caddie_plan)
         self.assertIn("attack", caddie_plan)
+
+    def test_watch_state_model_defines_compact_codable_state(self) -> None:
+        state_swift = (WATCH_DIR / "Models" / "WatchRoundState.swift").read_text(encoding="utf-8")
+
+        self.assertIn("struct WatchRoundState: Codable", state_swift)
+        for field in ["roundId", "hole", "par", "distanceM", "selectedClub", "score", "putts", "penaltyCount", "caddieConfidence"]:
+            self.assertIn(field, state_swift)
 
 
 if __name__ == "__main__":
