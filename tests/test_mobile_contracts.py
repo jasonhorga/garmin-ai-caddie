@@ -98,6 +98,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
         self.assertIn('case syncMarker = "sync_marker"', event_swift)
 
+    def test_ios_services_define_offline_store_and_sync_client(self) -> None:
+        offline_store = (IOS_DIR / "Services" / "OfflineStore.swift").read_text(encoding="utf-8")
+        sync_client = (IOS_DIR / "Services" / "SyncClient.swift").read_text(encoding="utf-8")
+
+        self.assertIn("final class OfflineStore", offline_store)
+        self.assertIn("func appendEvent", offline_store)
+        self.assertIn("func loadEvents", offline_store)
+        self.assertIn("events.jsonl", offline_store)
+        self.assertIn("final class SyncClient", sync_client)
+        self.assertIn("func fetchRoundPackage", sync_client)
+        self.assertIn("func postEventBatch", sync_client)
+        self.assertIn("Idempotency-Key", sync_client)
+
 
 if __name__ == "__main__":
     unittest.main()
