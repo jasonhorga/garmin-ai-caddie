@@ -6,11 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error
 from ai_caddie.connectors.snapshot import snapshot_to_payload
 
+from .caddie import build_caddie_decision_response
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_stats import load_history_stats_response
 from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response
 from .models import (
+    CaddieDecisionRequest,
+    CaddieDecisionResponse,
     CourseGeometryCoverageResponse,
     GeometryEvidenceResponse,
     HistoryOverviewResponse,
@@ -52,6 +55,7 @@ def service_index() -> dict[str, object]:
             "historyStats": "/api/v2/history/stats",
             "geometryCourseCoverage": "/api/v2/geometry/course/{global_id}/coverage",
             "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
+            "caddieDecision": "/api/v2/caddie/decision",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
             "syncStatus": "/api/v2/sync/status",
@@ -95,6 +99,11 @@ def geometry_course_coverage(
 @app.get("/api/v2/geometry/hole/{global_id}/{local_hole}", response_model=GeometryEvidenceResponse)
 def geometry_hole_evidence(global_id: int, local_hole: int) -> GeometryEvidenceResponse:
     return load_hole_geometry_evidence_response(global_id, local_hole)
+
+
+@app.post("/api/v2/caddie/decision", response_model=CaddieDecisionResponse)
+def caddie_decision(request: CaddieDecisionRequest) -> CaddieDecisionResponse:
+    return build_caddie_decision_response(request)
 
 
 @app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)

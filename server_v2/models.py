@@ -11,6 +11,7 @@ ConnectorState = Literal["ready", "no_data", "reauth_required", "error"]
 ResolvedDataModeName = Literal["local", "fixture"]
 ReportConfidence = Literal["low", "medium", "high"]
 GeometryCoverageState = Literal["ready", "partial", "missing"]
+CaddieShotType = Literal["tee", "approach", "recovery"]
 
 
 class DataQualityBadge(BaseModel):
@@ -206,3 +207,28 @@ class CourseGeometryCoverageResponse(BaseModel):
     partialHoles: int
     totalHoles: int
     holes: list[dict[str, Any]]
+
+
+class CaddieDecisionRequest(BaseModel):
+    shotType: CaddieShotType
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class CaddieDecisionResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-decision-v2"] = Field(alias="schema")
+    shotType: CaddieShotType
+    phase: str
+    context: dict[str, Any]
+    options: list[dict[str, Any]]
+    selected: dict[str, Any] | None
+    selectedOptionId: str | None
+    selectedOption: dict[str, Any] | None
+    avoidZones: list[dict[str, Any]]
+    forbiddenZones: list[dict[str, Any]]
+    acceptableMiss: dict[str, Any]
+    evidence: list[dict[str, Any]]
+    confidence: dict[str, Any]
+    missingData: list[dict[str, Any]]
+    auditCriteria: list[dict[str, Any]]
