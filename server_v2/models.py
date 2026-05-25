@@ -23,6 +23,9 @@ AnnotationKind = Literal[
     "penalty_correction",
     "caddie_feedback",
 ]
+MediaTargetType = Literal["round", "hole", "shot"]
+MediaKind = Literal["photo", "video"]
+MediaPrivacyState = Literal["private_local", "synced", "redacted"]
 
 
 class DataQualityBadge(BaseModel):
@@ -276,3 +279,53 @@ class AnnotationListResponse(BaseModel):
     total: int
     annotations: list[AnnotationRecord]
     target: dict[str, str] | None = None
+
+
+class MediaRecord(BaseModel):
+    id: str
+    createdAt: str
+    targetType: MediaTargetType
+    targetId: str
+    mediaKind: MediaKind
+    localPath: str
+    capturedAt: str
+    privacyState: MediaPrivacyState
+    source: Literal["manual"]
+
+
+class MediaCreateRequest(BaseModel):
+    targetType: MediaTargetType
+    targetId: str = Field(min_length=1)
+    mediaKind: MediaKind
+    localPath: str = Field(min_length=1)
+    capturedAt: str = Field(min_length=1)
+    privacyState: MediaPrivacyState = "private_local"
+
+
+class MediaCreateResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-media-create-v1"] = Field(alias="schema")
+    media: MediaRecord
+
+
+class MediaListResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-media-list-v1"] = Field(alias="schema")
+    total: int
+    media: list[MediaRecord]
+    target: dict[str, str] | None = None
+
+
+class VisionAnalysisResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-vision-context-v1"] = Field(alias="schema")
+    mediaId: str | None
+    targetType: str | None = None
+    targetId: str | None = None
+    mediaKind: str | None = None
+    provider: str
+    model: str
+    findings: list[dict[str, Any]]

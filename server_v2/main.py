@@ -12,6 +12,7 @@ from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_stats import load_history_stats_response
 from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response
+from .media import analyze_media_response, create_media_response, list_target_media_response
 from .models import (
     AnnotationCreateRequest,
     AnnotationCreateResponse,
@@ -24,9 +25,14 @@ from .models import (
     HistoryOverviewResponse,
     HistoryRoundsResponse,
     HistoryStatsResponse,
+    MediaCreateRequest,
+    MediaCreateResponse,
+    MediaListResponse,
+    MediaTargetType,
     ReviewReportResponse,
     SyncRunResponse,
     SyncStatusResponse,
+    VisionAnalysisResponse,
 )
 from .reports import generate_round_report_response, load_round_report_response
 from .sync_status import load_sync_status_response
@@ -63,6 +69,9 @@ def service_index() -> dict[str, object]:
             "caddieDecision": "/api/v2/caddie/decision",
             "annotations": "/api/v2/annotations",
             "annotationsByTarget": "/api/v2/annotations/target/{target_type}/{target_id}",
+            "media": "/api/v2/media",
+            "mediaByTarget": "/api/v2/media/target/{target_type}/{target_id}",
+            "analyzeMedia": "/api/v2/media/{media_id}/analyze",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
             "syncStatus": "/api/v2/sync/status",
@@ -126,6 +135,21 @@ def create_annotation(request: AnnotationCreateRequest) -> AnnotationCreateRespo
 @app.get("/api/v2/annotations/target/{target_type}/{target_id}", response_model=AnnotationListResponse)
 def annotations_by_target(target_type: AnnotationTargetType, target_id: str) -> AnnotationListResponse:
     return list_target_annotation_response(target_type, target_id)
+
+
+@app.post("/api/v2/media", response_model=MediaCreateResponse)
+def create_media(request: MediaCreateRequest) -> MediaCreateResponse:
+    return create_media_response(request)
+
+
+@app.get("/api/v2/media/target/{target_type}/{target_id}", response_model=MediaListResponse)
+def media_by_target(target_type: MediaTargetType, target_id: str) -> MediaListResponse:
+    return list_target_media_response(target_type, target_id)
+
+
+@app.post("/api/v2/media/{media_id}/analyze", response_model=VisionAnalysisResponse)
+def analyze_media(media_id: str) -> VisionAnalysisResponse:
+    return analyze_media_response(media_id)
 
 
 @app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)
