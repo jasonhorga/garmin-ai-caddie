@@ -194,6 +194,41 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(weather_quality["total"], 45)
         self.assertEqual(weather_quality["refs"], ["900001:7"])
 
+    def test_stats_include_trends_frequency_distribution_phase_stats_and_typed_refs(self) -> None:
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+
+        self.assertEqual(stats["summary"]["median18"], 86.0)
+        self.assertEqual(stats["summary"]["recent5Average"], 86.0)
+        self.assertEqual(stats["summary"]["recent10Average"], 86.0)
+        self.assertEqual(stats["summary"]["recent20Average"], 86.0)
+
+        self.assertEqual(stats["time"]["byQuarter"][0]["key"], "2026-Q2")
+        self.assertEqual(stats["time"]["byQuarter"][0]["roundCount"], 2)
+        self.assertEqual(stats["time"]["playFrequency"]["totalMonths"], 3)
+        self.assertEqual(stats["time"]["playFrequency"]["roundsPerMonth"], 1.0)
+
+        distribution = stats["courseDistribution"]
+        black_knight = next(row for row in distribution if row["courseKey"] == "black_knight")
+        self.assertEqual(black_knight["roundCount"], 2)
+        self.assertEqual(black_knight["pct"], 66.7)
+        self.assertEqual(black_knight["roundRefs"], ["900001", "900002"])
+
+        phase_stats = {row["phase"]: row for row in stats["scoring"]["phaseStats"]}
+        self.assertEqual(phase_stats["Tee"]["fairwaysRecorded"], 45)
+        self.assertGreater(phase_stats["Approach"]["gir"], 0)
+        self.assertEqual(phase_stats["Putting"]["totalPutts"], stats["scoring"]["putting"]["totalPutts"])
+        self.assertIn("900001:1", phase_stats["Putting"]["holeRefs"])
+        self.assertGreaterEqual(phase_stats["Short Game"]["roughOrBunkerShots"], 1)
+
+        course = next(row for row in stats["courses"] if row["courseKey"] == "black_knight")
+        hole = next(row for row in stats["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
+        driver = next(row for row in stats["clubs"] if row["club"] == "1D")
+        issue = next(row for row in stats["issues"] if row["issue"] == "missing_shots")
+        self.assertEqual(course["roundRefs"], course["roundIds"])
+        self.assertEqual(hole["holeRefs"], hole["refs"])
+        self.assertEqual(driver["shotRefs"], ["900001:1:0", "900002:5:4"])
+        self.assertEqual(issue["sourceRefs"], issue["refs"])
+
 
 if __name__ == "__main__":
     unittest.main()

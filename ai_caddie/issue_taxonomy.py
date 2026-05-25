@@ -182,6 +182,7 @@ def issue_record(
         "issue": key,
         "count": len(refs),
         "refs": refs,
+        "sourceRefs": refs,
         "source": source,
         **classification,
     }

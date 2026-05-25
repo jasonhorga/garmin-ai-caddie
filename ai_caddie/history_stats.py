@@ -154,6 +154,11 @@ def _hole_geometry_coverage(pairs: list[tuple[dict[str, Any], dict[str, Any]]], 
 def _summary(data: HistoryData) -> dict[str, Any]:
     rounds18 = [row for row in data.rounds if row.get("holesCompleted") == 18 and row.get("strokes") is not None]
     scores18 = [int(row["strokes"]) for row in rounds18]
+    recent_scores18 = [
+        int(row["strokes"])
+        for row in sorted(rounds18, key=lambda row: str(row.get("date") or ""), reverse=True)
+        if row.get("strokes") is not None
+    ]
     return {
         "totalRounds": len(data.rounds),
         "eighteenHoleRounds": len(rounds18),
@@ -161,6 +166,10 @@ def _summary(data: HistoryData) -> dict[str, Any]:
         "courseCount": len({row.get("courseKey") for row in data.rounds if row.get("courseKey")}),
         "shotCount": len(data.shots),
         "average18": average(scores18),
+        "median18": round(float(median(scores18)), 1) if scores18 else None,
+        "recent5Average": average(recent_scores18[:5]),
+        "recent10Average": average(recent_scores18[:10]),
+        "recent20Average": average(recent_scores18[:20]),
         "bestScore": min(scores18) if scores18 else None,
         "worstScore": max(scores18) if scores18 else None,
     }
@@ -169,12 +178,18 @@ def _summary(data: HistoryData) -> dict[str, Any]:
 def _time_stats(data: HistoryData) -> dict[str, Any]:
     by_year: dict[str, list[dict[str, Any]]] = defaultdict(list)
     by_month: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    by_quarter: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rounds:
         date = str(row.get("date") or "")
         year = date[:4] if len(date) >= 4 else "unknown"
         month = date[:7] if len(date) >= 7 else "unknown"
         by_year[year].append(row)
         by_month[month].append(row)
+        if len(date) >= 7 and date[5:7].isdigit():
+            quarter = (int(date[5:7]) - 1) // 3 + 1
+            by_quarter[f"{year}-Q{quarter}"].append(row)
+        else:
+            by_quarter["unknown"].append(row)
 
     def pack(key: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         scores18 = [
@@ -191,9 +206,21 @@ def _time_stats(data: HistoryData) -> dict[str, Any]:
             "roundIds": [_round_id(row) for row in rows],
         }
 
+    known_months = [key for key in sorted(by_month) if key != "unknown"]
+    most_active_month = None
+    if known_months:
+        most_active_key = max(known_months, key=lambda key: (len(by_month[key]), key))
+        most_active_month = {"key": most_active_key, "roundCount": len(by_month[most_active_key])}
+
     return {
         "byYear": [pack(key, by_year[key]) for key in sorted(by_year, reverse=True)],
+        "byQuarter": [pack(key, by_quarter[key]) for key in sorted(by_quarter, reverse=True)],
         "byMonth": [pack(key, by_month[key]) for key in sorted(by_month, reverse=True)],
+        "playFrequency": {
+            "totalMonths": len(known_months),
+            "roundsPerMonth": average([len(by_month[key]) for key in known_months]),
+            "mostActiveMonth": most_active_month,
+        },
     }
 
 
@@ -202,8 +229,13 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
     putt_corrections = _annotations_by_kind(annotations, "putt_correction")
     putts: list[int] = []
+    putt_refs: list[str] = []
     three_putt_refs: list[str] = []
     corrected_putt_refs: list[str] = []
+    fairways = Counter({"recorded": 0, "hit": 0, "left": 0, "right": 0})
+    tee_refs: list[str] = []
+    gir = Counter({"recorded": 0, "hit": 0})
+    approach_refs: list[str] = []
     for row in data.rounds:
         if row.get("holesCompleted") == 18 and row.get("strokes") is not None:
             bands[_score_band(int(row["strokes"]))].append(_round_id(row))
@@ -216,10 +248,26 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             putt_count = _corrected_putt_value(ref, hole.get("putts"), putt_corrections)
             if putt_count is not None:
                 putts.append(putt_count)
+                putt_refs.append(ref)
                 if putt_count >= 3:
                     three_putt_refs.append(ref)
                 if ref in putt_corrections:
                     corrected_putt_refs.append(ref)
+            fairway = str(hole.get("fairway") or "").lower()
+            if fairway:
+                fairways["recorded"] += 1
+                tee_refs.append(ref)
+                if fairway == "hit":
+                    fairways["hit"] += 1
+                elif fairway == "left":
+                    fairways["left"] += 1
+                elif fairway == "right":
+                    fairways["right"] += 1
+            if hole.get("gir") is not None:
+                gir["recorded"] += 1
+                approach_refs.append(ref)
+                if bool(hole.get("gir")):
+                    gir["hit"] += 1
             if par is None or score is None:
                 continue
             delta = int(score) - int(par)
@@ -251,6 +299,47 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             "threePuttRefs": three_putt_refs,
             "correctedRefs": corrected_putt_refs,
         },
+        "phaseStats": [
+            {
+                "phase": "Tee",
+                "fairwaysRecorded": fairways["recorded"],
+                "fairwaysHit": fairways["hit"],
+                "fairwayMissLeft": fairways["left"],
+                "fairwayMissRight": fairways["right"],
+                "holeRefs": tee_refs,
+            },
+            {
+                "phase": "Approach",
+                "girRecorded": gir["recorded"],
+                "gir": gir["hit"],
+                "missedGir": gir["recorded"] - gir["hit"],
+                "girPct": round(gir["hit"] / gir["recorded"] * 100, 1) if gir["recorded"] else None,
+                "holeRefs": approach_refs,
+            },
+            {
+                "phase": "Short Game",
+                "roughOrBunkerShots": sum(
+                    1
+                    for shot in _effective_shots(data, annotations)
+                    if str(shot.get("surface") or "").lower() in {"rough", "bunker"}
+                ),
+                "shotRefs": [
+                    str(shot.get("_ref"))
+                    for shot in _effective_shots(data, annotations)
+                    if str(shot.get("surface") or "").lower() in {"rough", "bunker"} and shot.get("_ref") is not None
+                ],
+            },
+            {
+                "phase": "Putting",
+                "totalPutts": sum(putts),
+                "holesWithPutts": len(putts),
+                "averagePutts": average(putts),
+                "threePutts": len(three_putt_refs),
+                "holeRefs": putt_refs,
+                "threePuttRefs": three_putt_refs,
+                "correctedRefs": corrected_putt_refs,
+            },
+        ],
     }
 
 
@@ -276,10 +365,37 @@ def _courses(data: HistoryData) -> list[dict[str, Any]]:
                 "worstScore": max(scores18) if scores18 else None,
                 "recentRoundId": _round_id(rows_sorted[0]),
                 "roundIds": [_round_id(row) for row in rows_sorted],
+                "roundRefs": [_round_id(row) for row in rows_sorted],
                 "geometryCoverage": _course_geometry_coverage(rows),
             }
         )
     return sorted(out, key=lambda row: (-row["roundCount"], row["courseName"]))
+
+
+def _course_distribution(data: HistoryData) -> list[dict[str, Any]]:
+    total = len(data.rounds)
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in data.rounds:
+        grouped[str(row.get("courseKey") or "unknown")].append(row)
+    rows = []
+    for course_key, course_rows in grouped.items():
+        rows_sorted = sorted(course_rows, key=lambda row: str(row.get("date") or ""), reverse=True)
+        rows.append(
+            {
+                "courseKey": course_key,
+                "courseName": str(rows_sorted[0].get("course") or rows_sorted[0].get("courseName") or "Unknown course"),
+                "roundCount": len(course_rows),
+                "pct": round(len(course_rows) / total * 100, 1) if total else 0.0,
+                "roundRefs": [_round_id(row) for row in rows_sorted],
+                "location": {
+                    "latitude": rows_sorted[0].get("lat"),
+                    "longitude": rows_sorted[0].get("lon"),
+                }
+                if rows_sorted[0].get("lat") is not None and rows_sorted[0].get("lon") is not None
+                else None,
+            }
+        )
+    return sorted(rows, key=lambda row: (-row["roundCount"], row["courseName"]))
 
 
 def _holes(data: HistoryData) -> list[dict[str, Any]]:
@@ -308,6 +424,7 @@ def _holes(data: HistoryData) -> list[dict[str, Any]]:
                 "averageToPar": average(deltas),
                 "worstToPar": max(deltas) if deltas else None,
                 "refs": refs,
+                "holeRefs": refs,
                 "geometryCoverage": _hole_geometry_coverage(pairs, number),
             }
         )
@@ -323,6 +440,7 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
     for club, shots in grouped.items():
         distances = [float(shot["distance"]) for shot in shots if shot.get("distance") is not None]
         round_ids = sorted({str(shot.get("roundId")) for shot in shots if shot.get("roundId") is not None})
+        shot_refs = sorted(str(shot.get("_ref")) for shot in shots if shot.get("_ref") is not None)
         corrected_refs = sorted(
             str(shot.get("_ref"))
             for shot in shots
@@ -338,6 +456,7 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
                 "max": max(distances) if distances else None,
                 "confidence": _confidence(len(distances)),
                 "roundIds": round_ids,
+                "shotRefs": shot_refs,
                 "correctedRefs": corrected_refs,
                 "correctionCount": len(corrected_refs),
             }
@@ -470,6 +589,7 @@ def build_history_stats(
         "summary": _summary(data),
         "time": _time_stats(data),
         "scoring": _scoring(data, annotations),
+        "courseDistribution": _course_distribution(data),
         "courses": _courses(data),
         "holes": _holes(data),
         "clubs": _clubs(data, annotations),
