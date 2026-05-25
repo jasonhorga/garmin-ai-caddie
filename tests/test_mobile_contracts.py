@@ -6,6 +6,7 @@ import unittest
 
 
 CONTRACT_DIR = Path("mobile") / "contracts"
+IOS_DIR = Path("mobile") / "ios" / "AICaddie"
 
 
 def _load_schema(name: str) -> dict[str, object]:
@@ -78,6 +79,24 @@ class MobileContractTests(unittest.TestCase):
                 "payload": {"source": "fixture"},
             }
             _assert_schema_accepts(self, schema, event)
+
+    def test_ios_fixture_json_matches_shared_contracts(self) -> None:
+        package_schema = _load_schema("live_round_package.schema.json")
+        event_schema = _load_schema("live_round_event.schema.json")
+        package = json.loads((IOS_DIR / "Fixtures" / "live_round_package.fixture.json").read_text(encoding="utf-8"))
+        event = json.loads((IOS_DIR / "Fixtures" / "live_round_event.fixture.json").read_text(encoding="utf-8"))
+
+        _assert_schema_accepts(self, package_schema, package)
+        _assert_schema_accepts(self, event_schema, event)
+
+    def test_swift_models_define_codable_contract_types(self) -> None:
+        package_swift = (IOS_DIR / "Models" / "LiveRoundPackage.swift").read_text(encoding="utf-8")
+        event_swift = (IOS_DIR / "Models" / "LiveRoundEvent.swift").read_text(encoding="utf-8")
+
+        self.assertIn("struct LiveRoundPackage: Codable", package_swift)
+        self.assertIn("struct LiveRoundEvent: Codable", event_swift)
+        self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
+        self.assertIn('case syncMarker = "sync_marker"', event_swift)
 
 
 if __name__ == "__main__":

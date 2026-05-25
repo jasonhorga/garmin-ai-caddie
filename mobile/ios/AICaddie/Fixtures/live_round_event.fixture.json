@@ -1,0 +1,12 @@
+{
+  "schema": "ai-caddie-live-round-event-v1",
+  "eventId": "event-score-1",
+  "roundId": "live-round-1",
+  "timestamp": "2026-05-25T00:01:00Z",
+  "hole": 1,
+  "kind": "score",
+  "payload": {
+    "strokes": 4,
+    "source": "fixture"
+  }
+}

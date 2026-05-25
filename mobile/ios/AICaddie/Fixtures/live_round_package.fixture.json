@@ -1,0 +1,38 @@
+{
+  "schema": "ai-caddie-live-round-package-v1",
+  "roundId": "live-round-1",
+  "playerProfile": {
+    "playerId": "player-1",
+    "displayName": "Test Player",
+    "handedness": "right"
+  },
+  "course": {
+    "globalId": 31795,
+    "name": "Fixture Links",
+    "teeBox": "blue"
+  },
+  "holes": [
+    {
+      "number": 1,
+      "par": 4,
+      "yards": 410,
+      "geometryCoverage": "ready"
+    }
+  ],
+  "geometryCoverage": {
+    "state": "partial",
+    "readyHoles": 12,
+    "totalHoles": 18
+  },
+  "clubProfiles": [
+    {
+      "clubName": "8I",
+      "sampleSize": 24,
+      "median_m": 144.0,
+      "p10_m": 132.0,
+      "p90_m": 153.0
+    }
+  ],
+  "caddieDecisionEndpoint": "/api/v2/caddie/decision",
+  "generatedAt": "2026-05-25T00:00:00Z"
+}
