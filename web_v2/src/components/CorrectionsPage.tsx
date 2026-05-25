@@ -8,7 +8,16 @@ import type {
   AnnotationTargetType,
 } from '../types'
 
-type CorrectionFormKind = 'club_correction' | 'putt_correction' | 'issue_tag' | 'note'
+type CorrectionFormKind =
+  | 'club_correction'
+  | 'lie_correction'
+  | 'penalty_correction'
+  | 'putt_correction'
+  | 'issue_tag'
+  | 'weather_context_note'
+  | 'strategy_note'
+  | 'caddie_feedback'
+  | 'note'
 
 interface CorrectionsPageProps {
   data: AnnotationListResponse
@@ -17,8 +26,13 @@ interface CorrectionsPageProps {
 
 const correctionKinds: Array<{ value: CorrectionFormKind; label: string }> = [
   { value: 'club_correction', label: 'Club correction' },
+  { value: 'lie_correction', label: 'Lie correction' },
+  { value: 'penalty_correction', label: 'Penalty correction' },
   { value: 'putt_correction', label: 'Putt correction' },
   { value: 'issue_tag', label: 'Issue tag' },
+  { value: 'weather_context_note', label: 'Weather note' },
+  { value: 'strategy_note', label: 'Strategy note' },
+  { value: 'caddie_feedback', label: 'Caddie feedback' },
   { value: 'note', label: 'Note' },
 ]
 
@@ -73,9 +87,24 @@ function payloadSummary(record: AnnotationRecord) {
     const to = compactPayloadValue(payload.to)
     if (from && to) return `${from} -> ${to} putts`
   }
+  if (record.kind === 'lie_correction') {
+    const from = compactPayloadValue(payload.from)
+    const to = compactPayloadValue(payload.to)
+    if (from && to) return `${from} -> ${to}`
+  }
+  if (record.kind === 'penalty_correction') {
+    const strokes = compactPayloadValue(payload.strokes)
+    const reason = compactPayloadValue(payload.reason)
+    if (strokes && reason) return `${strokes} stroke: ${reason}`
+    if (strokes) return `${strokes} penalty stroke`
+  }
   if (record.kind === 'issue_tag') {
     const tag = compactPayloadValue(payload.tag)
     if (tag) return tag
+  }
+  if (record.kind === 'caddie_feedback') {
+    const rating = compactPayloadValue(payload.rating)
+    if (rating) return rating
   }
   if (record.kind.endsWith('_note')) {
     const text = compactPayloadValue(payload.text)
@@ -106,9 +135,14 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
   const [correctionKind, setCorrectionKind] = useState<CorrectionFormKind>('club_correction')
   const [recordedClub, setRecordedClub] = useState('')
   const [correctedClub, setCorrectedClub] = useState('')
+  const [recordedLie, setRecordedLie] = useState('')
+  const [correctedLie, setCorrectedLie] = useState('')
+  const [penaltyStrokes, setPenaltyStrokes] = useState('')
+  const [penaltyReason, setPenaltyReason] = useState('')
   const [recordedPutts, setRecordedPutts] = useState('')
   const [correctedPutts, setCorrectedPutts] = useState('')
   const [issueTag, setIssueTag] = useState('')
+  const [feedbackRating, setFeedbackRating] = useState('helpful')
   const [note, setNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -123,6 +157,17 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
       if (recordedClub.trim()) payload.from = recordedClub.trim()
       if (correctedClub.trim()) payload.to = correctedClub.trim()
       if (trimmedNote) payload.note = trimmedNote
+    } else if (correctionKind === 'lie_correction') {
+      kind = 'lie_correction'
+      if (recordedLie.trim()) payload.from = recordedLie.trim()
+      if (correctedLie.trim()) payload.to = correctedLie.trim()
+      if (trimmedNote) payload.note = trimmedNote
+    } else if (correctionKind === 'penalty_correction') {
+      kind = 'penalty_correction'
+      const strokes = numericPayloadValue(penaltyStrokes)
+      if (strokes !== null) payload.strokes = strokes
+      if (penaltyReason.trim()) payload.reason = penaltyReason.trim()
+      if (trimmedNote) payload.note = trimmedNote
     } else if (correctionKind === 'putt_correction') {
       kind = 'putt_correction'
       const from = numericPayloadValue(recordedPutts)
@@ -133,6 +178,16 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
     } else if (correctionKind === 'issue_tag') {
       kind = 'issue_tag'
       if (issueTag.trim()) payload.tag = issueTag.trim()
+      if (trimmedNote) payload.note = trimmedNote
+    } else if (correctionKind === 'weather_context_note') {
+      kind = 'weather_context_note'
+      if (trimmedNote) payload.text = trimmedNote
+    } else if (correctionKind === 'strategy_note') {
+      kind = 'strategy_note'
+      if (trimmedNote) payload.text = trimmedNote
+    } else if (correctionKind === 'caddie_feedback') {
+      kind = 'caddie_feedback'
+      if (feedbackRating.trim()) payload.rating = feedbackRating.trim()
       if (trimmedNote) payload.note = trimmedNote
     } else {
       kind = noteKindForTarget(targetType)
@@ -157,9 +212,14 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
       setTargetId('')
       setRecordedClub('')
       setCorrectedClub('')
+      setRecordedLie('')
+      setCorrectedLie('')
+      setPenaltyStrokes('')
+      setPenaltyReason('')
       setRecordedPutts('')
       setCorrectedPutts('')
       setIssueTag('')
+      setFeedbackRating('helpful')
       setNote('')
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : 'Unable to save annotation')
@@ -232,6 +292,32 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
               </>
             ) : null}
 
+            {correctionKind === 'lie_correction' ? (
+              <>
+                <label>
+                  <span>Recorded lie</span>
+                  <input value={recordedLie} onChange={(event) => setRecordedLie(event.target.value)} />
+                </label>
+                <label>
+                  <span>Corrected lie</span>
+                  <input value={correctedLie} onChange={(event) => setCorrectedLie(event.target.value)} />
+                </label>
+              </>
+            ) : null}
+
+            {correctionKind === 'penalty_correction' ? (
+              <>
+                <label>
+                  <span>Penalty strokes</span>
+                  <input inputMode="numeric" value={penaltyStrokes} onChange={(event) => setPenaltyStrokes(event.target.value)} />
+                </label>
+                <label>
+                  <span>Penalty reason</span>
+                  <input value={penaltyReason} onChange={(event) => setPenaltyReason(event.target.value)} />
+                </label>
+              </>
+            ) : null}
+
             {correctionKind === 'putt_correction' ? (
               <>
                 <label>
@@ -249,6 +335,18 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
               <label>
                 <span>Issue tag</span>
                 <input value={issueTag} onChange={(event) => setIssueTag(event.target.value)} />
+              </label>
+            ) : null}
+
+            {correctionKind === 'caddie_feedback' ? (
+              <label>
+                <span>Feedback rating</span>
+                <select value={feedbackRating} onChange={(event) => setFeedbackRating(event.target.value)}>
+                  <option value="helpful">Helpful</option>
+                  <option value="too_aggressive">Too aggressive</option>
+                  <option value="too_conservative">Too conservative</option>
+                  <option value="missing_context">Missing context</option>
+                </select>
               </label>
             ) : null}
 
