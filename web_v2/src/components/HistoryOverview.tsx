@@ -1,33 +1,24 @@
 import type { HistoryOverviewResponse } from '../types'
 import { DataQualityChips } from './DataQualityChips'
 import { DistributionPanel } from './DistributionPanel'
+import { ProductNav, type ProductPage } from './ProductNav'
 import { RoundCard } from './RoundCard'
-
-const navItems = ['Overview', 'History', 'Rounds', 'Courses', 'Clubs', 'Caddie']
 
 interface HistoryOverviewProps {
   data: HistoryOverviewResponse
+  onNavigate?: (page: ProductPage) => void
 }
 
 function metricValue(value: number | null) {
   return value === null ? '-' : String(value)
 }
 
-export function HistoryOverview({ data }: HistoryOverviewProps) {
+export function HistoryOverview({ data, onNavigate = () => undefined }: HistoryOverviewProps) {
   const metrics = data.metrics
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div className="brand-mark" aria-hidden="true" />
-        <nav aria-label="Primary">
-          {navItems.map((item) => (
-            <span key={item} className={item === 'Overview' ? 'active' : undefined} aria-current={item === 'Overview' ? 'page' : undefined}>
-              {item}
-            </span>
-          ))}
-        </nav>
-      </header>
+      <ProductNav activePage="overview" onNavigate={onNavigate} />
 
       <section className="overview-hero">
         <div>

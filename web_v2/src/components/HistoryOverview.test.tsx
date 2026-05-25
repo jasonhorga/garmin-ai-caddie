@@ -65,6 +65,9 @@ describe('HistoryOverview', () => {
     expect(screen.getByText('80s')).toBeInTheDocument()
     expect(screen.getAllByText('shots').length).toBeGreaterThan(0)
     expect(container.querySelectorAll('.topbar nav a')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'History' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Stats' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Courses' })).toBeEnabled()
     expect(screen.getByLabelText('shots: 50%, partial - 1/2 scorecards have usable shot files')).toBeInTheDocument()
   })
 
@@ -77,14 +80,16 @@ describe('HistoryOverview', () => {
           recentRounds: [],
           emptyState: {
             kind: 'no_rounds',
-            title: 'No Garmin rounds loaded',
-            detail: 'Fetch Garmin scorecards locally, then refresh this view.',
+            title: 'No local Garmin data loaded',
+            detail:
+              'The v2 UI is connected, but this remote workspace has 0 rounds and 0 shot rows. Sync Garmin data into data/scorecards and data/shots, or run the fetch workflow, then refresh.',
           },
         }}
       />,
     )
 
-    expect(screen.getByText('No Garmin rounds loaded')).toBeInTheDocument()
+    expect(screen.getByText('No local Garmin data loaded')).toBeInTheDocument()
+    expect(screen.getByText(/this remote workspace has 0 rounds and 0 shot rows/i)).toBeInTheDocument()
     expect(screen.getByText('No recent Garmin rounds')).toBeInTheDocument()
     expect(screen.queryByText('Black Knight B')).not.toBeInTheDocument()
   })

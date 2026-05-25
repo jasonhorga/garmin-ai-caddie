@@ -1,16 +1,32 @@
 import { useEffect, useState } from 'react'
-import { fetchHistoryOverview, fetchSyncStatus } from './api'
+import { fetchHistoryOverview, fetchHistoryRounds, fetchHistoryStats, fetchSyncStatus } from './api'
+import { ClubStats } from './components/ClubStats'
+import { CourseStats } from './components/CourseStats'
+import { DataQualityPage } from './components/DataQualityPage'
 import { HistoryOverview } from './components/HistoryOverview'
+import { HistoryTimeline } from './components/HistoryTimeline'
+import { HoleStats } from './components/HoleStats'
+import { IssueStats } from './components/IssueStats'
+import { ProductNav } from './components/ProductNav'
+import { StatsOverview } from './components/StatsOverview'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
-import type { HistoryOverviewResponse, SyncStatusResponse } from './types'
+import type { ProductPage } from './components/ProductNav'
+import type { HistoryOverviewResponse, HistoryRoundsResponse, HistoryStatsResponse, SyncStatusResponse } from './types'
 
-type LoadState =
+type LoadState<T> =
   | { status: 'loading' }
-  | { status: 'ready'; data: HistoryOverviewResponse }
+  | { status: 'ready'; data: T }
   | { status: 'error'; message: string }
 
+type DeferredLoadState<T> = { status: 'idle' } | LoadState<T>
+
+const statsPages: ProductPage[] = ['stats', 'courses', 'holes', 'clubs', 'issues', 'quality']
+
 export default function App() {
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
+  const [activePage, setActivePage] = useState<ProductPage>('overview')
+  const [overviewState, setOverviewState] = useState<LoadState<HistoryOverviewResponse>>({ status: 'loading' })
+  const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
+  const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
 
   useEffect(() => {
@@ -18,10 +34,10 @@ export default function App() {
 
     fetchHistoryOverview()
       .then((data) => {
-        if (!cancelled) setState({ status: 'ready', data })
+        if (!cancelled) setOverviewState({ status: 'ready', data })
       })
       .catch((error: unknown) => {
-        if (!cancelled) setState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+        if (!cancelled) setOverviewState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
       })
 
     fetchSyncStatus()
@@ -37,7 +53,44 @@ export default function App() {
     }
   }, [])
 
-  if (state.status === 'loading') {
+  function navigate(page: ProductPage) {
+    setActivePage(page)
+    if (page === 'history' && roundsState.status === 'idle') {
+      setRoundsState({ status: 'loading' })
+      fetchHistoryRounds()
+        .then((data) => setRoundsState({ status: 'ready', data }))
+        .catch((error: unknown) =>
+          setRoundsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
+        )
+    }
+    if (statsPages.includes(page) && statsState.status === 'idle') {
+      setStatsState({ status: 'loading' })
+      fetchHistoryStats()
+        .then((data) => setStatsState({ status: 'ready', data }))
+        .catch((error: unknown) =>
+          setStatsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
+        )
+    }
+  }
+
+  function renderSyncPanel() {
+    return syncStatus ? (
+      <div className="app-shell sync-panel-shell">
+        <SyncStatusPanel status={syncStatus} />
+      </div>
+    ) : null
+  }
+
+  function renderStatsContent(data: HistoryStatsResponse) {
+    if (activePage === 'courses') return <CourseStats data={data} />
+    if (activePage === 'holes') return <HoleStats data={data} />
+    if (activePage === 'clubs') return <ClubStats data={data} />
+    if (activePage === 'issues') return <IssueStats data={data} />
+    if (activePage === 'quality') return <DataQualityPage data={data} />
+    return <StatsOverview data={data} />
+  }
+
+  if (overviewState.status === 'loading') {
     return (
       <main className="app-shell">
         <section className="panel empty-state">
@@ -47,12 +100,77 @@ export default function App() {
     )
   }
 
-  if (state.status === 'error') {
+  if (overviewState.status === 'error') {
     return (
       <main className="app-shell">
         <section className="panel empty-state">
           <h1>History API unavailable</h1>
-          <p>{state.message}</p>
+          <p>{overviewState.message}</p>
+        </section>
+      </main>
+    )
+  }
+
+  if (activePage === 'history') {
+    if (roundsState.status === 'ready') {
+      return (
+        <>
+          {renderSyncPanel()}
+          <HistoryTimeline data={roundsState.data} onNavigate={navigate} />
+        </>
+      )
+    }
+
+    if (roundsState.status === 'error') {
+      return (
+        <main className="app-shell">
+          <section className="panel empty-state">
+            <h1>History timeline unavailable</h1>
+            <p>{roundsState.message}</p>
+          </section>
+        </main>
+      )
+    }
+
+    return (
+      <main className="app-shell">
+        <section className="panel empty-state">
+          <h1>Loading history timeline</h1>
+        </section>
+      </main>
+    )
+  }
+
+  if (statsPages.includes(activePage)) {
+    if (statsState.status === 'ready') {
+      return (
+        <>
+          {renderSyncPanel()}
+          <main className="app-shell">
+            <ProductNav activePage={activePage} onNavigate={navigate} />
+            {renderStatsContent(statsState.data)}
+          </main>
+        </>
+      )
+    }
+
+    if (statsState.status === 'error') {
+      return (
+        <main className="app-shell">
+          <ProductNav activePage={activePage} onNavigate={navigate} />
+          <section className="panel empty-state">
+            <h1>History stats unavailable</h1>
+            <p>{statsState.message}</p>
+          </section>
+        </main>
+      )
+    }
+
+    return (
+      <main className="app-shell">
+        <ProductNav activePage={activePage} onNavigate={navigate} />
+        <section className="panel empty-state">
+          <h1>Loading history stats</h1>
         </section>
       </main>
     )
@@ -60,12 +178,8 @@ export default function App() {
 
   return (
     <>
-      {syncStatus ? (
-        <div className="app-shell sync-panel-shell">
-          <SyncStatusPanel status={syncStatus} />
-        </div>
-      ) : null}
-      <HistoryOverview data={state.data} />
+      {renderSyncPanel()}
+      <HistoryOverview data={overviewState.data} onNavigate={navigate} />
     </>
   )
 }
