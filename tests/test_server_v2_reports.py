@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -31,6 +33,24 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["narrative"], "generated review")
         self.assertEqual(response.json()["model"], "static")
+
+    def test_generated_round_report_is_stored_and_returned_by_get(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.reports.REPORT_ROOT", root), patch(
+                "server_v2.reports.build_text_provider",
+                return_value=StaticProvider("persisted review"),
+            ):
+                post_response = client.post("/api/v2/reports/round/900001/generate")
+                get_response = client.get("/api/v2/reports/round/900001")
+                raw = (root / "data" / "reports" / "reports.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(post_response.status_code, 200)
+        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(get_response.json()["narrative"], "persisted review")
+        self.assertIn('"subjectId": "900001"', raw)
 
     def test_report_endpoint_does_not_echo_secret_like_round_id(self) -> None:
         client = TestClient(app)

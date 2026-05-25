@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import json
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from ai_caddie.llm_providers import LLMMessage, TextProvider, redact_secret_text
 
@@ -41,6 +44,35 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
         _fact("best_score", summary.get("bestScore"), "summary.bestScore"),
     ]
 
+    putting = scoring.get("putting") if isinstance(scoring.get("putting"), dict) else {}
+    if putting:
+        facts_used.append(
+            _fact(
+                "putting",
+                {
+                    "totalPutts": putting.get("totalPutts"),
+                    "threePutts": putting.get("threePutts"),
+                    "threePuttRefs": putting.get("threePuttRefs", []),
+                },
+                "scoring.putting",
+            )
+        )
+    for phase in scoring.get("phaseStats", []) if isinstance(scoring.get("phaseStats"), list) else []:
+        if isinstance(phase, dict) and phase.get("phase"):
+            facts_used.append(_fact(f"phase_{phase.get('phase')}", phase, "scoring.phaseStats"))
+    course_distribution = history_stats.get("courseDistribution")
+    if isinstance(course_distribution, list) and course_distribution:
+        facts_used.append(_fact("course_distribution", course_distribution[:5], "courseDistribution"))
+    issues = history_stats.get("issues")
+    if isinstance(issues, list) and issues:
+        top_issue = sorted(
+            [issue for issue in issues if isinstance(issue, dict)],
+            key=lambda issue: int(issue.get("count") or 0),
+            reverse=True,
+        )[:1]
+        if top_issue:
+            facts_used.append(_fact("top_issue", top_issue[0], "issues"))
+
     for band in scoring.get("scoreBands", []) if isinstance(scoring.get("scoreBands"), list) else []:
         if not isinstance(band, dict):
             continue
@@ -75,6 +107,58 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
         "factsUsed": facts_used,
         "missingData": missing_data,
     }
+
+
+def _stored_at() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def report_store_file(root: Path | str | None = None) -> Path:
+    return Path(root or ".") / "data" / "reports" / "reports.jsonl"
+
+
+def store_report(
+    report: dict[str, Any],
+    *,
+    kind: str,
+    subject_id: str,
+    root: Path | str | None = None,
+) -> dict[str, Any]:
+    record = {
+        "id": uuid4().hex,
+        "storedAt": _stored_at(),
+        "kind": kind,
+        "subjectId": redact_private_text(subject_id),
+        "report": _redact_value(report),
+    }
+    path = report_store_file(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
+    return record
+
+
+def list_report_records(*, root: Path | str | None = None) -> list[dict[str, Any]]:
+    path = report_store_file(root)
+    if not path.exists():
+        return []
+    records = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            records.append(json.loads(line))
+    return records
+
+
+def latest_report_record(kind: str, subject_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
+    safe_subject_id = redact_private_text(subject_id)
+    matches = [
+        record
+        for record in list_report_records(root=root)
+        if record.get("kind") == kind and str(record.get("subjectId")) == safe_subject_id
+    ]
+    if not matches:
+        return None
+    return sorted(matches, key=lambda record: str(record.get("storedAt") or ""))[-1]
 
 
 def _confidence(facts_used: list[dict[str, Any]], missing_data: list[dict[str, Any]]) -> str:
