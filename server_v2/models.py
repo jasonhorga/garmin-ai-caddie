@@ -9,6 +9,7 @@ ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
 DistributionClass = Literal["eagle", "birdie", "bogey", "double"]
 ConnectorState = Literal["ready", "no_data", "reauth_required", "error"]
 ResolvedDataModeName = Literal["local", "fixture"]
+ReportConfidence = Literal["low", "medium", "high"]
 
 
 class DataQualityBadge(BaseModel):
@@ -166,3 +167,16 @@ class SyncRunResponse(BaseModel):
     reauthRequired: bool
     errorCode: str | None
     snapshot: SyncSnapshotPayload | None
+
+
+class ReviewReportResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-review-report-v1"] = Field(alias="schema")
+    kind: Literal["round", "trend"]
+    provider: str
+    model: str
+    factsUsed: list[dict[str, Any]]
+    missingData: list[dict[str, Any]]
+    narrative: str
+    confidence: ReportConfidence

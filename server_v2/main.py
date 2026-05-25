@@ -13,9 +13,11 @@ from .models import (
     HistoryOverviewResponse,
     HistoryRoundsResponse,
     HistoryStatsResponse,
+    ReviewReportResponse,
     SyncRunResponse,
     SyncStatusResponse,
 )
+from .reports import generate_round_report_response, load_round_report_response
 from .sync_status import load_sync_status_response
 
 
@@ -45,6 +47,8 @@ def service_index() -> dict[str, object]:
             "historyOverview": "/api/v2/history/overview",
             "historyRounds": "/api/v2/history/rounds",
             "historyStats": "/api/v2/history/stats",
+            "roundReport": "/api/v2/reports/round/{round_id}",
+            "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
             "syncStatus": "/api/v2/sync/status",
             "syncGarmin": "/api/v2/sync/garmin",
         },
@@ -73,6 +77,16 @@ def history_rounds() -> HistoryRoundsResponse:
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)
 def history_stats() -> HistoryStatsResponse:
     return load_history_stats_response()
+
+
+@app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)
+def round_report(round_id: str) -> ReviewReportResponse:
+    return load_round_report_response(round_id)
+
+
+@app.post("/api/v2/reports/round/{round_id}/generate", response_model=ReviewReportResponse)
+def generate_round_report(round_id: str) -> ReviewReportResponse:
+    return generate_round_report_response(round_id)
 
 
 @app.get("/api/v2/sync/status", response_model=SyncStatusResponse)
