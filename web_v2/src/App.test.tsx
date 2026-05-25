@@ -363,6 +363,57 @@ function drilldownPayload() {
   }
 }
 
+function holeDrilldownPayload() {
+  return {
+    schema: 'ai-caddie-history-drilldown-v1',
+    ref: '900001:7',
+    refType: 'hole',
+    found: true,
+    title: 'Black Knight B H7',
+    round: { id: '900001', score: 77, globalId: 31795, courseName: 'Black Knight B' },
+    hole: { number: 7, par: 4, strokes: 5, toPar: 1 },
+    shot: null,
+    relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:7'], shotRefs: ['900001:7:0'] },
+    sourceFields: { number: 7, strokes: 5 },
+    missingData: [],
+  }
+}
+
+function holeGeometryEvidencePayload() {
+  return {
+    schema: 'ai-caddie-geometry-evidence-v1',
+    globalId: 31795,
+    localHole: 7,
+    coverage: 'ready',
+    hasHazards: true,
+    hasMeshes: true,
+    evidence: [{ label: 'hazards', ref: 'output/prodgeometry_hazards/gid31795_h07_hazards.json' }],
+    missingData: [],
+  }
+}
+
+function holeMapPayload() {
+  return {
+    schema: 'ai-caddie-hole-map-v1',
+    globalId: 31795,
+    localHole: 7,
+    provider: { name: 'esri_world_imagery', label: 'Esri World Imagery', coordinateSystem: 'WGS84' },
+    coverage: 'ready',
+    layers: ['hazard', 'target'],
+    featureCollection: {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [114.164, 22.281] },
+          properties: { layer: 'target', id: 'pin' },
+        },
+      ],
+    },
+    missingData: [],
+  }
+}
+
 describe('App navigation', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -545,6 +596,38 @@ describe('App navigation', () => {
     expect(screen.getByText('shots')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
+  })
+
+  it('loads hole geometry evidence after selecting a hole source ref', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
+        if (path === '/api/v2/geometry/hole/31795/7') return holeGeometryEvidencePayload()
+        if (path === '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery') return holeMapPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Holes' }))
+    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
+
+    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Hole Evidence' })).toBeInTheDocument()
+    expect(screen.getByText('31795 H7')).toBeInTheDocument()
+    expect(screen.getByText('Esri World Imagery')).toBeInTheDocument()
+    expect(screen.getByText('WGS84')).toBeInTheDocument()
+    expect(screen.getByText('pin')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A7')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery')
   })
 
   it('opens the caddie workspace, attaches media context, and requests a decision', async () => {

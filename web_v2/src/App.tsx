@@ -7,6 +7,8 @@ import {
   fetchCaddieDecision,
   fetchAnnotations,
   fetchMediaForTarget,
+  fetchHoleGeometryEvidence,
+  fetchHoleMap,
   fetchHistoryDrilldown,
   fetchHistoryOverview,
   fetchHistoryRounds,
@@ -29,6 +31,7 @@ import { DataQualityPage } from './components/DataQualityPage'
 import { HistoryOverview } from './components/HistoryOverview'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
+import { HoleEvidencePanel, type HoleEvidenceState } from './components/HoleEvidencePanel'
 import { HoleStats } from './components/HoleStats'
 import { IssueStats } from './components/IssueStats'
 import { ProductNav } from './components/ProductNav'
@@ -79,6 +82,7 @@ export default function App() {
   const [weatherState, setWeatherState] = useState<DeferredLoadState<WeatherSnapshotResponse>>({ status: 'idle' })
   const [mediaState, setMediaState] = useState<MediaContextState>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
+  const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
 
@@ -160,9 +164,11 @@ export default function App() {
 
   async function handleSelectSourceRef(sourceRef: string): Promise<HistoryDrilldownResponse | null> {
     setDrilldownState({ status: 'loading', sourceRef })
+    setHoleEvidenceState({ status: 'idle' })
     try {
       const data = await fetchHistoryDrilldown(sourceRef)
       setDrilldownState({ status: 'ready', data })
+      void loadHoleEvidenceForDrilldown(sourceRef, data)
       return data
     } catch (error: unknown) {
       setDrilldownState({
@@ -170,7 +176,30 @@ export default function App() {
         sourceRef,
         message: error instanceof Error ? error.message : 'Unknown error',
       })
+      setHoleEvidenceState({ status: 'idle' })
       return null
+    }
+  }
+
+  async function loadHoleEvidenceForDrilldown(sourceRef: string, drilldown: HistoryDrilldownResponse) {
+    const target = holeGeometryTargetFromDrilldown(sourceRef, drilldown)
+    if (!target) {
+      setHoleEvidenceState({ status: 'idle' })
+      return
+    }
+    setHoleEvidenceState({ status: 'loading', sourceRef })
+    try {
+      const [evidence, map] = await Promise.all([
+        fetchHoleGeometryEvidence(target.globalId, target.localHole),
+        fetchHoleMap(target.globalId, target.localHole),
+      ])
+      setHoleEvidenceState({ status: 'ready', sourceRef, evidence, map })
+    } catch (error: unknown) {
+      setHoleEvidenceState({
+        status: 'error',
+        sourceRef,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      })
     }
   }
 
@@ -422,6 +451,7 @@ export default function App() {
             <ProductNav activePage={activePage} onNavigate={navigate} />
             {renderStatsContent(statsState.data)}
             <HistoryDrilldownPanel state={drilldownState} />
+            {holeEvidenceState.status === 'idle' ? null : <HoleEvidencePanel state={holeEvidenceState} />}
           </main>
         </>
       )
@@ -544,6 +574,28 @@ function buildFixtureActualShot(decision: CaddieDecisionResponse): Record<string
     meters: carry,
     end: { lie: 'Green', feature: { surface: { kind: 'green' }, nearRisks: [] } },
   }
+}
+
+function holeGeometryTargetFromDrilldown(
+  sourceRef: string,
+  drilldown: HistoryDrilldownResponse,
+): { globalId: number; localHole: number } | null {
+  const globalId = numericField(drilldown.round, 'globalId')
+  const localHole = numericField(drilldown.hole, 'number') ?? holeFromSourceRef(sourceRef)
+  if (globalId === null || localHole === null) return null
+  return { globalId, localHole }
+}
+
+function numericField(row: Record<string, unknown> | null, key: string): number | null {
+  const value = row?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function holeFromSourceRef(sourceRef: string): number | null {
+  const part = sourceRef.split(':')[1]
+  if (!part) return null
+  const value = Number(part)
+  return Number.isFinite(value) ? value : null
 }
 
 function slug(value: string): string {

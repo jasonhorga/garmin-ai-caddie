@@ -1469,6 +1469,101 @@ p {
   font-weight: 750;
 }
 
+.hole-evidence-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+}
+
+.hole-evidence-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, .92fr) minmax(0, 1.08fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.hole-geometry-map {
+  width: 100%;
+  aspect-ratio: 320 / 210;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #eef4ef;
+}
+
+.hole-geometry-map rect {
+  fill: #edf4ef;
+}
+
+.hole-map-feature {
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.feature-hazard {
+  fill: rgba(62, 125, 165, .22);
+  stroke: #2f7193;
+}
+
+.feature-target {
+  fill: #ffffff;
+  stroke: var(--green);
+}
+
+.feature-shot_route {
+  fill: none;
+  stroke: var(--eagle);
+}
+
+.feature-tee {
+  fill: #ffffff;
+  stroke: #6b8f42;
+}
+
+.hole-evidence-facts {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.hole-evidence-provider {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf7;
+  padding: 10px 12px;
+}
+
+.hole-evidence-provider span {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.hole-evidence-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hole-evidence-layers span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 5px 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.hole-evidence-feature-list,
+.hole-evidence-rows {
+  min-width: 0;
+}
+
 .decision-detail {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1584,6 +1679,10 @@ p {
   }
 
   .media-context-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hole-evidence-layout {
     grid-template-columns: 1fr;
   }
 }

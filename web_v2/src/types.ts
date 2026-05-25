@@ -5,6 +5,7 @@ export type AnnotationTargetType = 'round' | 'hole' | 'shot' | 'decision'
 export type MediaTargetType = 'round' | 'hole' | 'shot'
 export type MediaKind = 'photo' | 'video'
 export type MediaPrivacyState = 'private_local' | 'synced' | 'redacted'
+export type GeometryCoverageState = 'ready' | 'partial' | 'missing'
 export type VisionFindingType =
   | 'poor_lie'
   | 'blocked_view'
@@ -251,6 +252,52 @@ export interface VisionFindingsListResponse {
   total: number
   findings: VisionFindingRecord[]
   target: { targetType: MediaTargetType; targetId: string }
+}
+
+export interface GeometryEvidenceResponse {
+  schema: 'ai-caddie-geometry-evidence-v1'
+  globalId: number
+  localHole: number
+  coverage: GeometryCoverageState
+  hasHazards: boolean
+  hasMeshes: boolean
+  evidence: Array<Record<string, unknown>>
+  missingData: Array<Record<string, unknown>>
+}
+
+export interface CourseGeometryCoverageResponse {
+  schema: 'ai-caddie-course-geometry-coverage-v1'
+  globalId: number
+  coverage: GeometryCoverageState
+  readyHoles: number
+  partialHoles: number
+  totalHoles: number
+  holes: Array<Record<string, unknown>>
+}
+
+export interface GeoJsonFeature {
+  type: 'Feature'
+  geometry: {
+    type: string
+    coordinates: unknown
+  }
+  properties: Record<string, unknown>
+}
+
+export interface GeoJsonFeatureCollection {
+  type: 'FeatureCollection'
+  features: GeoJsonFeature[]
+}
+
+export interface HoleMapResponse {
+  schema: 'ai-caddie-hole-map-v1'
+  globalId: number
+  localHole: number
+  provider: Record<string, unknown>
+  coverage: GeometryCoverageState
+  layers: string[]
+  featureCollection: GeoJsonFeatureCollection
+  missingData: Array<Record<string, unknown>>
 }
 
 export interface MonthRoundGroup {

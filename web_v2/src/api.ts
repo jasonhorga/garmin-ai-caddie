@@ -12,6 +12,9 @@ import type {
   HistoryDrilldownResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  CourseGeometryCoverageResponse,
+  GeometryEvidenceResponse,
+  HoleMapResponse,
   MediaCreateRequest,
   MediaCreateResponse,
   MediaListResponse,
@@ -129,6 +132,35 @@ export function fetchHistoryStats(): Promise<HistoryStatsResponse> {
 
 export function fetchHistoryDrilldown(sourceRef: string): Promise<HistoryDrilldownResponse> {
   return getJson<HistoryDrilldownResponse>(`/api/v2/history/drilldown/${encodeURIComponent(sourceRef)}`)
+}
+
+export function fetchCourseGeometryCoverage(
+  globalId: number,
+  holes: number[] = [],
+): Promise<CourseGeometryCoverageResponse> {
+  const query = new URLSearchParams()
+  holes.forEach((hole) => query.append('holes', String(hole)))
+  const suffix = query.toString()
+  return getJson<CourseGeometryCoverageResponse>(
+    `/api/v2/geometry/course/${encodeURIComponent(String(globalId))}/coverage${suffix ? `?${suffix}` : ''}`,
+  )
+}
+
+export function fetchHoleGeometryEvidence(globalId: number, localHole: number): Promise<GeometryEvidenceResponse> {
+  return getJson<GeometryEvidenceResponse>(
+    `/api/v2/geometry/hole/${encodeURIComponent(String(globalId))}/${encodeURIComponent(String(localHole))}`,
+  )
+}
+
+export function fetchHoleMap(
+  globalId: number,
+  localHole: number,
+  provider = 'esri_world_imagery',
+): Promise<HoleMapResponse> {
+  const query = new URLSearchParams({ provider })
+  return getJson<HoleMapResponse>(
+    `/api/v2/geometry/hole/${encodeURIComponent(String(globalId))}/${encodeURIComponent(String(localHole))}/map?${query.toString()}`,
+  )
 }
 
 export function fetchRoundReport(roundId: string): Promise<ReviewReportResponse> {

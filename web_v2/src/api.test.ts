@@ -6,10 +6,13 @@ import {
   fetchCaddieDecision,
   fetchAnnotations,
   fetchAnnotationsForTarget,
+  fetchCourseGeometryCoverage,
   fetchHistoryOverview,
   fetchHistoryDrilldown,
   fetchHistoryRounds,
   fetchHistoryStats,
+  fetchHoleGeometryEvidence,
+  fetchHoleMap,
   fetchMediaForTarget,
   fetchLatestCaddieDecisionAudit,
   fetchReadiness,
@@ -462,6 +465,74 @@ describe('media API helpers', () => {
     expect(listed.media).toHaveLength(1)
     expect(analyzed.findings[0].findingType).toBe('visible_bunker')
     expect(findings.findings[0].evidenceText).toBe('front bunker visible')
+  })
+})
+
+describe('geometry API helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads course coverage, hole evidence, and hole map DTOs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/geometry/course/31795/coverage?holes=1&holes=7') {
+          return {
+            schema: 'ai-caddie-course-geometry-coverage-v1',
+            globalId: 31795,
+            coverage: 'partial',
+            readyHoles: 1,
+            partialHoles: 0,
+            totalHoles: 2,
+            holes: [],
+          }
+        }
+        if (path === '/api/v2/geometry/hole/31795/7') {
+          return {
+            schema: 'ai-caddie-geometry-evidence-v1',
+            globalId: 31795,
+            localHole: 7,
+            coverage: 'ready',
+            hasHazards: true,
+            hasMeshes: true,
+            evidence: [{ label: 'hazards', ref: 'output/prodgeometry_hazards/gid31795_h07_hazards.json' }],
+            missingData: [],
+          }
+        }
+        if (path === '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery') {
+          return {
+            schema: 'ai-caddie-hole-map-v1',
+            globalId: 31795,
+            localHole: 7,
+            provider: { name: 'esri_world_imagery', label: 'Esri World Imagery', coordinateSystem: 'WGS84' },
+            coverage: 'ready',
+            layers: ['hazard', 'target'],
+            featureCollection: {
+              type: 'FeatureCollection',
+              features: [
+                { type: 'Feature', geometry: { type: 'Point', coordinates: [114.162, 22.279] }, properties: { layer: 'target', id: 'pin' } },
+              ],
+            },
+            missingData: [],
+          }
+        }
+        throw new Error(`Unexpected request ${path}`)
+      },
+    })))
+
+    const coverage = await fetchCourseGeometryCoverage(31795, [1, 7])
+    const evidence = await fetchHoleGeometryEvidence(31795, 7)
+    const map = await fetchHoleMap(31795, 7, 'esri_world_imagery')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/geometry/course/31795/coverage?holes=1&holes=7')
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/geometry/hole/31795/7')
+    expect(fetch).toHaveBeenNthCalledWith(3, '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery')
+    expect(coverage.coverage).toBe('partial')
+    expect(evidence.evidence[0].label).toBe('hazards')
+    expect(map.provider.coordinateSystem).toBe('WGS84')
+    expect(map.layers).toContain('target')
   })
 })
 
