@@ -25,6 +25,8 @@ This project is designed for private golf data first. Secrets must stay local or
 - `data/shots`
 - `data/snapshots`
 - `data/sync`
+- `data/annotations`
+- `data/media` metadata and local uploaded media files
 
 It excludes by default:
 

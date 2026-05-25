@@ -11,6 +11,8 @@ DATA_PATHS = [
     Path("data") / "shots",
     Path("data") / "snapshots",
     Path("data") / "sync",
+    Path("data") / "annotations",
+    Path("data") / "media",
 ]
 
 
