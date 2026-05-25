@@ -24,6 +24,11 @@ RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
 BAD_SURFACES = {"bunker", "water", "water_edge", "tree_area"}
 EXCLUDED_TEE_CLUBS = {"unknown", "?", "putter"}
 MIN_STRONG_CLUB_SAMPLE = 5
+VISION_USABLE_CONFIDENCE = {"medium", "high"}
+VISION_HAZARD_TYPES = {
+    "visible_water": "water",
+    "visible_bunker": "bunker",
+}
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -263,6 +268,14 @@ def _missing_data(analysis: dict[str, Any], options: list[dict[str, Any]], selec
     weather = _weather_snapshot(analysis)
     if weather and weather.get("state") != "ready":
         rows.append({"label": "weather", "reason": "weather snapshot missing or incomplete"})
+    for finding in analysis.get("_visionMissing") or []:
+        rows.append({
+            "label": "vision",
+            "reason": (
+                f"{finding.get('findingType') or 'vision'} confidence={finding.get('confidence') or 'unknown'} "
+                "requires player confirmation"
+            ),
+        })
     for issue in (analysis.get("dataQuality") or {}).get("issues") or []:
         rows.append({"label": "data_quality", "reason": str(issue)})
     return rows
@@ -372,8 +385,60 @@ def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[st
     }
 
 
-def _context_with_default_quality(context: dict[str, Any]) -> dict[str, Any]:
+def _vision_findings(context: dict[str, Any]) -> list[dict[str, Any]]:
+    findings = context.get("visionFindings")
+    if findings is None and isinstance(context.get("visionContext"), dict):
+        findings = (context.get("visionContext") or {}).get("findings")
+    if not isinstance(findings, list):
+        return []
+    return [row for row in findings if isinstance(row, dict)]
+
+
+def _apply_vision_findings(context: dict[str, Any]) -> dict[str, Any]:
     analysis = dict(context)
+    usable: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    hazards = list(analysis.get("hazards") or [])
+
+    for finding in _vision_findings(context):
+        finding_type = str(finding.get("findingType") or finding.get("type") or "").strip()
+        confidence = str(finding.get("confidence") or "low").strip()
+        if confidence not in VISION_USABLE_CONFIDENCE or finding_type == "uncertainty":
+            missing.append({
+                "findingType": finding_type or "unknown",
+                "confidence": confidence,
+                "reason": "vision finding is uncertain and requires player confirmation",
+            })
+            continue
+
+        usable.append(finding)
+        if finding_type == "blocked_view":
+            analysis["blockedView"] = True
+        elif finding_type == "poor_lie":
+            lie = str(analysis.get("lie") or "").strip().lower()
+            if lie in {"", "fairway", "unknown", "none"}:
+                analysis["lie"] = "poor_lie"
+        elif finding_type in VISION_HAZARD_TYPES:
+            kind = VISION_HAZARD_TYPES[finding_type]
+            hazards.append({
+                "kind": kind,
+                "id": f"vision_{finding_type}",
+                "source": "vision",
+                "confidence": confidence,
+                "reason": str(finding.get("evidenceText") or finding_type),
+            })
+
+    if hazards:
+        analysis["hazards"] = hazards
+    if usable:
+        analysis["_visionEvidence"] = usable
+    if missing:
+        analysis["_visionMissing"] = missing
+    return analysis
+
+
+def _context_with_default_quality(context: dict[str, Any]) -> dict[str, Any]:
+    analysis = _apply_vision_findings(context)
     analysis.setdefault("dataQuality", {"confidence": "high", "issues": []})
     return analysis
 
@@ -482,7 +547,7 @@ def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
     distance_m = _pin_distance(context)
     blocked = bool(context.get("blockedView"))
     lie = str(context.get("lie") or "").lower()
-    recovery_penalty = 2 if blocked or lie in {"rough", "trees", "sand", "bunker"} else 0
+    recovery_penalty = 2 if blocked or lie in {"rough", "trees", "sand", "bunker", "poor_lie"} else 0
     return _ordered_options([
         _shot_option(
             context,
@@ -529,6 +594,7 @@ def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
         "distanceToPin_m": analysis.get("distanceToPin_m"),
         "lie": analysis.get("lie"),
         "blockedView": analysis.get("blockedView"),
+        "visionFindings": analysis.get("visionFindings"),
     }
 
 
@@ -556,6 +622,11 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
         rows.append({"kind": "lie", "text": f"current lie={lie}"})
     if analysis.get("blockedView"):
         rows.append({"kind": "blocked_view", "text": "direct view or swing window is blocked"})
+    for finding in analysis.get("_visionEvidence") or []:
+        finding_type = str(finding.get("findingType") or "vision")
+        confidence = str(finding.get("confidence") or "unknown")
+        evidence_text = str(finding.get("evidenceText") or finding_type)
+        rows.append({"kind": "vision", "text": f"{finding_type} ({confidence}): {evidence_text}"})
     weather = _weather_snapshot(analysis)
     if weather:
         rows.append({"kind": "weather", "text": _weather_text(weather)})

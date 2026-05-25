@@ -204,6 +204,57 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertGreaterEqual(attack["riskScore"], 7)
         self.assertTrue(any(row["kind"] == "history" for row in plan["evidence"]))
 
+    def test_recovery_consumes_medium_high_confidence_vision_findings(self) -> None:
+        context = recovery_fixture(lie="fairway", blocked=False)
+        context["hazards"] = []
+        context["visionFindings"] = [
+            {
+                "findingType": "blocked_view",
+                "evidenceText": "tree trunk blocks the window",
+                "confidence": "high",
+            },
+            {
+                "findingType": "poor_lie",
+                "evidenceText": "ball is sitting down",
+                "confidence": "medium",
+            },
+            {
+                "findingType": "visible_bunker",
+                "evidenceText": "front bunker visible",
+                "confidence": "medium",
+            },
+        ]
+
+        plan = recommend_recovery(context)
+
+        self.assertTrue(plan["context"]["blockedView"])
+        self.assertEqual(plan["context"]["lie"], "poor_lie")
+        self.assertEqual(plan["selected"]["id"], "safe")
+        self.assertIn("bunker", {zone["kind"] for zone in plan["avoidZones"]})
+        self.assertTrue(any(row["kind"] == "vision" and "blocked_view" in row["text"] for row in plan["evidence"]))
+
+    def test_low_confidence_vision_findings_degrade_without_overwriting_facts(self) -> None:
+        context = approach_fixture()
+        context["visionFindings"] = [
+            {
+                "findingType": "blocked_view",
+                "evidenceText": "possibly blocked",
+                "confidence": "low",
+            },
+            {
+                "findingType": "uncertainty",
+                "evidenceText": "target line is unclear",
+                "confidence": "low",
+                "missingInfo": ["pin not visible"],
+            },
+        ]
+
+        plan = recommend_approach(context)
+
+        self.assertIsNone(plan["context"].get("blockedView"))
+        self.assertIn("vision", {row["label"] for row in plan["missingData"]})
+        self.assertFalse(any(row["kind"] == "vision" and "blocked_view" in row["text"] for row in plan["evidence"]))
+
     def test_outcome_execution_when_selected_plan_hits_known_risk(self) -> None:
         shot = {
             "shotOrder": 1,
