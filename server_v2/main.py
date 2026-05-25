@@ -9,7 +9,7 @@ from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize
 from ai_caddie.connectors.snapshot import snapshot_to_payload
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
-from .caddie import build_caddie_decision_response
+from .caddie import build_caddie_decision_response, create_decision_audit_response, latest_decision_audit_response
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_drilldown import load_history_drilldown_response
@@ -25,6 +25,9 @@ from .models import (
     AnnotationTargetType,
     CaddieDecisionRequest,
     CaddieDecisionResponse,
+    CaddieDecisionAuditLatestResponse,
+    CaddieDecisionAuditRequest,
+    CaddieDecisionAuditStoreResponse,
     CourseGeometryCoverageResponse,
     GeometryEvidenceResponse,
     HistoryDrilldownResponse,
@@ -85,6 +88,8 @@ def service_index() -> dict[str, object]:
             "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
             "geometryHoleMap": "/api/v2/geometry/hole/{global_id}/{local_hole}/map",
             "caddieDecision": "/api/v2/caddie/decision",
+            "caddieDecisionAudit": "/api/v2/caddie/decisions/{decision_id}/audit",
+            "caddieDecisionAuditLatest": "/api/v2/caddie/decisions/{decision_id}/audit/latest",
             "annotations": "/api/v2/annotations",
             "annotationsByTarget": "/api/v2/annotations/target/{target_type}/{target_id}",
             "media": "/api/v2/media",
@@ -153,6 +158,16 @@ def geometry_hole_map(global_id: int, local_hole: int, provider: str = "esri_wor
 @app.post("/api/v2/caddie/decision", response_model=CaddieDecisionResponse)
 def caddie_decision(request: CaddieDecisionRequest) -> CaddieDecisionResponse:
     return build_caddie_decision_response(request)
+
+
+@app.post("/api/v2/caddie/decisions/{decision_id}/audit", response_model=CaddieDecisionAuditStoreResponse)
+def caddie_decision_audit(decision_id: str, request: CaddieDecisionAuditRequest) -> CaddieDecisionAuditStoreResponse:
+    return create_decision_audit_response(decision_id, request)
+
+
+@app.get("/api/v2/caddie/decisions/{decision_id}/audit/latest", response_model=CaddieDecisionAuditLatestResponse)
+def caddie_decision_audit_latest(decision_id: str) -> CaddieDecisionAuditLatestResponse:
+    return latest_decision_audit_response(decision_id)
 
 
 @app.get("/api/v2/annotations", response_model=AnnotationListResponse)

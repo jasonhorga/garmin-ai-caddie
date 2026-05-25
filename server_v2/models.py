@@ -290,6 +290,33 @@ class CaddieDecisionResponse(BaseModel):
     auditCriteria: list[dict[str, Any]]
 
 
+class CaddieDecisionAuditRequest(BaseModel):
+    decision: dict[str, Any]
+    actualShot: dict[str, Any] | None = None
+
+
+class CaddieDecisionAuditRecord(BaseModel):
+    id: str
+    storedAt: str
+    decisionId: str
+    audit: dict[str, Any]
+
+
+class CaddieDecisionAuditStoreResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-decision-audit-store-v1"] = Field(alias="schema")
+    record: CaddieDecisionAuditRecord
+
+
+class CaddieDecisionAuditLatestResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-decision-audit-latest-v1"] = Field(alias="schema")
+    decisionId: str
+    record: CaddieDecisionAuditRecord | None
+
+
 class AnnotationRecord(BaseModel):
     id: str
     createdAt: str
