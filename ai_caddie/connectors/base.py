@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+ConnectorState = Literal["ready", "no_data", "reauth_required", "error"]
+
+
+@dataclass(frozen=True)
+class SnapshotManifest:
+    snapshot_id: str
+    scorecard_count: int
+    shot_file_count: int
+    summary_present: bool
+    files: list[str]
+
+
+@dataclass(frozen=True)
+class ConnectorRunResult:
+    connector: Literal["garmin_cn_web_session"]
+    state: ConnectorState
+    detail: str
+    snapshot: SnapshotManifest | None = None
+    error_code: str | None = None
+    safe_meta: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def ok(self) -> bool:
+        return self.state == "ready"
