@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ai_caddie.config import DataMode, get_settings
+from ai_caddie.connectors.snapshot import read_connector_status
 from ai_caddie.data import ROOT
 
 from .models import ConnectorStatus, SnapshotStatus, SyncStatusResponse
@@ -33,6 +34,18 @@ def build_sync_status_response(
     scorecard_count = _count_json_files(scorecard_dir)
     shot_file_count = _count_json_files(shot_dir)
     has_data = scorecard_count > 0
+    persisted = read_connector_status(root=root)
+    persisted_state = persisted.get("state") if persisted else None
+    if persisted_state in {"reauth_required", "error"}:
+        state = persisted_state
+        detail = str(persisted.get("detail") or "Garmin connector needs attention.")
+    else:
+        state = "ready" if has_data else "no_data"
+        detail = (
+            "Local Garmin snapshots are available."
+            if has_data
+            else "No local Garmin snapshots are loaded. Connect Garmin or use fixture mode."
+        )
     resolved_mode = (
         "fixture"
         if selected_mode == "fixture"
@@ -41,14 +54,10 @@ def build_sync_status_response(
     )
     connector = ConnectorStatus(
         name="garmin_cn_web_session",
-        state="ready" if has_data else "no_data",
-        detail=(
-            "Local Garmin snapshots are available."
-            if has_data
-            else "No local Garmin snapshots are loaded. Connect Garmin or use fixture mode."
-        ),
+        state=state,
+        detail=detail,
         canSync=False,
-        reauthRequired=False,
+        reauthRequired=state == "reauth_required",
     )
     return SyncStatusResponse(
         schema="ai-caddie-sync-status-v2",

@@ -50,6 +50,25 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["connector"]["state"], "no_data")
         self.assertEqual(payload["snapshot"]["dataMode"], "fixture")
 
+    def test_build_sync_status_uses_persisted_reauth_required_state(self) -> None:
+        from ai_caddie.connectors.snapshot import write_connector_status
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_connector_status(
+                root=root,
+                state="reauth_required",
+                detail="Garmin session expired.",
+                snapshot_id=None,
+                error_code="auth_failed",
+            )
+            payload = build_sync_status_response(root=root, data_mode="local").model_dump()
+
+        self.assertEqual(payload["connector"]["state"], "reauth_required")
+        self.assertTrue(payload["connector"]["reauthRequired"])
+        self.assertFalse(payload["connector"]["canSync"])
+        self.assertEqual(payload["connector"]["detail"], "Garmin session expired.")
+
     def test_sync_status_endpoint_uses_public_schema_alias(self) -> None:
         client = TestClient(app)
 
