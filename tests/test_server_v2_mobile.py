@@ -128,6 +128,37 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    def test_mobile_reconciliation_endpoint_uses_local_events_and_fixture_facts(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "score-conflict",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+            "payload": {"strokes": 5},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                client.post(
+                    "/api/v2/mobile/rounds/900001/events",
+                    headers={"Idempotency-Key": "batch-1"},
+                    json={"roundId": "900001", "events": [event]},
+                )
+                response = client.get("/api/v2/mobile/rounds/900001/reconciliation")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-mobile-reconciliation-v1")
+        self.assertEqual(payload["summary"]["conflictCount"], 1)
+        self.assertEqual(payload["conflicts"][0]["eventId"], "score-conflict")
+
 
 if __name__ == "__main__":
     unittest.main()

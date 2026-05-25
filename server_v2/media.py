@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from ai_caddie.llm_providers import TextProvider, build_text_provider
 from ai_caddie.media import attach_media, find_media, media_for_target, store_media_content
-from ai_caddie.vision_context import analyze_media_context
+from ai_caddie.vision_context import analyze_media_context, list_findings_for_target, store_vision_findings
 
 from .models import (
     MediaCreateRequest,
@@ -15,6 +15,8 @@ from .models import (
     MediaRecord,
     MediaTargetType,
     VisionAnalysisResponse,
+    VisionFindingRecord,
+    VisionFindingsListResponse,
 )
 
 
@@ -70,4 +72,15 @@ def analyze_media_response(media_id: str) -> VisionAnalysisResponse:
     if media is None:
         raise HTTPException(status_code=404, detail="media not found")
     result = analyze_media_context(media, build_media_vision_provider(), root=MEDIA_ROOT)
+    store_vision_findings(result, root=MEDIA_ROOT)
     return VisionAnalysisResponse(**result)
+
+
+def list_target_vision_findings_response(target_type: MediaTargetType, target_id: str) -> VisionFindingsListResponse:
+    rows = [VisionFindingRecord(**row) for row in list_findings_for_target(target_type, target_id, root=MEDIA_ROOT)]
+    return VisionFindingsListResponse(
+        schema="ai-caddie-vision-findings-list-v1",
+        total=len(rows),
+        findings=rows,
+        target={"targetType": target_type, "targetId": target_id},
+    )

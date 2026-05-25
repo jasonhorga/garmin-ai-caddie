@@ -15,8 +15,13 @@ from .history_rounds import load_history_rounds_response
 from .history_drilldown import load_history_drilldown_response
 from .history_stats import load_history_stats_response
 from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response, load_hole_map_response
-from .media import analyze_media_response, create_media_response, list_target_media_response
-from .mobile import append_mobile_events_response, build_mobile_round_package_response
+from .media import (
+    analyze_media_response,
+    create_media_response,
+    list_target_media_response,
+    list_target_vision_findings_response,
+)
+from .mobile import append_mobile_events_response, build_mobile_round_package_response, reconcile_mobile_round_response
 from .weather import load_weather_snapshot_response
 from .models import (
     AnnotationCreateRequest,
@@ -46,6 +51,7 @@ from .models import (
     SyncRunResponse,
     SyncStatusResponse,
     VisionAnalysisResponse,
+    VisionFindingsListResponse,
     WeatherSnapshotResponse,
 )
 from .reports import (
@@ -94,9 +100,11 @@ def service_index() -> dict[str, object]:
             "annotationsByTarget": "/api/v2/annotations/target/{target_type}/{target_id}",
             "media": "/api/v2/media",
             "mediaByTarget": "/api/v2/media/target/{target_type}/{target_id}",
+            "visionFindingsByTarget": "/api/v2/media/target/{target_type}/{target_id}/findings",
             "analyzeMedia": "/api/v2/media/{media_id}/analyze",
             "mobileRoundPackage": "/api/v2/mobile/rounds/{round_id}/package",
             "mobileRoundEvents": "/api/v2/mobile/rounds/{round_id}/events",
+            "mobileRoundReconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
             "weatherSnapshot": "/api/v2/weather/snapshot",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
@@ -195,6 +203,11 @@ def media_by_target(target_type: MediaTargetType, target_id: str) -> MediaListRe
     return list_target_media_response(target_type, target_id)
 
 
+@app.get("/api/v2/media/target/{target_type}/{target_id}/findings", response_model=VisionFindingsListResponse)
+def vision_findings_by_target(target_type: MediaTargetType, target_id: str) -> VisionFindingsListResponse:
+    return list_target_vision_findings_response(target_type, target_id)
+
+
 @app.post("/api/v2/media/{media_id}/analyze", response_model=VisionAnalysisResponse)
 def analyze_media(media_id: str) -> VisionAnalysisResponse:
     return analyze_media_response(media_id)
@@ -212,6 +225,11 @@ def mobile_round_events(
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
 ) -> LiveRoundEventBatchResponse:
     return append_mobile_events_response(round_id, request, idempotency_key=idempotency_key)
+
+
+@app.get("/api/v2/mobile/rounds/{round_id}/reconciliation")
+def mobile_round_reconciliation(round_id: str) -> dict[str, object]:
+    return reconcile_mobile_round_response(round_id)
 
 
 @app.get("/api/v2/weather/snapshot", response_model=WeatherSnapshotResponse)

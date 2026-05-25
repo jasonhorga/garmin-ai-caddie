@@ -7,7 +7,13 @@ import unittest
 
 from ai_caddie.llm_providers import LLMMessage
 from ai_caddie.llm_providers import StaticProvider
-from ai_caddie.vision_context import ALLOWED_FINDING_TYPES, analyze_media_context
+from ai_caddie.vision_context import (
+    ALLOWED_FINDING_TYPES,
+    analyze_media_context,
+    list_findings_for_target,
+    store_vision_findings,
+    vision_findings_file,
+)
 
 
 class RecordingVisionProvider:
@@ -96,6 +102,52 @@ class VisionContextTests(unittest.TestCase):
         self.assertEqual(result["findings"][0]["findingType"], "visible_water")
         self.assertIn("mediaBytesBase64=aW1hZ2UtYnl0ZXM=", prompt)
         self.assertIn("byteLength=11", prompt)
+
+    def test_store_and_list_findings_for_target_without_secret_fields(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis = {
+                "schema": "ai-caddie-vision-context-v1",
+                "mediaId": "media-3",
+                "targetType": "shot",
+                "targetId": "round-1:7:2",
+                "mediaKind": "photo",
+                "provider": "static",
+                "model": "static",
+                "findings": [
+                    {
+                        "findingType": "visible_water",
+                        "evidenceText": (
+                            "water visible near /home/player/private/shot.jpg "
+                            "with authorization: Bearer secret-token"
+                        ),
+                        "confidence": "medium",
+                        "missingInfo": ["/tmp/private-media/shot.jpg"],
+                        "source": "vision_model",
+                        "localPath": "/home/player/private/shot.jpg",
+                        "mediaBytesBase64": "cHJpdmF0ZS1ieXRlcw==",
+                    }
+                ],
+            }
+
+            stored = store_vision_findings(analysis, root=root)
+            listed = list_findings_for_target("shot", "round-1:7:2", root=root)
+            raw_jsonl = vision_findings_file(root).read_text(encoding="utf-8")
+
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(listed, stored)
+        self.assertEqual(listed[0]["mediaId"], "media-3")
+        self.assertEqual(listed[0]["targetType"], "shot")
+        self.assertEqual(listed[0]["targetId"], "round-1:7:2")
+        self.assertEqual(listed[0]["findingType"], "visible_water")
+        self.assertEqual(listed[0]["confidence"], "medium")
+        self.assertEqual(listed[0]["source"], "vision_model")
+        self.assertNotIn("localPath", listed[0])
+        self.assertNotIn("mediaBytesBase64", listed[0])
+        self.assertNotIn("secret-token", raw_jsonl)
+        self.assertNotIn("/home/player/private", raw_jsonl)
+        self.assertNotIn("/tmp/private-media", raw_jsonl)
+        self.assertNotIn("cHJpdmF0ZS1ieXRlcw==", raw_jsonl)
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ class ServerV2MediaTests(unittest.TestCase):
                     ),
                 ):
                     analyze_response = client.post(f"/api/v2/media/{media_id}/analyze")
+                findings_response = client.get("/api/v2/media/target/shot/round-1:7:2/findings")
 
         self.assertEqual(create_response.status_code, 200)
         self.assertEqual(create_response.json()["schema"], "ai-caddie-media-create-v1")
@@ -57,6 +58,20 @@ class ServerV2MediaTests(unittest.TestCase):
         self.assertEqual(analyze_response.json()["schema"], "ai-caddie-vision-context-v1")
         self.assertEqual(analyze_response.json()["findings"][0]["findingType"], "visible_bunker")
         self.assertNotIn(tmp, analyze_response.text)
+
+        self.assertEqual(findings_response.status_code, 200)
+        self.assertEqual(findings_response.json()["schema"], "ai-caddie-vision-findings-list-v1")
+        self.assertEqual(findings_response.json()["total"], 1)
+        finding = findings_response.json()["findings"][0]
+        self.assertEqual(finding["mediaId"], media_id)
+        self.assertEqual(finding["targetType"], "shot")
+        self.assertEqual(finding["targetId"], "round-1:7:2")
+        self.assertEqual(finding["findingType"], "visible_bunker")
+        self.assertEqual(finding["confidence"], "medium")
+        self.assertNotIn("localPath", finding)
+        self.assertNotIn("mediaBytesBase64", findings_response.text)
+        self.assertNotIn("fake image bytes", findings_response.text)
+        self.assertNotIn(tmp, findings_response.text)
 
     def test_media_create_rejects_invalid_kind(self) -> None:
         client = TestClient(app)

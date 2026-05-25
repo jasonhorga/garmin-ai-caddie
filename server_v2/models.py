@@ -406,6 +406,31 @@ class VisionAnalysisResponse(BaseModel):
     findings: list[dict[str, Any]]
 
 
+class VisionFindingRecord(BaseModel):
+    id: str
+    createdAt: str
+    targetType: MediaTargetType
+    targetId: str
+    mediaId: str
+    mediaKind: str | None = None
+    findingType: str
+    evidenceText: str
+    confidence: Literal["low", "medium", "high"]
+    missingInfo: list[str]
+    provider: str
+    model: str
+    source: Literal["vision_model"]
+
+
+class VisionFindingsListResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-vision-findings-list-v1"] = Field(alias="schema")
+    total: int
+    findings: list[VisionFindingRecord]
+    target: dict[str, str]
+
+
 class LiveRoundPackageResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
