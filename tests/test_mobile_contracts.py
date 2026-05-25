@@ -111,6 +111,22 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func postEventBatch", sync_client)
         self.assertIn("Idempotency-Key", sync_client)
 
+    def test_ios_live_views_define_expected_controls(self) -> None:
+        round_home = (IOS_DIR / "Views" / "RoundHomeView.swift").read_text(encoding="utf-8")
+        current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
+        caddie_plan = (IOS_DIR / "Views" / "CaddiePlanView.swift").read_text(encoding="utf-8")
+
+        self.assertIn("struct RoundHomeView: View", round_home)
+        self.assertIn("syncStatus", round_home)
+        self.assertIn("struct CurrentHoleView: View", current_hole)
+        self.assertIn("Stepper", current_hole)
+        self.assertIn("selectedClub", current_hole)
+        self.assertIn("penaltyCount", current_hole)
+        self.assertIn("struct CaddiePlanView: View", caddie_plan)
+        self.assertIn("safe", caddie_plan)
+        self.assertIn("stock", caddie_plan)
+        self.assertIn("attack", caddie_plan)
+
 
 if __name__ == "__main__":
     unittest.main()
