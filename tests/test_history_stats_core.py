@@ -52,10 +52,12 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(course["roundCount"], 2)
         self.assertEqual(course["bestScore"], 77)
         self.assertEqual(course["roundIds"], ["900001", "900002"])
+        self.assertIn(course["geometryCoverage"], {"ready", "partial", "missing"})
 
         hole = next(row for row in stats["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
         self.assertEqual(hole["sampleCount"], 2)
         self.assertIn("900001:7", hole["refs"])
+        self.assertIn(hole["geometryCoverage"], {"ready", "partial", "missing"})
 
         driver = next(row for row in stats["clubs"] if row["club"] == "1D")
         self.assertEqual(driver["sampleCount"], 2)

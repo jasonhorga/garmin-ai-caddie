@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from statistics import median
 from typing import Any, Literal
 
+from ai_caddie.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData, average, percentile
 
 DataModeName = Literal["local", "fixture"]
@@ -45,6 +46,41 @@ def _par_from_string(hole_pars: str, hole_number: int) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _global_id(row: dict[str, Any]) -> int | None:
+    try:
+        return int(row["globalId"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _course_geometry_coverage(rows: list[dict[str, Any]]) -> str:
+    global_id = next((_global_id(row) for row in rows if _global_id(row) is not None), None)
+    if global_id is None:
+        return "missing"
+    hole_numbers = sorted(
+        {
+            int(hole.get("number"))
+            for row in rows
+            for hole in (row.get("holes") or [])
+            if isinstance(hole, dict) and hole.get("number")
+        }
+    )
+    try:
+        return str(geometry_coverage_for_course(global_id, holes=hole_numbers or range(1, 19))["coverage"])
+    except Exception:
+        return "missing"
+
+
+def _hole_geometry_coverage(pairs: list[tuple[dict[str, Any], dict[str, Any]]], hole_number: int) -> str:
+    global_id = next((_global_id(row) for row, _hole in pairs if _global_id(row) is not None), None)
+    if global_id is None:
+        return "missing"
+    try:
+        return str(geometry_coverage_for_hole(global_id, hole_number)["coverage"])
+    except Exception:
+        return "missing"
 
 
 def _summary(data: HistoryData) -> dict[str, Any]:
@@ -152,6 +188,7 @@ def _courses(data: HistoryData) -> list[dict[str, Any]]:
                 "worstScore": max(scores18) if scores18 else None,
                 "recentRoundId": _round_id(rows_sorted[0]),
                 "roundIds": [_round_id(row) for row in rows_sorted],
+                "geometryCoverage": _course_geometry_coverage(rows),
             }
         )
     return sorted(out, key=lambda row: (-row["roundCount"], row["courseName"]))
@@ -183,6 +220,7 @@ def _holes(data: HistoryData) -> list[dict[str, Any]]:
                 "averageToPar": average(deltas),
                 "worstToPar": max(deltas) if deltas else None,
                 "refs": refs,
+                "geometryCoverage": _hole_geometry_coverage(pairs, number),
             }
         )
     return sorted(out, key=lambda row: (row["courseKey"], row["hole"]))
