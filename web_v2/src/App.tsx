@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   createAnnotation,
+  fetchCaddieDecision,
   fetchAnnotations,
   fetchHistoryOverview,
   fetchHistoryRounds,
@@ -12,6 +13,7 @@ import {
   fetchSyncStatus,
   runGarminSync,
 } from './api'
+import { CaddiePage } from './components/CaddiePage'
 import { ClubStats } from './components/ClubStats'
 import { CorrectionsPage } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
@@ -29,6 +31,8 @@ import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
   AnnotationListResponse,
+  CaddieDecisionRequest,
+  CaddieDecisionResponse,
   HistoryOverviewResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
@@ -52,6 +56,7 @@ export default function App() {
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
+  const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
 
@@ -192,6 +197,16 @@ export default function App() {
     void loadReport(() => generateRoundReport(roundId))
   }
 
+  async function handleRequestCaddieDecision(request: CaddieDecisionRequest) {
+    setDecisionState({ status: 'loading' })
+    try {
+      const data = await fetchCaddieDecision(request)
+      setDecisionState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setDecisionState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+    }
+  }
+
   if (overviewState.status === 'loading') {
     return (
       <main className="app-shell">
@@ -275,6 +290,18 @@ export default function App() {
           <h1>Loading history stats</h1>
         </section>
       </main>
+    )
+  }
+
+  if (activePage === 'caddie') {
+    return (
+      <>
+        {renderSyncPanel()}
+        <main className="app-shell">
+          <ProductNav activePage={activePage} onNavigate={navigate} />
+          <CaddiePage decisionState={decisionState} onRequestDecision={(request) => void handleRequestCaddieDecision(request)} />
+        </main>
+      </>
     )
   }
 

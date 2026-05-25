@@ -1,5 +1,6 @@
 export type DataQualityState = 'good' | 'partial' | 'missing'
 export type ScoreClass = 'eagle' | 'birdie' | 'par' | 'bogey' | 'double' | 'missing'
+export type CaddieShotType = 'tee' | 'approach' | 'recovery'
 export type AnnotationTargetType = 'round' | 'hole' | 'shot' | 'decision'
 export type AnnotationKind =
   | 'round_note'
@@ -89,6 +90,29 @@ export interface HistoryOverviewResponse {
   distribution: ScoreDistribution
   dataQuality: DataQualityBadge[]
   emptyState: EmptyState | null
+}
+
+export interface CaddieDecisionRequest {
+  shotType: CaddieShotType
+  context: Record<string, unknown>
+}
+
+export interface CaddieDecisionResponse {
+  schema: 'ai-caddie-decision-v2'
+  shotType: CaddieShotType
+  phase: string
+  context: Record<string, unknown>
+  options: Array<Record<string, unknown>>
+  selected: Record<string, unknown> | null
+  selectedOptionId: string | null
+  selectedOption: Record<string, unknown> | null
+  avoidZones: Array<Record<string, unknown>>
+  forbiddenZones: Array<Record<string, unknown>>
+  acceptableMiss: Record<string, unknown>
+  evidence: Array<Record<string, unknown>>
+  confidence: Record<string, unknown>
+  missingData: Array<Record<string, unknown>>
+  auditCriteria: Array<Record<string, unknown>>
 }
 
 export interface MonthRoundGroup {

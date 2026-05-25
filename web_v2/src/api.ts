@@ -3,6 +3,8 @@ import type {
   AnnotationCreateResponse,
   AnnotationListResponse,
   AnnotationTargetType,
+  CaddieDecisionRequest,
+  CaddieDecisionResponse,
   HistoryOverviewResponse,
   HistoryDrilldownResponse,
   HistoryRoundsResponse,
@@ -34,6 +36,10 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 
 export function fetchHistoryOverview(): Promise<HistoryOverviewResponse> {
   return getJson<HistoryOverviewResponse>('/api/v2/history/overview')
+}
+
+export function fetchCaddieDecision(request: CaddieDecisionRequest): Promise<CaddieDecisionResponse> {
+  return postJson<CaddieDecisionResponse>('/api/v2/caddie/decision', request)
 }
 
 export function fetchHistoryRounds(): Promise<HistoryRoundsResponse> {

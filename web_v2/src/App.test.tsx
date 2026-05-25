@@ -165,6 +165,30 @@ function trendReportPayload() {
   }
 }
 
+function caddieDecisionPayload() {
+  return {
+    schema: 'ai-caddie-decision-v2',
+    shotType: 'approach',
+    phase: 'Approach',
+    context: { distanceToPin_m: 142 },
+    options: [
+      { id: 'safe', label: 'Safe', recommendedClub: '9I' },
+      { id: 'stock', label: 'Stock', recommendedClub: '8I' },
+      { id: 'attack', label: 'Attack', recommendedClub: '7I' },
+    ],
+    selected: { id: 'stock' },
+    selectedOptionId: 'stock',
+    selectedOption: { id: 'stock' },
+    avoidZones: [{ kind: 'water', id: 'water_front' }],
+    forbiddenZones: [],
+    acceptableMiss: { side: 'long' },
+    evidence: [{ label: 'water_front', value: 'carry 126m' }],
+    confidence: { level: 'medium' },
+    missingData: [],
+    auditCriteria: [],
+  }
+}
+
 describe('App navigation', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -298,5 +322,28 @@ describe('App navigation', () => {
     expect(await screen.findByText('Trend review from stored facts.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/trend/recent_10')
+  })
+
+  it('opens the caddie workspace and requests a decision', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/caddie/decision') return caddieDecisionPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Caddie' }))
+    expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
+
+    expect(await screen.findByText('8I')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decision', expect.objectContaining({ method: 'POST' }))
   })
 })

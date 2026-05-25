@@ -1,6 +1,7 @@
 export type ProductPage =
   | 'overview'
   | 'history'
+  | 'caddie'
   | 'corrections'
   | 'stats'
   | 'courses'
@@ -13,6 +14,7 @@ export type ProductPage =
 const navItems: Array<{ id: ProductPage; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'history', label: 'History' },
+  { id: 'caddie', label: 'Caddie' },
   { id: 'corrections', label: 'Corrections' },
   { id: 'stats', label: 'Stats' },
   { id: 'courses', label: 'Courses' },

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createAnnotation,
+  fetchCaddieDecision,
   fetchAnnotations,
   fetchAnnotationsForTarget,
   fetchHistoryOverview,
@@ -192,6 +193,47 @@ describe('report API helpers', () => {
     expect(generated.narrative).toBe('trend review')
     expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/reports/trend/quarter%3A2026-Q2')
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/trend/quarter%3A2026-Q2/generate', { method: 'POST' })
+  })
+})
+
+describe('fetchCaddieDecision', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('posts a caddie decision request', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-decision-v2',
+        shotType: 'approach',
+        phase: 'Approach',
+        context: { distanceToPin_m: 142 },
+        options: [{ id: 'stock', label: 'Stock', recommendedClub: '8I' }],
+        selected: { id: 'stock' },
+        selectedOptionId: 'stock',
+        selectedOption: { id: 'stock' },
+        avoidZones: [],
+        forbiddenZones: [],
+        acceptableMiss: { side: 'long' },
+        evidence: [{ label: 'distance', value: 142 }],
+        confidence: { level: 'medium' },
+        missingData: [],
+        auditCriteria: [],
+      }),
+    })))
+
+    const request = { shotType: 'approach' as const, context: { distanceToPin_m: 142 } }
+    const payload = await fetchCaddieDecision(request)
+
+    expect(payload.schema).toBe('ai-caddie-decision-v2')
+    expect(payload.selectedOptionId).toBe('stock')
+    expect(fetch).toHaveBeenCalledWith('/api/v2/caddie/decision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
   })
 })
 

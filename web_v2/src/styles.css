@@ -865,6 +865,81 @@ p {
   color: var(--muted);
 }
 
+.caddie-workspace {
+  display: grid;
+  gap: 18px;
+}
+
+.caddie-control-bar {
+  display: grid;
+  grid-template-columns: minmax(150px, 180px) minmax(180px, 240px) auto;
+  gap: 12px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+}
+
+.caddie-control-bar label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.caddie-control-bar select,
+.caddie-control-bar button {
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-weight: 800;
+  padding: 10px 12px;
+}
+
+.caddie-control-bar button {
+  cursor: pointer;
+}
+
+.decision-detail {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
+}
+
+.decision-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.decision-option {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.decision-option h3 {
+  margin: 0 0 6px;
+}
+
+.decision-option strong {
+  display: block;
+  font-size: 1.4rem;
+  margin: 8px 0;
+}
+
+.selected-pill {
+  color: var(--birdie);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 @media (max-width: 760px) {
   .sync-panel {
     align-items: flex-start;
@@ -878,8 +953,10 @@ p {
 
 @media (max-width: 900px) {
   .overview-hero,
+  .caddie-control-bar,
   .content-grid,
   .corrections-grid,
+  .decision-options,
   .reports-layout,
   .report-evidence-grid,
   .stats-grid {
