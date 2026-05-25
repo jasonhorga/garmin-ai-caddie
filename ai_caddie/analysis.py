@@ -30,6 +30,7 @@ from .data import (
     wgs84_to_local,
     write_json,
 )
+from .decision import build_decision_plan, judge_decision_outcome
 
 ROOT = Path(__file__).resolve().parents[1]
 ANALYSIS_OUT = ROOT / "output" / "ai_caddie"
@@ -587,6 +588,13 @@ def llm_brief(analysis: dict[str, Any]) -> dict[str, Any]:
             ],
             "candidateRoutes": analysis["candidateRoutes"][:3],
             "dataQuality": analysis["dataQuality"],
+            "decision": {
+                "selectedOptionId": (analysis.get("decisionPlan") or {}).get("selectedOptionId"),
+                "selectedOption": (analysis.get("decisionPlan") or {}).get("selectedOption"),
+                "confidence": (analysis.get("decisionPlan") or {}).get("confidence"),
+                "failureType": (analysis.get("decisionOutcome") or {}).get("failureType"),
+                "outcome": analysis.get("decisionOutcome"),
+            },
         },
     }
 
@@ -669,6 +677,8 @@ def build_hole_analysis(
         "candidateRoutes": candidates,
         "dataQuality": quality,
     }
+    analysis["decisionPlan"] = build_decision_plan(analysis)
+    analysis["decisionOutcome"] = judge_decision_outcome(analysis["decisionPlan"], analysis)
     analysis["review"] = rule_review(analysis)
     analysis["llmBrief"] = llm_brief(analysis)
 
@@ -1274,6 +1284,13 @@ def _hole_summary(analysis: dict[str, Any]) -> dict[str, Any]:
         "firstRecordedSurface": first_surface or (first.get("end") or {}).get("lie"),
         "risks": risks[:4],
         "bestRoute": (analysis.get("candidateRoutes") or [{}])[0],
+        "decision": {
+            "selectedOptionId": (analysis.get("decisionPlan") or {}).get("selectedOptionId"),
+            "selectedLabel": ((analysis.get("decisionPlan") or {}).get("selectedOption") or {}).get("label"),
+            "selectedCarry_m": ((analysis.get("decisionPlan") or {}).get("selectedOption") or {}).get("carry_m"),
+            "confidence": ((analysis.get("decisionPlan") or {}).get("confidence") or {}).get("level"),
+            "failureType": (analysis.get("decisionOutcome") or {}).get("failureType"),
+        },
         "review": analysis["review"],
     }
 
@@ -1325,6 +1342,10 @@ def build_round_analysis(
             key = str(risk.get("kind"))
             repeated_risks[key] = repeated_risks.get(key, 0) + 1
     top_risks = sorted(repeated_risks.items(), key=lambda kv: kv[1], reverse=True)
+    decision_counts: dict[str, int] = {}
+    for row in holes:
+        failure_type = ((row.get("decision") or {}).get("failureType")) or "unknown"
+        decision_counts[failure_type] = decision_counts.get(failure_type, 0) + 1
 
     snap = (scorecard.get("courseSnapshots") or [{}])[0]
     result = {
@@ -1343,6 +1364,7 @@ def build_round_analysis(
             "confidenceCounts": confidence_counts,
             "missingGeometry": missing_geometry,
             "topRisks": [{"kind": k, "count": v} for k, v in top_risks],
+            "decisionFailureTypes": decision_counts,
         },
     }
     result["review"] = round_review(result)
@@ -1367,6 +1389,14 @@ def round_review(round_analysis: dict[str, Any]) -> str:
         kind_cn = {"bunker": "沙坑", "water": "水障碍", "tree_area": "树林", "water_edge": "水障碍边缘"}
         risks = "，".join(f"{kind_cn.get(r['kind'], r['kind'])}×{r['count']}" for r in summary["topRisks"][:3])
         bits.append(f"本轮重复出现的风险类型：{risks}。")
+    decision_counts = summary.get("decisionFailureTypes") or {}
+    if decision_counts:
+        label_cn = {"strategy": "策略", "execution": "执行", "info_gap": "信息缺口", "variance": "正常波动"}
+        counts = "，".join(
+            f"{label_cn.get(kind, kind)}×{count}"
+            for kind, count in sorted(decision_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:4]
+        )
+        bits.append(f"决策审计：{counts}。")
     weak = [h for h in round_analysis["holes"] if h["confidence"] != "high"]
     if weak:
         bits.append("低置信度洞：" + "、".join(str(h["hole"]) for h in weak[:8]) + "。")
@@ -1395,6 +1425,7 @@ def round_llm_brief(round_analysis: dict[str, Any]) -> dict[str, Any]:
                         "carry_m": (h.get("bestRoute") or {}).get("carry_m"),
                         "riskScore": (h.get("bestRoute") or {}).get("riskScore"),
                     },
+                    "decision": h.get("decision"),
                 }
                 for h in round_analysis["holes"]
             ],

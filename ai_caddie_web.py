@@ -96,6 +96,15 @@ INDEX_HTML = r"""<!doctype html>
     .review { font-size:15px; line-height:1.55; margin-bottom:12px; }
     .metric { display:inline-flex; gap:5px; align-items:baseline; margin:0 12px 8px 0; color:var(--muted); font-size:12px; }
     .metric b { color:var(--ink); font-size:14px; }
+    .decision-card { border:1px solid #cbd5e1; border-radius:8px; background:#fbfdff; padding:12px; margin:6px 0 12px; }
+    .decision-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:10px; }
+    .decision-title { font-size:16px; font-weight:760; line-height:1.35; }
+    .decision-sub { color:var(--muted); font-size:12px; margin-top:3px; }
+    .decision-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:9px; }
+    .decision-block { border:1px solid #e2e8f0; border-radius:7px; background:#fff; padding:9px; min-width:0; }
+    .decision-block .label { color:var(--muted); font-size:11px; margin-bottom:4px; }
+    .decision-block .value { font-size:13px; line-height:1.45; }
+    .decision-pill { display:inline-flex; align-items:center; border-radius:999px; padding:3px 8px; background:#eef6ff; color:#174ea6; font-size:12px; font-weight:700; white-space:nowrap; }
     table { width:100%; border-collapse:collapse; font-size:12px; }
     th, td { padding:7px 6px; border-bottom:1px solid #edf0f5; text-align:left; vertical-align:top; }
     th { color:var(--muted); font-weight:600; }
@@ -206,6 +215,7 @@ INDEX_HTML = r"""<!doctype html>
         <h2>Hole review</h2>
         <div id="reviewText" class="review muted">Select a Garmin round or manual round, then analyze.</div>
         <div id="metrics"></div>
+        <div id="decisionCard"></div>
         <div class="overlay" id="overlayBox"></div>
         <h2 style="margin-top:14px">Shots</h2>
         <div id="shotsTable"></div>
@@ -365,6 +375,7 @@ async function analyzeRound() {
 
 function renderRoundAnalysisSummary(analysis, clearOverlay=true) {
   $("reviewText").textContent = analysis.review;
+  $("decisionCard").innerHTML = "";
   $("metrics").innerHTML = [
     ["Round", analysis.scorecardId],
     ["Analyzed", analysis.summary.analyzedHoles],
@@ -376,14 +387,54 @@ function renderRoundAnalysisSummary(analysis, clearOverlay=true) {
     $("shotsTable").innerHTML = "";
     $("routesTable").innerHTML = "";
   }
-  $("roundTable").innerHTML = table(["Hole", "Confidence", "Shots", "Tee shot", "Risks", "Best route"], analysis.holes.map(h => {
+  $("roundTable").innerHTML = table(["Hole", "Confidence", "Shots", "Tee shot", "Risks", "Decision", "Best route"], analysis.holes.map(h => {
     const risk = (h.risks || []).slice(0,2).map(r => `${r.kind} ${r.distance_m}m`).join(", ");
     const best = h.bestRoute || {};
+    const decision = h.decision || {};
     const tee = h.teeShotRecorded
       ? `${h.teeShotClub || ""} ${fmt(h.teeShotMeters)}`
       : `missing · first ${h.firstRecordedClub || ""} ${fmt(h.firstRecordedMeters)}`;
-    return [h.hole, h.confidence, h.shotCount, tee, risk, `${best.label || ""} ${fmt(best.carry_m)}`];
+    return [h.hole, h.confidence, h.shotCount, tee, risk, `${decision.selectedOptionId || "-"} · ${decision.failureType || "-"}`, `${best.label || ""} ${fmt(best.carry_m)}`];
   }));
+}
+
+function listText(rows, fallback="-") {
+  if (!rows || !rows.length) return fallback;
+  return rows.map(x => esc(typeof x === "string" ? x : (x.text || x.reason || x.kind || ""))).filter(Boolean).join("<br>");
+}
+
+function clubsText(option) {
+  const clubs = option?.clubRecommendation?.clubs || [];
+  if (!clubs.length) return "-";
+  return clubs.map(c => `${esc(c.clubName)}${c.sampleSize ? ` n=${esc(c.sampleSize)}` : ""}`).join(", ");
+}
+
+function decisionCard(a) {
+  const plan = a.decisionPlan || {};
+  const outcome = a.decisionOutcome || {};
+  const selected = plan.selectedOption || {};
+  if (!selected.id) {
+    return '<div class="decision-card"><div class="decision-title">No tee decision available</div><div class="decision-sub">Candidate route or geometry data is missing.</div></div>';
+  }
+  const forbidden = (plan.forbiddenZones || []).map(z => `${z.kind}${z.distance_m != null ? ` ${fmt(z.distance_m)}m` : ""}`);
+  const confidence = plan.confidence || {};
+  const failure = outcome.failureType || "pending";
+  return `
+    <div class="decision-card">
+      <div class="decision-head">
+        <div>
+          <div class="decision-title">${esc(selected.label)} · ${fmt(selected.carry_m)}m</div>
+          <div class="decision-sub">${esc(selected.routeLabel || "tee-shot plan")} · clubs: ${clubsText(selected)}</div>
+        </div>
+        <span class="decision-pill">${esc(confidence.level || "unknown")} · ${esc(failure)}</span>
+      </div>
+      <div class="decision-grid">
+        <div class="decision-block"><div class="label">Do this</div><div class="value">${esc(selected.routeLabel || selected.label)} to ${fmt(selected.carry_m)}m</div></div>
+        <div class="decision-block"><div class="label">Avoid</div><div class="value">${forbidden.length ? forbidden.map(esc).join("<br>") : "No selected-route risk"}</div></div>
+        <div class="decision-block"><div class="label">Evidence</div><div class="value">${listText(plan.evidence || [])}</div></div>
+        <div class="decision-block"><div class="label">Outcome</div><div class="value">${esc(failure)}<br>${esc(outcome.modelUpdateSuggestion || "")}</div></div>
+      </div>
+    </div>`;
 }
 
 function renderAnalysis(a) {
@@ -400,6 +451,7 @@ function renderAnalysis(a) {
     ["Geo sync", geometrySync],
     ["Confidence", a.dataQuality.confidence],
   ].map(([k,v]) => `<span class="metric">${k}<b>${v ?? "-"}</b></span>`).join("");
+  $("decisionCard").innerHTML = decisionCard(a);
   renderOverlayComparison(a).catch(e => {
     $("overlayBox").innerHTML = `<div class="overlay-empty">${esc(e.message)}</div>`;
   });
