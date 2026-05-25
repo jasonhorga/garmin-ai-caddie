@@ -13,7 +13,7 @@ from .caddie import build_caddie_decision_response
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_stats import load_history_stats_response
-from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response
+from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response, load_hole_map_response
 from .media import analyze_media_response, create_media_response, list_target_media_response
 from .mobile import append_mobile_events_response, build_mobile_round_package_response
 from .weather import load_weather_snapshot_response
@@ -26,6 +26,7 @@ from .models import (
     CaddieDecisionResponse,
     CourseGeometryCoverageResponse,
     GeometryEvidenceResponse,
+    HoleMapResponse,
     HistoryOverviewResponse,
     HistoryRoundsResponse,
     HistoryStatsResponse,
@@ -74,6 +75,7 @@ def service_index() -> dict[str, object]:
             "historyStats": "/api/v2/history/stats",
             "geometryCourseCoverage": "/api/v2/geometry/course/{global_id}/coverage",
             "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
+            "geometryHoleMap": "/api/v2/geometry/hole/{global_id}/{local_hole}/map",
             "caddieDecision": "/api/v2/caddie/decision",
             "annotations": "/api/v2/annotations",
             "annotationsByTarget": "/api/v2/annotations/target/{target_type}/{target_id}",
@@ -126,6 +128,11 @@ def geometry_course_coverage(
 @app.get("/api/v2/geometry/hole/{global_id}/{local_hole}", response_model=GeometryEvidenceResponse)
 def geometry_hole_evidence(global_id: int, local_hole: int) -> GeometryEvidenceResponse:
     return load_hole_geometry_evidence_response(global_id, local_hole)
+
+
+@app.get("/api/v2/geometry/hole/{global_id}/{local_hole}/map", response_model=HoleMapResponse)
+def geometry_hole_map(global_id: int, local_hole: int, provider: str = "esri_world_imagery") -> HoleMapResponse:
+    return load_hole_map_response(global_id, local_hole, provider=provider)
 
 
 @app.post("/api/v2/caddie/decision", response_model=CaddieDecisionResponse)

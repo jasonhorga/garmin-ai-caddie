@@ -54,6 +54,31 @@ class ServerV2GeometryTests(unittest.TestCase):
         self.assertEqual(response.json()["coverage"], "ready")
         self.assertNotIn(tmp, response.text)
 
+    def test_hole_map_endpoint_exposes_wgs84_feature_collection(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h07_hazards.json"
+            mesh = root / "gid31795_h07_meshes.json"
+            hazard.write_text(
+                '{"refLat":22.279,"refLon":114.162,"target":{"position":[0,120]},"hazards":[{"id":"water","kind":"water","polygon":[[0,0],[10,0],[10,10],[0,0]]}]}',
+                encoding="utf-8",
+            )
+            mesh.write_text("{}", encoding="utf-8")
+            with (
+                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                response = client.get("/api/v2/geometry/hole/31795/7/map")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-hole-map-v1")
+        self.assertEqual(payload["provider"]["coordinateSystem"], "WGS84")
+        self.assertGreaterEqual(len(payload["featureCollection"]["features"]), 2)
+        self.assertNotIn(tmp, response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

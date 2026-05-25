@@ -227,6 +227,19 @@ class CourseGeometryCoverageResponse(BaseModel):
     holes: list[dict[str, Any]]
 
 
+class HoleMapResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-hole-map-v1"] = Field(alias="schema")
+    globalId: int
+    localHole: int
+    provider: dict[str, Any]
+    coverage: GeometryCoverageState
+    layers: list[str]
+    featureCollection: dict[str, Any]
+    missingData: list[dict[str, Any]]
+
+
 class CaddieDecisionRequest(BaseModel):
     shotType: CaddieShotType
     context: dict[str, Any] = Field(default_factory=dict)

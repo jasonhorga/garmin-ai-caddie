@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.geometry_evidence import (
+    build_hole_map_dto,
     build_hole_geometry_evidence,
     geometry_coverage_for_course,
     geometry_coverage_for_hole,
@@ -94,6 +95,60 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(coverage["coverage"], "partial")
         self.assertEqual(coverage["readyHoles"], 1)
         self.assertEqual(coverage["totalHoles"], 2)
+
+    def test_hole_map_dto_returns_wgs84_features_and_provider_guard(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h07_hazards.json"
+            mesh = root / "gid31795_h07_meshes.json"
+            hazard.write_text(
+                """
+                {
+                  "refLat": 22.279,
+                  "refLon": 114.162,
+                  "target": {"id": "green", "position": [0, 120]},
+                  "tees": [{"id": "blue", "position": [0, -220]}],
+                  "hazards": [
+                    {"id": "water_front", "kind": "water", "polygon": [[0, 20], [30, 20], [30, 50], [0, 20]]}
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            mesh.write_text("{}", encoding="utf-8")
+            with (
+                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                dto = build_hole_map_dto(
+                    31795,
+                    7,
+                    shots=[
+                        {
+                            "ref": "900001:7:0",
+                            "club": "7I",
+                            "start": {"lat": 22.279, "lon": 114.162},
+                            "end": {"lat": 22.280, "lon": 114.163},
+                        }
+                    ],
+                )
+                with self.assertRaises(ValueError):
+                    build_hole_map_dto(31795, 7, provider="amap_gcj02")
+
+        self.assertEqual(dto["schema"], "ai-caddie-hole-map-v1")
+        self.assertEqual(dto["provider"]["coordinateSystem"], "WGS84")
+        self.assertFalse(dto["provider"]["gcj02"])
+        self.assertEqual(dto["coverage"], "ready")
+        layers = {feature["properties"]["layer"] for feature in dto["featureCollection"]["features"]}
+        self.assertIn("hazard", layers)
+        self.assertIn("target", layers)
+        self.assertIn("tee", layers)
+        self.assertIn("shot_route", layers)
+        hazard_feature = next(feature for feature in dto["featureCollection"]["features"] if feature["properties"]["layer"] == "hazard")
+        first_coordinate = hazard_feature["geometry"]["coordinates"][0][0]
+        self.assertGreater(first_coordinate[0], 100.0)
+        self.assertGreater(first_coordinate[1], 20.0)
+        self.assertNotIn(tmp, str(dto))
 
 
 if __name__ == "__main__":
