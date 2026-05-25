@@ -78,6 +78,36 @@ export interface HistoryOverviewResponse {
   emptyState: EmptyState | null
 }
 
+export interface MonthRoundGroup {
+  key: string
+  label: string
+  count: number
+  average18: number | null
+  bestScore: number | null
+  rounds: RoundCard[]
+}
+
+export interface HistoryRoundsResponse {
+  schema: 'ai-caddie-history-rounds-v2'
+  total: number
+  groups: MonthRoundGroup[]
+  emptyState: EmptyState | null
+}
+
+export interface HistoryStatsResponse {
+  schema: 'ai-caddie-history-stats-v1'
+  dataMode: ResolvedDataMode
+  summary: Record<string, unknown>
+  time: Record<string, unknown>
+  scoring: Record<string, unknown>
+  courses: Array<Record<string, unknown>>
+  holes: Array<Record<string, unknown>>
+  clubs: Array<Record<string, unknown>>
+  issues: Array<Record<string, unknown>>
+  dataQuality: Array<Record<string, unknown>>
+  drillDown: Record<string, unknown>
+}
+
 export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error'
 export type ResolvedDataMode = 'local' | 'fixture'
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchHistoryOverview, fetchSyncStatus } from './api'
+import { fetchHistoryOverview, fetchHistoryRounds, fetchHistoryStats, fetchSyncStatus } from './api'
 
 describe('fetchHistoryOverview', () => {
   afterEach(() => {
@@ -55,6 +55,67 @@ describe('fetchHistoryOverview', () => {
     })))
 
     await expect(fetchHistoryOverview()).rejects.toThrow('GET /api/v2/history/overview failed: 500 Internal Server Error')
+  })
+})
+
+describe('fetchHistoryRounds', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads the v2 history rounds payload', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-rounds-v2',
+        total: 0,
+        groups: [],
+        emptyState: {
+          kind: 'no_rounds',
+          title: 'No local Garmin rounds loaded',
+          detail: 'The History timeline is ready, but this remote workspace has 0 rounds.',
+        },
+      }),
+    })))
+
+    const payload = await fetchHistoryRounds()
+
+    expect(payload.schema).toBe('ai-caddie-history-rounds-v2')
+    expect(payload.total).toBe(0)
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/rounds')
+  })
+})
+
+describe('fetchHistoryStats', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads the v1 history stats payload', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-stats-v1',
+        dataMode: 'fixture',
+        summary: { totalRounds: 3, average18: 82 },
+        time: { byMonth: [] },
+        scoring: { scoreBands: [] },
+        courses: [],
+        holes: [],
+        clubs: [],
+        issues: [],
+        dataQuality: [],
+        drillDown: { roundIds: [] },
+      }),
+    })))
+
+    const payload = await fetchHistoryStats()
+
+    expect(payload.schema).toBe('ai-caddie-history-stats-v1')
+    expect(payload.summary.totalRounds).toBe(3)
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/stats')
   })
 })
 
