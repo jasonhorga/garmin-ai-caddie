@@ -135,6 +135,17 @@ class MobileContractTests(unittest.TestCase):
         for field in ["roundId", "hole", "par", "distanceM", "selectedClub", "score", "putts", "penaltyCount", "caddieConfidence"]:
             self.assertIn(field, state_swift)
 
+    def test_watch_sync_client_defines_connectivity_and_queue(self) -> None:
+        sync_swift = (WATCH_DIR / "Services" / "WatchSyncClient.swift").read_text(encoding="utf-8")
+
+        self.assertIn("final class WatchSyncClient", sync_swift)
+        self.assertIn("WCSession", sync_swift)
+        self.assertIn("receiveState", sync_swift)
+        self.assertIn("sendQuickInputEvent", sync_swift)
+        self.assertIn("queueInputEvent", sync_swift)
+        self.assertIn("flushQueue", sync_swift)
+        self.assertIn("queued_events.json", sync_swift)
+
 
 if __name__ == "__main__":
     unittest.main()

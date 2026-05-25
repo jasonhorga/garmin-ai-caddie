@@ -1,0 +1,119 @@
+import Combine
+import Foundation
+import WatchConnectivity
+
+public enum WatchInputKind: String, Codable, Equatable {
+    case score
+    case putt
+    case penalty
+    case club
+}
+
+public struct WatchInputEvent: Codable, Equatable, Identifiable {
+    public var id: String { eventId }
+
+    public let eventId: String
+    public let roundId: String
+    public let hole: Int
+    public let kind: WatchInputKind
+    public let value: String
+    public let createdAt: String
+
+    public init(eventId: String, roundId: String, hole: Int, kind: WatchInputKind, value: String, createdAt: String) {
+        self.eventId = eventId
+        self.roundId = roundId
+        self.hole = hole
+        self.kind = kind
+        self.value = value
+        self.createdAt = createdAt
+    }
+}
+
+public final class WatchSyncClient: NSObject, ObservableObject {
+    @Published public private(set) var currentState: WatchRoundState?
+
+    private let queueURL: URL
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
+    public init(queueURL: URL) {
+        self.queueURL = queueURL
+        super.init()
+        if WCSession.isSupported() {
+            WCSession.default.delegate = self
+            WCSession.default.activate()
+        }
+    }
+
+    public override convenience init() {
+        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AICaddieWatch", isDirectory: true)
+        self.init(queueURL: directory.appendingPathComponent("queued_events.json"))
+    }
+
+    public func receiveState(_ state: WatchRoundState) {
+        currentState = state
+    }
+
+    public func sendQuickInputEvent(_ event: WatchInputEvent) throws {
+        if WCSession.isSupported(), WCSession.default.isReachable {
+            try sendToPhone(event)
+        } else {
+            try queueInputEvent(event)
+        }
+    }
+
+    public func queueInputEvent(_ event: WatchInputEvent) throws {
+        var events = try loadQueuedEvents()
+        events.append(event)
+        try FileManager.default.createDirectory(at: queueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try encoder.encode(events).write(to: queueURL, options: [.atomic])
+    }
+
+    public func loadQueuedEvents() throws -> [WatchInputEvent] {
+        guard FileManager.default.fileExists(atPath: queueURL.path) else {
+            return []
+        }
+        return try decoder.decode([WatchInputEvent].self, from: Data(contentsOf: queueURL))
+    }
+
+    public func flushQueue() throws {
+        let events = try loadQueuedEvents()
+        guard !events.isEmpty else {
+            return
+        }
+        for event in events {
+            try sendToPhone(event)
+        }
+        try FileManager.default.removeItem(at: queueURL)
+    }
+
+    private func sendToPhone(_ event: WatchInputEvent) throws {
+        let data = try encoder.encode(event)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw URLError(.cannotParseResponse)
+        }
+        WCSession.default.sendMessage(["event": object], replyHandler: nil) { [weak self] _ in
+            try? self?.queueInputEvent(event)
+        }
+    }
+}
+
+extension WatchSyncClient: WCSessionDelegate {
+    public func session(
+        _ session: WCSession,
+        activationDidCompleteWith activationState: WCSessionActivationState,
+        error: Error?
+    ) {}
+
+    public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        guard let state = message["state"] as? [String: Any],
+              JSONSerialization.isValidJSONObject(state),
+              let data = try? JSONSerialization.data(withJSONObject: state),
+              let decoded = try? decoder.decode(WatchRoundState.self, from: data)
+        else {
+            return
+        }
+        receiveState(decoded)
+    }
+}
