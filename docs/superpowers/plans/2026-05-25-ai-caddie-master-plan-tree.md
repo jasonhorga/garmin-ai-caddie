@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement each detailed plan task-by-task. Steps in detailed plans use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Convert the master product spec into dependency-ordered, testable implementation plans without treating any required capability as optional.
+**Goal:** Convert the master product spec into dependency-ordered, testable implementation plans without dropping any required capability.
 
 **Architecture:** The work is split by dependency boundaries. Data fixtures and connector contracts come first, then history statistics, Web product, AI provider/review, geometry, caddie decisions, manual corrections, mobile/watch, vision, and private trial hardening.
 
@@ -16,7 +16,7 @@
 
 ## Planning Rules
 
-- No required capability is optional.
+- Every required capability remains inside the final build.
 - The order below is dependency order, not product ambition order.
 - Each detailed plan must be executable without routine user input.
 - Each detailed plan must include automated verification and clear commit points.
@@ -34,7 +34,7 @@ Purpose:
 
 - Establish fixture data, config, connector status semantics, and test helpers.
 - Make backend/frontend useful when private Garmin data is absent.
-- Provide the stable base for all later plans.
+- Provide the stable base for downstream plans.
 
 Depends on:
 
@@ -54,7 +54,7 @@ Completion standard:
 
 ### 2. Connector And Snapshot Layer
 
-Detailed plan to create after Plan 1 lands.
+Detailed plan: `docs/superpowers/plans/2026-05-25-connector-and-snapshot-layer.md`
 
 Purpose:
 
@@ -80,6 +80,8 @@ Completion standard:
 
 ### 3. History Statistics Core
 
+Detailed plan: `docs/superpowers/plans/2026-05-25-history-statistics-core.md`
+
 Purpose:
 
 - Build the complete aggregation engine for time, round, course, hole, club,
@@ -104,6 +106,8 @@ Completion standard:
 
 ### 4. Web History Product
 
+Detailed plan: `docs/superpowers/plans/2026-05-25-web-history-product.md`
+
 Purpose:
 
 - Build the Garmin Pro review experience: overview, timeline, rounds, courses,
@@ -126,6 +130,8 @@ Completion standard:
 - Visual semantics are unified.
 
 ### 5. AI Provider And Fact-Bound Review
+
+Detailed plan: `docs/superpowers/plans/2026-05-25-ai-provider-and-fact-bound-review.md`
 
 Purpose:
 
@@ -151,6 +157,8 @@ Completion standard:
 
 ### 6. Geometry And Course Evidence
 
+Detailed plan: `docs/superpowers/plans/2026-05-25-geometry-and-course-evidence.md`
+
 Purpose:
 
 - Productionize prodgeometry coverage, shot-to-surface classification, hazard
@@ -173,6 +181,8 @@ Completion standard:
 - Course/hole pages can show hazard/route evidence.
 
 ### 7. Caddie Decision Layer
+
+Detailed plan: `docs/superpowers/plans/2026-05-25-caddie-decision-layer-complete.md`
 
 Purpose:
 
@@ -197,6 +207,8 @@ Completion standard:
 
 ### 8. Manual Correction And Annotation
 
+Detailed plan: `docs/superpowers/plans/2026-05-25-manual-correction-and-annotation.md`
+
 Purpose:
 
 - Add notes, corrections, issue tags, and caddie feedback with audit history.
@@ -218,6 +230,8 @@ Completion standard:
 - Corrections are auditable and affect derived stats through explicit rules.
 
 ### 9. iOS Live App
+
+Detailed plan: `docs/superpowers/plans/2026-05-25-ios-live-app.md`
 
 Purpose:
 
@@ -242,6 +256,8 @@ Completion standard:
 
 ### 10. Apple Watch Companion
 
+Detailed plan: `docs/superpowers/plans/2026-05-25-apple-watch-companion.md`
+
 Purpose:
 
 - Build current-hole glance, club suggestion, score/putt/penalty/club input, and
@@ -260,6 +276,8 @@ Completion standard:
 - Watch input syncs through iPhone and handles offline/live constraints.
 
 ### 11. Photo And Video Context
+
+Detailed plan: `docs/superpowers/plans/2026-05-25-photo-video-context.md`
 
 Purpose:
 
@@ -283,6 +301,8 @@ Completion standard:
 
 ### 12. Private Trial Hardening
 
+Detailed plan: `docs/superpowers/plans/2026-05-25-private-trial-hardening.md`
+
 Purpose:
 
 - Prepare personal daily use and limited friends trial.
@@ -301,9 +321,13 @@ Completion standard:
 - Cloud staging, backups, import/export, secret handling, observability,
   onboarding, and reauth flows are sufficient for unattended use.
 
-## Current Execution Target
+## Current Execution Status
 
-Start with Plan 1: `docs/superpowers/plans/2026-05-25-foundation-and-fixtures.md`.
+- Plan 1 Foundation And Fixtures is implemented through commit `1588a7d`.
+- Plan 2 Connector And Snapshot Layer is implemented through commit `493f1da`.
+- Plan 3 History Statistics Core is implemented through commit `edba619`.
+- Plan 4 Web History Product is the next execution target.
 
-This is the first plan because it removes the current 0-data failure mode and
-creates a reliable automated test base before connector or UI expansion.
+Plan 4 is next because fixture-backed data, connector status, and the backend
+statistics contract now exist. The UI can be tested against non-empty fixture
+data while real Garmin sync remains independent of the history review surface.

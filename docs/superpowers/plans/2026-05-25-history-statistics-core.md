@@ -54,7 +54,7 @@ Modify:
 
 Every aggregate row includes source references using existing round ids and,
 where possible, hole numbers or shot indices. The contract is intentionally
-plain dictionaries in this plan because later UI/API plans will decide exact
+plain dictionaries in this plan because Web/API plans will decide exact
 presentation DTOs.
 
 ## Task 1: Add Pure Statistics Engine

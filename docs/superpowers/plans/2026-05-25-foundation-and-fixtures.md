@@ -4,7 +4,7 @@
 
 **Goal:** Establish stable config, fixture data, connector status contracts, and test helpers so AI Caddie can be developed and tested without live Garmin credentials or private data.
 
-**Architecture:** Add a small configuration layer, a deterministic synthetic history fixture, and a server-side data-source boundary that can load either local Garmin data or fixture data. Add sync/status contracts now without implementing full Garmin sync, so later connector work plugs into a typed API instead of leaking cookie logic into history or UI.
+**Architecture:** Add a small configuration layer, a deterministic synthetic history fixture, and a server-side data-source boundary that can load either local Garmin data or fixture data. Add sync/status contracts now without implementing full Garmin sync, so connector work plugs into a typed API instead of leaking cookie logic into history or UI.
 
 **Tech Stack:** Python 3.12, Pydantic, FastAPI, unittest/TestClient, React/Vite/TypeScript, Vitest.
 
@@ -1210,7 +1210,7 @@ Expected:
 OK
 ```
 
-Skipped tests are acceptable only if they were already intentionally skipped for missing optional local dependencies. No failed or errored tests are acceptable.
+Skipped tests are acceptable only if they were already intentionally skipped for missing local dependencies. No failed or errored tests are acceptable.
 
 - [ ] **Step 2: Run backend syntax check**
 
