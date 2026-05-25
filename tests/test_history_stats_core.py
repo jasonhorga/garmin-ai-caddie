@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
+from ai_caddie.annotations import add_annotation
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history_stats import build_history_stats
 
@@ -67,6 +70,28 @@ class HistoryStatsCoreTests(unittest.TestCase):
         issue_labels = [row["issue"] for row in stats["issues"]]
         self.assertIn("missing_shots", issue_labels)
         self.assertIn("hazard_result", issue_labels)
+
+    def test_manual_issue_tags_appear_in_stats_and_data_quality(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation(
+                "hole",
+                "900001:7",
+                "issue_tag",
+                {"tag": "approach_short"},
+                root=root,
+            )
+
+            stats = build_history_stats(fixture_history_data(), data_mode="fixture", annotations_root=root)
+
+        manual_issue = next(row for row in stats["issues"] if row["issue"] == "approach_short")
+        self.assertEqual(manual_issue["source"], "manual")
+        self.assertEqual(manual_issue["count"], 1)
+        self.assertEqual(manual_issue["refs"], ["900001:7"])
+
+        annotation_quality = next(row for row in stats["dataQuality"] if row["label"] == "annotations")
+        self.assertEqual(annotation_quality["state"], "good")
+        self.assertEqual(annotation_quality["ready"], 1)
 
 
 if __name__ == "__main__":

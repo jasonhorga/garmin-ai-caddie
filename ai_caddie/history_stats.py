@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from pathlib import Path
 from statistics import median
 from typing import Any, Literal
 
+from ai_caddie.annotations import list_annotations
 from ai_caddie.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData, average, percentile
 
@@ -250,7 +252,7 @@ def _clubs(data: HistoryData) -> list[dict[str, Any]]:
     return sorted(out, key=lambda row: row["club"])
 
 
-def _issues(data: HistoryData) -> list[dict[str, Any]]:
+def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     refs: dict[str, list[str]] = defaultdict(list)
     for row in data.rounds:
         if not row.get("hasShots"):
@@ -265,12 +267,29 @@ def _issues(data: HistoryData) -> list[dict[str, Any]]:
     for shot in data.shots:
         if str(shot.get("surface") or "").lower() in {"water", "bunker", "rough"}:
             refs["hazard_result"].append(f"{shot.get('roundId')}:{shot.get('hole')}")
-    return [{"issue": issue, "count": len(items), "refs": items} for issue, items in sorted(refs.items())]
+    rows = [
+        {"issue": issue, "count": len(items), "refs": items, "source": "deterministic"}
+        for issue, items in sorted(refs.items())
+    ]
+    manual_refs: dict[str, list[str]] = defaultdict(list)
+    for record in annotations or []:
+        if record.get("kind") != "issue_tag":
+            continue
+        tag = str((record.get("payload") or {}).get("tag") or "").strip()
+        if not tag:
+            continue
+        manual_refs[tag].append(str(record.get("targetId") or ""))
+    rows.extend(
+        {"issue": issue, "count": len(items), "refs": items, "source": "manual"}
+        for issue, items in sorted(manual_refs.items())
+    )
+    return rows
 
 
-def _data_quality(data: HistoryData) -> list[dict[str, Any]]:
+def _data_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     total = len(data.raw_rounds)
     shots_ready = sum(1 for row in data.raw_rounds if row.get("hasShots"))
+    annotation_count = len(annotations or [])
     return [
         {
             "label": "shots",
@@ -286,10 +305,23 @@ def _data_quality(data: HistoryData) -> list[dict[str, Any]]:
             "total": len(data.shots),
             "refs": [],
         },
+        {
+            "label": "annotations",
+            "state": "good" if annotation_count else "missing",
+            "ready": annotation_count,
+            "total": annotation_count,
+            "refs": [str(row.get("id")) for row in annotations or []],
+        },
     ]
 
 
-def build_history_stats(data: HistoryData, *, data_mode: DataModeName) -> dict[str, Any]:
+def build_history_stats(
+    data: HistoryData,
+    *,
+    data_mode: DataModeName,
+    annotations_root: Path | str | None = None,
+) -> dict[str, Any]:
+    annotations = list_annotations(root=annotations_root)
     return {
         "schema": "ai-caddie-history-stats-v1",
         "dataMode": data_mode,
@@ -299,8 +331,8 @@ def build_history_stats(data: HistoryData, *, data_mode: DataModeName) -> dict[s
         "courses": _courses(data),
         "holes": _holes(data),
         "clubs": _clubs(data),
-        "issues": _issues(data),
-        "dataQuality": _data_quality(data),
+        "issues": _issues(data, annotations),
+        "dataQuality": _data_quality(data, annotations),
         "drillDown": {
             "roundIds": [_round_id(row) for row in data.rounds],
             "shotRefs": [f"{shot.get('roundId')}:{shot.get('hole')}:{index}" for index, shot in enumerate(data.shots)],
