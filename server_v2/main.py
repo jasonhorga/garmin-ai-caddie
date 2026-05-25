@@ -60,6 +60,7 @@ from .reports import (
     load_round_report_response,
     load_trend_report_response,
 )
+from .readiness import build_readiness_response
 from .sync_status import load_sync_status_response
 
 
@@ -86,6 +87,7 @@ def service_index() -> dict[str, object]:
         "ui": "http://127.0.0.1:5173",
         "endpoints": {
             "health": "/api/v2/health",
+            "readiness": "/api/v2/readiness",
             "historyOverview": "/api/v2/history/overview",
             "historyRounds": "/api/v2/history/rounds",
             "historyStats": "/api/v2/history/stats",
@@ -123,6 +125,11 @@ def health() -> dict[str, str]:
         "status": "ok",
         "service": "server_v2",
     }
+
+
+@app.get("/api/v2/readiness")
+def readiness() -> dict[str, object]:
+    return build_readiness_response()
 
 
 @app.get("/api/v2/history/overview", response_model=HistoryOverviewResponse)
