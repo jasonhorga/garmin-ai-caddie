@@ -12,6 +12,17 @@ ResolvedDataModeName = Literal["local", "fixture"]
 ReportConfidence = Literal["low", "medium", "high"]
 GeometryCoverageState = Literal["ready", "partial", "missing"]
 CaddieShotType = Literal["tee", "approach", "recovery"]
+AnnotationTargetType = Literal["round", "hole", "shot", "decision"]
+AnnotationKind = Literal[
+    "round_note",
+    "hole_note",
+    "shot_note",
+    "issue_tag",
+    "club_correction",
+    "lie_correction",
+    "penalty_correction",
+    "caddie_feedback",
+]
 
 
 class DataQualityBadge(BaseModel):
@@ -232,3 +243,36 @@ class CaddieDecisionResponse(BaseModel):
     confidence: dict[str, Any]
     missingData: list[dict[str, Any]]
     auditCriteria: list[dict[str, Any]]
+
+
+class AnnotationRecord(BaseModel):
+    id: str
+    createdAt: str
+    targetType: AnnotationTargetType
+    targetId: str
+    kind: AnnotationKind
+    payload: dict[str, Any]
+    source: Literal["manual"]
+
+
+class AnnotationCreateRequest(BaseModel):
+    targetType: AnnotationTargetType
+    targetId: str = Field(min_length=1)
+    kind: AnnotationKind
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnnotationCreateResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-annotation-create-v1"] = Field(alias="schema")
+    annotation: AnnotationRecord
+
+
+class AnnotationListResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-annotations-v1"] = Field(alias="schema")
+    total: int
+    annotations: list[AnnotationRecord]
+    target: dict[str, str] | None = None

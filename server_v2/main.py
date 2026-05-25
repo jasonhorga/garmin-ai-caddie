@@ -6,12 +6,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error
 from ai_caddie.connectors.snapshot import snapshot_to_payload
 
+from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
 from .caddie import build_caddie_decision_response
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_stats import load_history_stats_response
 from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response
 from .models import (
+    AnnotationCreateRequest,
+    AnnotationCreateResponse,
+    AnnotationListResponse,
+    AnnotationTargetType,
     CaddieDecisionRequest,
     CaddieDecisionResponse,
     CourseGeometryCoverageResponse,
@@ -56,6 +61,8 @@ def service_index() -> dict[str, object]:
             "geometryCourseCoverage": "/api/v2/geometry/course/{global_id}/coverage",
             "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
             "caddieDecision": "/api/v2/caddie/decision",
+            "annotations": "/api/v2/annotations",
+            "annotationsByTarget": "/api/v2/annotations/target/{target_type}/{target_id}",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
             "syncStatus": "/api/v2/sync/status",
@@ -104,6 +111,21 @@ def geometry_hole_evidence(global_id: int, local_hole: int) -> GeometryEvidenceR
 @app.post("/api/v2/caddie/decision", response_model=CaddieDecisionResponse)
 def caddie_decision(request: CaddieDecisionRequest) -> CaddieDecisionResponse:
     return build_caddie_decision_response(request)
+
+
+@app.get("/api/v2/annotations", response_model=AnnotationListResponse)
+def annotations() -> AnnotationListResponse:
+    return list_annotation_response()
+
+
+@app.post("/api/v2/annotations", response_model=AnnotationCreateResponse)
+def create_annotation(request: AnnotationCreateRequest) -> AnnotationCreateResponse:
+    return create_annotation_response(request)
+
+
+@app.get("/api/v2/annotations/target/{target_type}/{target_id}", response_model=AnnotationListResponse)
+def annotations_by_target(target_type: AnnotationTargetType, target_id: str) -> AnnotationListResponse:
+    return list_target_annotation_response(target_type, target_id)
 
 
 @app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)
