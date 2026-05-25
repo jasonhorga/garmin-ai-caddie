@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+import json
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 ROUTE_TO_OPTION = {
@@ -27,6 +31,51 @@ def _float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _stored_at() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def decision_audit_file(root: Path | str | None = None) -> Path:
+    return Path(root or ".") / "data" / "decision_audits" / "decision_audits.jsonl"
+
+
+def store_decision_audit(
+    audit: dict[str, Any],
+    *,
+    decision_id: str,
+    root: Path | str | None = None,
+) -> dict[str, Any]:
+    record = {
+        "id": uuid4().hex,
+        "storedAt": _stored_at(),
+        "decisionId": str(decision_id),
+        "audit": audit,
+    }
+    path = decision_audit_file(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
+    return record
+
+
+def list_decision_audits(*, root: Path | str | None = None) -> list[dict[str, Any]]:
+    path = decision_audit_file(root)
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
+def latest_decision_audit(decision_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
+    matches = [row for row in list_decision_audits(root=root) if str(row.get("decisionId")) == str(decision_id)]
+    if not matches:
+        return None
+    return sorted(matches, key=lambda row: str(row.get("storedAt") or ""))[-1]
 
 
 def _route_option_id(route: dict[str, Any]) -> str:
@@ -260,6 +309,69 @@ def _weather_text(weather: dict[str, Any]) -> str:
     return ", ".join(parts) if parts else "weather snapshot available"
 
 
+def _wind_adjustment_m(context: dict[str, Any]) -> dict[str, Any]:
+    weather = _weather_snapshot(context)
+    if not weather or weather.get("state") != "ready":
+        return {"meters": 0.0, "kind": "none"}
+    wind_speed = _float(weather.get("windSpeedMps"), 0.0)
+    if wind_speed <= 0:
+        return {"meters": 0.0, "kind": "none"}
+    direction = weather.get("windDirectionDeg")
+    bearing = context.get("shotBearingDeg")
+    if direction is not None and bearing is not None:
+        diff = abs((_float(direction) - _float(bearing) + 180) % 360 - 180)
+        if diff <= 60:
+            kind = "headwind"
+        elif diff >= 120:
+            kind = "tailwind"
+        else:
+            kind = "crosswind"
+    else:
+        kind = "headwind"
+    if kind == "tailwind":
+        meters = -round(wind_speed * 0.7, 1)
+    elif kind == "headwind":
+        meters = round(wind_speed * 1.5, 1)
+    elif kind == "crosswind":
+        meters = round(wind_speed * 0.3, 1)
+    else:
+        meters = 0.0
+    return {
+        "meters": meters,
+        "kind": kind,
+        "windSpeedMps": round(wind_speed, 1),
+        "windDirectionDeg": direction,
+        "shotBearingDeg": bearing,
+    }
+
+
+def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[str, Any]:
+    issues = context.get("historicalHoleIssues") or context.get("holeIssues") or []
+    penalty_count = 0
+    approach_count = 0
+    for issue in issues:
+        if not isinstance(issue, dict):
+            continue
+        phase = str(issue.get("phase") or "")
+        issue_name = str(issue.get("issue") or "")
+        count = int(issue.get("count") or 0)
+        if phase == "Penalty" or issue_name in {"water", "ob", "hazard_result"}:
+            penalty_count += count
+        if phase == "Approach" or issue_name.startswith("approach_"):
+            approach_count += count
+    if option_id == "attack":
+        meters = min(4, penalty_count) + min(2, approach_count)
+    elif option_id == "stock":
+        meters = min(2, penalty_count)
+    else:
+        meters = 0
+    return {
+        "riskScoreDelta": float(meters),
+        "penaltyIssueCount": penalty_count,
+        "approachIssueCount": approach_count,
+    }
+
+
 def _context_with_default_quality(context: dict[str, Any]) -> dict[str, Any]:
     analysis = dict(context)
     analysis.setdefault("dataQuality", {"confidence": "high", "issues": []})
@@ -297,10 +409,14 @@ def _shot_option(
     intent: str,
     target: str,
 ) -> dict[str, Any]:
+    wind_adjustment = _wind_adjustment_m(context)
+    adjusted_carry_m = max(1.0, carry_m + _float(wind_adjustment.get("meters"), 0.0))
+    history_adjustment = _history_risk_adjustment(context, option_id)
+    adjusted_risk_score = risk_score + _float(history_adjustment.get("riskScoreDelta"), 0.0)
     route = {
         "id": f"{shot_type}_{option_id}",
         "label": label,
-        "carry_m": carry_m,
+        "carry_m": adjusted_carry_m,
     }
     avoid_zones = _hazard_avoid_zones(context)
     return {
@@ -308,11 +424,15 @@ def _shot_option(
         "routeId": route["id"],
         "label": OPTION_LABELS.get(option_id, label),
         "routeLabel": label,
-        "carry_m": round(carry_m, 1),
+        "carry_m": round(adjusted_carry_m, 1),
+        "baseCarry_m": round(carry_m, 1),
         "target": target,
         "targetLocal": None,
         "expectedSurface": {"kind": "green" if shot_type == "approach" else "safe_area"},
-        "riskScore": risk_score,
+        "riskScore": adjusted_risk_score,
+        "baseRiskScore": risk_score,
+        "weatherAdjustment": wind_adjustment,
+        "historyAdjustment": history_adjustment,
         "intent": intent,
         "forbiddenZones": avoid_zones,
         "avoidZones": avoid_zones,
@@ -439,6 +559,14 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
     weather = _weather_snapshot(analysis)
     if weather:
         rows.append({"kind": "weather", "text": _weather_text(weather)})
+    issues = analysis.get("historicalHoleIssues") or analysis.get("holeIssues") or []
+    if issues:
+        rows.append(
+            {
+                "kind": "history",
+                "text": f"historical hole issues considered: {len(issues)} issue groups",
+            }
+        )
     if selected:
         rows.append({
             "kind": "route_risk",

@@ -7,8 +7,10 @@ from ai_caddie.decision import (
     audit_decision,
     build_decision_plan,
     judge_decision_outcome,
+    latest_decision_audit,
     recommend_approach,
     recommend_recovery,
+    store_decision_audit,
 )
 from ai_caddie.weather_context import build_weather_snapshot
 from ai_caddie_web import INDEX_HTML
@@ -168,6 +170,40 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("weather", {row["label"] for row in plan["missingData"]})
         self.assertEqual(plan["confidence"]["level"], "medium")
 
+    def test_approach_decision_adjusts_carry_and_club_for_headwind(self) -> None:
+        calm = recommend_approach(approach_fixture())
+        windy_context = approach_fixture()
+        windy_context["weatherSnapshot"] = build_weather_snapshot(
+            round_id="round-1",
+            hole=4,
+            captured_at="2026-05-25T08:00:00Z",
+            latitude=22.279,
+            longitude=114.162,
+            source="manual",
+            observed={"windSpeedMps": 8.0, "windDirectionDeg": 0},
+        )
+        windy_context["shotBearingDeg"] = 0
+
+        windy = recommend_approach(windy_context)
+
+        self.assertGreater(windy["selected"]["carry_m"], calm["selected"]["carry_m"])
+        self.assertEqual(windy["selected"]["clubRecommendation"]["clubs"][0]["clubName"], "7I")
+        self.assertIn("weatherAdjustment", windy["selected"])
+        self.assertTrue(any(row["kind"] == "weather" for row in windy["evidence"]))
+
+    def test_historical_hole_risk_weights_down_attack(self) -> None:
+        context = approach_fixture()
+        context["historicalHoleIssues"] = [
+            {"issue": "water", "phase": "Penalty", "count": 3},
+            {"issue": "approach_short", "phase": "Approach", "count": 2},
+        ]
+
+        plan = recommend_approach(context)
+        attack = next(option for option in plan["options"] if option["id"] == "attack")
+
+        self.assertGreaterEqual(attack["riskScore"], 7)
+        self.assertTrue(any(row["kind"] == "history" for row in plan["evidence"]))
+
     def test_outcome_execution_when_selected_plan_hits_known_risk(self) -> None:
         shot = {
             "shotOrder": 1,
@@ -262,6 +298,32 @@ class DecisionLayerTests(unittest.TestCase):
 
         self.assertIsNone(audit["actualOptionId"])
         self.assertEqual(audit["classification"], "info_gap")
+
+    def test_decision_audit_store_round_trips_latest_record(self) -> None:
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+        audit = audit_decision(
+            plan,
+            {
+                "shotOrder": 1,
+                "clubName": "3H",
+                "meters": 181.0,
+                "end": {"lie": "Fairway", "feature": {"surface": {"kind": "fairway"}, "nearRisks": []}},
+            },
+        )
+
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stored = store_decision_audit(audit, decision_id="round-1:1:1", root=root)
+            latest = latest_decision_audit("round-1:1:1", root=root)
+            raw = (root / "data" / "decision_audits" / "decision_audits.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(stored["decisionId"], "round-1:1:1")
+        self.assertTrue(stored["storedAt"].endswith("Z"))
+        self.assertEqual(latest["audit"]["classification"], "unknown")
+        self.assertIn('"decisionId": "round-1:1:1"', raw)
 
     def test_hole_summary_exposes_decision_audit(self) -> None:
         shot = {
