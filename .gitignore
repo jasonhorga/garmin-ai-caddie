@@ -32,6 +32,8 @@ output/
 logs
 logs/
 *.log
+backups/
+*.tar.gz
 
 # OS
 .DS_Store

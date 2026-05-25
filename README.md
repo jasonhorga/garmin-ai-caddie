@@ -80,6 +80,24 @@ JWT_WEB cookie 有效期约 ~9 小时。过期后 fetch 会 401/403。重做 Ste
 
 ## AI Caddie MVP
 
+### AI Caddie v2 / private trial
+
+当前重构后的 v2 API 在 `server_v2/`，Web 在 `web_v2/`，移动端 contract/source 在 `mobile/`。
+
+常用运维入口：
+
+```bash
+ops/run_local_fixture.sh
+ops/run_local_private.sh
+ops/backup_data.sh
+```
+
+更多说明：
+
+- 私有部署：`docs/deployment/private-trial.md`
+- 密钥处理：`docs/security/secrets.md`
+- 运维 runbook：`docs/operations/runbook.md`
+
 本地 Web 入口：
 
 ```bash
