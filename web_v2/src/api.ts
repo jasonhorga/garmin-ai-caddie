@@ -4,6 +4,8 @@ import type {
   AnnotationListResponse,
   AnnotationTargetType,
   CaddieDecisionRequest,
+  CaddieContextParams,
+  CaddieContextResponse,
   CaddieDecisionAuditLatestResponse,
   CaddieDecisionAuditRequest,
   CaddieDecisionAuditStoreResponse,
@@ -59,6 +61,16 @@ export function fetchHistoryOverview(): Promise<HistoryOverviewResponse> {
 
 export function fetchCaddieDecision(request: CaddieDecisionRequest): Promise<CaddieDecisionResponse> {
   return postJson<CaddieDecisionResponse>('/api/v2/caddie/decision', request)
+}
+
+export function fetchCaddieContext(params: CaddieContextParams): Promise<CaddieContextResponse> {
+  const query = new URLSearchParams({
+    source_ref: params.sourceRef,
+    shot_type: params.shotType,
+  })
+  appendParam(query, 'distance_to_pin_m', params.distanceToPinM)
+  appendParam(query, 'lie', params.lie)
+  return getJson<CaddieContextResponse>(`/api/v2/caddie/context?${query.toString()}`)
 }
 
 export function createCaddieDecisionAudit(

@@ -126,6 +126,22 @@ export interface CaddieDecisionResponse {
   auditCriteria: Array<Record<string, unknown>>
 }
 
+export interface CaddieContextParams {
+  sourceRef: string
+  shotType: CaddieShotType
+  distanceToPinM?: number
+  lie?: string
+}
+
+export interface CaddieContextResponse {
+  schema: 'ai-caddie-context-v1'
+  sourceRef: string
+  shotType: CaddieShotType
+  context: Record<string, unknown>
+  evidence: Array<Record<string, unknown>>
+  missingData: Array<Record<string, unknown>>
+}
+
 export interface CaddieDecisionAuditRequest {
   decision: CaddieDecisionResponse | Record<string, unknown>
   actualShot: Record<string, unknown> | null

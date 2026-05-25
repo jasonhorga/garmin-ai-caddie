@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ai_caddie.caddie_context import build_caddie_context
 from ai_caddie.decision import audit_decision, latest_decision_audit, store_decision_audit
 from ai_caddie.decision_api import build_decision_from_request
 
+from .data_source import load_history_data_for_mode
 from .models import (
+    CaddieContextResponse,
     CaddieDecisionAuditLatestResponse,
     CaddieDecisionAuditRecord,
     CaddieDecisionAuditRequest,
@@ -21,6 +24,25 @@ DECISION_AUDIT_ROOT = Path(".")
 def build_caddie_decision_response(request: CaddieDecisionRequest) -> CaddieDecisionResponse:
     decision = build_decision_from_request(request.model_dump())
     return CaddieDecisionResponse(**decision)
+
+
+def build_caddie_context_response(
+    *,
+    source_ref: str,
+    shot_type: str,
+    distance_to_pin_m: float | None = None,
+    lie: str | None = None,
+) -> CaddieContextResponse:
+    data, _mode = load_history_data_for_mode()
+    return CaddieContextResponse(
+        **build_caddie_context(
+            data,
+            source_ref=source_ref,
+            shot_type=shot_type,
+            distance_to_pin_m=distance_to_pin_m,
+            lie=lie,
+        )
+    )
 
 
 def _audit_record(row: dict[str, object] | None) -> CaddieDecisionAuditRecord | None:

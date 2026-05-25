@@ -1353,6 +1353,68 @@ p {
   white-space: nowrap;
 }
 
+.caddie-context-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+}
+
+.caddie-context-controls {
+  display: grid;
+  grid-template-columns: 82px minmax(120px, 170px) 68px minmax(84px, 120px) 44px minmax(100px, 150px) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.caddie-context-controls label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.caddie-context-controls input,
+.caddie-context-controls button {
+  min-height: 38px;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
+.caddie-context-controls button {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.caddie-context-grid {
+  display: grid;
+  grid-template-columns: minmax(0, .86fr) repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.caddie-context-grid section {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf7;
+  padding: 12px;
+}
+
+.caddie-context-grid h3 {
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
 .media-context-panel {
   display: grid;
   gap: 14px;
@@ -1682,6 +1744,10 @@ p {
     grid-template-columns: 1fr;
   }
 
+  .caddie-context-grid {
+    grid-template-columns: 1fr;
+  }
+
   .hole-evidence-layout {
     grid-template-columns: 1fr;
   }
@@ -1692,6 +1758,7 @@ p {
   .caddie-control-bar,
   .content-grid,
   .corrections-grid,
+  .caddie-context-controls,
   .decision-options,
   .media-context-controls,
   .reports-layout,

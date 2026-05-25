@@ -222,6 +222,30 @@ function caddieDecisionPayload() {
   }
 }
 
+function caddieContextPayload() {
+  return {
+    schema: 'ai-caddie-context-v1',
+    sourceRef: '900001:7',
+    shotType: 'approach',
+    context: {
+      source: 'history_drilldown',
+      sourceRef: '900001:7',
+      roundId: '900001',
+      courseName: 'Black Knight B',
+      hole: 7,
+      globalId: 31795,
+      localHole: 7,
+      distanceToPin_m: 142,
+      lie: 'fairway',
+      geometry: { coverage: 'partial', hasHazards: true, hasMeshes: false, hazardCount: 1 },
+      hazards: [{ kind: 'water', id: 'water-left' }],
+      clubProfiles: { '8I': { clubName: '8I', sampleSize: 4, median: 144, p10: 132, p90: 153 } },
+    },
+    evidence: [{ label: 'history_ref', value: '900001:7' }],
+    missingData: [{ label: 'meshes', reason: 'prodgeometry mesh file missing' }],
+  }
+}
+
 function caddieAuditPayload() {
   return {
     schema: 'ai-caddie-decision-audit-store-v1',
@@ -638,6 +662,7 @@ describe('App navigation', () => {
         if (path === '/api/v2/media/target/shot/fixture-round%3A4%3Aapproach') return mediaListPayload()
         if (path === '/api/v2/media/media-1/analyze' && init?.method === 'POST') return visionAnalysisPayload()
         if (path === '/api/v2/media/target/shot/fixture-round%3A4%3Aapproach/findings') return visionFindingsPayload()
+        if (String(path).startsWith('/api/v2/caddie/context')) return caddieContextPayload()
         if (path === '/api/v2/caddie/decision') return caddieDecisionPayload()
         if (path === '/api/v2/caddie/decisions/fixture-links-4-approach/audit') return caddieAuditPayload()
         if (String(path).startsWith('/api/v2/weather/snapshot')) return weatherPayload()
@@ -656,6 +681,10 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
     expect(await screen.findByText('5.4 m/s')).toBeInTheDocument()
 
+    await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
+    expect(await screen.findByText('history_drilldown')).toBeInTheDocument()
+    expect(screen.getByText('prodgeometry mesh file missing')).toBeInTheDocument()
+
     await userEvent.click(screen.getByRole('button', { name: 'Load media context' }))
     expect(await screen.findByText('front bunker visible')).toBeInTheDocument()
     expect(screen.getByText('data/media/uploads/lie.jpg')).toBeInTheDocument()
@@ -671,6 +700,9 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('8I')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/v2/weather/snapshot?source=manual'))
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/caddie/context?source_ref=900001%3A7&shot_type=approach&distance_to_pin_m=142&lie=fairway',
+    )
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/shot/fixture-round%3A4%3Aapproach')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/shot/fixture-round%3A4%3Aapproach/findings')
     expect(fetchMock).toHaveBeenCalledWith(
@@ -683,6 +715,8 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decision', expect.objectContaining({ method: 'POST' }))
     const decisionPost = fetchMock.mock.calls.find(([path]) => path === '/api/v2/caddie/decision')?.[1] as RequestInit
     const decisionBody = JSON.parse(String(decisionPost.body))
+    expect(decisionBody.context.source).toBe('history_drilldown')
+    expect(decisionBody.context.sourceRef).toBe('900001:7')
     expect(decisionBody.context.visionFindings[0].findingType).toBe('visible_bunker')
 
     await userEvent.click(screen.getByRole('button', { name: 'Audit with fixture outcome' }))

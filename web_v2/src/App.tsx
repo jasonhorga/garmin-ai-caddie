@@ -4,6 +4,7 @@ import {
   createCaddieDecisionAudit,
   createAnnotation,
   createMedia,
+  fetchCaddieContext,
   fetchCaddieDecision,
   fetchAnnotations,
   fetchMediaForTarget,
@@ -45,6 +46,8 @@ import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
   AnnotationListResponse,
+  CaddieContextParams,
+  CaddieContextResponse,
   CaddieDecisionAuditRecord,
   CaddieDecisionRequest,
   CaddieDecisionResponse,
@@ -80,6 +83,7 @@ export default function App() {
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
   const [decisionAuditState, setDecisionAuditState] = useState<DeferredLoadState<CaddieDecisionAuditRecord | null>>({ status: 'idle' })
   const [weatherState, setWeatherState] = useState<DeferredLoadState<WeatherSnapshotResponse>>({ status: 'idle' })
+  const [caddieContextState, setCaddieContextState] = useState<DeferredLoadState<CaddieContextResponse>>({ status: 'idle' })
   const [mediaState, setMediaState] = useState<MediaContextState>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
@@ -333,6 +337,16 @@ export default function App() {
     }
   }
 
+  async function handleLoadCaddieContext(params: CaddieContextParams) {
+    setCaddieContextState({ status: 'loading' })
+    try {
+      const context = await fetchCaddieContext(params)
+      setCaddieContextState({ status: 'ready', data: context })
+    } catch (error: unknown) {
+      setCaddieContextState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+    }
+  }
+
   async function handleLoadMediaContext(target: { targetType: MediaTargetType; targetId: string }) {
     setMediaState({ status: 'loading', ...target })
     try {
@@ -489,10 +503,12 @@ export default function App() {
             decisionState={decisionState}
             auditState={decisionAuditState}
             weatherState={weatherState}
+            contextState={caddieContextState}
             mediaState={mediaState}
             onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
             onCreateAudit={(decision) => void handleCreateDecisionAudit(decision)}
             onLoadWeather={() => void handleLoadWeather()}
+            onLoadCaddieContext={(params) => void handleLoadCaddieContext(params)}
             onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
             onAttachMedia={handleAttachMedia}
             onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}

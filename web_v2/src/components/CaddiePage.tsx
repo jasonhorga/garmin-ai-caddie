@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type {
   CaddieDecisionAuditRecord,
+  CaddieContextParams,
+  CaddieContextResponse,
   CaddieDecisionRequest,
   CaddieDecisionResponse,
   CaddieShotType,
@@ -24,6 +26,12 @@ type WeatherLoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; data: WeatherSnapshotResponse }
 
+type CaddieContextLoadState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; data: CaddieContextResponse }
+
 export type MediaContextState =
   | { status: 'idle' }
   | { status: 'loading'; targetType: MediaTargetType; targetId: string }
@@ -40,10 +48,12 @@ interface CaddiePageProps {
   decisionState: { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: CaddieDecisionResponse }
   auditState?: AuditState
   weatherState?: WeatherLoadState
+  contextState?: CaddieContextLoadState
   mediaState?: MediaContextState
   onRequestDecision: (request: CaddieDecisionRequest) => void
   onCreateAudit?: (decision: CaddieDecisionResponse) => void
   onLoadWeather?: () => void
+  onLoadCaddieContext?: (params: CaddieContextParams) => void
   onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
   onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
   onAnalyzeMedia?: (mediaId: string) => void
@@ -53,15 +63,20 @@ export function CaddiePage({
   decisionState,
   auditState = { status: 'idle' },
   weatherState = { status: 'idle' },
+  contextState = { status: 'idle' },
   mediaState = { status: 'idle' },
   onRequestDecision,
   onCreateAudit,
   onLoadWeather,
+  onLoadCaddieContext,
   onLoadMediaContext,
   onAttachMedia,
   onAnalyzeMedia,
 }: CaddiePageProps) {
   const [shotType, setShotType] = useState<CaddieShotType>('approach')
+  const [contextSourceRef, setContextSourceRef] = useState('900001:7')
+  const [contextDistance, setContextDistance] = useState('142')
+  const [contextLie, setContextLie] = useState('fairway')
   const weatherSnapshot = weatherState.status === 'ready' ? weatherState.data : null
   const visionFindings = mediaState.status === 'ready' ? mediaState.findings : []
 
@@ -87,12 +102,26 @@ export function CaddiePage({
             Load weather
           </button>
         ) : null}
-        <button type="button" onClick={() => onRequestDecision(buildFixtureRequest(shotType, weatherSnapshot, visionFindings))}>
+        <button
+          type="button"
+          onClick={() => onRequestDecision(buildDecisionRequest(shotType, contextState, weatherSnapshot, visionFindings))}
+        >
           Request caddie plan
         </button>
       </section>
 
       {onLoadWeather ? <WeatherContextPanel state={weatherState} /> : null}
+      <CaddieContextPanel
+        state={contextState}
+        sourceRef={contextSourceRef}
+        distance={contextDistance}
+        lie={contextLie}
+        shotType={shotType}
+        onSourceRefChange={setContextSourceRef}
+        onDistanceChange={setContextDistance}
+        onLieChange={setContextLie}
+        onLoadCaddieContext={onLoadCaddieContext}
+      />
       <MediaContextPanel
         state={mediaState}
         onLoadMediaContext={onLoadMediaContext}
@@ -100,6 +129,88 @@ export function CaddiePage({
         onAnalyzeMedia={onAnalyzeMedia}
       />
       <DecisionDetail state={decisionState} auditState={auditState} onCreateAudit={onCreateAudit} />
+    </section>
+  )
+}
+
+function CaddieContextPanel({
+  state,
+  sourceRef,
+  distance,
+  lie,
+  shotType,
+  onSourceRefChange,
+  onDistanceChange,
+  onLieChange,
+  onLoadCaddieContext,
+}: {
+  state: CaddieContextLoadState
+  sourceRef: string
+  distance: string
+  lie: string
+  shotType: CaddieShotType
+  onSourceRefChange: (value: string) => void
+  onDistanceChange: (value: string) => void
+  onLieChange: (value: string) => void
+  onLoadCaddieContext?: (params: CaddieContextParams) => void
+}) {
+  const loadedContext = state.status === 'ready' ? state.data.context : null
+  const globalId = loadedContext && typeof loadedContext.globalId === 'number' ? loadedContext.globalId : null
+  const localHole = loadedContext && typeof loadedContext.localHole === 'number' ? loadedContext.localHole : null
+  return (
+    <section className="caddie-context-panel" aria-label="Caddie context">
+      <div className="report-title-row">
+        <div>
+          <p className="eyebrow">History / geometry context</p>
+          <h2>Caddie Context</h2>
+          <p>Load a source-bound context before requesting a caddie plan.</p>
+        </div>
+        {state.status === 'loading' ? <span className="confidence-pill medium">loading</span> : null}
+        {state.status === 'error' ? <span className="confidence-pill low">error</span> : null}
+      </div>
+      <div className="caddie-context-controls">
+        <label htmlFor="caddie-source-ref">Source ref</label>
+        <input id="caddie-source-ref" value={sourceRef} onChange={(event) => onSourceRefChange(event.target.value)} />
+        <label htmlFor="caddie-distance">Distance</label>
+        <input id="caddie-distance" inputMode="decimal" value={distance} onChange={(event) => onDistanceChange(event.target.value)} />
+        <label htmlFor="caddie-lie">Lie</label>
+        <input id="caddie-lie" value={lie} onChange={(event) => onLieChange(event.target.value)} />
+        <button
+          type="button"
+          onClick={() =>
+            onLoadCaddieContext?.({
+              sourceRef,
+              shotType,
+              distanceToPinM: numericInput(distance),
+              lie,
+            })
+          }
+        >
+          Load caddie context
+        </button>
+      </div>
+      {state.status === 'error' ? <p className="media-context-error">{state.message}</p> : null}
+      {state.status === 'ready' ? (
+        <div className="caddie-context-grid">
+          <section aria-label="Loaded caddie facts">
+            <h3>Loaded Facts</h3>
+            <div className="report-row">
+              <strong>source</strong>
+              <span>{String(loadedContext?.source ?? '-')}</span>
+            </div>
+            <div className="report-row">
+              <strong>hole</strong>
+              <span>{globalId !== null && localHole !== null ? `${globalId} H${localHole}` : '-'}</span>
+            </div>
+            <div className="report-row">
+              <strong>clubs</strong>
+              <span>{Object.keys((loadedContext?.clubProfiles as Record<string, unknown> | undefined) ?? {}).length}</span>
+            </div>
+          </section>
+          <ContextRows title="Context Evidence" rows={state.data.evidence} />
+          <ContextRows title="Context Missing Data" rows={state.data.missingData} />
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -292,6 +403,24 @@ function EvidenceList({ title, rows }: { title: string; rows: Array<Record<strin
   )
 }
 
+function ContextRows({ title, rows }: { title: string; rows: Array<Record<string, unknown>> }) {
+  return (
+    <section aria-label={title}>
+      <h3>{title}</h3>
+      {rows.length ? (
+        rows.map((row, index) => (
+          <div className="report-row" key={`${title}-${index}`}>
+            <strong>{String(row.label ?? row.kind ?? row.id ?? 'item')}</strong>
+            <span>{String(row.value ?? row.reason ?? row.ref ?? '')}</span>
+          </div>
+        ))
+      ) : (
+        <p>None</p>
+      )}
+    </section>
+  )
+}
+
 function MediaContextPanel({
   state,
   onLoadMediaContext,
@@ -425,21 +554,31 @@ function MediaContextPanel({
   )
 }
 
-function buildFixtureRequest(
+function buildDecisionRequest(
   shotType: CaddieShotType,
+  contextState: CaddieContextLoadState,
   weatherSnapshot: WeatherSnapshotResponse | null,
   visionFindings: VisionFindingRecord[] = [],
 ): CaddieDecisionRequest {
-  const withContext = (context: Record<string, unknown>) => ({
-    ...context,
-    ...(weatherSnapshot ? { weatherSnapshot } : {}),
-    ...(visionFindings.length ? { visionFindings } : {}),
-  })
+  const baseContext = contextState.status === 'ready' ? contextState.data.context : buildFixtureRequest(shotType).context
+  return {
+    shotType,
+    context: {
+      ...baseContext,
+      shotType,
+      ...(weatherSnapshot ? { weatherSnapshot } : {}),
+      ...(visionFindings.length ? { visionFindings } : {}),
+    },
+  }
+}
 
+function buildFixtureRequest(
+  shotType: CaddieShotType,
+): CaddieDecisionRequest {
   if (shotType === 'tee') {
     return {
       shotType,
-      context: withContext({
+      context: {
         courseName: 'Fixture Links',
         hole: 1,
         shotType,
@@ -447,25 +586,25 @@ function buildFixtureRequest(
           '1W': { clubName: '1W', sampleSize: 24, median: 221, p10: 190, p90: 249 },
           '3H': { clubName: '3H', sampleSize: 18, median: 178, p10: 158, p90: 198 },
         },
-      }),
+      },
     }
   }
   if (shotType === 'recovery') {
     return {
       shotType,
-      context: withContext({
+      context: {
         courseName: 'Fixture Links',
         hole: 11,
         distanceToPin_m: 178,
         lie: 'rough',
         blockedView: true,
         hazards: [{ kind: 'tree_area', id: 'trees_right', distance_m: 6 }],
-      }),
+      },
     }
   }
   return {
     shotType,
-    context: withContext({
+    context: {
       courseName: 'Fixture Links',
       hole: 4,
       distanceToPin_m: 142,
@@ -476,8 +615,13 @@ function buildFixtureRequest(
         '8I': { clubName: '8I', sampleSize: 24, median: 144, p10: 132, p90: 153 },
         '7I': { clubName: '7I', sampleSize: 24, median: 156, p10: 142, p90: 168 },
       },
-    }),
+    },
   }
+}
+
+function numericInput(value: string): number | undefined {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 async function fileToBase64(file: File): Promise<string> {

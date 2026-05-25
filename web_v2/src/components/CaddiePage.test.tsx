@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { CaddiePage } from './CaddiePage'
 import type {
   CaddieDecisionAuditRecord,
+  CaddieContextResponse,
   CaddieDecisionResponse,
   MediaRecord,
   WeatherSnapshotResponse,
@@ -92,6 +93,28 @@ const visionFinding: VisionFindingRecord = {
   source: 'vision_model',
 }
 
+const caddieContext: CaddieContextResponse = {
+  schema: 'ai-caddie-context-v1',
+  sourceRef: '900001:7',
+  shotType: 'approach',
+  context: {
+    source: 'history_drilldown',
+    sourceRef: '900001:7',
+    roundId: '900001',
+    courseName: 'Black Knight B',
+    hole: 7,
+    globalId: 31795,
+    localHole: 7,
+    distanceToPin_m: 142,
+    lie: 'fairway',
+    geometry: { coverage: 'partial', hasHazards: true, hasMeshes: false, hazardCount: 1 },
+    hazards: [{ kind: 'water', id: 'water-left' }],
+    clubProfiles: { '8I': { clubName: '8I', sampleSize: 4, median: 144, p10: 132, p90: 153 } },
+  },
+  evidence: [{ label: 'history_ref', value: '900001:7' }],
+  missingData: [{ label: 'meshes', reason: 'prodgeometry mesh file missing' }],
+}
+
 describe('CaddiePage', () => {
   it('renders decision evidence and requests a fixture-backed plan', async () => {
     const onRequestDecision = vi.fn()
@@ -100,12 +123,14 @@ describe('CaddiePage', () => {
     const onLoadMediaContext = vi.fn()
     const onAttachMedia = vi.fn()
     const onAnalyzeMedia = vi.fn()
+    const onLoadCaddieContext = vi.fn()
 
     render(
       <CaddiePage
         decisionState={{ status: 'ready', data: decision }}
         auditState={{ status: 'ready', data: auditRecord }}
         weatherState={{ status: 'ready', data: weatherSnapshot }}
+        contextState={{ status: 'ready', data: caddieContext }}
         mediaState={{
           status: 'ready',
           targetType: 'shot',
@@ -119,6 +144,7 @@ describe('CaddiePage', () => {
         onLoadMediaContext={onLoadMediaContext}
         onAttachMedia={onAttachMedia}
         onAnalyzeMedia={onAnalyzeMedia}
+        onLoadCaddieContext={onLoadCaddieContext}
       />,
     )
 
@@ -136,8 +162,14 @@ describe('CaddiePage', () => {
     expect(screen.getByText('data/media/uploads/lie.jpg')).toBeInTheDocument()
     expect(screen.getByText('visible_bunker')).toBeInTheDocument()
     expect(screen.getByText('front bunker visible')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Caddie Context' })).toBeInTheDocument()
+    expect(screen.getByText('history_drilldown')).toBeInTheDocument()
+    expect(screen.getByText('31795 H7')).toBeInTheDocument()
+    expect(screen.getByText('history_ref')).toBeInTheDocument()
+    expect(screen.getByText('prodgeometry mesh file missing')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
     await userEvent.click(screen.getByRole('button', { name: 'Load media context' }))
     await userEvent.click(screen.getByRole('button', { name: 'Analyze media media-1' }))
     await userEvent.upload(screen.getByLabelText('Media file'), new File(['lie-bytes'], 'lie.jpg', { type: 'image/jpeg' }))
@@ -146,6 +178,12 @@ describe('CaddiePage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Audit with fixture outcome' }))
 
     expect(onLoadWeather).toHaveBeenCalledTimes(1)
+    expect(onLoadCaddieContext).toHaveBeenCalledWith({
+      sourceRef: '900001:7',
+      shotType: 'approach',
+      distanceToPinM: 142,
+      lie: 'fairway',
+    })
     expect(onLoadMediaContext).toHaveBeenCalledWith({ targetType: 'shot', targetId: 'fixture-round:4:approach' })
     expect(onAnalyzeMedia).toHaveBeenCalledWith('media-1')
     expect(onAttachMedia).toHaveBeenCalledWith(
@@ -161,6 +199,8 @@ describe('CaddiePage', () => {
     expect(onRequestDecision).toHaveBeenCalledWith({
       shotType: 'approach',
       context: expect.objectContaining({
+        source: 'history_drilldown',
+        sourceRef: '900001:7',
         distanceToPin_m: 142,
         lie: 'fairway',
         weatherSnapshot,

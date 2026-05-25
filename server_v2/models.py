@@ -294,6 +294,17 @@ class CaddieDecisionResponse(BaseModel):
     auditCriteria: list[dict[str, Any]]
 
 
+class CaddieContextResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-context-v1"] = Field(alias="schema")
+    sourceRef: str
+    shotType: CaddieShotType
+    context: dict[str, Any]
+    evidence: list[dict[str, Any]]
+    missingData: list[dict[str, Any]]
+
+
 class CaddieDecisionAuditRequest(BaseModel):
     decision: dict[str, Any]
     actualShot: dict[str, Any] | None = None

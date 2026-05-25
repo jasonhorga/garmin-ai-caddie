@@ -3,6 +3,7 @@ import {
   createCaddieDecisionAudit,
   createAnnotation,
   createMedia,
+  fetchCaddieContext,
   fetchCaddieDecision,
   fetchAnnotations,
   fetchAnnotationsForTarget,
@@ -245,6 +246,52 @@ describe('fetchCaddieDecision', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     })
+  })
+})
+
+describe('fetchCaddieContext', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads a caddie context from a history source ref and current lie inputs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-context-v1',
+        sourceRef: '900001:7',
+        shotType: 'approach',
+        context: {
+          source: 'history_drilldown',
+          sourceRef: '900001:7',
+          roundId: '900001',
+          globalId: 31795,
+          localHole: 7,
+          distanceToPin_m: 142,
+          lie: 'fairway',
+          geometry: { coverage: 'partial', hasHazards: true, hasMeshes: false, hazardCount: 1 },
+          hazards: [{ kind: 'water', id: 'water-left' }],
+          clubProfiles: { '8I': { clubName: '8I', sampleSize: 4, median: 144, p10: 132, p90: 153 } },
+        },
+        evidence: [{ label: 'history_ref', value: '900001:7' }],
+        missingData: [{ label: 'meshes', reason: 'prodgeometry mesh file missing' }],
+      }),
+    })))
+
+    const payload = await fetchCaddieContext({
+      sourceRef: '900001:7',
+      shotType: 'approach',
+      distanceToPinM: 142,
+      lie: 'fairway',
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v2/caddie/context?source_ref=900001%3A7&shot_type=approach&distance_to_pin_m=142&lie=fairway',
+    )
+    expect(payload.schema).toBe('ai-caddie-context-v1')
+    expect(payload.context.source).toBe('history_drilldown')
+    expect(payload.context.geometry).toEqual(expect.objectContaining({ coverage: 'partial' }))
   })
 })
 

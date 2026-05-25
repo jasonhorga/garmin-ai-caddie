@@ -9,7 +9,12 @@ from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize
 from ai_caddie.connectors.snapshot import snapshot_to_payload
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
-from .caddie import build_caddie_decision_response, create_decision_audit_response, latest_decision_audit_response
+from .caddie import (
+    build_caddie_context_response,
+    build_caddie_decision_response,
+    create_decision_audit_response,
+    latest_decision_audit_response,
+)
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_drilldown import load_history_drilldown_response
@@ -30,6 +35,7 @@ from .models import (
     AnnotationTargetType,
     CaddieDecisionRequest,
     CaddieDecisionResponse,
+    CaddieContextResponse,
     CaddieDecisionAuditLatestResponse,
     CaddieDecisionAuditRequest,
     CaddieDecisionAuditStoreResponse,
@@ -95,6 +101,7 @@ def service_index() -> dict[str, object]:
             "geometryCourseCoverage": "/api/v2/geometry/course/{global_id}/coverage",
             "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
             "geometryHoleMap": "/api/v2/geometry/hole/{global_id}/{local_hole}/map",
+            "caddieContext": "/api/v2/caddie/context",
             "caddieDecision": "/api/v2/caddie/decision",
             "caddieDecisionAudit": "/api/v2/caddie/decisions/{decision_id}/audit",
             "caddieDecisionAuditLatest": "/api/v2/caddie/decisions/{decision_id}/audit/latest",
@@ -168,6 +175,21 @@ def geometry_hole_evidence(global_id: int, local_hole: int) -> GeometryEvidenceR
 @app.get("/api/v2/geometry/hole/{global_id}/{local_hole}/map", response_model=HoleMapResponse)
 def geometry_hole_map(global_id: int, local_hole: int, provider: str = "esri_world_imagery") -> HoleMapResponse:
     return load_hole_map_response(global_id, local_hole, provider=provider)
+
+
+@app.get("/api/v2/caddie/context", response_model=CaddieContextResponse)
+def caddie_context(
+    source_ref: str,
+    shot_type: Literal["tee", "approach", "recovery"] = "approach",
+    distance_to_pin_m: float | None = None,
+    lie: str | None = None,
+) -> CaddieContextResponse:
+    return build_caddie_context_response(
+        source_ref=source_ref,
+        shot_type=shot_type,
+        distance_to_pin_m=distance_to_pin_m,
+        lie=lie,
+    )
 
 
 @app.post("/api/v2/caddie/decision", response_model=CaddieDecisionResponse)
