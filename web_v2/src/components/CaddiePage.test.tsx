@@ -2,7 +2,13 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CaddiePage } from './CaddiePage'
-import type { CaddieDecisionAuditRecord, CaddieDecisionResponse, WeatherSnapshotResponse } from '../types'
+import type {
+  CaddieDecisionAuditRecord,
+  CaddieDecisionResponse,
+  MediaRecord,
+  WeatherSnapshotResponse,
+  VisionFindingRecord,
+} from '../types'
 
 const decision: CaddieDecisionResponse = {
   schema: 'ai-caddie-decision-v2',
@@ -58,20 +64,61 @@ const weatherSnapshot: WeatherSnapshotResponse = {
   missingData: [],
 }
 
+const mediaRecord: MediaRecord = {
+  id: 'media-1',
+  createdAt: '2026-05-25T00:00:00Z',
+  targetType: 'shot',
+  targetId: 'fixture-round:4:approach',
+  mediaKind: 'photo',
+  localPath: 'data/media/uploads/lie.jpg',
+  capturedAt: '2026-05-25T08:00:00Z',
+  privacyState: 'private_local',
+  source: 'manual',
+}
+
+const visionFinding: VisionFindingRecord = {
+  id: 'finding-1',
+  createdAt: '2026-05-25T00:01:00Z',
+  targetType: 'shot',
+  targetId: 'fixture-round:4:approach',
+  mediaId: 'media-1',
+  mediaKind: 'photo',
+  findingType: 'visible_bunker',
+  evidenceText: 'front bunker visible',
+  confidence: 'medium',
+  missingInfo: [],
+  provider: 'static',
+  model: 'static',
+  source: 'vision_model',
+}
+
 describe('CaddiePage', () => {
   it('renders decision evidence and requests a fixture-backed plan', async () => {
     const onRequestDecision = vi.fn()
     const onCreateAudit = vi.fn()
     const onLoadWeather = vi.fn()
+    const onLoadMediaContext = vi.fn()
+    const onAttachMedia = vi.fn()
+    const onAnalyzeMedia = vi.fn()
 
     render(
       <CaddiePage
         decisionState={{ status: 'ready', data: decision }}
         auditState={{ status: 'ready', data: auditRecord }}
         weatherState={{ status: 'ready', data: weatherSnapshot }}
+        mediaState={{
+          status: 'ready',
+          targetType: 'shot',
+          targetId: 'fixture-round:4:approach',
+          media: [mediaRecord],
+          findings: [visionFinding],
+        }}
         onRequestDecision={onRequestDecision}
         onCreateAudit={onCreateAudit}
         onLoadWeather={onLoadWeather}
+        onLoadMediaContext={onLoadMediaContext}
+        onAttachMedia={onAttachMedia}
+        onAnalyzeMedia={onAnalyzeMedia}
       />,
     )
 
@@ -85,15 +132,40 @@ describe('CaddiePage', () => {
     expect(screen.getByText('execution')).toHaveClass('audit-execution')
     expect(screen.getByText('planned stock -> actual stock')).toBeInTheDocument()
     expect(screen.getByText('5.4 m/s')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Media Context' })).toBeInTheDocument()
+    expect(screen.getByText('data/media/uploads/lie.jpg')).toBeInTheDocument()
+    expect(screen.getByText('visible_bunker')).toBeInTheDocument()
+    expect(screen.getByText('front bunker visible')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Load media context' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Analyze media media-1' }))
+    await userEvent.upload(screen.getByLabelText('Media file'), new File(['lie-bytes'], 'lie.jpg', { type: 'image/jpeg' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Attach media' }))
     await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
     await userEvent.click(screen.getByRole('button', { name: 'Audit with fixture outcome' }))
 
     expect(onLoadWeather).toHaveBeenCalledTimes(1)
+    expect(onLoadMediaContext).toHaveBeenCalledWith({ targetType: 'shot', targetId: 'fixture-round:4:approach' })
+    expect(onAnalyzeMedia).toHaveBeenCalledWith('media-1')
+    expect(onAttachMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetType: 'shot',
+        targetId: 'fixture-round:4:approach',
+        mediaKind: 'photo',
+        fileName: 'lie.jpg',
+        contentBase64: 'bGllLWJ5dGVz',
+        privacyState: 'private_local',
+      }),
+    )
     expect(onRequestDecision).toHaveBeenCalledWith({
       shotType: 'approach',
-      context: expect.objectContaining({ distanceToPin_m: 142, lie: 'fairway', weatherSnapshot }),
+      context: expect.objectContaining({
+        distanceToPin_m: 142,
+        lie: 'fairway',
+        weatherSnapshot,
+        visionFindings: [visionFinding],
+      }),
     })
     expect(onCreateAudit).toHaveBeenCalledWith(decision)
   })

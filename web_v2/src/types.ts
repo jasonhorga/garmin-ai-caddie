@@ -2,6 +2,16 @@ export type DataQualityState = 'good' | 'partial' | 'missing'
 export type ScoreClass = 'eagle' | 'birdie' | 'par' | 'bogey' | 'double' | 'missing'
 export type CaddieShotType = 'tee' | 'approach' | 'recovery'
 export type AnnotationTargetType = 'round' | 'hole' | 'shot' | 'decision'
+export type MediaTargetType = 'round' | 'hole' | 'shot'
+export type MediaKind = 'photo' | 'video'
+export type MediaPrivacyState = 'private_local' | 'synced' | 'redacted'
+export type VisionFindingType =
+  | 'poor_lie'
+  | 'blocked_view'
+  | 'visible_water'
+  | 'visible_bunker'
+  | 'slope_clue'
+  | 'uncertainty'
 export type AnnotationKind =
   | 'round_note'
   | 'hole_note'
@@ -169,6 +179,78 @@ export interface WeatherSnapshotParams {
   windDirectionDeg?: number
   temperatureC?: number
   precipitationMm?: number
+}
+
+export interface MediaRecord {
+  id: string
+  createdAt: string
+  targetType: MediaTargetType
+  targetId: string
+  mediaKind: MediaKind
+  localPath: string
+  capturedAt: string
+  privacyState: MediaPrivacyState
+  source: 'manual'
+}
+
+export interface MediaCreateRequest {
+  targetType: MediaTargetType
+  targetId: string
+  mediaKind: MediaKind
+  localPath?: string
+  fileName?: string
+  contentBase64?: string
+  capturedAt: string
+  privacyState?: MediaPrivacyState
+}
+
+export interface MediaCreateResponse {
+  schema: 'ai-caddie-media-create-v1'
+  media: MediaRecord
+}
+
+export interface MediaListResponse {
+  schema: 'ai-caddie-media-list-v1'
+  total: number
+  media: MediaRecord[]
+  target: { targetType: MediaTargetType; targetId: string } | null
+}
+
+export interface VisionFinding {
+  findingType: VisionFindingType
+  evidenceText: string
+  confidence: ReportConfidence
+  missingInfo: string[]
+  provider: string
+  model: string
+  source: 'vision_model'
+}
+
+export interface VisionAnalysisResponse {
+  schema: 'ai-caddie-vision-context-v1'
+  mediaId: string | null
+  targetType: string | null
+  targetId: string | null
+  mediaKind: string | null
+  provider: string
+  model: string
+  findings: VisionFinding[]
+}
+
+export interface VisionFindingRecord extends VisionFinding {
+  id: string
+  createdAt: string
+  targetType: MediaTargetType
+  targetId: string
+  mediaId: string
+  mediaKind: MediaKind | null
+}
+
+export interface VisionFindingsListResponse {
+  schema: 'ai-caddie-vision-findings-list-v1'
+  total: number
+  findings: VisionFindingRecord[]
+  target: { targetType: MediaTargetType; targetId: string }
 }
 
 export interface MonthRoundGroup {

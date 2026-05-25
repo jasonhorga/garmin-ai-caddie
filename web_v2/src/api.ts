@@ -12,12 +12,18 @@ import type {
   HistoryDrilldownResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  MediaCreateRequest,
+  MediaCreateResponse,
+  MediaListResponse,
+  MediaTargetType,
   ReadinessResponse,
   ReviewReportResponse,
   SyncRunResponse,
   SyncStatusResponse,
   WeatherSnapshotParams,
   WeatherSnapshotResponse,
+  VisionAnalysisResponse,
+  VisionFindingsListResponse,
 } from './types'
 
 async function getJson<T>(path: string): Promise<T> {
@@ -83,6 +89,34 @@ export function fetchWeatherSnapshot(params: WeatherSnapshotParams = {}): Promis
   appendParam(query, 'precipitation_mm', params.precipitationMm)
   const suffix = query.toString()
   return getJson<WeatherSnapshotResponse>(`/api/v2/weather/snapshot${suffix ? `?${suffix}` : ''}`)
+}
+
+export function createMedia(request: MediaCreateRequest): Promise<MediaCreateResponse> {
+  return postJson<MediaCreateResponse>('/api/v2/media', request)
+}
+
+export function fetchMediaForTarget(targetType: MediaTargetType, targetId: string): Promise<MediaListResponse> {
+  return getJson<MediaListResponse>(
+    `/api/v2/media/target/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}`,
+  )
+}
+
+export function analyzeMedia(mediaId: string): Promise<VisionAnalysisResponse> {
+  return fetch(`/api/v2/media/${encodeURIComponent(mediaId)}/analyze`, { method: 'POST' }).then((response) => {
+    if (!response.ok) {
+      throw new Error(`POST /api/v2/media/${mediaId}/analyze failed: ${response.status} ${response.statusText}`)
+    }
+    return response.json() as Promise<VisionAnalysisResponse>
+  })
+}
+
+export function fetchVisionFindingsForTarget(
+  targetType: MediaTargetType,
+  targetId: string,
+): Promise<VisionFindingsListResponse> {
+  return getJson<VisionFindingsListResponse>(
+    `/api/v2/media/target/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}/findings`,
+  )
 }
 
 export function fetchHistoryRounds(): Promise<HistoryRoundsResponse> {

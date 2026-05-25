@@ -261,6 +261,92 @@ function weatherPayload() {
   }
 }
 
+function mediaListPayload() {
+  return {
+    schema: 'ai-caddie-media-list-v1',
+    total: 1,
+    target: { targetType: 'shot', targetId: 'fixture-round:4:approach' },
+    media: [
+      {
+        id: 'media-1',
+        createdAt: '2026-05-25T00:00:00Z',
+        targetType: 'shot',
+        targetId: 'fixture-round:4:approach',
+        mediaKind: 'photo',
+        localPath: 'data/media/uploads/lie.jpg',
+        capturedAt: '2026-05-25T08:00:00Z',
+        privacyState: 'private_local',
+        source: 'manual',
+      },
+    ],
+  }
+}
+
+function createdMediaPayload() {
+  return {
+    schema: 'ai-caddie-media-create-v1',
+    media: {
+      id: 'media-2',
+      createdAt: '2026-05-25T00:02:00Z',
+      targetType: 'shot',
+      targetId: 'fixture-round:4:approach',
+      mediaKind: 'photo',
+      localPath: 'data/media/uploads/new-lie.jpg',
+      capturedAt: '2026-05-25T08:02:00Z',
+      privacyState: 'private_local',
+      source: 'manual',
+    },
+  }
+}
+
+function visionFindingsPayload() {
+  return {
+    schema: 'ai-caddie-vision-findings-list-v1',
+    total: 1,
+    target: { targetType: 'shot', targetId: 'fixture-round:4:approach' },
+    findings: [
+      {
+        id: 'finding-1',
+        createdAt: '2026-05-25T00:01:00Z',
+        targetType: 'shot',
+        targetId: 'fixture-round:4:approach',
+        mediaId: 'media-1',
+        mediaKind: 'photo',
+        findingType: 'visible_bunker',
+        evidenceText: 'front bunker visible',
+        confidence: 'medium',
+        missingInfo: [],
+        provider: 'static',
+        model: 'static',
+        source: 'vision_model',
+      },
+    ],
+  }
+}
+
+function visionAnalysisPayload() {
+  return {
+    schema: 'ai-caddie-vision-context-v1',
+    mediaId: 'media-1',
+    targetType: 'shot',
+    targetId: 'fixture-round:4:approach',
+    mediaKind: 'photo',
+    provider: 'static',
+    model: 'static',
+    findings: [
+      {
+        findingType: 'visible_bunker',
+        evidenceText: 'front bunker visible',
+        confidence: 'medium',
+        missingInfo: [],
+        provider: 'static',
+        model: 'static',
+        source: 'vision_model',
+      },
+    ],
+  }
+}
+
 function drilldownPayload() {
   return {
     schema: 'ai-caddie-history-drilldown-v1',
@@ -461,10 +547,14 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
   })
 
-  it('opens the caddie workspace and requests a decision', async () => {
-    const fetchMock = vi.fn(async (path: string) => ({
+  it('opens the caddie workspace, attaches media context, and requests a decision', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
+        if (path === '/api/v2/media' && init?.method === 'POST') return createdMediaPayload()
+        if (path === '/api/v2/media/target/shot/fixture-round%3A4%3Aapproach') return mediaListPayload()
+        if (path === '/api/v2/media/media-1/analyze' && init?.method === 'POST') return visionAnalysisPayload()
+        if (path === '/api/v2/media/target/shot/fixture-round%3A4%3Aapproach/findings') return visionFindingsPayload()
         if (path === '/api/v2/caddie/decision') return caddieDecisionPayload()
         if (path === '/api/v2/caddie/decisions/fixture-links-4-approach/audit') return caddieAuditPayload()
         if (String(path).startsWith('/api/v2/weather/snapshot')) return weatherPayload()
@@ -483,11 +573,34 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
     expect(await screen.findByText('5.4 m/s')).toBeInTheDocument()
 
+    await userEvent.click(screen.getByRole('button', { name: 'Load media context' }))
+    expect(await screen.findByText('front bunker visible')).toBeInTheDocument()
+    expect(screen.getByText('data/media/uploads/lie.jpg')).toBeInTheDocument()
+
+    await userEvent.upload(screen.getByLabelText('Media file'), new File(['new-lie-bytes'], 'new-lie.jpg', { type: 'image/jpeg' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Attach media' }))
+    expect(await screen.findByText('data/media/uploads/new-lie.jpg')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Analyze media media-1' }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/media-1/analyze', { method: 'POST' })
+
     await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
 
     expect(await screen.findByText('8I')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/v2/weather/snapshot?source=manual'))
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/shot/fixture-round%3A4%3Aapproach')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/shot/fixture-round%3A4%3Aapproach/findings')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/media',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"contentBase64":"bmV3LWxpZS1ieXRlcw=="'),
+      }),
+    )
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decision', expect.objectContaining({ method: 'POST' }))
+    const decisionPost = fetchMock.mock.calls.find(([path]) => path === '/api/v2/caddie/decision')?.[1] as RequestInit
+    const decisionBody = JSON.parse(String(decisionPost.body))
+    expect(decisionBody.context.visionFindings[0].findingType).toBe('visible_bunker')
 
     await userEvent.click(screen.getByRole('button', { name: 'Audit with fixture outcome' }))
 

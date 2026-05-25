@@ -4,7 +4,12 @@ import type {
   CaddieDecisionRequest,
   CaddieDecisionResponse,
   CaddieShotType,
+  MediaCreateRequest,
+  MediaKind,
+  MediaRecord,
+  MediaTargetType,
   WeatherSnapshotResponse,
+  VisionFindingRecord,
 } from '../types'
 
 type AuditState =
@@ -19,25 +24,46 @@ type WeatherLoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; data: WeatherSnapshotResponse }
 
+export type MediaContextState =
+  | { status: 'idle' }
+  | { status: 'loading'; targetType: MediaTargetType; targetId: string }
+  | { status: 'error'; targetType: MediaTargetType; targetId: string; message: string }
+  | {
+      status: 'ready'
+      targetType: MediaTargetType
+      targetId: string
+      media: MediaRecord[]
+      findings: VisionFindingRecord[]
+    }
+
 interface CaddiePageProps {
   decisionState: { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: CaddieDecisionResponse }
   auditState?: AuditState
   weatherState?: WeatherLoadState
+  mediaState?: MediaContextState
   onRequestDecision: (request: CaddieDecisionRequest) => void
   onCreateAudit?: (decision: CaddieDecisionResponse) => void
   onLoadWeather?: () => void
+  onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
+  onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
+  onAnalyzeMedia?: (mediaId: string) => void
 }
 
 export function CaddiePage({
   decisionState,
   auditState = { status: 'idle' },
   weatherState = { status: 'idle' },
+  mediaState = { status: 'idle' },
   onRequestDecision,
   onCreateAudit,
   onLoadWeather,
+  onLoadMediaContext,
+  onAttachMedia,
+  onAnalyzeMedia,
 }: CaddiePageProps) {
   const [shotType, setShotType] = useState<CaddieShotType>('approach')
   const weatherSnapshot = weatherState.status === 'ready' ? weatherState.data : null
+  const visionFindings = mediaState.status === 'ready' ? mediaState.findings : []
 
   return (
     <section className="caddie-workspace">
@@ -61,12 +87,18 @@ export function CaddiePage({
             Load weather
           </button>
         ) : null}
-        <button type="button" onClick={() => onRequestDecision(buildFixtureRequest(shotType, weatherSnapshot))}>
+        <button type="button" onClick={() => onRequestDecision(buildFixtureRequest(shotType, weatherSnapshot, visionFindings))}>
           Request caddie plan
         </button>
       </section>
 
       {onLoadWeather ? <WeatherContextPanel state={weatherState} /> : null}
+      <MediaContextPanel
+        state={mediaState}
+        onLoadMediaContext={onLoadMediaContext}
+        onAttachMedia={onAttachMedia}
+        onAnalyzeMedia={onAnalyzeMedia}
+      />
       <DecisionDetail state={decisionState} auditState={auditState} onCreateAudit={onCreateAudit} />
     </section>
   )
@@ -260,14 +292,154 @@ function EvidenceList({ title, rows }: { title: string; rows: Array<Record<strin
   )
 }
 
-function buildFixtureRequest(shotType: CaddieShotType, weatherSnapshot: WeatherSnapshotResponse | null): CaddieDecisionRequest {
-  const withWeather = (context: Record<string, unknown>) =>
-    weatherSnapshot ? { ...context, weatherSnapshot } : context
+function MediaContextPanel({
+  state,
+  onLoadMediaContext,
+  onAttachMedia,
+  onAnalyzeMedia,
+}: {
+  state: MediaContextState
+  onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
+  onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
+  onAnalyzeMedia?: (mediaId: string) => void
+}) {
+  const [targetType, setTargetType] = useState<MediaTargetType>('shot')
+  const [targetId, setTargetId] = useState('fixture-round:4:approach')
+  const [mediaKind, setMediaKind] = useState<MediaKind>('photo')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  async function handleAttachMedia() {
+    if (!selectedFile || !onAttachMedia) return
+    setUploadError(null)
+    try {
+      await onAttachMedia({
+        targetType,
+        targetId,
+        mediaKind,
+        fileName: selectedFile.name,
+        contentBase64: await fileToBase64(selectedFile),
+        capturedAt: new Date().toISOString(),
+        privacyState: 'private_local',
+      })
+    } catch (error: unknown) {
+      setUploadError(error instanceof Error ? error.message : 'Media upload failed')
+    }
+  }
+
+  const media = state.status === 'ready' ? state.media : []
+  const findings = state.status === 'ready' ? state.findings : []
+
+  return (
+    <section className="media-context-panel" aria-label="Media context">
+      <div className="report-title-row">
+        <div>
+          <p className="eyebrow">Photo / video evidence</p>
+          <h2>Media Context</h2>
+          <p>Attach visual context as evidence with confidence before it influences caddie decisions.</p>
+        </div>
+        {state.status === 'loading' ? <span className="confidence-pill medium">loading</span> : null}
+        {state.status === 'error' ? <span className="confidence-pill low">error</span> : null}
+      </div>
+
+      <div className="media-context-controls">
+        <label htmlFor="media-target-type">Target type</label>
+        <select
+          id="media-target-type"
+          value={targetType}
+          onChange={(event) => setTargetType(event.target.value as MediaTargetType)}
+        >
+          <option value="shot">Shot</option>
+          <option value="hole">Hole</option>
+          <option value="round">Round</option>
+        </select>
+
+        <label htmlFor="media-target-id">Target ID</label>
+        <input id="media-target-id" value={targetId} onChange={(event) => setTargetId(event.target.value)} />
+
+        <label htmlFor="media-kind">Media kind</label>
+        <select id="media-kind" value={mediaKind} onChange={(event) => setMediaKind(event.target.value as MediaKind)}>
+          <option value="photo">Photo</option>
+          <option value="video">Video</option>
+        </select>
+
+        <label htmlFor="media-file">Media file</label>
+        <input
+          id="media-file"
+          type="file"
+          accept="image/*,video/*"
+          onChange={(event) => setSelectedFile(event.currentTarget.files?.[0] ?? null)}
+        />
+
+        <button type="button" onClick={() => onLoadMediaContext?.({ targetType, targetId })}>
+          Load media context
+        </button>
+        <button type="button" onClick={() => void handleAttachMedia()} disabled={!selectedFile || !onAttachMedia}>
+          Attach media
+        </button>
+      </div>
+
+      {state.status === 'error' ? <p className="media-context-error">{state.message}</p> : null}
+      {uploadError ? <p className="media-context-error">{uploadError}</p> : null}
+
+      <div className="media-context-grid">
+        <section aria-label="Attached media">
+          <h3>Attached Media</h3>
+          {media.length ? (
+            media.map((item) => (
+              <article className="media-context-row" key={item.id}>
+                <div>
+                  <strong>{item.mediaKind}</strong>
+                  <span>{item.localPath}</span>
+                </div>
+                {onAnalyzeMedia ? (
+                  <button type="button" aria-label={`Analyze media ${item.id}`} onClick={() => onAnalyzeMedia(item.id)}>
+                    Analyze
+                  </button>
+                ) : null}
+              </article>
+            ))
+          ) : (
+            <p>No media attached for this target.</p>
+          )}
+        </section>
+
+        <section aria-label="Vision findings">
+          <h3>Vision Findings</h3>
+          {findings.length ? (
+            findings.map((finding) => (
+              <article className="media-context-row" key={finding.id}>
+                <div>
+                  <strong>{finding.findingType}</strong>
+                  <span>{finding.evidenceText}</span>
+                </div>
+                <span className={`confidence-pill ${finding.confidence}`}>{finding.confidence}</span>
+              </article>
+            ))
+          ) : (
+            <p>No analyzed findings yet.</p>
+          )}
+        </section>
+      </div>
+    </section>
+  )
+}
+
+function buildFixtureRequest(
+  shotType: CaddieShotType,
+  weatherSnapshot: WeatherSnapshotResponse | null,
+  visionFindings: VisionFindingRecord[] = [],
+): CaddieDecisionRequest {
+  const withContext = (context: Record<string, unknown>) => ({
+    ...context,
+    ...(weatherSnapshot ? { weatherSnapshot } : {}),
+    ...(visionFindings.length ? { visionFindings } : {}),
+  })
 
   if (shotType === 'tee') {
     return {
       shotType,
-      context: withWeather({
+      context: withContext({
         courseName: 'Fixture Links',
         hole: 1,
         shotType,
@@ -281,7 +453,7 @@ function buildFixtureRequest(shotType: CaddieShotType, weatherSnapshot: WeatherS
   if (shotType === 'recovery') {
     return {
       shotType,
-      context: withWeather({
+      context: withContext({
         courseName: 'Fixture Links',
         hole: 11,
         distanceToPin_m: 178,
@@ -293,7 +465,7 @@ function buildFixtureRequest(shotType: CaddieShotType, weatherSnapshot: WeatherS
   }
   return {
     shotType,
-    context: withWeather({
+    context: withContext({
       courseName: 'Fixture Links',
       hole: 4,
       distanceToPin_m: 142,
@@ -306,6 +478,15 @@ function buildFixtureRequest(shotType: CaddieShotType, weatherSnapshot: WeatherS
       },
     }),
   }
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  }
+  return btoa(binary)
 }
 
 function formatOptionMeta(option: Record<string, unknown>): string {

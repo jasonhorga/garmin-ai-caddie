@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createCaddieDecisionAudit,
   createAnnotation,
+  createMedia,
   fetchCaddieDecision,
   fetchAnnotations,
   fetchAnnotationsForTarget,
@@ -9,11 +10,14 @@ import {
   fetchHistoryDrilldown,
   fetchHistoryRounds,
   fetchHistoryStats,
+  fetchMediaForTarget,
   fetchLatestCaddieDecisionAudit,
   fetchReadiness,
   fetchWeatherSnapshot,
   fetchTrendReport,
+  analyzeMedia,
   generateTrendReport,
+  fetchVisionFindingsForTarget,
   fetchSyncStatus,
   runGarminSync,
 } from './api'
@@ -326,6 +330,138 @@ describe('fetchWeatherSnapshot', () => {
       '/api/v2/weather/snapshot?source=manual&round_id=fixture-round&hole=4&captured_at=2026-05-25T08%3A00%3A00Z&latitude=22.279&longitude=114.162&wind_speed_mps=5.4&wind_direction_deg=110&temperature_c=28.5&precipitation_mm=0',
     )
     expect(data.windSpeedMps).toBe(5.4)
+  })
+})
+
+describe('media API helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('creates, lists, analyzes, and reloads vision findings for target media', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init?: RequestInit) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/media' && init?.method === 'POST') {
+          return {
+            schema: 'ai-caddie-media-create-v1',
+            media: {
+              id: 'media-1',
+              createdAt: '2026-05-25T00:00:00Z',
+              targetType: 'shot',
+              targetId: 'round-1:4:2',
+              mediaKind: 'photo',
+              localPath: 'data/media/uploads/lie.jpg',
+              capturedAt: '2026-05-25T08:00:00Z',
+              privacyState: 'private_local',
+              source: 'manual',
+            },
+          }
+        }
+        if (path === '/api/v2/media/target/shot/round-1%3A4%3A2') {
+          return {
+            schema: 'ai-caddie-media-list-v1',
+            total: 1,
+            target: { targetType: 'shot', targetId: 'round-1:4:2' },
+            media: [
+              {
+                id: 'media-1',
+                createdAt: '2026-05-25T00:00:00Z',
+                targetType: 'shot',
+                targetId: 'round-1:4:2',
+                mediaKind: 'photo',
+                localPath: 'data/media/uploads/lie.jpg',
+                capturedAt: '2026-05-25T08:00:00Z',
+                privacyState: 'private_local',
+                source: 'manual',
+              },
+            ],
+          }
+        }
+        if (path === '/api/v2/media/media-1/analyze' && init?.method === 'POST') {
+          return {
+            schema: 'ai-caddie-vision-context-v1',
+            mediaId: 'media-1',
+            targetType: 'shot',
+            targetId: 'round-1:4:2',
+            mediaKind: 'photo',
+            provider: 'static',
+            model: 'static',
+            findings: [
+              {
+                findingType: 'visible_bunker',
+                evidenceText: 'front bunker visible',
+                confidence: 'medium',
+                missingInfo: [],
+                provider: 'static',
+                model: 'static',
+                source: 'vision_model',
+              },
+            ],
+          }
+        }
+        if (path === '/api/v2/media/target/shot/round-1%3A4%3A2/findings') {
+          return {
+            schema: 'ai-caddie-vision-findings-list-v1',
+            total: 1,
+            target: { targetType: 'shot', targetId: 'round-1:4:2' },
+            findings: [
+              {
+                id: 'finding-1',
+                createdAt: '2026-05-25T00:01:00Z',
+                targetType: 'shot',
+                targetId: 'round-1:4:2',
+                mediaId: 'media-1',
+                mediaKind: 'photo',
+                findingType: 'visible_bunker',
+                evidenceText: 'front bunker visible',
+                confidence: 'medium',
+                missingInfo: [],
+                provider: 'static',
+                model: 'static',
+                source: 'vision_model',
+              },
+            ],
+          }
+        }
+        throw new Error(`Unexpected request ${path}`)
+      },
+    })))
+
+    const created = await createMedia({
+      targetType: 'shot',
+      targetId: 'round-1:4:2',
+      mediaKind: 'photo',
+      fileName: 'lie.jpg',
+      contentBase64: 'ZmFrZQ==',
+      capturedAt: '2026-05-25T08:00:00Z',
+      privacyState: 'private_local',
+    })
+    const listed = await fetchMediaForTarget('shot', 'round-1:4:2')
+    const analyzed = await analyzeMedia('media-1')
+    const findings = await fetchVisionFindingsForTarget('shot', 'round-1:4:2')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetType: 'shot',
+        targetId: 'round-1:4:2',
+        mediaKind: 'photo',
+        fileName: 'lie.jpg',
+        contentBase64: 'ZmFrZQ==',
+        capturedAt: '2026-05-25T08:00:00Z',
+        privacyState: 'private_local',
+      }),
+    })
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/media/target/shot/round-1%3A4%3A2')
+    expect(fetch).toHaveBeenNthCalledWith(3, '/api/v2/media/media-1/analyze', { method: 'POST' })
+    expect(fetch).toHaveBeenNthCalledWith(4, '/api/v2/media/target/shot/round-1%3A4%3A2/findings')
+    expect(created.media.localPath).toBe('data/media/uploads/lie.jpg')
+    expect(listed.media).toHaveLength(1)
+    expect(analyzed.findings[0].findingType).toBe('visible_bunker')
+    expect(findings.findings[0].evidenceText).toBe('front bunker visible')
   })
 })
 

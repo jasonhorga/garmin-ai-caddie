@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
+  analyzeMedia,
   createCaddieDecisionAudit,
   createAnnotation,
+  createMedia,
   fetchCaddieDecision,
   fetchAnnotations,
+  fetchMediaForTarget,
   fetchHistoryDrilldown,
   fetchHistoryOverview,
   fetchHistoryRounds,
@@ -11,13 +14,14 @@ import {
   fetchReadiness,
   fetchRoundReport,
   fetchTrendReport,
+  fetchVisionFindingsForTarget,
   fetchWeatherSnapshot,
   generateRoundReport,
   generateTrendReport,
   fetchSyncStatus,
   runGarminSync,
 } from './api'
-import { CaddiePage } from './components/CaddiePage'
+import { CaddiePage, type MediaContextState } from './components/CaddiePage'
 import { ClubStats } from './components/ClubStats'
 import { CorrectionsPage } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
@@ -45,6 +49,8 @@ import type {
   HistoryDrilldownResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  MediaCreateRequest,
+  MediaTargetType,
   ReadinessResponse,
   ReviewReportResponse,
   SyncStatusResponse,
@@ -71,6 +77,7 @@ export default function App() {
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
   const [decisionAuditState, setDecisionAuditState] = useState<DeferredLoadState<CaddieDecisionAuditRecord | null>>({ status: 'idle' })
   const [weatherState, setWeatherState] = useState<DeferredLoadState<WeatherSnapshotResponse>>({ status: 'idle' })
+  const [mediaState, setMediaState] = useState<MediaContextState>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
@@ -297,6 +304,64 @@ export default function App() {
     }
   }
 
+  async function handleLoadMediaContext(target: { targetType: MediaTargetType; targetId: string }) {
+    setMediaState({ status: 'loading', ...target })
+    try {
+      const [media, findings] = await Promise.all([
+        fetchMediaForTarget(target.targetType, target.targetId),
+        fetchVisionFindingsForTarget(target.targetType, target.targetId),
+      ])
+      setMediaState({
+        status: 'ready',
+        targetType: target.targetType,
+        targetId: target.targetId,
+        media: media.media,
+        findings: findings.findings,
+      })
+    } catch (error: unknown) {
+      setMediaState({
+        status: 'error',
+        targetType: target.targetType,
+        targetId: target.targetId,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+
+  async function handleAttachMedia(request: MediaCreateRequest) {
+    const response = await createMedia(request)
+    setMediaState((current) => {
+      if (current.status === 'ready' && current.targetType === request.targetType && current.targetId === request.targetId) {
+        return {
+          ...current,
+          media: [response.media, ...current.media],
+        }
+      }
+      return {
+        status: 'ready',
+        targetType: request.targetType,
+        targetId: request.targetId,
+        media: [response.media],
+        findings: [],
+      }
+    })
+  }
+
+  async function handleAnalyzeMedia(mediaId: string) {
+    const target = mediaState.status === 'ready' ? { targetType: mediaState.targetType, targetId: mediaState.targetId } : null
+    await analyzeMedia(mediaId)
+    if (!target) return
+    try {
+      const findings = await fetchVisionFindingsForTarget(target.targetType, target.targetId)
+      setMediaState((current) => {
+        if (current.status !== 'ready' || current.targetType !== target.targetType || current.targetId !== target.targetId) return current
+        return { ...current, findings: findings.findings }
+      })
+    } catch {
+      return
+    }
+  }
+
   if (overviewState.status === 'loading') {
     return (
       <main className="app-shell">
@@ -394,9 +459,13 @@ export default function App() {
             decisionState={decisionState}
             auditState={decisionAuditState}
             weatherState={weatherState}
+            mediaState={mediaState}
             onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
             onCreateAudit={(decision) => void handleCreateDecisionAudit(decision)}
             onLoadWeather={() => void handleLoadWeather()}
+            onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
+            onAttachMedia={handleAttachMedia}
+            onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}
           />
         </main>
       </>
