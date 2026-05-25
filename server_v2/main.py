@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error
@@ -9,7 +9,10 @@ from ai_caddie.connectors.snapshot import snapshot_to_payload
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_stats import load_history_stats_response
+from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response
 from .models import (
+    CourseGeometryCoverageResponse,
+    GeometryEvidenceResponse,
     HistoryOverviewResponse,
     HistoryRoundsResponse,
     HistoryStatsResponse,
@@ -47,6 +50,8 @@ def service_index() -> dict[str, object]:
             "historyOverview": "/api/v2/history/overview",
             "historyRounds": "/api/v2/history/rounds",
             "historyStats": "/api/v2/history/stats",
+            "geometryCourseCoverage": "/api/v2/geometry/course/{global_id}/coverage",
+            "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
             "syncStatus": "/api/v2/sync/status",
@@ -77,6 +82,19 @@ def history_rounds() -> HistoryRoundsResponse:
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)
 def history_stats() -> HistoryStatsResponse:
     return load_history_stats_response()
+
+
+@app.get("/api/v2/geometry/course/{global_id}/coverage", response_model=CourseGeometryCoverageResponse)
+def geometry_course_coverage(
+    global_id: int,
+    holes: list[int] | None = Query(default=None),
+) -> CourseGeometryCoverageResponse:
+    return load_course_geometry_coverage_response(global_id, holes=holes)
+
+
+@app.get("/api/v2/geometry/hole/{global_id}/{local_hole}", response_model=GeometryEvidenceResponse)
+def geometry_hole_evidence(global_id: int, local_hole: int) -> GeometryEvidenceResponse:
+    return load_hole_geometry_evidence_response(global_id, local_hole)
 
 
 @app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)

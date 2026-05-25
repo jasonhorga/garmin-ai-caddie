@@ -10,6 +10,7 @@ DistributionClass = Literal["eagle", "birdie", "bogey", "double"]
 ConnectorState = Literal["ready", "no_data", "reauth_required", "error"]
 ResolvedDataModeName = Literal["local", "fixture"]
 ReportConfidence = Literal["low", "medium", "high"]
+GeometryCoverageState = Literal["ready", "partial", "missing"]
 
 
 class DataQualityBadge(BaseModel):
@@ -180,3 +181,28 @@ class ReviewReportResponse(BaseModel):
     missingData: list[dict[str, Any]]
     narrative: str
     confidence: ReportConfidence
+
+
+class GeometryEvidenceResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-geometry-evidence-v1"] = Field(alias="schema")
+    globalId: int
+    localHole: int
+    coverage: GeometryCoverageState
+    hasHazards: bool
+    hasMeshes: bool
+    evidence: list[dict[str, Any]]
+    missingData: list[dict[str, Any]]
+
+
+class CourseGeometryCoverageResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-course-geometry-coverage-v1"] = Field(alias="schema")
+    globalId: int
+    coverage: GeometryCoverageState
+    readyHoles: int
+    partialHoles: int
+    totalHoles: int
+    holes: list[dict[str, Any]]
