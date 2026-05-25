@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import json
+from pathlib import Path
 from typing import Any
 
 from ai_caddie.llm_providers import LLMMessage, TextProvider, redact_secret_text
@@ -17,6 +19,7 @@ ALLOWED_FINDING_TYPES = {
     "uncertainty",
 }
 ALLOWED_CONFIDENCE = {"low", "medium", "high"}
+MAX_PROMPT_MEDIA_BYTES = 1_000_000
 
 
 def _provider_name(provider: TextProvider) -> str:
@@ -84,11 +87,35 @@ def _parse_findings(reply: str) -> list[dict[str, Any]]:
     return [row for row in findings if row]
 
 
-def analyze_media_context(media: dict[str, Any], provider: TextProvider) -> dict[str, Any]:
+def _media_payload_text(media: dict[str, Any], root: Path | str | None = None) -> str:
+    local_path = media.get("localPath")
+    if not local_path:
+        return "mediaBytesBase64=; byteLength=0; contentAvailable=false"
+    path = Path(str(local_path))
+    if not path.is_absolute():
+        path = Path(root or ".") / path
+    try:
+        content = path.read_bytes()
+    except OSError:
+        return "mediaBytesBase64=; byteLength=0; contentAvailable=false"
+    payload = base64.b64encode(content[:MAX_PROMPT_MEDIA_BYTES]).decode("ascii")
+    return (
+        f"mediaBytesBase64={payload}; byteLength={len(content)}; "
+        f"contentAvailable=true; contentTruncated={len(content) > MAX_PROMPT_MEDIA_BYTES}"
+    )
+
+
+def analyze_media_context(
+    media: dict[str, Any],
+    provider: TextProvider,
+    *,
+    root: Path | str | None = None,
+) -> dict[str, Any]:
     prompt = (
         "Analyze golf media as uncertain evidence only. Return JSON findings using only "
         f"{sorted(ALLOWED_FINDING_TYPES)} with confidence low/medium/high. "
-        f"Media kind={media.get('mediaKind')} path={redact_secret_text(media.get('localPath'))}."
+        f"Media kind={media.get('mediaKind')} path={redact_secret_text(media.get('localPath'))}. "
+        f"{_media_payload_text(media, root=root)}"
     )
     try:
         reply = provider.chat(

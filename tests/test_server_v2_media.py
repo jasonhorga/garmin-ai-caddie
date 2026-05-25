@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -72,6 +73,33 @@ class ServerV2MediaTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 422)
+
+    def test_media_create_can_store_uploaded_content_without_jsonl_bytes(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.media.MEDIA_ROOT", root):
+                response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "fileName": "lie.jpg",
+                        "contentBase64": base64.b64encode(b"uploaded-bytes").decode("ascii"),
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                local_path = response.json()["media"]["localPath"]
+                stored = root / local_path
+                stored_bytes = stored.read_bytes()
+                index_text = (root / "data" / "media" / "media_index.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(stored_bytes, b"uploaded-bytes")
+        self.assertNotIn("uploaded-bytes", index_text)
+        self.assertTrue(local_path.startswith("data/media/uploads/"))
 
 
 if __name__ == "__main__":

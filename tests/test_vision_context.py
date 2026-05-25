@@ -1,10 +1,33 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
+from ai_caddie.llm_providers import LLMMessage
 from ai_caddie.llm_providers import StaticProvider
 from ai_caddie.vision_context import ALLOWED_FINDING_TYPES, analyze_media_context
+
+
+class RecordingVisionProvider:
+    model = "recording"
+
+    def __init__(self) -> None:
+        self.messages: list[LLMMessage] = []
+
+    def chat(self, messages, max_tokens=None):
+        self.messages = list(messages)
+        return json.dumps(
+            [
+                {
+                    "findingType": "visible_water",
+                    "evidenceText": "blue hazard area visible",
+                    "confidence": "medium",
+                    "missingInfo": [],
+                }
+            ]
+        )
 
 
 class VisionContextTests(unittest.TestCase):
@@ -49,6 +72,30 @@ class VisionContextTests(unittest.TestCase):
         self.assertEqual(result["findings"][0]["findingType"], "uncertainty")
         self.assertEqual(result["findings"][0]["confidence"], "low")
         self.assertIn("provider response", result["findings"][0]["missingInfo"][0])
+
+    def test_media_bytes_are_included_in_provider_payload(self) -> None:
+        provider = RecordingVisionProvider()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "uploads" / "shot.jpg"
+            image.parent.mkdir()
+            image.write_bytes(b"image-bytes")
+            result = analyze_media_context(
+                {
+                    "id": "media-3",
+                    "targetType": "shot",
+                    "targetId": "round-1:7:2",
+                    "mediaKind": "photo",
+                    "localPath": "uploads/shot.jpg",
+                },
+                provider,
+                root=root,
+            )
+
+        prompt = provider.messages[-1].content
+        self.assertEqual(result["findings"][0]["findingType"], "visible_water")
+        self.assertIn("mediaBytesBase64=aW1hZ2UtYnl0ZXM=", prompt)
+        self.assertIn("byteLength=11", prompt)
 
 
 if __name__ == "__main__":

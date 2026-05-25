@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import base64
 import json
 from pathlib import Path
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -12,6 +14,7 @@ from uuid import uuid4
 VALID_MEDIA_TARGET_TYPES = {"round", "hole", "shot"}
 VALID_MEDIA_KINDS = {"photo", "video"}
 VALID_PRIVACY_STATES = {"private_local", "synced", "redacted"}
+UPLOAD_DIR = Path("data") / "media" / "uploads"
 
 
 def media_index_file(root: Path | str | None = None) -> Path:
@@ -40,6 +43,23 @@ def validate_media_metadata(target_type: str, media_kind: str, privacy_state: st
         raise ValueError(f"unsupported media kind: {media_kind}")
     if privacy_state not in VALID_PRIVACY_STATES:
         raise ValueError(f"unsupported media privacyState: {privacy_state}")
+
+
+def _safe_file_name(file_name: str) -> str:
+    name = Path(file_name).name.strip() or "media.bin"
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+
+
+def store_media_content(content_base64: str, file_name: str, *, root: Path | str | None = None) -> str:
+    try:
+        content = base64.b64decode(content_base64, validate=True)
+    except Exception as exc:
+        raise ValueError("media contentBase64 is invalid") from exc
+    upload_dir = Path(root or ".") / UPLOAD_DIR
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    relative = UPLOAD_DIR / f"{uuid4().hex}_{_safe_file_name(file_name)}"
+    (Path(root or ".") / relative).write_bytes(content)
+    return relative.as_posix()
 
 
 def attach_media(

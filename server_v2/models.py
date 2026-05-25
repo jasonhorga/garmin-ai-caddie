@@ -297,7 +297,9 @@ class MediaCreateRequest(BaseModel):
     targetType: MediaTargetType
     targetId: str = Field(min_length=1)
     mediaKind: MediaKind
-    localPath: str = Field(min_length=1)
+    localPath: str | None = None
+    fileName: str | None = None
+    contentBase64: str | None = None
     capturedAt: str = Field(min_length=1)
     privacyState: MediaPrivacyState = "private_local"
 
