@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-ConnectorState = Literal["ready", "no_data", "reauth_required", "error"]
+ConnectorName = Literal["garmin_cn_web_session", "garmin_oauth_feasibility"]
+ConnectorState = Literal["ready", "no_data", "reauth_required", "error", "not_available"]
 
 
 @dataclass(frozen=True)
@@ -17,7 +18,7 @@ class SnapshotManifest:
 
 @dataclass(frozen=True)
 class ConnectorRunResult:
-    connector: Literal["garmin_cn_web_session"]
+    connector: ConnectorName
     state: ConnectorState
     detail: str
     snapshot: SnapshotManifest | None = None

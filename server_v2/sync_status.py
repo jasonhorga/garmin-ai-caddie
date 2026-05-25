@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ai_caddie.config import DataMode, get_settings
 from ai_caddie.connectors.garmin_cn import sanitize_error
+from ai_caddie.connectors.garmin_oauth import build_oauth_feasibility_status
 from ai_caddie.connectors.snapshot import read_connector_status
 from ai_caddie.data import ROOT
 
@@ -60,6 +61,7 @@ def build_sync_status_response(
         canSync=state != "reauth_required",
         reauthRequired=state == "reauth_required",
     )
+    oauth_connector = ConnectorStatus(**build_oauth_feasibility_status())
     last_run = None
     if persisted:
         last_run = SyncLastRunStatus(
@@ -72,6 +74,7 @@ def build_sync_status_response(
     return SyncStatusResponse(
         schema="ai-caddie-sync-status-v2",
         connector=connector,
+        connectors=[connector, oauth_connector],
         snapshot=SnapshotStatus(
             dataMode=resolved_mode,
             scorecardCount=scorecard_count,

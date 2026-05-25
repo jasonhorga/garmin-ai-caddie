@@ -18,6 +18,11 @@ class ServerV2SyncStatusTests(unittest.TestCase):
 
         self.assertEqual(payload["schema"], "ai-caddie-sync-status-v2")
         self.assertEqual(payload["connector"]["name"], "garmin_cn_web_session")
+        self.assertEqual(payload["connectors"][0]["name"], "garmin_cn_web_session")
+        self.assertEqual(payload["connectors"][1]["name"], "garmin_oauth_feasibility")
+        self.assertEqual(payload["connectors"][1]["state"], "not_available")
+        self.assertFalse(payload["connectors"][1]["canSync"])
+        self.assertIn("golf scorecards", " ".join(payload["connectors"][1]["feasibilityQuestions"]))
         self.assertEqual(payload["connector"]["state"], "no_data")
         self.assertTrue(payload["connector"]["canSync"])
         self.assertEqual(payload["snapshot"]["scorecardCount"], 0)
