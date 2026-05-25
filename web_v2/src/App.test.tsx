@@ -237,7 +237,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     expect(await screen.findByText('Garmin CN')).toBeInTheDocument()
-    expect(screen.getByText('ready')).toBeInTheDocument()
+    expect(screen.getAllByText('ready').length).toBeGreaterThan(0)
     expect(screen.getByText('Overview')).toBeInTheDocument()
     ;['History', 'Rounds', 'Courses', 'Holes', 'Clubs', 'Issues', 'Caddie', 'Sync & Data Quality', 'Reports', 'Settings'].forEach(
       (label) => expect(screen.getByRole('button', { name: label })).toBeEnabled(),
@@ -390,7 +390,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
     expect(screen.getByText('Garmin CN')).toBeInTheDocument()
-    expect(screen.getByText('Local Garmin snapshots are available.')).toBeInTheDocument()
+    expect(screen.getAllByText('Local Garmin snapshots are available.').length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: 'Data Quality' })).toBeInTheDocument()
     expect(screen.getByText('shots')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')

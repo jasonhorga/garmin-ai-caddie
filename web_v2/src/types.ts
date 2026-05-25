@@ -179,15 +179,17 @@ export interface ReviewReportResponse {
   confidence: ReportConfidence
 }
 
-export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error'
+export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error' | 'not_available'
 export type ResolvedDataMode = 'local' | 'fixture'
 
 export interface ConnectorStatus {
-  name: 'garmin_cn_web_session'
+  name: 'garmin_cn_web_session' | 'garmin_oauth_feasibility'
   state: ConnectorState
   detail: string
   canSync: boolean
   reauthRequired: boolean
+  track?: string | null
+  feasibilityQuestions?: string[]
 }
 
 export interface SyncLastRunStatus {
@@ -209,6 +211,7 @@ export interface SnapshotStatus {
 export interface SyncStatusResponse {
   schema: 'ai-caddie-sync-status-v2'
   connector: ConnectorStatus
+  connectors?: ConnectorStatus[]
   snapshot: SnapshotStatus
   lastRun: SyncLastRunStatus | null
 }

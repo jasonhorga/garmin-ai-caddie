@@ -14,6 +14,24 @@ const baseStatus: SyncStatusResponse = {
     canSync: false,
     reauthRequired: false,
   },
+  connectors: [
+    {
+      name: 'garmin_cn_web_session',
+      state: 'ready',
+      detail: 'Local Garmin snapshots are available.',
+      canSync: false,
+      reauthRequired: false,
+    },
+    {
+      name: 'garmin_oauth_feasibility',
+      state: 'not_available',
+      detail: 'Official Garmin OAuth golf scorecard access is not proven.',
+      canSync: false,
+      reauthRequired: false,
+      track: 'official_oauth',
+      feasibilityQuestions: ['Can official OAuth access golf scorecards?'],
+    },
+  ],
   snapshot: {
     dataMode: 'local',
     scorecardCount: 12,
@@ -29,10 +47,13 @@ describe('SyncStatusPanel', () => {
     render(<SyncStatusPanel status={baseStatus} onSync={vi.fn()} syncState="idle" />)
 
     expect(screen.getByText('Garmin CN')).toBeInTheDocument()
-    expect(screen.getByText('ready')).toBeInTheDocument()
+    expect(screen.getAllByText('ready').length).toBeGreaterThan(0)
     expect(screen.getByText('12 scorecards')).toBeInTheDocument()
     expect(screen.getByText('8 shot files')).toBeInTheDocument()
     expect(screen.getByText('local data')).toBeInTheDocument()
+    expect(screen.getByText('Official OAuth')).toBeInTheDocument()
+    expect(screen.getByText('not available')).toHaveClass('quality-missing')
+    expect(screen.getByText('Can official OAuth access golf scorecards?')).toBeInTheDocument()
   })
 
   it('renders reauth required state', () => {
