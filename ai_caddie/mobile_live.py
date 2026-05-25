@@ -92,14 +92,54 @@ def append_event_batch(
     path = mobile_event_log(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     existing_keys = set()
+    existing_event_ids = set()
+    server_sequence = 0
     if path.exists():
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            existing_keys.add(str(json.loads(line).get("idempotencyKey") or ""))
+            row = json.loads(line)
+            server_sequence += 1
+            existing_keys.add(str(row.get("idempotencyKey") or ""))
+            event = row.get("event") or {}
+            if isinstance(event, dict) and event.get("eventId"):
+                existing_event_ids.add(str(event.get("eventId")))
+    requested_event_ids = [str(event.get("eventId") or "") for event in events if event.get("eventId")]
     if idempotency_key in existing_keys:
-        return {"accepted": 0, "duplicate": True}
+        return {
+            "accepted": 0,
+            "duplicate": True,
+            "acceptedEventIds": [],
+            "duplicateEventIds": [event_id for event_id in requested_event_ids if event_id in existing_event_ids],
+            "serverSequence": server_sequence,
+        }
+    accepted_event_ids = []
+    duplicate_event_ids = []
     with path.open("a", encoding="utf-8") as handle:
         for event in events:
-            handle.write(json.dumps({"roundId": round_id, "idempotencyKey": idempotency_key, "event": event}, sort_keys=True) + "\n")
-    return {"accepted": len(events), "duplicate": False}
+            event_id = str(event.get("eventId") or "")
+            if event_id and event_id in existing_event_ids:
+                duplicate_event_ids.append(event_id)
+                continue
+            server_sequence += 1
+            if event_id:
+                existing_event_ids.add(event_id)
+                accepted_event_ids.append(event_id)
+            handle.write(
+                json.dumps(
+                    {
+                        "roundId": round_id,
+                        "idempotencyKey": idempotency_key,
+                        "serverSequence": server_sequence,
+                        "event": event,
+                    },
+                    sort_keys=True,
+                ) + "\n"
+            )
+    return {
+        "accepted": len(accepted_event_ids),
+        "duplicate": False,
+        "acceptedEventIds": accepted_event_ids,
+        "duplicateEventIds": duplicate_event_ids,
+        "serverSequence": server_sequence,
+    }

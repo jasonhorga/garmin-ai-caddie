@@ -51,13 +51,59 @@ class ServerV2MobileTests(unittest.TestCase):
                     headers={"Idempotency-Key": "batch-1"},
                     json={"roundId": "live-round-1", "events": [event]},
                 )
+                mixed = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "batch-2"},
+                    json={
+                        "roundId": "live-round-1",
+                        "events": [
+                            event,
+                            {
+                                **event,
+                                "eventId": "event-2",
+                                "kind": "club",
+                                "payload": {"clubName": "8I"},
+                            },
+                        ],
+                    },
+                )
                 log_text = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8")
 
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json(), {"accepted": 1, "duplicate": False})
+        self.assertEqual(
+            first.json(),
+            {
+                "accepted": 1,
+                "duplicate": False,
+                "acceptedEventIds": ["event-1"],
+                "duplicateEventIds": [],
+                "serverSequence": 1,
+            },
+        )
         self.assertEqual(second.status_code, 200)
-        self.assertEqual(second.json(), {"accepted": 0, "duplicate": True})
+        self.assertEqual(
+            second.json(),
+            {
+                "accepted": 0,
+                "duplicate": True,
+                "acceptedEventIds": [],
+                "duplicateEventIds": ["event-1"],
+                "serverSequence": 1,
+            },
+        )
+        self.assertEqual(mixed.status_code, 200)
+        self.assertEqual(
+            mixed.json(),
+            {
+                "accepted": 1,
+                "duplicate": False,
+                "acceptedEventIds": ["event-2"],
+                "duplicateEventIds": ["event-1"],
+                "serverSequence": 2,
+            },
+        )
         self.assertEqual(log_text.count("event-1"), 1)
+        self.assertEqual(log_text.count("event-2"), 1)
 
     def test_mobile_event_batch_requires_idempotency_key(self) -> None:
         client = TestClient(app)

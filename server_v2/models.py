@@ -435,6 +435,9 @@ class LiveRoundEventBatchRequest(BaseModel):
 class LiveRoundEventBatchResponse(BaseModel):
     accepted: int
     duplicate: bool
+    acceptedEventIds: list[str] = Field(default_factory=list)
+    duplicateEventIds: list[str] = Field(default_factory=list)
+    serverSequence: int = 0
 
 
 class WeatherSnapshotResponse(BaseModel):
