@@ -146,6 +146,21 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("flushQueue", sync_swift)
         self.assertIn("queued_events.json", sync_swift)
 
+    def test_watch_views_define_glance_and_quick_inputs(self) -> None:
+        hole_view = (WATCH_DIR / "Views" / "WatchHoleView.swift").read_text(encoding="utf-8")
+        input_view = (WATCH_DIR / "Views" / "WatchInputView.swift").read_text(encoding="utf-8")
+        glance_view = (WATCH_DIR / "Views" / "WatchCaddieGlanceView.swift").read_text(encoding="utf-8")
+
+        self.assertIn("struct WatchHoleView: View", hole_view)
+        self.assertIn("WatchCaddieGlanceView", hole_view)
+        self.assertIn("struct WatchInputView: View", input_view)
+        self.assertIn("Stepper", input_view)
+        self.assertIn("penaltyCount", input_view)
+        self.assertIn("Picker", input_view)
+        self.assertIn("selectedClub", input_view)
+        self.assertIn("struct WatchCaddieGlanceView: View", glance_view)
+        self.assertIn("caddieConfidence", glance_view)
+
 
 if __name__ == "__main__":
     unittest.main()

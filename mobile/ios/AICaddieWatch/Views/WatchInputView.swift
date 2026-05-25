@@ -1,0 +1,59 @@
+import SwiftUI
+
+public struct WatchInputView: View {
+    public let state: WatchRoundState
+    public let clubs: [String]
+    public let onEvent: (WatchInputEvent) -> Void
+
+    @State private var score: Int
+    @State private var putts: Int
+    @State private var penaltyCount: Int
+    @State private var selectedClub: String
+
+    public init(state: WatchRoundState, clubs: [String], onEvent: @escaping (WatchInputEvent) -> Void = { _ in }) {
+        self.state = state
+        self.clubs = clubs
+        self.onEvent = onEvent
+        self._score = State(initialValue: state.score)
+        self._putts = State(initialValue: state.putts)
+        self._penaltyCount = State(initialValue: state.penaltyCount)
+        self._selectedClub = State(initialValue: state.selectedClub ?? clubs.first ?? "")
+    }
+
+    public var body: some View {
+        Form {
+            Stepper("S \(score)", value: $score, in: 1...12)
+            Stepper("P \(putts)", value: $putts, in: 0...6)
+            Button {
+                penaltyCount += 1
+                emit(kind: .penalty, value: "\(penaltyCount)")
+            } label: {
+                Label("Pen \(penaltyCount)", systemImage: "plus.circle")
+            }
+            Picker("Club", selection: $selectedClub) {
+                ForEach(clubs, id: \.self) { club in
+                    Text(club).tag(club)
+                }
+            }
+            Button("Save") {
+                emit(kind: .score, value: "\(score)")
+                emit(kind: .putt, value: "\(putts)")
+                emit(kind: .club, value: selectedClub)
+            }
+        }
+        .navigationTitle("Input")
+    }
+
+    private func emit(kind: WatchInputKind, value: String) {
+        onEvent(
+            WatchInputEvent(
+                eventId: UUID().uuidString,
+                roundId: state.roundId,
+                hole: state.hole,
+                kind: kind,
+                value: value,
+                createdAt: ISO8601DateFormatter().string(from: Date())
+            )
+        )
+    }
+}
