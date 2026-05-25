@@ -8,6 +8,7 @@ from typing import Any, Literal
 from ai_caddie.annotations import list_annotations
 from ai_caddie.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData, average, percentile
+from ai_caddie.issue_taxonomy import issue_record
 
 DataModeName = Literal["local", "fixture"]
 
@@ -267,10 +268,7 @@ def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) 
     for shot in data.shots:
         if str(shot.get("surface") or "").lower() in {"water", "bunker", "rough"}:
             refs["hazard_result"].append(f"{shot.get('roundId')}:{shot.get('hole')}")
-    rows = [
-        {"issue": issue, "count": len(items), "refs": items, "source": "deterministic"}
-        for issue, items in sorted(refs.items())
-    ]
+    rows = [issue_record(issue, items, source="deterministic") for issue, items in sorted(refs.items())]
     manual_refs: dict[str, list[str]] = defaultdict(list)
     for record in annotations or []:
         if record.get("kind") != "issue_tag":
@@ -279,10 +277,7 @@ def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) 
         if not tag:
             continue
         manual_refs[tag].append(str(record.get("targetId") or ""))
-    rows.extend(
-        {"issue": issue, "count": len(items), "refs": items, "source": "manual"}
-        for issue, items in sorted(manual_refs.items())
-    )
+    rows.extend(issue_record(issue, items, source="manual") for issue, items in sorted(manual_refs.items()))
     return rows
 
 

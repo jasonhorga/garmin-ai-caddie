@@ -70,6 +70,11 @@ class HistoryStatsCoreTests(unittest.TestCase):
         issue_labels = [row["issue"] for row in stats["issues"]]
         self.assertIn("missing_shots", issue_labels)
         self.assertIn("hazard_result", issue_labels)
+        for issue in stats["issues"]:
+            self.assertIn(issue["phase"], {"Tee", "Approach", "Short Game", "Putting", "Penalty", "Course Management", "Club Confidence", "Data Quality"})
+            self.assertIn("reason", issue)
+            self.assertIn("source", issue)
+            self.assertIn("confidence", issue)
 
     def test_manual_issue_tags_appear_in_stats_and_data_quality(self) -> None:
         with TemporaryDirectory() as tmp:
