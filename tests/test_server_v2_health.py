@@ -8,6 +8,18 @@ from server_v2.main import app
 
 
 class ServerV2HealthTests(unittest.TestCase):
+    def test_root_endpoint_returns_service_index(self) -> None:
+        client = TestClient(app)
+
+        response = client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["schema"], "ai-caddie-service-index-v2")
+        self.assertEqual(response.json()["service"], "server_v2")
+        self.assertEqual(response.json()["endpoints"]["health"], "/api/v2/health")
+        self.assertEqual(response.json()["endpoints"]["historyOverview"], "/api/v2/history/overview")
+        self.assertEqual(response.json()["endpoints"]["syncStatus"], "/api/v2/sync/status")
+
     def test_health_endpoint_returns_versioned_status(self) -> None:
         client = TestClient(app)
 

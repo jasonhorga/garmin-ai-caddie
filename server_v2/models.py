@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 DataQualityState = Literal["good", "partial", "missing"]
 ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
 DistributionClass = Literal["eagle", "birdie", "bogey", "double"]
+ConnectorState = Literal["ready", "no_data", "reauth_required", "error"]
+ResolvedDataModeName = Literal["local", "fixture"]
 
 
 class DataQualityBadge(BaseModel):
@@ -86,3 +88,45 @@ class HistoryOverviewResponse(BaseModel):
     distribution: ScoreDistribution
     dataQuality: list[DataQualityBadge]
     emptyState: EmptyState | None
+
+
+class MonthRoundGroup(BaseModel):
+    key: str
+    label: str
+    count: int
+    average18: float | None
+    bestScore: int | None
+    rounds: list[RoundCard]
+
+
+class HistoryRoundsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-history-rounds-v2"] = Field(alias="schema")
+    total: int
+    groups: list[MonthRoundGroup]
+    emptyState: EmptyState | None
+
+
+class ConnectorStatus(BaseModel):
+    name: Literal["garmin_cn_web_session"]
+    state: ConnectorState
+    detail: str
+    canSync: bool
+    reauthRequired: bool
+
+
+class SnapshotStatus(BaseModel):
+    dataMode: ResolvedDataModeName
+    scorecardCount: int
+    shotFileCount: int
+    summaryPresent: bool
+    lastSuccessfulSyncAt: str | None
+
+
+class SyncStatusResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-sync-status-v2"] = Field(alias="schema")
+    connector: ConnectorStatus
+    snapshot: SnapshotStatus
