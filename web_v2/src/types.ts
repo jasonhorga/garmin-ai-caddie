@@ -77,3 +77,28 @@ export interface HistoryOverviewResponse {
   dataQuality: DataQualityBadge[]
   emptyState: EmptyState | null
 }
+
+export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error'
+export type ResolvedDataMode = 'local' | 'fixture'
+
+export interface ConnectorStatus {
+  name: 'garmin_cn_web_session'
+  state: ConnectorState
+  detail: string
+  canSync: boolean
+  reauthRequired: boolean
+}
+
+export interface SnapshotStatus {
+  dataMode: ResolvedDataMode
+  scorecardCount: number
+  shotFileCount: number
+  summaryPresent: boolean
+  lastSuccessfulSyncAt: string | null
+}
+
+export interface SyncStatusResponse {
+  schema: 'ai-caddie-sync-status-v2'
+  connector: ConnectorStatus
+  snapshot: SnapshotStatus
+}

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchHistoryOverview } from './api'
+import { fetchHistoryOverview, fetchSyncStatus } from './api'
 
 describe('fetchHistoryOverview', () => {
   afterEach(() => {
@@ -55,5 +55,41 @@ describe('fetchHistoryOverview', () => {
     })))
 
     await expect(fetchHistoryOverview()).rejects.toThrow('GET /api/v2/history/overview failed: 500 Internal Server Error')
+  })
+})
+
+describe('fetchSyncStatus', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('fetches sync status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-sync-status-v2',
+        connector: {
+          name: 'garmin_cn_web_session',
+          state: 'no_data',
+          detail: 'No local Garmin snapshots are loaded.',
+          canSync: false,
+          reauthRequired: false,
+        },
+        snapshot: {
+          dataMode: 'fixture',
+          scorecardCount: 0,
+          shotFileCount: 0,
+          summaryPresent: false,
+          lastSuccessfulSyncAt: null,
+        },
+      }),
+    }))
+
+    const data = await fetchSyncStatus()
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/sync/status')
+    expect(data.schema).toBe('ai-caddie-sync-status-v2')
+    expect(data.connector.state).toBe('no_data')
   })
 })

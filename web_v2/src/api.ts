@@ -1,4 +1,4 @@
-import type { HistoryOverviewResponse } from './types'
+import type { HistoryOverviewResponse, SyncStatusResponse } from './types'
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path)
@@ -10,4 +10,8 @@ async function getJson<T>(path: string): Promise<T> {
 
 export function fetchHistoryOverview(): Promise<HistoryOverviewResponse> {
   return getJson<HistoryOverviewResponse>('/api/v2/history/overview')
+}
+
+export function fetchSyncStatus(): Promise<SyncStatusResponse> {
+  return getJson<SyncStatusResponse>('/api/v2/sync/status')
 }
