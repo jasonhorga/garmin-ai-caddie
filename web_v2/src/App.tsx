@@ -7,6 +7,7 @@ import {
   fetchHistoryOverview,
   fetchHistoryRounds,
   fetchHistoryStats,
+  fetchReadiness,
   fetchRoundReport,
   fetchTrendReport,
   generateRoundReport,
@@ -25,6 +26,7 @@ import { HistoryTimeline } from './components/HistoryTimeline'
 import { HoleStats } from './components/HoleStats'
 import { IssueStats } from './components/IssueStats'
 import { ProductNav } from './components/ProductNav'
+import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { StatsOverview } from './components/StatsOverview'
@@ -40,6 +42,7 @@ import type {
   HistoryDrilldownResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  ReadinessResponse,
   ReviewReportResponse,
   SyncStatusResponse,
 } from './types'
@@ -60,6 +63,7 @@ export default function App() {
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
+  const [readinessState, setReadinessState] = useState<DeferredLoadState<ReadinessResponse>>({ status: 'idle' })
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
@@ -105,6 +109,14 @@ export default function App() {
         .then((data) => setStatsState({ status: 'ready', data }))
         .catch((error: unknown) =>
           setStatsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
+        )
+    }
+    if (page === 'sync-quality' && readinessState.status === 'idle') {
+      setReadinessState({ status: 'loading' })
+      fetchReadiness()
+        .then((data) => setReadinessState({ status: 'ready', data }))
+        .catch((error: unknown) =>
+          setReadinessState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
         )
     }
     if (page === 'corrections' && annotationsState.status === 'idle') {
@@ -199,6 +211,8 @@ export default function App() {
             </div>
           </div>
           {syncStatus ? <SyncStatusPanel status={syncStatus} onSync={handleRunSync} syncState={syncRunState} /> : null}
+          {readinessState.status === 'ready' ? <ReadinessPanel readiness={readinessState.data} /> : null}
+          {readinessState.status === 'error' ? <ReadinessPanel readiness={null} error={readinessState.message} /> : null}
           <DataQualityPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
         </section>
       )

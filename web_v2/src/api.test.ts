@@ -8,6 +8,7 @@ import {
   fetchHistoryDrilldown,
   fetchHistoryRounds,
   fetchHistoryStats,
+  fetchReadiness,
   fetchTrendReport,
   generateTrendReport,
   fetchSyncStatus,
@@ -271,6 +272,37 @@ describe('fetchSyncStatus', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v2/sync/status')
     expect(data.schema).toBe('ai-caddie-sync-status-v2')
     expect(data.connector.state).toBe('no_data')
+  })
+})
+
+describe('fetchReadiness', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads private trial readiness checks', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-readiness-v1',
+        status: 'degraded',
+        checks: [
+          {
+            label: 'history',
+            state: 'degraded',
+            detail: 'No rounds are loaded for history review.',
+            evidence: { dataMode: 'fixture', totalRounds: 0 },
+          },
+        ],
+      }),
+    }))
+
+    const data = await fetchReadiness()
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/readiness')
+    expect(data.schema).toBe('ai-caddie-readiness-v1')
+    expect(data.checks[0].label).toBe('history')
   })
 })
 

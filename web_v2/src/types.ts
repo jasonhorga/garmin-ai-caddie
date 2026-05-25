@@ -234,6 +234,21 @@ export interface SyncRunResponse {
   snapshot: SyncSnapshotPayload | null
 }
 
+export type ReadinessState = 'ready' | 'degraded' | 'error'
+
+export interface ReadinessCheck {
+  label: string
+  state: ReadinessState
+  detail: string
+  evidence: Record<string, unknown>
+}
+
+export interface ReadinessResponse {
+  schema: 'ai-caddie-readiness-v1'
+  status: ReadinessState
+  checks: ReadinessCheck[]
+}
+
 export interface AnnotationRecord {
   id: string
   createdAt: string

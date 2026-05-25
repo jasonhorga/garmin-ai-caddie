@@ -120,6 +120,28 @@ function syncStatusPayload() {
   }
 }
 
+function readinessPayload() {
+  return {
+    schema: 'ai-caddie-readiness-v1',
+    status: 'degraded',
+    checks: [
+      { label: 'service', state: 'ready', detail: 'API process is responding.', evidence: {} },
+      {
+        label: 'history',
+        state: 'degraded',
+        detail: 'No rounds are loaded for history review.',
+        evidence: { dataMode: 'fixture', totalRounds: 0 },
+      },
+      {
+        label: 'sync',
+        state: 'degraded',
+        detail: 'Garmin connector status is available.',
+        evidence: { connectorState: 'ready', scorecardCount: 3 },
+      },
+    ],
+  }
+}
+
 function annotationsPayload() {
   return {
     schema: 'ai-caddie-annotations-v1',
@@ -378,6 +400,7 @@ describe('App navigation', () => {
       json: async () => {
         if (path === '/api/v2/history/stats') return statsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
+        if (path === '/api/v2/readiness') return readinessPayload()
         return overviewPayload()
       },
     }))
@@ -391,9 +414,12 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
     expect(screen.getByText('Garmin CN')).toBeInTheDocument()
     expect(screen.getAllByText('Local Garmin snapshots are available.').length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { name: 'Private Trial Readiness' })).toBeInTheDocument()
+    expect(screen.getByText('dataMode: fixture')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Data Quality' })).toBeInTheDocument()
     expect(screen.getByText('shots')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
   })
 
   it('opens the caddie workspace and requests a decision', async () => {

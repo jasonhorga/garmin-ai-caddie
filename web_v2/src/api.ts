@@ -9,6 +9,7 @@ import type {
   HistoryDrilldownResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  ReadinessResponse,
   ReviewReportResponse,
   SyncRunResponse,
   SyncStatusResponse,
@@ -82,6 +83,10 @@ export function generateTrendReport(period: string): Promise<ReviewReportRespons
 
 export function fetchSyncStatus(): Promise<SyncStatusResponse> {
   return getJson<SyncStatusResponse>('/api/v2/sync/status')
+}
+
+export function fetchReadiness(): Promise<ReadinessResponse> {
+  return getJson<ReadinessResponse>('/api/v2/readiness')
 }
 
 export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: boolean }): Promise<SyncRunResponse> {
