@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { fetchHistoryOverview } from './api'
+import { fetchHistoryOverview, fetchSyncStatus } from './api'
 import { HistoryOverview } from './components/HistoryOverview'
-import type { HistoryOverviewResponse } from './types'
+import { SyncStatusPanel } from './components/SyncStatusPanel'
+import type { HistoryOverviewResponse, SyncStatusResponse } from './types'
 
 type LoadState =
   | { status: 'loading' }
@@ -10,6 +11,7 @@ type LoadState =
 
 export default function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
+  const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -20,6 +22,14 @@ export default function App() {
       })
       .catch((error: unknown) => {
         if (!cancelled) setState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+      })
+
+    fetchSyncStatus()
+      .then((data) => {
+        if (!cancelled) setSyncStatus(data)
+      })
+      .catch(() => {
+        if (!cancelled) setSyncStatus(null)
       })
 
     return () => {
@@ -48,5 +58,14 @@ export default function App() {
     )
   }
 
-  return <HistoryOverview data={state.data} />
+  return (
+    <>
+      {syncStatus ? (
+        <div className="app-shell sync-panel-shell">
+          <SyncStatusPanel status={syncStatus} />
+        </div>
+      ) : null}
+      <HistoryOverview data={state.data} />
+    </>
+  )
 }
