@@ -121,6 +121,26 @@ export interface HistoryStatsResponse {
   drillDown: Record<string, unknown>
 }
 
+export type HistoryRefType = 'round' | 'hole' | 'shot' | 'unknown'
+
+export interface HistoryDrilldownResponse {
+  schema: 'ai-caddie-history-drilldown-v1'
+  ref: string
+  refType: HistoryRefType
+  found: boolean
+  title: string
+  round: Record<string, unknown> | null
+  hole: Record<string, unknown> | null
+  shot: Record<string, unknown> | null
+  relatedRefs: {
+    roundRefs: string[]
+    holeRefs: string[]
+    shotRefs: string[]
+  }
+  sourceFields: Record<string, unknown>
+  missingData: Array<Record<string, unknown>>
+}
+
 export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error'
 export type ResolvedDataMode = 'local' | 'fixture'
 

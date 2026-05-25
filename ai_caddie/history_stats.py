@@ -8,6 +8,7 @@ from typing import Any, Literal
 from ai_caddie.annotations import list_annotations
 from ai_caddie.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData, average, percentile
+from ai_caddie.history_drilldown import build_drilldown_index
 from ai_caddie.issue_taxonomy import issue_record
 from ai_caddie.weather_context import list_weather_snapshots
 
@@ -595,8 +596,5 @@ def build_history_stats(
         "clubs": _clubs(data, annotations),
         "issues": _issues(data, annotations),
         "dataQuality": _data_quality(data, annotations, weather_snapshots),
-        "drillDown": {
-            "roundIds": [_round_id(row) for row in data.rounds],
-            "shotRefs": [f"{shot.get('roundId')}:{shot.get('hole')}:{index}" for index, shot in enumerate(data.shots)],
-        },
+        "drillDown": build_drilldown_index(data),
     }

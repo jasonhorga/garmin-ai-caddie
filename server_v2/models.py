@@ -145,6 +145,22 @@ class HistoryStatsResponse(BaseModel):
     drillDown: dict[str, Any]
 
 
+class HistoryDrilldownResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-history-drilldown-v1"] = Field(alias="schema")
+    ref: str
+    refType: Literal["round", "hole", "shot", "unknown"]
+    found: bool
+    title: str
+    round: dict[str, Any] | None
+    hole: dict[str, Any] | None
+    shot: dict[str, Any] | None
+    relatedRefs: dict[str, list[str]]
+    sourceFields: dict[str, Any]
+    missingData: list[dict[str, Any]]
+
+
 class ConnectorStatus(BaseModel):
     name: Literal["garmin_cn_web_session"]
     state: ConnectorState

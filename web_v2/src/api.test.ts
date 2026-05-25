@@ -4,6 +4,7 @@ import {
   fetchAnnotations,
   fetchAnnotationsForTarget,
   fetchHistoryOverview,
+  fetchHistoryDrilldown,
   fetchHistoryRounds,
   fetchHistoryStats,
   fetchSyncStatus,
@@ -125,6 +126,39 @@ describe('fetchHistoryStats', () => {
     expect(payload.schema).toBe('ai-caddie-history-stats-v1')
     expect(payload.summary.totalRounds).toBe(3)
     expect(fetch).toHaveBeenCalledWith('/api/v2/history/stats')
+  })
+})
+
+describe('fetchHistoryDrilldown', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads a source ref drill-down payload with encoded refs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-drilldown-v1',
+        ref: '900001:1:1',
+        refType: 'shot',
+        found: true,
+        title: '8I on H1',
+        round: { id: '900001', score: 77 },
+        hole: { number: 1, par: 4, strokes: 4, toPar: 0 },
+        shot: { club: '8I', distance: 142, surface: 'green' },
+        relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:1'], shotRefs: ['900001:1:1'] },
+        sourceFields: { globalShotIndex: 1 },
+        missingData: [],
+      }),
+    })))
+
+    const payload = await fetchHistoryDrilldown('900001:1:1')
+
+    expect(payload.schema).toBe('ai-caddie-history-drilldown-v1')
+    expect(payload.refType).toBe('shot')
+    expect(payload.shot?.club).toBe('8I')
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A1')
   })
 })
 

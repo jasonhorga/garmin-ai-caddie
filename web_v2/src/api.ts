@@ -4,6 +4,7 @@ import type {
   AnnotationListResponse,
   AnnotationTargetType,
   HistoryOverviewResponse,
+  HistoryDrilldownResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
   SyncRunResponse,
@@ -40,6 +41,10 @@ export function fetchHistoryRounds(): Promise<HistoryRoundsResponse> {
 
 export function fetchHistoryStats(): Promise<HistoryStatsResponse> {
   return getJson<HistoryStatsResponse>('/api/v2/history/stats')
+}
+
+export function fetchHistoryDrilldown(sourceRef: string): Promise<HistoryDrilldownResponse> {
+  return getJson<HistoryDrilldownResponse>(`/api/v2/history/drilldown/${encodeURIComponent(sourceRef)}`)
 }
 
 export function fetchSyncStatus(): Promise<SyncStatusResponse> {

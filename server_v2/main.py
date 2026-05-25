@@ -12,6 +12,7 @@ from .annotations import create_annotation_response, list_annotation_response, l
 from .caddie import build_caddie_decision_response
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
+from .history_drilldown import load_history_drilldown_response
 from .history_stats import load_history_stats_response
 from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response, load_hole_map_response
 from .media import analyze_media_response, create_media_response, list_target_media_response
@@ -26,6 +27,7 @@ from .models import (
     CaddieDecisionResponse,
     CourseGeometryCoverageResponse,
     GeometryEvidenceResponse,
+    HistoryDrilldownResponse,
     HoleMapResponse,
     HistoryOverviewResponse,
     HistoryRoundsResponse,
@@ -73,6 +75,7 @@ def service_index() -> dict[str, object]:
             "historyOverview": "/api/v2/history/overview",
             "historyRounds": "/api/v2/history/rounds",
             "historyStats": "/api/v2/history/stats",
+            "historyDrilldown": "/api/v2/history/drilldown/{source_ref}",
             "geometryCourseCoverage": "/api/v2/geometry/course/{global_id}/coverage",
             "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
             "geometryHoleMap": "/api/v2/geometry/hole/{global_id}/{local_hole}/map",
@@ -115,6 +118,11 @@ def history_rounds() -> HistoryRoundsResponse:
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)
 def history_stats() -> HistoryStatsResponse:
     return load_history_stats_response()
+
+
+@app.get("/api/v2/history/drilldown/{source_ref}", response_model=HistoryDrilldownResponse)
+def history_drilldown(source_ref: str) -> HistoryDrilldownResponse:
+    return load_history_drilldown_response(source_ref)
 
 
 @app.get("/api/v2/geometry/course/{global_id}/coverage", response_model=CourseGeometryCoverageResponse)

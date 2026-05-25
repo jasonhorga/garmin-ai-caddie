@@ -228,6 +228,9 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(hole["holeRefs"], hole["refs"])
         self.assertEqual(driver["shotRefs"], ["900001:1:0", "900002:5:4"])
         self.assertEqual(issue["sourceRefs"], issue["refs"])
+        self.assertEqual(stats["drillDown"]["roundRefs"], ["900001", "900002", "900003"])
+        self.assertIn("900001:1", stats["drillDown"]["holeRefs"])
+        self.assertIn("900001:1:0", stats["drillDown"]["shotRefs"])
 
 
 if __name__ == "__main__":
