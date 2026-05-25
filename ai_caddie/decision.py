@@ -551,6 +551,12 @@ def _failure_type(
     return "variance"
 
 
+def _audit_classification(failure_type: str) -> str:
+    if failure_type in {"execution", "strategy", "info_gap"}:
+        return failure_type
+    return "unknown"
+
+
 def _model_update_suggestion(failure_type: str) -> str:
     if failure_type == "strategy":
         return "Review whether the chosen aggressive option should be down-weighted for similar tee shots."
@@ -559,6 +565,62 @@ def _model_update_suggestion(failure_type: str) -> str:
     if failure_type == "info_gap":
         return "Collect missing shot, geometry, or club-profile data before changing strategy."
     return "No strategy change from this single outcome."
+
+
+def audit_decision(decision: dict[str, Any], actual_shot: dict[str, Any] | None) -> dict[str, Any]:
+    """Classify a single actual shot against a deterministic caddie decision."""
+    selected = decision.get("selectedOption") or decision.get("selected") or {}
+    selected_option_id = decision.get("selectedOptionId") or selected.get("id")
+    phase = decision.get("phase") or f"{decision.get('shotType', 'unknown')}_shot"
+    if not actual_shot:
+        return {
+            "schema": "ai-caddie-decision-audit-v1",
+            "phase": phase,
+            "plannedOptionId": selected_option_id,
+            "actualOptionId": None,
+            "classification": "info_gap",
+            "executionMatch": {"hasFirstShot": False},
+            "result": {},
+            "modelUpdateSuggestion": _model_update_suggestion("info_gap"),
+        }
+
+    actual_option_id = _actual_option_id(decision, actual_shot)
+    risk_triggered, near_risks, surface = _risk_triggered(actual_shot)
+    selected_carry = selected.get("carry_m")
+    actual_meters = actual_shot.get("meters")
+    distance_delta = (
+        round(_float(actual_meters) - _float(selected_carry), 1)
+        if actual_meters is not None and selected_carry is not None
+        else None
+    )
+    failure = _failure_type(
+        plan=decision,
+        selected_option_id=selected_option_id,
+        actual_option_id=actual_option_id,
+        risk_triggered=risk_triggered,
+    )
+    return {
+        "schema": "ai-caddie-decision-audit-v1",
+        "phase": phase,
+        "plannedOptionId": selected_option_id,
+        "actualOptionId": actual_option_id,
+        "classification": _audit_classification(failure),
+        "executionMatch": {
+            "hasFirstShot": True,
+            "clubMatch": _club_match(selected, actual_shot),
+            "distanceDelta_m": distance_delta,
+            "riskTriggered": risk_triggered,
+        },
+        "result": {
+            "shotOrder": actual_shot.get("shotOrder"),
+            "clubName": actual_shot.get("clubName"),
+            "meters": actual_meters,
+            "surface": surface,
+            "nearRisks": near_risks,
+            "remainingToTarget_m": actual_shot.get("remainingToTarget_m"),
+        },
+        "modelUpdateSuggestion": _model_update_suggestion(failure),
+    }
 
 
 def judge_decision_outcome(plan: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:

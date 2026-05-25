@@ -3,7 +3,13 @@ from __future__ import annotations
 import unittest
 
 from ai_caddie.analysis import _hole_summary, llm_brief
-from ai_caddie.decision import build_decision_plan, judge_decision_outcome, recommend_approach, recommend_recovery
+from ai_caddie.decision import (
+    audit_decision,
+    build_decision_plan,
+    judge_decision_outcome,
+    recommend_approach,
+    recommend_recovery,
+)
 from ai_caddie_web import INDEX_HTML
 
 
@@ -194,6 +200,57 @@ class DecisionLayerTests(unittest.TestCase):
         plan = build_decision_plan(analysis)
         outcome = judge_decision_outcome(plan, analysis)
         self.assertEqual(outcome["failureType"], "info_gap")
+
+    def test_audit_classifies_selected_option_failure_as_execution(self) -> None:
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+        audit = audit_decision(
+            plan,
+            {
+                "shotOrder": 1,
+                "clubName": "3H",
+                "meters": 181.0,
+                "end": {
+                    "lie": "Bunker",
+                    "feature": {
+                        "surface": {"kind": "bunker"},
+                        "nearRisks": [{"kind": "bunker", "distance_m": 0.0}],
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(audit["schema"], "ai-caddie-decision-audit-v1")
+        self.assertEqual(audit["plannedOptionId"], "stock")
+        self.assertEqual(audit["actualOptionId"], "stock")
+        self.assertEqual(audit["classification"], "execution")
+
+    def test_audit_classifies_riskier_option_failure_as_strategy(self) -> None:
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+        audit = audit_decision(
+            plan,
+            {
+                "shotOrder": 1,
+                "clubName": "1W",
+                "meters": 221.0,
+                "end": {
+                    "lie": "Water",
+                    "feature": {
+                        "surface": {"kind": "water"},
+                        "nearRisks": [{"kind": "water", "distance_m": 0.0}],
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(audit["actualOptionId"], "attack")
+        self.assertEqual(audit["classification"], "strategy")
+
+    def test_audit_classifies_missing_first_shot_as_info_gap(self) -> None:
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+        audit = audit_decision(plan, None)
+
+        self.assertIsNone(audit["actualOptionId"])
+        self.assertEqual(audit["classification"], "info_gap")
 
     def test_hole_summary_exposes_decision_audit(self) -> None:
         shot = {
