@@ -22,6 +22,9 @@ class AnnotationStoreTests(unittest.TestCase):
             ("shot", "round-1:7:2", "club_correction", {"from": "8I", "to": "7I"}),
             ("shot", "round-1:7:2", "lie_correction", {"from": "rough", "to": "fairway"}),
             ("hole", "round-1:7", "penalty_correction", {"strokes": 1, "reason": "water"}),
+            ("hole", "round-1:7", "putt_correction", {"from": 2, "to": 4}),
+            ("hole", "round-1:7", "weather_context_note", {"text": "wind into from the left"}),
+            ("hole", "round-1:7", "strategy_note", {"text": "intended target was right center"}),
             ("decision", "round-1:7:2", "caddie_feedback", {"rating": "too_aggressive"}),
         ]
 
@@ -32,9 +35,9 @@ class AnnotationStoreTests(unittest.TestCase):
                 for target_type, target_id, kind, payload in cases
             ]
 
-            self.assertEqual(len(records), 8)
-            self.assertEqual(len(list_annotations(root=root)), 8)
-            self.assertEqual(len(annotation_file(root).read_text(encoding="utf-8").splitlines()), 8)
+            self.assertEqual(len(records), 11)
+            self.assertEqual(len(list_annotations(root=root)), 11)
+            self.assertEqual(len(annotation_file(root).read_text(encoding="utf-8").splitlines()), 11)
             for record, (target_type, target_id, kind, payload) in zip(records, cases):
                 self.assertTrue(record["id"])
                 self.assertTrue(record["createdAt"].endswith("Z"))
@@ -45,7 +48,17 @@ class AnnotationStoreTests(unittest.TestCase):
                 self.assertEqual(record["source"], "manual")
 
             target_records = annotations_for_target("hole", "round-1:7", root=root)
-            self.assertEqual([row["kind"] for row in target_records], ["hole_note", "issue_tag", "penalty_correction"])
+            self.assertEqual(
+                [row["kind"] for row in target_records],
+                [
+                    "hole_note",
+                    "issue_tag",
+                    "penalty_correction",
+                    "putt_correction",
+                    "weather_context_note",
+                    "strategy_note",
+                ],
+            )
 
     def test_rejects_invalid_target_type_and_kind(self) -> None:
         with TemporaryDirectory() as tmp:

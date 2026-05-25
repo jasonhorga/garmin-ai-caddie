@@ -18,6 +18,9 @@ VALID_KINDS = {
     "club_correction",
     "lie_correction",
     "penalty_correction",
+    "putt_correction",
+    "weather_context_note",
+    "strategy_note",
     "caddie_feedback",
 }
 

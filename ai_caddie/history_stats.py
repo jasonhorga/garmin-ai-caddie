@@ -11,10 +11,74 @@ from ai_caddie.history import HistoryData, average, percentile
 from ai_caddie.issue_taxonomy import issue_record
 
 DataModeName = Literal["local", "fixture"]
+CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction"}
 
 
 def _round_id(row: dict[str, Any]) -> str:
     return str(row.get("id"))
+
+
+def _hole_ref(row: dict[str, Any], hole_number: int) -> str:
+    return f"{_round_id(row)}:{hole_number}"
+
+
+def _shot_ref(shot: dict[str, Any], index: int) -> str:
+    return f"{shot.get('roundId')}:{shot.get('hole')}:{index}"
+
+
+def _payload_value(record: dict[str, Any], *keys: str) -> Any:
+    payload = record.get("payload") or {}
+    if not isinstance(payload, dict):
+        return None
+    for key in keys:
+        value = payload.get(key)
+        if value is not None and str(value).strip():
+            return value
+    return None
+
+
+def _annotations_by_kind(annotations: list[dict[str, Any]] | None, kind: str) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for record in annotations or []:
+        if record.get("kind") == kind:
+            rows[str(record.get("targetId") or "")] = record
+    return rows
+
+
+def _corrected_putt_value(
+    hole_ref: str,
+    original: Any,
+    corrections: dict[str, dict[str, Any]],
+) -> int | None:
+    value = original
+    if hole_ref in corrections:
+        value = _payload_value(corrections[hole_ref], "to", "putts", "correctedPutts")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _effective_shots(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    club_corrections = _annotations_by_kind(annotations, "club_correction")
+    lie_corrections = _annotations_by_kind(annotations, "lie_correction")
+    rows = []
+    for index, shot in enumerate(data.shots):
+        ref = _shot_ref(shot, index)
+        row = dict(shot)
+        row["_ref"] = ref
+        if ref in club_corrections:
+            club = _payload_value(club_corrections[ref], "to", "club", "correctedClub")
+            if club is not None:
+                row["club"] = str(club)
+                row["_clubCorrected"] = True
+        if ref in lie_corrections:
+            lie = _payload_value(lie_corrections[ref], "to", "surface", "lie", "correctedLie")
+            if lie is not None:
+                row["surface"] = str(lie)
+                row["_lieCorrected"] = True
+        rows.append(row)
+    return rows
 
 
 def _score_band(score: int) -> str:
@@ -132,9 +196,13 @@ def _time_stats(data: HistoryData) -> dict[str, Any]:
     }
 
 
-def _scoring(data: HistoryData) -> dict[str, Any]:
+def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     bands: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
+    putt_corrections = _annotations_by_kind(annotations, "putt_correction")
+    putts: list[int] = []
+    three_putt_refs: list[str] = []
+    corrected_putt_refs: list[str] = []
     for row in data.rounds:
         if row.get("holesCompleted") == 18 and row.get("strokes") is not None:
             bands[_score_band(int(row["strokes"]))].append(_round_id(row))
@@ -143,6 +211,14 @@ def _scoring(data: HistoryData) -> dict[str, Any]:
             number = int(hole.get("number") or 0)
             par = _hole_to_par(hole, _par_from_string(hole_pars, number))
             score = hole.get("strokes")
+            ref = _hole_ref(row, number) if number else ""
+            putt_count = _corrected_putt_value(ref, hole.get("putts"), putt_corrections)
+            if putt_count is not None:
+                putts.append(putt_count)
+                if putt_count >= 3:
+                    three_putt_refs.append(ref)
+                if ref in putt_corrections:
+                    corrected_putt_refs.append(ref)
             if par is None or score is None:
                 continue
             delta = int(score) - int(par)
@@ -165,6 +241,14 @@ def _scoring(data: HistoryData) -> dict[str, Any]:
             **dict(outcomes),
             "parOrBetter": outcomes["eagleOrBetter"] + outcomes["birdie"] + outcomes["par"],
             "bogeyOrWorse": outcomes["bogey"] + outcomes["doubleOrWorse"],
+        },
+        "putting": {
+            "totalPutts": sum(putts),
+            "holesWithPutts": len(putts),
+            "averagePutts": average(putts),
+            "threePutts": len(three_putt_refs),
+            "threePuttRefs": three_putt_refs,
+            "correctedRefs": corrected_putt_refs,
         },
     }
 
@@ -229,15 +313,20 @@ def _holes(data: HistoryData) -> list[dict[str, Any]]:
     return sorted(out, key=lambda row: (row["courseKey"], row["hole"]))
 
 
-def _clubs(data: HistoryData) -> list[dict[str, Any]]:
+def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for shot in data.shots:
+    for shot in _effective_shots(data, annotations):
         club = str(shot.get("club") or shot.get("clubName") or "Unknown")
         grouped[club].append(shot)
     out = []
     for club, shots in grouped.items():
         distances = [float(shot["distance"]) for shot in shots if shot.get("distance") is not None]
         round_ids = sorted({str(shot.get("roundId")) for shot in shots if shot.get("roundId") is not None})
+        corrected_refs = sorted(
+            str(shot.get("_ref"))
+            for shot in shots
+            if shot.get("_clubCorrected") and shot.get("_ref") is not None
+        )
         out.append(
             {
                 "club": club,
@@ -248,6 +337,8 @@ def _clubs(data: HistoryData) -> list[dict[str, Any]]:
                 "max": max(distances) if distances else None,
                 "confidence": _confidence(len(distances)),
                 "roundIds": round_ids,
+                "correctedRefs": corrected_refs,
+                "correctionCount": len(corrected_refs),
             }
         )
     return sorted(out, key=lambda row: row["club"])
@@ -265,18 +356,40 @@ def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) 
             score = hole.get("strokes")
             if number and par is not None and score is not None and int(score) - int(par) >= 2:
                 refs["double_or_worse"].append(f"{_round_id(row)}:{number}")
-    for shot in data.shots:
+    for shot in _effective_shots(data, annotations):
         if str(shot.get("surface") or "").lower() in {"water", "bunker", "rough"}:
             refs["hazard_result"].append(f"{shot.get('roundId')}:{shot.get('hole')}")
     rows = [issue_record(issue, items, source="deterministic") for issue, items in sorted(refs.items())]
     manual_refs: dict[str, list[str]] = defaultdict(list)
     for record in annotations or []:
-        if record.get("kind") != "issue_tag":
+        kind = record.get("kind")
+        target_id = str(record.get("targetId") or "")
+        if kind == "issue_tag":
+            tag = str((record.get("payload") or {}).get("tag") or "").strip()
+            if tag:
+                manual_refs[tag].append(target_id)
             continue
-        tag = str((record.get("payload") or {}).get("tag") or "").strip()
-        if not tag:
+        if kind == "club_correction":
+            manual_refs["wrong_club"].append(target_id)
             continue
-        manual_refs[tag].append(str(record.get("targetId") or ""))
+        if kind == "lie_correction":
+            lie = str(_payload_value(record, "to", "surface", "lie", "correctedLie") or "").lower()
+            if lie in {"water", "bunker", "rough"}:
+                manual_refs[lie].append(target_id)
+            continue
+        if kind == "penalty_correction":
+            reason = str(_payload_value(record, "reason", "issue", "tag") or "penalty").strip().lower()
+            if reason:
+                manual_refs[reason.replace(" ", "_")].append(target_id)
+            continue
+        if kind == "putt_correction":
+            putts = _payload_value(record, "to", "putts", "correctedPutts")
+            try:
+                if int(putts) >= 3:
+                    manual_refs["three_putt"].append(target_id)
+            except (TypeError, ValueError):
+                manual_refs["missing_putt_data"].append(target_id)
+            continue
     rows.extend(issue_record(issue, items, source="manual") for issue, items in sorted(manual_refs.items()))
     return rows
 
@@ -285,6 +398,7 @@ def _data_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = 
     total = len(data.raw_rounds)
     shots_ready = sum(1 for row in data.raw_rounds if row.get("hasShots"))
     annotation_count = len(annotations or [])
+    corrections = [row for row in annotations or [] if row.get("kind") in CORRECTION_KINDS]
     return [
         {
             "label": "shots",
@@ -307,6 +421,13 @@ def _data_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = 
             "total": annotation_count,
             "refs": [str(row.get("id")) for row in annotations or []],
         },
+        {
+            "label": "corrections",
+            "state": "good" if corrections else "missing",
+            "ready": len(corrections),
+            "total": annotation_count,
+            "refs": [str(row.get("id")) for row in corrections],
+        },
     ]
 
 
@@ -322,10 +443,10 @@ def build_history_stats(
         "dataMode": data_mode,
         "summary": _summary(data),
         "time": _time_stats(data),
-        "scoring": _scoring(data),
+        "scoring": _scoring(data, annotations),
         "courses": _courses(data),
         "holes": _holes(data),
-        "clubs": _clubs(data),
+        "clubs": _clubs(data, annotations),
         "issues": _issues(data, annotations),
         "dataQuality": _data_quality(data, annotations),
         "drillDown": {

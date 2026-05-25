@@ -45,6 +45,31 @@ class ServerV2AnnotationTests(unittest.TestCase):
         self.assertEqual(target_response.json()["target"]["targetType"], "hole")
         self.assertEqual(target_response.json()["target"]["targetId"], "round-1:7")
 
+    def test_annotation_api_accepts_live_round_correction_kinds(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.annotations.ANNOTATION_ROOT", root):
+                responses = [
+                    client.post(
+                        "/api/v2/annotations",
+                        json={
+                            "targetType": "hole",
+                            "targetId": "round-1:7",
+                            "kind": kind,
+                            "payload": payload,
+                        },
+                    )
+                    for kind, payload in [
+                        ("putt_correction", {"from": 2, "to": 4}),
+                        ("weather_context_note", {"text": "wind into from the left"}),
+                        ("strategy_note", {"text": "aimed right center"}),
+                    ]
+                ]
+
+        self.assertEqual([response.status_code for response in responses], [200, 200, 200])
+
     def test_annotation_post_rejects_invalid_target_and_kind(self) -> None:
         client = TestClient(app)
 

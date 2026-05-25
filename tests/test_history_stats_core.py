@@ -98,6 +98,72 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(annotation_quality["state"], "good")
         self.assertEqual(annotation_quality["ready"], 1)
 
+    def test_manual_corrections_update_derived_stats_without_mutating_raw_facts(self) -> None:
+        data = fixture_history_data()
+        base_stats = build_history_stats(data, data_mode="fixture")
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation(
+                "shot",
+                "900001:1:1",
+                "club_correction",
+                {"from": "8I", "to": "7I"},
+                root=root,
+            )
+            add_annotation(
+                "shot",
+                "900002:5:4",
+                "lie_correction",
+                {"from": "rough", "to": "fairway"},
+                root=root,
+            )
+            add_annotation(
+                "hole",
+                "900001:2",
+                "penalty_correction",
+                {"strokes": 1, "reason": "water"},
+                root=root,
+            )
+            add_annotation(
+                "hole",
+                "900001:7",
+                "putt_correction",
+                {"from": 2, "to": 4},
+                root=root,
+            )
+
+            stats = build_history_stats(data, data_mode="fixture", annotations_root=root)
+
+        self.assertEqual(data.shots[1]["club"], "8I")
+        self.assertEqual(data.shots[4]["surface"], "rough")
+
+        club_labels = {row["club"] for row in stats["clubs"]}
+        self.assertIn("7I", club_labels)
+        self.assertNotIn("8I", club_labels)
+        seven_iron = next(row for row in stats["clubs"] if row["club"] == "7I")
+        self.assertEqual(seven_iron["median"], 142.0)
+        self.assertEqual(seven_iron["correctedRefs"], ["900001:1:1"])
+
+        hazard_issue = next(row for row in stats["issues"] if row["issue"] == "hazard_result")
+        self.assertNotIn("900002:5", hazard_issue["refs"])
+        self.assertIn("900002:7", hazard_issue["refs"])
+
+        manual_water = next(row for row in stats["issues"] if row["issue"] == "water" and row["source"] == "manual")
+        self.assertEqual(manual_water["refs"], ["900001:2"])
+        manual_three_putt = next(row for row in stats["issues"] if row["issue"] == "three_putt" and row["source"] == "manual")
+        self.assertEqual(manual_three_putt["refs"], ["900001:7"])
+
+        self.assertEqual(
+            stats["scoring"]["putting"]["totalPutts"],
+            base_stats["scoring"]["putting"]["totalPutts"] + 2,
+        )
+        self.assertEqual(stats["scoring"]["putting"]["correctedRefs"], ["900001:7"])
+
+        correction_quality = next(row for row in stats["dataQuality"] if row["label"] == "corrections")
+        self.assertEqual(correction_quality["state"], "good")
+        self.assertEqual(correction_quality["ready"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()
