@@ -1,28 +1,29 @@
 export type ProductPage =
   | 'overview'
   | 'history'
+  | 'rounds'
   | 'caddie'
   | 'corrections'
-  | 'stats'
   | 'courses'
   | 'holes'
   | 'clubs'
   | 'issues'
   | 'reports'
-  | 'quality'
+  | 'sync-quality'
+  | 'settings'
 
-const navItems: Array<{ id: ProductPage; label: string }> = [
+const navItems: Array<{ id: Exclude<ProductPage, 'corrections'>; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'history', label: 'History' },
-  { id: 'caddie', label: 'Caddie' },
-  { id: 'corrections', label: 'Corrections' },
-  { id: 'stats', label: 'Stats' },
+  { id: 'rounds', label: 'Rounds' },
   { id: 'courses', label: 'Courses' },
   { id: 'holes', label: 'Holes' },
   { id: 'clubs', label: 'Clubs' },
   { id: 'issues', label: 'Issues' },
+  { id: 'caddie', label: 'Caddie' },
+  { id: 'sync-quality', label: 'Sync & Data Quality' },
   { id: 'reports', label: 'Reports' },
-  { id: 'quality', label: 'Quality' },
+  { id: 'settings', label: 'Settings' },
 ]
 
 interface ProductNavProps {

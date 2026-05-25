@@ -22,7 +22,7 @@ export function HistoryOverview({ data, onNavigate = () => undefined }: HistoryO
 
       <section className="overview-hero">
         <div>
-          <p className="eyebrow">AI Caddie v2</p>
+          <p className="eyebrow">History Intelligence</p>
           <h1>History Overview</h1>
           <p className="lead">Round memory, scoring shape, and data confidence in one Garmin Pro surface.</p>
         </div>

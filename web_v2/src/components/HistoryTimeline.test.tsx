@@ -37,7 +37,8 @@ describe('HistoryTimeline', () => {
   it('renders month-grouped round cards and month summary stats', () => {
     render(<HistoryTimeline data={payload} onNavigate={() => undefined} />)
 
-    expect(screen.getByText('History Timeline')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
+    expect(screen.queryByText('AI Caddie v2')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Overview' })).toBeEnabled()
     expect(screen.getByText('May 2026')).toBeInTheDocument()
     expect(screen.getByText('2 rounds')).toBeInTheDocument()

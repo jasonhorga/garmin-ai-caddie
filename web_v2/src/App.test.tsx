@@ -195,7 +195,7 @@ describe('App navigation', () => {
     vi.restoreAllMocks()
   })
 
-  it('navigates from overview to the history timeline', async () => {
+  it('exposes the master spec IA and opens the rounds timeline', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
@@ -211,9 +211,17 @@ describe('App navigation', () => {
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     expect(await screen.findByText('Garmin CN')).toBeInTheDocument()
     expect(screen.getByText('ready')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'History' }))
+    expect(screen.getByText('Overview')).toBeInTheDocument()
+    ;['History', 'Rounds', 'Courses', 'Holes', 'Clubs', 'Issues', 'Caddie', 'Sync & Data Quality', 'Reports', 'Settings'].forEach(
+      (label) => expect(screen.getByRole('button', { name: label })).toBeEnabled(),
+    )
+    expect(screen.queryByRole('button', { name: 'Stats' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Quality' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Corrections' })).not.toBeInTheDocument()
 
-    expect(await screen.findByText('History Timeline')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Rounds' }))
+
+    expect(await screen.findByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
     expect(screen.getByText('May 2026')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status')
@@ -234,11 +242,15 @@ describe('App navigation', () => {
     render(<App />)
 
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'History' }))
+
+    expect(await screen.findByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
+
     await userEvent.click(screen.getByRole('button', { name: 'Clubs' }))
 
     expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
     expect(screen.getByText('1D')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
 
     await userEvent.click(screen.getByRole('button', { name: 'Issues' }))
 
@@ -262,7 +274,9 @@ describe('App navigation', () => {
     render(<App />)
 
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Corrections' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open corrections' }))
 
     expect(await screen.findByRole('heading', { name: 'Corrections' })).toBeInTheDocument()
     const history = screen.getByLabelText('Annotation history')
@@ -322,6 +336,30 @@ describe('App navigation', () => {
     expect(await screen.findByText('Trend review from stored facts.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/trend/recent_10')
+  })
+
+  it('opens the sync and data quality workspace', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Sync & Data Quality' }))
+
+    expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
+    expect(screen.getByText('Garmin CN')).toBeInTheDocument()
+    expect(screen.getByText('Local Garmin snapshots are available.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Data Quality' })).toBeInTheDocument()
+    expect(screen.getByText('shots')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
   })
 
   it('opens the caddie workspace and requests a decision', async () => {

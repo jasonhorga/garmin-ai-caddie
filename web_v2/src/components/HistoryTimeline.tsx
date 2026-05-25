@@ -18,12 +18,12 @@ function monthSummary(group: MonthRoundGroup) {
 export function HistoryTimeline({ data, onNavigate }: HistoryTimelineProps) {
   return (
     <main className="app-shell">
-      <ProductNav activePage="history" onNavigate={onNavigate} />
+      <ProductNav activePage="rounds" onNavigate={onNavigate} />
 
       <section className="overview-hero">
         <div>
-          <p className="eyebrow">AI Caddie v2</p>
-          <h1>History Timeline</h1>
+          <p className="eyebrow">Round Archive</p>
+          <h1>Rounds</h1>
           <p className="lead">Month-grouped Garmin rounds with score strips, scoring shape, and coverage context.</p>
         </div>
       </section>

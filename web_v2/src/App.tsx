@@ -24,6 +24,7 @@ import { HoleStats } from './components/HoleStats'
 import { IssueStats } from './components/IssueStats'
 import { ProductNav } from './components/ProductNav'
 import { ReportsPage } from './components/ReportsPage'
+import { SettingsPage } from './components/SettingsPage'
 import { StatsOverview } from './components/StatsOverview'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import type { ProductPage } from './components/ProductNav'
@@ -47,7 +48,7 @@ type LoadState<T> =
 
 type DeferredLoadState<T> = { status: 'idle' } | LoadState<T>
 
-const statsPages: ProductPage[] = ['stats', 'courses', 'holes', 'clubs', 'issues', 'reports', 'quality']
+const statsPages: ProductPage[] = ['history', 'courses', 'holes', 'clubs', 'issues', 'reports', 'sync-quality']
 
 export default function App() {
   const [activePage, setActivePage] = useState<ProductPage>('overview')
@@ -86,7 +87,7 @@ export default function App() {
 
   function navigate(page: ProductPage) {
     setActivePage(page)
-    if (page === 'history' && roundsState.status === 'idle') {
+    if (page === 'rounds' && roundsState.status === 'idle') {
       setRoundsState({ status: 'loading' })
       fetchHistoryRounds()
         .then((data) => setRoundsState({ status: 'ready', data }))
@@ -167,7 +168,21 @@ export default function App() {
         />
       )
     }
-    if (activePage === 'quality') return <DataQualityPage data={data} />
+    if (activePage === 'sync-quality') {
+      return (
+        <section className="sync-quality-workspace" aria-label="Sync and data quality workspace">
+          <div className="section-head stats-head">
+            <div>
+              <p className="eyebrow">Evidence Coverage</p>
+              <h1>Sync & Data Quality</h1>
+              <p>Garmin connector state, local snapshot coverage, and confidence-impacting gaps.</p>
+            </div>
+          </div>
+          {syncStatus ? <SyncStatusPanel status={syncStatus} onSync={handleRunSync} syncState={syncRunState} /> : null}
+          <DataQualityPage data={data} />
+        </section>
+      )
+    }
     return <StatsOverview data={data} />
   }
 
@@ -228,7 +243,7 @@ export default function App() {
     )
   }
 
-  if (activePage === 'history') {
+  if (activePage === 'rounds') {
     if (roundsState.status === 'ready') {
       return (
         <>
@@ -242,7 +257,7 @@ export default function App() {
       return (
         <main className="app-shell">
           <section className="panel empty-state">
-            <h1>History timeline unavailable</h1>
+            <h1>Rounds unavailable</h1>
             <p>{roundsState.message}</p>
           </section>
         </main>
@@ -252,7 +267,7 @@ export default function App() {
     return (
       <main className="app-shell">
         <section className="panel empty-state">
-          <h1>Loading history timeline</h1>
+          <h1>Loading rounds</h1>
         </section>
       </main>
     )
@@ -262,7 +277,7 @@ export default function App() {
     if (statsState.status === 'ready') {
       return (
         <>
-          {renderSyncPanel()}
+          {activePage === 'sync-quality' ? null : renderSyncPanel()}
           <main className="app-shell">
             <ProductNav activePage={activePage} onNavigate={navigate} />
             {renderStatsContent(statsState.data)}
@@ -305,13 +320,25 @@ export default function App() {
     )
   }
 
+  if (activePage === 'settings') {
+    return (
+      <>
+        {renderSyncPanel()}
+        <main className="app-shell">
+          <ProductNav activePage={activePage} onNavigate={navigate} />
+          <SettingsPage onNavigate={navigate} />
+        </main>
+      </>
+    )
+  }
+
   if (activePage === 'corrections') {
     if (annotationsState.status === 'ready') {
       return (
         <>
           {renderSyncPanel()}
           <main className="app-shell">
-            <ProductNav activePage={activePage} onNavigate={navigate} />
+            <ProductNav activePage="settings" onNavigate={navigate} />
             <CorrectionsPage data={annotationsState.data} onCreateAnnotation={handleCreateAnnotation} />
           </main>
         </>
@@ -321,7 +348,7 @@ export default function App() {
     if (annotationsState.status === 'error') {
       return (
         <main className="app-shell">
-          <ProductNav activePage={activePage} onNavigate={navigate} />
+          <ProductNav activePage="settings" onNavigate={navigate} />
           <section className="panel empty-state">
             <h1>Corrections unavailable</h1>
             <p>{annotationsState.message}</p>
@@ -332,7 +359,7 @@ export default function App() {
 
     return (
       <main className="app-shell">
-        <ProductNav activePage={activePage} onNavigate={navigate} />
+        <ProductNav activePage="settings" onNavigate={navigate} />
         <section className="panel empty-state">
           <h1>Loading corrections</h1>
         </section>
