@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react'
-import { fetchHistoryOverview, fetchHistoryRounds, fetchHistoryStats, fetchSyncStatus } from './api'
+import {
+  createAnnotation,
+  fetchAnnotations,
+  fetchHistoryOverview,
+  fetchHistoryRounds,
+  fetchHistoryStats,
+  fetchSyncStatus,
+} from './api'
 import { ClubStats } from './components/ClubStats'
+import { CorrectionsPage } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
 import { HistoryOverview } from './components/HistoryOverview'
@@ -11,7 +19,15 @@ import { ProductNav } from './components/ProductNav'
 import { StatsOverview } from './components/StatsOverview'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import type { ProductPage } from './components/ProductNav'
-import type { HistoryOverviewResponse, HistoryRoundsResponse, HistoryStatsResponse, SyncStatusResponse } from './types'
+import type {
+  AnnotationCreateRequest,
+  AnnotationCreateResponse,
+  AnnotationListResponse,
+  HistoryOverviewResponse,
+  HistoryRoundsResponse,
+  HistoryStatsResponse,
+  SyncStatusResponse,
+} from './types'
 
 type LoadState<T> =
   | { status: 'loading' }
@@ -27,6 +43,7 @@ export default function App() {
   const [overviewState, setOverviewState] = useState<LoadState<HistoryOverviewResponse>>({ status: 'loading' })
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
+  const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
 
   useEffect(() => {
@@ -71,6 +88,30 @@ export default function App() {
           setStatsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
         )
     }
+    if (page === 'corrections' && annotationsState.status === 'idle') {
+      setAnnotationsState({ status: 'loading' })
+      fetchAnnotations()
+        .then((data) => setAnnotationsState({ status: 'ready', data }))
+        .catch((error: unknown) =>
+          setAnnotationsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
+        )
+    }
+  }
+
+  async function handleCreateAnnotation(request: AnnotationCreateRequest): Promise<AnnotationCreateResponse> {
+    const response = await createAnnotation(request)
+    setAnnotationsState((current) => {
+      if (current.status !== 'ready') return current
+      return {
+        status: 'ready',
+        data: {
+          ...current.data,
+          total: current.data.total + 1,
+          annotations: [response.annotation, ...current.data.annotations],
+        },
+      }
+    })
+    return response
   }
 
   function renderSyncPanel() {
@@ -171,6 +212,41 @@ export default function App() {
         <ProductNav activePage={activePage} onNavigate={navigate} />
         <section className="panel empty-state">
           <h1>Loading history stats</h1>
+        </section>
+      </main>
+    )
+  }
+
+  if (activePage === 'corrections') {
+    if (annotationsState.status === 'ready') {
+      return (
+        <>
+          {renderSyncPanel()}
+          <main className="app-shell">
+            <ProductNav activePage={activePage} onNavigate={navigate} />
+            <CorrectionsPage data={annotationsState.data} onCreateAnnotation={handleCreateAnnotation} />
+          </main>
+        </>
+      )
+    }
+
+    if (annotationsState.status === 'error') {
+      return (
+        <main className="app-shell">
+          <ProductNav activePage={activePage} onNavigate={navigate} />
+          <section className="panel empty-state">
+            <h1>Corrections unavailable</h1>
+            <p>{annotationsState.message}</p>
+          </section>
+        </main>
+      )
+    }
+
+    return (
+      <main className="app-shell">
+        <ProductNav activePage={activePage} onNavigate={navigate} />
+        <section className="panel empty-state">
+          <h1>Loading corrections</h1>
         </section>
       </main>
     )

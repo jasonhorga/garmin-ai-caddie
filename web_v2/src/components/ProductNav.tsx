@@ -1,8 +1,18 @@
-export type ProductPage = 'overview' | 'history' | 'stats' | 'courses' | 'holes' | 'clubs' | 'issues' | 'quality'
+export type ProductPage =
+  | 'overview'
+  | 'history'
+  | 'corrections'
+  | 'stats'
+  | 'courses'
+  | 'holes'
+  | 'clubs'
+  | 'issues'
+  | 'quality'
 
 const navItems: Array<{ id: ProductPage; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'history', label: 'History' },
+  { id: 'corrections', label: 'Corrections' },
   { id: 'stats', label: 'Stats' },
   { id: 'courses', label: 'Courses' },
   { id: 'holes', label: 'Holes' },

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchHistoryOverview, fetchHistoryRounds, fetchHistoryStats, fetchSyncStatus } from './api'
+import {
+  createAnnotation,
+  fetchAnnotations,
+  fetchAnnotationsForTarget,
+  fetchHistoryOverview,
+  fetchHistoryRounds,
+  fetchHistoryStats,
+  fetchSyncStatus,
+} from './api'
 
 describe('fetchHistoryOverview', () => {
   afterEach(() => {
@@ -152,5 +160,91 @@ describe('fetchSyncStatus', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v2/sync/status')
     expect(data.schema).toBe('ai-caddie-sync-status-v2')
     expect(data.connector.state).toBe('no_data')
+  })
+})
+
+describe('annotation API helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads annotation history', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-annotations-v1',
+        total: 1,
+        target: null,
+        annotations: [
+          {
+            id: 'ann-1',
+            createdAt: '2026-05-25T10:30:00Z',
+            targetType: 'shot',
+            targetId: 'round-1:7:shot-3',
+            kind: 'club_correction',
+            payload: { from: '7I', to: '8I' },
+            source: 'manual',
+          },
+        ],
+      }),
+    }))
+
+    const data = await fetchAnnotations()
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/annotations')
+    expect(data.schema).toBe('ai-caddie-annotations-v1')
+    expect(data.annotations[0].kind).toBe('club_correction')
+  })
+
+  it('creates annotations with the backend POST contract', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-annotation-create-v1',
+        annotation: {
+          id: 'ann-2',
+          createdAt: '2026-05-25T10:35:00Z',
+          targetType: 'hole',
+          targetId: 'round-1:7',
+          kind: 'issue_tag',
+          payload: { tag: 'approach_short' },
+          source: 'manual',
+        },
+      }),
+    }))
+
+    const request = {
+      targetType: 'hole' as const,
+      targetId: 'round-1:7',
+      kind: 'issue_tag' as const,
+      payload: { tag: 'approach_short' },
+    }
+    const data = await createAnnotation(request)
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/annotations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+    expect(data.schema).toBe('ai-caddie-annotation-create-v1')
+    expect(data.annotation.id).toBe('ann-2')
+  })
+
+  it('loads annotation history for a target', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-annotations-v1',
+        total: 0,
+        target: { targetType: 'hole', targetId: 'round-1:7' },
+        annotations: [],
+      }),
+    }))
+
+    const data = await fetchAnnotationsForTarget('hole', 'round-1:7')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/annotations/target/hole/round-1%3A7')
+    expect(data.target).toEqual({ targetType: 'hole', targetId: 'round-1:7' })
   })
 })

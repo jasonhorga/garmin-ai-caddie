@@ -1,5 +1,18 @@
 export type DataQualityState = 'good' | 'partial' | 'missing'
 export type ScoreClass = 'eagle' | 'birdie' | 'par' | 'bogey' | 'double' | 'missing'
+export type AnnotationTargetType = 'round' | 'hole' | 'shot' | 'decision'
+export type AnnotationKind =
+  | 'round_note'
+  | 'hole_note'
+  | 'shot_note'
+  | 'issue_tag'
+  | 'club_correction'
+  | 'lie_correction'
+  | 'penalty_correction'
+  | 'putt_correction'
+  | 'weather_context_note'
+  | 'strategy_note'
+  | 'caddie_feedback'
 
 export interface DataQualityBadge {
   label: string
@@ -131,4 +144,33 @@ export interface SyncStatusResponse {
   schema: 'ai-caddie-sync-status-v2'
   connector: ConnectorStatus
   snapshot: SnapshotStatus
+}
+
+export interface AnnotationRecord {
+  id: string
+  createdAt: string
+  targetType: AnnotationTargetType
+  targetId: string
+  kind: AnnotationKind
+  payload: Record<string, unknown>
+  source: 'manual'
+}
+
+export interface AnnotationCreateRequest {
+  targetType: AnnotationTargetType
+  targetId: string
+  kind: AnnotationKind
+  payload: Record<string, unknown>
+}
+
+export interface AnnotationCreateResponse {
+  schema: 'ai-caddie-annotation-create-v1'
+  annotation: AnnotationRecord
+}
+
+export interface AnnotationListResponse {
+  schema: 'ai-caddie-annotations-v1'
+  total: number
+  annotations: AnnotationRecord[]
+  target: { targetType: AnnotationTargetType; targetId: string } | null
 }

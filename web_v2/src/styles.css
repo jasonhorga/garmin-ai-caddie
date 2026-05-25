@@ -619,6 +619,134 @@ p {
   justify-content: center;
 }
 
+.corrections-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, .88fr) minmax(0, 1.12fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.annotation-form {
+  min-width: 0;
+}
+
+.annotation-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.annotation-form label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.annotation-form input,
+.annotation-form select,
+.annotation-form textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfcfa;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 9px;
+}
+
+.annotation-form textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.annotation-form-wide {
+  grid-column: 1 / -1;
+}
+
+.annotation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.annotation-actions button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--green);
+  color: #ffffff;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.annotation-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
+
+.annotation-actions p {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.annotation-history {
+  min-width: 0;
+}
+
+.annotation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.annotation-card {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 12px;
+}
+
+.annotation-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: start;
+}
+
+.annotation-card-head > div {
+  min-width: 0;
+}
+
+.annotation-card-head p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.annotation-card h3,
+.annotation-card p,
+.annotation-card strong {
+  overflow-wrap: anywhere;
+}
+
+.annotation-card strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
 @media (max-width: 760px) {
   .sync-panel {
     align-items: flex-start;
@@ -633,6 +761,7 @@ p {
 @media (max-width: 900px) {
   .overview-hero,
   .content-grid,
+  .corrections-grid,
   .stats-grid {
     grid-template-columns: 1fr;
   }
@@ -681,5 +810,9 @@ p {
 
   .stats-count {
     justify-self: start;
+  }
+
+  .annotation-form-grid {
+    grid-template-columns: 1fr;
   }
 }
