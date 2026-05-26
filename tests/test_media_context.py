@@ -90,6 +90,31 @@ class MediaContextTests(unittest.TestCase):
         self.assertEqual(latest["privacyState"], "redacted")
         self.assertEqual(latest["localPath"], "[redacted]")
 
+    def test_existing_media_index_absolute_paths_are_sanitized_on_read(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upload = root / "data" / "media" / "uploads" / "legacy.jpg"
+            upload.parent.mkdir(parents=True, exist_ok=True)
+            upload.write_bytes(b"legacy-bytes")
+            path = media_index_file(root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                (
+                    '{"id":"legacy-media","createdAt":"2026-05-25T00:00:00Z",'
+                    '"targetType":"shot","targetId":"round-1:7:2","mediaKind":"photo",'
+                    f'"localPath":"{upload.as_posix()}","capturedAt":"2026-05-25T00:00:00Z",'
+                    '"privacyState":"private_local","source":"manual"}\n'
+                ),
+                encoding="utf-8",
+            )
+
+            rows = list_media(root=root)
+            target_rows = media_for_target("shot", "round-1:7:2", root=root)
+
+        combined = f"{rows} {target_rows}"
+        self.assertEqual(rows[0]["localPath"], "data/media/uploads/legacy.jpg")
+        self.assertNotIn(tmp, combined)
+
 
 if __name__ == "__main__":
     unittest.main()
