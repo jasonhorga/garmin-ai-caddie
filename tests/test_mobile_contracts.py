@@ -227,6 +227,24 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func postEventBatch", sync_client)
         self.assertIn("Idempotency-Key", sync_client)
 
+    def test_ios_app_entry_bootstraps_cached_or_fixture_package(self) -> None:
+        package_swift = _read_required_source(self, Path("Package.swift"))
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+
+        self.assertIn("let package = Package", package_swift)
+        self.assertIn(".iOS(.v17)", package_swift)
+        self.assertIn(".watchOS(.v10)", package_swift)
+        self.assertIn('name: "AICaddie"', package_swift)
+        self.assertIn('name: "AICaddieWatch"', package_swift)
+        self.assertIn("@main", app_swift)
+        self.assertIn("struct AICaddieApp: App", app_swift)
+        self.assertIn("final class LiveRoundAppModel", app_swift)
+        self.assertIn("loadCurrentRoundPackage", app_swift)
+        self.assertIn("live_round_package.fixture", app_swift)
+        self.assertIn("saveRoundPackage", app_swift)
+        self.assertIn("offlineStore.appendEvent", app_swift)
+        self.assertIn("RoundHomeView", app_swift)
+
     def test_ios_event_builder_supports_location_media_and_scoring_inputs(self) -> None:
         builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
 
@@ -328,7 +346,9 @@ class MobileContractTests(unittest.TestCase):
         location_provider = _read_required_source(self, IOS_DIR / "Services" / "LocationProvider.swift")
 
         self.assertIn("struct RoundHomeView: View", round_home)
+        self.assertIn("public let onEvent", round_home)
         self.assertIn("syncStatus", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, onEvent: onEvent)", round_home)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)

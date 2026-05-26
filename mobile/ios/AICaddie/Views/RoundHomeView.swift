@@ -4,11 +4,18 @@ public struct RoundHomeView: View {
     public let package: LiveRoundPackage
     public let pendingEventCount: Int
     public let syncStatus: String
+    public let onEvent: (LiveRoundEvent) -> Void
 
-    public init(package: LiveRoundPackage, pendingEventCount: Int = 0, syncStatus: String = "Offline ready") {
+    public init(
+        package: LiveRoundPackage,
+        pendingEventCount: Int = 0,
+        syncStatus: String = "Offline ready",
+        onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
+    ) {
         self.package = package
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
+        self.onEvent = onEvent
     }
 
     public var body: some View {
@@ -34,7 +41,7 @@ public struct RoundHomeView: View {
                 Section("Holes") {
                     ForEach(package.holes) { hole in
                         NavigationLink {
-                            CurrentHoleView(package: package, hole: hole)
+                            CurrentHoleView(package: package, hole: hole, onEvent: onEvent)
                         } label: {
                             HStack {
                                 Text("\(hole.number)")
