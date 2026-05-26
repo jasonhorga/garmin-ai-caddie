@@ -114,6 +114,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const phaseStats = asRows(data.scoring.phaseStats)
   const teeDirection = asRecord(data.scoring.teeDirection)
   const dominantTeeMiss = asString(teeDirection.dominantMiss)
+  const parScoring = asRows(data.scoring.byPar)
   const scoringOutcomes = asRecord(data.scoring.outcomes)
   const scoreOutcomeRows = asRows(data.scoring.outcomeRows)
   const outcomeRows = scoreOutcomeRows.length
@@ -320,6 +321,31 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
             ))}
           </div>
         </section>
+
+        {parScoring.length ? (
+          <section className="panel compact-panel" aria-label="Par type scoring">
+            <div className="section-head">
+              <div>
+                <h2>Par Type Scoring</h2>
+                <p>Scoring cost by par type, with source hole refs.</p>
+              </div>
+            </div>
+            <div className="stat-list">
+              {parScoring.map((row) => (
+                <div key={asString(row.key) ?? asString(row.label) ?? 'par-type'} className="stat-row">
+                  <span>{asString(row.label) ?? 'Par type'}</span>
+                  <b>avg {displaySigned(row.averageToPar)}</b>
+                  <span className="record-evidence">
+                    <span className="fact-chip muted">score {displayNumber(row.averageScore)}</span>
+                    <span className="fact-chip muted">par+ {displayNumber(row.parOrBetterPct)}%</span>
+                    <span className="fact-chip muted">bogey+ {displayNumber(row.bogeyOrWorsePct)}%</span>
+                    <SourceRefs refs={refsFor(row)} onSelectRef={onSelectRef} />
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="panel compact-panel" aria-label="Recent months">
           <div className="section-head">

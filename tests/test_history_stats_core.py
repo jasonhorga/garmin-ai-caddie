@@ -158,6 +158,27 @@ def tee_direction_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "tee-direction-1", "hasShots": False}], rounds=[round_row], shots=[])
 
 
+def par_type_history_data() -> HistoryData:
+    round_row = {
+        "id": "par-type-1",
+        "date": "2026-05-25",
+        "course": "Par Type Course",
+        "courseKey": "par_type_course",
+        "holesCompleted": 5,
+        "strokes": 20,
+        "par": 19,
+        "holes": [
+            {"number": 1, "strokes": 3, "par": 3, "putts": 2},
+            {"number": 2, "strokes": 4, "par": 3, "putts": 2},
+            {"number": 3, "strokes": 4, "par": 4, "putts": 2},
+            {"number": 4, "strokes": 5, "par": 4, "putts": 2},
+            {"number": 5, "strokes": 4, "par": 5, "putts": 1},
+        ],
+        "hasShots": False,
+    }
+    return HistoryData(raw_rounds=[{"id": "par-type-1", "hasShots": False}], rounds=[round_row], shots=[])
+
+
 def missing_shot_rows_history_data() -> HistoryData:
     rounds = [
         {
@@ -453,6 +474,35 @@ class HistoryStatsCoreTests(unittest.TestCase):
         course = next(row for row in stats["courses"] if row["courseKey"] == "direction_course")
         self.assertEqual(course["teeDirection"]["dominantMiss"], "right")
         self.assertEqual(course["teeDirection"]["sourceRefs"], tee_direction["sourceRefs"])
+
+    def test_par_type_scoring_exposes_drilldown_ready_strengths_and_costs(self) -> None:
+        stats = build_history_stats(par_type_history_data(), data_mode="fixture")
+
+        par_rows = {row["key"]: row for row in stats["scoring"]["byPar"]}
+
+        self.assertEqual(par_rows["par3"]["label"], "Par 3")
+        self.assertEqual(par_rows["par3"]["holeCount"], 2)
+        self.assertEqual(par_rows["par3"]["averageScore"], 3.5)
+        self.assertEqual(par_rows["par3"]["averageToPar"], 0.5)
+        self.assertEqual(par_rows["par3"]["parOrBetter"], 1)
+        self.assertEqual(par_rows["par3"]["bogeyOrWorse"], 1)
+        self.assertEqual(par_rows["par3"]["birdieOrBetter"], 0)
+        self.assertEqual(par_rows["par3"]["parOrBetterPct"], 50.0)
+        self.assertEqual(par_rows["par3"]["bogeyOrWorsePct"], 50.0)
+        self.assertEqual(par_rows["par3"]["bestToPar"], 0)
+        self.assertEqual(par_rows["par3"]["worstToPar"], 1)
+        self.assertEqual(par_rows["par3"]["holeRefs"], ["par-type-1:1", "par-type-1:2"])
+        self.assertEqual(par_rows["par3"]["coverage"], {"ready": 2, "total": 5, "pct": 40.0})
+        self.assertEqual(par_rows["par3"]["confidence"], "medium")
+
+        self.assertEqual(par_rows["par5"]["averageToPar"], -1.0)
+        self.assertEqual(par_rows["par5"]["birdieOrBetter"], 1)
+        self.assertEqual(par_rows["par5"]["parOrBetterPct"], 100.0)
+        self.assertEqual(par_rows["par5"]["bogeyOrWorsePct"], 0.0)
+
+        course = next(row for row in stats["courses"] if row["courseKey"] == "par_type_course")
+        self.assertEqual(course["parScoring"][0]["key"], "par3")
+        self.assertEqual(course["parScoring"][2]["key"], "par5")
 
     def test_hole_stats_include_score_distribution_and_repeated_issues(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

@@ -65,6 +65,38 @@ const statsFixture: HistoryStatsResponse = {
       { key: 'bogey', label: 'Bogey', className: 'bogey', count: 16, pct: 35.6, holeRefs: ['900004:4'] },
       { key: 'doubleOrWorse', label: 'Double+', className: 'double', count: 4, pct: 8.9, holeRefs: ['900005:5'] },
     ],
+    byPar: [
+      {
+        key: 'par3',
+        label: 'Par 3',
+        holeCount: 2,
+        averageScore: 3.5,
+        averageToPar: 0.5,
+        parOrBetterPct: 50,
+        bogeyOrWorsePct: 50,
+        holeRefs: ['900001:2', '900001:4'],
+      },
+      {
+        key: 'par4',
+        label: 'Par 4',
+        holeCount: 2,
+        averageScore: 4.5,
+        averageToPar: 0.5,
+        parOrBetterPct: 50,
+        bogeyOrWorsePct: 50,
+        holeRefs: ['900001:1', '900001:3'],
+      },
+      {
+        key: 'par5',
+        label: 'Par 5',
+        holeCount: 1,
+        averageScore: 4,
+        averageToPar: -1,
+        parOrBetterPct: 100,
+        bogeyOrWorsePct: 0,
+        holeRefs: ['900001:5'],
+      },
+    ],
     teeDirection: {
       recorded: 4,
       total: 5,
@@ -155,6 +187,12 @@ describe('StatsOverview', () => {
     expect(screen.getByText('Double+')).toBeInTheDocument()
     expect(within(screen.getByLabelText('Score outcomes')).getByRole('button', { name: 'Open source 900001:9' })).toBeInTheDocument()
     expect(screen.getByText('70s')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Par Type Scoring' })).toBeInTheDocument()
+    expect(screen.getByText('Par 3')).toBeInTheDocument()
+    expect(screen.getAllByText('avg +0.5').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('par+ 50%').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('bogey+ 50%').length).toBeGreaterThan(0)
+    expect(within(screen.getByLabelText('Par type scoring')).getByRole('button', { name: 'Open source 900001:2' })).toBeInTheDocument()
     expect(screen.getAllByText('2026-05').length).toBeGreaterThan(0)
     expect(screen.getByText('avg 77')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Recent Form' })).toBeInTheDocument()

@@ -845,6 +845,84 @@ def _tee_direction_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
 
+def _par_type_scoring(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[int, dict[str, Any]] = {}
+    total_scored_holes = 0
+    for row in rows:
+        hole_pars = str(row.get("holePars") or "")
+        for hole in row.get("holes") or []:
+            number = int(hole.get("number") or 0)
+            par = _hole_to_par(hole, _par_from_string(hole_pars, number))
+            score = hole.get("strokes")
+            if not number or par is None or score is None:
+                continue
+            try:
+                par_int = int(par)
+                score_int = int(score)
+            except (TypeError, ValueError):
+                continue
+            ref = _hole_ref(row, number)
+            delta = score_int - par_int
+            total_scored_holes += 1
+            target = grouped.setdefault(
+                par_int,
+                {
+                    "scores": [],
+                    "deltas": [],
+                    "refs": [],
+                    "parOrBetterRefs": [],
+                    "bogeyOrWorseRefs": [],
+                    "birdieOrBetterRefs": [],
+                },
+            )
+            target["scores"].append(score_int)
+            target["deltas"].append(delta)
+            target["refs"].append(ref)
+            if delta <= 0:
+                target["parOrBetterRefs"].append(ref)
+            if delta >= 1:
+                target["bogeyOrWorseRefs"].append(ref)
+            if delta <= -1:
+                target["birdieOrBetterRefs"].append(ref)
+
+    out = []
+    for par, values in sorted(grouped.items()):
+        refs = values["refs"]
+        deltas = values["deltas"]
+        par_or_better = len(values["parOrBetterRefs"])
+        bogey_or_worse = len(values["bogeyOrWorseRefs"])
+        birdie_or_better = len(values["birdieOrBetterRefs"])
+        out.append(
+            _with_aggregate_contract(
+                {
+                    "key": f"par{par}",
+                    "label": f"Par {par}",
+                    "par": par,
+                    "holeCount": len(refs),
+                    "averageScore": average(values["scores"]),
+                    "averageToPar": average(deltas),
+                    "parOrBetter": par_or_better,
+                    "bogeyOrWorse": bogey_or_worse,
+                    "birdieOrBetter": birdie_or_better,
+                    "parOrBetterPct": _direction_pct(par_or_better, len(refs)),
+                    "bogeyOrWorsePct": _direction_pct(bogey_or_worse, len(refs)),
+                    "birdieOrBetterPct": _direction_pct(birdie_or_better, len(refs)),
+                    "bestToPar": min(deltas) if deltas else None,
+                    "worstToPar": max(deltas) if deltas else None,
+                    "holeRefs": refs,
+                    "parOrBetterRefs": values["parOrBetterRefs"],
+                    "bogeyOrWorseRefs": values["bogeyOrWorseRefs"],
+                    "birdieOrBetterRefs": values["birdieOrBetterRefs"],
+                },
+                refs,
+                ready=len(refs),
+                total=total_scored_holes,
+                confidence_count=len(refs),
+            )
+        )
+    return out
+
+
 def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     bands: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
@@ -957,6 +1035,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             "bogeyOrWorse": outcomes["bogey"] + outcomes["doubleOrWorse"],
         },
         "outcomeRows": outcome_rows,
+        "byPar": _par_type_scoring(data.rounds),
         "teeDirection": _tee_direction_stats(data.rounds),
         "putting": {
             "totalPutts": sum(putts),
@@ -1053,6 +1132,7 @@ def _courses(data: HistoryData) -> list[dict[str, Any]]:
                     "roundRefs": round_ids,
                     "recentForm": _course_recent_form(rows),
                     "teeDirection": _tee_direction_stats(rows),
+                    "parScoring": _par_type_scoring(rows),
                     "geometryCoverage": _course_geometry_coverage(rows),
                 },
                 round_ids,
