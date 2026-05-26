@@ -78,8 +78,19 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if let cached = try offlineStore.loadCurrentRoundPackage() {
-                try activatePackage(cached, status: "Cached package ready")
-                return
+                switch cached.cacheState() {
+                case .expired:
+                    syncStatus = "Cached package expired; using fallback"
+                case .stale:
+                    try activatePackage(cached, status: "Cached package stale")
+                    return
+                case .ready:
+                    try activatePackage(cached, status: "Cached package ready")
+                    return
+                case .degraded:
+                    try activatePackage(cached, status: "Cached package degraded")
+                    return
+                }
             }
             let fixture = try loadFixturePackage()
             try offlineStore.saveRoundPackage(fixture)

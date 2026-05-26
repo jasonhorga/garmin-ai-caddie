@@ -339,6 +339,25 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onSync()", round_home)
         self.assertIn('Label("Sync"', round_home)
 
+    def test_ios_cached_package_expiry_is_enforced(self) -> None:
+        package_swift = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+
+        self.assertIn("enum OfflinePackageCacheState", package_swift)
+        self.assertIn("case stale", package_swift)
+        self.assertIn("case expired", package_swift)
+        self.assertIn("func cacheState(now: Date = Date()) -> OfflinePackageCacheState", package_swift)
+        self.assertIn("func cacheState(now: Date) -> OfflinePackageCacheState", package_swift)
+        self.assertIn("expiresAtDate", package_swift)
+        self.assertIn("staleAfterHours", package_swift)
+
+        self.assertIn("switch cached.cacheState()", app_swift)
+        self.assertIn("case .expired:", app_swift)
+        self.assertIn("Cached package expired", app_swift)
+        self.assertIn("case .stale:", app_swift)
+        self.assertIn("Cached package stale", app_swift)
+        self.assertIn("case .ready:", app_swift)
+
     def test_ios_api_base_url_feeds_live_caddie_and_media_upload(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")

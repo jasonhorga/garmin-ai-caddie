@@ -6,6 +6,13 @@ public enum GeometryCoverageState: String, Codable, Equatable {
     case missing
 }
 
+public enum OfflinePackageCacheState: String, Equatable {
+    case ready
+    case stale
+    case expired
+    case degraded
+}
+
 public struct LiveRoundPackage: Codable, Equatable {
     public let schema: String
     public let roundId: String
@@ -64,6 +71,10 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.recentHistory = recentHistory
         self.cachedCaddieRules = cachedCaddieRules
         self.generatedAt = generatedAt
+    }
+
+    public func cacheState(now: Date = Date()) -> OfflinePackageCacheState {
+        offlinePackageStatus.cacheState(now: now)
     }
 }
 
@@ -153,6 +164,40 @@ public struct OfflinePackageStatus: Codable, Equatable {
     public let preparedAt: String
     public let expiresAt: String
     public let cachePolicy: CachePolicy
+
+    public var preparedAtDate: Date? {
+        ISO8601DateFormatter().date(from: preparedAt)
+    }
+
+    public var expiresAtDate: Date? {
+        ISO8601DateFormatter().date(from: expiresAt)
+    }
+
+    public func cacheState(now: Date) -> OfflinePackageCacheState {
+        if state == "expired" {
+            return .expired
+        }
+        if state == "degraded" {
+            return .degraded
+        }
+        guard let expiresAtDate else {
+            return .expired
+        }
+        if now >= expiresAtDate {
+            return .expired
+        }
+        if let preparedAtDate,
+           let staleAt = Calendar(identifier: .gregorian).date(
+            byAdding: .hour,
+            value: cachePolicy.staleAfterHours,
+            to: preparedAtDate
+           ),
+           now >= staleAt
+        {
+            return .stale
+        }
+        return .ready
+    }
 }
 
 public struct CachePolicy: Codable, Equatable {
