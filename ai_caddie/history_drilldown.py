@@ -19,7 +19,23 @@ def _hole_ref(round_id: str, hole_number: int) -> str:
 
 
 def _shot_ref(shot: dict[str, Any], index: int) -> str:
-    return f"{shot.get('roundId')}:{shot.get('hole')}:{index}"
+    return f"{_shot_round_id(shot)}:{shot.get('hole')}:{index}"
+
+
+def _shot_round_id(shot: dict[str, Any]) -> str:
+    return str(shot.get("roundId") or shot.get("scorecardId"))
+
+
+def _shot_distance(shot: dict[str, Any]) -> Any:
+    return shot.get("distance") if shot.get("distance") is not None else shot.get("meters")
+
+
+def _shot_surface(shot: dict[str, Any]) -> Any:
+    return shot.get("surface") if shot.get("surface") is not None else shot.get("endLie")
+
+
+def _shot_club(shot: dict[str, Any]) -> Any:
+    return shot.get("club") or shot.get("clubName")
 
 
 def _parse_ref(source_ref: str) -> tuple[RefType, list[str]]:
@@ -112,11 +128,11 @@ def _hole_summary(row: dict[str, Any], hole: dict[str, Any]) -> dict[str, Any]:
 def _shot_summary(shot: dict[str, Any], index: int) -> dict[str, Any]:
     return {
         "ref": _shot_ref(shot, index),
-        "roundId": str(shot.get("roundId")),
+        "roundId": _shot_round_id(shot),
         "hole": shot.get("hole"),
-        "club": shot.get("club") or shot.get("clubName"),
-        "distance": shot.get("distance"),
-        "surface": shot.get("surface"),
+        "club": _shot_club(shot),
+        "distance": _shot_distance(shot),
+        "surface": _shot_surface(shot),
         "globalShotIndex": index,
     }
 
@@ -131,7 +147,7 @@ def _round_detail(data: HistoryData, row: dict[str, Any], ref: str) -> dict[str,
     shot_refs = [
         _shot_ref(shot, index)
         for index, shot in enumerate(data.shots)
-        if str(shot.get("roundId")) == round_ref
+        if _shot_round_id(shot) == round_ref
     ]
     return _base_detail(
         ref=ref,
@@ -152,7 +168,7 @@ def _hole_detail(data: HistoryData, row: dict[str, Any], hole: dict[str, Any], r
     shot_refs = [
         _shot_ref(shot, index)
         for index, shot in enumerate(data.shots)
-        if str(shot.get("roundId")) == round_ref and int(shot.get("hole") or 0) == hole_number
+        if _shot_round_id(shot) == round_ref and int(shot.get("hole") or 0) == hole_number
     ]
     return _base_detail(
         ref=ref,
@@ -177,7 +193,11 @@ def _shot_detail(
     round_ref = _round_id(row)
     hole_number = int(shot.get("hole") or 0)
     shot_summary = _shot_summary(shot, index)
-    source_fields = _pick(shot, ["roundId", "hole", "club", "clubName", "distance", "surface"])
+    source_fields = _pick(shot, ["roundId", "scorecardId", "hole", "club", "clubName", "distance", "meters", "surface", "endLie"])
+    source_fields.setdefault("roundId", _shot_round_id(shot))
+    source_fields.setdefault("club", _shot_club(shot))
+    source_fields.setdefault("distance", _shot_distance(shot))
+    source_fields.setdefault("surface", _shot_surface(shot))
     source_fields["globalShotIndex"] = index
     return _base_detail(
         ref=ref,

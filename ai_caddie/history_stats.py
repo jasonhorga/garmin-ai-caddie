@@ -26,7 +26,35 @@ def _hole_ref(row: dict[str, Any], hole_number: int) -> str:
 
 
 def _shot_ref(shot: dict[str, Any], index: int) -> str:
-    return f"{shot.get('roundId')}:{shot.get('hole')}:{index}"
+    return f"{_shot_round_id(shot)}:{shot.get('hole')}:{index}"
+
+
+def _shot_round_id(shot: dict[str, Any]) -> str:
+    return str(shot.get("roundId") or shot.get("scorecardId"))
+
+
+def _shot_distance(shot: dict[str, Any]) -> Any:
+    return shot.get("distance") if shot.get("distance") is not None else shot.get("meters")
+
+
+def _shot_surface(shot: dict[str, Any]) -> Any:
+    return shot.get("surface") if shot.get("surface") is not None else shot.get("endLie")
+
+
+def _shot_club(shot: dict[str, Any]) -> str:
+    return str(shot.get("club") or shot.get("clubName") or "Unknown")
+
+
+def _normalized_shot(shot: dict[str, Any]) -> dict[str, Any]:
+    row = dict(shot)
+    row["roundId"] = _shot_round_id(row)
+    if row.get("distance") is None and row.get("meters") is not None:
+        row["distance"] = row.get("meters")
+    if row.get("surface") is None and row.get("endLie") is not None:
+        row["surface"] = row.get("endLie")
+    if row.get("club") is None and row.get("clubName") is not None:
+        row["club"] = row.get("clubName")
+    return row
 
 
 def _payload_value(record: dict[str, Any], *keys: str) -> Any:
@@ -119,8 +147,8 @@ def _effective_shots(data: HistoryData, annotations: list[dict[str, Any]] | None
     lie_corrections = _annotations_by_kind(annotations, "lie_correction")
     rows = []
     for index, shot in enumerate(data.shots):
-        ref = _shot_ref(shot, index)
-        row = dict(shot)
+        row = _normalized_shot(shot)
+        ref = _shot_ref(row, index)
         row["_ref"] = ref
         if ref in club_corrections:
             club = _payload_value(club_corrections[ref], "to", "club", "correctedClub")
@@ -628,7 +656,7 @@ def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
     shots = [
         shot
         for shot in _effective_shots(data, annotations)
-        if shot.get("distance") is not None and shot.get("_ref") is not None
+        if _shot_distance(shot) is not None and shot.get("_ref") is not None
     ]
     hole_outcomes = []
     for row in data.rounds:
@@ -659,11 +687,11 @@ def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
         "longestShots": [
             {
                 "shotRef": str(shot.get("_ref")),
-                "roundRef": str(shot.get("roundId")),
-                "holeRef": f"{shot.get('roundId')}:{shot.get('hole')}",
-                "club": str(shot.get("club") or shot.get("clubName") or "Unknown"),
-                "distance": float(shot.get("distance")),
-                "surface": shot.get("surface"),
+                "roundRef": _shot_round_id(shot),
+                "holeRef": f"{_shot_round_id(shot)}:{shot.get('hole')}",
+                "club": _shot_club(shot),
+                "distance": float(_shot_distance(shot)),
+                "surface": _shot_surface(shot),
             }
             for shot in sorted(shots, key=lambda item: (-float(item.get("distance") or 0), str(item.get("_ref"))))[:5]
         ],
@@ -731,9 +759,9 @@ def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
             if number:
                 grouped[(course_key, number)].append((row, hole))
     hazard_hole_refs = {
-        f"{shot.get('roundId')}:{shot.get('hole')}"
+        f"{_shot_round_id(shot)}:{shot.get('hole')}"
         for shot in _effective_shots(data, annotations)
-        if str(shot.get("surface") or "").lower() in {"water", "bunker", "rough"}
+        if str(_shot_surface(shot) or "").lower() in {"water", "bunker", "rough"}
     }
     manual_tags = _manual_issue_tags_by_hole(annotations)
     out = []
@@ -778,12 +806,12 @@ def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
 def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for shot in _effective_shots(data, annotations):
-        club = str(shot.get("club") or shot.get("clubName") or "Unknown")
+        club = _shot_club(shot)
         grouped[club].append(shot)
     out = []
     for club, shots in grouped.items():
-        distances = [float(shot["distance"]) for shot in shots if shot.get("distance") is not None]
-        round_ids = sorted({str(shot.get("roundId")) for shot in shots if shot.get("roundId") is not None})
+        distances = [float(_shot_distance(shot)) for shot in shots if _shot_distance(shot) is not None]
+        round_ids = sorted({_shot_round_id(shot) for shot in shots if _shot_round_id(shot) != "None"})
         shot_refs = sorted(str(shot.get("_ref")) for shot in shots if shot.get("_ref") is not None)
         corrected_refs = sorted(
             str(shot.get("_ref"))
@@ -846,14 +874,14 @@ def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) 
 
     effective_shots = _effective_shots(data, annotations)
     for shot in effective_shots:
-        if str(shot.get("surface") or "").lower() in {"water", "bunker", "rough"}:
-            add_ref("hazard_result", f"{shot.get('roundId')}:{shot.get('hole')}")
+        if str(_shot_surface(shot) or "").lower() in {"water", "bunker", "rough"}:
+            add_ref("hazard_result", f"{_shot_round_id(shot)}:{shot.get('hole')}")
 
     shots_by_club: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for shot in effective_shots:
-        if shot.get("distance") is None:
+        if _shot_distance(shot) is None:
             continue
-        club = str(shot.get("club") or shot.get("clubName") or "Unknown")
+        club = _shot_club(shot)
         shots_by_club[club].append(shot)
     for shots in shots_by_club.values():
         shot_refs = sorted(str(shot.get("_ref")) for shot in shots if shot.get("_ref") is not None)

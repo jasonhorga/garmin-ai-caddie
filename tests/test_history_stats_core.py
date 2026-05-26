@@ -56,6 +56,42 @@ def issue_detection_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "issues-1", "hasShots": True}], rounds=[round_row], shots=shots)
 
 
+def raw_garmin_shot_history_data() -> HistoryData:
+    round_row = {
+        "id": "700001",
+        "date": "2026-05-25",
+        "course": "Raw Shape Course",
+        "courseKey": "raw_shape",
+        "holesCompleted": 18,
+        "strokes": 80,
+        "par": 72,
+        "holePars": "444444444444444444",
+        "holes": [{"number": 1, "strokes": 4, "par": 4, "putts": 2, "fairway": "hit"}],
+        "hasShots": True,
+    }
+    shots = [
+        {
+            "id": 11,
+            "scorecardId": 700001,
+            "hole": 1,
+            "order": 1,
+            "clubName": "1D",
+            "meters": 236.4,
+            "endLie": "fairway",
+        },
+        {
+            "id": 12,
+            "scorecardId": 700001,
+            "hole": 1,
+            "order": 2,
+            "clubName": "8I",
+            "meters": 141.8,
+            "endLie": "green",
+        },
+    ]
+    return HistoryData(raw_rounds=[{"id": "700001", "hasShots": True}], rounds=[round_row], shots=shots)
+
+
 class HistoryStatsCoreTests(unittest.TestCase):
     def test_stats_cover_required_dimensions(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
@@ -129,6 +165,20 @@ class HistoryStatsCoreTests(unittest.TestCase):
             self.assertIn("reason", issue)
             self.assertIn("source", issue)
             self.assertIn("confidence", issue)
+
+    def test_local_raw_garmin_shot_fields_feed_club_records_and_refs(self) -> None:
+        stats = build_history_stats(raw_garmin_shot_history_data(), data_mode="local")
+
+        driver = next(row for row in stats["clubs"] if row["club"] == "1D")
+        eight_iron = next(row for row in stats["clubs"] if row["club"] == "8I")
+        self.assertEqual(driver["sampleCount"], 1)
+        self.assertEqual(driver["median"], 236.4)
+        self.assertEqual(driver["roundIds"], ["700001"])
+        self.assertEqual(driver["shotRefs"], ["700001:1:0"])
+        self.assertEqual(eight_iron["median"], 141.8)
+        self.assertEqual(stats["records"]["longestShots"][0]["shotRef"], "700001:1:0")
+        self.assertEqual(stats["records"]["longestShots"][0]["holeRef"], "700001:1")
+        self.assertEqual(stats["records"]["longestShots"][0]["surface"], "fairway")
 
     def test_hole_stats_include_score_distribution_and_repeated_issues(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

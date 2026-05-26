@@ -3,7 +3,33 @@ from __future__ import annotations
 import unittest
 
 from ai_caddie.fixtures import fixture_history_data
+from ai_caddie.history import HistoryData
 from ai_caddie.history_drilldown import build_drilldown_index, resolve_history_ref
+
+
+def raw_garmin_drilldown_data() -> HistoryData:
+    round_row = {
+        "id": "700001",
+        "date": "2026-05-25",
+        "course": "Raw Shape Course",
+        "courseKey": "raw_shape",
+        "holesCompleted": 18,
+        "strokes": 80,
+        "par": 72,
+        "holes": [{"number": 1, "strokes": 4, "par": 4, "putts": 2, "fairway": "hit"}],
+        "hasShots": True,
+    }
+    shots = [
+        {
+            "id": 11,
+            "scorecardId": 700001,
+            "hole": 1,
+            "clubName": "8I",
+            "meters": 141.8,
+            "endLie": "green",
+        }
+    ]
+    return HistoryData(raw_rounds=[{"id": "700001", "hasShots": True}], rounds=[round_row], shots=shots)
 
 
 class HistoryDrilldownTests(unittest.TestCase):
@@ -52,6 +78,22 @@ class HistoryDrilldownTests(unittest.TestCase):
         self.assertEqual(detail["shot"]["distance"], 142)
         self.assertEqual(detail["shot"]["surface"], "green")
         self.assertEqual(detail["sourceFields"]["globalShotIndex"], 1)
+
+    def test_resolves_local_raw_garmin_shot_shape(self) -> None:
+        data = raw_garmin_drilldown_data()
+
+        index = build_drilldown_index(data)
+        detail = resolve_history_ref(data, "700001:1:0")
+
+        self.assertEqual(index["shotRefs"], ["700001:1:0"])
+        self.assertTrue(detail["found"])
+        self.assertEqual(detail["round"]["id"], "700001")
+        self.assertEqual(detail["shot"]["club"], "8I")
+        self.assertEqual(detail["shot"]["distance"], 141.8)
+        self.assertEqual(detail["shot"]["surface"], "green")
+        self.assertEqual(detail["sourceFields"]["scorecardId"], 700001)
+        self.assertEqual(detail["sourceFields"]["meters"], 141.8)
+        self.assertEqual(detail["sourceFields"]["endLie"], "green")
 
     def test_missing_ref_degrades_with_missing_data(self) -> None:
         detail = resolve_history_ref(fixture_history_data(), "900404:9:1")
