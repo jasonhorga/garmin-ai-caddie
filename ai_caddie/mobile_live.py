@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.fixtures import fixture_history_data
-from ai_caddie.geometry_evidence import build_hole_map_dto, geometry_coverage_for_hole
+from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import build_history_stats
 from ai_caddie.weather_context import build_weather_snapshot, latest_weather_snapshot
@@ -227,6 +227,48 @@ def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> t
     return geometry, evidence, _dedupe_missing(missing_data)
 
 
+def _route_evidence_seed(
+    global_id: int,
+    local_hole: int,
+    hole: dict[str, Any],
+    source_ref: str,
+    club_profiles: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    yards = hole.get("yards")
+    target_y = _route_target_yards_or_club_m(yards, club_profiles)
+    if not global_id or target_y is None:
+        return None, [], [{"label": "route_geometry", "reason": "globalId and playable route target are required for offline seed"}]
+    try:
+        route = build_route_geometry_evidence(
+            global_id,
+            local_hole,
+            start={"x": 0.0, "y": 0.0},
+            target={"x": 0.0, "y": target_y},
+            landing_radius_m=18.0,
+        )
+    except Exception:
+        return None, [], [{"label": "route_geometry", "reason": "route geometry evidence could not be loaded for offline seed"}]
+    evidence = [{"label": "route_geometry", "value": f"route length {route.get('routeLength_m')}m", "refs": [source_ref]}]
+    return {**route, "sourceRefs": [source_ref]}, evidence, route.get("missingData") or []
+
+
+def _route_target_yards_or_club_m(yards: Any, club_profiles: list[dict[str, Any]]) -> float | None:
+    yards_float = _safe_float(yards)
+    if yards_float is not None:
+        return max(1.0, yards_float * 0.9144)
+    carries = [carry for row in club_profiles if (carry := _safe_float(row.get("median_m"))) is not None and carry > 0]
+    if not carries:
+        return None
+    return max(carries)
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _hazards_from_hole_map(hole_map: dict[str, Any]) -> list[dict[str, Any]]:
     features = ((hole_map.get("featureCollection") or {}).get("features") or [])
     hazards: list[dict[str, Any]] = []
@@ -269,8 +311,10 @@ def _caddie_context_seeds(
             number,
             str(hole.get("geometryCoverage") or "missing"),
         )
+        route_evidence, route_evidence_rows, route_missing = _route_evidence_seed(global_id, number, hole, source_ref, club_profiles)
         missing_data = [
             *geometry_missing,
+            *route_missing,
             {"label": "current_location", "reason": "live GPS fixes distance and angle at decision time"},
             {"label": "lie", "reason": "live input or vision context fixes lie for approach and recovery decisions"},
         ]
@@ -300,6 +344,8 @@ def _caddie_context_seeds(
             },
             "historicalHoleIssues": hole_stats.get("repeatedIssues") or [],
         }
+        if route_evidence:
+            context["routeEvidence"] = route_evidence
         seeds.append(
             {
                 "hole": number,
@@ -311,6 +357,7 @@ def _caddie_context_seeds(
                     {"label": "live_round_package", "value": "offline_seed"},
                     {"label": "history_ref", "value": source_ref},
                     *geometry_evidence,
+                    *route_evidence_rows,
                 ],
                 "missingData": _dedupe_missing(missing_data),
             }

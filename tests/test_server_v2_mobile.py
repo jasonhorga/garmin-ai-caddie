@@ -93,6 +93,48 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertIn(payload["selectedOptionId"], {"safe", "stock", "attack"})
         self.assertGreaterEqual(len(payload["evidence"]), 1)
 
+    def test_mobile_round_package_seed_includes_route_evidence_for_tee_fallback(self) -> None:
+        client = TestClient(app)
+
+        with (
+            patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            patch(
+                "ai_caddie.mobile_live.build_route_geometry_evidence",
+                return_value={
+                    "schema": "ai-caddie-route-geometry-evidence-v1",
+                    "globalId": 31795,
+                    "localHole": 1,
+                    "coverage": "ready",
+                    "routeStartLocal": [0.0, 0.0],
+                    "routeTargetLocal": [0.0, 182.0],
+                    "routeLength_m": 182.0,
+                    "landingWindowLocal": {"center": [0.0, 182.0], "radius_m": 18.0},
+                    "lineIntersections": [],
+                    "hazardClearances": [
+                        {"hazardId": "fairway_bunker", "kind": "bunker", "carryToFront_m": 136.0, "carryToClear_m": 150.0}
+                    ],
+                    "avoidZones": [{"id": "fairway_bunker", "kind": "bunker", "carryToClear_m": 150.0}],
+                    "missingData": [],
+                },
+            ),
+        ):
+            package_response = client.get("/api/v2/mobile/rounds/900001/package")
+            seed = next(row for row in package_response.json()["caddieContextSeeds"] if row["hole"] == 1)
+            seed["context"].pop("candidateRoutes", None)
+            decision_response = client.post(
+                "/api/v2/caddie/decision",
+                json={"shotType": "tee", "context": seed["context"]},
+            )
+
+        self.assertEqual(package_response.status_code, 200)
+        self.assertEqual(seed["context"]["routeEvidence"]["routeLength_m"], 182.0)
+        self.assertIn("route_geometry", {row["label"] for row in seed["evidence"]})
+        self.assertEqual(decision_response.status_code, 200)
+        decision = decision_response.json()
+        self.assertEqual([row["id"] for row in decision["options"]], ["safe", "stock", "attack"])
+        self.assertEqual(decision["selected"]["targetLocal"], [0.0, 182.0])
+        self.assertTrue(any(row["kind"] == "route_geometry" for row in decision["evidence"]))
+
     def test_mobile_round_package_approach_and_recovery_seeds_degrade_with_missing_live_inputs(self) -> None:
         client = TestClient(app)
 
