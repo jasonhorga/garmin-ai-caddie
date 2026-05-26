@@ -19,7 +19,13 @@ public struct AICaddieApp: App {
                         adminToken: model.adminToken,
                         offlineStore: model.offlineStore,
                         watchBridge: model.watchBridge,
+                        isPreparingRound: model.isPreparingRound,
                         onEvent: model.handleEvent,
+                        onPrepareRound: { roundId in
+                            Task {
+                                await model.prepareRound(roundId: roundId)
+                            }
+                        },
                         onSync: {
                             Task {
                                 await model.syncPendingEvents()
@@ -27,7 +33,18 @@ public struct AICaddieApp: App {
                         }
                     )
                 } else {
-                    ProgressView("Loading round")
+                    NavigationStack {
+                        StartRoundView(
+                            defaultRoundId: model.defaultRoundId,
+                            syncStatus: model.syncStatus,
+                            isPreparing: model.isPreparingRound,
+                            onPrepareRound: { roundId in
+                                Task {
+                                    await model.prepareRound(roundId: roundId)
+                                }
+                            }
+                        )
+                    }
                 }
             }
             .task {
@@ -44,6 +61,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var syncStatus: String = "Offline ready"
     @Published public private(set) var apiBaseURL: URL?
     @Published public private(set) var adminToken: String?
+    @Published public private(set) var isPreparingRound = false
     public let watchBridge: WatchEventBridge?
     public let offlineStore: OfflineStore
 
@@ -68,6 +86,10 @@ public final class LiveRoundAppModel: ObservableObject {
         self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken) }
+    }
+
+    public var defaultRoundId: String {
+        preferredRoundId
     }
 
     public func bootstrap() async {
@@ -97,6 +119,46 @@ public final class LiveRoundAppModel: ObservableObject {
             try activatePackage(fixture, status: "Fixture package cached")
         } catch {
             syncStatus = "Offline package unavailable"
+        }
+    }
+
+    public func prepareRound(roundId: String) async {
+        let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requestedRoundId.isEmpty else {
+            syncStatus = "Round id is required"
+            return
+        }
+
+        isPreparingRound = true
+        defer {
+            isPreparingRound = false
+        }
+
+        do {
+            if let remotePackage = await fetchRemotePackage(roundId: requestedRoundId) {
+                try offlineStore.saveRoundPackage(remotePackage)
+                try activatePackage(remotePackage, status: "Offline package prepared")
+                return
+            }
+            if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
+                switch cachedPackage.cacheState() {
+                case .expired:
+                    syncStatus = "Cached package expired"
+                case .stale:
+                    try activatePackage(cachedPackage, status: "Cached package stale")
+                    return
+                case .ready:
+                    try activatePackage(cachedPackage, status: "Cached package ready")
+                    return
+                case .degraded:
+                    try activatePackage(cachedPackage, status: "Cached package degraded")
+                    return
+                }
+            } else {
+                syncStatus = "Round package unavailable"
+            }
+        } catch {
+            syncStatus = "Round package prepare failed"
         }
     }
 
@@ -195,6 +257,19 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         do {
             return try await syncClient.fetchRoundPackage(roundId: preferredRoundId)
+        } catch {
+            syncStatus = "Package sync unavailable; using cache"
+            return nil
+        }
+    }
+
+    private func fetchRemotePackage(roundId: String) async -> LiveRoundPackage? {
+        guard let syncClient else {
+            syncStatus = "No sync server configured"
+            return nil
+        }
+        do {
+            return try await syncClient.fetchRoundPackage(roundId: roundId)
         } catch {
             syncStatus = "Package sync unavailable; using cache"
             return nil

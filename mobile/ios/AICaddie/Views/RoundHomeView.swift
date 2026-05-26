@@ -9,7 +9,9 @@ public struct RoundHomeView: View {
     public let adminToken: String?
     public let offlineStore: OfflineStore?
     public let watchBridge: WatchEventBridge?
+    public let isPreparingRound: Bool
     public let onEvent: (LiveRoundEvent) -> Void
+    public let onPrepareRound: (String) -> Void
     public let onSync: () -> Void
 
     public init(
@@ -20,7 +22,9 @@ public struct RoundHomeView: View {
         adminToken: String? = nil,
         offlineStore: OfflineStore? = nil,
         watchBridge: WatchEventBridge? = nil,
+        isPreparingRound: Bool = false,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
+        onPrepareRound: @escaping (String) -> Void = { _ in },
         onSync: @escaping () -> Void = {}
     ) {
         self.package = package
@@ -30,7 +34,9 @@ public struct RoundHomeView: View {
         self.adminToken = adminToken
         self.offlineStore = offlineStore
         self.watchBridge = watchBridge
+        self.isPreparingRound = isPreparingRound
         self.onEvent = onEvent
+        self.onPrepareRound = onPrepareRound
         self.onSync = onSync
     }
 
@@ -61,6 +67,16 @@ public struct RoundHomeView: View {
                         GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken)
                     } label: {
                         Label("Garmin Session", systemImage: "key")
+                    }
+                    NavigationLink {
+                        StartRoundView(
+                            defaultRoundId: package.roundId,
+                            syncStatus: syncStatus,
+                            isPreparing: isPreparingRound,
+                            onPrepareRound: onPrepareRound
+                        )
+                    } label: {
+                        Label("Start Round", systemImage: "flag.checkered")
                     }
                 }
 

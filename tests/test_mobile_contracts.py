@@ -316,6 +316,30 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("offlineStore.appendEvent", app_swift)
         self.assertIn("RoundHomeView", app_swift)
 
+    def test_ios_start_round_prepares_selected_offline_package(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        start_view = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+
+        self.assertIn("@Published public private(set) var isPreparingRound", app_swift)
+        self.assertIn("public func prepareRound(roundId:", app_swift)
+        self.assertIn("fetchRemotePackage(roundId:", app_swift)
+        self.assertIn("offlineStore.loadRoundPackage(roundId:", app_swift)
+        self.assertIn("try activatePackage", app_swift)
+        self.assertIn("StartRoundView(", app_swift)
+        self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
+
+        self.assertIn("struct StartRoundView: View", start_view)
+        self.assertIn("public let onPrepareRound: (String) -> Void", start_view)
+        self.assertIn('TextField("Round ID"', start_view)
+        self.assertIn('Label("Prepare offline package"', start_view)
+        self.assertIn("onPrepareRound(roundId)", start_view)
+        self.assertIn("isPreparing", start_view)
+
+        self.assertIn("public let onPrepareRound: (String) -> Void", round_home)
+        self.assertIn("StartRoundView(", round_home)
+        self.assertIn('Label("Start Round"', round_home)
+
     def test_ios_app_model_syncs_pending_events_to_backend(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
