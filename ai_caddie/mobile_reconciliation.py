@@ -57,7 +57,10 @@ def _shot_facts(round_id: str, data: HistoryData) -> list[dict[str, Any]]:
     facts: list[dict[str, Any]] = []
     requested = str(round_id)
     for shot in data.shots:
-        if str(shot.get("roundId")) != requested:
+        shot_round_id = shot.get("roundId")
+        if shot_round_id is None:
+            shot_round_id = shot.get("scorecardId")
+        if str(shot_round_id) != requested:
             continue
         hole = int(shot.get("hole") or 0)
         per_hole[hole] = per_hole.get(hole, 0) + 1
@@ -65,7 +68,7 @@ def _shot_facts(round_id: str, data: HistoryData) -> list[dict[str, Any]]:
             {
                 "kind": "club",
                 "hole": hole,
-                "clubName": shot.get("club"),
+                "clubName": shot.get("club") or shot.get("clubName"),
                 "ref": f"{requested}:{hole}:{per_hole[hole]}",
             }
         )

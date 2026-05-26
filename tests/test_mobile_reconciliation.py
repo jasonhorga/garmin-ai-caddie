@@ -7,6 +7,7 @@ import unittest
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.annotations import list_annotations
 from ai_caddie.decision import list_decision_audits
+from ai_caddie.history import HistoryData
 from ai_caddie.mobile_live import append_event_batch
 from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 
@@ -135,6 +136,35 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(suggestions["legacy-note:hole-note"]["targetId"], "900001:2")
         self.assertEqual(suggestions["legacy-note:hole-note"]["payload"]["text"], "blocked by trees")
         self.assertEqual(suggestions["legacy-note:hole-note"]["payload"]["sourceEventId"], "legacy-note")
+
+    def test_reconciliation_matches_scorecard_id_club_name_shots(self) -> None:
+        data = HistoryData(
+            raw_rounds=[{"id": "700001", "hasShots": True}],
+            rounds=[{"id": "700001", "ids": ["700001"], "holes": [{"number": 1, "strokes": 4, "putts": 2}]}],
+            shots=[{"scorecardId": 700001, "hole": 1, "clubName": "8I"}],
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "700001",
+                [
+                    {
+                        "eventId": "raw-shape-club",
+                        "roundId": "700001",
+                        "hole": 1,
+                        "kind": "club",
+                        "payload": {"clubName": "8I"},
+                    },
+                ],
+                idempotency_key="raw-shape-club",
+                root=root,
+            )
+
+            result = reconcile_mobile_round_events("700001", data, root=root)
+
+        self.assertEqual(result["matched"], [{"eventId": "raw-shape-club", "kind": "club", "hole": 1, "ref": "700001:1:1"}])
+        self.assertEqual(result["localOnly"], [])
+        self.assertEqual(result["garminOnly"], [])
 
     def test_reconciliation_suggests_hole_note_annotations_from_mobile_note_events(self) -> None:
         with TemporaryDirectory() as tmp:
