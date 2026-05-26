@@ -1,5 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
+import { StatsQualityChips } from './StatsQualityChips'
 import { asString, formatNumber, semanticClass } from './statsValues'
 
 interface ClubStatsProps {
@@ -16,6 +17,7 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
           <h1>Club Stats</h1>
           <p>Personal distance samples, dispersion range, and confidence.</p>
         </div>
+        <StatsQualityChips data={data} labels={['shots', 'shot_rows']} />
       </div>
       <div className="stats-list">
         {data.clubs.length === 0 ? (

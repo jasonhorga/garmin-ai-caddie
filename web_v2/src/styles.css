@@ -840,6 +840,26 @@ p {
   border: 1px solid transparent;
 }
 
+.stats-quality-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.stats-quality-chips .semantic-chip {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.stats-quality-chips .quality-good,
+.stats-quality-chips .quality-ready,
 .stats-item-facts .quality-good,
 .stats-item-facts .quality-ready,
 .stats-item-facts .confidence-high {
@@ -847,12 +867,17 @@ p {
   color: var(--green);
 }
 
+.stats-quality-chips .quality-partial,
 .stats-item-facts .quality-partial,
 .stats-item-facts .confidence-medium {
   background: #edf5f8;
   color: #2f6f95;
 }
 
+.stats-quality-chips .quality-missing,
+.stats-quality-chips .quality-no-data,
+.stats-quality-chips .quality-error,
+.stats-quality-chips .quality-reauth-required,
 .stats-item-facts .quality-missing,
 .stats-item-facts .quality-no-data,
 .stats-item-facts .quality-error,

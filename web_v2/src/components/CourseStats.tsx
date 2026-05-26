@@ -1,5 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
+import { StatsQualityChips } from './StatsQualityChips'
 import { asString, formatNumber, semanticClass } from './statsValues'
 
 interface CourseStatsProps {
@@ -18,6 +19,7 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
           <h1>Course Stats</h1>
           <p>Course-specific scoring, form, and source rounds.</p>
         </div>
+        <StatsQualityChips data={data} labels={['geometry']} />
       </div>
       <div className="stats-list">
         {courses.length === 0 ? (

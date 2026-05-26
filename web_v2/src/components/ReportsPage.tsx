@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { HistoryStatsResponse, ReviewReportResponse } from '../types'
+import { StatsQualityChips } from './StatsQualityChips'
 
 interface ReportsPageProps {
   stats: HistoryStatsResponse
@@ -30,12 +31,13 @@ export function ReportsPage({
 
   return (
     <section className="reports-workspace">
-      <div className="section-head">
+      <div className="section-head stats-head">
         <div>
           <p className="eyebrow">Fact-bound review</p>
           <h1>Reports</h1>
           <p>Stored and generated round or trend reviews, tied to source facts and missing data.</p>
         </div>
+        <StatsQualityChips data={stats} labels={['reports']} />
       </div>
 
       <div className="reports-layout">

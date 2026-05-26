@@ -1,5 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
+import { StatsQualityChips } from './StatsQualityChips'
 import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface HoleStatsProps {
@@ -16,6 +17,7 @@ export function HoleStats({ data, onSelectRef }: HoleStatsProps) {
           <h1>Hole Stats</h1>
           <p>Repeated hole outcomes and source scorecard refs.</p>
         </div>
+        <StatsQualityChips data={data} labels={['geometry']} />
       </div>
       <div className="stats-list">
         {data.holes.length === 0 ? (

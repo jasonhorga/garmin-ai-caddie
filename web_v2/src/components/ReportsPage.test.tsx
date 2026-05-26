@@ -19,7 +19,7 @@ const stats: HistoryStatsResponse = {
   holes: [],
   clubs: [],
   issues: [],
-  dataQuality: [],
+  dataQuality: [{ label: 'reports', state: 'partial', ready: 1, total: 3, refs: ['900002', '900003'] }],
   drillDown: { roundRefs: ['900001', '900002'] },
 }
 
@@ -53,6 +53,7 @@ describe('ReportsPage', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Reports' })).toBeInTheDocument()
+    expect(screen.getByText('reports partial 1/3')).toHaveClass('quality-partial')
     expect(screen.getByRole('option', { name: 'Recent 10' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Q 2026-Q2' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Year 2026' })).toBeInTheDocument()

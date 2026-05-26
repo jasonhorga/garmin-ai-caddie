@@ -41,7 +41,7 @@ const statsFixture: HistoryStatsResponse = {
   ],
   clubs: [],
   issues: [],
-  dataQuality: [],
+  dataQuality: [{ label: 'geometry', state: 'missing', ready: 0, partial: 0, total: 2, refs: ['900001:7', '900002:7'] }],
   drillDown: {},
 }
 
@@ -55,6 +55,7 @@ describe('HoleStats', () => {
     expect(screen.getByText('2 samples')).toBeInTheDocument()
     expect(screen.getByText('+1.5 avg')).toBeInTheDocument()
     expect(screen.getByText('+3 worst')).toBeInTheDocument()
+    expect(screen.getByText('geometry missing 0/2')).toHaveClass('quality-missing')
     expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
     expect(screen.getByText('Bogey')).toBeInTheDocument()
     expect(screen.getByText('Double+')).toBeInTheDocument()

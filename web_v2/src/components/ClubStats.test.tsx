@@ -26,7 +26,10 @@ const statsFixture: HistoryStatsResponse = {
     },
   ],
   issues: [],
-  dataQuality: [],
+  dataQuality: [
+    { label: 'shots', state: 'partial', ready: 1, total: 2, refs: ['900002'] },
+    { label: 'shot_rows', state: 'good', ready: 6, total: 6, refs: [] },
+  ],
   drillDown: {},
 }
 
@@ -42,6 +45,8 @@ describe('ClubStats', () => {
     expect(screen.getByText('p90 255')).toBeInTheDocument()
     expect(screen.getByText('max 270')).toBeInTheDocument()
     expect(screen.getByText('low confidence')).toHaveClass('confidence-low')
+    expect(screen.getByText('shots partial 1/2')).toHaveClass('quality-partial')
+    expect(screen.getByText('shot_rows good 6/6')).toHaveClass('quality-good')
     expect(screen.getByRole('button', { name: 'Open source 900001:1:0' })).toBeInTheDocument()
   })
 
