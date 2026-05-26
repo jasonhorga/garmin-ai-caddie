@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ai_caddie.llm_providers import StaticProvider, build_text_provider
+from ai_caddie.llm_providers import build_text_provider
 from ai_caddie.reports import (
     audit_report_narrative,
     build_report_inferences,
     build_round_report_facts,
     build_trend_report_facts,
+    generate_deterministic_report,
     generate_report,
     latest_report_record,
     list_report_records,
@@ -121,7 +122,7 @@ def load_round_report_response(round_id: str) -> ReviewReportResponse:
     if stored and isinstance(stored.get("report"), dict):
         return _report_response(stored["report"], kind="round", subject_id=round_id)
     facts = build_round_report_facts(_history_stats_dict(), round_id, history_data=_history_data())
-    report = generate_report(facts, StaticProvider("No generated report stored yet."))
+    report = generate_deterministic_report(facts)
     return _report_response(report, kind="round", subject_id=round_id)
 
 
@@ -137,7 +138,7 @@ def load_trend_report_response(period: str) -> ReviewReportResponse:
     if stored and isinstance(stored.get("report"), dict):
         return _report_response(stored["report"], kind="trend", subject_id=period)
     facts = build_trend_report_facts(_history_stats_dict(), period)
-    report = generate_report(facts, StaticProvider("No generated trend report stored yet."))
+    report = generate_deterministic_report(facts)
     return _report_response(report, kind="trend", subject_id=period)
 
 

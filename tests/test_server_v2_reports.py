@@ -18,7 +18,7 @@ class ServerV2ReportsTests(unittest.TestCase):
     def tearDown(self) -> None:
         get_settings.cache_clear()
 
-    def test_get_round_report_returns_stub_fact_bound_report(self) -> None:
+    def test_get_round_report_returns_deterministic_fact_bound_report(self) -> None:
         client = TestClient(app)
 
         with TemporaryDirectory() as tmp:
@@ -38,6 +38,11 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertIn("inferencesMade", payload)
         self.assertTrue(payload["inferencesMade"])
         self.assertTrue(all(row["sourceRefs"] for row in payload["inferencesMade"]))
+        self.assertEqual(payload["provider"], "DeterministicReportProvider")
+        self.assertEqual(payload["model"], "deterministic-facts-v1")
+        self.assertNotIn("No generated report stored yet", payload["narrative"])
+        self.assertIn("Round score was", payload["narrative"])
+        self.assertEqual(payload["factBinding"]["state"], "bound")
 
     def test_report_facts_include_course_distribution_from_history_stats_api_model(self) -> None:
         client = TestClient(app)
@@ -155,7 +160,7 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(payload["factBinding"]["unsupportedClaimCount"], 1)
         self.assertEqual(payload["confidence"], "low")
 
-    def test_get_trend_report_returns_stub_fact_bound_report(self) -> None:
+    def test_get_trend_report_returns_deterministic_fact_bound_report(self) -> None:
         client = TestClient(app)
 
         response = client.get("/api/v2/reports/trend/recent_10")
@@ -166,6 +171,11 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(payload["kind"], "trend")
         self.assertIn("factsUsed", payload)
         self.assertIn("missingData", payload)
+        self.assertEqual(payload["provider"], "DeterministicReportProvider")
+        self.assertEqual(payload["model"], "deterministic-facts-v1")
+        self.assertNotIn("No generated trend report stored yet", payload["narrative"])
+        self.assertIn("Recent review is based on", payload["narrative"])
+        self.assertEqual(payload["factBinding"]["state"], "bound")
 
     def test_generated_trend_report_is_stored_and_returned_by_get(self) -> None:
         client = TestClient(app)

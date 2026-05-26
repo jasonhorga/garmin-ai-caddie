@@ -958,6 +958,70 @@ def build_report_inferences(
     return rows
 
 
+def _sentence(text: object) -> str:
+    value = str(text).strip()
+    if not value:
+        return ""
+    if value[-1] in ".!?。！？":
+        return value
+    return f"{value}."
+
+
+def _deterministic_report_narrative(
+    *,
+    kind: str,
+    facts_used: list[dict[str, Any]],
+    missing_data: list[dict[str, Any]],
+) -> str:
+    inferences = build_report_inferences(facts_used, missing_data)
+    claims = [_sentence(row.get("claim")) for row in inferences if isinstance(row, dict) and row.get("claim")]
+    if not claims:
+        claims = [f"Review is constrained to {len(facts_used)} structured facts."]
+
+    title = "Round review" if kind == "round" else "Trend review"
+    parts = [f"{title}: {' '.join(claims[:5])}"]
+    missing_labels = _missing_labels(missing_data)
+    if missing_labels:
+        parts.append(f"Missing data: {', '.join(missing_labels[:8])}.")
+    parts.append("Every statement is bound to the structured facts and source references in this report.")
+    return redact_private_text(" ".join(parts))
+
+
+def _report_payload(
+    safe_facts: dict[str, Any],
+    *,
+    provider: str,
+    model: str,
+    narrative: str,
+) -> dict[str, Any]:
+    facts_used = safe_facts.get("factsUsed", []) if isinstance(safe_facts.get("factsUsed"), list) else []
+    missing_data = safe_facts.get("missingData", []) if isinstance(safe_facts.get("missingData"), list) else []
+    kind = str(safe_facts.get("kind", "round"))
+    subject_id = redact_private_text(safe_facts.get("subjectId", ""))
+    source_refs = report_source_refs({"factsUsed": facts_used, "missingData": missing_data})
+    safe_narrative = redact_private_text(narrative)
+    unsupported_claims = audit_report_narrative(safe_narrative, facts_used, missing_data)
+    confidence = "low" if unsupported_claims else _confidence(facts_used, missing_data)
+    return {
+        "schema": "ai-caddie-review-report-v1",
+        "kind": kind,
+        "subjectId": subject_id,
+        "sourceRefs": source_refs,
+        "provider": provider,
+        "model": model,
+        "factsUsed": facts_used,
+        "missingData": missing_data,
+        "inferencesMade": build_report_inferences(facts_used, missing_data),
+        "unsupportedClaims": unsupported_claims,
+        "factBinding": {
+            "state": "needs_review" if unsupported_claims else "bound",
+            "unsupportedClaimCount": len(unsupported_claims),
+        },
+        "narrative": safe_narrative,
+        "confidence": confidence,
+    }
+
+
 def audit_report_narrative(
     narrative: str,
     facts_used: list[dict[str, Any]],
@@ -1183,11 +1247,6 @@ def _missing_data_callout_allowed(sentence: str, category: str, missing_labels: 
 
 def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, Any]:
     safe_facts = _redact_value(facts)
-    facts_used = safe_facts.get("factsUsed", []) if isinstance(safe_facts.get("factsUsed"), list) else []
-    missing_data = safe_facts.get("missingData", []) if isinstance(safe_facts.get("missingData"), list) else []
-    kind = str(safe_facts.get("kind", "round"))
-    subject_id = redact_private_text(safe_facts.get("subjectId", ""))
-    source_refs = report_source_refs({"factsUsed": facts_used, "missingData": missing_data})
 
     prompt = (
         "Write an evidence-bound golf review. Use only factsUsed. "
@@ -1202,24 +1261,22 @@ def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, 
         ],
         max_tokens=1200,
     )
-    safe_narrative = redact_private_text(narrative)
-    unsupported_claims = audit_report_narrative(safe_narrative, facts_used, missing_data)
-    confidence = "low" if unsupported_claims else _confidence(facts_used, missing_data)
-    return {
-        "schema": "ai-caddie-review-report-v1",
-        "kind": kind,
-        "subjectId": subject_id,
-        "sourceRefs": source_refs,
-        "provider": provider.__class__.__name__,
-        "model": provider.model,
-        "factsUsed": facts_used,
-        "missingData": missing_data,
-        "inferencesMade": build_report_inferences(facts_used, missing_data),
-        "unsupportedClaims": unsupported_claims,
-        "factBinding": {
-            "state": "needs_review" if unsupported_claims else "bound",
-            "unsupportedClaimCount": len(unsupported_claims),
-        },
-        "narrative": safe_narrative,
-        "confidence": confidence,
-    }
+    return _report_payload(
+        safe_facts,
+        provider=provider.__class__.__name__,
+        model=provider.model,
+        narrative=narrative,
+    )
+
+
+def generate_deterministic_report(facts: dict[str, Any]) -> dict[str, Any]:
+    safe_facts = _redact_value(facts)
+    facts_used = safe_facts.get("factsUsed", []) if isinstance(safe_facts.get("factsUsed"), list) else []
+    missing_data = safe_facts.get("missingData", []) if isinstance(safe_facts.get("missingData"), list) else []
+    kind = str(safe_facts.get("kind", "round"))
+    return _report_payload(
+        safe_facts,
+        provider="DeterministicReportProvider",
+        model="deterministic-facts-v1",
+        narrative=_deterministic_report_narrative(kind=kind, facts_used=facts_used, missing_data=missing_data),
+    )
