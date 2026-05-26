@@ -207,20 +207,20 @@ export function fetchHoleMap(
   )
 }
 
-export function fetchRoundReport(roundId: string): Promise<ReviewReportResponse> {
-  return getJson<ReviewReportResponse>(`/api/v2/reports/round/${encodeURIComponent(roundId)}`)
+export function fetchRoundReport(roundId: string, adminToken?: string): Promise<ReviewReportResponse> {
+  return getJson<ReviewReportResponse>(`/api/v2/reports/round/${encodeURIComponent(roundId)}`, adminToken)
 }
 
-export function fetchReportIndex(): Promise<ReviewReportIndexResponse> {
-  return getJson<ReviewReportIndexResponse>('/api/v2/reports')
+export function fetchReportIndex(adminToken?: string): Promise<ReviewReportIndexResponse> {
+  return getJson<ReviewReportIndexResponse>('/api/v2/reports', adminToken)
 }
 
 export function generateRoundReport(roundId: string, adminToken?: string): Promise<ReviewReportResponse> {
   return postEmpty<ReviewReportResponse>(`/api/v2/reports/round/${encodeURIComponent(roundId)}/generate`, adminToken)
 }
 
-export function fetchTrendReport(period: string): Promise<ReviewReportResponse> {
-  return getJson<ReviewReportResponse>(`/api/v2/reports/trend/${encodeURIComponent(period)}`)
+export function fetchTrendReport(period: string, adminToken?: string): Promise<ReviewReportResponse> {
+  return getJson<ReviewReportResponse>(`/api/v2/reports/trend/${encodeURIComponent(period)}`, adminToken)
 }
 
 export function generateTrendReport(period: string, adminToken?: string): Promise<ReviewReportResponse> {

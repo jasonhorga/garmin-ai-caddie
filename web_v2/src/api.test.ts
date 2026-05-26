@@ -19,6 +19,7 @@ import {
   fetchReadiness,
   fetchWeatherSnapshot,
   fetchReportIndex,
+  fetchRoundReport,
   fetchTrendReport,
   analyzeMedia,
   generateRoundReport,
@@ -266,6 +267,36 @@ describe('report API helpers', () => {
     })
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/trend/quarter%3A2026-Q2/generate', {
       method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('sends admin token headers for protected report reads', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-review-report-v1',
+        kind: 'round',
+        provider: 'StaticProvider',
+        model: 'static',
+        factsUsed: [],
+        missingData: [],
+        narrative: 'round review',
+        confidence: 'medium',
+      }),
+    })))
+
+    await fetchReportIndex('admin-secret')
+    await fetchRoundReport('900001', 'admin-secret')
+    await fetchTrendReport('quarter:2026-Q2', 'admin-secret')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/reports', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/round/900001', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(3, '/api/v2/reports/trend/quarter%3A2026-Q2', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })

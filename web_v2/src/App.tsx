@@ -179,7 +179,7 @@ export default function App() {
 
   function loadReportIndex() {
     setReportIndexState({ status: 'loading' })
-    fetchReportIndex()
+    fetchReportIndex(currentAdminToken())
       .then((data) => setReportIndexState({ status: 'ready', data }))
       .catch((error: unknown) =>
         setReportIndexState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
@@ -366,7 +366,7 @@ export default function App() {
   }
 
   function handleLoadTrendReport(period: string) {
-    void loadReport(() => fetchTrendReport(period))
+    void loadReport(() => fetchTrendReport(period, currentAdminToken()))
   }
 
   function handleGenerateTrendReport(period: string) {
@@ -374,7 +374,7 @@ export default function App() {
   }
 
   function handleLoadRoundReport(roundId: string) {
-    void loadReport(() => fetchRoundReport(roundId))
+    void loadReport(() => fetchRoundReport(roundId, currentAdminToken()))
   }
 
   function handleGenerateRoundReport(roundId: string) {

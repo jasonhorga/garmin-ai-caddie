@@ -252,6 +252,25 @@ def _report_response(kind: str = "round") -> dict[str, object]:
     }
 
 
+def _report_index_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-review-report-index-v1",
+        "total": 1,
+        "reports": [
+            {
+                "id": "report-1",
+                "storedAt": "2026-05-25T00:00:00Z",
+                "kind": "round",
+                "subjectId": "900001",
+                "provider": "static",
+                "model": "static",
+                "confidence": "medium",
+                "sourceRefs": ["900001"],
+            }
+        ],
+    }
+
+
 class ServerV2AdminProtectionTests(unittest.TestCase):
     def test_admin_token_required_for_caddie_decision_and_audit_routes_when_configured(self) -> None:
         client = TestClient(app)
@@ -412,6 +431,30 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         annotations_handler.assert_not_called()
         target_handler.assert_not_called()
         self.assertNotIn("admin-secret", annotations.text + target_annotations.text)
+
+    def test_admin_token_required_for_report_reads_when_configured(self) -> None:
+        client = TestClient(app)
+        index_handler = Mock(return_value=_report_index_response())
+        round_handler = Mock(return_value=_report_response("round"))
+        trend_handler = Mock(return_value=_report_response("trend"))
+
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.load_report_index_response", index_handler),
+            patch("server_v2.main.load_round_report_response", round_handler),
+            patch("server_v2.main.load_trend_report_response", trend_handler),
+        ):
+            index = client.get("/api/v2/reports")
+            round_report = client.get("/api/v2/reports/round/900001")
+            trend_report = client.get("/api/v2/reports/trend/recent_10")
+
+        self.assertEqual(index.status_code, 401)
+        self.assertEqual(round_report.status_code, 401)
+        self.assertEqual(trend_report.status_code, 401)
+        index_handler.assert_not_called()
+        round_handler.assert_not_called()
+        trend_handler.assert_not_called()
+        self.assertNotIn("admin-secret", index.text + round_report.text + trend_report.text)
 
     def test_mobile_package_and_reconciliation_reads_remain_public_without_admin_token(self) -> None:
         client = TestClient(app)
