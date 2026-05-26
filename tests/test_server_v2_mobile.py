@@ -51,6 +51,24 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["course"]["globalId"], 41825)
         self.assertEqual(len(payload["holes"]), 9)
 
+    def test_mobile_round_package_tee_seed_can_drive_caddie_decision(self) -> None:
+        client = TestClient(app)
+
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            package_response = client.get("/api/v2/mobile/rounds/900001/package")
+            seed = next(row for row in package_response.json()["caddieContextSeeds"] if row["hole"] == 1)
+            decision_response = client.post(
+                "/api/v2/caddie/decision",
+                json={"shotType": "tee", "context": seed["context"]},
+            )
+
+        self.assertEqual(decision_response.status_code, 200)
+        payload = decision_response.json()
+        self.assertEqual(payload["shotType"], "tee")
+        self.assertEqual([row["id"] for row in payload["options"]], ["safe", "stock", "attack"])
+        self.assertIn(payload["selectedOptionId"], {"safe", "stock", "attack"})
+        self.assertGreaterEqual(len(payload["evidence"]), 1)
+
     def test_mobile_event_batch_is_idempotent_and_temp_rooted(self) -> None:
         client = TestClient(app)
         event = {
@@ -129,6 +147,39 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         self.assertEqual(log_text.count("event-1"), 1)
         self.assertEqual(log_text.count("event-2"), 1)
+
+    def test_mobile_event_idempotency_is_scoped_by_round(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "shared-event-id",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+            "payload": {"strokes": 4},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                first = client.post(
+                    "/api/v2/mobile/rounds/round-a/events",
+                    headers={"Idempotency-Key": "shared-batch"},
+                    json={"roundId": "round-a", "events": [{**event, "roundId": "round-a"}]},
+                )
+                second = client.post(
+                    "/api/v2/mobile/rounds/round-b/events",
+                    headers={"Idempotency-Key": "shared-batch"},
+                    json={"roundId": "round-b", "events": [{**event, "roundId": "round-b"}]},
+                )
+                log_text = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["acceptedEventIds"], ["shared-event-id"])
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["acceptedEventIds"], ["shared-event-id"])
+        self.assertFalse(second.json()["duplicate"])
+        self.assertEqual(log_text.count("shared-event-id"), 2)
 
     def test_mobile_event_batch_rejects_event_round_id_mismatch_without_writing(self) -> None:
         client = TestClient(app)

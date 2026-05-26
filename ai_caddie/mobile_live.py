@@ -115,6 +115,81 @@ def _hole_stats_row(stats: dict[str, Any], *, course_key: str, hole: int) -> dic
     return {}
 
 
+def _decision_club_profiles(club_profiles: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for profile in club_profiles:
+        club_name = str(profile.get("clubName") or "").strip()
+        if not club_name:
+            continue
+        median = profile.get("median_m")
+        if median is None:
+            median = profile.get("median")
+        if median is None:
+            continue
+        rows[club_name] = {
+            "clubName": club_name,
+            "sampleSize": int(profile.get("sampleSize") or 0),
+            "median": float(median),
+            "p10": float(profile.get("p10_m") if profile.get("p10_m") is not None else profile.get("p10") or median),
+            "p90": float(profile.get("p90_m") if profile.get("p90_m") is not None else profile.get("p90") or median),
+            "median_m": float(median),
+            "p10_m": float(profile.get("p10_m") if profile.get("p10_m") is not None else profile.get("p10") or median),
+            "p90_m": float(profile.get("p90_m") if profile.get("p90_m") is not None else profile.get("p90") or median),
+        }
+    return rows
+
+
+def _tee_candidate_routes(hole: dict[str, Any], club_profiles: list[dict[str, Any]], hazards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = sorted(
+        [profile for profile in club_profiles if float(profile.get("median_m") or 0) > 0],
+        key=lambda profile: (-float(profile.get("median_m") or 0), str(profile.get("clubName") or "")),
+    )
+    if not rows:
+        return []
+    longest = rows[0]
+    safe = next((row for row in rows[1:] if float(row.get("median_m") or 0) >= 120.0), longest)
+    stock_carry = float(longest.get("median_m") or 0)
+    safe_carry = float(safe.get("median_m") or stock_carry * 0.85)
+    attack_carry = max(stock_carry, float(longest.get("p90_m") or stock_carry))
+    risk_kind = str((hazards[0] or {}).get("kind") or "hazard") if hazards else "hazard"
+    attack_risks = [{"kind": risk_kind, "id": str((hazards[0] or {}).get("id") or "mapped_hazard")}] if hazards else []
+    return [
+        {
+            "id": "conservative_layup",
+            "label": "safe layup",
+            "carry_m": round(safe_carry, 1),
+            "landingLocal": None,
+            "expectedSurface": {"kind": "fairway"},
+            "nearRisks": [],
+            "lineRisks": [],
+            "riskScore": 0,
+            "source": "offline_package_seed",
+        },
+        {
+            "id": "stock_line",
+            "label": "stock line",
+            "carry_m": round(stock_carry, 1),
+            "landingLocal": None,
+            "expectedSurface": {"kind": "fairway"},
+            "nearRisks": [],
+            "lineRisks": [],
+            "riskScore": 1,
+            "source": "offline_package_seed",
+        },
+        {
+            "id": "aggressive_line",
+            "label": "attack line",
+            "carry_m": round(attack_carry, 1),
+            "landingLocal": None,
+            "expectedSurface": {"kind": "fairway" if not hazards else "risk_edge"},
+            "nearRisks": [],
+            "lineRisks": attack_risks,
+            "riskScore": 4 if hazards else 3,
+            "source": "offline_package_seed",
+        },
+    ]
+
+
 def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     geometry = {
         "coverage": fallback_coverage,
@@ -172,9 +247,11 @@ def _caddie_context_seeds(
     stats: dict[str, Any],
     holes: list[dict[str, Any]],
     course_key: str,
+    club_profiles: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     global_id = int(round_row.get("globalId") or 0)
     course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
+    decision_clubs = _decision_club_profiles(club_profiles)
     seeds: list[dict[str, Any]] = []
     for hole in holes:
         number = int(hole.get("number") or 0)
@@ -204,6 +281,8 @@ def _caddie_context_seeds(
             "yards": hole.get("yards"),
             "geometry": geometry,
             "hazards": geometry.get("hazards") or [],
+            "clubProfiles": decision_clubs,
+            "candidateRoutes": _tee_candidate_routes(hole, club_profiles, geometry.get("hazards") or []),
             "historicalHole": {
                 "courseKey": hole_stats.get("courseKey") or course_key,
                 "hole": number,
@@ -318,6 +397,7 @@ def build_live_round_package(
             stats=stats,
             holes=holes,
             course_key=course_key,
+            club_profiles=club_profiles,
         ),
         "weatherSnapshot": _weather_snapshot_for_package(round_id, root=root),
         "clubProfiles": club_profiles,
@@ -364,17 +444,19 @@ def append_event_batch(
                 continue
             row = json.loads(line)
             server_sequence += 1
-            existing_keys.add(str(row.get("idempotencyKey") or ""))
+            row_round_id = str(row.get("roundId") or "")
+            existing_keys.add((row_round_id, str(row.get("idempotencyKey") or "")))
             event = row.get("event") or {}
             if isinstance(event, dict) and event.get("eventId"):
-                existing_event_ids.add(str(event.get("eventId")))
+                existing_event_ids.add((row_round_id, str(event.get("eventId"))))
     requested_event_ids = [str(event.get("eventId") or "") for event in events if event.get("eventId")]
-    if idempotency_key in existing_keys:
+    round_key = str(round_id)
+    if (round_key, idempotency_key) in existing_keys:
         return {
             "accepted": 0,
             "duplicate": True,
             "acceptedEventIds": [],
-            "duplicateEventIds": [event_id for event_id in requested_event_ids if event_id in existing_event_ids],
+            "duplicateEventIds": [event_id for event_id in requested_event_ids if (round_key, event_id) in existing_event_ids],
             "serverSequence": server_sequence,
         }
     accepted_event_ids = []
@@ -382,12 +464,13 @@ def append_event_batch(
     with path.open("a", encoding="utf-8") as handle:
         for event in events:
             event_id = str(event.get("eventId") or "")
-            if event_id and event_id in existing_event_ids:
+            event_key = (round_key, event_id)
+            if event_id and event_key in existing_event_ids:
                 duplicate_event_ids.append(event_id)
                 continue
             server_sequence += 1
             if event_id:
-                existing_event_ids.add(event_id)
+                existing_event_ids.add(event_key)
                 accepted_event_ids.append(event_id)
             handle.write(
                 json.dumps(
