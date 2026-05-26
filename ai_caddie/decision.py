@@ -653,13 +653,52 @@ def _strategy_mode(context: dict[str, Any]) -> str:
     return str(context.get("strategyMode") or context.get("strategy") or "stock").strip().lower()
 
 
-def _select_option(options: list[dict[str, Any]], strategy_mode: str | None = None) -> dict[str, Any] | None:
+def _attack_option_is_playable(
+    attack: dict[str, Any],
+    *,
+    safest: dict[str, Any],
+    stock: dict[str, Any] | None,
+    context: dict[str, Any] | None,
+) -> bool:
+    geometry = (context or {}).get("geometry") or {}
+    if not geometry.get("hasHazards") or not geometry.get("hasMeshes"):
+        return False
+    if _has_weak_club_sample(attack):
+        return False
+    clearance = attack.get("hazardClearance") or {}
+    if clearance.get("state") == "cannot_clear":
+        return False
+    minimum_clearance = clearance.get("minimumClearance_m")
+    if minimum_clearance is not None and _float(minimum_clearance) < 8.0:
+        return False
+    dispersion = attack.get("dispersion") or {}
+    if dispersion.get("state") != "modeled":
+        return False
+    if _float(dispersion.get("carryWindow_m"), 99.0) > 35.0:
+        return False
+    baseline = stock or safest
+    return _float(attack.get("riskScore")) <= _float(baseline.get("riskScore")) + 3.0
+
+
+def _select_option(
+    options: list[dict[str, Any]],
+    strategy_mode: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     if not options:
         return None
     safest = min(options, key=lambda row: (row["riskScore"], row["carry_m"]))
     if strategy_mode in {"protect_score", "conservative", "safe"}:
         return safest
     stock = next((row for row in options if row["id"] == "stock"), None)
+    attack = next((row for row in options if row["id"] == "attack"), None)
+    if strategy_mode in {"attack", "aggressive"} and attack and _attack_option_is_playable(
+        attack,
+        safest=safest,
+        stock=stock,
+        context=context,
+    ):
+        return attack
     if stock and stock["riskScore"] <= safest["riskScore"] + 1:
         return stock
     return safest
@@ -1299,7 +1338,7 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
 
 
 def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list[dict[str, Any]]) -> dict[str, Any]:
-    selected = _select_option(options, _strategy_mode(analysis))
+    selected = _select_option(options, _strategy_mode(analysis), analysis)
     avoid_zones = selected.get("avoidZones", []) if selected else []
     sequences = _club_sequences(analysis)
     selected_sequence = _selected_sequence(sequences, selected)
@@ -1351,7 +1390,7 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     routes = candidate_routes or _routes_from_route_evidence(analysis)
     options = [_option_from_route(route, analysis) for route in routes]
     options = _ordered_options(options)
-    selected = _select_option(options, _strategy_mode(analysis))
+    selected = _select_option(options, _strategy_mode(analysis), analysis)
     forbidden = selected.get("forbiddenZones", []) if selected else []
     sequences = _club_sequences(analysis)
     selected_sequence = _selected_sequence(sequences, selected)

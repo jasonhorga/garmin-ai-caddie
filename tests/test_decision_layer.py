@@ -209,6 +209,28 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertTrue(any(row["kind"] == "live_location" for row in plan["evidence"]))
         self.assertTrue(any(row["kind"] == "strategy" for row in plan["evidence"]))
 
+    def test_strategy_mode_attack_selects_attack_when_clearance_and_dispersion_allow(self) -> None:
+        context = approach_fixture()
+        context["strategyMode"] = "attack"
+
+        plan = recommend_approach(context)
+
+        self.assertEqual(plan["selectedOptionId"], "attack")
+        self.assertGreaterEqual(plan["selectedOption"]["hazardClearance"]["minimumClearance_m"], 8.0)
+        self.assertEqual(plan["selectedOption"]["dispersion"]["state"], "modeled")
+        self.assertEqual(plan["confidence"]["level"], "high")
+        self.assertTrue(any(row["kind"] == "strategy" for row in plan["evidence"]))
+
+    def test_strategy_mode_attack_does_not_override_low_confidence_geometry(self) -> None:
+        context = approach_fixture(has_geometry=False)
+        context["strategyMode"] = "attack"
+
+        plan = recommend_approach(context)
+
+        self.assertNotEqual(plan["selectedOptionId"], "attack")
+        self.assertEqual(plan["confidence"]["level"], "low")
+        self.assertIn("meshes", {row["label"] for row in plan["missingData"]})
+
     def test_approach_options_expose_clearance_dispersion_and_scoring_impact(self) -> None:
         plan = recommend_approach(approach_fixture())
 
