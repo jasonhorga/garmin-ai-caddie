@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from fastapi import HTTPException
+
 from ai_caddie.annotations import add_annotation, annotations_for_target, list_annotations
 
 from .models import (
@@ -31,13 +33,16 @@ def list_annotation_response() -> AnnotationListResponse:
 
 
 def create_annotation_response(request: AnnotationCreateRequest) -> AnnotationCreateResponse:
-    record = add_annotation(
-        request.targetType,
-        request.targetId,
-        request.kind,
-        request.payload,
-        root=ANNOTATION_ROOT,
-    )
+    try:
+        record = add_annotation(
+            request.targetType,
+            request.targetId,
+            request.kind,
+            request.payload,
+            root=ANNOTATION_ROOT,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return AnnotationCreateResponse(
         schema="ai-caddie-annotation-create-v1",
         annotation=_record(record),

@@ -71,6 +71,48 @@ class ServerV2AnnotationTests(unittest.TestCase):
 
         self.assertEqual([response.status_code for response in responses], [200, 200, 200, 200])
 
+    def test_annotation_api_accepts_issue_tag_removal_and_rejects_invalid_removal_requests(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.annotations.ANNOTATION_ROOT", root):
+                valid_remove = client.post(
+                    "/api/v2/annotations",
+                    json={
+                        "targetType": "hole",
+                        "targetId": "round-1:7",
+                        "kind": "issue_tag_removed",
+                        "payload": {"tag": "approach_short"},
+                    },
+                )
+                invalid_payload = client.post(
+                    "/api/v2/annotations",
+                    json={
+                        "targetType": "hole",
+                        "targetId": "round-1:7",
+                        "kind": "issue_tag_removed",
+                        "payload": {},
+                    },
+                )
+                invalid_kind = client.post(
+                    "/api/v2/annotations",
+                    json={
+                        "targetType": "hole",
+                        "targetId": "round-1:7",
+                        "kind": "issue_tag_remove",
+                        "payload": {"tag": "approach_short"},
+                    },
+                )
+
+        self.assertEqual(valid_remove.status_code, 200)
+        self.assertEqual(valid_remove.json()["annotation"]["kind"], "issue_tag_removed")
+        self.assertEqual(invalid_payload.status_code, 422)
+        self.assertEqual(invalid_kind.status_code, 422)
+        self.assertNotIn(tmp, valid_remove.text)
+        self.assertNotIn(tmp, invalid_payload.text)
+        self.assertNotIn(tmp, invalid_kind.text)
+
     def test_annotation_post_rejects_invalid_target_and_kind(self) -> None:
         client = TestClient(app)
 

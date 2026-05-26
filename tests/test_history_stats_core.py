@@ -255,6 +255,33 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(annotation_quality["state"], "good")
         self.assertEqual(annotation_quality["ready"], 1)
 
+    def test_removed_manual_issue_tags_are_excluded_from_active_issue_stats(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation(
+                "hole",
+                "900001:7",
+                "issue_tag",
+                {"tag": "approach_short"},
+                root=root,
+            )
+            add_annotation(
+                "hole",
+                "900001:7",
+                "issue_tag_removed",
+                {"tag": "approach_short"},
+                root=root,
+            )
+
+            stats = build_history_stats(fixture_history_data(), data_mode="fixture", annotations_root=root)
+
+        self.assertNotIn("approach_short", [row["issue"] for row in stats["issues"]])
+        hole = next(row for row in stats["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
+        self.assertNotIn("approach_short", [row["issue"] for row in hole["repeatedIssues"]])
+
+        annotation_quality = next(row for row in stats["dataQuality"] if row["label"] == "annotations")
+        self.assertEqual(annotation_quality["ready"], 2)
+
     def test_manual_corrections_update_derived_stats_without_mutating_raw_facts(self) -> None:
         data = fixture_history_data()
         base_stats = build_history_stats(data, data_mode="fixture")

@@ -15,6 +15,7 @@ VALID_KINDS = {
     "hole_note",
     "shot_note",
     "issue_tag",
+    "issue_tag_removed",
     "club_correction",
     "lie_correction",
     "penalty_correction",
@@ -41,6 +42,8 @@ def validate_annotation(target_type: str, kind: str, payload: dict[str, Any]) ->
         raise ValueError(f"unsupported annotation kind: {kind}")
     if not isinstance(payload, dict):
         raise ValueError("annotation payload must be an object")
+    if kind in {"issue_tag", "issue_tag_removed"} and not str(payload.get("tag") or "").strip():
+        raise ValueError(f"{kind} payload.tag is required")
 
 
 def add_annotation(

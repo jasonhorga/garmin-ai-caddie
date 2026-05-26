@@ -84,6 +84,16 @@ describe('CorrectionsPage', () => {
       },
       payload: { rating: 'too_aggressive', note: 'Water was too close' },
     },
+    {
+      option: 'Remove issue tag',
+      targetType: 'hole',
+      targetId: '900001:7',
+      kind: 'issue_tag_removed',
+      fill: async () => {
+        await userEvent.type(screen.getByLabelText('Issue tag'), 'approach_short')
+      },
+      payload: { tag: 'approach_short' },
+    },
   ])('submits $option payloads', async ({ option, targetType, targetId, kind, fill, payload }) => {
     const onCreateAnnotation = renderPage()
 
@@ -100,5 +110,32 @@ describe('CorrectionsPage', () => {
       kind: kind as AnnotationKind,
       payload,
     })
+  })
+
+  it('labels issue tag removal records in annotation history', () => {
+    render(
+      <CorrectionsPage
+        data={{
+          schema: 'ai-caddie-annotations-v1',
+          total: 1,
+          target: null,
+          annotations: [
+            {
+              id: 'ann-remove',
+              createdAt: '2026-05-25T10:40:00Z',
+              targetType: 'hole',
+              targetId: '900001:7',
+              kind: 'issue_tag_removed' as AnnotationKind,
+              payload: { tag: 'approach_short' },
+              source: 'manual',
+            },
+          ],
+        }}
+        onCreateAnnotation={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Remove issue tag' })).toBeInTheDocument()
+    expect(screen.getByText('approach_short')).toBeInTheDocument()
   })
 })

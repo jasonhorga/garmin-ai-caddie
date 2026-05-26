@@ -15,6 +15,7 @@ type CorrectionFormKind =
   | 'putt_correction'
   | 'score_correction'
   | 'issue_tag'
+  | 'issue_tag_removed'
   | 'weather_context_note'
   | 'strategy_note'
   | 'caddie_feedback'
@@ -32,6 +33,7 @@ const correctionKinds: Array<{ value: CorrectionFormKind; label: string }> = [
   { value: 'putt_correction', label: 'Putt correction' },
   { value: 'score_correction', label: 'Score correction' },
   { value: 'issue_tag', label: 'Issue tag' },
+  { value: 'issue_tag_removed', label: 'Remove issue tag' },
   { value: 'weather_context_note', label: 'Weather note' },
   { value: 'strategy_note', label: 'Strategy note' },
   { value: 'caddie_feedback', label: 'Caddie feedback' },
@@ -46,6 +48,7 @@ function labelKind(kind: AnnotationKind) {
     hole_note: 'Hole note',
     shot_note: 'Shot note',
     issue_tag: 'Issue tag',
+    issue_tag_removed: 'Remove issue tag',
     club_correction: 'Club correction',
     lie_correction: 'Lie correction',
     penalty_correction: 'Penalty correction',
@@ -106,7 +109,7 @@ function payloadSummary(record: AnnotationRecord) {
     if (strokes && reason) return `${strokes} stroke: ${reason}`
     if (strokes) return `${strokes} penalty stroke`
   }
-  if (record.kind === 'issue_tag') {
+  if (record.kind === 'issue_tag' || record.kind === 'issue_tag_removed') {
     const tag = compactPayloadValue(payload.tag)
     if (tag) return tag
   }
@@ -192,8 +195,8 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
       if (from !== null) payload.from = from
       if (to !== null) payload.to = to
       if (trimmedNote) payload.note = trimmedNote
-    } else if (correctionKind === 'issue_tag') {
-      kind = 'issue_tag'
+    } else if (correctionKind === 'issue_tag' || correctionKind === 'issue_tag_removed') {
+      kind = correctionKind
       if (issueTag.trim()) payload.tag = issueTag.trim()
       if (trimmedNote) payload.note = trimmedNote
     } else if (correctionKind === 'weather_context_note') {
@@ -363,7 +366,7 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
               </>
             ) : null}
 
-            {correctionKind === 'issue_tag' ? (
+            {correctionKind === 'issue_tag' || correctionKind === 'issue_tag_removed' ? (
               <label>
                 <span>Issue tag</span>
                 <input value={issueTag} onChange={(event) => setIssueTag(event.target.value)} />

@@ -73,6 +73,32 @@ class AnnotationStoreTests(unittest.TestCase):
 
             self.assertEqual(list_annotations(root=root), [])
 
+    def test_issue_tag_removal_records_are_append_only(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            added = add_annotation(
+                "hole",
+                "round-1:7",
+                "issue_tag",
+                {"tag": "approach_short"},
+                root=root,
+            )
+            removed = add_annotation(
+                "hole",
+                "round-1:7",
+                "issue_tag_removed",
+                {"tag": "approach_short"},
+                root=root,
+            )
+
+            records = list_annotations(root=root)
+
+        self.assertEqual([row["kind"] for row in records], ["issue_tag", "issue_tag_removed"])
+        self.assertEqual([row["id"] for row in records], [added["id"], removed["id"]])
+        self.assertEqual(records[0]["payload"], {"tag": "approach_short"})
+        self.assertEqual(records[1]["payload"], {"tag": "approach_short"})
+        self.assertNotEqual(added["id"], removed["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

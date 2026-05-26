@@ -18,6 +18,7 @@ export type AnnotationKind =
   | 'hole_note'
   | 'shot_note'
   | 'issue_tag'
+  | 'issue_tag_removed'
   | 'club_correction'
   | 'lie_correction'
   | 'penalty_correction'

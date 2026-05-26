@@ -722,14 +722,32 @@ def _hole_score_distribution(bucket_refs: dict[str, list[str]]) -> list[dict[str
     ]
 
 
-def _manual_issue_tags_by_hole(annotations: list[dict[str, Any]] | None) -> dict[str, list[str]]:
-    rows: dict[str, list[str]] = defaultdict(list)
+def _issue_tag_payload(record: dict[str, Any]) -> str:
+    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+    return str(payload.get("tag") or "").strip().lower()
+
+
+def _active_manual_issue_tags_by_target(annotations: list[dict[str, Any]] | None) -> dict[str, list[str]]:
+    active: dict[tuple[str, str], bool] = {}
+    order: list[tuple[str, str]] = []
+    ordered: set[tuple[str, str]] = set()
     for record in annotations or []:
-        if record.get("kind") != "issue_tag":
+        kind = record.get("kind")
+        if kind not in {"issue_tag", "issue_tag_removed"}:
             continue
         target_id = str(record.get("targetId") or "")
-        tag = str((record.get("payload") or {}).get("tag") or "").strip().lower()
-        if target_id and tag:
+        tag = _issue_tag_payload(record)
+        if not target_id or not tag:
+            continue
+        key = (target_id, tag)
+        if kind == "issue_tag" and key not in ordered:
+            order.append(key)
+            ordered.add(key)
+        active[key] = kind == "issue_tag"
+
+    rows: dict[str, list[str]] = defaultdict(list)
+    for target_id, tag in order:
+        if active.get((target_id, tag)):
             rows[target_id].append(tag)
     return rows
 
@@ -763,7 +781,7 @@ def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
         for shot in _effective_shots(data, annotations)
         if str(_shot_surface(shot) or "").lower() in {"water", "bunker", "rough"}
     }
-    manual_tags = _manual_issue_tags_by_hole(annotations)
+    manual_tags = _active_manual_issue_tags_by_target(annotations)
     out = []
     for (course_key, number), pairs in grouped.items():
         deltas: list[int] = []
@@ -894,13 +912,14 @@ def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) 
 
     rows = [issue_record(issue, items, source="deterministic") for issue, items in sorted(refs.items())]
     manual_refs: dict[str, list[str]] = defaultdict(list)
+    for target_id, tags in _active_manual_issue_tags_by_target(annotations).items():
+        for tag in tags:
+            manual_refs[tag].append(target_id)
+
     for record in annotations or []:
         kind = record.get("kind")
         target_id = str(record.get("targetId") or "")
-        if kind == "issue_tag":
-            tag = str((record.get("payload") or {}).get("tag") or "").strip()
-            if tag:
-                manual_refs[tag].append(target_id)
+        if kind in {"issue_tag", "issue_tag_removed"}:
             continue
         if kind == "club_correction":
             manual_refs["wrong_club"].append(target_id)
