@@ -99,6 +99,27 @@ class AnnotationStoreTests(unittest.TestCase):
         self.assertEqual(records[1]["payload"], {"tag": "approach_short"})
         self.assertNotEqual(added["id"], removed["id"])
 
+    def test_annotation_notes_redact_secret_like_values_before_storage(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = add_annotation(
+                "hole",
+                "round-1:7",
+                "hole_note",
+                {
+                    "text": "cookie=session-value token=abc123 /home/player/raw.json",
+                    "nested": {"summary": "connect-csrf-token: csrf-value"},
+                },
+                root=root,
+            )
+            raw = annotation_file(root).read_text(encoding="utf-8")
+
+        combined = f"{record} {raw}"
+        for forbidden in ["session-value", "abc123", "/home/player/raw.json", "csrf-value"]:
+            self.assertNotIn(forbidden, combined)
+        self.assertIn("[REDACTED]", combined)
+        self.assertIn("[REDACTED_PATH]", combined)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ai_caddie.llm_providers import redact_secret_text
+
 
 VALID_TARGET_TYPES = {"round", "hole", "shot", "decision"}
 VALID_KINDS = {
@@ -46,6 +48,16 @@ def validate_annotation(target_type: str, kind: str, payload: dict[str, Any]) ->
         raise ValueError(f"{kind} payload.tag is required")
 
 
+def _redact_payload(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_secret_text(value)
+    if isinstance(value, list):
+        return [_redact_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _redact_payload(item) for key, item in value.items()}
+    return value
+
+
 def add_annotation(
     target_type: str,
     target_id: str,
@@ -57,13 +69,14 @@ def add_annotation(
     validate_annotation(target_type, kind, payload)
     if not str(target_id).strip():
         raise ValueError("annotation targetId is required")
+    safe_payload = _redact_payload(payload)
     record = {
         "id": uuid4().hex,
         "createdAt": _created_at(),
         "targetType": target_type,
         "targetId": str(target_id),
         "kind": kind,
-        "payload": payload,
+        "payload": safe_payload,
         "source": "manual",
     }
     path = annotation_file(root)
