@@ -801,6 +801,28 @@ describe('runGarminSync', () => {
     expect(data.schema).toBe('ai-caddie-sync-run-v2')
     expect(data.snapshot?.snapshotId).toBe('snap_1')
   })
+
+  it('sends the admin token header for protected Garmin sync runs', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-sync-run-v2',
+        connector: 'garmin_cn_web_session',
+        state: 'ready',
+        detail: 'Garmin CN sync completed.',
+        reauthRequired: false,
+        errorCode: null,
+        snapshot: null,
+      }),
+    }))
+
+    await runGarminSync({ withShots: true, forceRefreshAuth: false, adminToken: 'admin-secret' })
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=true&force_refresh_auth=false', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
 })
 
 describe('saveGarminSession', () => {
@@ -839,6 +861,33 @@ describe('saveGarminSession', () => {
     expect(data.schema).toBe('ai-caddie-garmin-session-import-v1')
     expect(JSON.stringify(data)).not.toContain('abc123')
     expect(JSON.stringify(data)).not.toContain('csrf-secret-value')
+  })
+
+  it('sends the admin token header for protected Garmin session imports', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-garmin-session-import-v1',
+        connector: 'garmin_cn_web_session',
+        state: 'stored',
+        detail: 'Garmin CN web session saved for local sync.',
+        sessionFieldCount: 1,
+        antiForgeryPresent: true,
+        source: 'manual_paste',
+      }),
+    }))
+
+    const request = {
+      webSessionHeader: 'Cookie: JWT_WEB=abc123',
+      antiForgeryValue: 'connect-csrf-token: csrf-secret-value',
+    }
+    await saveGarminSession(request, 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/sync/garmin/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      body: JSON.stringify(request),
+    })
   })
 })
 

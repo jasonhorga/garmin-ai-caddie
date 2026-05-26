@@ -43,10 +43,15 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+function adminTokenHeader(adminToken?: string): Record<string, string> {
+  const trimmed = adminToken?.trim()
+  return trimmed ? { 'X-AI-Caddie-Admin-Token': trimmed } : {}
+}
+
+async function postJson<T>(path: string, body: unknown, adminToken?: string): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...adminTokenHeader(adminToken) },
     body: JSON.stringify(body),
   })
   if (!response.ok) {
@@ -236,12 +241,15 @@ export function applyMobileReconciliationSuggestions(
   )
 }
 
-export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: boolean }): Promise<SyncRunResponse> {
+export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: boolean; adminToken?: string }): Promise<SyncRunResponse> {
   const params = new URLSearchParams({
     with_shots: String(options.withShots),
     force_refresh_auth: String(options.forceRefreshAuth),
   })
-  return fetch(`/api/v2/sync/garmin?${params.toString()}`, { method: 'POST' }).then((response) => {
+  const headers = adminTokenHeader(options.adminToken)
+  const init: RequestInit = { method: 'POST' }
+  if (Object.keys(headers).length) init.headers = headers
+  return fetch(`/api/v2/sync/garmin?${params.toString()}`, init).then((response) => {
     if (!response.ok) {
       throw new Error(`POST /api/v2/sync/garmin failed: ${response.status} ${response.statusText}`)
     }
@@ -249,8 +257,8 @@ export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: b
   })
 }
 
-export function saveGarminSession(request: GarminSessionImportRequest): Promise<GarminSessionImportResponse> {
-  return postJson<GarminSessionImportResponse>('/api/v2/sync/garmin/session', request)
+export function saveGarminSession(request: GarminSessionImportRequest, adminToken?: string): Promise<GarminSessionImportResponse> {
+  return postJson<GarminSessionImportResponse>('/api/v2/sync/garmin/session', request, adminToken)
 }
 
 export function fetchAnnotations(): Promise<AnnotationListResponse> {

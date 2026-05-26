@@ -100,6 +100,18 @@ describe('SyncStatusPanel', () => {
     expect(onSync).toHaveBeenCalledTimes(1)
   })
 
+  it('passes an entered admin token to protected sync actions', async () => {
+    const user = userEvent.setup()
+    const onSync = vi.fn()
+
+    render(<SyncStatusPanel status={{ ...baseStatus, connector: { ...baseStatus.connector, canSync: true } }} onSync={onSync} syncState="idle" />)
+
+    await user.type(screen.getByLabelText('Admin token'), 'admin-secret')
+    await user.click(screen.getByRole('button', { name: /sync now/i }))
+
+    expect(onSync).toHaveBeenCalledWith('admin-secret')
+  })
+
   it('shows sync running state', () => {
     render(<SyncStatusPanel status={{ ...baseStatus, connector: { ...baseStatus.connector, canSync: true } }} onSync={vi.fn()} syncState="running" />)
 
@@ -133,5 +145,25 @@ describe('SyncStatusPanel', () => {
       webSessionHeader: 'Cookie: JWT_WEB=abc123',
       antiForgeryValue: 'connect-csrf-token: csrf-secret-value',
     })
+  })
+
+  it('passes an entered admin token when saving Garmin session material', async () => {
+    const user = userEvent.setup()
+    const onSaveSession = vi.fn()
+
+    render(<SyncStatusPanel status={baseStatus} onSaveSession={onSaveSession} />)
+
+    await user.type(screen.getByLabelText('Admin token'), 'admin-secret')
+    await user.type(screen.getByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
+    await user.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
+    await user.click(screen.getByRole('button', { name: 'Save session' }))
+
+    expect(onSaveSession).toHaveBeenCalledWith(
+      {
+        webSessionHeader: 'Cookie: JWT_WEB=abc123',
+        antiForgeryValue: 'connect-csrf-token: csrf-secret-value',
+      },
+      'admin-secret',
+    )
   })
 })

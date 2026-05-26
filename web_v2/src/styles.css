@@ -623,6 +623,33 @@ p {
   color: var(--muted);
 }
 
+.sync-admin-token {
+  display: grid;
+  grid-template-columns: 96px minmax(160px, 240px);
+  gap: 8px;
+  align-items: center;
+}
+
+.sync-admin-token label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.sync-admin-token input {
+  min-height: 36px;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
 .sync-action {
   min-height: 38px;
   border: 1px solid var(--green);
@@ -2344,6 +2371,11 @@ p {
   }
 
   .sync-run-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-admin-token {
+    width: 100%;
     grid-template-columns: 1fr;
   }
 

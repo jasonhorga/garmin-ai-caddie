@@ -222,10 +222,10 @@ export default function App() {
     }
   }
 
-  async function handleRunSync() {
+  async function handleRunSync(adminToken?: string) {
     setSyncRunState('running')
     try {
-      await runGarminSync({ withShots: true, forceRefreshAuth: false })
+      await runGarminSync({ withShots: true, forceRefreshAuth: false, adminToken })
       const status = await fetchSyncStatus()
       setSyncStatus(status)
       setSyncRunState('idle')
@@ -236,11 +236,11 @@ export default function App() {
     }
   }
 
-  async function handleSaveGarminSession(request: GarminSessionImportRequest) {
+  async function handleSaveGarminSession(request: GarminSessionImportRequest, adminToken?: string) {
     setSessionSaveState('saving')
     setSessionSaveError(null)
     try {
-      await saveGarminSession(request)
+      await saveGarminSession(request, adminToken)
       const status = await fetchSyncStatus()
       setSyncStatus(status)
       setSessionSaveState('saved')

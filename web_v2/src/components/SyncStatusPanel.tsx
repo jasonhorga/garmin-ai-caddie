@@ -16,9 +16,9 @@ const connectorLabel = {
 
 interface SyncStatusPanelProps {
   status: SyncStatusResponse
-  onSync?: () => void
+  onSync?: (adminToken?: string) => void
   syncState?: 'idle' | 'running' | 'error'
-  onSaveSession?: (request: GarminSessionImportRequest) => void | Promise<void>
+  onSaveSession?: (request: GarminSessionImportRequest, adminToken?: string) => void | Promise<void>
   sessionSaveState?: 'idle' | 'saving' | 'saved' | 'error'
   sessionSaveError?: string | null
 }
@@ -31,6 +31,7 @@ export function SyncStatusPanel({
   sessionSaveState = 'idle',
   sessionSaveError = null,
 }: SyncStatusPanelProps) {
+  const [adminToken, setAdminToken] = useState('')
   const [webSessionHeader, setWebSessionHeader] = useState('')
   const [antiForgeryValue, setAntiForgeryValue] = useState('')
   const isRunning = syncState === 'running'
@@ -45,10 +46,31 @@ export function SyncStatusPanel({
   function handleSessionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!canSaveSession || !onSaveSession) return
-    void onSaveSession({
+    const request = {
       webSessionHeader,
       antiForgeryValue,
-    })
+    }
+    const token = normalizedAdminToken()
+    if (token) {
+      void onSaveSession(request, token)
+    } else {
+      void onSaveSession(request)
+    }
+  }
+
+  function handleSyncClick() {
+    if (!canRun || !onSync) return
+    const token = normalizedAdminToken()
+    if (token) {
+      onSync(token)
+    } else {
+      onSync()
+    }
+  }
+
+  function normalizedAdminToken() {
+    const trimmed = adminToken.trim()
+    return trimmed.length ? trimmed : undefined
   }
 
   return (
@@ -92,7 +114,18 @@ export function SyncStatusPanel({
           </article>
         ))}
       </div>
-      <button className="sync-action" type="button" onClick={onSync} disabled={!canRun}>
+      <div className="sync-admin-token">
+        <label htmlFor="sync-admin-token">Admin token</label>
+        <input
+          id="sync-admin-token"
+          type="password"
+          value={adminToken}
+          onChange={(event) => setAdminToken(event.target.value)}
+          spellCheck={false}
+          autoComplete="off"
+        />
+      </div>
+      <button className="sync-action" type="button" onClick={handleSyncClick} disabled={!canRun}>
         {isRunning ? 'Syncing' : 'Sync now'}
       </button>
       {onSaveSession ? (
