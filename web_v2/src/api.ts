@@ -87,7 +87,7 @@ export function fetchCaddieDecision(request: CaddieDecisionRequest, adminToken?:
   return postJson<CaddieDecisionResponse>('/api/v2/caddie/decision', request, adminToken)
 }
 
-export function fetchCaddieContext(params: CaddieContextParams): Promise<CaddieContextResponse> {
+export function fetchCaddieContext(params: CaddieContextParams, adminToken?: string): Promise<CaddieContextResponse> {
   const query = new URLSearchParams({
     source_ref: params.sourceRef,
     shot_type: params.shotType,
@@ -104,7 +104,7 @@ export function fetchCaddieContext(params: CaddieContextParams): Promise<CaddieC
   appendParam(query, 'target_x', params.targetX)
   appendParam(query, 'target_y', params.targetY)
   appendParam(query, 'landing_radius_m', params.landingRadiusM)
-  return getJson<CaddieContextResponse>(`/api/v2/caddie/context?${query.toString()}`)
+  return getJson<CaddieContextResponse>(`/api/v2/caddie/context?${query.toString()}`, adminToken)
 }
 
 export function createCaddieDecisionAudit(

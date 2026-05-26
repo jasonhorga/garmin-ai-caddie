@@ -55,6 +55,17 @@ def _decision_response() -> dict[str, object]:
     }
 
 
+def _caddie_context_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-context-v1",
+        "sourceRef": "round-1:7",
+        "shotType": "approach",
+        "context": {"sourceRef": "round-1:7"},
+        "evidence": [],
+        "missingData": [],
+    }
+
+
 def _audit_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-decision-audit-store-v1",
@@ -306,6 +317,20 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         audit_handler.assert_not_called()
         self.assertNotIn("admin-secret", decision.text + audit.text)
 
+    def test_admin_token_required_for_caddie_context_reads_when_configured(self) -> None:
+        client = TestClient(app)
+        context_handler = Mock(return_value=_caddie_context_response())
+
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_caddie_context_response", context_handler),
+        ):
+            response = client.get("/api/v2/caddie/context?source_ref=round-1:7&shot_type=approach")
+
+        self.assertEqual(response.status_code, 401)
+        context_handler.assert_not_called()
+        self.assertNotIn("admin-secret", response.text)
+
     def test_admin_token_required_for_private_write_and_media_ai_routes_when_configured(self) -> None:
         client = TestClient(app)
         annotation_handler = Mock()
@@ -522,6 +547,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
 
         with (
             patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_caddie_context_response", return_value=_caddie_context_response()),
             patch("server_v2.main.build_caddie_decision_response", return_value=_decision_response()),
             patch("server_v2.main.create_decision_audit_response", return_value=_audit_response()),
             patch("server_v2.main.create_annotation_response", return_value=_annotation_response()),
@@ -536,6 +562,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
             patch("server_v2.main.generate_trend_report_response", return_value=_report_response("trend")),
         ):
             responses = [
+                client.get("/api/v2/caddie/context?source_ref=round-1:7&shot_type=approach", headers=ADMIN_HEADER),
                 client.post("/api/v2/caddie/decision", headers=ADMIN_HEADER, json=build_decision_request_from_fixture("approach")),
                 client.post(
                     "/api/v2/caddie/decisions/decision-1/audit",

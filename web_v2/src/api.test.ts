@@ -462,6 +462,27 @@ describe('fetchCaddieContext', () => {
       '/api/v2/caddie/context?source_ref=900001%3A7&shot_type=tee&start_x=0&start_y=0&target_x=0&target_y=182&landing_radius_m=18',
     )
   })
+
+  it('sends the admin token header for protected context reads', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-context-v1',
+        sourceRef: '900001:7',
+        shotType: 'approach',
+        context: { sourceRef: '900001:7' },
+        evidence: [],
+        missingData: [],
+      }),
+    })))
+
+    await fetchCaddieContext({ sourceRef: '900001:7', shotType: 'approach' }, 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v2/caddie/context?source_ref=900001%3A7&shot_type=approach',
+      { headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' } },
+    )
+  })
 })
 
 describe('caddie audit API helpers', () => {

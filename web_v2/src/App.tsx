@@ -471,7 +471,7 @@ export default function App() {
   async function handleLoadCaddieContext(params: CaddieContextParams) {
     setCaddieContextState({ status: 'loading' })
     try {
-      const context = await fetchCaddieContext(params)
+      const context = await fetchCaddieContext(params, currentAdminToken())
       setCaddieContextState({ status: 'ready', data: context })
     } catch (error: unknown) {
       setCaddieContextState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
