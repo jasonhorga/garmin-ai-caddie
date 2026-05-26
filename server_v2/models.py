@@ -125,6 +125,12 @@ def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
     media_type = payload.get("mediaType")
     if kind in {"photo", "video"} and media_type != kind:
         raise ValueError(f"{kind} payload mediaType must be {kind}")
+    if kind == "score" and payload["strokes"] < 1:
+        raise ValueError("score payload field strokes must be at least 1")
+    if kind == "putt" and payload["putts"] < 0:
+        raise ValueError("putt payload field putts must be at least 0")
+    if kind == "penalty" and payload["penalties"] < 0:
+        raise ValueError("penalty payload field penalties must be at least 0")
 
 
 class DataQualityBadge(BaseModel):

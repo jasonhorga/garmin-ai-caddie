@@ -463,6 +463,38 @@ class ServerV2MobileTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 422)
                 self.assertFalse(log_path.exists())
 
+    def test_mobile_event_batch_rejects_out_of_range_scoring_values_without_writing(self) -> None:
+        client = TestClient(app)
+        invalid_events = [
+            ("zero-score", "score", {"strokes": 0}),
+            ("negative-putts", "putt", {"putts": -1}),
+            ("negative-penalties", "penalty", {"penalties": -1}),
+        ]
+
+        for event_id, kind, payload in invalid_events:
+            with self.subTest(kind=kind, event_id=event_id):
+                event = {
+                    "schema": "ai-caddie-live-round-event-v1",
+                    "eventId": event_id,
+                    "roundId": "live-round-1",
+                    "timestamp": "2026-05-25T00:00:00Z",
+                    "hole": 1,
+                    "kind": kind,
+                    "payload": payload,
+                }
+                with TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    with patch("server_v2.mobile.MOBILE_ROOT", root):
+                        response = client.post(
+                            "/api/v2/mobile/rounds/live-round-1/events",
+                            headers={"Idempotency-Key": f"{event_id}-batch"},
+                            json={"roundId": "live-round-1", "events": [event]},
+                        )
+                        log_path = root / "data" / "mobile_events" / "events.jsonl"
+
+                self.assertEqual(response.status_code, 422)
+                self.assertFalse(log_path.exists())
+
     def test_mobile_event_batch_accepts_canonical_payload_shapes(self) -> None:
         client = TestClient(app)
         canonical_payloads = [
