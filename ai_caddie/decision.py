@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
+import math
 from pathlib import Path
 import re
 from typing import Any
@@ -524,10 +525,16 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
     }
 
 
-def _select_option(options: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _strategy_mode(context: dict[str, Any]) -> str:
+    return str(context.get("strategyMode") or context.get("strategy") or "stock").strip().lower()
+
+
+def _select_option(options: list[dict[str, Any]], strategy_mode: str | None = None) -> dict[str, Any] | None:
     if not options:
         return None
     safest = min(options, key=lambda row: (row["riskScore"], row["carry_m"]))
+    if strategy_mode in {"protect_score", "conservative", "safe"}:
+        return safest
     stock = next((row for row in options if row["id"] == "stock"), None)
     if stock and stock["riskScore"] <= safest["riskScore"] + 1:
         return stock
@@ -785,8 +792,68 @@ def _apply_vision_findings(context: dict[str, Any]) -> dict[str, Any]:
     return analysis
 
 
+def _coordinate(value: Any) -> tuple[float, float] | None:
+    if not isinstance(value, dict):
+        return None
+    latitude = value.get("latitude") if value.get("latitude") is not None else value.get("lat")
+    longitude = value.get("longitude") if value.get("longitude") is not None else value.get("lon")
+    try:
+        lat = float(latitude)
+        lon = float(longitude)
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    return lat, lon
+
+
+def _haversine_m(start: tuple[float, float], end: tuple[float, float]) -> float:
+    radius_m = 6_371_000.0
+    lat1, lon1 = (math.radians(value) for value in start)
+    lat2, lon2 = (math.radians(value) for value in end)
+    delta_lat = lat2 - lat1
+    delta_lon = lon2 - lon1
+    a = math.sin(delta_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+    return radius_m * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _bearing_deg(start: tuple[float, float], end: tuple[float, float]) -> float:
+    lat1, lon1 = (math.radians(value) for value in start)
+    lat2, lon2 = (math.radians(value) for value in end)
+    delta_lon = lon2 - lon1
+    y = math.sin(delta_lon) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(delta_lon)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+
+def _target_location(context: dict[str, Any]) -> Any:
+    for key in ("targetLocation", "pinLocation", "flagLocation", "greenCenterLocation"):
+        if context.get(key) is not None:
+            return context.get(key)
+    return None
+
+
+def _apply_live_location(context: dict[str, Any]) -> dict[str, Any]:
+    analysis = dict(context)
+    current = _coordinate(analysis.get("currentLocation"))
+    target = _coordinate(_target_location(analysis))
+    if current is None or target is None or analysis.get("distanceToPin_m") is not None:
+        return analysis
+
+    distance_m = round(_haversine_m(current, target), 1)
+    bearing = round(_bearing_deg(current, target), 1)
+    analysis["distanceToPin_m"] = distance_m
+    analysis.setdefault("shotBearingDeg", bearing)
+    analysis["_liveDistanceEvidence"] = {
+        "source": "currentLocation+targetLocation",
+        "distanceToPin_m": distance_m,
+        "shotBearingDeg": bearing,
+    }
+    return analysis
+
+
 def _context_with_default_quality(context: dict[str, Any]) -> dict[str, Any]:
-    analysis = _apply_vision_findings(context)
+    analysis = _apply_live_location(_apply_vision_findings(context))
     analysis.setdefault("dataQuality", {"confidence": "high", "issues": []})
     return analysis
 
@@ -1015,6 +1082,10 @@ def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
         "localHole": analysis.get("localHole"),
         "shotType": shot_type,
         "distanceToPin_m": analysis.get("distanceToPin_m"),
+        "currentLocation": analysis.get("currentLocation"),
+        "targetLocation": analysis.get("targetLocation"),
+        "shotBearingDeg": analysis.get("shotBearingDeg"),
+        "strategyMode": analysis.get("strategyMode"),
         "lie": analysis.get("lie"),
         "blockedView": analysis.get("blockedView"),
         "visionFindings": analysis.get("visionFindings"),
@@ -1034,6 +1105,20 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
     distance_m = analysis.get("distanceToPin_m")
     if distance_m is not None:
         rows.append({"kind": "green", "text": f"distance to pin={round(_float(distance_m), 1)}m"})
+    live_distance = analysis.get("_liveDistanceEvidence")
+    if isinstance(live_distance, dict):
+        rows.append(
+            {
+                "kind": "live_location",
+                "text": (
+                    f"GPS-derived distance={live_distance.get('distanceToPin_m')}m "
+                    f"bearing={live_distance.get('shotBearingDeg')}deg"
+                ),
+            }
+        )
+    strategy_mode = analysis.get("strategyMode")
+    if strategy_mode:
+        rows.append({"kind": "strategy", "text": f"strategy mode={strategy_mode}"})
     hazards = analysis.get("hazards") or []
     if hazards:
         rows.append({
@@ -1074,7 +1159,7 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
 
 
 def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list[dict[str, Any]]) -> dict[str, Any]:
-    selected = _select_option(options)
+    selected = _select_option(options, _strategy_mode(analysis))
     avoid_zones = selected.get("avoidZones", []) if selected else []
     sequences = _club_sequences(analysis)
     selected_sequence = _selected_sequence(sequences, selected)
@@ -1124,7 +1209,7 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     routes = analysis.get("candidateRoutes") or []
     options = [_option_from_route(route, analysis) for route in routes]
     options = _ordered_options(options)
-    selected = _select_option(options)
+    selected = _select_option(options, _strategy_mode(analysis))
     forbidden = selected.get("forbiddenZones", []) if selected else []
     sequences = _club_sequences(analysis)
     selected_sequence = _selected_sequence(sequences, selected)

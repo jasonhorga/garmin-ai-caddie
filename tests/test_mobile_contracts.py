@@ -462,12 +462,16 @@ class MobileContractTests(unittest.TestCase):
             '"distanceToPin_m"',
             '"lie"',
             '"currentLocation"',
+            '"targetLocation"',
+            '"strategyMode"',
             '"latitude"',
             '"longitude"',
             '"horizontalAccuracyM"',
             '"requiredLiveInputs"',
         ]:
             self.assertIn(field, builder)
+        self.assertIn("targetCoordinate: CLLocationCoordinate2D?", builder)
+        self.assertIn("strategyMode: String?", builder)
 
     def test_ios_phone_bridge_maps_watch_inputs_to_offline_live_events(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")

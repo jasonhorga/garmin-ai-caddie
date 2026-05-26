@@ -187,6 +187,28 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("water", {zone["kind"] for zone in plan["avoidZones"]})
         self.assertEqual(plan["confidence"]["level"], "high")
 
+    def test_live_location_derives_distance_and_protect_score_selects_safe(self) -> None:
+        context = approach_fixture()
+        context.pop("distanceToPin_m")
+        context["currentLocation"] = {
+            "latitude": 22.279,
+            "longitude": 114.162,
+            "source": "ios_gps",
+            "horizontalAccuracyM": 4.5,
+        }
+        context["targetLocation"] = {"latitude": 22.2799, "longitude": 114.162, "source": "pin"}
+        context["strategyMode"] = "protect_score"
+
+        plan = recommend_approach(context)
+
+        self.assertAlmostEqual(plan["context"]["distanceToPin_m"], 100.1, places=1)
+        self.assertAlmostEqual(plan["context"]["shotBearingDeg"], 0.0, places=1)
+        self.assertEqual(plan["context"]["strategyMode"], "protect_score")
+        self.assertEqual(plan["selectedOptionId"], "safe")
+        self.assertNotIn("distance_to_pin", {row["label"] for row in plan["missingData"]})
+        self.assertTrue(any(row["kind"] == "live_location" for row in plan["evidence"]))
+        self.assertTrue(any(row["kind"] == "strategy" for row in plan["evidence"]))
+
     def test_approach_options_expose_clearance_dispersion_and_scoring_impact(self) -> None:
         plan = recommend_approach(approach_fixture())
 
