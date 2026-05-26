@@ -1039,10 +1039,13 @@ def _context_with_default_quality(context: dict[str, Any]) -> dict[str, Any]:
 
 def _hazard_avoid_zones(context: dict[str, Any]) -> list[dict[str, Any]]:
     zones = []
+    seen: set[tuple[str, str]] = set()
     for hazard in context.get("hazards") or []:
         kind = str(hazard.get("kind") or "")
         if not kind:
             continue
+        hazard_id = str(hazard.get("id") or "")
+        seen.add((hazard_id, kind))
         zones.append({
             "kind": kind,
             "id": hazard.get("id"),
@@ -1050,7 +1053,27 @@ def _hazard_avoid_zones(context: dict[str, Any]) -> list[dict[str, Any]]:
             "carryToClear_m": hazard.get("carryToClear_m"),
             "reason": "known hazard in approach context",
         })
+    route_evidence = context.get("routeEvidence")
+    if isinstance(route_evidence, dict):
+        for zone in _route_evidence_zones(route_evidence):
+            kind = str(zone.get("kind") or "")
+            hazard_id = str(zone.get("id") or "")
+            key = (hazard_id, kind)
+            if key in seen:
+                continue
+            seen.add(key)
+            zones.append(zone)
     return zones
+
+
+def _target_local_from_route_evidence(context: dict[str, Any], carry_m: float) -> list[float] | None:
+    route_evidence = context.get("routeEvidence")
+    if not isinstance(route_evidence, dict):
+        return None
+    route_length = _route_evidence_length(route_evidence)
+    if route_length <= 0:
+        return None
+    return _route_target_for_carry(route_evidence, carry_m, route_length)
 
 
 def _target_window(carry_m: float, *, shot_type: str, option_id: str) -> dict[str, Any]:
@@ -1155,7 +1178,7 @@ def _shot_option(
         "carry_m": round(adjusted_carry_m, 1),
         "baseCarry_m": round(carry_m, 1),
         "target": target,
-        "targetLocal": None,
+        "targetLocal": _target_local_from_route_evidence(context, adjusted_carry_m),
         "targetWindow": target_window,
         "expectedSurface": {"kind": "green" if shot_type == "approach" else "safe_area"},
         "riskScore": adjusted_risk_score,
@@ -1309,6 +1332,17 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
         rows.append({"kind": "lie", "text": f"current lie={lie}"})
     if analysis.get("blockedView"):
         rows.append({"kind": "blocked_view", "text": "direct view or swing window is blocked"})
+    route_evidence = analysis.get("routeEvidence")
+    if isinstance(route_evidence, dict):
+        rows.append(
+            {
+                "kind": "route_geometry",
+                "text": (
+                    f"route length={route_evidence.get('routeLength_m')}m; "
+                    f"hazard clearances={len(route_evidence.get('hazardClearances') or [])}"
+                ),
+            }
+        )
     for finding in analysis.get("_visionEvidence") or []:
         finding_type = str(finding.get("findingType") or "vision")
         confidence = str(finding.get("confidence") or "unknown")

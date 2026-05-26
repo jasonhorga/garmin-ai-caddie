@@ -108,7 +108,7 @@ def ready_weather_snapshot():
         latitude=22.279,
         longitude=114.162,
         source="manual",
-        observed={"windSpeedMps": 2.0, "windDirectionDeg": 90, "temperatureC": 27.0},
+        observed={"windSpeedMps": 0.0, "windDirectionDeg": 90, "temperatureC": 27.0},
     )
 
 
@@ -271,6 +271,31 @@ class DecisionLayerTests(unittest.TestCase):
 
         attack = next(option for option in plan["options"] if option["id"] == "attack")
         self.assertGreater(attack["scoreImpact"]["expectedStrokes"], stock["scoreImpact"]["expectedStrokes"])
+
+    def test_approach_consumes_route_geometry_for_clearance_and_target_local(self) -> None:
+        context = approach_fixture()
+        context["hazards"] = []
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["routeEvidence"] = {
+            "schema": "ai-caddie-route-geometry-evidence-v1",
+            "routeStartLocal": [0.0, 0.0],
+            "routeTargetLocal": [0.0, 142.0],
+            "routeLength_m": 142.0,
+            "landingWindowLocal": {"center": [0.0, 142.0], "radius_m": 18.0},
+            "hazardClearances": [{"hazardId": "water_front", "kind": "water", "carryToClear_m": 126.0}],
+            "avoidZones": [{"id": "water_front", "kind": "water", "carryToClear_m": 126.0}],
+            "sourceRefs": ["geometry:31795:4:route"],
+        }
+
+        plan = recommend_approach(context)
+
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        self.assertEqual(stock["targetLocal"], [0.0, 142.0])
+        self.assertEqual(stock["hazardClearance"]["minimumClearance_m"], 16.0)
+        self.assertEqual(stock["hazardClearance"]["criticalHazardId"], "water_front")
+        self.assertIn("water", {zone["kind"] for zone in plan["avoidZones"]})
+        self.assertTrue(any(row["kind"] == "route_geometry" for row in plan["evidence"]))
+        self.assertIn("geometry:31795:4:route", plan["evidenceRefs"])
 
     def test_recommend_recovery_from_rough_or_blocked_view_prefers_safe(self) -> None:
         plan = recommend_recovery(recovery_fixture())
