@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.fixtures import fixture_history_data
+from ai_caddie.geometry_evidence import build_hole_map_dto, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import build_history_stats
 from ai_caddie.weather_context import build_weather_snapshot, latest_weather_snapshot
@@ -16,6 +17,7 @@ from ai_caddie.weather_context import build_weather_snapshot, latest_weather_sna
 EVENT_LOG = Path("data") / "mobile_events" / "events.jsonl"
 OFFLINE_STALE_AFTER_HOURS = 6
 OFFLINE_EXPIRES_AFTER_HOURS = 24
+LIVE_SHOT_TYPES = ["tee", "approach", "recovery"]
 
 
 def _format_time(value: datetime) -> str:
@@ -104,6 +106,145 @@ def _weather_snapshot_for_package(round_id: str, *, root: Path | str | None = No
     return latest_weather_snapshot(round_id, root=root) or build_weather_snapshot(round_id=round_id)
 
 
+def _hole_stats_row(stats: dict[str, Any], *, course_key: str, hole: int) -> dict[str, Any]:
+    for row in stats.get("holes") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("courseKey") or "") == course_key and int(row.get("hole") or 0) == hole:
+            return row
+    return {}
+
+
+def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    geometry = {
+        "coverage": fallback_coverage,
+        "hasHazards": False,
+        "hasMeshes": False,
+        "hazardCount": 0,
+    }
+    evidence: list[dict[str, Any]] = []
+    missing_data: list[dict[str, Any]] = []
+    hazards: list[dict[str, Any]] = []
+    if not global_id:
+        missing_data.append({"label": "geometry", "reason": "globalId missing from live round package"})
+        return {**geometry, "hazards": hazards}, evidence, missing_data
+    try:
+        coverage = geometry_coverage_for_hole(global_id, local_hole)
+        hole_map = build_hole_map_dto(global_id, local_hole)
+        hazards = _hazards_from_hole_map(hole_map)
+        geometry = {
+            "coverage": str(coverage.get("coverage") or fallback_coverage),
+            "hasHazards": bool(coverage.get("hasHazards")),
+            "hasMeshes": bool(coverage.get("hasMeshes")),
+            "hazardCount": len(hazards),
+            "hazards": hazards[:12],
+        }
+        evidence.extend(coverage.get("evidence") or [])
+        missing_data.extend(coverage.get("missingData") or [])
+        missing_data.extend(hole_map.get("missingData") or [])
+    except Exception:
+        missing_data.append({"label": "geometry", "reason": "geometry evidence could not be loaded for offline seed"})
+        geometry["hazards"] = hazards
+    return geometry, evidence, _dedupe_missing(missing_data)
+
+
+def _hazards_from_hole_map(hole_map: dict[str, Any]) -> list[dict[str, Any]]:
+    features = ((hole_map.get("featureCollection") or {}).get("features") or [])
+    hazards: list[dict[str, Any]] = []
+    for feature in features:
+        properties = feature.get("properties") if isinstance(feature, dict) else None
+        if not isinstance(properties, dict) or properties.get("layer") != "hazard":
+            continue
+        hazards.append(
+            {
+                "kind": str(properties.get("kind") or "hazard"),
+                "id": str(properties.get("id") or f"hazard-{len(hazards) + 1}"),
+                "source": "geometry_map",
+            }
+        )
+    return hazards
+
+
+def _caddie_context_seeds(
+    *,
+    round_id: str,
+    round_row: dict[str, Any],
+    stats: dict[str, Any],
+    holes: list[dict[str, Any]],
+    course_key: str,
+) -> list[dict[str, Any]]:
+    global_id = int(round_row.get("globalId") or 0)
+    course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
+    seeds: list[dict[str, Any]] = []
+    for hole in holes:
+        number = int(hole.get("number") or 0)
+        if not number:
+            continue
+        source_ref = f"{round_id}:{number}"
+        hole_stats = _hole_stats_row(stats, course_key=course_key, hole=number)
+        geometry, geometry_evidence, geometry_missing = _geometry_seed(
+            global_id,
+            number,
+            str(hole.get("geometryCoverage") or "missing"),
+        )
+        missing_data = [
+            *geometry_missing,
+            {"label": "current_location", "reason": "live GPS fixes distance and angle at decision time"},
+            {"label": "lie", "reason": "live input or vision context fixes lie for approach and recovery decisions"},
+        ]
+        context = {
+            "roundId": round_id,
+            "source": "live_round_package",
+            "sourceRef": source_ref,
+            "courseName": course_name,
+            "hole": number,
+            "globalId": global_id or None,
+            "localHole": number,
+            "par": hole.get("par"),
+            "yards": hole.get("yards"),
+            "geometry": geometry,
+            "hazards": geometry.get("hazards") or [],
+            "historicalHole": {
+                "courseKey": hole_stats.get("courseKey") or course_key,
+                "hole": number,
+                "sampleCount": int(hole_stats.get("sampleCount") or 0),
+                "averageToPar": hole_stats.get("averageToPar"),
+                "worstToPar": hole_stats.get("worstToPar"),
+                "scoreDistribution": hole_stats.get("scoreDistribution") or [],
+                "holeRefs": hole_stats.get("holeRefs") or hole_stats.get("refs") or [],
+            },
+            "historicalHoleIssues": hole_stats.get("repeatedIssues") or [],
+        }
+        seeds.append(
+            {
+                "hole": number,
+                "sourceRef": source_ref,
+                "shotTypes": list(LIVE_SHOT_TYPES),
+                "requiredLiveInputs": ["currentLocation", "lie"],
+                "context": context,
+                "evidence": [
+                    {"label": "live_round_package", "value": "offline_seed"},
+                    {"label": "history_ref", "value": source_ref},
+                    *geometry_evidence,
+                ],
+                "missingData": _dedupe_missing(missing_data),
+            }
+        )
+    return seeds
+
+
+def _dedupe_missing(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen = set()
+    out = []
+    for row in rows:
+        key = (str(row.get("label")), str(row.get("reason")))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
 def build_live_round_package(
     round_id: str,
     data: HistoryData | None = None,
@@ -171,6 +312,13 @@ def build_live_round_package(
             "readyHoles": ready_holes,
             "totalHoles": len(holes),
         },
+        "caddieContextSeeds": _caddie_context_seeds(
+            round_id=str(round_row.get("id") or round_id),
+            round_row=round_row,
+            stats=stats,
+            holes=holes,
+            course_key=course_key,
+        ),
         "weatherSnapshot": _weather_snapshot_for_package(round_id, root=root),
         "clubProfiles": club_profiles,
         "caddieDecisionEndpoint": "/api/v2/caddie/decision",

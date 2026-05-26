@@ -24,6 +24,76 @@
     "readyHoles": 12,
     "totalHoles": 18
   },
+  "caddieContextSeeds": [
+    {
+      "hole": 1,
+      "sourceRef": "live-round-1:1",
+      "shotTypes": ["tee", "approach", "recovery"],
+      "requiredLiveInputs": ["currentLocation", "lie"],
+      "context": {
+        "roundId": "live-round-1",
+        "source": "live_round_package",
+        "sourceRef": "live-round-1:1",
+        "courseName": "Fixture Links",
+        "hole": 1,
+        "globalId": 31795,
+        "localHole": 1,
+        "par": 4,
+        "yards": 410,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": true,
+          "hasMeshes": true,
+          "hazardCount": 2,
+          "hazards": [
+            {
+              "kind": "water",
+              "id": "water-left",
+              "source": "geometry_map"
+            }
+          ]
+        },
+        "hazards": [
+          {
+            "kind": "water",
+            "id": "water-left",
+            "source": "geometry_map"
+          }
+        ],
+        "historicalHole": {
+          "courseKey": "fixture-links",
+          "hole": 1,
+          "sampleCount": 3,
+          "averageToPar": 0.2,
+          "worstToPar": 1,
+          "scoreDistribution": [],
+          "holeRefs": ["round-a:1", "round-b:1", "round-c:1"]
+        },
+        "historicalHoleIssues": [
+          {
+            "label": "approach short",
+            "count": 2
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed"
+        },
+        {
+          "label": "history_ref",
+          "value": "live-round-1:1"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance at decision time"
+        }
+      ]
+    }
+  ],
   "weatherSnapshot": {
     "schema": "ai-caddie-weather-snapshot-v1",
     "state": "missing",

@@ -52,8 +52,16 @@ def _assert_schema_accepts(testcase: unittest.TestCase, schema: dict[str, object
             item_schema = rules.get("items")
             if isinstance(item_schema, dict):
                 for item in value:
-                    testcase.assertIsInstance(item, dict)
-                    _assert_schema_accepts(testcase, item_schema, item)
+                    item_type = item_schema.get("type")
+                    if item_type == "object":
+                        testcase.assertIsInstance(item, dict)
+                        _assert_schema_accepts(testcase, item_schema, item)
+                    elif item_type == "string":
+                        testcase.assertIsInstance(item, str)
+                    elif item_type == "integer":
+                        testcase.assertIsInstance(item, int)
+                    elif item_type == "number":
+                        testcase.assertIsInstance(item, (int, float))
 
 
 class MobileContractTests(unittest.TestCase):
@@ -66,6 +74,23 @@ class MobileContractTests(unittest.TestCase):
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
             "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
             "geometryCoverage": {"state": "partial", "readyHoles": 12, "totalHoles": 18},
+            "caddieContextSeeds": [
+                {
+                    "hole": 1,
+                    "sourceRef": "live-round-1:1",
+                    "shotTypes": ["tee", "approach", "recovery"],
+                    "requiredLiveInputs": ["currentLocation", "lie"],
+                    "context": {
+                        "roundId": "live-round-1",
+                        "source": "live_round_package",
+                        "sourceRef": "live-round-1:1",
+                        "hole": 1,
+                        "geometry": {"coverage": "ready", "hazardCount": 2},
+                    },
+                    "evidence": [{"label": "live_round_package", "value": "offline_seed"}],
+                    "missingData": [{"label": "current_location", "reason": "live GPS fixes distance at decision time"}],
+                }
+            ],
             "weatherSnapshot": {
                 "schema": "ai-caddie-weather-snapshot-v1",
                 "state": "missing",
@@ -126,6 +151,22 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(package["weatherSnapshot"]["windSpeedMps"], 5.4)
         self.assertEqual(package["weatherSnapshot"]["hole"], 1)
 
+    def test_live_round_package_includes_offline_caddie_context_seeds(self) -> None:
+        package = build_live_round_package("900001", data=fixture_history_data())
+
+        seed = next(row for row in package["caddieContextSeeds"] if row["hole"] == 1)
+        self.assertEqual(seed["sourceRef"], "900001:1")
+        self.assertEqual(seed["shotTypes"], ["tee", "approach", "recovery"])
+        self.assertIn("currentLocation", seed["requiredLiveInputs"])
+        self.assertEqual(seed["context"]["source"], "live_round_package")
+        self.assertEqual(seed["context"]["roundId"], "900001")
+        self.assertEqual(seed["context"]["hole"], 1)
+        self.assertIn("geometry", seed["context"])
+        self.assertIn("hazards", seed["context"])
+        self.assertIn("historicalHole", seed["context"])
+        self.assertGreaterEqual(len(seed["evidence"]), 1)
+        self.assertIn("current_location", {row["label"] for row in seed["missingData"]})
+
     def test_live_round_event_schema_accepts_all_event_kinds(self) -> None:
         schema = _load_schema("live_round_event.schema.json")
         kinds = schema["properties"]["kind"]["enum"]
@@ -162,6 +203,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let eventCursor: EventCursor", package_swift)
         self.assertIn("let recentHistory: RecentHistory", package_swift)
         self.assertIn("let cachedCaddieRules: CachedCaddieRules", package_swift)
+        self.assertIn("let caddieContextSeeds: [CaddieContextSeed]", package_swift)
+        self.assertIn("struct CaddieContextSeed: Codable", package_swift)
         self.assertIn("struct LiveRoundEvent: Codable", event_swift)
         self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
         self.assertIn('case syncMarker = "sync_marker"', event_swift)

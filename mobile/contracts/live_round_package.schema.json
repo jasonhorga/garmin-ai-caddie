@@ -10,6 +10,7 @@
     "course",
     "holes",
     "geometryCoverage",
+    "caddieContextSeeds",
     "weatherSnapshot",
     "clubProfiles",
     "caddieDecisionEndpoint",
@@ -97,6 +98,53 @@
         },
         "totalHoles": {
           "type": "integer"
+        }
+      }
+    },
+    "caddieContextSeeds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hole", "sourceRef", "shotTypes", "requiredLiveInputs", "context", "evidence", "missingData"],
+        "properties": {
+          "hole": {
+            "type": "integer"
+          },
+          "sourceRef": {
+            "type": "string"
+          },
+          "shotTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["tee", "approach", "recovery"]
+            }
+          },
+          "requiredLiveInputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "missingData": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
         }
       }
     },
