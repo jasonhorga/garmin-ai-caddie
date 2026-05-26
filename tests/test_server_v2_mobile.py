@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.annotations import add_annotation
 from ai_caddie.decision import list_decision_audits
 from server_v2.main import app
 
@@ -134,6 +135,40 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in decision["options"]], ["safe", "stock", "attack"])
         self.assertEqual(decision["selected"]["targetLocal"], [0.0, 182.0])
         self.assertTrue(any(row["kind"] == "route_geometry" for row in decision["evidence"]))
+
+    def test_mobile_round_package_includes_manual_strategy_notes_in_caddie_seed(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            annotations_root = root / "annotations-root"
+            add_annotation(
+                "hole",
+                "900001:1",
+                "strategy_note",
+                {"text": "Favor the left-center layup when the wind is into the player."},
+                root=annotations_root,
+            )
+            add_annotation(
+                "hole",
+                "900001:1",
+                "weather_context_note",
+                {"text": "Afternoon wind usually hurts the second shot."},
+                root=annotations_root,
+            )
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch("server_v2.mobile.ANNOTATION_ROOT", annotations_root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                response = client.get("/api/v2/mobile/rounds/900001/package")
+
+        self.assertEqual(response.status_code, 200)
+        seed = next(row for row in response.json()["caddieContextSeeds"] if row["hole"] == 1)
+        notes = seed["context"]["manualNotes"]
+        self.assertEqual([row["kind"] for row in notes], ["strategy_note", "weather_context_note"])
+        self.assertIn("left-center layup", notes[0]["note"])
+        self.assertTrue(any(row["label"] == "manual_notes" and row["value"] == "2 stored note(s)" for row in seed["evidence"]))
 
     def test_mobile_round_package_approach_and_recovery_seeds_degrade_with_missing_live_inputs(self) -> None:
         client = TestClient(app)

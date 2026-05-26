@@ -270,7 +270,7 @@ def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float
             "deltaToCarry_m": round(median_m - carry_m, 1),
         })
     rows.sort(key=lambda row: (abs(row["deltaToCarry_m"]), -row["sampleSize"], row["clubName"]))
-    return rows[:3]
+    return rows
 
 
 def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -778,7 +778,8 @@ def _evidence(
     weather = _weather_snapshot(analysis)
     if weather:
         rows.append({"kind": "weather", "text": _weather_text(weather)})
-    return rows[:3]
+    rows.extend(_manual_note_evidence(analysis))
+    return rows
 
 
 def _missing_data(analysis: dict[str, Any], options: list[dict[str, Any]], selected: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -1291,6 +1292,7 @@ def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
         "lie": analysis.get("lie"),
         "blockedView": analysis.get("blockedView"),
         "visionFindings": analysis.get("visionFindings"),
+        "manualNotes": analysis.get("manualNotes"),
     }
 
 
@@ -1351,6 +1353,7 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
     weather = _weather_snapshot(analysis)
     if weather:
         rows.append({"kind": "weather", "text": _weather_text(weather)})
+    rows.extend(_manual_note_evidence(analysis))
     issues = analysis.get("historicalHoleIssues") or analysis.get("holeIssues") or []
     if issues:
         rows.append(
@@ -1369,6 +1372,23 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
             club_text = ", ".join(f"{c['clubName']} n={c.get('sampleSize', 0)}" for c in clubs[:2])
             rows.append({"kind": "club_profile", "text": f"matching club profiles: {club_text}"})
     return rows
+
+
+def _manual_note_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for note in analysis.get("manualNotes") or []:
+        if not isinstance(note, dict):
+            continue
+        text = str(note.get("note") or note.get("text") or "").strip()
+        if not text:
+            continue
+        kind = str(note.get("kind") or "manual_note")
+        target = str(note.get("targetId") or "").strip()
+        prefix = f"{kind}"
+        if target:
+            prefix = f"{prefix} {target}"
+        rows.append({"kind": "manual_note", "text": f"{prefix}: {text[:180]}"})
+    return rows[:3]
 
 
 def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list[dict[str, Any]]) -> dict[str, Any]:

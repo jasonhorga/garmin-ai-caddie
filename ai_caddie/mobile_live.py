@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ai_caddie.annotations import annotations_for_target
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
@@ -18,6 +19,7 @@ EVENT_LOG = Path("data") / "mobile_events" / "events.jsonl"
 OFFLINE_STALE_AFTER_HOURS = 6
 OFFLINE_EXPIRES_AFTER_HOURS = 24
 LIVE_SHOT_TYPES = ["tee", "approach", "recovery"]
+MANUAL_NOTE_KINDS = {"strategy_note", "hole_note", "round_note", "weather_context_note"}
 
 
 def _format_time(value: datetime) -> str:
@@ -295,6 +297,7 @@ def _caddie_context_seeds(
     course_key: str,
     club_profiles: list[dict[str, Any]],
     weather_snapshot: dict[str, Any],
+    annotations_root: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     global_id = int(round_row.get("globalId") or 0)
     course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
@@ -312,6 +315,11 @@ def _caddie_context_seeds(
             str(hole.get("geometryCoverage") or "missing"),
         )
         route_evidence, route_evidence_rows, route_missing = _route_evidence_seed(global_id, number, hole, source_ref, club_profiles)
+        manual_notes = _manual_notes_for_seed(
+            annotations_root=annotations_root,
+            round_id=round_id,
+            hole_ref=source_ref,
+        )
         missing_data = [
             *geometry_missing,
             *route_missing,
@@ -346,6 +354,22 @@ def _caddie_context_seeds(
         }
         if route_evidence:
             context["routeEvidence"] = route_evidence
+        if manual_notes:
+            context["manualNotes"] = manual_notes
+        evidence_rows = [
+            {"label": "live_round_package", "value": "offline_seed"},
+            {"label": "history_ref", "value": source_ref},
+            *geometry_evidence,
+            *route_evidence_rows,
+        ]
+        if manual_notes:
+            evidence_rows.append(
+                {
+                    "label": "manual_notes",
+                    "value": f"{len(manual_notes)} stored note(s)",
+                    "refs": [row["targetId"] for row in manual_notes],
+                }
+            )
         seeds.append(
             {
                 "hole": number,
@@ -353,16 +377,45 @@ def _caddie_context_seeds(
                 "shotTypes": list(LIVE_SHOT_TYPES),
                 "requiredLiveInputs": ["currentLocation", "lie"],
                 "context": context,
-                "evidence": [
-                    {"label": "live_round_package", "value": "offline_seed"},
-                    {"label": "history_ref", "value": source_ref},
-                    *geometry_evidence,
-                    *route_evidence_rows,
-                ],
+                "evidence": evidence_rows,
                 "missingData": _dedupe_missing(missing_data),
             }
         )
     return seeds
+
+
+def _manual_notes_for_seed(
+    *,
+    annotations_root: Path | str | None,
+    round_id: str,
+    hole_ref: str,
+) -> list[dict[str, Any]]:
+    if annotations_root is None:
+        return []
+    records = [
+        *annotations_for_target("round", round_id, root=annotations_root),
+        *annotations_for_target("hole", hole_ref, root=annotations_root),
+    ]
+    notes: list[dict[str, Any]] = []
+    for record in records:
+        kind = str(record.get("kind") or "")
+        if kind not in MANUAL_NOTE_KINDS:
+            continue
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+        note = str(payload.get("note") or payload.get("text") or payload.get("summary") or "").strip()
+        if not note:
+            continue
+        notes.append(
+            {
+                "id": str(record.get("id") or ""),
+                "kind": kind,
+                "targetType": str(record.get("targetType") or ""),
+                "targetId": str(record.get("targetId") or ""),
+                "note": note,
+                "source": str(record.get("source") or "manual"),
+            }
+        )
+    return notes
 
 
 def _dedupe_missing(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -383,9 +436,14 @@ def build_live_round_package(
     *,
     data_mode: str = "fixture",
     root: Path | str | None = None,
+    annotations_root: Path | str | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
-    stats = build_history_stats(source, data_mode=data_mode, annotations_root=Path("/nonexistent-ai-caddie-annotations"))
+    stats = build_history_stats(
+        source,
+        data_mode=data_mode,
+        annotations_root=annotations_root or Path("/nonexistent-ai-caddie-annotations"),
+    )
     requested_id = str(round_id)
     round_row = next(
         (
@@ -478,6 +536,7 @@ def build_live_round_package(
             course_key=course_key,
             club_profiles=club_profiles,
             weather_snapshot=weather_snapshot,
+            annotations_root=annotations_root,
         ),
         "weatherSnapshot": weather_snapshot,
         "clubProfiles": club_profiles,

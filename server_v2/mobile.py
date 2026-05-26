@@ -25,7 +25,15 @@ DECISION_AUDIT_ROOT = Path(".")
 
 def build_mobile_round_package_response(round_id: str) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode()
-    return LiveRoundPackageResponse(**build_live_round_package(round_id, data=data, data_mode=mode, root=MOBILE_ROOT))
+    return LiveRoundPackageResponse(
+        **build_live_round_package(
+            round_id,
+            data=data,
+            data_mode=mode,
+            root=MOBILE_ROOT,
+            annotations_root=ANNOTATION_ROOT,
+        )
+    )
 
 
 def append_mobile_events_response(

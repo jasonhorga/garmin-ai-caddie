@@ -360,6 +360,43 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertGreaterEqual(attack["riskScore"], 7)
         self.assertTrue(any(row["kind"] == "history" for row in plan["evidence"]))
 
+    def test_manual_strategy_note_appears_in_decision_evidence(self) -> None:
+        context = approach_fixture()
+        context["manualNotes"] = [
+            {
+                "kind": "strategy_note",
+                "targetType": "hole",
+                "targetId": "round-1:4",
+                "note": "Favor the left-center layup when the wind is into the player.",
+                "source": "manual",
+            }
+        ]
+
+        plan = recommend_approach(context)
+
+        self.assertTrue(
+            any(
+                row["kind"] == "manual_note" and "left-center layup" in row["text"] and "strategy_note" in row["text"]
+                for row in plan["evidence"]
+            )
+        )
+
+    def test_manual_strategy_note_survives_tee_evidence_truncation(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["manualNotes"] = [
+            {
+                "kind": "strategy_note",
+                "targetType": "hole",
+                "targetId": "round-1:1",
+                "note": "Do not attack the right bunker line.",
+                "source": "manual",
+            }
+        ]
+
+        plan = build_decision_plan(context)
+
+        self.assertTrue(any(row["kind"] == "manual_note" and "right bunker" in row["text"] for row in plan["evidence"]))
+
     def test_tee_decision_models_acceptable_miss_from_known_risks(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
 
