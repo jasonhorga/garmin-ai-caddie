@@ -116,6 +116,27 @@ def club_trend_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=shots)
 
 
+def club_trend_reversed_shots_history_data() -> HistoryData:
+    data = club_trend_history_data()
+    return HistoryData(raw_rounds=data.raw_rounds, rounds=data.rounds, shots=list(reversed(data.shots)))
+
+
+def one_shot_club_history_data() -> HistoryData:
+    round_row = {
+        "id": "club-one-shot-1",
+        "date": "2026-05-25",
+        "course": "Sparse Club Course",
+        "courseKey": "sparse_club",
+        "holesCompleted": 18,
+        "strokes": 82,
+        "par": 72,
+        "holes": [],
+        "hasShots": True,
+    }
+    shot = {"roundId": "club-one-shot-1", "hole": 4, "club": "LW", "distance": 72, "surface": "green"}
+    return HistoryData(raw_rounds=[{"id": "club-one-shot-1", "hasShots": True}], rounds=[round_row], shots=[shot])
+
+
 def missing_shot_rows_history_data() -> HistoryData:
     rounds = [
         {
@@ -338,6 +359,19 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(seven_iron["distanceTrend"]["deltaMedian"], -16.0)
         self.assertEqual(seven_iron["distanceTrend"]["direction"], "shorter")
         self.assertEqual(
+            seven_iron["distanceTrend"]["sourceRefs"],
+            [
+                "club-trend-1:7:0",
+                "club-trend-2:7:1",
+                "club-trend-3:7:2",
+                "club-trend-4:7:3",
+                "club-trend-5:7:4",
+                "club-trend-6:7:5",
+            ],
+        )
+        self.assertEqual(seven_iron["distanceTrend"]["coverage"], {"ready": 6, "total": 6, "pct": 100.0})
+        self.assertEqual(seven_iron["distanceTrend"]["confidence"], "medium")
+        self.assertEqual(
             seven_iron["distanceTrend"]["baselineShotRefs"],
             ["club-trend-1:7:0", "club-trend-2:7:1", "club-trend-3:7:2"],
         )
@@ -345,6 +379,35 @@ class HistoryStatsCoreTests(unittest.TestCase):
             seven_iron["distanceTrend"]["recentShotRefs"],
             ["club-trend-4:7:3", "club-trend-5:7:4", "club-trend-6:7:5"],
         )
+
+    def test_club_distance_trend_uses_round_date_not_input_shot_order(self) -> None:
+        stats = build_history_stats(club_trend_reversed_shots_history_data(), data_mode="fixture")
+
+        seven_iron = next(row for row in stats["clubs"] if row["club"] == "7I")
+
+        self.assertEqual(seven_iron["distanceTrend"]["baselineMedian"], 151.0)
+        self.assertEqual(seven_iron["distanceTrend"]["recentMedian"], 135.0)
+        self.assertEqual(seven_iron["distanceTrend"]["deltaMedian"], -16.0)
+        self.assertEqual(seven_iron["distanceTrend"]["direction"], "shorter")
+        self.assertEqual(
+            seven_iron["distanceTrend"]["baselineShotRefs"],
+            ["club-trend-1:7:5", "club-trend-2:7:4", "club-trend-3:7:3"],
+        )
+        self.assertEqual(
+            seven_iron["distanceTrend"]["recentShotRefs"],
+            ["club-trend-4:7:2", "club-trend-5:7:1", "club-trend-6:7:0"],
+        )
+
+    def test_club_consistency_degrades_for_low_sample_count(self) -> None:
+        stats = build_history_stats(one_shot_club_history_data(), data_mode="fixture")
+
+        wedge = next(row for row in stats["clubs"] if row["club"] == "LW")
+
+        self.assertEqual(wedge["sampleCount"], 1)
+        self.assertEqual(wedge["dispersionRange"], 0.0)
+        self.assertEqual(wedge["consistency"], "unknown")
+        self.assertEqual(wedge["distanceTrend"]["direction"], "insufficient_data")
+        self.assertEqual(wedge["distanceTrend"]["confidence"], "low")
 
     def test_hole_stats_include_score_distribution_and_repeated_issues(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

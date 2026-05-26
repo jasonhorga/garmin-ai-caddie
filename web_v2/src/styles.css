@@ -1151,6 +1151,8 @@ p {
 .stats-item-facts .quality-good,
 .stats-item-facts .quality-ready,
 .stats-item-facts .trend-improving,
+.stats-item-facts .trend-longer,
+.stats-item-facts .consistency-tight,
 .stats-item-facts .confidence-high {
   background: #e4f2e8;
   color: var(--green);
@@ -1158,8 +1160,11 @@ p {
 
 .stats-quality-chips .quality-partial,
 .stats-item-facts .trend-flat,
+.stats-item-facts .trend-stable,
 .stats-item-facts .trend-insufficient-data,
 .stats-item-facts .quality-partial,
+.stats-item-facts .consistency-moderate,
+.stats-item-facts .consistency-unknown,
 .stats-item-facts .confidence-medium {
   background: #edf5f8;
   color: #2f6f95;
@@ -1170,10 +1175,12 @@ p {
 .stats-quality-chips .quality-error,
 .stats-quality-chips .quality-reauth-required,
 .stats-item-facts .trend-declining,
+.stats-item-facts .trend-shorter,
 .stats-item-facts .quality-missing,
 .stats-item-facts .quality-no-data,
 .stats-item-facts .quality-error,
 .stats-item-facts .quality-reauth-required,
+.stats-item-facts .consistency-volatile,
 .stats-item-facts .confidence-low {
   background: #f7e2dd;
   color: var(--double);

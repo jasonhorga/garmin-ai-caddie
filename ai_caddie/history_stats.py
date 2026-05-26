@@ -1222,8 +1222,8 @@ def _club_dispersion_range(p10: float | None, p90: float | None) -> float | None
     return round(float(p90) - float(p10), 1)
 
 
-def _club_consistency(dispersion_range: float | None) -> str:
-    if dispersion_range is None:
+def _club_consistency(dispersion_range: float | None, sample_count: int) -> str:
+    if dispersion_range is None or sample_count < 4:
         return "unknown"
     if dispersion_range <= 10:
         return "tight"
@@ -1237,16 +1237,22 @@ def _club_distance_trend(distance_rows: list[tuple[float, str]]) -> dict[str, An
     shot_refs = [ref for _distance, ref in distance_rows]
     if sample_count < 4:
         sample_median = round(float(median([distance for distance, _ref in distance_rows])), 1) if distance_rows else None
-        return {
-            "sampleCount": sample_count,
-            "windowSize": sample_count,
-            "baselineMedian": sample_median,
-            "recentMedian": sample_median,
-            "deltaMedian": None,
-            "direction": "insufficient_data",
-            "baselineShotRefs": shot_refs,
-            "recentShotRefs": shot_refs,
-        }
+        return _with_aggregate_contract(
+            {
+                "sampleCount": sample_count,
+                "windowSize": sample_count,
+                "baselineMedian": sample_median,
+                "recentMedian": sample_median,
+                "deltaMedian": None,
+                "direction": "insufficient_data",
+                "baselineShotRefs": shot_refs,
+                "recentShotRefs": shot_refs,
+            },
+            shot_refs,
+            ready=sample_count,
+            total=sample_count,
+            confidence_count=sample_count,
+        )
 
     window_size = min(5, max(2, sample_count // 2))
     baseline_rows = distance_rows[:window_size]
@@ -1260,16 +1266,54 @@ def _club_distance_trend(distance_rows: list[tuple[float, str]]) -> dict[str, An
         direction = "longer"
     else:
         direction = "stable"
-    return {
-        "sampleCount": sample_count,
-        "windowSize": window_size,
-        "baselineMedian": baseline_median,
-        "recentMedian": recent_median,
-        "deltaMedian": delta_median,
-        "direction": direction,
-        "baselineShotRefs": [ref for _distance, ref in baseline_rows],
-        "recentShotRefs": [ref for _distance, ref in recent_rows],
-    }
+    return _with_aggregate_contract(
+        {
+            "sampleCount": sample_count,
+            "windowSize": window_size,
+            "baselineMedian": baseline_median,
+            "recentMedian": recent_median,
+            "deltaMedian": delta_median,
+            "direction": direction,
+            "baselineShotRefs": [ref for _distance, ref in baseline_rows],
+            "recentShotRefs": [ref for _distance, ref in recent_rows],
+        },
+        shot_refs,
+        ready=sample_count,
+        total=sample_count,
+        confidence_count=sample_count,
+    )
+
+
+def _sortable_int(value: Any, default: int = 999999) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _round_chronology(data: HistoryData) -> dict[str, tuple[str, int]]:
+    return {_round_id(row): (str(row.get("date") or ""), index) for index, row in enumerate(data.rounds)}
+
+
+def _shot_sort_order(shot: dict[str, Any]) -> int:
+    for key in ("order", "shotOrder", "shotNumber", "shotIndex", "sequence"):
+        if shot.get(key) is not None:
+            return _sortable_int(shot.get(key))
+    ref = str(shot.get("_ref") or "")
+    return _sortable_int(ref.rsplit(":", 1)[-1])
+
+
+def _club_trend_shot_sort_key(shot: dict[str, Any], round_chronology: dict[str, tuple[str, int]]) -> tuple[Any, ...]:
+    round_id = _shot_round_id(shot)
+    date, round_index = round_chronology.get(round_id, ("", 999999))
+    return (
+        date,
+        round_index,
+        round_id,
+        _sortable_int(shot.get("hole")),
+        _shot_sort_order(shot),
+        str(shot.get("_ref") or ""),
+    )
 
 
 def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -1334,11 +1378,13 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
         club = _shot_club(shot)
         grouped[club].append(shot)
     out = []
+    round_chronology = _round_chronology(data)
     for club, shots in grouped.items():
+        trend_shots = sorted(shots, key=lambda shot: _club_trend_shot_sort_key(shot, round_chronology))
         distances = [float(_shot_distance(shot)) for shot in shots if _shot_distance(shot) is not None]
         distance_rows = [
             (float(_shot_distance(shot)), str(shot.get("_ref")))
-            for shot in shots
+            for shot in trend_shots
             if _shot_distance(shot) is not None and shot.get("_ref") is not None
         ]
         p10 = percentile(distances, 0.1)
@@ -1360,7 +1406,7 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
                     "p10": p10,
                     "p90": p90,
                     "dispersionRange": dispersion_range,
-                    "consistency": _club_consistency(dispersion_range),
+                    "consistency": _club_consistency(dispersion_range, len(distances)),
                     "distanceTrend": _club_distance_trend(distance_rows),
                     "max": max(distances) if distances else None,
                     "roundIds": round_ids,
