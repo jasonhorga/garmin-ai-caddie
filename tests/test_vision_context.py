@@ -154,6 +154,32 @@ class VisionContextTests(unittest.TestCase):
         self.assertEqual(result["findings"][0]["findingType"], "uncertainty")
         self.assertIn("media content is unavailable", result["findings"][0]["missingInfo"][0])
 
+    def test_redacted_media_is_not_sent_to_multimodal_provider(self) -> None:
+        provider = RecordingVisionProvider()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "uploads" / "redacted.jpg"
+            image.parent.mkdir()
+            image.write_bytes(b"redacted-image-bytes")
+            result = analyze_media_context(
+                {
+                    "id": "media-redacted",
+                    "targetType": "shot",
+                    "targetId": "round-1:7:2",
+                    "mediaKind": "photo",
+                    "localPath": "uploads/redacted.jpg",
+                    "privacyState": "redacted",
+                },
+                provider,
+                root=root,
+            )
+
+        self.assertEqual(provider.messages, [])
+        self.assertEqual(provider.media_parts, [])
+        self.assertEqual(result["findings"][0]["findingType"], "uncertainty")
+        self.assertEqual(result["findings"][0]["confidence"], "low")
+        self.assertIn("redacted", result["findings"][0]["missingInfo"][0])
+
     def test_media_bytes_are_sent_as_structured_multimodal_parts(self) -> None:
         provider = RecordingVisionProvider()
         with TemporaryDirectory() as tmp:

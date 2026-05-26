@@ -232,6 +232,12 @@ def analyze_media_context(
     *,
     root: Path | str | None = None,
 ) -> dict[str, Any]:
+    if str(media.get("privacyState") or "").strip() == "redacted":
+        return _uncertainty(
+            media,
+            provider,
+            "media privacyState is redacted; no image/video bytes were sent to a provider",
+        )
     media_parts, media_status = _media_payload(media, root=root)
     chat_multimodal = getattr(provider, "chat_multimodal", None)
     uses_multimodal = callable(chat_multimodal)
