@@ -174,6 +174,40 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(stats["summary"]["totalRounds"], 1)
         self.assertEqual(stats["summary"]["mergedRounds"], 1)
 
+    def test_summary_coverage_counts_rounds_with_missing_source_ids(self) -> None:
+        data = HistoryData(
+            raw_rounds=[{"id": "ok-round", "hasShots": False}, {"hasShots": False}],
+            rounds=[
+                {
+                    "id": "ok-round",
+                    "date": "2026-05-25",
+                    "course": "Coverage Course",
+                    "courseKey": "coverage_course",
+                    "holesCompleted": 18,
+                    "strokes": 80,
+                    "par": 72,
+                    "holes": [],
+                    "hasShots": False,
+                },
+                {
+                    "date": "2026-05-26",
+                    "course": "Coverage Course",
+                    "courseKey": "coverage_course",
+                    "holesCompleted": 18,
+                    "strokes": 82,
+                    "par": 72,
+                    "holes": [],
+                    "hasShots": False,
+                },
+            ],
+            shots=[],
+        )
+
+        stats = build_history_stats(data, data_mode="fixture")
+
+        self.assertEqual(stats["summary"]["sourceRefs"], ["ok-round"])
+        self.assertEqual(stats["summary"]["coverage"], {"ready": 1, "total": 2, "pct": 50.0})
+
     def test_scoring_bands_and_counts_have_drilldown_refs(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
 
@@ -432,6 +466,18 @@ class HistoryStatsCoreTests(unittest.TestCase):
                 ),
                 root=root,
             )
+            store_weather_snapshot(
+                build_weather_snapshot(
+                    round_id="not-loaded",
+                    hole=99,
+                    captured_at="2026-05-25T09:00:00Z",
+                    latitude=22.279,
+                    longitude=114.162,
+                    source="manual",
+                    observed={"windSpeedMps": 9.9, "windDirectionDeg": 270},
+                ),
+                root=root,
+            )
 
             stats = build_history_stats(
                 fixture_history_data(),
@@ -445,6 +491,7 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(weather_quality["ready"], 1)
         self.assertEqual(weather_quality["total"], 45)
         self.assertEqual(weather_quality["refs"], ["900001:7"])
+        self.assertEqual(weather_quality["coverage"], {"ready": 1, "total": 45, "pct": 2.2})
 
     def test_geometry_and_report_coverage_are_reported_in_data_quality(self) -> None:
         with TemporaryDirectory() as tmp:

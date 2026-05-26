@@ -224,7 +224,7 @@ def _with_aggregate_contract(
 ) -> dict[str, Any]:
     source_refs = _source_refs(refs)
     ready_count = len(source_refs) if ready is None else ready
-    total_count = len(source_refs) if total is None else total
+    total_count = len(refs) if total is None else total
     row["sourceRefs"] = source_refs
     row["coverage"] = _coverage(ready_count, total_count)
     row["confidence"] = _confidence(len(source_refs) if confidence_count is None else confidence_count)
@@ -1076,12 +1076,21 @@ def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) 
 
 
 def _weather_quality(data: HistoryData, weather_snapshots: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    total_holes = sum(len(row.get("holes") or []) for row in data.rounds)
+    loaded_hole_refs = {
+        _hole_ref(row, int(hole.get("number") or 0))
+        for row in data.rounds
+        for hole in (row.get("holes") or [])
+        if isinstance(hole, dict) and int(hole.get("number") or 0)
+    }
+    total_holes = len(loaded_hole_refs)
     ready_refs = sorted(
         {
             f"{row.get('roundId')}:{row.get('hole')}"
             for row in weather_snapshots or []
-            if row.get("state") == "ready" and row.get("roundId") is not None and row.get("hole") is not None
+            if row.get("state") == "ready"
+            and row.get("roundId") is not None
+            and row.get("hole") is not None
+            and f"{row.get('roundId')}:{row.get('hole')}" in loaded_hole_refs
         }
     )
     return _with_quality_contract(
