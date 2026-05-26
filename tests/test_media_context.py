@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from ai_caddie.media import attach_media, list_media, media_for_target, media_index_file
+from ai_caddie.media import attach_media, list_media, media_for_target, media_index_file, redact_media
 
 
 class MediaContextTests(unittest.TestCase):
@@ -62,6 +62,33 @@ class MediaContextTests(unittest.TestCase):
                 attach_media("shot", "s1", "photo", "shot.jpg", "2026-05-25T00:00:00Z", privacy_state="public", root=root)
 
             self.assertEqual(list_media(root=root), [])
+
+    def test_redaction_does_not_delete_manually_attached_file_outside_media_uploads(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            local_note = root / "notes.txt"
+            local_note.write_text("keep this file", encoding="utf-8")
+
+            record = attach_media(
+                target_type="shot",
+                target_id="round-1:7:2",
+                media_kind="photo",
+                local_path=local_note,
+                captured_at="2026-05-25T00:00:00Z",
+                privacy_state="private_local",
+                root=root,
+            )
+
+            result = redact_media(record["id"], root=root)
+            latest = list_media(root=root)[0]
+            local_note_exists = local_note.exists()
+            local_note_text = local_note.read_text(encoding="utf-8")
+
+        self.assertFalse(result["deletedContent"])
+        self.assertTrue(local_note_exists)
+        self.assertEqual(local_note_text, "keep this file")
+        self.assertEqual(latest["privacyState"], "redacted")
+        self.assertEqual(latest["localPath"], "[redacted]")
 
 
 if __name__ == "__main__":

@@ -141,12 +141,13 @@ def _stored_content_path(record: dict[str, Any], *, root: Path | str | None = No
     if not local_path or local_path == "[redacted]":
         return None
     root_path = Path(root or ".").resolve()
+    upload_root = (root_path / UPLOAD_DIR).resolve()
     candidate = Path(local_path)
     if not candidate.is_absolute():
         candidate = root_path / candidate
     try:
         resolved = candidate.resolve()
-        resolved.relative_to(root_path)
+        resolved.relative_to(upload_root)
     except ValueError:
         return None
     return resolved
