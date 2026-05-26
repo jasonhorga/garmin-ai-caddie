@@ -3,12 +3,16 @@ import Foundation
 public final class OfflineStore {
     private let directoryURL: URL
     private let logURL: URL
+    private let packagesDirectoryURL: URL
+    private let currentPackageURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
     public init(directoryURL: URL) {
         self.directoryURL = directoryURL
         self.logURL = directoryURL.appendingPathComponent("events.jsonl")
+        self.packagesDirectoryURL = directoryURL.appendingPathComponent("packages", isDirectory: true)
+        self.currentPackageURL = directoryURL.appendingPathComponent("current_package.json")
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
     }
@@ -17,6 +21,28 @@ public final class OfflineStore {
         let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AICaddie", isDirectory: true)
         self.init(directoryURL: directory)
+    }
+
+    public func saveRoundPackage(_ package: LiveRoundPackage) throws {
+        try FileManager.default.createDirectory(at: packagesDirectoryURL, withIntermediateDirectories: true)
+        let encoded = try encoder.encode(package)
+        try encoded.write(to: packageURL(roundId: package.roundId), options: [.atomic])
+        try encoded.write(to: currentPackageURL, options: [.atomic])
+    }
+
+    public func loadRoundPackage(roundId: String) throws -> LiveRoundPackage? {
+        let url = packageURL(roundId: roundId)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: url))
+    }
+
+    public func loadCurrentRoundPackage() throws -> LiveRoundPackage? {
+        guard FileManager.default.fileExists(atPath: currentPackageURL.path) else {
+            return nil
+        }
+        return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: currentPackageURL))
     }
 
     public func appendEvent(_ event: LiveRoundEvent) throws {
@@ -60,5 +86,11 @@ public final class OfflineStore {
             payload: ["status": .string("synced")]
         )
         try appendEvent(event)
+    }
+
+    private func packageURL(roundId: String) -> URL {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        let fileName = roundId.addingPercentEncoding(withAllowedCharacters: allowed) ?? roundId.replacingOccurrences(of: "/", with: "_")
+        return packagesDirectoryURL.appendingPathComponent("\(fileName).json")
     }
 }

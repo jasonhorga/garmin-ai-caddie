@@ -10,6 +10,7 @@ public struct CurrentHoleView: View {
     private let caddieClient: CaddieDecisionClient?
     private let watchBridge: WatchEventBridge?
 
+    @StateObject private var locationProvider = LocationProvider()
     @State private var score: Int
     @State private var puttCount: Int = 2
     @State private var penaltyCount: Int = 0
@@ -109,6 +110,14 @@ public struct CurrentHoleView: View {
             }
         }
         .navigationTitle("Hole \(hole.number)")
+        .onAppear {
+            locationProvider.requestAuthorization()
+            locationProvider.startUpdatingLocation()
+        }
+        .onReceive(locationProvider.$latestFix) { latestFix in
+            currentCoordinate = latestFix?.coordinate
+            currentHorizontalAccuracyM = latestFix?.horizontalAccuracyM
+        }
         .task(id: hole.number) {
             await loadCaddieDecision()
         }
@@ -188,6 +197,17 @@ public struct CurrentHoleView: View {
 
     private func submitEvents() {
         let timestamp = ISO8601DateFormatter().string(from: Date())
+        if let currentCoordinate {
+            var locationPayload: [String: JSONValue] = [
+                "latitude": .number(currentCoordinate.latitude),
+                "longitude": .number(currentCoordinate.longitude),
+                "source": .string("ios_gps"),
+            ]
+            if let currentHorizontalAccuracyM {
+                locationPayload["horizontalAccuracyM"] = .number(currentHorizontalAccuracyM)
+            }
+            emit(kind: .location, timestamp: timestamp, payload: locationPayload)
+        }
         emit(kind: .score, timestamp: timestamp, payload: ["strokes": .number(Double(score))])
         emit(kind: .putt, timestamp: timestamp, payload: ["count": .number(Double(puttCount))])
         emit(kind: .penalty, timestamp: timestamp, payload: ["count": .number(Double(penaltyCount))])
