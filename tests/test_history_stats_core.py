@@ -43,6 +43,7 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertIn("holes", stats)
         self.assertIn("clubs", stats)
         self.assertIn("issues", stats)
+        self.assertIn("records", stats)
         self.assertIn("dataQuality", stats)
         self.assertIn("drillDown", stats)
 
@@ -304,6 +305,26 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(improvement["strokesPerRoundTrend"], -3.03)
         self.assertEqual(improvement["baselineRoundRefs"], ["improve-1", "improve-2", "improve-3"])
         self.assertEqual(improvement["recentRoundRefs"], ["improve-4", "improve-5", "improve-6"])
+
+    def test_record_book_exposes_drilldown_ready_personal_bests(self) -> None:
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+
+        records = stats["records"]
+        self.assertEqual(records["best18"]["score"], 77)
+        self.assertEqual(records["best18"]["toPar"], 5)
+        self.assertEqual(records["best18"]["roundRef"], "900001")
+        self.assertEqual(records["worst18"]["score"], 95)
+        self.assertEqual(records["worst18"]["roundRef"], "900002")
+        self.assertEqual(records["bestNine"]["score"], 38)
+        self.assertEqual(records["bestNine"]["roundRef"], "900003")
+        self.assertEqual(records["mostPlayedCourse"]["courseKey"], "black_knight")
+        self.assertEqual(records["mostPlayedCourse"]["roundCount"], 2)
+        self.assertEqual(records["mostPlayedCourse"]["roundRefs"], ["900001", "900002"])
+        self.assertEqual(records["longestShots"][0]["club"], "1D")
+        self.assertEqual(records["longestShots"][0]["distance"], 238.0)
+        self.assertEqual(records["longestShots"][0]["shotRef"], "900001:1:0")
+        self.assertEqual(records["bestHoleOutcomes"][0]["toPar"], -1)
+        self.assertEqual(records["bestHoleOutcomes"][0]["holeRef"], "900003:2")
 
 
 if __name__ == "__main__":

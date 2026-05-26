@@ -40,6 +40,10 @@ class FactBoundReportTests(unittest.TestCase):
                 },
                 "courseDistribution": [{"courseKey": "black_knight", "roundCount": 2, "pct": 66.7}],
                 "issues": [{"issue": "approach_short", "phase": "Approach", "count": 2, "sourceRefs": ["900001:7"]}],
+                "records": {
+                    "best18": {"score": 77, "roundRef": "900001"},
+                    "longestShots": [{"club": "1D", "distance": 238.0, "shotRef": "900001:1:0"}],
+                },
                 "dataQuality": [
                     {"label": "shots", "state": "partial", "ready": 2, "total": 3},
                     {"label": "weather", "state": "partial", "ready": 1, "total": 45},
@@ -65,6 +69,7 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("phase_Approach", labels)
         self.assertIn("top_issue", labels)
         self.assertIn("course_distribution", labels)
+        self.assertIn("record_book", labels)
         self.assertIn(report["confidence"], {"low", "medium", "high"})
 
     def test_trend_report_facts_bind_period_trends_issues_and_drilldown_refs(self) -> None:
@@ -83,6 +88,10 @@ class FactBoundReportTests(unittest.TestCase):
                 },
                 "courseDistribution": [{"courseKey": "black_knight", "roundCount": 2, "roundRefs": ["900001", "900002"]}],
                 "issues": [{"issue": "approach_short", "count": 2, "sourceRefs": ["900001:7"]}],
+                "records": {
+                    "best18": {"score": 77, "roundRef": "900001"},
+                    "mostPlayedCourse": {"courseKey": "black_knight", "roundCount": 2},
+                },
                 "dataQuality": [{"label": "weather", "state": "partial", "ready": 1, "total": 45}],
                 "drillDown": {"roundRefs": ["900001", "900002", "900003"], "holeRefs": ["900001:1"], "shotRefs": ["900001:1:0"]},
             },
@@ -97,6 +106,7 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("time_period", labels)
         self.assertIn("phase_Tee", labels)
         self.assertIn("top_issues", labels)
+        self.assertIn("record_book", labels)
         self.assertIn("drilldown_refs", labels)
         self.assertEqual(facts["missingData"][0]["label"], "weather")
 

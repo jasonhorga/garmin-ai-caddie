@@ -42,6 +42,12 @@ function refsFor(row: Record<string, unknown>) {
   return row.roundRefs ?? row.holeRefs ?? row.shotRefs ?? row.sourceRefs ?? row.refs ?? row.roundIds
 }
 
+function recordScore(row: Record<string, unknown>) {
+  const score = displayNumber(row.score)
+  const toPar = displaySigned(row.toPar)
+  return `${score} / ${toPar}`
+}
+
 function phaseFact(row: Record<string, unknown>) {
   const phase = asString(row.phase)
   if (phase === 'Approach' && asNumber(row.girPct) !== null) return `GIR ${displayNumber(row.girPct)}%`
@@ -64,6 +70,13 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const improvement = asRecord(data.time.improvement)
   const phaseStats = asRows(data.scoring.phaseStats)
   const courseMix = data.courses.slice(0, 5)
+  const records = asRecord(data.records)
+  const best18 = asRecord(records.best18)
+  const worst18 = asRecord(records.worst18)
+  const bestNine = asRecord(records.bestNine)
+  const mostPlayedCourse = asRecord(records.mostPlayedCourse)
+  const longestShot = asRows(records.longestShots)[0] ?? {}
+  const bestHole = asRows(records.bestHoleOutcomes)[0] ?? {}
 
   return (
     <section className="stats-page" aria-label="Statistics overview">
@@ -277,6 +290,49 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
                 <SourceRefs refs={refsFor(course)} onSelectRef={onSelectRef} />
               </div>
             ))}
+          </div>
+        </section>
+
+        <section className="panel compact-panel" aria-label="Record book">
+          <div className="section-head">
+            <div>
+              <h2>Record Book</h2>
+              <p>Personal bests and notable source-linked rounds, holes, and shots.</p>
+            </div>
+          </div>
+          <div className="stat-list">
+            <div className="stat-row">
+              <span>Best 18</span>
+              <b>{recordScore(best18)}</b>
+              <SourceRefs refs={best18.roundRef ? [String(best18.roundRef)] : []} onSelectRef={onSelectRef} />
+            </div>
+            <div className="stat-row">
+              <span>Worst 18</span>
+              <b>{recordScore(worst18)}</b>
+              <SourceRefs refs={worst18.roundRef ? [String(worst18.roundRef)] : []} onSelectRef={onSelectRef} />
+            </div>
+            <div className="stat-row">
+              <span>Best 9</span>
+              <b>{recordScore(bestNine)}</b>
+              <SourceRefs refs={bestNine.roundRef ? [String(bestNine.roundRef)] : []} onSelectRef={onSelectRef} />
+            </div>
+            <div className="stat-row">
+              <span>Most played</span>
+              <b>{asString(mostPlayedCourse.courseName) ?? '-'}</b>
+              <SourceRefs refs={refsFor(mostPlayedCourse)} onSelectRef={onSelectRef} />
+            </div>
+            <div className="stat-row">
+              <span>Longest shot</span>
+              <b>
+                {asString(longestShot.club) ?? '-'} {displayNumber(longestShot.distance)}m
+              </b>
+              <SourceRefs refs={longestShot.shotRef ? [String(longestShot.shotRef)] : []} onSelectRef={onSelectRef} />
+            </div>
+            <div className="stat-row">
+              <span>Best hole</span>
+              <b>{recordScore(bestHole)}</b>
+              <SourceRefs refs={bestHole.holeRef ? [String(bestHole.holeRef)] : []} onSelectRef={onSelectRef} />
+            </div>
           </div>
         </section>
       </section>

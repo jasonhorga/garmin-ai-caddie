@@ -128,6 +128,7 @@ describe('fetchHistoryStats', () => {
         time: { byMonth: [] },
         scoring: { scoreBands: [] },
         courseDistribution: [],
+        records: {},
         courses: [],
         holes: [],
         clubs: [],

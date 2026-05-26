@@ -10,6 +10,7 @@ const statsFixture: HistoryStatsResponse = {
   time: {},
   scoring: {},
   courseDistribution: [],
+  records: {},
   courses: [],
   holes: [],
   clubs: [],

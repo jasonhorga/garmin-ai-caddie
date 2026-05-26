@@ -63,6 +63,9 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
     course_distribution = history_stats.get("courseDistribution")
     if isinstance(course_distribution, list) and course_distribution:
         facts_used.append(_fact("course_distribution", course_distribution[:5], "courseDistribution"))
+    records = history_stats.get("records")
+    if isinstance(records, dict) and records:
+        facts_used.append(_fact("record_book", _record_book_fact(records), "records"))
     issues = history_stats.get("issues")
     if isinstance(issues, list) and issues:
         top_issue = sorted(
@@ -160,6 +163,10 @@ def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict
     if isinstance(course_distribution, list) and course_distribution:
         facts_used.append(_fact("course_distribution", course_distribution[:8], "courseDistribution"))
 
+    records = history_stats.get("records")
+    if isinstance(records, dict) and records:
+        facts_used.append(_fact("record_book", _record_book_fact(records), "records"))
+
     issues = history_stats.get("issues")
     if isinstance(issues, list) and issues:
         top_issues = sorted(
@@ -215,6 +222,16 @@ def _find_period_row(time_stats: dict[str, Any], period: str) -> dict[str, Any] 
         key = period.removeprefix("month:")
         return _find_time_row(time_stats.get("byMonth"), key)
     return None
+
+
+def _record_book_fact(records: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "best18": records.get("best18"),
+        "bestNine": records.get("bestNine"),
+        "mostPlayedCourse": records.get("mostPlayedCourse"),
+        "longestShots": records.get("longestShots", [])[:3] if isinstance(records.get("longestShots"), list) else [],
+        "bestHoleOutcomes": records.get("bestHoleOutcomes", [])[:3] if isinstance(records.get("bestHoleOutcomes"), list) else [],
+    }
 
 
 def _find_time_row(rows: Any, key: str) -> dict[str, Any] | None:

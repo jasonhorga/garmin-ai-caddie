@@ -494,6 +494,79 @@ def _course_distribution(data: HistoryData) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (-row["roundCount"], row["courseName"]))
 
 
+def _round_record(row: dict[str, Any]) -> dict[str, Any]:
+    score = row.get("strokes")
+    par = row.get("par")
+    return {
+        "roundRef": _round_id(row),
+        "courseKey": row.get("courseKey"),
+        "courseName": str(row.get("course") or row.get("courseName") or "Unknown course"),
+        "date": row.get("date"),
+        "score": int(score) if score is not None else None,
+        "par": int(par) if par is not None else None,
+        "toPar": int(score) - int(par) if score is not None and par is not None else None,
+    }
+
+
+def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    rounds18 = [
+        row
+        for row in data.rounds
+        if row.get("holesCompleted") == 18 and row.get("strokes") is not None
+    ]
+    rounds9 = [
+        row
+        for row in data.rounds
+        if row.get("holesCompleted") == 9 and row.get("strokes") is not None
+    ]
+    courses = _course_distribution(data)
+    shots = [
+        shot
+        for shot in _effective_shots(data, annotations)
+        if shot.get("distance") is not None and shot.get("_ref") is not None
+    ]
+    hole_outcomes = []
+    for row in data.rounds:
+        hole_pars = str(row.get("holePars") or "")
+        for hole in row.get("holes") or []:
+            number = int(hole.get("number") or 0)
+            par = _hole_to_par(hole, _par_from_string(hole_pars, number))
+            score = hole.get("strokes")
+            if not number or par is None or score is None:
+                continue
+            hole_outcomes.append(
+                {
+                    "holeRef": _hole_ref(row, number),
+                    "roundRef": _round_id(row),
+                    "courseKey": row.get("courseKey"),
+                    "courseName": str(row.get("course") or row.get("courseName") or "Unknown course"),
+                    "hole": number,
+                    "score": int(score),
+                    "par": int(par),
+                    "toPar": int(score) - int(par),
+                }
+            )
+    return {
+        "best18": _round_record(min(rounds18, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds18 else None,
+        "worst18": _round_record(max(rounds18, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds18 else None,
+        "bestNine": _round_record(min(rounds9, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds9 else None,
+        "mostPlayedCourse": courses[0] if courses else None,
+        "longestShots": [
+            {
+                "shotRef": str(shot.get("_ref")),
+                "roundRef": str(shot.get("roundId")),
+                "holeRef": f"{shot.get('roundId')}:{shot.get('hole')}",
+                "club": str(shot.get("club") or shot.get("clubName") or "Unknown"),
+                "distance": float(shot.get("distance")),
+                "surface": shot.get("surface"),
+            }
+            for shot in sorted(shots, key=lambda item: (-float(item.get("distance") or 0), str(item.get("_ref"))))[:5]
+        ],
+        "bestHoleOutcomes": sorted(hole_outcomes, key=lambda item: (int(item["toPar"]), int(item["score"]), str(item["holeRef"])))[:5],
+        "worstHoleOutcomes": sorted(hole_outcomes, key=lambda item: (-int(item["toPar"]), -int(item["score"]), str(item["holeRef"])))[:5],
+    }
+
+
 def _hole_score_distribution(bucket_refs: dict[str, list[str]]) -> list[dict[str, Any]]:
     ordered = [
         ("eagleOrBetter", "Eagle+", "eagle"),
@@ -756,6 +829,7 @@ def build_history_stats(
         "time": _time_stats(data),
         "scoring": _scoring(data, annotations),
         "courseDistribution": _course_distribution(data),
+        "records": _records(data, annotations),
         "courses": _courses(data),
         "holes": _holes(data, annotations),
         "clubs": _clubs(data, annotations),

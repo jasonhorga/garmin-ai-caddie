@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { HistoryStatsResponse } from '../types'
 import { StatsOverview } from './StatsOverview'
 
@@ -51,6 +51,14 @@ const statsFixture: HistoryStatsResponse = {
     ],
   },
   courseDistribution: [{ courseKey: 'black_knight', roundCount: 2, pct: 66.7, roundRefs: ['900001', '900002'] }],
+  records: {
+    best18: { score: 77, toPar: 5, roundRef: '900001' },
+    worst18: { score: 95, toPar: 23, roundRef: '900002' },
+    bestNine: { score: 38, toPar: 2, roundRef: '900003' },
+    mostPlayedCourse: { courseKey: 'black_knight', courseName: 'Black Knight B/C', roundCount: 2, roundRefs: ['900001', '900002'] },
+    longestShots: [{ club: '1D', distance: 238, shotRef: '900001:1:0' }],
+    bestHoleOutcomes: [{ holeRef: '900003:2', toPar: -1, score: 4, par: 5 }],
+  },
   courses: [
     {
       courseKey: 'black_knight',
@@ -69,7 +77,7 @@ const statsFixture: HistoryStatsResponse = {
 
 describe('StatsOverview', () => {
   it('renders summary, score bands, and recent months from history stats', () => {
-    render(<StatsOverview data={statsFixture} />)
+    render(<StatsOverview data={statsFixture} onSelectRef={vi.fn()} />)
 
     expect(screen.getByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
     expect(screen.getByText('fixture mode')).toBeInTheDocument()
@@ -101,6 +109,14 @@ describe('StatsOverview', () => {
     expect(screen.getByText('Putting')).toBeInTheDocument()
     expect(screen.getByText('avg putts 2.1')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Course Mix' })).toBeInTheDocument()
-    expect(screen.getByText('Black Knight B/C')).toBeInTheDocument()
+    expect(screen.getAllByText('Black Knight B/C').length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { name: 'Record Book' })).toBeInTheDocument()
+    expect(screen.getByText('Best 18')).toBeInTheDocument()
+    expect(screen.getByText('77 / +5')).toBeInTheDocument()
+    expect(screen.getByText('Best 9')).toBeInTheDocument()
+    expect(screen.getByText('38 / +2')).toBeInTheDocument()
+    expect(screen.getByText('Longest shot')).toBeInTheDocument()
+    expect(screen.getByText('1D 238m')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900001:1:0' })).toBeInTheDocument()
   })
 })

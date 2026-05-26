@@ -14,6 +14,7 @@ const stats: HistoryStatsResponse = {
   },
   scoring: {},
   courseDistribution: [],
+  records: {},
   courses: [],
   holes: [],
   clubs: [],

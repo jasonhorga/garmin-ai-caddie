@@ -36,6 +36,8 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         black_knight = next(row for row in payload["courseDistribution"] if row["courseKey"] == "black_knight")
         self.assertEqual(black_knight["roundCount"], 2)
         self.assertEqual(black_knight["roundRefs"], ["900001", "900002"])
+        self.assertEqual(payload["records"]["best18"]["roundRef"], "900001")
+        self.assertEqual(payload["records"]["longestShots"][0]["shotRef"], "900001:1:0")
         self.assertIn("drillDown", payload)
 
     def test_history_stats_endpoint_uses_public_schema_alias(self) -> None:

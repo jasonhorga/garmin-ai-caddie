@@ -70,6 +70,7 @@ function statsPayload() {
     time: { byMonth: [{ key: '2026-05', roundCount: 1, average18: 77, bestScore: 77 }] },
     scoring: { scoreBands: [{ label: '70s', count: 1, roundIds: ['900001'] }] },
     courseDistribution: [{ courseKey: 'black_knight', roundCount: 2, pct: 66.7, roundRefs: ['900001', '900002'] }],
+    records: {},
     courses: [
       {
         courseKey: 'black_knight',

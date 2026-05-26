@@ -341,6 +341,7 @@ export interface HistoryStatsResponse {
   time: Record<string, unknown>
   scoring: Record<string, unknown>
   courseDistribution: Array<Record<string, unknown>>
+  records: Record<string, unknown>
   courses: Array<Record<string, unknown>>
   holes: Array<Record<string, unknown>>
   clubs: Array<Record<string, unknown>>
