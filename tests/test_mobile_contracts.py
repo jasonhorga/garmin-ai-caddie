@@ -522,6 +522,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("queueInputEvent", sync_swift)
         self.assertIn("flushQueue", sync_swift)
         self.assertIn("queued_events.json", sync_swift)
+        self.assertIn("stateURL", sync_swift)
+        self.assertIn("current_state.json", sync_swift)
+        self.assertIn("loadPersistedState", sync_swift)
+        self.assertIn("persistState", sync_swift)
         self.assertIn("sessionReachabilityDidChange", sync_swift)
         self.assertIn("try? flushQueue()", sync_swift)
 

@@ -20,4 +20,29 @@ final class WatchSyncClientTests: XCTestCase {
 
         XCTAssertEqual(try client.loadQueuedEvents(), [event])
     }
+
+    func testReceiveStatePersistsLastRoundStateForOfflineRelaunch() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let queueURL = directoryURL.appendingPathComponent("queued_events.json")
+        let stateURL = directoryURL.appendingPathComponent("current_state.json")
+        let state = WatchRoundState(
+            roundId: "round-1",
+            hole: 7,
+            par: 4,
+            distanceM: 142,
+            suggestedClub: "8I",
+            selectedClub: "8I",
+            score: 4,
+            putts: 2,
+            penaltyCount: 0,
+            caddieConfidence: "medium"
+        )
+        let client = WatchSyncClient(queueURL: queueURL, stateURL: stateURL)
+
+        client.receiveState(state)
+        let relaunched = WatchSyncClient(queueURL: queueURL, stateURL: stateURL)
+
+        XCTAssertEqual(relaunched.currentState, state)
+    }
 }

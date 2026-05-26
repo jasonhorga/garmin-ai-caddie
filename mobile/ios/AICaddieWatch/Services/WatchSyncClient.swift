@@ -33,12 +33,15 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     @Published public private(set) var currentState: WatchRoundState?
 
     private let queueURL: URL
+    private let stateURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    public init(queueURL: URL) {
+    public init(queueURL: URL, stateURL: URL? = nil) {
         self.queueURL = queueURL
+        self.stateURL = stateURL ?? queueURL.deletingLastPathComponent().appendingPathComponent("current_state.json")
         super.init()
+        currentState = try? loadPersistedState()
         if WCSession.isSupported() {
             WCSession.default.delegate = self
             WCSession.default.activate()
@@ -48,11 +51,15 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     public override convenience init() {
         let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AICaddieWatch", isDirectory: true)
-        self.init(queueURL: directory.appendingPathComponent("queued_events.json"))
+        self.init(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            stateURL: directory.appendingPathComponent("current_state.json")
+        )
     }
 
     public func receiveState(_ state: WatchRoundState) {
         currentState = state
+        try? persistState(state)
     }
 
     public func sendQuickInputEvent(_ event: WatchInputEvent) throws {
@@ -75,6 +82,18 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             return []
         }
         return try decoder.decode([WatchInputEvent].self, from: Data(contentsOf: queueURL))
+    }
+
+    public func loadPersistedState() throws -> WatchRoundState? {
+        guard FileManager.default.fileExists(atPath: stateURL.path) else {
+            return nil
+        }
+        return try decoder.decode(WatchRoundState.self, from: Data(contentsOf: stateURL))
+    }
+
+    private func persistState(_ state: WatchRoundState) throws {
+        try FileManager.default.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try encoder.encode(state).write(to: stateURL, options: [.atomic])
     }
 
     public func flushQueue() throws {
