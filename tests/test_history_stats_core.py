@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from ai_caddie.annotations import add_annotation
+from ai_caddie.decision import store_decision_audit
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import build_history_stats
@@ -726,6 +727,96 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(approach["deltaCount"], 2)
         self.assertEqual(approach["estimatedStrokesLost"], 1.6)
         self.assertEqual(approach["recentRefs"], ["trend-issue-5:7", "trend-issue-6:7"])
+
+    def test_decision_audits_feed_history_diagnosis_and_quality(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_decision_audit(
+                {
+                    "schema": "ai-caddie-decision-audit-v1",
+                    "decisionId": "trend-issue-5:7:tee",
+                    "decisionSourceRef": "trend-issue-5:7",
+                    "phase": "tee_shot",
+                    "plannedOptionId": "stock",
+                    "selectedOptionId": "stock",
+                    "actualOptionId": "stock",
+                    "actualShotRefs": ["trend-issue-5:7:1"],
+                    "evidenceRefs": ["trend-issue-5:7"],
+                    "classification": "execution",
+                    "modelUpdateSuggestion": "Keep the strategic option, but track whether this miss pattern repeats.",
+                },
+                decision_id="trend-issue-5:7:tee",
+                root=root,
+            )
+            store_decision_audit(
+                {
+                    "schema": "ai-caddie-decision-audit-v1",
+                    "decisionId": "trend-issue-6:7:tee",
+                    "decisionSourceRef": "trend-issue-6:7",
+                    "phase": "tee_shot",
+                    "plannedOptionId": "safe",
+                    "selectedOptionId": "safe",
+                    "actualOptionId": "attack",
+                    "actualShotRefs": ["trend-issue-6:7:1"],
+                    "evidenceRefs": ["trend-issue-6:7"],
+                    "classification": "strategy",
+                    "modelUpdateSuggestion": "Review whether the chosen aggressive option should be down-weighted for similar tee shots.",
+                },
+                decision_id="trend-issue-6:7:tee",
+                root=root,
+            )
+            store_decision_audit(
+                {
+                    "schema": "ai-caddie-decision-audit-v1",
+                    "decisionId": "trend-issue-6:8:approach",
+                    "decisionSourceRef": "trend-issue-6:8",
+                    "phase": "approach_shot",
+                    "plannedOptionId": "stock",
+                    "selectedOptionId": "stock",
+                    "actualOptionId": "stock",
+                    "actualShotRefs": ["trend-issue-6:8:2"],
+                    "evidenceRefs": ["trend-issue-6:8"],
+                    "classification": "execution",
+                    "modelUpdateSuggestion": "Keep the strategic option, but track whether this miss pattern repeats.",
+                },
+                decision_id="trend-issue-6:8:approach",
+                root=root,
+            )
+
+            stats = build_history_stats(
+                issue_trend_history_data(),
+                data_mode="fixture",
+                decision_audit_root=root,
+            )
+
+        audit_trends = stats["diagnosis"]["decisionAuditTrends"]
+        self.assertEqual(audit_trends["totalAudits"], 3)
+        self.assertEqual(audit_trends["auditedRoundRefs"], ["trend-issue-5", "trend-issue-6"])
+
+        counts = {row["classification"]: row for row in audit_trends["classificationCounts"]}
+        self.assertEqual(counts["execution"]["count"], 2)
+        self.assertEqual(counts["execution"]["pct"], 66.7)
+        self.assertEqual(counts["execution"]["sourceRefs"], ["trend-issue-5:7", "trend-issue-6:8"])
+        self.assertEqual(counts["strategy"]["count"], 1)
+        self.assertEqual(counts["strategy"]["sourceRefs"], ["trend-issue-6:7"])
+
+        drivers = audit_trends["recentCostDrivers"]
+        self.assertEqual([row["classification"] for row in drivers[:2]], ["execution", "strategy"])
+        self.assertEqual(drivers[0]["phase"], "mixed")
+        self.assertEqual(drivers[0]["baselineCount"], 0)
+        self.assertEqual(drivers[0]["recentCount"], 2)
+        self.assertEqual(drivers[0]["direction"], "new")
+        self.assertEqual(drivers[0]["actualShotRefs"], ["trend-issue-5:7:1", "trend-issue-6:8:2"])
+        self.assertEqual(
+            drivers[0]["modelUpdateSuggestions"],
+            ["Keep the strategic option, but track whether this miss pattern repeats."],
+        )
+
+        audit_quality = next(row for row in stats["dataQuality"] if row["label"] == "decision_audits")
+        self.assertEqual(audit_quality["state"], "partial")
+        self.assertEqual(audit_quality["ready"], 2)
+        self.assertEqual(audit_quality["total"], 6)
+        self.assertEqual(audit_quality["sourceRefs"], ["trend-issue-5", "trend-issue-6"])
 
     def test_record_book_exposes_drilldown_ready_personal_bests(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

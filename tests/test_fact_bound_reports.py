@@ -220,6 +220,67 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("drilldown_refs", labels)
         self.assertEqual(facts["missingData"][0]["label"], "weather")
 
+    def test_report_facts_include_decision_audit_diagnosis(self) -> None:
+        stats = {
+            "schema": "ai-caddie-history-stats-v1",
+            "summary": {"totalRounds": 3, "average18": 86.0, "recent10Average": 86.0, "bestScore": 77},
+            "time": {"byYear": [{"key": "2026", "year": "2026", "roundCount": 3, "roundRefs": ["900001"]}]},
+            "scoring": {},
+            "issues": [],
+            "dataQuality": [],
+            "drillDown": {"roundIds": ["900001", "900002"]},
+            "diagnosis": {
+                "decisionAuditTrends": {
+                    "totalAudits": 2,
+                    "auditedRoundRefs": ["900001", "900002"],
+                    "classificationCounts": [
+                        {
+                            "classification": "execution",
+                            "count": 1,
+                            "pct": 50.0,
+                            "sourceRefs": ["900001:7"],
+                            "decisionIds": ["900001:7:tee"],
+                            "actualShotRefs": ["900001:7:1"],
+                        },
+                        {
+                            "classification": "strategy",
+                            "count": 1,
+                            "pct": 50.0,
+                            "sourceRefs": ["900002:7"],
+                            "decisionIds": ["900002:7:tee"],
+                            "actualShotRefs": ["900002:7:1"],
+                        },
+                    ],
+                    "recentCostDrivers": [
+                        {
+                            "classification": "execution",
+                            "phase": "tee_shot",
+                            "recentCount": 1,
+                            "deltaCount": 1,
+                            "estimatedStrokesLost": 0.9,
+                            "sourceRefs": ["900001:7"],
+                            "recentRefs": ["900001:7"],
+                            "decisionIds": ["900001:7:tee"],
+                            "actualShotRefs": ["900001:7:1"],
+                        }
+                    ],
+                }
+            },
+        }
+
+        round_facts = build_round_report_facts(stats, "900001")
+        trend_facts = build_trend_report_facts(stats, "year:2026")
+
+        round_by_label = {row["label"]: row for row in round_facts["factsUsed"]}
+        self.assertEqual(round_by_label["round_decision_audits"]["sourceRefs"], ["900001:7", "900001:7:1"])
+        self.assertEqual(round_by_label["round_decision_audits"]["value"][0]["classification"], "execution")
+        self.assertEqual(round_by_label["round_decision_audits"]["value"][0]["decisionIds"], ["900001:7:tee"])
+
+        trend_by_label = {row["label"]: row for row in trend_facts["factsUsed"]}
+        self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["totalAudits"], 2)
+        self.assertEqual(trend_by_label["decision_audit_trends"]["sourceRefs"], ["900001", "900002", "900001:7", "900002:7", "900001:7:1", "900002:7:1"])
+        self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["recentCostDrivers"][0]["classification"], "execution")
+
     def test_report_facts_preserve_stat_source_refs_coverage_and_confidence(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
         stats["dataQuality"].append(

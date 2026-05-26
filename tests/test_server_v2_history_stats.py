@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from ai_caddie.config import get_settings
+from ai_caddie.decision import store_decision_audit
 from server_v2.main import app
 
 
@@ -51,6 +54,42 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
 
         self.assertEqual(payload["schema"], "ai-caddie-history-stats-v1")
         self.assertNotIn("schema_", payload)
+
+    def test_history_stats_endpoint_includes_decision_audit_diagnosis(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_decision_audit(
+                {
+                    "schema": "ai-caddie-decision-audit-v1",
+                    "decisionId": "900001:7:tee",
+                    "decisionSourceRef": "900001:7",
+                    "phase": "tee_shot",
+                    "plannedOptionId": "stock",
+                    "selectedOptionId": "stock",
+                    "actualOptionId": "stock",
+                    "actualShotRefs": ["900001:7:1"],
+                    "evidenceRefs": ["900001:7"],
+                    "classification": "execution",
+                    "modelUpdateSuggestion": "Keep the strategic option, but track whether this miss pattern repeats.",
+                },
+                decision_id="900001:7:tee",
+                root=root,
+            )
+
+            with (
+                patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.history_stats.DECISION_AUDIT_ROOT", root),
+            ):
+                get_settings.cache_clear()
+                payload = TestClient(app).get("/api/v2/history/stats").json()
+
+        audit_trends = payload["diagnosis"]["decisionAuditTrends"]
+        self.assertEqual(audit_trends["totalAudits"], 1)
+        self.assertEqual(audit_trends["classificationCounts"][0]["classification"], "execution")
+        self.assertEqual(audit_trends["classificationCounts"][0]["sourceRefs"], ["900001:7"])
+        audit_quality = next(row for row in payload["dataQuality"] if row["label"] == "decision_audits")
+        self.assertEqual(audit_quality["ready"], 1)
+        self.assertEqual(audit_quality["sourceRefs"], ["900001"])
 
 
 if __name__ == "__main__":

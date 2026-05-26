@@ -130,10 +130,15 @@ _SOURCE_REF_KEYS = {
     "roundRef",
     "roundRefs",
     "roundIds",
+    "auditedRoundRefs",
     "holeRef",
     "holeRefs",
     "shotRef",
     "shotRefs",
+    "actualShotRefs",
+    "evidenceRefs",
+    "baselineRefs",
+    "recentRefs",
 }
 
 
@@ -274,6 +279,17 @@ def build_round_report_facts(
         round_issues = _round_issue_facts(issues, round_id)
         if round_issues:
             facts_used.append(_fact("round_issues", round_issues, "issues"))
+
+    round_decision_audits = _round_decision_audit_facts(history_stats, round_id)
+    if round_decision_audits:
+        facts_used.append(
+            _fact(
+                "round_decision_audits",
+                round_decision_audits,
+                "diagnosis.decisionAuditTrends",
+                source_refs=report_source_refs(round_decision_audits),
+            )
+        )
 
     for band in scoring.get("scoreBands", []) if isinstance(scoring.get("scoreBands"), list) else []:
         if not isinstance(band, dict):
@@ -420,6 +436,105 @@ def _round_issue_facts(issues: list[Any], round_id: str) -> list[dict[str, Any]]
     return sorted(rows, key=lambda row: (-int(row.get("count") or 0), str(row.get("issue") or "")))[:8]
 
 
+def _decision_audit_trends(history_stats: dict[str, Any]) -> dict[str, Any]:
+    diagnosis = history_stats.get("diagnosis") if isinstance(history_stats.get("diagnosis"), dict) else {}
+    trends = diagnosis.get("decisionAuditTrends") if isinstance(diagnosis.get("decisionAuditTrends"), dict) else {}
+    return trends if isinstance(trends, dict) else {}
+
+
+def _compact_decision_audit_row(row: dict[str, Any]) -> dict[str, Any]:
+    compact_keys = [
+        "classification",
+        "phase",
+        "phases",
+        "count",
+        "pct",
+        "baselineCount",
+        "recentCount",
+        "deltaCount",
+        "estimatedStrokesLost",
+        "direction",
+        "sourceRefs",
+        "baselineRefs",
+        "recentRefs",
+        "decisionIds",
+        "actualShotRefs",
+        "evidenceRefs",
+        "modelUpdateSuggestions",
+        "confidence",
+        "coverage",
+    ]
+    return {key: row[key] for key in compact_keys if key in row}
+
+
+def _decision_audit_trends_fact(history_stats: dict[str, Any]) -> dict[str, Any] | None:
+    trends = _decision_audit_trends(history_stats)
+    if not trends:
+        return None
+    classification_counts = [
+        _compact_decision_audit_row(row)
+        for row in trends.get("classificationCounts", [])
+        if isinstance(row, dict)
+    ]
+    recent_drivers = [
+        _compact_decision_audit_row(row)
+        for row in trends.get("recentCostDrivers", [])
+        if isinstance(row, dict)
+    ]
+    return {
+        "totalAudits": trends.get("totalAudits", 0),
+        "auditedRoundRefs": _as_string_list(trends.get("auditedRoundRefs")),
+        "classificationCounts": classification_counts[:5],
+        "recentCostDrivers": recent_drivers[:5],
+    }
+
+
+def _decision_audit_fact_source_refs(value: dict[str, Any]) -> list[str]:
+    classification_counts = value.get("classificationCounts") if isinstance(value.get("classificationCounts"), list) else []
+    recent_drivers = value.get("recentCostDrivers") if isinstance(value.get("recentCostDrivers"), list) else []
+    rows = [row for row in [*classification_counts, *recent_drivers] if isinstance(row, dict)]
+    return _unique_strings(
+        [
+            *_as_string_list(value.get("auditedRoundRefs")),
+            *[
+                ref
+                for row in rows
+                for ref in _as_string_list(row.get("sourceRefs") or row.get("recentRefs") or row.get("refs"))
+            ],
+            *[
+                ref
+                for row in rows
+                for ref in _as_string_list(row.get("actualShotRefs"))
+            ],
+            *[
+                ref
+                for row in rows
+                for ref in _as_string_list(row.get("evidenceRefs"))
+            ],
+        ]
+    )
+
+
+def _row_refs_match_round(row: dict[str, Any], round_id: str) -> list[str]:
+    requested = str(round_id)
+    refs = report_source_refs(row)
+    return [ref for ref in refs if ref == requested or ref.startswith(f"{requested}:")]
+
+
+def _round_decision_audit_facts(history_stats: dict[str, Any], round_id: str) -> list[dict[str, Any]]:
+    trends = _decision_audit_trends(history_stats)
+    rows: list[dict[str, Any]] = []
+    for row in trends.get("classificationCounts", []) if isinstance(trends.get("classificationCounts"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        refs = _row_refs_match_round(row, round_id)
+        if refs:
+            compact = _compact_decision_audit_row(row)
+            compact["refs"] = refs
+            rows.append(compact)
+    return rows[:8]
+
+
 def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict[str, Any]:
     summary = history_stats.get("summary") if isinstance(history_stats.get("summary"), dict) else {}
     time_stats = history_stats.get("time") if isinstance(history_stats.get("time"), dict) else {}
@@ -486,6 +601,17 @@ def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict
             reverse=True,
         )[:5]
         facts_used.append(_fact("top_issues", top_issues, "issues"))
+
+    decision_audits = _decision_audit_trends_fact(history_stats)
+    if decision_audits and int(decision_audits.get("totalAudits") or 0):
+        facts_used.append(
+            _fact(
+                "decision_audit_trends",
+                decision_audits,
+                "diagnosis.decisionAuditTrends",
+                source_refs=_decision_audit_fact_source_refs(decision_audits),
+            )
+        )
 
     facts_used.append(
         _fact(

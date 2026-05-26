@@ -6,6 +6,7 @@ from statistics import median
 from typing import Any, Literal
 
 from ai_caddie.annotations import list_annotations
+from ai_caddie.decision import list_decision_audits
 from ai_caddie.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData, average, percentile
 from ai_caddie.history_drilldown import build_drilldown_index
@@ -479,6 +480,13 @@ ISSUE_STROKE_WEIGHTS: dict[str, float] = {
     "recovery_failed": 1.0,
 }
 
+DECISION_AUDIT_WEIGHTS: dict[str, float] = {
+    "strategy": 1.2,
+    "execution": 0.9,
+    "info_gap": 0.5,
+    "unknown": 0.2,
+}
+
 
 def _issue_weight(issue: str) -> float:
     return ISSUE_STROKE_WEIGHTS.get(issue, 0.5)
@@ -587,6 +595,175 @@ def _diagnosis(data: HistoryData, issue_rows: list[dict[str, Any]]) -> dict[str,
         "recentRoundRefs": recent_round_refs,
         "issueTrends": trends,
         "topIssue": trends[0] if trends else None,
+    }
+
+
+def _audit_payload(record: dict[str, Any]) -> dict[str, Any]:
+    payload = record.get("audit")
+    return payload if isinstance(payload, dict) else {}
+
+
+def _audit_classification(record: dict[str, Any]) -> str:
+    value = record.get("classification") or _audit_payload(record).get("classification") or "unknown"
+    text = str(value).strip().lower()
+    return text if text else "unknown"
+
+
+def _audit_phase(record: dict[str, Any]) -> str:
+    value = _audit_payload(record).get("phase") or record.get("phase") or "unknown"
+    text = str(value).strip().lower()
+    return text if text else "unknown"
+
+
+def _audit_source_ref(record: dict[str, Any]) -> str | None:
+    value = record.get("sourceRef") or _audit_payload(record).get("decisionSourceRef")
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _audit_ref_values(record: dict[str, Any], key: str) -> list[str]:
+    value = record.get(key)
+    if not isinstance(value, list):
+        value = _audit_payload(record).get(key)
+    return _source_refs(value if isinstance(value, list) else [])
+
+
+def _audit_all_refs(record: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    source_ref = _audit_source_ref(record)
+    if source_ref:
+        refs.append(source_ref)
+    refs.extend(_audit_ref_values(record, "actualShotRefs"))
+    refs.extend(_audit_ref_values(record, "evidenceRefs"))
+    decision_id = record.get("decisionId") or _audit_payload(record).get("decisionId")
+    if decision_id:
+        refs.append(str(decision_id))
+    return _source_refs(refs)
+
+
+def _loaded_audit_records(data: HistoryData, decision_audits: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    round_ref_set = set(_round_refs_by_date(data))
+    if not round_ref_set:
+        return []
+    rows = []
+    for record in decision_audits or []:
+        refs = _audit_all_refs(record)
+        if any(_ref_round_id(ref) in round_ref_set for ref in refs):
+            rows.append(record)
+    return rows
+
+
+def _audit_source_refs(records: list[dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    for record in records:
+        source_ref = _audit_source_ref(record)
+        if source_ref:
+            refs.append(source_ref)
+    return _source_refs(refs)
+
+
+def _audit_decision_ids(records: list[dict[str, Any]]) -> list[str]:
+    return _source_refs([record.get("decisionId") or _audit_payload(record).get("decisionId") for record in records])
+
+
+def _audit_suggestions(records: list[dict[str, Any]]) -> list[str]:
+    return _source_refs([_audit_payload(record).get("modelUpdateSuggestion") for record in records])
+
+
+def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    records = _loaded_audit_records(data, decision_audits)
+    total = len(records)
+    round_refs = _round_refs_by_date(data)
+    window_size = min(5, max(2, len(round_refs) // 2)) if len(round_refs) >= 2 else len(round_refs)
+    baseline_round_refs = round_refs[:window_size]
+    recent_round_refs = round_refs[-window_size:] if window_size else []
+    baseline_set = set(baseline_round_refs)
+    recent_set = set(recent_round_refs)
+    audited_round_refs = [ref for ref in round_refs if any(_ref_round_id(item) == ref for record in records for item in _audit_all_refs(record))]
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        grouped[_audit_classification(record)].append(record)
+
+    classification_counts = []
+    recent_drivers = []
+    for classification, rows in grouped.items():
+        source_refs = _audit_source_refs(rows)
+        actual_refs = _source_refs(ref for row in rows for ref in _audit_ref_values(row, "actualShotRefs"))
+        evidence_refs = _source_refs(ref for row in rows for ref in _audit_ref_values(row, "evidenceRefs"))
+        count = len(rows)
+        classification_counts.append(
+            _with_aggregate_contract(
+                {
+                    "classification": classification,
+                    "count": count,
+                    "pct": round(count / total * 100, 1) if total else 0.0,
+                    "decisionIds": _audit_decision_ids(rows),
+                    "actualShotRefs": actual_refs,
+                    "evidenceRefs": evidence_refs,
+                },
+                source_refs,
+                ready=len(source_refs),
+                total=total,
+                confidence_count=count,
+            )
+        )
+
+        baseline_refs = [ref for ref in source_refs if _ref_round_id(ref) in baseline_set]
+        recent_refs = [ref for ref in source_refs if _ref_round_id(ref) in recent_set]
+        baseline_count = len(baseline_refs)
+        recent_count = len(recent_refs)
+        delta_count = recent_count - baseline_count
+        phases = sorted({_audit_phase(row) for row in rows})
+        weight = DECISION_AUDIT_WEIGHTS.get(classification, DECISION_AUDIT_WEIGHTS["unknown"])
+        estimated_impact = round(delta_count * weight, 1)
+        recent_drivers.append(
+            _with_aggregate_contract(
+                {
+                    "classification": classification,
+                    "phase": phases[0] if len(phases) == 1 else "mixed",
+                    "phases": phases,
+                    "count": count,
+                    "baselineCount": baseline_count,
+                    "recentCount": recent_count,
+                    "deltaCount": delta_count,
+                    "baselineRatePerRound": round(baseline_count / window_size, 2) if window_size else 0.0,
+                    "recentRatePerRound": round(recent_count / window_size, 2) if window_size else 0.0,
+                    "deltaRatePerRound": round(delta_count / window_size, 2) if window_size else 0.0,
+                    "strokeWeight": weight,
+                    "estimatedStrokesImpact": estimated_impact,
+                    "estimatedStrokesLost": round(max(0.0, estimated_impact), 1),
+                    "direction": _diagnosis_direction(baseline_count, recent_count),
+                    "baselineRefs": baseline_refs,
+                    "recentRefs": recent_refs,
+                    "decisionIds": _audit_decision_ids(rows),
+                    "actualShotRefs": actual_refs,
+                    "evidenceRefs": evidence_refs,
+                    "modelUpdateSuggestions": _audit_suggestions(rows),
+                },
+                source_refs,
+                ready=len(source_refs),
+                total=total,
+                confidence_count=count,
+            )
+        )
+
+    classification_counts.sort(key=lambda row: (-int(row["count"]), str(row["classification"])))
+    recent_drivers.sort(
+        key=lambda row: (
+            -float(row["estimatedStrokesLost"]),
+            -abs(float(row["deltaRatePerRound"])),
+            -int(row["recentCount"]),
+            str(row["classification"]),
+        )
+    )
+    return {
+        "totalAudits": total,
+        "auditedRoundRefs": _source_refs(audited_round_refs),
+        "baselineRoundRefs": baseline_round_refs,
+        "recentRoundRefs": recent_round_refs,
+        "classificationCounts": classification_counts,
+        "recentCostDrivers": recent_drivers,
     }
 
 
@@ -1408,12 +1585,35 @@ def _club_sample_quality(data: HistoryData, annotations: list[dict[str, Any]] | 
     )
 
 
+def _decision_audit_quality(data: HistoryData, decision_audits: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    round_refs = _round_refs_by_date(data)
+    audited_rounds = {
+        _ref_round_id(ref)
+        for record in _loaded_audit_records(data, decision_audits)
+        for ref in _audit_all_refs(record)
+    }
+    ready_refs = [ref for ref in round_refs if ref in audited_rounds]
+    total = len(round_refs)
+    ready = len(ready_refs)
+    return _with_quality_contract(
+        {
+            "label": "decision_audits",
+            "state": "good" if total and ready == total else "partial" if ready else "missing",
+            "ready": ready,
+            "total": total,
+            "refs": ready_refs,
+            "auditCount": len(_loaded_audit_records(data, decision_audits)),
+        }
+    )
+
+
 def _data_quality(
     data: HistoryData,
     annotations: list[dict[str, Any]] | None = None,
     weather_snapshots: list[dict[str, Any]] | None = None,
     hole_rows: list[dict[str, Any]] | None = None,
     report_records: list[dict[str, Any]] | None = None,
+    decision_audits: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     total = len(data.raw_rounds)
     shots_ready = sum(1 for row in data.raw_rounds if row.get("hasShots"))
@@ -1451,6 +1651,7 @@ def _data_quality(
                 "refs": [str(row.get("id")) for row in corrections],
             }
         ),
+        _decision_audit_quality(data, decision_audits),
         _report_quality(data, report_records),
         _weather_quality(data, weather_snapshots),
     ]
@@ -1463,13 +1664,17 @@ def build_history_stats(
     annotations_root: Path | str | None = None,
     weather_root: Path | str | None = None,
     reports_root: Path | str | None = None,
+    decision_audit_root: Path | str | None = None,
 ) -> dict[str, Any]:
     annotations = list_annotations(root=annotations_root)
     weather_snapshots = list_weather_snapshots(root=weather_root)
     report_records = list_report_records(root=reports_root)
+    decision_audits = list_decision_audits(root=decision_audit_root)
     scored_data = _effective_score_data(data, annotations)
     hole_rows = _holes(scored_data, annotations)
     issue_rows = _issues(data, annotations)
+    diagnosis = _diagnosis(scored_data, issue_rows)
+    diagnosis["decisionAuditTrends"] = _decision_audit_diagnosis(scored_data, decision_audits)
     return {
         "schema": "ai-caddie-history-stats-v1",
         "dataMode": data_mode,
@@ -1482,7 +1687,7 @@ def build_history_stats(
         "holes": hole_rows,
         "clubs": _clubs(data, annotations),
         "issues": issue_rows,
-        "diagnosis": _diagnosis(scored_data, issue_rows),
-        "dataQuality": _data_quality(data, annotations, weather_snapshots, hole_rows, report_records),
+        "diagnosis": diagnosis,
+        "dataQuality": _data_quality(data, annotations, weather_snapshots, hole_rows, report_records, decision_audits),
         "drillDown": build_drilldown_index(data),
     }

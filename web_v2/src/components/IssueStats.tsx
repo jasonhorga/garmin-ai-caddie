@@ -9,6 +9,9 @@ interface IssueStatsProps {
 
 export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
   const issueTrends = asRows(data.diagnosis?.issueTrends)
+  const auditDiagnosis = asRecord(data.diagnosis?.decisionAuditTrends)
+  const auditCounts = asRows(auditDiagnosis.classificationCounts)
+  const auditDrivers = asRows(auditDiagnosis.recentCostDrivers)
 
   return (
     <section className="stats-page" aria-label="Issue statistics">
@@ -55,6 +58,63 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
           </div>
         </div>
       ) : null}
+      {auditCounts.length > 0 || auditDrivers.length > 0 ? (
+        <div className="diagnosis-panel" aria-label="Caddie audit diagnosis">
+          <div className="section-head compact-head">
+            <div>
+              <p className="eyebrow">Caddie Audit</p>
+              <h2>Decision Loop</h2>
+            </div>
+          </div>
+          <div className="stats-list">
+            {auditCounts.slice(0, 4).map((row) => {
+              const classification = asString(row.classification) ?? 'unknown'
+              const pct = asNumber(row.pct)
+              return (
+                <article key={`audit-count-${classification}`} className="stats-item diagnosis-item">
+                  <div className="stats-item-main">
+                    <h2>{classification}</h2>
+                    <p>
+                      <SourceRefs refs={row.sourceRefs ?? row.refs} onSelectRef={onSelectRef} />
+                    </p>
+                  </div>
+                  <div className="stats-item-facts">
+                    <span className={`semantic-chip ${semanticClass('confidence', row.confidence)}`}>
+                      {asString(row.confidence) ?? 'unknown'} confidence
+                    </span>
+                    <span>{pct === null ? '-%' : `${pct.toFixed(1)}%`}</span>
+                  </div>
+                  <strong className="stats-count">{formatNumber(row.count)}</strong>
+                </article>
+              )
+            })}
+            {auditDrivers.slice(0, 4).map((row) => {
+              const classification = asString(row.classification) ?? 'unknown'
+              const estimated = asNumber(row.estimatedStrokesLost)
+              return (
+                <article key={`audit-driver-${classification}`} className="stats-item diagnosis-item">
+                  <div className="stats-item-main">
+                    <h2>{classification}</h2>
+                    <p>
+                      <SourceRefs refs={row.recentRefs ?? row.sourceRefs} onSelectRef={onSelectRef} />
+                    </p>
+                  </div>
+                  <div className="stats-item-facts">
+                    {asString(row.phase) ? <span>{asString(row.phase)}</span> : null}
+                    {asString(row.direction) ? (
+                      <span className={`semantic-chip ${semanticClass('trend', row.direction)}`}>
+                        {asString(row.direction)}
+                      </span>
+                    ) : null}
+                    <span>{estimated === null ? '- est. strokes' : `${estimated.toFixed(1)} est. strokes`}</span>
+                  </div>
+                  <strong className="stats-count">{formatSigned(row.deltaCount)}</strong>
+                </article>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
       <div className="stats-list">
         {data.issues.length === 0 ? (
           <article className="stats-empty">
@@ -83,4 +143,8 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
       </div>
     </section>
   )
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }

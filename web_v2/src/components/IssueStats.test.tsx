@@ -38,6 +38,28 @@ const statsFixture: HistoryStatsResponse = {
         sourceRefs: ['900004:7', '900005:7', '900006:7'],
       },
     ],
+    decisionAuditTrends: {
+      classificationCounts: [
+        {
+          classification: 'execution',
+          count: 2,
+          pct: 66.7,
+          sourceRefs: ['900001:7', '900002:8'],
+          confidence: 'medium',
+        },
+      ],
+      recentCostDrivers: [
+        {
+          classification: 'strategy',
+          phase: 'tee_shot',
+          direction: 'new',
+          deltaCount: 1,
+          estimatedStrokesLost: 1.2,
+          recentRefs: ['900002:7'],
+          sourceRefs: ['900002:7'],
+        },
+      ],
+    },
   },
   dataQuality: [],
   drillDown: {},
@@ -49,7 +71,7 @@ describe('IssueStats', () => {
 
     expect(screen.getByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
     expect(screen.getByText('missing_shots')).toBeInTheDocument()
-    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getAllByText('2').length).toBeGreaterThan(0)
     expect(screen.getByText('Data Quality')).toBeInTheDocument()
     expect(screen.getByText('deterministic')).toBeInTheDocument()
     expect(screen.getByText('high confidence')).toHaveClass('confidence-high')
@@ -57,9 +79,16 @@ describe('IssueStats', () => {
     expect(screen.getByText('three_putt')).toBeInTheDocument()
     expect(screen.getByText('+3')).toBeInTheDocument()
     expect(screen.getByText('3.0 est. strokes')).toBeInTheDocument()
+    expect(screen.getByText('Caddie Audit')).toBeInTheDocument()
+    expect(screen.getByText('execution')).toBeInTheDocument()
+    expect(screen.getByText('66.7%')).toBeInTheDocument()
+    expect(screen.getByText('strategy')).toBeInTheDocument()
+    expect(screen.getByText('1.2 est. strokes')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900004:7' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900001:7' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900002:7' })).toBeInTheDocument()
   })
 
   it('renders an empty state when no issue aggregates exist', () => {
