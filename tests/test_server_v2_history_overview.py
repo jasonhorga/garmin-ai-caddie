@@ -68,6 +68,8 @@ class ServerV2HistoryOverviewTests(unittest.TestCase):
         self.assertEqual(payload["recentRounds"], [])
         self.assertEqual(payload["distribution"]["total"], 0)
         self.assertEqual(payload["emptyState"]["kind"], "no_rounds")
+        self.assertEqual(payload["emptyState"]["title"], "No local Garmin data loaded")
+        self.assertIn("this remote workspace has 0 rounds and 0 shot rows", payload["emptyState"]["detail"])
 
     def test_history_overview_endpoint_uses_public_schema_alias(self) -> None:
         client = TestClient(app)

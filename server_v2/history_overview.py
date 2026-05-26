@@ -223,8 +223,12 @@ def build_history_overview_response(data: HistoryData) -> HistoryOverviewRespons
         dataQuality=_quality_badges(data),
         emptyState=EmptyState(
             kind="no_rounds",
-            title="No Garmin rounds loaded",
-            detail="Fetch Garmin scorecards locally, then refresh this view.",
+            title="No local Garmin data loaded",
+            detail=(
+                f"The v2 UI is connected, but this remote workspace has {len(rounds)} rounds "
+                f"and {len(data.shots)} shot rows. Sync Garmin data into data/scorecards "
+                "and data/shots, or run the fetch workflow, then refresh."
+            ),
         ) if not rounds else None,
     )
 
