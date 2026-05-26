@@ -128,6 +128,7 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "Round id is required"
             return
         }
+        let preparedAt = Date()
 
         isPreparingRound = true
         defer {
@@ -135,7 +136,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
 
         do {
-            if let remotePackage = await fetchRemotePackage(roundId: requestedRoundId) {
+            if let remotePackage = await fetchRemotePackage(roundId: requestedRoundId, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Offline package prepared")
                 return
@@ -251,25 +252,25 @@ public final class LiveRoundAppModel: ObservableObject {
         return "900001"
     }
 
-    private func fetchRemotePackage() async -> LiveRoundPackage? {
+    private func fetchRemotePackage(capturedAt: Date = Date()) async -> LiveRoundPackage? {
         guard let syncClient else {
             return nil
         }
         do {
-            return try await syncClient.fetchRoundPackage(roundId: preferredRoundId)
+            return try await syncClient.fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)
         } catch {
             syncStatus = "Package sync unavailable; using cache"
             return nil
         }
     }
 
-    private func fetchRemotePackage(roundId: String) async -> LiveRoundPackage? {
+    private func fetchRemotePackage(roundId: String, capturedAt: Date = Date()) async -> LiveRoundPackage? {
         guard let syncClient else {
             syncStatus = "No sync server configured"
             return nil
         }
         do {
-            return try await syncClient.fetchRoundPackage(roundId: roundId)
+            return try await syncClient.fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)
         } catch {
             syncStatus = "Package sync unavailable; using cache"
             return nil

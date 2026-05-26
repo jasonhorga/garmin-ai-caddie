@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public struct EventBatch: Codable, Equatable {
     public let roundId: String
@@ -25,8 +28,19 @@ public final class SyncClient {
         self.decoder = JSONDecoder()
     }
 
-    public func fetchRoundPackage(roundId: String) async throws -> LiveRoundPackage {
-        let url = baseURL.appendingPathComponent("/api/v2/mobile/rounds/\(roundId)/package")
+    public func fetchRoundPackage(roundId: String, capturedAt: Date = Date()) async throws -> LiveRoundPackage {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("/api/v2/mobile/rounds/\(roundId)/package"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [
+            URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt))
+        ]
+        guard let url = components.url else {
+            throw URLError(.badURL)
+        }
         var request = URLRequest(url: url)
         if let adminToken {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")

@@ -326,6 +326,25 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func postEventBatch", sync_client)
         self.assertIn("Idempotency-Key", sync_client)
 
+    def test_ios_round_package_fetch_sends_prepared_time(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+
+        self.assertIn(
+            "public func fetchRoundPackage(roundId: String, capturedAt: Date = Date()) async throws -> LiveRoundPackage",
+            sync_client,
+        )
+        self.assertIn("URLComponents(", sync_client)
+        self.assertIn("url: baseURL.appendingPathComponent", sync_client)
+        self.assertIn('URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt))', sync_client)
+        self.assertIn("guard let url = components.url else", sync_client)
+
+        self.assertIn("let preparedAt = Date()", app_swift)
+        self.assertIn("fetchRemotePackage(capturedAt: Date = Date())", app_swift)
+        self.assertIn("fetchRemotePackage(roundId: requestedRoundId, capturedAt: preparedAt)", app_swift)
+        self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
+        self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
+
     def test_ios_app_entry_bootstraps_cached_or_fixture_package(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -340,7 +359,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("final class LiveRoundAppModel", app_swift)
         self.assertIn("AI_CADDIE_LIVE_ROUND_ID", app_swift)
         self.assertIn("private let preferredRoundId: String", app_swift)
-        self.assertIn("fetchRoundPackage(roundId: preferredRoundId)", app_swift)
+        self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
         self.assertIn("offlineStore.saveRoundPackage(remotePackage)", app_swift)
         self.assertIn("loadCurrentRoundPackage", app_swift)
         self.assertIn("live_round_package.fixture", app_swift)
