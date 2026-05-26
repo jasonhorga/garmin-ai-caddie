@@ -507,6 +507,22 @@ class LiveRoundEventBatchResponse(BaseModel):
     serverSequence: int = 0
 
 
+class MobileReconciliationApplyRequest(BaseModel):
+    suggestionIds: list[str] = Field(default_factory=list)
+
+
+class MobileReconciliationApplyResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-mobile-reconciliation-apply-v1"] = Field(alias="schema")
+    roundId: str
+    appliedCount: int
+    skippedCount: int
+    missingSuggestionIds: list[str] = Field(default_factory=list)
+    skippedSuggestionIds: list[str] = Field(default_factory=list)
+    annotations: list[AnnotationRecord]
+
+
 class WeatherSnapshotResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 

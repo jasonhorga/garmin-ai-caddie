@@ -5,13 +5,20 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from ai_caddie.mobile_live import append_event_batch, build_live_round_package
-from ai_caddie.mobile_reconciliation import reconcile_mobile_round_events
+from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 
 from .data_source import load_history_data_for_mode
-from .models import LiveRoundEventBatchRequest, LiveRoundEventBatchResponse, LiveRoundPackageResponse
+from .models import (
+    LiveRoundEventBatchRequest,
+    LiveRoundEventBatchResponse,
+    LiveRoundPackageResponse,
+    MobileReconciliationApplyRequest,
+    MobileReconciliationApplyResponse,
+)
 
 
 MOBILE_ROOT = Path(".")
+ANNOTATION_ROOT = Path(".")
 
 
 def build_mobile_round_package_response(round_id: str) -> LiveRoundPackageResponse:
@@ -42,3 +49,19 @@ def append_mobile_events_response(
 def reconcile_mobile_round_response(round_id: str) -> dict[str, object]:
     data, _mode = load_history_data_for_mode()
     return reconcile_mobile_round_events(round_id, data, root=MOBILE_ROOT)
+
+
+def apply_mobile_round_reconciliation_response(
+    round_id: str,
+    request: MobileReconciliationApplyRequest,
+) -> MobileReconciliationApplyResponse:
+    data, _mode = load_history_data_for_mode()
+    return MobileReconciliationApplyResponse(
+        **apply_mobile_reconciliation_suggestions(
+            round_id,
+            data,
+            suggestion_ids=request.suggestionIds,
+            root=MOBILE_ROOT,
+            annotations_root=ANNOTATION_ROOT,
+        )
+    )

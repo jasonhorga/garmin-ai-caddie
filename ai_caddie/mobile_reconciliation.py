@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ai_caddie.annotations import add_annotation, list_annotations
 from ai_caddie.history import HistoryData
 from ai_caddie.mobile_live import mobile_event_log
 
@@ -83,6 +84,139 @@ def _candidate_audit(event: dict[str, Any]) -> dict[str, Any] | None:
         "kind": event.get("kind"),
         "actualShot": payload.get("actualShot") or payload,
     }
+
+
+def _suggestion(
+    suggestion_id: str,
+    *,
+    target_type: str,
+    target_id: str,
+    kind: str,
+    payload: dict[str, Any],
+    reason: str,
+    confidence: str = "medium",
+) -> dict[str, Any]:
+    return {
+        "id": suggestion_id,
+        "targetType": target_type,
+        "targetId": target_id,
+        "kind": kind,
+        "payload": {
+            **payload,
+            "source": "mobile_reconciliation",
+            "sourceSuggestionId": suggestion_id,
+        },
+        "reason": reason,
+        "confidence": confidence,
+    }
+
+
+def _annotation_suggestions(
+    *,
+    conflicts: list[dict[str, Any]],
+    local_only: list[dict[str, Any]],
+    garmin_only: list[dict[str, Any]],
+    candidate_audits: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    suggestions: list[dict[str, Any]] = []
+    for conflict in conflicts:
+        event_id = str(conflict.get("eventId") or "")
+        kind = str(conflict.get("kind") or "")
+        ref = str(conflict.get("ref") or "")
+        local_value = conflict.get("localValue")
+        garmin_value = conflict.get("garminValue")
+        if not event_id or not ref:
+            continue
+        if kind == "putt":
+            suggestions.append(
+                _suggestion(
+                    f"{event_id}:putt-correction",
+                    target_type="hole",
+                    target_id=ref,
+                    kind="putt_correction",
+                    payload={"from": garmin_value, "to": local_value, "sourceEventId": event_id},
+                    reason="Local putting input differs from the synced Garmin scorecard.",
+                )
+            )
+        elif kind == "score":
+            suggestions.append(
+                _suggestion(
+                    f"{event_id}:hole-note",
+                    target_type="hole",
+                    target_id=ref,
+                    kind="hole_note",
+                    payload={
+                        "text": f"Local score {local_value} differs from synced Garmin score {garmin_value}.",
+                        "localValue": local_value,
+                        "garminValue": garmin_value,
+                        "sourceEventId": event_id,
+                    },
+                    reason="Score conflicts require human review before changing derived scoring.",
+                    confidence="low",
+                )
+            )
+
+    garmin_shots_by_hole: dict[int, list[dict[str, Any]]] = {}
+    for row in garmin_only:
+        if row.get("kind") != "club":
+            continue
+        hole = int(row.get("hole") or 0)
+        garmin_shots_by_hole.setdefault(hole, []).append(row)
+
+    for row in local_only:
+        event_id = str(row.get("eventId") or "")
+        kind = str(row.get("kind") or "")
+        hole = int(row.get("hole") or 0)
+        local_value = row.get("localValue")
+        if not event_id:
+            continue
+        if kind == "club":
+            candidates = garmin_shots_by_hole.get(hole) or []
+            if candidates:
+                garmin = candidates.pop(0)
+                suggestions.append(
+                    _suggestion(
+                        f"{event_id}:club-correction",
+                        target_type="shot",
+                        target_id=str(garmin.get("ref") or ""),
+                        kind="club_correction",
+                        payload={"from": garmin.get("garminValue"), "to": local_value, "sourceEventId": event_id},
+                        reason="Local club input can correct the nearest unmatched Garmin shot on the same hole.",
+                    )
+                )
+        elif kind == "penalty":
+            suggestions.append(
+                _suggestion(
+                    f"{event_id}:penalty-correction",
+                    target_type="hole",
+                    target_id=f"{row.get('roundId') or ''}:{hole}",
+                    kind="penalty_correction",
+                    payload={"strokes": local_value, "sourceEventId": event_id},
+                    reason="Local penalty marker was not present in synced Garmin facts.",
+                )
+            )
+
+    for audit in candidate_audits:
+        event_id = str(audit.get("eventId") or "")
+        decision_id = str(audit.get("decisionId") or "")
+        if not event_id or not decision_id:
+            continue
+        suggestions.append(
+            _suggestion(
+                f"{event_id}:caddie-feedback",
+                target_type="decision",
+                target_id=decision_id,
+                kind="caddie_feedback",
+                payload={
+                    "decisionId": decision_id,
+                    "actualShot": audit.get("actualShot"),
+                    "sourceEventId": event_id,
+                },
+                reason="Offline live event includes an actual shot that can audit this caddie decision.",
+            )
+        )
+
+    return [row for row in suggestions if row.get("targetId")]
 
 
 def reconcile_mobile_round_events(
@@ -179,6 +313,12 @@ def reconcile_mobile_round_events(
         }
         for ref, shot in sorted(unmatched_shots.items())
     ]
+    annotation_suggestions = _annotation_suggestions(
+        conflicts=conflicts,
+        local_only=local_only,
+        garmin_only=garmin_only,
+        candidate_audits=candidate_audits,
+    )
     return {
         "schema": "ai-caddie-mobile-reconciliation-v1",
         "roundId": str(round_id),
@@ -189,10 +329,66 @@ def reconcile_mobile_round_events(
             "garminOnlyCount": len(garmin_only),
             "conflictCount": len(conflicts),
             "candidateDecisionAuditCount": len(candidate_audits),
+            "annotationSuggestionCount": len(annotation_suggestions),
         },
         "matched": matched,
         "localOnly": local_only,
         "garminOnly": garmin_only,
         "conflicts": conflicts,
         "candidateDecisionAudits": candidate_audits,
+        "annotationSuggestions": annotation_suggestions,
+    }
+
+
+def _existing_source_suggestion_ids(*, root: Path | str | None = None) -> set[str]:
+    ids: set[str] = set()
+    for record in list_annotations(root=root):
+        payload = record.get("payload")
+        if isinstance(payload, dict) and payload.get("sourceSuggestionId"):
+            ids.add(str(payload["sourceSuggestionId"]))
+    return ids
+
+
+def apply_mobile_reconciliation_suggestions(
+    round_id: str,
+    data: HistoryData,
+    *,
+    suggestion_ids: list[str] | None = None,
+    root: Path | str | None = None,
+    annotations_root: Path | str | None = None,
+) -> dict[str, Any]:
+    reconciliation = reconcile_mobile_round_events(round_id, data, root=root)
+    suggestions = {str(row.get("id")): row for row in reconciliation.get("annotationSuggestions", [])}
+    requested_ids = list(suggestion_ids or suggestions.keys())
+    existing_ids = _existing_source_suggestion_ids(root=annotations_root)
+    annotations: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    missing: list[str] = []
+
+    for suggestion_id in requested_ids:
+        row = suggestions.get(str(suggestion_id))
+        if not row:
+            missing.append(str(suggestion_id))
+            continue
+        if str(suggestion_id) in existing_ids:
+            skipped.append(str(suggestion_id))
+            continue
+        record = add_annotation(
+            str(row["targetType"]),
+            str(row["targetId"]),
+            str(row["kind"]),
+            dict(row.get("payload") or {}),
+            root=annotations_root,
+        )
+        annotations.append(record)
+        existing_ids.add(str(suggestion_id))
+
+    return {
+        "schema": "ai-caddie-mobile-reconciliation-apply-v1",
+        "roundId": str(round_id),
+        "appliedCount": len(annotations),
+        "skippedCount": len(skipped),
+        "missingSuggestionIds": missing,
+        "skippedSuggestionIds": skipped,
+        "annotations": annotations,
     }

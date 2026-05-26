@@ -196,6 +196,49 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-mobile-reconciliation-v1")
         self.assertEqual(payload["summary"]["conflictCount"], 1)
         self.assertEqual(payload["conflicts"][0]["eventId"], "score-conflict")
+        self.assertEqual(payload["annotationSuggestions"][0]["id"], "score-conflict:hole-note")
+
+    def test_mobile_reconciliation_apply_endpoint_creates_selected_annotations(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "putt-conflict",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "putt",
+            "payload": {"putts": 3},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch("server_v2.mobile.ANNOTATION_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                client.post(
+                    "/api/v2/mobile/rounds/900001/events",
+                    headers={"Idempotency-Key": "batch-apply"},
+                    json={"roundId": "900001", "events": [event]},
+                )
+                response = client.post(
+                    "/api/v2/mobile/rounds/900001/reconciliation/apply",
+                    json={"suggestionIds": ["putt-conflict:putt-correction"]},
+                )
+                duplicate = client.post(
+                    "/api/v2/mobile/rounds/900001/reconciliation/apply",
+                    json={"suggestionIds": ["putt-conflict:putt-correction"]},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-mobile-reconciliation-apply-v1")
+        self.assertEqual(payload["appliedCount"], 1)
+        self.assertEqual(payload["annotations"][0]["kind"], "putt_correction")
+        self.assertEqual(payload["annotations"][0]["targetId"], "900001:1")
+        self.assertEqual(duplicate.json()["appliedCount"], 0)
+        self.assertEqual(duplicate.json()["skippedCount"], 1)
 
 
 if __name__ == "__main__":

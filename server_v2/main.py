@@ -26,7 +26,12 @@ from .media import (
     list_target_media_response,
     list_target_vision_findings_response,
 )
-from .mobile import append_mobile_events_response, build_mobile_round_package_response, reconcile_mobile_round_response
+from .mobile import (
+    append_mobile_events_response,
+    apply_mobile_round_reconciliation_response,
+    build_mobile_round_package_response,
+    reconcile_mobile_round_response,
+)
 from .weather import load_weather_snapshot_response
 from .models import (
     AnnotationCreateRequest,
@@ -55,6 +60,8 @@ from .models import (
     MediaCreateResponse,
     MediaListResponse,
     MediaTargetType,
+    MobileReconciliationApplyRequest,
+    MobileReconciliationApplyResponse,
     ReviewReportResponse,
     SyncRunResponse,
     SyncStatusResponse,
@@ -117,6 +124,7 @@ def service_index() -> dict[str, object]:
             "mobileRoundPackage": "/api/v2/mobile/rounds/{round_id}/package",
             "mobileRoundEvents": "/api/v2/mobile/rounds/{round_id}/events",
             "mobileRoundReconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
+            "mobileRoundReconciliationApply": "/api/v2/mobile/rounds/{round_id}/reconciliation/apply",
             "weatherSnapshot": "/api/v2/weather/snapshot",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
@@ -263,6 +271,14 @@ def mobile_round_events(
 @app.get("/api/v2/mobile/rounds/{round_id}/reconciliation")
 def mobile_round_reconciliation(round_id: str) -> dict[str, object]:
     return reconcile_mobile_round_response(round_id)
+
+
+@app.post("/api/v2/mobile/rounds/{round_id}/reconciliation/apply", response_model=MobileReconciliationApplyResponse)
+def mobile_round_reconciliation_apply(
+    round_id: str,
+    request: MobileReconciliationApplyRequest,
+) -> MobileReconciliationApplyResponse:
+    return apply_mobile_round_reconciliation_response(round_id, request)
 
 
 @app.get("/api/v2/weather/snapshot", response_model=WeatherSnapshotResponse)
