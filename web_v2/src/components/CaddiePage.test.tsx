@@ -115,6 +115,9 @@ const caddieContext: CaddieContextResponse = {
     geometry: { coverage: 'partial', hasHazards: true, hasMeshes: false, hazardCount: 1 },
     hazards: [{ kind: 'water', id: 'water-left' }],
     clubProfiles: { '8I': { clubName: '8I', sampleSize: 4, median: 144, p10: 132, p90: 153 } },
+    historicalHoleIssues: [{ issue: 'double_or_worse', count: 1, phase: 'Course Management', refs: ['900002:7'] }],
+    courseForm: { courseKey: 'black_knight', roundCount: 2, roundRefs: ['900001', '900002'] },
+    manualNotes: [{ kind: 'strategy_note', note: 'Favor center green; short miss is playable.' }],
   },
   evidence: [{ label: 'history_ref', value: '900001:7' }],
   missingData: [{ label: 'meshes', reason: 'prodgeometry mesh file missing' }],
@@ -173,6 +176,8 @@ describe('CaddiePage', () => {
     expect(screen.getByRole('heading', { name: 'Caddie Context' })).toBeInTheDocument()
     expect(screen.getByText('history_drilldown')).toBeInTheDocument()
     expect(screen.getByText('31795 H7')).toBeInTheDocument()
+    expect(screen.getByText('double_or_worse')).toBeInTheDocument()
+    expect(screen.getByText('Favor center green; short miss is playable.')).toBeInTheDocument()
     expect(screen.getByText('history_ref')).toBeInTheDocument()
     expect(screen.getByText('prodgeometry mesh file missing')).toBeInTheDocument()
 
@@ -209,6 +214,8 @@ describe('CaddiePage', () => {
       context: expect.objectContaining({
         source: 'history_drilldown',
         sourceRef: '900001:7',
+        historicalHoleIssues: [{ issue: 'double_or_worse', count: 1, phase: 'Course Management', refs: ['900002:7'] }],
+        manualNotes: [{ kind: 'strategy_note', note: 'Favor center green; short miss is playable.' }],
         distanceToPin_m: 142,
         lie: 'fairway',
         weatherSnapshot,

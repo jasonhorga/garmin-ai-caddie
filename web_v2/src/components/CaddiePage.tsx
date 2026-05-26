@@ -157,6 +157,8 @@ function CaddieContextPanel({
   const loadedContext = state.status === 'ready' ? state.data.context : null
   const globalId = loadedContext && typeof loadedContext.globalId === 'number' ? loadedContext.globalId : null
   const localHole = loadedContext && typeof loadedContext.localHole === 'number' ? loadedContext.localHole : null
+  const historicalIssues = recordRows(loadedContext?.historicalHoleIssues)
+  const manualNotes = recordRows(loadedContext?.manualNotes)
   return (
     <section className="caddie-context-panel" aria-label="Caddie context">
       <div className="report-title-row">
@@ -207,6 +209,8 @@ function CaddieContextPanel({
               <span>{Object.keys((loadedContext?.clubProfiles as Record<string, unknown> | undefined) ?? {}).length}</span>
             </div>
           </section>
+          {historicalIssues.length ? <ContextRows title="Historical Hole Issues" rows={historicalIssues} /> : null}
+          {manualNotes.length ? <ContextRows title="Manual Notes" rows={manualNotes} /> : null}
           <ContextRows title="Context Evidence" rows={state.data.evidence} />
           <ContextRows title="Context Missing Data" rows={state.data.missingData} />
         </div>
@@ -448,8 +452,8 @@ function ContextRows({ title, rows }: { title: string; rows: Array<Record<string
       {rows.length ? (
         rows.map((row, index) => (
           <div className="report-row" key={`${title}-${index}`}>
-            <strong>{String(row.label ?? row.kind ?? row.id ?? 'item')}</strong>
-            <span>{String(row.value ?? row.reason ?? row.ref ?? '')}</span>
+            <strong>{String(row.label ?? row.issue ?? row.kind ?? row.id ?? 'item')}</strong>
+            <span>{String(row.value ?? row.note ?? row.reason ?? row.ref ?? row.count ?? '')}</span>
           </div>
         ))
       ) : (
@@ -457,6 +461,10 @@ function ContextRows({ title, rows }: { title: string; rows: Array<Record<string
       )}
     </section>
   )
+}
+
+function recordRows(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => row !== null && typeof row === 'object') : []
 }
 
 function MediaContextPanel({

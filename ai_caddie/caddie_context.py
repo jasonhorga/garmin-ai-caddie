@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from statistics import median
 from typing import Any
 
+from ai_caddie.annotations import annotations_for_target
 from ai_caddie.decision_api import ShotType, validate_shot_type
 from ai_caddie.geometry_evidence import build_hole_map_dto, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
 from ai_caddie.history_drilldown import resolve_history_ref
+from ai_caddie.history_stats import DataModeName, build_history_stats
 
 
 def build_caddie_context(
@@ -18,6 +21,8 @@ def build_caddie_context(
     shot_type: str,
     distance_to_pin_m: float | None = None,
     lie: str | None = None,
+    data_mode: DataModeName = "local",
+    annotations_root: Path | str | None = None,
 ) -> dict[str, Any]:
     normalized_shot_type = validate_shot_type(shot_type)
     drilldown = resolve_history_ref(data, source_ref)
@@ -70,6 +75,16 @@ def build_caddie_context(
     if not club_profiles:
         missing_data.append({"label": "club_profiles", "reason": "no usable historical shot distances"})
 
+    history_context = _history_context(
+        data,
+        data_mode=data_mode,
+        annotations_root=annotations_root,
+        course_key=str(round_row.get("courseKey") or ""),
+        local_hole=local_hole,
+        round_id=str(round_row.get("id") or source_ref.split(":")[0]),
+        source_ref=source_ref,
+    )
+
     context = {
         "roundId": str(round_row.get("id") or source_ref.split(":")[0]),
         "source": "history_drilldown",
@@ -87,6 +102,7 @@ def build_caddie_context(
             "refType": drilldown.get("refType"),
             "relatedRefs": drilldown.get("relatedRefs"),
         },
+        **history_context,
     }
     if effective_distance is not None:
         context["distanceToPin_m"] = round(float(effective_distance), 1)
@@ -112,6 +128,102 @@ def _missing_context(source_ref: str, shot_type: ShotType, missing_data: list[di
         "evidence": [],
         "missingData": missing_data or [{"label": "source_ref", "reason": "source reference was not found"}],
     }
+
+
+def _history_context(
+    data: HistoryData,
+    *,
+    data_mode: DataModeName,
+    annotations_root: Path | str | None,
+    course_key: str,
+    local_hole: int | None,
+    round_id: str,
+    source_ref: str,
+) -> dict[str, Any]:
+    if local_hole is None:
+        return {}
+    stats = build_history_stats(data, data_mode=data_mode, annotations_root=annotations_root)
+    hole_stats = _find_hole_stats(stats, course_key=course_key, local_hole=local_hole)
+    course_form = _find_course_distribution(stats, course_key=course_key)
+    notes = _manual_notes(
+        annotations_root=annotations_root,
+        source_ref=source_ref,
+        round_id=round_id,
+        local_hole=local_hole,
+    )
+    context: dict[str, Any] = {}
+    if hole_stats:
+        context["historicalHole"] = {
+            "courseKey": hole_stats.get("courseKey"),
+            "hole": hole_stats.get("hole"),
+            "sampleCount": hole_stats.get("sampleCount"),
+            "averageToPar": hole_stats.get("averageToPar"),
+            "worstToPar": hole_stats.get("worstToPar"),
+            "scoreDistribution": hole_stats.get("scoreDistribution", []),
+            "holeRefs": hole_stats.get("holeRefs") or hole_stats.get("refs", []),
+        }
+        context["historicalHoleIssues"] = hole_stats.get("repeatedIssues", [])
+    if course_form:
+        context["courseForm"] = course_form
+    if notes:
+        context["manualNotes"] = notes
+    return context
+
+
+def _find_hole_stats(stats: dict[str, Any], *, course_key: str, local_hole: int) -> dict[str, Any] | None:
+    holes = stats.get("holes") if isinstance(stats.get("holes"), list) else []
+    for row in holes:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("courseKey") or "") == course_key and _as_int(row.get("hole")) == local_hole:
+            return row
+    return None
+
+
+def _find_course_distribution(stats: dict[str, Any], *, course_key: str) -> dict[str, Any] | None:
+    distribution = stats.get("courseDistribution") if isinstance(stats.get("courseDistribution"), list) else []
+    for row in distribution:
+        if isinstance(row, dict) and str(row.get("courseKey") or "") == course_key:
+            return row
+    return None
+
+
+def _manual_notes(
+    *,
+    annotations_root: Path | str | None,
+    source_ref: str,
+    round_id: str,
+    local_hole: int,
+) -> list[dict[str, Any]]:
+    hole_ref = _hole_ref_for_source(source_ref, round_id, local_hole)
+    records = [
+        *annotations_for_target("round", round_id, root=annotations_root),
+        *annotations_for_target("hole", hole_ref, root=annotations_root),
+        *annotations_for_target("shot", source_ref, root=annotations_root),
+    ]
+    out = []
+    for record in records:
+        if record.get("kind") not in {"strategy_note", "hole_note", "shot_note", "round_note", "weather_context_note"}:
+            continue
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+        note = payload.get("note") or payload.get("text") or payload.get("summary")
+        out.append(
+            {
+                "kind": record.get("kind"),
+                "targetType": record.get("targetType"),
+                "targetId": record.get("targetId"),
+                "note": str(note or "").strip(),
+                "source": "manual",
+            }
+        )
+    return [row for row in out if row["note"]]
+
+
+def _hole_ref_for_source(source_ref: str, round_id: str, local_hole: int) -> str:
+    parts = source_ref.split(":")
+    if len(parts) >= 2:
+        return f"{parts[0]}:{parts[1]}"
+    return f"{round_id}:{local_hole}"
 
 
 def _club_profiles(data: HistoryData) -> dict[str, dict[str, Any]]:

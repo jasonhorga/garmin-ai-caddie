@@ -6,6 +6,7 @@ from ai_caddie.caddie_context import build_caddie_context
 from ai_caddie.decision import audit_decision, latest_decision_audit, store_decision_audit
 from ai_caddie.decision_api import build_decision_from_request
 
+from .annotations import ANNOTATION_ROOT
 from .data_source import load_history_data_for_mode
 from .models import (
     CaddieContextResponse,
@@ -33,7 +34,7 @@ def build_caddie_context_response(
     distance_to_pin_m: float | None = None,
     lie: str | None = None,
 ) -> CaddieContextResponse:
-    data, _mode = load_history_data_for_mode()
+    data, mode = load_history_data_for_mode()
     return CaddieContextResponse(
         **build_caddie_context(
             data,
@@ -41,6 +42,8 @@ def build_caddie_context_response(
             shot_type=shot_type,
             distance_to_pin_m=distance_to_pin_m,
             lie=lie,
+            data_mode=mode,
+            annotations_root=ANNOTATION_ROOT,
         )
     )
 

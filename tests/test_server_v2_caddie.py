@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.annotations import add_annotation
 from ai_caddie.decision_api import build_decision_request_from_fixture
 from server_v2.main import app
 
@@ -150,6 +153,59 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertIn("meshes", {row["label"] for row in payload["missingData"]})
         self.assertNotIn("cookie", response.text.lower())
         self.assertNotIn("token", response.text.lower())
+
+    def test_context_endpoint_includes_history_patterns_for_decision_risk(self) -> None:
+        client = TestClient(app)
+
+        response = client.get(
+            "/api/v2/caddie/context",
+            params={
+                "source_ref": "900001:7",
+                "shot_type": "approach",
+                "distance_to_pin_m": 142,
+                "lie": "fairway",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        context = response.json()["context"]
+        issues = {row["issue"]: row for row in context["historicalHoleIssues"]}
+        self.assertEqual(issues["double_or_worse"]["refs"], ["900002:7"])
+        self.assertEqual(issues["hazard_result"]["refs"], ["900002:7"])
+        self.assertEqual(context["historicalHole"]["sampleCount"], 2)
+        self.assertEqual(context["historicalHole"]["scoreDistribution"][4]["key"], "doubleOrWorse")
+        self.assertEqual(context["courseForm"]["courseKey"], "black_knight")
+        self.assertEqual(context["courseForm"]["roundRefs"], ["900001", "900002"])
+
+    def test_context_endpoint_includes_manual_strategy_notes_and_issue_tags(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation("hole", "900001:7", "issue_tag", {"tag": "approach_short"}, root=root)
+            add_annotation(
+                "hole",
+                "900001:7",
+                "strategy_note",
+                {"note": "Favor the center green line; short miss is playable."},
+                root=root,
+            )
+            with patch("server_v2.caddie.ANNOTATION_ROOT", root, create=True):
+                response = client.get(
+                    "/api/v2/caddie/context",
+                    params={
+                        "source_ref": "900001:7",
+                        "shot_type": "approach",
+                        "distance_to_pin_m": 142,
+                        "lie": "fairway",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        context = response.json()["context"]
+        self.assertIn("approach_short", {row["issue"] for row in context["historicalHoleIssues"]})
+        self.assertEqual(context["manualNotes"][0]["kind"], "strategy_note")
+        self.assertIn("center green", context["manualNotes"][0]["note"])
 
 
 if __name__ == "__main__":
