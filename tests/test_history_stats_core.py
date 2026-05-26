@@ -93,6 +93,29 @@ def raw_garmin_shot_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "700001", "hasShots": True}], rounds=[round_row], shots=shots)
 
 
+def club_trend_history_data() -> HistoryData:
+    distances = [150, 152, 151, 136, 134, 135]
+    rounds = []
+    shots = []
+    for index, distance in enumerate(distances):
+        round_id = f"club-trend-{index + 1}"
+        rounds.append(
+            {
+                "id": round_id,
+                "date": f"2026-05-{index + 1:02d}",
+                "course": "Club Trend Course",
+                "courseKey": "club_trend",
+                "holesCompleted": 18,
+                "strokes": 82,
+                "par": 72,
+                "holes": [],
+                "hasShots": True,
+            }
+        )
+        shots.append({"roundId": round_id, "hole": 7, "club": "7I", "distance": distance, "surface": "green"})
+    return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=shots)
+
+
 def missing_shot_rows_history_data() -> HistoryData:
     rounds = [
         {
@@ -298,6 +321,30 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(stats["records"]["longestShots"][0]["shotRef"], "700001:1:0")
         self.assertEqual(stats["records"]["longestShots"][0]["holeRef"], "700001:1")
         self.assertEqual(stats["records"]["longestShots"][0]["surface"], "fairway")
+
+    def test_club_stats_expose_consistency_and_recent_distance_trend(self) -> None:
+        stats = build_history_stats(club_trend_history_data(), data_mode="fixture")
+
+        seven_iron = next(row for row in stats["clubs"] if row["club"] == "7I")
+
+        self.assertIn("dispersionRange", seven_iron)
+        self.assertIn("consistency", seven_iron)
+        self.assertIn("distanceTrend", seven_iron)
+        self.assertEqual(seven_iron["dispersionRange"], 17)
+        self.assertEqual(seven_iron["consistency"], "moderate")
+        self.assertEqual(seven_iron["distanceTrend"]["windowSize"], 3)
+        self.assertEqual(seven_iron["distanceTrend"]["baselineMedian"], 151.0)
+        self.assertEqual(seven_iron["distanceTrend"]["recentMedian"], 135.0)
+        self.assertEqual(seven_iron["distanceTrend"]["deltaMedian"], -16.0)
+        self.assertEqual(seven_iron["distanceTrend"]["direction"], "shorter")
+        self.assertEqual(
+            seven_iron["distanceTrend"]["baselineShotRefs"],
+            ["club-trend-1:7:0", "club-trend-2:7:1", "club-trend-3:7:2"],
+        )
+        self.assertEqual(
+            seven_iron["distanceTrend"]["recentShotRefs"],
+            ["club-trend-4:7:3", "club-trend-5:7:4", "club-trend-6:7:5"],
+        )
 
     def test_hole_stats_include_score_distribution_and_repeated_issues(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

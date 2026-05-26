@@ -1,11 +1,15 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
-import { asString, formatNumber, semanticClass } from './statsValues'
+import { asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface ClubStatsProps {
   data: HistoryStatsResponse
   onSelectRef?: (sourceRef: string) => void
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
 export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
@@ -26,26 +30,42 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
             <p>Shot data or manual club input is required before the club model is useful.</p>
           </article>
         ) : null}
-        {data.clubs.map((club) => (
-          <article key={asString(club.club) ?? 'club'} className="stats-item">
-            <div className="stats-item-main">
-              <h2>{asString(club.club) ?? 'Unknown club'}</h2>
-              <p>{formatNumber(club.sampleCount)} samples</p>
-            </div>
-            <div className="stats-item-facts">
-              <span>median {formatNumber(club.median)}</span>
-              <span>p10 {formatNumber(club.p10)}</span>
-              <span>p90 {formatNumber(club.p90)}</span>
-              <span>max {formatNumber(club.max)}</span>
-              <span className={`semantic-chip ${semanticClass('confidence', club.confidence)}`}>
-                {asString(club.confidence) ?? 'unknown'} confidence
-              </span>
-            </div>
-            <p className="stats-refs">
-              <SourceRefs refs={club.shotRefs ?? club.roundRefs ?? club.roundIds} onSelectRef={onSelectRef} />
-            </p>
-          </article>
-        ))}
+        {data.clubs.map((club) => {
+          const trend = asRecord(club.distanceTrend)
+          const consistency = asString(club.consistency)
+          const trendDirection = asString(trend?.direction)
+          return (
+            <article key={asString(club.club) ?? 'club'} className="stats-item">
+              <div className="stats-item-main">
+                <h2>{asString(club.club) ?? 'Unknown club'}</h2>
+                <p>{formatNumber(club.sampleCount)} samples</p>
+              </div>
+              <div className="stats-item-facts">
+                <span>median {formatNumber(club.median)}</span>
+                <span>p10 {formatNumber(club.p10)}</span>
+                <span>p90 {formatNumber(club.p90)}</span>
+                <span>dispersion {formatNumber(club.dispersionRange)}</span>
+                <span>max {formatNumber(club.max)}</span>
+                {consistency ? (
+                  <span className={`semantic-chip ${semanticClass('consistency', consistency)}`}>
+                    {consistency} consistency
+                  </span>
+                ) : null}
+                {trendDirection ? (
+                  <span className={`semantic-chip ${semanticClass('trend', trendDirection)}`}>
+                    trend {formatSigned(trend?.deltaMedian)} {trendDirection}
+                  </span>
+                ) : null}
+                <span className={`semantic-chip ${semanticClass('confidence', club.confidence)}`}>
+                  {asString(club.confidence) ?? 'unknown'} confidence
+                </span>
+              </div>
+              <p className="stats-refs">
+                <SourceRefs refs={club.shotRefs ?? club.roundRefs ?? club.roundIds} onSelectRef={onSelectRef} />
+              </p>
+            </article>
+          )
+        })}
       </div>
     </section>
   )

@@ -1216,6 +1216,62 @@ def _hole_repeated_issue_records(issue_refs: dict[tuple[str, str], list[str]]) -
     )
 
 
+def _club_dispersion_range(p10: float | None, p90: float | None) -> float | None:
+    if p10 is None or p90 is None:
+        return None
+    return round(float(p90) - float(p10), 1)
+
+
+def _club_consistency(dispersion_range: float | None) -> str:
+    if dispersion_range is None:
+        return "unknown"
+    if dispersion_range <= 10:
+        return "tight"
+    if dispersion_range <= 25:
+        return "moderate"
+    return "volatile"
+
+
+def _club_distance_trend(distance_rows: list[tuple[float, str]]) -> dict[str, Any]:
+    sample_count = len(distance_rows)
+    shot_refs = [ref for _distance, ref in distance_rows]
+    if sample_count < 4:
+        sample_median = round(float(median([distance for distance, _ref in distance_rows])), 1) if distance_rows else None
+        return {
+            "sampleCount": sample_count,
+            "windowSize": sample_count,
+            "baselineMedian": sample_median,
+            "recentMedian": sample_median,
+            "deltaMedian": None,
+            "direction": "insufficient_data",
+            "baselineShotRefs": shot_refs,
+            "recentShotRefs": shot_refs,
+        }
+
+    window_size = min(5, max(2, sample_count // 2))
+    baseline_rows = distance_rows[:window_size]
+    recent_rows = distance_rows[-window_size:]
+    baseline_median = round(float(median([distance for distance, _ref in baseline_rows])), 1)
+    recent_median = round(float(median([distance for distance, _ref in recent_rows])), 1)
+    delta_median = round(recent_median - baseline_median, 1)
+    if delta_median <= -5:
+        direction = "shorter"
+    elif delta_median >= 5:
+        direction = "longer"
+    else:
+        direction = "stable"
+    return {
+        "sampleCount": sample_count,
+        "windowSize": window_size,
+        "baselineMedian": baseline_median,
+        "recentMedian": recent_median,
+        "deltaMedian": delta_median,
+        "direction": direction,
+        "baselineShotRefs": [ref for _distance, ref in baseline_rows],
+        "recentShotRefs": [ref for _distance, ref in recent_rows],
+    }
+
+
 def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, int], list[tuple[dict[str, Any], dict[str, Any]]]] = defaultdict(list)
     for row in data.rounds:
@@ -1280,6 +1336,14 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
     out = []
     for club, shots in grouped.items():
         distances = [float(_shot_distance(shot)) for shot in shots if _shot_distance(shot) is not None]
+        distance_rows = [
+            (float(_shot_distance(shot)), str(shot.get("_ref")))
+            for shot in shots
+            if _shot_distance(shot) is not None and shot.get("_ref") is not None
+        ]
+        p10 = percentile(distances, 0.1)
+        p90 = percentile(distances, 0.9)
+        dispersion_range = _club_dispersion_range(p10, p90)
         round_ids = sorted({_shot_round_id(shot) for shot in shots if _shot_round_id(shot) != "None"})
         shot_refs = sorted(str(shot.get("_ref")) for shot in shots if shot.get("_ref") is not None)
         corrected_refs = sorted(
@@ -1293,8 +1357,11 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
                     "club": club,
                     "sampleCount": len(distances),
                     "median": round(float(median(distances)), 1) if distances else None,
-                    "p10": percentile(distances, 0.1),
-                    "p90": percentile(distances, 0.9),
+                    "p10": p10,
+                    "p90": p90,
+                    "dispersionRange": dispersion_range,
+                    "consistency": _club_consistency(dispersion_range),
+                    "distanceTrend": _club_distance_trend(distance_rows),
                     "max": max(distances) if distances else None,
                     "roundIds": round_ids,
                     "shotRefs": shot_refs,

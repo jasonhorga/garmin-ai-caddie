@@ -20,6 +20,18 @@ const statsFixture: HistoryStatsResponse = {
       median: 240,
       p10: 225,
       p90: 255,
+      dispersionRange: 30,
+      consistency: 'volatile',
+      distanceTrend: {
+        sampleCount: 6,
+        windowSize: 3,
+        baselineMedian: 250,
+        recentMedian: 234,
+        deltaMedian: -16,
+        direction: 'shorter',
+        baselineShotRefs: ['900001:1:0'],
+        recentShotRefs: ['900002:5:4'],
+      },
       max: 270,
       confidence: 'low',
       shotRefs: ['900001:1:0', '900002:5:4'],
@@ -43,7 +55,10 @@ describe('ClubStats', () => {
     expect(screen.getByText('median 240')).toBeInTheDocument()
     expect(screen.getByText('p10 225')).toBeInTheDocument()
     expect(screen.getByText('p90 255')).toBeInTheDocument()
+    expect(screen.getByText('dispersion 30')).toBeInTheDocument()
     expect(screen.getByText('max 270')).toBeInTheDocument()
+    expect(screen.getByText('volatile consistency')).toHaveClass('consistency-volatile')
+    expect(screen.getByText('trend -16 shorter')).toHaveClass('trend-shorter')
     expect(screen.getByText('low confidence')).toHaveClass('confidence-low')
     expect(screen.getByText('shots partial 1/2')).toHaveClass('quality-partial')
     expect(screen.getByText('shot_rows good 6/6')).toHaveClass('quality-good')
