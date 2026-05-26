@@ -79,12 +79,12 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
     for band in scoring.get("scoreBands", []) if isinstance(scoring.get("scoreBands"), list) else []:
         if not isinstance(band, dict):
             continue
-        round_ids = [str(item) for item in band.get("roundIds", [])] if isinstance(band.get("roundIds"), list) else []
+        round_ids = _as_string_list(band.get("roundRefs") or band.get("roundIds") or band.get("refs"))
         if str(round_id) in round_ids:
             facts_used.append(
                 _fact(
                     "round_score_band",
-                    {"label": band.get("label"), "count": band.get("count")},
+                    {"label": band.get("label"), "count": band.get("count"), "roundRefs": round_ids},
                     "scoring.scoreBands",
                 )
             )
@@ -92,16 +92,7 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
     missing_data: list[dict[str, Any]] = []
     if str(round_id) not in all_round_ids:
         missing_data.append({"label": "round_reference", "reason": f"{round_id} not present in drillDown.roundIds"})
-    for finding in data_quality:
-        if isinstance(finding, dict) and finding.get("state") != "good":
-            missing_data.append(
-                {
-                    "label": finding.get("label", "unknown"),
-                    "state": finding.get("state", "unknown"),
-                    "ready": finding.get("ready"),
-                    "total": finding.get("total"),
-                }
-            )
+    missing_data.extend(_missing_data_quality_rows(data_quality))
 
     return {
         "schema": "ai-caddie-report-facts-v1",
@@ -191,16 +182,7 @@ def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict
     missing_data: list[dict[str, Any]] = []
     if period_row is None and period != "recent_10":
         missing_data.append({"label": "period", "reason": f"{period} not present in history time aggregates"})
-    for finding in data_quality:
-        if isinstance(finding, dict) and finding.get("state") != "good":
-            missing_data.append(
-                {
-                    "label": finding.get("label", "unknown"),
-                    "state": finding.get("state", "unknown"),
-                    "ready": finding.get("ready"),
-                    "total": finding.get("total"),
-                }
-            )
+    missing_data.extend(_missing_data_quality_rows(data_quality))
 
     return {
         "schema": "ai-caddie-report-facts-v1",
@@ -249,6 +231,26 @@ def _as_string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if item is not None]
+
+
+def _missing_data_quality_rows(data_quality: Any) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not isinstance(data_quality, list):
+        return rows
+    for finding in data_quality:
+        if not isinstance(finding, dict) or finding.get("state") == "good":
+            continue
+        row = {
+            "label": finding.get("label", "unknown"),
+            "state": finding.get("state", "unknown"),
+            "ready": finding.get("ready"),
+            "total": finding.get("total"),
+        }
+        refs = _as_string_list(finding.get("sourceRefs") or finding.get("refs") or finding.get("roundRefs") or finding.get("roundIds"))
+        if refs:
+            row["refs"] = refs
+        rows.append(row)
+    return rows
 
 
 def _stored_at() -> str:

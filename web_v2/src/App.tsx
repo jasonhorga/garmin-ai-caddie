@@ -253,6 +253,7 @@ export default function App() {
           onGenerateTrend={handleGenerateTrendReport}
           onLoadRound={handleLoadRoundReport}
           onGenerateRound={handleGenerateRoundReport}
+          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
         />
       )
     }

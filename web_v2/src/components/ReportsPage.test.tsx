@@ -28,8 +28,8 @@ const report: ReviewReportResponse = {
   kind: 'trend',
   provider: 'StaticProvider',
   model: 'static',
-  factsUsed: [{ label: 'summary_trend', source: 'summary', value: { totalRounds: 3 } }],
-  missingData: [{ label: 'weather', state: 'partial' }],
+  factsUsed: [{ label: 'summary_trend', source: 'summary', value: { totalRounds: 3, roundRefs: ['900001'] } }],
+  missingData: [{ label: 'weather', state: 'partial', refs: ['900002'] }],
   narrative: 'Recent scoring improved, but weather coverage is partial.',
   confidence: 'medium',
 }
@@ -40,6 +40,7 @@ describe('ReportsPage', () => {
     const onGenerateTrend = vi.fn()
     const onLoadRound = vi.fn()
     const onGenerateRound = vi.fn()
+    const onSelectRef = vi.fn()
 
     render(
       <ReportsPage
@@ -49,6 +50,7 @@ describe('ReportsPage', () => {
         onGenerateTrend={onGenerateTrend}
         onLoadRound={onLoadRound}
         onGenerateRound={onGenerateRound}
+        onSelectRef={onSelectRef}
       />,
     )
 
@@ -61,8 +63,11 @@ describe('ReportsPage', () => {
     expect(screen.getByText('Recent scoring improved, but weather coverage is partial.')).toBeInTheDocument()
     expect(screen.getByText('summary_trend')).toBeInTheDocument()
     expect(screen.getByText('weather')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900001' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
 
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900002' }))
     await userEvent.click(screen.getByRole('button', { name: 'Load trend report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Generate trend report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Load round report' }))
@@ -70,6 +75,7 @@ describe('ReportsPage', () => {
 
     expect(onLoadTrend).toHaveBeenCalledWith('recent_10')
     expect(onGenerateTrend).toHaveBeenCalledWith('recent_10')
+    expect(onSelectRef).toHaveBeenCalledWith('900002')
     expect(onLoadRound).toHaveBeenCalledWith('900001')
     expect(onGenerateRound).toHaveBeenCalledWith('900001')
 

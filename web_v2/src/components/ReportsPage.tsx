@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { HistoryStatsResponse, ReviewReportResponse } from '../types'
+import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
 
 interface ReportsPageProps {
@@ -9,6 +10,7 @@ interface ReportsPageProps {
   onGenerateTrend: (period: string) => void
   onLoadRound: (roundId: string) => void
   onGenerateRound: (roundId: string) => void
+  onSelectRef?: (sourceRef: string) => void
 }
 
 interface Option {
@@ -23,6 +25,7 @@ export function ReportsPage({
   onGenerateTrend,
   onLoadRound,
   onGenerateRound,
+  onSelectRef,
 }: ReportsPageProps) {
   const trendOptions = useMemo(() => buildTrendOptions(stats), [stats])
   const roundOptions = useMemo(() => buildRoundOptions(stats), [stats])
@@ -81,13 +84,13 @@ export function ReportsPage({
           </div>
         </section>
 
-        <ReportDetail state={reportState} />
+        <ReportDetail state={reportState} onSelectRef={onSelectRef} />
       </div>
     </section>
   )
 }
 
-function ReportDetail({ state }: { state: ReportsPageProps['reportState'] }) {
+function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportState']; onSelectRef?: (sourceRef: string) => void }) {
   if (state.status === 'loading') {
     return (
       <section className="report-detail" aria-label="Report detail">
@@ -133,6 +136,7 @@ function ReportDetail({ state }: { state: ReportsPageProps['reportState'] }) {
             <div className="report-row" key={`${String(fact.label)}-${index}`}>
               <strong>{String(fact.label ?? 'fact')}</strong>
               <span>{String(fact.source ?? 'source')}</span>
+              <SourceRefs refs={refsForFact(fact)} onSelectRef={onSelectRef} />
             </div>
           ))}
         </section>
@@ -143,6 +147,7 @@ function ReportDetail({ state }: { state: ReportsPageProps['reportState'] }) {
               <div className="report-row" key={`${String(item.label)}-${index}`}>
                 <strong>{String(item.label ?? 'missing')}</strong>
                 <span>{String(item.state ?? item.reason ?? 'needs review')}</span>
+                <SourceRefs refs={refsForFact(item)} onSelectRef={onSelectRef} />
               </div>
             ))
           ) : (
@@ -179,4 +184,54 @@ function buildRoundOptions(stats: HistoryStatsResponse): Option[] {
 
 function asRecordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : []
+}
+
+function refsForFact(fact: Record<string, unknown>): string[] {
+  return collectRefs(fact)
+}
+
+function collectRefs(value: unknown): string[] {
+  const refs: string[] = []
+  const seen = new Set<string>()
+
+  function add(ref: unknown) {
+    const normalized = String(ref ?? '').trim()
+    if (!normalized || seen.has(normalized)) return
+    seen.add(normalized)
+    refs.push(normalized)
+  }
+
+  function walk(current: unknown, keyHint = '') {
+    if (Array.isArray(current)) {
+      if (isRefKey(keyHint)) {
+        current.forEach(add)
+        return
+      }
+      current.forEach((item) => walk(item))
+      return
+    }
+
+    if (typeof current === 'string' && isRefKey(keyHint)) {
+      add(current)
+      return
+    }
+
+    if (current === null || typeof current !== 'object') return
+
+    Object.entries(current).forEach(([key, item]) => {
+      if (isRefKey(key)) {
+        if (Array.isArray(item)) item.forEach(add)
+        else add(item)
+      } else {
+        walk(item, key)
+      }
+    })
+  }
+
+  walk(value)
+  return refs
+}
+
+function isRefKey(key: string) {
+  return /^(refs|sourceRefs|roundRefs|holeRefs|shotRefs|roundIds|roundRef|holeRef|shotRef)$/i.test(key)
 }

@@ -45,14 +45,20 @@ class FactBoundReportTests(unittest.TestCase):
                     "longestShots": [{"club": "1D", "distance": 238.0, "shotRef": "900001:1:0"}],
                 },
                 "dataQuality": [
-                    {"label": "shots", "state": "partial", "ready": 2, "total": 3},
-                    {"label": "weather", "state": "partial", "ready": 1, "total": 45},
+                    {"label": "shots", "state": "partial", "ready": 2, "total": 3, "refs": ["900002"]},
+                    {"label": "weather", "state": "partial", "ready": 1, "total": 45, "refs": ["900001:7"]},
                 ],
                 "drillDown": {"roundIds": ["900001"]},
             },
             "900001",
         )
         provider = RecordingProvider()
+
+        band_fact = next(row for row in facts["factsUsed"] if row["label"] == "round_score_band")
+        self.assertEqual(band_fact["value"]["roundRefs"], ["900001"])
+        missing_by_label = {row["label"]: row for row in facts["missingData"]}
+        self.assertEqual(missing_by_label["shots"]["refs"], ["900002"])
+        self.assertEqual(missing_by_label["weather"]["refs"], ["900001:7"])
 
         report = generate_report(facts, provider)
 
