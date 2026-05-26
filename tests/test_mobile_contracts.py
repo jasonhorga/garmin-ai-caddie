@@ -267,6 +267,27 @@ class MobileContractTests(unittest.TestCase):
         for field in ["selectedOptionId", "options", "avoidZones", "evidence", "confidence", "missingData"]:
             self.assertIn(field, client)
 
+    def test_ios_caddie_request_builder_uses_offline_context_seed_and_live_inputs(self) -> None:
+        builder = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift")
+
+        self.assertIn("struct LiveCaddieInput", builder)
+        self.assertIn("final class CaddieDecisionRequestBuilder", builder)
+        self.assertIn("func makeDecisionRequest", builder)
+        self.assertIn("CaddieContextSeed", builder)
+        self.assertIn("CaddieDecisionRequest", builder)
+        for field in [
+            '"source"',
+            '"sourceRef"',
+            '"distanceToPin_m"',
+            '"lie"',
+            '"currentLocation"',
+            '"latitude"',
+            '"longitude"',
+            '"horizontalAccuracyM"',
+            '"requiredLiveInputs"',
+        ]:
+            self.assertIn(field, builder)
+
     def test_ios_phone_bridge_maps_watch_inputs_to_offline_live_events(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
 
@@ -299,6 +320,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("Stepper", current_hole)
         self.assertIn("selectedClub", current_hole)
         self.assertIn("penaltyCount", current_hole)
+        self.assertIn("CaddieDecisionRequestBuilder", current_hole)
+        self.assertIn("caddieContextSeed", current_hole)
+        self.assertIn("makeCaddieDecisionRequest", current_hole)
         self.assertIn("struct CaddiePlanView: View", caddie_plan)
         self.assertIn("safe", caddie_plan)
         self.assertIn("stock", caddie_plan)

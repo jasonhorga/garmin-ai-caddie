@@ -4,6 +4,7 @@ public struct CurrentHoleView: View {
     public let package: LiveRoundPackage
     public let hole: Hole
     public let onEvent: (LiveRoundEvent) -> Void
+    private let requestBuilder = CaddieDecisionRequestBuilder()
 
     @State private var score: Int
     @State private var puttCount: Int = 2
@@ -53,6 +54,23 @@ public struct CurrentHoleView: View {
             }
         }
         .navigationTitle("Hole \(hole.number)")
+    }
+
+    private var caddieContextSeed: CaddieContextSeed? {
+        package.caddieContextSeeds.first { $0.hole == hole.number }
+    }
+
+    private func makeCaddieDecisionRequest() -> CaddieDecisionRequest? {
+        guard let caddieContextSeed else {
+            return nil
+        }
+        return requestBuilder.makeDecisionRequest(
+            seed: caddieContextSeed,
+            input: LiveCaddieInput(
+                shotType: "approach",
+                lie: "fairway"
+            )
+        )
     }
 
     private func submitEvents() {
