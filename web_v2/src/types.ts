@@ -405,6 +405,7 @@ export interface ReviewReportResponse {
   model: string
   factsUsed: Array<Record<string, unknown>>
   missingData: Array<Record<string, unknown>>
+  inferencesMade: Array<Record<string, unknown>>
   narrative: string
   confidence: ReportConfidence
 }

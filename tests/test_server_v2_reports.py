@@ -35,6 +35,9 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertIn("round_scorecard", labels)
         self.assertIn("round_hole_outcomes", labels)
         self.assertIn("round_shots", labels)
+        self.assertIn("inferencesMade", payload)
+        self.assertTrue(payload["inferencesMade"])
+        self.assertTrue(all(row["sourceRefs"] for row in payload["inferencesMade"]))
 
     def test_report_facts_include_course_distribution_from_history_stats_api_model(self) -> None:
         client = TestClient(app)
@@ -107,6 +110,8 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(payload["subjectId"], "900001")
         self.assertEqual(payload["sourceRefs"], ["900001", "900001:7", "900002"])
         self.assertEqual(payload["narrative"], "old stored review")
+        self.assertTrue(payload["inferencesMade"])
+        self.assertEqual(payload["inferencesMade"][0]["missingDataRefs"], ["900002"])
 
     def test_get_trend_report_returns_stub_fact_bound_report(self) -> None:
         client = TestClient(app)

@@ -137,6 +137,8 @@ _SOURCE_REF_KEYS = {
     "shotRefs",
     "actualShotRefs",
     "evidenceRefs",
+    "missingDataRef",
+    "missingDataRefs",
     "baselineRefs",
     "recentRefs",
 }
@@ -764,6 +766,145 @@ def _confidence(facts_used: list[dict[str, Any]], missing_data: list[dict[str, A
     return "high"
 
 
+def _fact_label(fact: dict[str, Any]) -> str:
+    return str(fact.get("label") or "fact")
+
+
+def _fact_confidence(fact: dict[str, Any], default: str) -> str:
+    confidence = str(fact.get("confidence") or default)
+    return confidence if confidence in {"low", "medium", "high"} else default
+
+
+def _missing_labels(missing_data: list[dict[str, Any]]) -> list[str]:
+    return _unique_strings([row.get("label") for row in missing_data if isinstance(row, dict)])
+
+
+def _missing_refs(missing_data: list[dict[str, Any]]) -> list[str]:
+    return report_source_refs({"missingData": missing_data})
+
+
+def _inference(
+    claim: str,
+    fact: dict[str, Any],
+    *,
+    default_confidence: str,
+    missing_data: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_refs = report_source_refs(fact)
+    return {
+        "claim": claim,
+        "factLabels": [_fact_label(fact)],
+        "sourceRefs": source_refs,
+        "confidence": _fact_confidence(fact, default_confidence),
+        "missingDataRefs": _missing_refs(missing_data),
+        "missingDataLabels": _missing_labels(missing_data),
+    }
+
+
+def _append_inference(rows: list[dict[str, Any]], row: dict[str, Any]) -> None:
+    if row.get("sourceRefs"):
+        rows.append(row)
+
+
+def _first_issue(value: Any) -> str | None:
+    if isinstance(value, dict):
+        issue = value.get("issue")
+        return str(issue) if issue is not None else None
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict) and item.get("issue") is not None:
+                return str(item["issue"])
+    return None
+
+
+def _first_audit_classification(value: Any) -> str | None:
+    rows: list[Any] = []
+    if isinstance(value, dict):
+        recent = value.get("recentCostDrivers")
+        counts = value.get("classificationCounts")
+        rows.extend(recent if isinstance(recent, list) else [])
+        rows.extend(counts if isinstance(counts, list) else [])
+    elif isinstance(value, list):
+        rows.extend(value)
+    for item in rows:
+        if isinstance(item, dict) and item.get("classification") is not None:
+            return str(item["classification"])
+    return None
+
+
+def _summary_round_count(value: Any) -> int | None:
+    if isinstance(value, dict):
+        count = value.get("totalRounds") or value.get("roundCount")
+        try:
+            return int(count)
+        except (TypeError, ValueError):
+            return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_report_inferences(
+    facts_used: list[dict[str, Any]],
+    missing_data: list[dict[str, Any]],
+    *,
+    default_confidence: str | None = None,
+) -> list[dict[str, Any]]:
+    confidence = default_confidence or _confidence(facts_used, missing_data)
+    rows: list[dict[str, Any]] = []
+    for fact in facts_used:
+        if not isinstance(fact, dict):
+            continue
+        label = _fact_label(fact)
+        value = fact.get("value")
+        if label in {"summary_trend", "total_rounds"}:
+            round_count = _summary_round_count(value)
+            if round_count is not None:
+                claim = f"Recent review is based on {round_count} rounds." if label == "summary_trend" else f"Report is based on {round_count} rounds."
+                _append_inference(rows, _inference(claim, fact, default_confidence=confidence, missing_data=missing_data))
+                continue
+        if label in {"top_issue", "top_issues", "round_issues"}:
+            issue = _first_issue(value)
+            if issue:
+                _append_inference(rows, _inference(f"Primary scoring-loss signal is {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
+                continue
+        if label in {"decision_audit_trends", "round_decision_audits"}:
+            classification = _first_audit_classification(value)
+            if classification:
+                _append_inference(
+                    rows,
+                    _inference(
+                        f"Caddie audit loop highlights {classification} as a decision issue.",
+                        fact,
+                        default_confidence=confidence,
+                        missing_data=missing_data,
+                    ),
+                )
+                continue
+        if label == "round_scorecard" and isinstance(value, dict):
+            score = value.get("score")
+            course = value.get("course")
+            if score is not None:
+                course_text = f" at {course}" if course else ""
+                _append_inference(rows, _inference(f"Round score was {score}{course_text}.", fact, default_confidence=confidence, missing_data=missing_data))
+
+    if not rows and facts_used:
+        synthetic_fact = {
+            "label": "facts_used",
+            "sourceRefs": report_source_refs({"factsUsed": facts_used}),
+        }
+        rows.append(
+            _inference(
+                f"Narrative is constrained to {len(facts_used)} structured facts.",
+                synthetic_fact,
+                default_confidence=confidence,
+                missing_data=missing_data,
+            )
+        )
+    return rows
+
+
 def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, Any]:
     safe_facts = _redact_value(facts)
     facts_used = safe_facts.get("factsUsed", []) if isinstance(safe_facts.get("factsUsed"), list) else []
@@ -794,6 +935,7 @@ def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, 
         "model": provider.model,
         "factsUsed": facts_used,
         "missingData": missing_data,
+        "inferencesMade": build_report_inferences(facts_used, missing_data),
         "narrative": redact_private_text(narrative),
         "confidence": _confidence(facts_used, missing_data),
     }

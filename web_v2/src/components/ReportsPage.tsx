@@ -251,6 +251,7 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
       <p className="report-narrative">{report.narrative}</p>
 
       <div className="report-evidence-grid">
+        <ReportInferences inferences={report.inferencesMade} onSelectRef={onSelectRef} />
         <section aria-label="Report facts">
           <h3>Facts</h3>
           {report.factsUsed.map((fact, index) => (
@@ -283,6 +284,40 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
           )}
         </section>
       </div>
+    </section>
+  )
+}
+
+function ReportInferences({
+  inferences,
+  onSelectRef,
+}: {
+  inferences: unknown
+  onSelectRef?: (sourceRef: string) => void
+}) {
+  const rows = asRecordArray(inferences)
+  return (
+    <section className="report-inferences" aria-label="Report inferences">
+      <h3>Inferences</h3>
+      {rows.length ? (
+        rows.map((inference, index) => (
+          <div className="report-row" key={`${String(inference.claim ?? 'inference')}-${index}`}>
+            <div className="report-row-main">
+              <strong>{String(inference.claim ?? 'Inference')}</strong>
+              <div className="report-metadata">
+                {labeledChips(inference.factLabels, 'fact')}
+                {labeledChips(inference.missingDataLabels, 'missing')}
+                {typeof inference.confidence === 'string' ? (
+                  <span className="fact-chip muted">{`${inference.confidence} inference confidence`}</span>
+                ) : null}
+              </div>
+            </div>
+            <SourceRefs refs={inferenceRefs(inference)} onSelectRef={onSelectRef} />
+          </div>
+        ))
+      ) : (
+        <p>None</p>
+      )}
     </section>
   )
 }
@@ -402,6 +437,34 @@ function asRecordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : []
 }
 
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => String(item).trim()).filter(Boolean)
+}
+
+function labeledChips(value: unknown, suffix: string) {
+  return asStringArray(value).map((label) => (
+    <span className="fact-chip muted" key={`${suffix}-${label}`}>
+      {`${label} ${suffix}`}
+    </span>
+  ))
+}
+
+function inferenceRefs(inference: Record<string, unknown>): string[] {
+  return uniqueStrings([...asStringArray(inference.sourceRefs), ...asStringArray(inference.missingDataRefs)])
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const unique: string[] = []
+  for (const value of values) {
+    if (seen.has(value)) continue
+    seen.add(value)
+    unique.push(value)
+  }
+  return unique
+}
+
 function refsForFact(fact: Record<string, unknown>): string[] {
   return collectRefs(fact)
 }
@@ -449,5 +512,5 @@ function collectRefs(value: unknown): string[] {
 }
 
 function isRefKey(key: string) {
-  return /^(refs|sourceRefs|roundRefs|holeRefs|shotRefs|roundIds|roundRef|holeRef|shotRef)$/i.test(key)
+  return /^(refs|sourceRefs|roundRefs|holeRefs|shotRefs|missingDataRefs|roundIds|roundRef|holeRef|shotRef|missingDataRef)$/i.test(key)
 }

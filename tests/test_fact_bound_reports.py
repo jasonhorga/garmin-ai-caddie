@@ -15,6 +15,7 @@ from ai_caddie.reports import (
     latest_report_record,
     list_report_records,
     redact_private_text,
+    report_source_refs,
     store_report,
 )
 
@@ -80,6 +81,86 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("course_distribution", labels)
         self.assertIn("record_book", labels)
         self.assertIn(report["confidence"], {"low", "medium", "high"})
+
+    def test_generated_report_exposes_structured_inferences_bound_to_facts(self) -> None:
+        facts = {
+            "schema": "ai-caddie-report-facts-v1",
+            "kind": "trend",
+            "subjectId": "recent_10",
+            "factsUsed": [
+                {
+                    "label": "summary_trend",
+                    "source": "summary",
+                    "value": {"totalRounds": 6, "recent10Average": 84.0},
+                    "sourceRefs": ["round-1", "round-2"],
+                    "confidence": "medium",
+                },
+                {
+                    "label": "top_issues",
+                    "source": "issues",
+                    "value": [{"issue": "three_putt", "phase": "Putting", "count": 4, "sourceRefs": ["round-2:7"]}],
+                    "sourceRefs": ["round-2:7"],
+                    "confidence": "medium",
+                },
+                {
+                    "label": "decision_audit_trends",
+                    "source": "diagnosis.decisionAuditTrends",
+                    "value": {
+                        "totalAudits": 2,
+                        "recentCostDrivers": [
+                            {"classification": "execution", "estimatedStrokesLost": 1.8, "sourceRefs": ["round-2:7"]}
+                        ],
+                    },
+                    "sourceRefs": ["round-2:7"],
+                    "confidence": "medium",
+                },
+            ],
+            "missingData": [
+                {
+                    "label": "weather",
+                    "state": "partial",
+                    "sourceRefs": ["round-2:7"],
+                    "coverage": {"ready": 1, "total": 6, "pct": 16.7},
+                }
+            ],
+        }
+
+        report = generate_report(facts, StaticProvider("trend narrative"))
+
+        inferences = report["inferencesMade"]
+        self.assertGreaterEqual(len(inferences), 3)
+        self.assertTrue(all(row["claim"] for row in inferences))
+        self.assertTrue(all(row["confidence"] in {"low", "medium", "high"} for row in inferences))
+        self.assertTrue(all("sourceRefs" in row for row in inferences))
+        self.assertTrue(all("factLabels" in row for row in inferences))
+        self.assertIn(
+            {
+                "claim": "Recent review is based on 6 rounds.",
+                "factLabels": ["summary_trend"],
+                "sourceRefs": ["round-1", "round-2"],
+                "confidence": "medium",
+                "missingDataRefs": ["round-2:7"],
+                "missingDataLabels": ["weather"],
+            },
+            inferences,
+        )
+        self.assertTrue(any("three_putt" in row["claim"] and row["sourceRefs"] == ["round-2:7"] for row in inferences))
+        self.assertTrue(any("execution" in row["claim"] and row["factLabels"] == ["decision_audit_trends"] for row in inferences))
+
+    def test_report_source_refs_include_inference_missing_data_refs(self) -> None:
+        refs = report_source_refs(
+            {
+                "inferencesMade": [
+                    {
+                        "claim": "Weather is missing for one source.",
+                        "sourceRefs": ["round-1"],
+                        "missingDataRefs": ["round-2"],
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(refs, ["round-1", "round-2"])
 
     def test_round_report_facts_bind_requested_scorecard_holes_shots_and_issues(self) -> None:
         data = fixture_history_data()

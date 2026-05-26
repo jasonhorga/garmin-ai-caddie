@@ -72,6 +72,16 @@ const report: ReviewReportResponse = {
       confidence: 'low',
     },
   ],
+  inferencesMade: [
+    {
+      claim: 'Recent review is based on 3 rounds.',
+      factLabels: ['summary_trend'],
+      sourceRefs: ['900001'],
+      confidence: 'medium',
+      missingDataRefs: ['900002'],
+      missingDataLabels: ['weather'],
+    },
+  ],
   narrative: 'Recent scoring improved, but weather coverage is partial.',
   confidence: 'medium',
 }
@@ -153,6 +163,14 @@ describe('ReportsPage', () => {
     expect(screen.getByText('medium fact confidence')).toBeInTheDocument()
     expect(screen.getByText('coverage 1/3 33.3%')).toBeInTheDocument()
     expect(screen.getByText('low missing confidence')).toBeInTheDocument()
+    const inferences = screen.getByLabelText('Report inferences')
+    expect(within(inferences).getByRole('heading', { name: 'Inferences' })).toBeInTheDocument()
+    expect(within(inferences).getByText('Recent review is based on 3 rounds.')).toBeInTheDocument()
+    expect(within(inferences).getByText('summary_trend fact')).toBeInTheDocument()
+    expect(within(inferences).getByText('weather missing')).toBeInTheDocument()
+    expect(within(inferences).getByText('medium inference confidence')).toBeInTheDocument()
+    expect(within(inferences).getByRole('button', { name: 'Open source 900001' })).toBeInTheDocument()
+    expect(within(inferences).getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)

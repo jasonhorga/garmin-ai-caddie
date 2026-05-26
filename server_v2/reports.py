@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ai_caddie.llm_providers import StaticProvider, build_text_provider
 from ai_caddie.reports import (
+    build_report_inferences,
     build_round_report_facts,
     build_trend_report_facts,
     generate_report,
@@ -42,7 +43,18 @@ def _report_response(report: dict[str, object], *, kind: str, subject_id: str) -
                 "sourceRefs": payload.get("sourceRefs"),
                 "factsUsed": payload.get("factsUsed"),
                 "missingData": payload.get("missingData"),
+                "inferencesMade": payload.get("inferencesMade"),
             }
+        ),
+    )
+    facts_used = payload.get("factsUsed") if isinstance(payload.get("factsUsed"), list) else []
+    missing_data = payload.get("missingData") if isinstance(payload.get("missingData"), list) else []
+    payload.setdefault(
+        "inferencesMade",
+        build_report_inferences(
+            [row for row in facts_used if isinstance(row, dict)],
+            [row for row in missing_data if isinstance(row, dict)],
+            default_confidence=str(payload.get("confidence") or "low"),
         ),
     )
     return ReviewReportResponse(**payload)

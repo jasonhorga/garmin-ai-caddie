@@ -346,6 +346,7 @@ class ReviewReportResponse(BaseModel):
     model: str
     factsUsed: list[dict[str, Any]]
     missingData: list[dict[str, Any]]
+    inferencesMade: list[dict[str, Any]] = Field(default_factory=list)
     narrative: str
     confidence: ReportConfidence
 
