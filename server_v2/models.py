@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DataQualityState = Literal["good", "partial", "missing"]
 ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
@@ -34,6 +34,96 @@ MediaTargetType = Literal["round", "hole", "shot"]
 MediaKind = Literal["photo", "video"]
 MediaPrivacyState = Literal["private_local", "synced", "redacted"]
 LiveRoundEventKind = Literal["score", "club", "putt", "penalty", "note", "location", "photo", "video", "sync_marker"]
+
+_LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
+    "score": ({"strokes"}, {"source"}),
+    "club": ({"clubName"}, {"source", "decisionId", "actualShot"}),
+    "putt": ({"putts"}, {"source"}),
+    "penalty": ({"penalties"}, {"source"}),
+    "note": ({"note"}, {"source"}),
+    "location": ({"latitude", "longitude"}, {"source", "horizontalAccuracyM", "altitudeM"}),
+    "photo": ({"assetLocalId", "mediaType"}, {"source", "fileURL", "note", "mediaId"}),
+    "video": ({"assetLocalId", "mediaType"}, {"source", "fileURL", "durationS", "note", "mediaId"}),
+    "sync_marker": ({"status"}, {"source", "acceptedEventIds", "duplicateEventIds", "serverSequence"}),
+}
+
+_LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
+    "score": {"strokes": "number", "source": "string"},
+    "club": {"clubName": "string", "source": "string", "decisionId": "string", "actualShot": "object"},
+    "putt": {"putts": "number", "source": "string"},
+    "penalty": {"penalties": "number", "source": "string"},
+    "note": {"note": "string", "source": "string"},
+    "location": {
+        "latitude": "number",
+        "longitude": "number",
+        "source": "string",
+        "horizontalAccuracyM": "nullable_number",
+        "altitudeM": "nullable_number",
+    },
+    "photo": {
+        "assetLocalId": "string",
+        "mediaType": "string",
+        "source": "string",
+        "fileURL": "nullable_string",
+        "note": "nullable_string",
+        "mediaId": "string",
+    },
+    "video": {
+        "assetLocalId": "string",
+        "mediaType": "string",
+        "source": "string",
+        "fileURL": "nullable_string",
+        "durationS": "nullable_number",
+        "note": "nullable_string",
+        "mediaId": "string",
+    },
+    "sync_marker": {
+        "status": "string",
+        "source": "string",
+        "acceptedEventIds": "string_array",
+        "duplicateEventIds": "string_array",
+        "serverSequence": "number",
+    },
+}
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
+    required, optional = _LIVE_EVENT_PAYLOAD_FIELDS[str(kind)]
+    keys = set(payload)
+    missing = required - keys
+    if missing:
+        raise ValueError(f"{kind} payload missing required keys: {', '.join(sorted(missing))}")
+    null_required = {field for field in required if payload.get(field) is None}
+    if null_required:
+        raise ValueError(f"{kind} payload has null required keys: {', '.join(sorted(null_required))}")
+    extra = keys - required - optional
+    if extra:
+        raise ValueError(f"{kind} payload has unsupported keys: {', '.join(sorted(extra))}")
+    field_types = _LIVE_EVENT_PAYLOAD_FIELD_TYPES[str(kind)]
+    for field in keys:
+        value = payload.get(field)
+        expected = field_types[field]
+        if expected == "number" and not _is_number(value):
+            raise ValueError(f"{kind} payload field {field} must be numeric")
+        if expected == "nullable_number" and value is not None and not _is_number(value):
+            raise ValueError(f"{kind} payload field {field} must be numeric or null")
+        if expected == "string" and not isinstance(value, str):
+            raise ValueError(f"{kind} payload field {field} must be a string")
+        if expected == "nullable_string" and value is not None and not isinstance(value, str):
+            raise ValueError(f"{kind} payload field {field} must be a string or null")
+        if expected == "object" and not isinstance(value, dict):
+            raise ValueError(f"{kind} payload field {field} must be an object")
+        if expected == "string_array" and (
+            not isinstance(value, list) or any(not isinstance(item, str) for item in value)
+        ):
+            raise ValueError(f"{kind} payload field {field} must be a string array")
+    media_type = payload.get("mediaType")
+    if kind in {"photo", "video"} and media_type != kind:
+        raise ValueError(f"{kind} payload mediaType must be {kind}")
 
 
 class DataQualityBadge(BaseModel):
@@ -500,6 +590,11 @@ class LiveRoundEventRecord(BaseModel):
     hole: int
     kind: LiveRoundEventKind
     payload: dict[str, Any]
+
+    @model_validator(mode="after")
+    def payload_matches_event_kind(self) -> "LiveRoundEventRecord":
+        _validate_live_event_payload(str(self.kind), self.payload)
+        return self
 
 
 class LiveRoundEventBatchRequest(BaseModel):

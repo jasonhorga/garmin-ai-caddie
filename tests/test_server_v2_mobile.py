@@ -242,6 +242,126 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    def test_mobile_event_batch_rejects_non_canonical_payload_keys_without_writing(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "legacy-putt",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "putt",
+            "payload": {"count": 2},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                response = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "legacy-batch"},
+                    json={"roundId": "live-round-1", "events": [event]},
+                )
+                log_path = root / "data" / "mobile_events" / "events.jsonl"
+
+        self.assertEqual(response.status_code, 422)
+        self.assertFalse(log_path.exists())
+
+    def test_mobile_event_batch_rejects_null_required_payload_values_without_writing(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "null-score",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+            "payload": {"strokes": None},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                response = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "null-batch"},
+                    json={"roundId": "live-round-1", "events": [event]},
+                )
+                log_path = root / "data" / "mobile_events" / "events.jsonl"
+
+        self.assertEqual(response.status_code, 422)
+        self.assertFalse(log_path.exists())
+
+    def test_mobile_event_batch_rejects_schema_invalid_optional_payload_values_without_writing(self) -> None:
+        client = TestClient(app)
+        invalid_events = [
+            ("club-actual-shot", "club", {"clubName": "8I", "actualShot": "not-an-object"}),
+            ("sync-ids", "sync_marker", {"status": "synced", "acceptedEventIds": "event-1"}),
+            ("null-source", "score", {"strokes": 4, "source": None}),
+        ]
+
+        for event_id, kind, payload in invalid_events:
+            with self.subTest(kind=kind, event_id=event_id):
+                event = {
+                    "schema": "ai-caddie-live-round-event-v1",
+                    "eventId": event_id,
+                    "roundId": "live-round-1",
+                    "timestamp": "2026-05-25T00:00:00Z",
+                    "hole": 1,
+                    "kind": kind,
+                    "payload": payload,
+                }
+                with TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    with patch("server_v2.mobile.MOBILE_ROOT", root):
+                        response = client.post(
+                            "/api/v2/mobile/rounds/live-round-1/events",
+                            headers={"Idempotency-Key": f"{event_id}-batch"},
+                            json={"roundId": "live-round-1", "events": [event]},
+                        )
+                        log_path = root / "data" / "mobile_events" / "events.jsonl"
+
+                self.assertEqual(response.status_code, 422)
+                self.assertFalse(log_path.exists())
+
+    def test_mobile_event_batch_accepts_canonical_payload_shapes(self) -> None:
+        client = TestClient(app)
+        canonical_payloads = [
+            ("score", {"strokes": 4}),
+            ("club", {"clubName": "8I"}),
+            ("putt", {"putts": 2}),
+            ("penalty", {"penalties": 1}),
+            ("note", {"note": "wind hurting"}),
+            ("location", {"latitude": 22.279, "longitude": 114.162, "source": "ios_gps"}),
+            ("photo", {"assetLocalId": "photo-1", "mediaType": "photo", "source": "ios_camera", "fileURL": None, "note": None}),
+            ("video", {"assetLocalId": "video-1", "mediaType": "video", "source": "ios_camera", "fileURL": None, "durationS": None, "note": None}),
+            ("sync_marker", {"status": "synced", "acceptedEventIds": ["event-score"], "duplicateEventIds": []}),
+        ]
+        events = [
+            {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": f"event-{kind}",
+                "roundId": "live-round-1",
+                "timestamp": "2026-05-25T00:00:00Z",
+                "hole": 1,
+                "kind": kind,
+                "payload": payload,
+            }
+            for kind, payload in canonical_payloads
+        ]
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                response = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "canonical-batch"},
+                    json={"roundId": "live-round-1", "events": events},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["accepted"], len(events))
+
     def test_mobile_reconciliation_endpoint_uses_local_events_and_fixture_facts(self) -> None:
         client = TestClient(app)
         event = {

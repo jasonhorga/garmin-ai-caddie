@@ -170,8 +170,34 @@ class MobileContractTests(unittest.TestCase):
     def test_live_round_event_schema_accepts_all_event_kinds(self) -> None:
         schema = _load_schema("live_round_event.schema.json")
         kinds = schema["properties"]["kind"]["enum"]
+        canonical_payloads = {
+            "score": {"strokes": 4},
+            "club": {"clubName": "8I"},
+            "putt": {"putts": 2},
+            "penalty": {"penalties": 1},
+            "note": {"note": "wind hurting"},
+            "location": {"latitude": 22.279, "longitude": 114.162, "source": "ios_gps"},
+            "photo": {"assetLocalId": "photo-1", "mediaType": "photo", "source": "ios_camera"},
+            "video": {"assetLocalId": "video-1", "mediaType": "video", "source": "ios_camera"},
+            "sync_marker": {"status": "synced"},
+        }
 
         self.assertEqual(kinds, ["score", "club", "putt", "penalty", "note", "location", "photo", "video", "sync_marker"])
+        self.assertEqual(sorted(row["if"]["properties"]["kind"]["const"] for row in schema["allOf"]), sorted(kinds))
+        payload_rules = {
+            row["if"]["properties"]["kind"]["const"]: row["then"]["properties"]["payload"]
+            for row in schema["allOf"]
+        }
+        for kind in kinds:
+            self.assertFalse(payload_rules[kind]["additionalProperties"])
+        self.assertEqual(payload_rules["putt"]["required"], ["putts"])
+        self.assertNotIn("count", payload_rules["putt"]["properties"])
+        self.assertEqual(payload_rules["penalty"]["required"], ["penalties"])
+        self.assertNotIn("count", payload_rules["penalty"]["properties"])
+        self.assertEqual(payload_rules["note"]["required"], ["note"])
+        self.assertNotIn("text", payload_rules["note"]["properties"])
+        self.assertEqual(payload_rules["photo"]["properties"]["mediaType"]["const"], "photo")
+        self.assertEqual(payload_rules["video"]["properties"]["mediaType"]["const"], "video")
         for kind in kinds:
             event = {
                 "schema": "ai-caddie-live-round-event-v1",
@@ -180,7 +206,7 @@ class MobileContractTests(unittest.TestCase):
                 "timestamp": "2026-05-25T00:00:00Z",
                 "hole": 1,
                 "kind": kind,
-                "payload": {"source": "fixture"},
+                "payload": canonical_payloads[kind],
             }
             _assert_schema_accepts(self, schema, event)
 
@@ -326,6 +352,8 @@ class MobileContractTests(unittest.TestCase):
             '"longitude"',
             '"horizontalAccuracyM"',
             '"assetLocalId"',
+            '"mediaType": .string("photo")',
+            '"mediaType": .string("video")',
             '"fileURL"',
             '"strokes"',
             '"clubName"',
@@ -430,6 +458,10 @@ class MobileContractTests(unittest.TestCase):
             "kind: .putt",
             "kind: .penalty",
             "kind: .club",
+            '"strokes": numericPayload(event.value)',
+            '"putts": numericPayload(event.value)',
+            '"penalties": numericPayload(event.value)',
+            '"clubName": .string(event.value)',
         ]:
             self.assertIn(mapping, bridge)
 
@@ -526,6 +558,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("current_state.json", sync_swift)
         self.assertIn("loadPersistedState", sync_swift)
         self.assertIn("persistState", sync_swift)
+        self.assertIn("currentState = try? loadPersistedState()", sync_swift)
+        self.assertIn("public func receiveState(_ state: WatchRoundState) {\n        currentState = state\n        try? persistState(state)", sync_swift)
         self.assertIn("sessionReachabilityDidChange", sync_swift)
         self.assertIn("try? flushQueue()", sync_swift)
 

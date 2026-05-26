@@ -49,5 +49,168 @@
       "required": [],
       "properties": {}
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "score" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["strokes"],
+            "properties": {
+              "strokes": { "type": "number" },
+              "source": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "club" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clubName"],
+            "properties": {
+              "clubName": { "type": "string" },
+              "source": { "type": "string" },
+              "decisionId": { "type": "string" },
+              "actualShot": { "type": "object", "additionalProperties": true }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "putt" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["putts"],
+            "properties": {
+              "putts": { "type": "number" },
+              "source": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "penalty" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["penalties"],
+            "properties": {
+              "penalties": { "type": "number" },
+              "source": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "note" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["note"],
+            "properties": {
+              "note": { "type": "string" },
+              "source": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "location" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["latitude", "longitude"],
+            "properties": {
+              "latitude": { "type": "number" },
+              "longitude": { "type": "number" },
+              "source": { "type": "string" },
+              "horizontalAccuracyM": { "type": ["number", "null"] },
+              "altitudeM": { "type": ["number", "null"] }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "photo" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["assetLocalId", "mediaType"],
+            "properties": {
+              "assetLocalId": { "type": "string" },
+              "mediaType": { "type": "string", "const": "photo" },
+              "source": { "type": "string" },
+              "fileURL": { "type": ["string", "null"] },
+              "note": { "type": ["string", "null"] },
+              "mediaId": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "video" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["assetLocalId", "mediaType"],
+            "properties": {
+              "assetLocalId": { "type": "string" },
+              "mediaType": { "type": "string", "const": "video" },
+              "source": { "type": "string" },
+              "fileURL": { "type": ["string", "null"] },
+              "durationS": { "type": ["number", "null"] },
+              "note": { "type": ["string", "null"] },
+              "mediaId": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "sync_marker" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status"],
+            "properties": {
+              "status": { "type": "string" },
+              "source": { "type": "string" },
+              "acceptedEventIds": { "type": "array", "items": { "type": "string" } },
+              "duplicateEventIds": { "type": "array", "items": { "type": "string" } },
+              "serverSequence": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
