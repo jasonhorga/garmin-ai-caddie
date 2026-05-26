@@ -92,6 +92,35 @@ def raw_garmin_shot_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "700001", "hasShots": True}], rounds=[round_row], shots=shots)
 
 
+def missing_shot_rows_history_data() -> HistoryData:
+    rounds = [
+        {
+            "id": "shot-ready-1",
+            "date": "2026-05-25",
+            "course": "Shot Row Course",
+            "courseKey": "shot_row_course",
+            "holesCompleted": 18,
+            "strokes": 80,
+            "par": 72,
+            "holes": [],
+            "hasShots": True,
+        },
+        {
+            "id": "shot-ready-2",
+            "date": "2026-05-26",
+            "course": "Shot Row Course",
+            "courseKey": "shot_row_course",
+            "holesCompleted": 18,
+            "strokes": 82,
+            "par": 72,
+            "holes": [],
+            "hasShots": True,
+        },
+    ]
+    shots = [{"roundId": "shot-ready-1", "hole": 1, "club": "8I", "distance": 140, "surface": "green"}]
+    return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=shots)
+
+
 class HistoryStatsCoreTests(unittest.TestCase):
     def test_stats_cover_required_dimensions(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
@@ -452,8 +481,21 @@ class HistoryStatsCoreTests(unittest.TestCase):
         report_quality = next(row for row in stats["dataQuality"] if row["label"] == "reports")
         self.assertEqual(report_quality["state"], "partial")
         self.assertEqual(report_quality["ready"], 1)
-        self.assertEqual(report_quality["total"], 3)
-        self.assertEqual(report_quality["refs"], ["900002", "900003"])
+        self.assertEqual(report_quality["total"], 7)
+        self.assertEqual(report_quality["roundReports"], {"ready": 1, "total": 3, "missingRefs": ["900002", "900003"]})
+        self.assertEqual(report_quality["trendReports"]["ready"], 0)
+        self.assertIn("trend:recent_10", report_quality["refs"])
+        self.assertIn("trend:year:2026", report_quality["refs"])
+
+    def test_shot_row_quality_detects_ready_rounds_without_rows(self) -> None:
+        stats = build_history_stats(missing_shot_rows_history_data(), data_mode="fixture")
+
+        shot_rows = next(row for row in stats["dataQuality"] if row["label"] == "shot_rows")
+        self.assertEqual(shot_rows["state"], "partial")
+        self.assertEqual(shot_rows["ready"], 1)
+        self.assertEqual(shot_rows["total"], 2)
+        self.assertEqual(shot_rows["refs"], ["shot-ready-2"])
+        self.assertEqual(shot_rows["coverage"], {"ready": 1, "total": 2, "pct": 50.0})
 
     def test_stats_include_trends_frequency_distribution_phase_stats_and_typed_refs(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

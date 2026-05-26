@@ -1124,16 +1124,74 @@ def _report_quality(data: HistoryData, report_records: list[dict[str, Any]] | No
         for record in report_records or []
         if record.get("kind") == "round" and record.get("subjectId") is not None
     }
+    trend_subjects = _expected_trend_report_subjects(data)
+    reported_trends = {
+        str(record.get("subjectId"))
+        for record in report_records or []
+        if record.get("kind") == "trend" and record.get("subjectId") is not None
+    }
     missing_refs = [ref for ref in round_refs if ref not in reported_rounds]
-    ready = len(round_refs) - len(missing_refs)
-    total = len(round_refs)
+    missing_trend_refs = [ref for ref in trend_subjects if ref not in reported_trends]
+    ready_rounds = len(round_refs) - len(missing_refs)
+    ready_trends = len(trend_subjects) - len(missing_trend_refs)
+    ready = ready_rounds + ready_trends
+    total = len(round_refs) + len(trend_subjects)
     return _with_quality_contract(
         {
             "label": "reports",
             "state": "good" if total and ready == total else "partial" if ready else "missing",
             "ready": ready,
             "total": total,
+            "refs": [*missing_refs, *(f"trend:{ref}" for ref in missing_trend_refs)],
+            "roundReports": {
+                "ready": ready_rounds,
+                "total": len(round_refs),
+                "missingRefs": missing_refs,
+            },
+            "trendReports": {
+                "ready": ready_trends,
+                "total": len(trend_subjects),
+                "missingRefs": [f"trend:{ref}" for ref in missing_trend_refs],
+            },
+        }
+    )
+
+
+def _expected_trend_report_subjects(data: HistoryData) -> list[str]:
+    subjects: set[str] = set()
+    if data.rounds:
+        subjects.add("recent_10")
+    for row in data.rounds:
+        date = str(row.get("date") or "")
+        if len(date) >= 4:
+            subjects.add(f"year:{date[:4]}")
+        if len(date) >= 7 and date[5:7].isdigit():
+            quarter = (int(date[5:7]) - 1) // 3 + 1
+            subjects.add(f"quarter:{date[:4]}-Q{quarter}")
+    return sorted(subjects)
+
+
+def _shot_row_quality(data: HistoryData) -> dict[str, Any]:
+    expected_ids = _source_refs([row.get("id") for row in data.raw_rounds if row.get("hasShots")])
+    actual_ids = set()
+    for shot in data.shots:
+        if shot.get("scorecardId") is not None:
+            actual_ids.add(str(shot.get("scorecardId")))
+        if _shot_round_id(shot) != "None":
+            actual_ids.add(_shot_round_id(shot))
+    if not expected_ids:
+        expected_ids = sorted(actual_ids)
+    missing_refs = [round_id for round_id in expected_ids if round_id not in actual_ids]
+    ready = len(expected_ids) - len(missing_refs)
+    total = len(expected_ids)
+    return _with_quality_contract(
+        {
+            "label": "shot_rows",
+            "state": "good" if total and ready == total else "partial" if ready else "missing",
+            "ready": ready,
+            "total": total,
             "refs": missing_refs,
+            "rowCount": len(data.shots),
         }
     )
 
@@ -1159,15 +1217,7 @@ def _data_quality(
                 "refs": [str(row.get("id")) for row in data.raw_rounds if not row.get("hasShots")],
             }
         ),
-        _with_quality_contract(
-            {
-                "label": "shot_rows",
-                "state": "good" if data.shots else "missing",
-                "ready": len(data.shots),
-                "total": len(data.shots),
-                "refs": [],
-            }
-        ),
+        _shot_row_quality(data),
         _geometry_quality(hole_rows or []),
         _with_quality_contract(
             {

@@ -167,6 +167,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertGreaterEqual(len(seed["evidence"]), 1)
         self.assertIn("current_location", {row["label"] for row in seed["missingData"]})
 
+    def test_live_round_package_recent_history_uses_normalized_round_fields(self) -> None:
+        package = build_live_round_package("900001", data=fixture_history_data())
+
+        self.assertEqual(package["recentHistory"]["course"]["courseKey"], "black_knight")
+        self.assertEqual(package["recentHistory"]["course"]["roundCount"], 2)
+        self.assertEqual(package["recentHistory"]["course"]["recentScores"], [77, 95])
+        self.assertEqual(package["recentHistory"]["course"]["roundIds"], ["900001", "900002"])
+
     def test_live_round_event_schema_accepts_all_event_kinds(self) -> None:
         schema = _load_schema("live_round_event.schema.json")
         kinds = schema["properties"]["kind"]["enum"]

@@ -45,13 +45,17 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
         (row for row in stats["courses"] if course_key and str(row.get("courseKey") or "") == course_key),
         {},
     )
-    same_course_scores = [
-        int(row.get("score"))
+    same_course_rows = [
+        row
         for row in source.rounds
         if course_key
         and str(row.get("courseKey") or "") == course_key
-        and row.get("score") is not None
-        and int(row.get("holesPlayed") or 18) >= 18
+        and (row.get("score") is not None or row.get("strokes") is not None)
+        and int(row.get("holesPlayed") or row.get("holesCompleted") or 18) >= 18
+    ]
+    same_course_scores = [
+        int(row.get("score") if row.get("score") is not None else row.get("strokes"))
+        for row in sorted(same_course_rows, key=lambda item: str(item.get("date") or ""), reverse=True)
     ]
     holes = []
     for hole in round_row.get("holes") or []:
