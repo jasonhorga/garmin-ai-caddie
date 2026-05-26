@@ -349,18 +349,28 @@ def _forbidden_zones_from_route(route: dict[str, Any]) -> list[dict[str, Any]]:
 def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
     option_id = _route_option_id(route)
     forbidden = _forbidden_zones_from_route(route)
+    carry_m = round(_float(route.get("carry_m")), 1)
+    club_recommendation = _club_recommendation(route, analysis)
+    target_window = _target_window(carry_m, shot_type="tee", option_id=option_id)
+    dispersion = _dispersion_from_recommendation(club_recommendation)
+    hazard_clearance = _hazard_clearance(carry_m, forbidden)
+    risk_score = _risk_score(route)
     return {
         "id": option_id,
         "routeId": route.get("id"),
         "label": OPTION_LABELS.get(option_id, str(route.get("label") or option_id)),
         "routeLabel": route.get("label"),
-        "carry_m": round(_float(route.get("carry_m")), 1),
+        "carry_m": carry_m,
         "targetLocal": route.get("landingLocal"),
+        "targetWindow": target_window,
         "expectedSurface": route.get("expectedSurface"),
-        "riskScore": _risk_score(route),
+        "riskScore": risk_score,
         "forbiddenZones": forbidden,
         "avoidZones": forbidden,
-        "clubRecommendation": _club_recommendation(route, analysis),
+        "hazardClearance": hazard_clearance,
+        "dispersion": dispersion,
+        "scoreImpact": _score_impact(risk_score, hazard_clearance, dispersion),
+        "clubRecommendation": club_recommendation,
     }
 
 
@@ -640,6 +650,71 @@ def _hazard_avoid_zones(context: dict[str, Any]) -> list[dict[str, Any]]:
     return zones
 
 
+def _target_window(carry_m: float, *, shot_type: str, option_id: str) -> dict[str, Any]:
+    if shot_type == "tee":
+        width = {"safe": 12.0, "stock": 10.0, "attack": 8.0}.get(option_id, 10.0)
+    elif shot_type == "recovery":
+        width = {"safe": 16.0, "stock": 12.0, "attack": 10.0}.get(option_id, 12.0)
+    else:
+        width = {"safe": 7.0, "stock": 5.0, "attack": 4.0}.get(option_id, 5.0)
+    return {
+        "frontCarry_m": round(max(1.0, carry_m - width), 1),
+        "centerCarry_m": round(carry_m, 1),
+        "backCarry_m": round(carry_m + width, 1),
+    }
+
+
+def _hazard_clearance(carry_m: float, zones: list[dict[str, Any]]) -> dict[str, Any]:
+    measured = []
+    for zone in zones:
+        clear_m = zone.get("carryToClear_m")
+        if clear_m is None:
+            continue
+        measured.append((round(carry_m - _float(clear_m), 1), zone))
+    if not measured:
+        return {"state": "unknown", "minimumClearance_m": None, "criticalHazardId": None}
+    minimum, zone = min(measured, key=lambda item: item[0])
+    return {
+        "state": "clear" if minimum >= 0 else "cannot_clear",
+        "minimumClearance_m": minimum,
+        "criticalHazardId": zone.get("id"),
+        "criticalHazardKind": zone.get("kind"),
+    }
+
+
+def _dispersion_from_recommendation(recommendation: dict[str, Any]) -> dict[str, Any]:
+    clubs = recommendation.get("clubs") or []
+    if not clubs:
+        return {"state": "missing"}
+    club = clubs[0]
+    p10 = _float(club.get("p10_m"), _float(club.get("median_m")))
+    p90 = _float(club.get("p90_m"), _float(club.get("median_m")))
+    return {
+        "state": "modeled",
+        "clubName": club.get("clubName"),
+        "sampleSize": int(club.get("sampleSize") or 0),
+        "carryP10_m": round(p10, 1),
+        "carryP90_m": round(p90, 1),
+        "carryWindow_m": round(max(0.0, p90 - p10), 1),
+    }
+
+
+def _score_impact(
+    risk_score: float,
+    hazard_clearance: dict[str, Any],
+    dispersion: dict[str, Any],
+) -> dict[str, Any]:
+    clearance = hazard_clearance.get("minimumClearance_m")
+    clearance_penalty = max(0.0, 8.0 - _float(clearance, 8.0)) * 0.02 if clearance is not None else 0.0
+    dispersion_penalty = max(0.0, _float(dispersion.get("carryWindow_m"), 20.0) - 20.0) * 0.005
+    expected_delta = round(max(0.0, risk_score) * 0.05 + clearance_penalty + dispersion_penalty, 2)
+    return {
+        "baselineStrokes": 1.0,
+        "expectedStrokes": round(1.0 + expected_delta, 2),
+        "expectedStrokesDelta": expected_delta,
+    }
+
+
 def _pin_distance(context: dict[str, Any]) -> float:
     return max(1.0, _float(context.get("distanceToPin_m"), 0.0))
 
@@ -665,6 +740,10 @@ def _shot_option(
         "carry_m": adjusted_carry_m,
     }
     avoid_zones = _hazard_avoid_zones(context)
+    club_recommendation = _club_recommendation(route, context)
+    target_window = _target_window(adjusted_carry_m, shot_type=shot_type, option_id=option_id)
+    hazard_clearance = _hazard_clearance(adjusted_carry_m, avoid_zones)
+    dispersion = _dispersion_from_recommendation(club_recommendation)
     return {
         "id": option_id,
         "routeId": route["id"],
@@ -674,6 +753,7 @@ def _shot_option(
         "baseCarry_m": round(carry_m, 1),
         "target": target,
         "targetLocal": None,
+        "targetWindow": target_window,
         "expectedSurface": {"kind": "green" if shot_type == "approach" else "safe_area"},
         "riskScore": adjusted_risk_score,
         "baseRiskScore": risk_score,
@@ -682,7 +762,10 @@ def _shot_option(
         "intent": intent,
         "forbiddenZones": avoid_zones,
         "avoidZones": avoid_zones,
-        "clubRecommendation": _club_recommendation(route, context),
+        "hazardClearance": hazard_clearance,
+        "dispersion": dispersion,
+        "scoreImpact": _score_impact(adjusted_risk_score, hazard_clearance, dispersion),
+        "clubRecommendation": club_recommendation,
     }
 
 
@@ -853,10 +936,7 @@ def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list
         "selectedSequence": selected_sequence,
         "avoidZones": avoid_zones,
         "forbiddenZones": avoid_zones,
-        "acceptableMiss": {
-            "direction": "conservative",
-            "rationale": "prefer the side that keeps known hazards out of play",
-        },
+        "acceptableMiss": _acceptable_miss(selected),
         "evidence": evidence,
         "confidence": _confidence(analysis, options, selected),
         "missingData": _missing_data(analysis, options, selected),
@@ -889,10 +969,7 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     sequence_evidence = _sequence_evidence(sequences, selected_sequence)
     if sequence_evidence:
         evidence.append(sequence_evidence)
-    acceptable_miss = {
-        "direction": "not-modeled",
-        "rationale": "left/right miss tolerance needs target-line and dispersion modeling",
-    }
+    acceptable_miss = _acceptable_miss(selected)
     return {
         "schema": "ai-caddie-decision-v2",
         "shotType": "tee",
@@ -919,6 +996,31 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
         "confidence": _confidence(analysis, options, selected),
         "missingData": _missing_data(analysis, options, selected),
         "auditCriteria": _audit_criteria(selected),
+    }
+
+
+def _acceptable_miss(selected: dict[str, Any] | None) -> dict[str, Any]:
+    if not selected:
+        return {
+            "direction": "unknown",
+            "selectedOptionId": None,
+            "avoidRiskKinds": [],
+            "rationale": "no selected option available",
+        }
+    zones = selected.get("avoidZones") or selected.get("forbiddenZones") or []
+    risk_kinds = sorted({str(zone.get("kind")) for zone in zones if isinstance(zone, dict) and zone.get("kind")})
+    if risk_kinds:
+        return {
+            "direction": "away_from_known_risks",
+            "selectedOptionId": selected.get("id"),
+            "avoidRiskKinds": risk_kinds,
+            "rationale": "miss toward the side that avoids the selected route's known risk kinds",
+        }
+    return {
+        "direction": "wide_side",
+        "selectedOptionId": selected.get("id"),
+        "avoidRiskKinds": [],
+        "rationale": "no mapped side-specific risk; prefer the widest playable side of the target window",
     }
 
 

@@ -166,6 +166,23 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("water", {zone["kind"] for zone in plan["avoidZones"]})
         self.assertEqual(plan["confidence"]["level"], "high")
 
+    def test_approach_options_expose_clearance_dispersion_and_scoring_impact(self) -> None:
+        plan = recommend_approach(approach_fixture())
+
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        self.assertEqual(stock["hazardClearance"]["minimumClearance_m"], 16.0)
+        self.assertEqual(stock["hazardClearance"]["criticalHazardId"], "water_front")
+        self.assertEqual(stock["dispersion"]["clubName"], "8I")
+        self.assertEqual(stock["dispersion"]["carryP10_m"], 132.0)
+        self.assertEqual(stock["dispersion"]["carryP90_m"], 153.0)
+        self.assertEqual(stock["targetWindow"]["frontCarry_m"], 137.0)
+        self.assertEqual(stock["targetWindow"]["backCarry_m"], 147.0)
+        self.assertEqual(stock["scoreImpact"]["baselineStrokes"], 1.0)
+        self.assertGreater(stock["scoreImpact"]["expectedStrokes"], 1.0)
+
+        attack = next(option for option in plan["options"] if option["id"] == "attack")
+        self.assertGreater(attack["scoreImpact"]["expectedStrokes"], stock["scoreImpact"]["expectedStrokes"])
+
     def test_recommend_recovery_from_rough_or_blocked_view_prefers_safe(self) -> None:
         plan = recommend_recovery(recovery_fixture())
 
@@ -227,6 +244,14 @@ class DecisionLayerTests(unittest.TestCase):
 
         self.assertGreaterEqual(attack["riskScore"], 7)
         self.assertTrue(any(row["kind"] == "history" for row in plan["evidence"]))
+
+    def test_tee_decision_models_acceptable_miss_from_known_risks(self) -> None:
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+
+        self.assertEqual(plan["acceptableMiss"]["direction"], "away_from_known_risks")
+        self.assertIn("bunker", plan["acceptableMiss"]["avoidRiskKinds"])
+        self.assertEqual(plan["acceptableMiss"]["selectedOptionId"], "stock")
+        self.assertNotEqual(plan["acceptableMiss"]["direction"], "not-modeled")
 
     def test_recovery_consumes_medium_high_confidence_vision_findings(self) -> None:
         context = recovery_fixture(lie="fairway", blocked=False)

@@ -18,7 +18,15 @@ const decision: CaddieDecisionResponse = {
   context: { distanceToPin_m: 142 },
   options: [
     { id: 'safe', label: 'Safe', recommendedClub: '9I', carry_m: 132, riskScore: 0 },
-    { id: 'stock', label: 'Stock', recommendedClub: '8I', carry_m: 144, riskScore: 1 },
+    {
+      id: 'stock',
+      label: 'Stock',
+      recommendedClub: '8I',
+      carry_m: 144,
+      riskScore: 1,
+      scoreImpact: { expectedStrokes: 1.1, expectedStrokesDelta: 0.1 },
+      hazardClearance: { minimumClearance_m: 16, criticalHazardId: 'water_front' },
+    },
     { id: 'attack', label: 'Attack', recommendedClub: '7I', carry_m: 156, riskScore: 3 },
   ],
   selected: { id: 'stock' },
@@ -160,6 +168,7 @@ describe('CaddiePage', () => {
     expect(screen.getByText('Stock')).toBeInTheDocument()
     expect(screen.getByText('8I')).toBeInTheDocument()
     expect(screen.getAllByText('selected').length).toBeGreaterThan(0)
+    expect(screen.getByText('144m - risk 1 - 1.1 exp - 16m clear')).toBeInTheDocument()
     expect(screen.getAllByText('water_front').length).toBeGreaterThan(0)
     expect(screen.getByText('wind')).toBeInTheDocument()
     expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)

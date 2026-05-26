@@ -693,7 +693,16 @@ async function fileToBase64(file: File): Promise<string> {
 function formatOptionMeta(option: Record<string, unknown>): string {
   const carry = option.carry_m ?? option.carryM ?? option.targetCarryM
   const risk = option.riskScore ?? option.risk
-  return [carry === undefined ? null : `${String(carry)}m`, risk === undefined ? null : `risk ${String(risk)}`]
+  const scoreImpact = option.scoreImpact && typeof option.scoreImpact === 'object' ? (option.scoreImpact as Record<string, unknown>) : null
+  const hazardClearance = option.hazardClearance && typeof option.hazardClearance === 'object' ? (option.hazardClearance as Record<string, unknown>) : null
+  const expected = scoreImpact?.expectedStrokes
+  const clearance = hazardClearance?.minimumClearance_m
+  return [
+    carry === undefined ? null : `${String(carry)}m`,
+    risk === undefined ? null : `risk ${String(risk)}`,
+    expected === undefined ? null : `${String(expected)} exp`,
+    clearance === undefined || clearance === null ? null : `${String(clearance)}m clear`,
+  ]
     .filter(Boolean)
     .join(' - ')
 }
