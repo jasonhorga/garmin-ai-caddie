@@ -118,6 +118,8 @@ class DecisionLayerTests(unittest.TestCase):
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
 
         self.assertEqual(plan["schema"], "ai-caddie-decision-v2")
+        self.assertEqual(plan["decisionId"], "round-1:1:tee")
+        self.assertEqual(plan["sourceRef"], "round-1:1")
         self.assertEqual(plan["shotType"], "tee")
         self.assertIn(plan["shotType"], {"tee", "approach", "recovery"})
         self.assertIsInstance(plan["options"], list)
@@ -128,7 +130,26 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("confidence", plan)
         self.assertIn("missingData", plan)
         self.assertIn("auditCriteria", plan)
+        self.assertIn("round-1:1", plan["evidenceRefs"])
         self.assertGreaterEqual(len(plan["auditCriteria"]), 1)
+
+    def test_decision_identity_uses_explicit_source_refs_and_stays_secret_free(self) -> None:
+        context = approach_fixture()
+        context["sourceRef"] = "garmin_cn_web_session:snap-1:scorecard:round-1:hole:4"
+        context["historicalHole"] = {"refs": ["900001:4", "/home/ubuntu/private/raw.json"]}
+        context["historicalHoleIssues"] = [
+            {"issue": "water", "phase": "Penalty", "count": 1, "refs": ["900002:4"], "sourceRefs": ["token:secret"]},
+        ]
+
+        plan = recommend_approach(context)
+
+        self.assertEqual(plan["decisionId"], "garmin_cn_web_session:snap-1:scorecard:round-1:hole:4:approach")
+        self.assertEqual(plan["sourceRef"], "garmin_cn_web_session:snap-1:scorecard:round-1:hole:4")
+        self.assertEqual(plan["context"]["sourceRef"], "garmin_cn_web_session:snap-1:scorecard:round-1:hole:4")
+        self.assertIn("900001:4", plan["evidenceRefs"])
+        self.assertIn("900002:4", plan["evidenceRefs"])
+        self.assertNotIn("/home/ubuntu/private/raw.json", plan["evidenceRefs"])
+        self.assertNotIn("token:secret", plan["evidenceRefs"])
 
     def test_selects_stock_when_nearly_as_safe_as_safe(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
@@ -367,8 +388,14 @@ class DecisionLayerTests(unittest.TestCase):
         )
 
         self.assertEqual(audit["schema"], "ai-caddie-decision-audit-v1")
+        self.assertEqual(audit["decisionId"], "round-1:1:tee")
+        self.assertEqual(audit["decisionSourceRef"], "round-1:1")
         self.assertEqual(audit["plannedOptionId"], "stock")
+        self.assertEqual(audit["selectedOptionId"], "stock")
         self.assertEqual(audit["actualOptionId"], "stock")
+        self.assertEqual(audit["actualShotRefs"], ["round-1:1:1"])
+        self.assertIn("round-1:1", audit["evidenceRefs"])
+        self.assertEqual(audit["selectedOption"]["id"], "stock")
         self.assertEqual(audit["classification"], "execution")
 
     def test_audit_classifies_riskier_option_failure_as_strategy(self) -> None:
@@ -421,6 +448,11 @@ class DecisionLayerTests(unittest.TestCase):
             raw = (root / "data" / "decision_audits" / "decision_audits.jsonl").read_text(encoding="utf-8")
 
         self.assertEqual(stored["decisionId"], "round-1:1:1")
+        self.assertEqual(stored["sourceRef"], "round-1:1")
+        self.assertEqual(stored["selectedOptionId"], "stock")
+        self.assertEqual(stored["actualShotRefs"], ["round-1:1:1"])
+        self.assertIn("round-1:1", stored["evidenceRefs"])
+        self.assertEqual(stored["classification"], "unknown")
         self.assertTrue(stored["storedAt"].endswith("Z"))
         self.assertEqual(latest["audit"]["classification"], "unknown")
         self.assertIn('"decisionId": "round-1:1:1"', raw)

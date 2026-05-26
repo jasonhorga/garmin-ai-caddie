@@ -114,6 +114,9 @@ export interface CaddieDecisionRequest {
 
 export interface CaddieDecisionResponse {
   schema: 'ai-caddie-decision-v2'
+  decisionId: string
+  sourceRef: string | null
+  evidenceRefs: string[]
   shotType: CaddieShotType
   phase: string
   context: Record<string, unknown>
@@ -157,6 +160,13 @@ export interface CaddieDecisionAuditRecord {
   id: string
   storedAt: string
   decisionId: string
+  sourceRef?: string | null
+  selectedOptionId?: string | null
+  plannedOptionId?: string | null
+  actualOptionId?: string | null
+  actualShotRefs?: string[]
+  evidenceRefs?: string[]
+  classification?: string | null
   audit: Record<string, unknown>
 }
 

@@ -396,6 +396,9 @@ class CaddieDecisionResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     schema_: Literal["ai-caddie-decision-v2"] = Field(alias="schema")
+    decisionId: str
+    sourceRef: str | None = None
+    evidenceRefs: list[str] = Field(default_factory=list)
     shotType: CaddieShotType
     phase: str
     context: dict[str, Any]
@@ -434,6 +437,13 @@ class CaddieDecisionAuditRecord(BaseModel):
     id: str
     storedAt: str
     decisionId: str
+    sourceRef: str | None = None
+    selectedOptionId: str | None = None
+    plannedOptionId: str | None = None
+    actualOptionId: str | None = None
+    actualShotRefs: list[str] = Field(default_factory=list)
+    evidenceRefs: list[str] = Field(default_factory=list)
+    classification: str | None = None
     audit: dict[str, Any]
 
 

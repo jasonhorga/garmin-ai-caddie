@@ -253,9 +253,12 @@ describe('fetchCaddieDecision', () => {
       ok: true,
       json: async () => ({
         schema: 'ai-caddie-decision-v2',
+        decisionId: 'fixture-round:4:approach',
+        sourceRef: 'fixture-round:4',
+        evidenceRefs: ['fixture-round:4'],
         shotType: 'approach',
         phase: 'Approach',
-        context: { distanceToPin_m: 142 },
+        context: { sourceRef: 'fixture-round:4', distanceToPin_m: 142 },
         options: [{ id: 'stock', label: 'Stock', recommendedClub: '8I' }],
         selected: { id: 'stock' },
         selectedOptionId: 'stock',
@@ -287,6 +290,9 @@ describe('fetchCaddieDecision', () => {
       ok: true,
       json: async () => ({
         schema: 'ai-caddie-decision-v2',
+        decisionId: 'fixture-round:4:approach',
+        sourceRef: 'fixture-round:4',
+        evidenceRefs: ['fixture-round:4'],
         shotType: 'approach',
         phase: 'Approach',
         context: {},

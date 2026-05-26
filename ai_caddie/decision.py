@@ -33,6 +33,8 @@ VISION_HAZARD_TYPES = {
     "visible_water": "water",
     "visible_bunker": "bunker",
 }
+SOURCE_REF_KEYS = {"sourceRef", "sourceRefs", "refs", "roundRef", "roundRefs", "holeRef", "holeRefs", "shotRef", "shotRefs"}
+UNSAFE_REF_MARKERS = ("cookie", "csrf", "password", "secret", "token", "/home/", "\\", "\n", "\r")
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -44,6 +46,96 @@ def _float(value: Any, default: float = 0.0) -> float:
 
 def _stored_at() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _safe_ref(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    ref = value.strip()
+    if not ref or len(ref) > 240:
+        return None
+    lowered = ref.lower()
+    if any(marker in lowered for marker in UNSAFE_REF_MARKERS):
+        return None
+    return ref
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    rows = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        rows.append(value)
+    return rows
+
+
+def _source_ref(context: dict[str, Any], shot_type: str) -> str | None:
+    for key in ("sourceRef", "holeRef", "shotRef", "roundRef"):
+        ref = _safe_ref(context.get(key))
+        if ref:
+            return ref
+    round_id = _safe_ref(context.get("roundId"))
+    hole = context.get("hole") or context.get("localHole")
+    if round_id and hole is not None:
+        return f"{round_id}:{hole}"
+    if round_id:
+        return f"{round_id}:{shot_type}"
+    return None
+
+
+def _decision_id(context: dict[str, Any], shot_type: str, source_ref: str | None) -> str:
+    explicit = _safe_ref(context.get("decisionId"))
+    if explicit:
+        return explicit
+    shot_order = context.get("shotOrder") or context.get("currentShotOrder")
+    if source_ref:
+        return f"{source_ref}:{shot_order or shot_type}"
+    round_id = _safe_ref(context.get("roundId")) or "unknown"
+    hole = context.get("hole") or context.get("localHole") or "unknown"
+    return f"{round_id}:{hole}:{shot_order or shot_type}"
+
+
+def _collect_refs_from_value(value: Any, refs: list[str]) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in SOURCE_REF_KEYS:
+                if isinstance(item, list):
+                    refs.extend(ref for ref in (_safe_ref(row) for row in item) if ref)
+                else:
+                    ref = _safe_ref(item)
+                    if ref:
+                        refs.append(ref)
+            else:
+                _collect_refs_from_value(item, refs)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_refs_from_value(item, refs)
+
+
+def _evidence_refs(context: dict[str, Any], source_ref: str | None) -> list[str]:
+    refs = [source_ref] if source_ref else []
+    _collect_refs_from_value(context, refs)
+    return _dedupe(refs)
+
+
+def _actual_shot_refs(decision: dict[str, Any], actual_shot: dict[str, Any] | None) -> list[str]:
+    if not actual_shot:
+        return []
+    explicit = _safe_ref(actual_shot.get("sourceRef") or actual_shot.get("shotRef"))
+    if explicit:
+        return [explicit]
+    context = decision.get("context") if isinstance(decision.get("context"), dict) else {}
+    source_ref = _safe_ref(decision.get("sourceRef") or context.get("sourceRef"))
+    shot_order = actual_shot.get("shotOrder") or actual_shot.get("order")
+    if source_ref and shot_order is not None:
+        return [f"{source_ref}:{shot_order}"]
+    round_id = _safe_ref(actual_shot.get("roundId") or context.get("roundId"))
+    hole = actual_shot.get("hole") or actual_shot.get("localHole") or context.get("hole") or context.get("localHole")
+    if round_id and hole is not None and shot_order is not None:
+        return [f"{round_id}:{hole}:{shot_order}"]
+    return []
 
 
 def decision_audit_file(root: Path | str | None = None) -> Path:
@@ -60,6 +152,13 @@ def store_decision_audit(
         "id": uuid4().hex,
         "storedAt": _stored_at(),
         "decisionId": str(decision_id),
+        "sourceRef": audit.get("decisionSourceRef"),
+        "selectedOptionId": audit.get("selectedOptionId") or audit.get("plannedOptionId"),
+        "plannedOptionId": audit.get("plannedOptionId"),
+        "actualOptionId": audit.get("actualOptionId"),
+        "actualShotRefs": audit.get("actualShotRefs") or [],
+        "evidenceRefs": audit.get("evidenceRefs") or [],
+        "classification": audit.get("classification"),
         "audit": audit,
     }
     path = decision_audit_file(root)
@@ -854,9 +953,11 @@ def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
+    source_ref = _source_ref(analysis, shot_type)
     return {
         "roundId": analysis.get("roundId"),
         "source": analysis.get("source"),
+        "sourceRef": source_ref,
         "courseName": analysis.get("courseName"),
         "hole": analysis.get("hole"),
         "globalId": analysis.get("globalId"),
@@ -930,8 +1031,12 @@ def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list
     sequence_evidence = _sequence_evidence(sequences, selected_sequence)
     if sequence_evidence:
         evidence.append(sequence_evidence)
+    source_ref = _source_ref(analysis, shot_type)
     return {
         "schema": "ai-caddie-decision-v2",
+        "decisionId": _decision_id(analysis, shot_type, source_ref),
+        "sourceRef": source_ref,
+        "evidenceRefs": _evidence_refs(analysis, source_ref),
         "shotType": shot_type,
         "phase": f"{shot_type}_shot",
         "context": _shot_context(analysis, shot_type),
@@ -977,13 +1082,18 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     if sequence_evidence:
         evidence.append(sequence_evidence)
     acceptable_miss = _acceptable_miss(selected)
+    source_ref = _source_ref(analysis, "tee")
     return {
         "schema": "ai-caddie-decision-v2",
+        "decisionId": _decision_id(analysis, "tee", source_ref),
+        "sourceRef": source_ref,
+        "evidenceRefs": _evidence_refs(analysis, source_ref),
         "shotType": "tee",
         "phase": "tee_shot",
         "context": {
             "roundId": analysis.get("roundId"),
             "source": analysis.get("source"),
+            "sourceRef": source_ref,
             "courseName": analysis.get("courseName"),
             "hole": analysis.get("hole"),
             "globalId": analysis.get("globalId"),
@@ -1108,12 +1218,22 @@ def audit_decision(decision: dict[str, Any], actual_shot: dict[str, Any] | None)
     selected = decision.get("selectedOption") or decision.get("selected") or {}
     selected_option_id = decision.get("selectedOptionId") or selected.get("id")
     phase = decision.get("phase") or f"{decision.get('shotType', 'unknown')}_shot"
+    decision_id = decision.get("decisionId")
+    decision_source_ref = decision.get("sourceRef") or (decision.get("context") or {}).get("sourceRef")
+    evidence_refs = decision.get("evidenceRefs") or _evidence_refs(decision, _safe_ref(decision_source_ref))
+    actual_refs = _actual_shot_refs(decision, actual_shot)
     if not actual_shot:
         return {
             "schema": "ai-caddie-decision-audit-v1",
+            "decisionId": decision_id,
+            "decisionSourceRef": decision_source_ref,
             "phase": phase,
             "plannedOptionId": selected_option_id,
+            "selectedOptionId": selected_option_id,
+            "selectedOption": selected,
             "actualOptionId": None,
+            "actualShotRefs": actual_refs,
+            "evidenceRefs": evidence_refs,
             "classification": "info_gap",
             "executionMatch": {"hasFirstShot": False},
             "result": {},
@@ -1137,9 +1257,15 @@ def audit_decision(decision: dict[str, Any], actual_shot: dict[str, Any] | None)
     )
     return {
         "schema": "ai-caddie-decision-audit-v1",
+        "decisionId": decision_id,
+        "decisionSourceRef": decision_source_ref,
         "phase": phase,
         "plannedOptionId": selected_option_id,
+        "selectedOptionId": selected_option_id,
+        "selectedOption": selected,
         "actualOptionId": actual_option_id,
+        "actualShotRefs": actual_refs,
+        "evidenceRefs": evidence_refs,
         "classification": _audit_classification(failure),
         "executionMatch": {
             "hasFirstShot": True,

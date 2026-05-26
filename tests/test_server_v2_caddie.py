@@ -21,9 +21,12 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["schema"], "ai-caddie-decision-v2")
+        self.assertEqual(payload["decisionId"], "fixture-round:4:approach")
+        self.assertEqual(payload["sourceRef"], "fixture-round:4")
         self.assertEqual(payload["shotType"], "approach")
         self.assertEqual(payload["selected"]["id"], "stock")
         self.assertEqual([row["id"] for row in payload["options"]], ["safe", "stock", "attack"])
+        self.assertIn("fixture-round:4", payload["evidenceRefs"])
 
     def test_decision_endpoint_returns_recovery_contract(self) -> None:
         client = TestClient(app)

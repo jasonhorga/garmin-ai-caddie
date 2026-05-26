@@ -13,9 +13,12 @@ import type {
 
 const decision: CaddieDecisionResponse = {
   schema: 'ai-caddie-decision-v2',
+  decisionId: 'fixture-links-4-approach',
+  sourceRef: 'fixture-links:4',
+  evidenceRefs: ['fixture-links:4'],
   shotType: 'approach',
   phase: 'Approach',
-  context: { distanceToPin_m: 142 },
+  context: { sourceRef: 'fixture-links:4', distanceToPin_m: 142 },
   options: [
     { id: 'safe', label: 'Safe', recommendedClub: '9I', carry_m: 132, riskScore: 0 },
     {
@@ -50,11 +53,23 @@ const auditRecord: CaddieDecisionAuditRecord = {
   id: 'audit-1',
   storedAt: '2026-05-25T00:00:00Z',
   decisionId: 'fixture-links-4-approach',
+  sourceRef: 'fixture-links:4',
+  selectedOptionId: 'stock',
+  plannedOptionId: 'stock',
+  actualOptionId: 'stock',
+  actualShotRefs: ['fixture-links:4:1'],
+  evidenceRefs: ['fixture-links:4'],
+  classification: 'execution',
   audit: {
     schema: 'ai-caddie-decision-audit-v1',
+    decisionId: 'fixture-links-4-approach',
+    decisionSourceRef: 'fixture-links:4',
     phase: 'Approach',
     plannedOptionId: 'stock',
+    selectedOptionId: 'stock',
     actualOptionId: 'stock',
+    actualShotRefs: ['fixture-links:4:1'],
+    evidenceRefs: ['fixture-links:4'],
     classification: 'execution',
     executionMatch: { hasFirstShot: true, clubMatch: true, distanceDelta_m: -1 },
     result: { clubName: '8I', meters: 143, surface: 'green' },

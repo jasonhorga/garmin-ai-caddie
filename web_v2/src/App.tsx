@@ -687,6 +687,7 @@ export default function App() {
 }
 
 function decisionIdFromDecision(decision: CaddieDecisionResponse): string {
+  if (decision.decisionId) return decision.decisionId
   const context = decision.context ?? {}
   const courseName = typeof context.courseName === 'string' ? context.courseName : 'fixture'
   const hole = typeof context.hole === 'number' || typeof context.hole === 'string' ? String(context.hole) : 'unknown'

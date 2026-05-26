@@ -33,9 +33,12 @@ def _event_batch(round_id: str = "live-round-1") -> dict[str, object]:
 def _decision_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-decision-v2",
+        "decisionId": "decision-1",
+        "sourceRef": "round-1:7",
+        "evidenceRefs": ["round-1:7"],
         "shotType": "approach",
         "phase": "approach",
-        "context": {},
+        "context": {"sourceRef": "round-1:7"},
         "options": [],
         "selected": None,
         "selectedOptionId": None,

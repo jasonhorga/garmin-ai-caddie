@@ -286,9 +286,12 @@ function trendReportPayload() {
 function caddieDecisionPayload() {
   return {
     schema: 'ai-caddie-decision-v2',
+    decisionId: 'fixture-round:4:approach',
+    sourceRef: 'fixture-round:4',
+    evidenceRefs: ['fixture-round:4'],
     shotType: 'approach',
     phase: 'Approach',
-    context: { courseName: 'Fixture Links', hole: 4, distanceToPin_m: 142 },
+    context: { courseName: 'Fixture Links', hole: 4, sourceRef: 'fixture-round:4', distanceToPin_m: 142 },
     options: [
       { id: 'safe', label: 'Safe', recommendedClub: '9I' },
       { id: 'stock', label: 'Stock', recommendedClub: '8I' },
@@ -337,12 +340,24 @@ function caddieAuditPayload() {
     record: {
       id: 'audit-1',
       storedAt: '2026-05-25T00:00:00Z',
-      decisionId: 'fixture-links-4-approach',
+      decisionId: 'fixture-round:4:approach',
+      sourceRef: 'fixture-round:4',
+      selectedOptionId: 'stock',
+      plannedOptionId: 'stock',
+      actualOptionId: 'stock',
+      actualShotRefs: ['fixture-round:4:1'],
+      evidenceRefs: ['fixture-round:4'],
+      classification: 'execution',
       audit: {
         schema: 'ai-caddie-decision-audit-v1',
+        decisionId: 'fixture-round:4:approach',
+        decisionSourceRef: 'fixture-round:4',
         phase: 'Approach',
         plannedOptionId: 'stock',
+        selectedOptionId: 'stock',
         actualOptionId: 'stock',
+        actualShotRefs: ['fixture-round:4:1'],
+        evidenceRefs: ['fixture-round:4'],
         classification: 'execution',
         executionMatch: { hasFirstShot: true, clubMatch: true, distanceDelta_m: -1 },
         result: { clubName: '8I', meters: 143, surface: 'green' },
@@ -852,7 +867,7 @@ describe('App navigation', () => {
         if (path === '/api/v2/media/target/shot/fixture-round%3A4%3Aapproach/findings') return visionFindingsPayload()
         if (String(path).startsWith('/api/v2/caddie/context')) return caddieContextPayload()
         if (path === '/api/v2/caddie/decision') return caddieDecisionPayload()
-        if (path === '/api/v2/caddie/decisions/fixture-links-4-approach/audit') return caddieAuditPayload()
+        if (path === '/api/v2/caddie/decisions/fixture-round%3A4%3Aapproach/audit') return caddieAuditPayload()
         if (String(path).startsWith('/api/v2/weather/snapshot')) return weatherPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayload()
@@ -917,10 +932,10 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('execution')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v2/caddie/decisions/fixture-links-4-approach/audit',
+      '/api/v2/caddie/decisions/fixture-round%3A4%3Aapproach/audit',
       expect.objectContaining({ method: 'POST' }),
     )
-    const auditPost = fetchMock.mock.calls.find(([path]) => path === '/api/v2/caddie/decisions/fixture-links-4-approach/audit')?.[1] as RequestInit
+    const auditPost = fetchMock.mock.calls.find(([path]) => path === '/api/v2/caddie/decisions/fixture-round%3A4%3Aapproach/audit')?.[1] as RequestInit
     const auditBody = JSON.parse(String(auditPost.body))
     expect(auditBody.actualShot).toEqual({
       shotOrder: 1,
