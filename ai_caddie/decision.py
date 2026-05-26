@@ -1504,16 +1504,82 @@ def _actual_option_id(plan: dict[str, Any], shot: dict[str, Any]) -> str | None:
     return closest.get("id")
 
 
-def _risk_triggered(shot: dict[str, Any]) -> tuple[bool, list[dict[str, Any]], str | None]:
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _surface_is_known(surface: Any) -> bool:
+    key = str(surface or "").strip().lower()
+    return bool(key and key not in {"unknown", "none", "null"})
+
+
+def _geometry_surface_classification(decision: dict[str, Any] | None, shot: dict[str, Any]) -> dict[str, Any] | None:
+    provided = shot.get("surfaceClassification") or shot.get("geometrySurfaceClassification")
+    if isinstance(provided, dict):
+        return provided
+
+    context = decision.get("context") if isinstance((decision or {}).get("context"), dict) else {}
+    global_id = _int_or_none(
+        shot.get("globalId")
+        or shot.get("courseGlobalId")
+        or context.get("globalId")
+        or (decision or {}).get("globalId")
+    )
+    local_hole = _int_or_none(
+        shot.get("localHole")
+        or shot.get("hole")
+        or context.get("localHole")
+        or context.get("hole")
+        or (decision or {}).get("localHole")
+        or (decision or {}).get("hole")
+    )
+    if global_id is None or local_hole is None:
+        return None
+
+    from ai_caddie import geometry_evidence
+
+    classification = geometry_evidence.classify_shot_surface(global_id, local_hole, shot)
+    return classification if isinstance(classification, dict) else None
+
+
+def _classification_surface(classification: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(classification, dict):
+        return None
+    surface = classification.get("surface")
+    return surface if isinstance(surface, dict) else None
+
+
+def _risk_triggered(shot: dict[str, Any], decision: dict[str, Any] | None = None) -> tuple[bool, list[dict[str, Any]], str | None, str | None]:
     end = shot.get("end") or {}
     feature = end.get("feature") or {}
     surface = (feature.get("surface") or {}).get("kind") or end.get("lie")
+    surface_source = "shot" if _surface_is_known(surface) else None
     surface_key = str(surface or "").lower()
     near_risks = [
         risk for risk in (feature.get("nearRisks") or [])
         if risk.get("kind") in RISK_KINDS
     ]
-    return surface_key in BAD_SURFACES or bool(near_risks), near_risks, surface
+    if not _surface_is_known(surface) and decision is not None:
+        classification = _geometry_surface_classification(decision, shot)
+        classified_surface = _classification_surface(classification)
+        classified_kind = (classified_surface or {}).get("kind")
+        if _surface_is_known(classified_kind):
+            surface = str(classified_kind)
+            surface_key = surface.lower()
+            surface_source = "prodgeometry"
+            if surface_key in BAD_SURFACES and not near_risks:
+                near_risks = [
+                    {
+                        "kind": surface_key,
+                        "id": classified_surface.get("id"),
+                        "distance_m": 0.0,
+                        "source": "prodgeometry",
+                    }
+                ]
+    return surface_key in BAD_SURFACES or bool(near_risks), near_risks, surface, surface_source
 
 
 def _club_match(selected: dict[str, Any] | None, shot: dict[str, Any]) -> bool | None:
@@ -1592,7 +1658,7 @@ def audit_decision(decision: dict[str, Any], actual_shot: dict[str, Any] | None)
         }
 
     actual_option_id = _actual_option_id(decision, actual_shot)
-    risk_triggered, near_risks, surface = _risk_triggered(actual_shot)
+    risk_triggered, near_risks, surface, surface_source = _risk_triggered(actual_shot, decision)
     selected_carry = selected.get("carry_m")
     actual_meters = actual_shot.get("meters")
     distance_delta = (
@@ -1629,6 +1695,7 @@ def audit_decision(decision: dict[str, Any], actual_shot: dict[str, Any] | None)
             "clubName": actual_shot.get("clubName"),
             "meters": actual_meters,
             "surface": surface,
+            "surfaceSource": surface_source,
             "nearRisks": near_risks,
             "remainingToTarget_m": actual_shot.get("remainingToTarget_m"),
         },
@@ -1654,7 +1721,7 @@ def judge_decision_outcome(plan: dict[str, Any], analysis: dict[str, Any]) -> di
         }
 
     actual_option_id = _actual_option_id(plan, first)
-    risk_triggered, near_risks, surface = _risk_triggered(first)
+    risk_triggered, near_risks, surface, surface_source = _risk_triggered(first, plan)
     selected_carry = selected.get("carry_m")
     actual_meters = first.get("meters")
     distance_delta = (
@@ -1684,6 +1751,7 @@ def judge_decision_outcome(plan: dict[str, Any], analysis: dict[str, Any]) -> di
             "clubName": first.get("clubName"),
             "meters": actual_meters,
             "surface": surface,
+            "surfaceSource": surface_source,
             "nearRisks": near_risks,
             "remainingToTarget_m": first.get("remainingToTarget_m"),
         },

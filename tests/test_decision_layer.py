@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from ai_caddie.analysis import _hole_summary, llm_brief
 from ai_caddie.decision import (
@@ -561,6 +562,36 @@ class DecisionLayerTests(unittest.TestCase):
 
         self.assertEqual(audit["actualOptionId"], "attack")
         self.assertEqual(audit["classification"], "strategy")
+
+    def test_audit_classifies_endpoint_geometry_surface_as_execution_risk(self) -> None:
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+
+        with patch("ai_caddie.geometry_evidence.classify_shot_surface") as classify:
+            classify.return_value = {
+                "schema": "ai-caddie-shot-surface-classification-v1",
+                "globalId": 100,
+                "localHole": 1,
+                "shotRef": "round-1:1:1",
+                "surface": {"kind": "water", "source": "hazard", "id": "water_front"},
+                "evidence": [{"label": "shot_endpoint_local", "value": [8.0, 16.0]}],
+                "missingData": [],
+            }
+            audit = audit_decision(
+                plan,
+                {
+                    "shotOrder": 1,
+                    "clubName": "3H",
+                    "meters": 181.0,
+                    "end": {"x": 8.0, "y": 16.0},
+                },
+            )
+
+        classify.assert_called_once()
+        self.assertEqual(audit["classification"], "execution")
+        self.assertTrue(audit["executionMatch"]["riskTriggered"])
+        self.assertEqual(audit["result"]["surface"], "water")
+        self.assertEqual(audit["result"]["surfaceSource"], "prodgeometry")
+        self.assertEqual(audit["result"]["nearRisks"][0]["id"], "water_front")
 
     def test_audit_classifies_missing_first_shot_as_info_gap(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
