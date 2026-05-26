@@ -698,6 +698,22 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('reply["accepted"] as? Bool', sync_swift)
         self.assertNotIn("try FileManager.default.removeItem(at: queueURL)\n    }", sync_swift)
 
+    def test_watch_queued_quick_inputs_update_persisted_state(self) -> None:
+        state_swift = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundState.swift")
+        sync_swift = _read_required_source(self, WATCH_DIR / "Services" / "WatchSyncClient.swift")
+
+        self.assertIn("func applying(_ event: WatchInputEvent) -> WatchRoundState", state_swift)
+        self.assertIn("case .score:", state_swift)
+        self.assertIn("case .putt:", state_swift)
+        self.assertIn("case .penalty:", state_swift)
+        self.assertIn("case .club:", state_swift)
+
+        self.assertIn("applyQuickInputToCurrentState(event)", sync_swift)
+        self.assertIn("private func applyQuickInputToCurrentState(_ event: WatchInputEvent)", sync_swift)
+        self.assertIn("let updated = currentState.applying(event)", sync_swift)
+        self.assertIn("currentState = updated", sync_swift)
+        self.assertIn("try? persistState(updated)", sync_swift)
+
     def test_watch_views_define_glance_and_quick_inputs(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))
         watch_app = _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift")

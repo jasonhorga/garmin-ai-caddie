@@ -92,6 +92,41 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(relaunched.currentState, state)
     }
 
+    func testQueuedQuickInputUpdatesPersistedCurrentState() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let queueURL = directoryURL.appendingPathComponent("queued_events.json")
+        let stateURL = directoryURL.appendingPathComponent("current_state.json")
+        let state = WatchRoundState(
+            roundId: "round-1",
+            hole: 7,
+            par: 4,
+            distanceM: 142,
+            suggestedClub: "8I",
+            selectedClub: "8I",
+            score: 4,
+            putts: 2,
+            penaltyCount: 0,
+            caddieConfidence: "medium"
+        )
+        let client = WatchSyncClient(queueURL: queueURL, stateURL: stateURL)
+        client.receiveState(state)
+
+        try client.queueInputEvent(
+            WatchInputEvent(
+                eventId: "event-1",
+                roundId: "round-1",
+                hole: 7,
+                kind: .club,
+                value: "7I",
+                createdAt: "2026-05-25T00:00:00Z"
+            )
+        )
+
+        XCTAssertEqual(client.currentState?.selectedClub, "7I")
+        XCTAssertEqual(try client.loadPersistedState()?.selectedClub, "7I")
+    }
+
     #if canImport(WatchConnectivity)
     func testDidReceiveUserInfoPersistsRoundStateLikeInteractiveMessage() throws {
         let directoryURL = FileManager.default.temporaryDirectory

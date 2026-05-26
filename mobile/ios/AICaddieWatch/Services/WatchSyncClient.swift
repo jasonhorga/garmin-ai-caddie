@@ -77,6 +77,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         }
         events.append(event)
         try writeQueuedEvents(events)
+        applyQuickInputToCurrentState(event)
     }
 
     public func loadQueuedEvents() throws -> [WatchInputEvent] {
@@ -96,6 +97,15 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     private func persistState(_ state: WatchRoundState) throws {
         try FileManager.default.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try encoder.encode(state).write(to: stateURL, options: [.atomic])
+    }
+
+    private func applyQuickInputToCurrentState(_ event: WatchInputEvent) {
+        guard let currentState else {
+            return
+        }
+        let updated = currentState.applying(event)
+        self.currentState = updated
+        try? persistState(updated)
     }
 
     public func markEventsAcknowledged(_ eventIds: [String]) throws {

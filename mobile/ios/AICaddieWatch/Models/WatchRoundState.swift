@@ -40,4 +40,37 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.penaltyCount = penaltyCount
         self.caddieConfidence = caddieConfidence
     }
+
+    public func applying(_ event: WatchInputEvent) -> WatchRoundState {
+        guard event.roundId == roundId, event.hole == hole else {
+            return self
+        }
+        var nextSelectedClub = selectedClub
+        var nextScore = score
+        var nextPutts = putts
+        var nextPenaltyCount = penaltyCount
+        switch event.kind {
+        case .score:
+            nextScore = Int(event.value) ?? score
+        case .putt:
+            nextPutts = Int(event.value) ?? putts
+        case .penalty:
+            nextPenaltyCount = Int(event.value) ?? penaltyCount
+        case .club:
+            nextSelectedClub = event.value
+        }
+        return WatchRoundState(
+            roundId: roundId,
+            hole: hole,
+            par: par,
+            distanceM: distanceM,
+            targetNote: targetNote,
+            suggestedClub: suggestedClub,
+            selectedClub: nextSelectedClub,
+            score: nextScore,
+            putts: nextPutts,
+            penaltyCount: nextPenaltyCount,
+            caddieConfidence: caddieConfidence
+        )
+    }
 }
