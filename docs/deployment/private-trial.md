@@ -6,11 +6,18 @@ The recommended trial path is staged and reversible.
 
 Use a Render-style API service and a Vercel-style web frontend for early testing. Keep Garmin session material and AI provider keys in the platform secret manager. Do not upload private raw data unless the deployment is locked down and intentionally configured for it.
 
+Required API environment for private staging:
+
+- `AI_CADDIE_SECURITY_PROFILE=private`
+- `AI_CADDIE_ADMIN_TOKEN=<random private token>`
+- `AI_CADDIE_DATA_MODE=local_or_fixture`
+
 ## NAS Or Private Server
 
 A NAS or private server is suitable once local use is stable:
 
 - Run the FastAPI service on `127.0.0.1:9000` behind a reverse proxy or VPN.
+- Keep `AI_CADDIE_SECURITY_PROFILE=private` enabled so protected routes fail closed if `AI_CADDIE_ADMIN_TOKEN` is accidentally removed.
 - Keep `data/`, `.garmin_tokens/`, and backups on encrypted storage when possible.
 - Use `ops/backup_data.sh` before changing sync or import workflows.
 - Expose only HTTPS if using a public IP or port forwarding.

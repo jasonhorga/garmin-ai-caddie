@@ -19,6 +19,13 @@ This project is designed for private golf data first. Secrets must stay local or
 - Test fixtures use static providers and must not require external model keys.
 - Provider errors should be redacted before returning through APIs or logs.
 
+## Admin Protection
+
+- Set `AI_CADDIE_ADMIN_TOKEN` for any private, staging, or production deployment.
+- Set `AI_CADDIE_SECURITY_PROFILE=private`, `staging`, or `production` to make protected routes fail closed if the admin token is missing.
+- Protected mobile, media, annotation, report, sync, weather-persist, geometry-ensure, and caddie mutation routes require `X-AI-Caddie-Admin-Token` when an admin token is configured.
+- Do not reuse the Garmin cookie, CSRF token, or an AI provider key as the admin token.
+
 ## Snapshot Exports
 
 `ops/export_snapshot.py` includes only:

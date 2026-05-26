@@ -109,8 +109,15 @@ app.add_middleware(
 AdminTokenHeader = Annotated[str | None, Header(alias="X-AI-Caddie-Admin-Token")]
 
 
+def _security_profile_requires_admin() -> bool:
+    profile = os.environ.get("AI_CADDIE_SECURITY_PROFILE", "").strip().lower()
+    return profile in {"private", "staging", "production"}
+
+
 def require_admin_token(header_value: str | None) -> None:
     expected = os.environ.get("AI_CADDIE_ADMIN_TOKEN")
+    if not expected and _security_profile_requires_admin():
+        raise HTTPException(status_code=503, detail="admin token not configured")
     if expected and not hmac.compare_digest(header_value or "", expected):
         raise HTTPException(status_code=401, detail="admin token required")
 

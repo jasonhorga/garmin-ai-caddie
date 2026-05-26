@@ -500,6 +500,23 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         package_handler.assert_called_once_with("live-round-1")
         reconciliation_handler.assert_called_once_with("live-round-1")
 
+    def test_private_security_profile_fails_closed_when_admin_token_is_missing(self) -> None:
+        client = TestClient(app)
+        package_handler = Mock(return_value=_mobile_package_response())
+
+        with (
+            patch.dict("os.environ", {"AI_CADDIE_SECURITY_PROFILE": "private", "AI_CADDIE_ADMIN_TOKEN": ""}),
+            patch("server_v2.main.build_mobile_round_package_response", package_handler),
+        ):
+            protected = client.get("/api/v2/mobile/rounds/live-round-1/package")
+            health = client.get("/api/v2/health")
+
+        self.assertEqual(protected.status_code, 503)
+        self.assertEqual(protected.json()["detail"], "admin token not configured")
+        self.assertEqual(health.status_code, 200)
+        package_handler.assert_not_called()
+        self.assertNotIn("private", protected.text.lower())
+
     def test_protected_routes_accept_valid_admin_token_when_configured(self) -> None:
         client = TestClient(app)
 
