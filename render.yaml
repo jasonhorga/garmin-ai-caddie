@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: ai-caddie-api
+    runtime: python
+    plan: starter
+    buildCommand: uv sync
+    startCommand: uv run uvicorn server_v2.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v2/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: AI_CADDIE_SECURITY_PROFILE
+        value: private
+      - key: AI_CADDIE_DATA_MODE
+        value: local_or_fixture
+      - key: AI_CADDIE_ADMIN_TOKEN
+        sync: false

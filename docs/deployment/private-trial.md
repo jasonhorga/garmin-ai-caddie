@@ -6,6 +6,11 @@ The recommended trial path is staged and reversible.
 
 Use a Render-style API service and a Vercel-style web frontend for early testing. Keep Garmin session material and AI provider keys in the platform secret manager. Do not upload private raw data unless the deployment is locked down and intentionally configured for it.
 
+Machine-readable starting points are committed:
+
+- API: `render.yaml`
+- Web: `web_v2/vercel.json`
+
 Required API environment for private staging:
 
 - `AI_CADDIE_SECURITY_PROFILE=private`
