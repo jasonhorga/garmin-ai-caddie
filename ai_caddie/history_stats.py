@@ -93,6 +93,18 @@ def _score_band(score: int) -> str:
     return "100+"
 
 
+def _hole_score_bucket(delta: int) -> tuple[str, str, str]:
+    if delta <= -2:
+        return ("eagleOrBetter", "Eagle+", "eagle")
+    if delta == -1:
+        return ("birdie", "Birdie", "birdie")
+    if delta == 0:
+        return ("par", "Par", "par")
+    if delta == 1:
+        return ("bogey", "Bogey", "bogey")
+    return ("doubleOrWorse", "Double+", "double")
+
+
 def _confidence(sample_count: int) -> str:
     if sample_count >= 10:
         return "high"
@@ -482,7 +494,57 @@ def _course_distribution(data: HistoryData) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (-row["roundCount"], row["courseName"]))
 
 
-def _holes(data: HistoryData) -> list[dict[str, Any]]:
+def _hole_score_distribution(bucket_refs: dict[str, list[str]]) -> list[dict[str, Any]]:
+    ordered = [
+        ("eagleOrBetter", "Eagle+", "eagle"),
+        ("birdie", "Birdie", "birdie"),
+        ("par", "Par", "par"),
+        ("bogey", "Bogey", "bogey"),
+        ("doubleOrWorse", "Double+", "double"),
+    ]
+    total = sum(len(refs) for refs in bucket_refs.values())
+    return [
+        {
+            "key": key,
+            "label": label,
+            "className": class_name,
+            "count": len(bucket_refs.get(key, [])),
+            "pct": round(len(bucket_refs.get(key, [])) / total * 100, 1) if total else 0.0,
+            "holeRefs": bucket_refs.get(key, []),
+        }
+        for key, label, class_name in ordered
+    ]
+
+
+def _manual_issue_tags_by_hole(annotations: list[dict[str, Any]] | None) -> dict[str, list[str]]:
+    rows: dict[str, list[str]] = defaultdict(list)
+    for record in annotations or []:
+        if record.get("kind") != "issue_tag":
+            continue
+        target_id = str(record.get("targetId") or "")
+        tag = str((record.get("payload") or {}).get("tag") or "").strip().lower()
+        if target_id and tag:
+            rows[target_id].append(tag)
+    return rows
+
+
+def _hole_repeated_issue_records(issue_refs: dict[tuple[str, str], list[str]]) -> list[dict[str, Any]]:
+    rows = [
+        issue_record(issue, refs, source=source)
+        for (issue, source), refs in issue_refs.items()
+        if refs
+    ]
+    return sorted(
+        rows,
+        key=lambda row: (
+            -int(row["count"]),
+            0 if row["source"] == "deterministic" else 1,
+            str(row["issue"]),
+        ),
+    )
+
+
+def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, int], list[tuple[dict[str, Any], dict[str, Any]]]] = defaultdict(list)
     for row in data.rounds:
         course_key = str(row.get("courseKey") or "unknown")
@@ -490,16 +552,34 @@ def _holes(data: HistoryData) -> list[dict[str, Any]]:
             number = int(hole.get("number") or 0)
             if number:
                 grouped[(course_key, number)].append((row, hole))
+    hazard_hole_refs = {
+        f"{shot.get('roundId')}:{shot.get('hole')}"
+        for shot in _effective_shots(data, annotations)
+        if str(shot.get("surface") or "").lower() in {"water", "bunker", "rough"}
+    }
+    manual_tags = _manual_issue_tags_by_hole(annotations)
     out = []
     for (course_key, number), pairs in grouped.items():
         deltas: list[int] = []
+        distribution_refs: dict[str, list[str]] = defaultdict(list)
+        issue_refs: dict[tuple[str, str], list[str]] = defaultdict(list)
         refs: list[str] = []
         for row, hole in pairs:
             par = _hole_to_par(hole, _par_from_string(str(row.get("holePars") or ""), number))
             score = hole.get("strokes")
+            ref = f"{_round_id(row)}:{number}"
             if par is not None and score is not None:
-                deltas.append(int(score) - int(par))
-            refs.append(f"{_round_id(row)}:{number}")
+                delta = int(score) - int(par)
+                bucket_key, _bucket_label, _class_name = _hole_score_bucket(delta)
+                deltas.append(delta)
+                distribution_refs[bucket_key].append(ref)
+                if delta >= 2:
+                    issue_refs[("double_or_worse", "deterministic")].append(ref)
+            if ref in hazard_hole_refs:
+                issue_refs[("hazard_result", "deterministic")].append(ref)
+            for tag in manual_tags.get(ref, []):
+                issue_refs[(tag, "manual")].append(ref)
+            refs.append(ref)
         out.append(
             {
                 "courseKey": course_key,
@@ -507,6 +587,8 @@ def _holes(data: HistoryData) -> list[dict[str, Any]]:
                 "sampleCount": len(pairs),
                 "averageToPar": average(deltas),
                 "worstToPar": max(deltas) if deltas else None,
+                "scoreDistribution": _hole_score_distribution(distribution_refs),
+                "repeatedIssues": _hole_repeated_issue_records(issue_refs),
                 "refs": refs,
                 "holeRefs": refs,
                 "geometryCoverage": _hole_geometry_coverage(pairs, number),
@@ -675,7 +757,7 @@ def build_history_stats(
         "scoring": _scoring(data, annotations),
         "courseDistribution": _course_distribution(data),
         "courses": _courses(data),
-        "holes": _holes(data),
+        "holes": _holes(data, annotations),
         "clubs": _clubs(data, annotations),
         "issues": _issues(data, annotations),
         "dataQuality": _data_quality(data, annotations, weather_snapshots),

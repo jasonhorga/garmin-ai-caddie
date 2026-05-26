@@ -97,6 +97,45 @@ class HistoryStatsCoreTests(unittest.TestCase):
             self.assertIn("source", issue)
             self.assertIn("confidence", issue)
 
+    def test_hole_stats_include_score_distribution_and_repeated_issues(self) -> None:
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+
+        hole = next(row for row in stats["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
+
+        distribution = {row["key"]: row for row in hole["scoreDistribution"]}
+        self.assertEqual(distribution["bogey"]["count"], 1)
+        self.assertEqual(distribution["bogey"]["pct"], 50.0)
+        self.assertEqual(distribution["bogey"]["holeRefs"], ["900001:7"])
+        self.assertEqual(distribution["doubleOrWorse"]["count"], 1)
+        self.assertEqual(distribution["doubleOrWorse"]["holeRefs"], ["900002:7"])
+
+        issue_keys = [row["issue"] for row in hole["repeatedIssues"]]
+        self.assertEqual(issue_keys[:2], ["double_or_worse", "hazard_result"])
+        double_issue = next(row for row in hole["repeatedIssues"] if row["issue"] == "double_or_worse")
+        self.assertEqual(double_issue["count"], 1)
+        self.assertEqual(double_issue["refs"], ["900002:7"])
+        self.assertEqual(double_issue["phase"], "Course Management")
+        hazard_issue = next(row for row in hole["repeatedIssues"] if row["issue"] == "hazard_result")
+        self.assertEqual(hazard_issue["refs"], ["900002:7"])
+
+    def test_hole_stats_include_manual_issue_tags(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation(
+                "hole",
+                "900001:7",
+                "issue_tag",
+                {"tag": "approach_short"},
+                root=root,
+            )
+
+            stats = build_history_stats(fixture_history_data(), data_mode="fixture", annotations_root=root)
+
+        hole = next(row for row in stats["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
+        manual_issue = next(row for row in hole["repeatedIssues"] if row["issue"] == "approach_short")
+        self.assertEqual(manual_issue["source"], "manual")
+        self.assertEqual(manual_issue["refs"], ["900001:7"])
+
     def test_manual_issue_tags_appear_in_stats_and_data_quality(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

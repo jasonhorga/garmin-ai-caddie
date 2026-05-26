@@ -26,6 +26,12 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["totalRounds"], 3)
         self.assertGreater(len(payload["courses"]), 0)
         self.assertGreater(len(payload["clubs"]), 0)
+        hole = next(row for row in payload["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
+        self.assertEqual(hole["scoreDistribution"][3]["key"], "bogey")
+        self.assertEqual(hole["scoreDistribution"][3]["holeRefs"], ["900001:7"])
+        self.assertEqual(hole["scoreDistribution"][4]["key"], "doubleOrWorse")
+        self.assertEqual(hole["repeatedIssues"][0]["issue"], "double_or_worse")
+        self.assertIn("900002:7", hole["repeatedIssues"][0]["refs"])
         self.assertIn("drillDown", payload)
 
     def test_history_stats_endpoint_uses_public_schema_alias(self) -> None:

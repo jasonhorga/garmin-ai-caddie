@@ -18,6 +18,22 @@ const statsFixture: HistoryStatsResponse = {
       averageToPar: 1.5,
       worstToPar: 3,
       geometryCoverage: 'missing',
+      scoreDistribution: [
+        { key: 'par', label: 'Par', className: 'par', count: 0, pct: 0, holeRefs: [] },
+        { key: 'bogey', label: 'Bogey', className: 'bogey', count: 1, pct: 50, holeRefs: ['900001:7'] },
+        { key: 'doubleOrWorse', label: 'Double+', className: 'double', count: 1, pct: 50, holeRefs: ['900002:7'] },
+      ],
+      repeatedIssues: [
+        {
+          issue: 'double_or_worse',
+          count: 1,
+          refs: ['900002:7'],
+          sourceRefs: ['900002:7'],
+          phase: 'Course Management',
+          source: 'deterministic',
+          confidence: 'high',
+        },
+      ],
       refs: ['900001:7', '900002:7'],
     },
   ],
@@ -38,8 +54,14 @@ describe('HoleStats', () => {
     expect(screen.getByText('+1.5 avg')).toBeInTheDocument()
     expect(screen.getByText('+3 worst')).toBeInTheDocument()
     expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
+    expect(screen.getByText('Bogey')).toBeInTheDocument()
+    expect(screen.getByText('Double+')).toBeInTheDocument()
+    expect(screen.getAllByText('1')[0]).toBeInTheDocument()
+    expect(screen.getAllByText('50%')).toHaveLength(2)
+    expect(screen.getByText('double_or_worse')).toBeInTheDocument()
+    expect(screen.getByText('Course Management')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900001:7' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open source 900002:7' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Open source 900002:7' })).toHaveLength(2)
   })
 
   it('renders an empty state when no hole aggregates exist', () => {
