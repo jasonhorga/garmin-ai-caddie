@@ -607,6 +607,9 @@ class LiveRoundPackageResponse(BaseModel):
 
     schema_: Literal["ai-caddie-live-round-package-v1"] = Field(alias="schema")
     roundId: str
+    dataMode: ResolvedDataModeName
+    sourceCoverage: dict[str, Any]
+    missingData: list[dict[str, Any]]
     playerProfile: dict[str, Any]
     course: dict[str, Any]
     holes: list[dict[str, Any]]

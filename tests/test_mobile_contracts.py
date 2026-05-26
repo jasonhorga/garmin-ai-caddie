@@ -70,6 +70,18 @@ class MobileContractTests(unittest.TestCase):
         package = {
             "schema": "ai-caddie-live-round-package-v1",
             "roundId": "live-round-1",
+            "dataMode": "fixture",
+            "sourceCoverage": {
+                "state": "ready",
+                "dataMode": "fixture",
+                "requestedRoundId": "live-round-1",
+                "selectedRoundId": "live-round-1",
+                "roundFound": True,
+                "availableRoundCount": 3,
+                "holeCount": 1,
+                "clubProfileCount": 1,
+            },
+            "missingData": [],
             "playerProfile": {"playerId": "player-1", "displayName": "Test Player", "handedness": "right"},
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
             "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
@@ -123,6 +135,18 @@ class MobileContractTests(unittest.TestCase):
         _assert_schema_accepts(self, schema, package)
         self.assertEqual(schema["properties"]["caddieDecisionEndpoint"]["const"], "/api/v2/caddie/decision")
 
+    def test_live_round_package_exposes_source_coverage_and_degrades_missing_round(self) -> None:
+        package = build_live_round_package("missing-round", data=fixture_history_data(), data_mode="fixture")
+
+        self.assertEqual(package["dataMode"], "fixture")
+        self.assertEqual(package["sourceCoverage"]["state"], "degraded")
+        self.assertEqual(package["sourceCoverage"]["requestedRoundId"], "missing-round")
+        self.assertIsNone(package["sourceCoverage"]["selectedRoundId"])
+        self.assertFalse(package["sourceCoverage"]["roundFound"])
+        self.assertEqual(package["sourceCoverage"]["availableRoundCount"], 3)
+        self.assertEqual(package["offlinePackageStatus"]["state"], "degraded")
+        self.assertIn("round_reference", {row["label"] for row in package["missingData"]})
+
     def test_live_round_package_uses_persisted_weather_snapshot(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -144,7 +168,7 @@ class MobileContractTests(unittest.TestCase):
                 root=root,
             )
 
-            package = build_live_round_package("900001", data=fixture_history_data(), root=root)
+            package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture", root=root)
 
         self.assertEqual(package["weatherSnapshot"]["state"], "ready")
         self.assertEqual(package["weatherSnapshot"]["source"], "manual")
@@ -152,8 +176,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(package["weatherSnapshot"]["hole"], 1)
 
     def test_live_round_package_includes_offline_caddie_context_seeds(self) -> None:
-        package = build_live_round_package("900001", data=fixture_history_data())
+        package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")
 
+        self.assertEqual(package["dataMode"], "fixture")
+        self.assertEqual(package["sourceCoverage"]["state"], "ready")
+        self.assertTrue(package["sourceCoverage"]["roundFound"])
         seed = next(row for row in package["caddieContextSeeds"] if row["hole"] == 1)
         self.assertEqual(seed["sourceRef"], "900001:1")
         self.assertEqual(seed["shotTypes"], ["tee", "approach", "recovery"])
@@ -168,7 +195,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("current_location", {row["label"] for row in seed["missingData"]})
 
     def test_live_round_package_recent_history_uses_normalized_round_fields(self) -> None:
-        package = build_live_round_package("900001", data=fixture_history_data())
+        package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")
 
         self.assertEqual(package["recentHistory"]["course"]["courseKey"], "black_knight")
         self.assertEqual(package["recentHistory"]["course"]["roundCount"], 2)
@@ -234,6 +261,10 @@ class MobileContractTests(unittest.TestCase):
         event_swift = (IOS_DIR / "Models" / "LiveRoundEvent.swift").read_text(encoding="utf-8")
 
         self.assertIn("struct LiveRoundPackage: Codable", package_swift)
+        self.assertIn("let dataMode: String", package_swift)
+        self.assertIn("let sourceCoverage: SourceCoverage", package_swift)
+        self.assertIn("let missingData: [[String: JSONValue]]", package_swift)
+        self.assertIn("struct SourceCoverage: Codable", package_swift)
         self.assertIn("let weatherSnapshot: WeatherSnapshot", package_swift)
         self.assertIn("let offlinePackageStatus: OfflinePackageStatus", package_swift)
         self.assertIn("let eventCursor: EventCursor", package_swift)

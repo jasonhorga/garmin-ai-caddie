@@ -17,13 +17,20 @@ class ServerV2MobileTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            with patch("server_v2.mobile.MOBILE_ROOT", root):
-                response = client.get("/api/v2/mobile/rounds/live-round-1/package")
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                response = client.get("/api/v2/mobile/rounds/900001/package")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v1")
-        self.assertEqual(payload["roundId"], "live-round-1")
+        self.assertEqual(payload["roundId"], "900001")
+        self.assertEqual(payload["dataMode"], "fixture")
+        self.assertEqual(payload["sourceCoverage"]["state"], "ready")
+        self.assertTrue(payload["sourceCoverage"]["roundFound"])
+        self.assertEqual(payload["missingData"], [])
         self.assertEqual(payload["caddieDecisionEndpoint"], "/api/v2/caddie/decision")
         self.assertEqual(payload["weatherSnapshot"]["schema"], "ai-caddie-weather-snapshot-v1")
         self.assertIn(payload["weatherSnapshot"]["state"], {"ready", "missing"})
@@ -38,6 +45,22 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertIn("holes", payload["recentHistory"])
         self.assertEqual(payload["cachedCaddieRules"]["decisionContract"], "ai-caddie-decision-v2")
         self.assertTrue(payload["cachedCaddieRules"]["offlineCapable"])
+
+    def test_mobile_round_package_degrades_explicitly_when_round_is_missing(self) -> None:
+        client = TestClient(app)
+
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            response = client.get("/api/v2/mobile/rounds/not-a-round/package")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["roundId"], "not-a-round")
+        self.assertEqual(payload["dataMode"], "fixture")
+        self.assertEqual(payload["sourceCoverage"]["state"], "degraded")
+        self.assertFalse(payload["sourceCoverage"]["roundFound"])
+        self.assertIsNone(payload["sourceCoverage"]["selectedRoundId"])
+        self.assertEqual(payload["offlinePackageStatus"]["state"], "degraded")
+        self.assertIn("round_reference", {row["label"] for row in payload["missingData"]})
 
     def test_mobile_round_package_selects_requested_fixture_round(self) -> None:
         client = TestClient(app)

@@ -334,10 +334,11 @@ def build_live_round_package(
     round_id: str,
     data: HistoryData | None = None,
     *,
+    data_mode: str = "fixture",
     root: Path | str | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
-    stats = build_history_stats(source, data_mode="fixture", annotations_root=Path("/nonexistent-ai-caddie-annotations"))
+    stats = build_history_stats(source, data_mode=data_mode, annotations_root=Path("/nonexistent-ai-caddie-annotations"))
     requested_id = str(round_id)
     round_row = next(
         (
@@ -345,8 +346,18 @@ def build_live_round_package(
             for row in source.rounds
             if requested_id in {str(row.get("id") or ""), *(str(item) for item in (row.get("ids") or []))}
         ),
-        {},
+        None,
     )
+    round_found = round_row is not None
+    round_row = round_row or {}
+    package_missing_data = []
+    if not round_found:
+        package_missing_data.append(
+            {
+                "label": "round_reference",
+                "reason": f"{requested_id} not found in {data_mode} live round source",
+            }
+        )
     course_key = str(round_row.get("courseKey") or "")
     holes = [
         {
@@ -383,9 +394,23 @@ def build_live_round_package(
     ready_holes = sum(1 for hole in holes if hole["geometryCoverage"] == "ready")
     weather_snapshot = _weather_snapshot_for_package(round_id, root=root)
     prepared_at = datetime.now(UTC).replace(microsecond=0)
+    package_state = "ready" if round_found else "degraded"
+    selected_round_id = str(round_row.get("id") or "").strip() or None
     return {
         "schema": "ai-caddie-live-round-package-v1",
         "roundId": round_id,
+        "dataMode": data_mode,
+        "sourceCoverage": {
+            "state": package_state,
+            "dataMode": data_mode,
+            "requestedRoundId": requested_id,
+            "selectedRoundId": selected_round_id,
+            "roundFound": round_found,
+            "availableRoundCount": len(source.rounds),
+            "holeCount": len(round_row.get("holes") or []),
+            "clubProfileCount": len(club_profiles),
+        },
+        "missingData": package_missing_data,
         "playerProfile": {"playerId": "local-player", "displayName": "Local Player", "handedness": "unknown"},
         "course": {
             "globalId": int(round_row.get("globalId") or 0),
@@ -411,7 +436,7 @@ def build_live_round_package(
         "clubProfiles": club_profiles,
         "caddieDecisionEndpoint": "/api/v2/caddie/decision",
         "offlinePackageStatus": {
-            "state": "ready",
+            "state": package_state,
             "preparedAt": _format_time(prepared_at),
             "expiresAt": _format_time(prepared_at + timedelta(hours=OFFLINE_EXPIRES_AFTER_HOURS)),
             "cachePolicy": {

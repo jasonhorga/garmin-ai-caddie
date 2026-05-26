@@ -6,6 +6,9 @@
   "required": [
     "schema",
     "roundId",
+    "dataMode",
+    "sourceCoverage",
+    "missingData",
     "playerProfile",
     "course",
     "holes",
@@ -27,6 +30,59 @@
     },
     "roundId": {
       "type": "string"
+    },
+    "dataMode": {
+      "type": "string",
+      "enum": ["local", "fixture"]
+    },
+    "sourceCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "dataMode",
+        "requestedRoundId",
+        "selectedRoundId",
+        "roundFound",
+        "availableRoundCount",
+        "holeCount",
+        "clubProfileCount"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["ready", "degraded"]
+        },
+        "dataMode": {
+          "type": "string",
+          "enum": ["local", "fixture"]
+        },
+        "requestedRoundId": {
+          "type": "string"
+        },
+        "selectedRoundId": {
+          "type": ["string", "null"]
+        },
+        "roundFound": {
+          "type": "boolean"
+        },
+        "availableRoundCount": {
+          "type": "integer"
+        },
+        "holeCount": {
+          "type": "integer"
+        },
+        "clubProfileCount": {
+          "type": "integer"
+        }
+      }
+    },
+    "missingData": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
     },
     "playerProfile": {
       "type": "object",

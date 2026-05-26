@@ -1,6 +1,18 @@
 {
   "schema": "ai-caddie-live-round-package-v1",
   "roundId": "live-round-1",
+  "dataMode": "fixture",
+  "sourceCoverage": {
+    "state": "ready",
+    "dataMode": "fixture",
+    "requestedRoundId": "live-round-1",
+    "selectedRoundId": "live-round-1",
+    "roundFound": true,
+    "availableRoundCount": 3,
+    "holeCount": 1,
+    "clubProfileCount": 1
+  },
+  "missingData": [],
   "playerProfile": {
     "playerId": "player-1",
     "displayName": "Test Player",

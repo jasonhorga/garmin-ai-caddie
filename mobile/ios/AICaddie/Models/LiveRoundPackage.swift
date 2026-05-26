@@ -9,6 +9,9 @@ public enum GeometryCoverageState: String, Codable, Equatable {
 public struct LiveRoundPackage: Codable, Equatable {
     public let schema: String
     public let roundId: String
+    public let dataMode: String
+    public let sourceCoverage: SourceCoverage
+    public let missingData: [[String: JSONValue]]
     public let playerProfile: PlayerProfile
     public let course: Course
     public let holes: [Hole]
@@ -26,6 +29,9 @@ public struct LiveRoundPackage: Codable, Equatable {
     public init(
         schema: String = "ai-caddie-live-round-package-v1",
         roundId: String,
+        dataMode: String,
+        sourceCoverage: SourceCoverage,
+        missingData: [[String: JSONValue]],
         playerProfile: PlayerProfile,
         course: Course,
         holes: [Hole],
@@ -42,6 +48,9 @@ public struct LiveRoundPackage: Codable, Equatable {
     ) {
         self.schema = schema
         self.roundId = roundId
+        self.dataMode = dataMode
+        self.sourceCoverage = sourceCoverage
+        self.missingData = missingData
         self.playerProfile = playerProfile
         self.course = course
         self.holes = holes
@@ -56,6 +65,17 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.cachedCaddieRules = cachedCaddieRules
         self.generatedAt = generatedAt
     }
+}
+
+public struct SourceCoverage: Codable, Equatable {
+    public let state: String
+    public let dataMode: String
+    public let requestedRoundId: String
+    public let selectedRoundId: String?
+    public let roundFound: Bool
+    public let availableRoundCount: Int
+    public let holeCount: Int
+    public let clubProfileCount: Int
 }
 
 public struct PlayerProfile: Codable, Equatable {

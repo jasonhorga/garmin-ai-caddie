@@ -170,6 +170,18 @@ def _mobile_package_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-live-round-package-v1",
         "roundId": "live-round-1",
+        "dataMode": "fixture",
+        "sourceCoverage": {
+            "state": "ready",
+            "dataMode": "fixture",
+            "requestedRoundId": "live-round-1",
+            "selectedRoundId": "live-round-1",
+            "roundFound": True,
+            "availableRoundCount": 1,
+            "holeCount": 1,
+            "clubProfileCount": 0,
+        },
+        "missingData": [],
         "playerProfile": {"playerId": "player-1", "displayName": "Test Player", "handedness": "right"},
         "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
         "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
