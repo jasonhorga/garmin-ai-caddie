@@ -29,6 +29,11 @@ class Settings:
         self.nvidia_nim_base_url = os.getenv("NVIDIA_NIM_BASE_URL", "").rstrip("/")
         self.nvidia_nim_model = os.getenv("NVIDIA_NIM_MODEL", "")
         self.gemini_api_key_present = bool(os.getenv("GEMINI_API_KEY"))
+        self.gemini_api_base_url = os.getenv(
+            "GEMINI_API_BASE_URL",
+            "https://generativelanguage.googleapis.com/v1beta",
+        ).rstrip("/")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.anthropic_api_key_present = bool(os.getenv("ANTHROPIC_API_KEY"))
 
 

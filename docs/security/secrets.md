@@ -13,6 +13,9 @@ This project is designed for private golf data first. Secrets must stay local or
 ## AI Provider Keys
 
 - `NVIDIA_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY` belong in local `.env` files or hosted secret stores.
+- Provider selection is controlled by `AI_CADDIE_LLM_PROVIDER` (`static`, `anthropic`, `nvidia_nim`, `gemini_api_key`, or internal-only `gemini_cli_oauth`).
+- NVIDIA NIM uses `NVIDIA_NIM_BASE_URL` and `NVIDIA_NIM_MODEL` beside `NVIDIA_API_KEY`.
+- Gemini API-key mode uses `GEMINI_API_KEY`, optional `GEMINI_API_BASE_URL`, and optional `GEMINI_MODEL`.
 - Test fixtures use static providers and must not require external model keys.
 - Provider errors should be redacted before returning through APIs or logs.
 

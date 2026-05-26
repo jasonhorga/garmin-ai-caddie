@@ -4,6 +4,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Iterable, Literal, Protocol, runtime_checkable
@@ -95,6 +96,56 @@ class NvidiaNimProvider:
             raise ProviderRuntimeError("NVIDIA NIM response did not include choices[0].message.content") from exc
 
 
+class GeminiApiKeyProvider:
+    def __init__(self, *, api_key: str, base_url: str, model: str) -> None:
+        if not api_key:
+            raise ProviderConfigurationError("GEMINI_API_KEY is not configured")
+        if not base_url:
+            raise ProviderConfigurationError("GEMINI_API_BASE_URL is not configured")
+        if not model:
+            raise ProviderConfigurationError("GEMINI_MODEL is not configured")
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+
+    def chat(self, messages: Iterable[LLMMessage], max_tokens: int | None = None) -> str:
+        message_list = list(messages)
+        system_text = "\n\n".join(item.content for item in message_list if item.role == "system")
+        contents = [
+            {
+                "role": "model" if item.role == "assistant" else "user",
+                "parts": [{"text": item.content}],
+            }
+            for item in message_list
+            if item.role != "system"
+        ]
+        payload: dict[str, object] = {
+            "contents": contents,
+            "generationConfig": {"maxOutputTokens": max_tokens or 1800},
+        }
+        if system_text:
+            payload["systemInstruction"] = {"parts": [{"text": system_text}]}
+        model_path = urllib.parse.quote(self.model.removeprefix("models/"), safe="")
+        request = urllib.request.Request(
+            f"{self.base_url}/models/{model_path}:generateContent",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": self.api_key,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            raise ProviderRuntimeError(exc) from exc
+        try:
+            return str(body["candidates"][0]["content"]["parts"][0]["text"])
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ProviderRuntimeError("Gemini response did not include candidates[0].content.parts[0].text") from exc
+
+
 class AnthropicProvider:
     def __init__(self, *, api_key_present: bool, model: str | None = None) -> None:
         if not api_key_present:
@@ -132,7 +183,15 @@ def build_text_provider(settings: object | None = None) -> TextProvider:
     if provider_name == "anthropic":
         return AnthropicProvider(api_key_present=bool(getattr(resolved, "anthropic_api_key_present", False)))
     if provider_name == "gemini_api_key":
-        raise ProviderConfigurationError("gemini_api_key provider is not configured in this build")
+        return GeminiApiKeyProvider(
+            api_key=os.getenv("GEMINI_API_KEY", "") if getattr(resolved, "gemini_api_key_present", False) else "",
+            base_url=getattr(
+                resolved,
+                "gemini_api_base_url",
+                "https://generativelanguage.googleapis.com/v1beta",
+            ),
+            model=getattr(resolved, "gemini_model", "gemini-2.5-flash"),
+        )
     if provider_name == "gemini_cli_oauth":
         raise ProviderConfigurationError("gemini_cli_oauth provider is internal development only")
     raise ProviderConfigurationError(f"Unsupported LLM provider: {provider_name}")
