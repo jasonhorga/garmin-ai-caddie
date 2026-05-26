@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Callable, Literal
+from datetime import datetime
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -18,6 +19,7 @@ OPEN_METEO_CURRENT_FIELDS = (
     "wind_direction_10m",
     "precipitation",
 )
+OPEN_METEO_HOURLY_FIELDS = OPEN_METEO_CURRENT_FIELDS
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -49,6 +51,23 @@ def _iso_z(value: str | None) -> str | None:
     if "T" in text and len(text) == 19:
         return f"{text}Z"
     return text
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    text = _iso_z(value)
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _hour_key(value: str | None) -> str | None:
+    parsed = _parse_iso_datetime(value)
+    if parsed is None:
+        return None
+    return parsed.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:00")
 
 
 def build_weather_snapshot(
@@ -92,22 +111,71 @@ def build_weather_snapshot(
     }
 
 
-def _open_meteo_url(latitude: float, longitude: float) -> str:
-    query = urlencode(
-        {
-            "latitude": latitude,
-            "longitude": longitude,
-            "current": ",".join(OPEN_METEO_CURRENT_FIELDS),
-            "wind_speed_unit": "ms",
-            "timezone": "UTC",
-        }
-    )
+def _open_meteo_url(latitude: float, longitude: float, captured_at: str | None = None) -> str:
+    captured_dt = _parse_iso_datetime(captured_at)
+    params: dict[str, object] = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "wind_speed_unit": "ms",
+        "timezone": "UTC",
+    }
+    if captured_dt is None:
+        params["current"] = ",".join(OPEN_METEO_CURRENT_FIELDS)
+    else:
+        params["hourly"] = ",".join(OPEN_METEO_HOURLY_FIELDS)
+        params["start_date"] = captured_dt.date().isoformat()
+        params["end_date"] = captured_dt.date().isoformat()
+    query = urlencode(params)
     return f"{OPEN_METEO_FORECAST_URL}?{query}"
 
 
 def _default_open_meteo_transport(url: str) -> dict[str, Any]:
     with urlopen(url, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _hourly_value(hourly: dict[str, Any], field: str, index: int) -> Any:
+    values = hourly.get(field)
+    if not isinstance(values, list) or index >= len(values):
+        return None
+    return values[index]
+
+
+def _observed_from_hourly(payload: dict[str, Any], captured_at: str | None) -> tuple[dict[str, Any], str]:
+    hourly = payload.get("hourly")
+    if not isinstance(hourly, dict):
+        raise ValueError("open meteo response did not include hourly weather")
+    times = hourly.get("time")
+    if not isinstance(times, list):
+        raise ValueError("open meteo hourly response did not include time values")
+    requested_hour = _hour_key(captured_at)
+    if requested_hour is None:
+        raise ValueError("captured_at could not be resolved to an hourly weather key")
+    time_keys = [_hour_key(str(value)) for value in times]
+    try:
+        index = time_keys.index(requested_hour)
+    except ValueError as exc:
+        raise ValueError("open meteo hourly response did not include requested round time") from exc
+    observed = {
+        "windSpeedMps": _hourly_value(hourly, "wind_speed_10m", index),
+        "windDirectionDeg": _hourly_value(hourly, "wind_direction_10m", index),
+        "temperatureC": _hourly_value(hourly, "temperature_2m", index),
+        "precipitationMm": _hourly_value(hourly, "precipitation", index),
+    }
+    return observed, str(times[index])
+
+
+def _observed_from_current(payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    current = payload.get("current") if isinstance(payload, dict) else None
+    if not isinstance(current, dict):
+        raise ValueError("open meteo response did not include current weather")
+    observed = {
+        "windSpeedMps": current.get("wind_speed_10m"),
+        "windDirectionDeg": current.get("wind_direction_10m"),
+        "temperatureC": current.get("temperature_2m"),
+        "precipitationMm": current.get("precipitation"),
+    }
+    return observed, str(current.get("time") or "")
 
 
 def fetch_open_meteo_weather_snapshot(
@@ -129,20 +197,15 @@ def fetch_open_meteo_weather_snapshot(
             source="open_meteo",
         )
     try:
-        payload = (transport or _default_open_meteo_transport)(_open_meteo_url(latitude, longitude))
-        current = payload.get("current") if isinstance(payload, dict) else None
-        if not isinstance(current, dict):
-            raise ValueError("open meteo response did not include current weather")
-        observed = {
-            "windSpeedMps": current.get("wind_speed_10m"),
-            "windDirectionDeg": current.get("wind_direction_10m"),
-            "temperatureC": current.get("temperature_2m"),
-            "precipitationMm": current.get("precipitation"),
-        }
+        payload = (transport or _default_open_meteo_transport)(_open_meteo_url(latitude, longitude, captured_at))
+        if captured_at:
+            observed, observed_time = _observed_from_hourly(payload, captured_at)
+        else:
+            observed, observed_time = _observed_from_current(payload)
         return build_weather_snapshot(
             round_id=round_id,
             hole=hole,
-            captured_at=captured_at or str(current.get("time") or ""),
+            captured_at=observed_time,
             latitude=latitude,
             longitude=longitude,
             source="open_meteo",

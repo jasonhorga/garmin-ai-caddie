@@ -88,6 +88,45 @@ class WeatherContextTests(unittest.TestCase):
         self.assertEqual(snapshot["precipitationMm"], 0.2)
         self.assertEqual(snapshot["confidence"], "high")
 
+    def test_open_meteo_provider_selects_hourly_weather_for_requested_round_time(self) -> None:
+        captured_urls: list[str] = []
+
+        def fake_transport(url: str) -> dict[str, object]:
+            captured_urls.append(url)
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            self.assertIn("temperature_2m", params["hourly"][0])
+            self.assertIn("wind_speed_10m", params["hourly"][0])
+            self.assertEqual(params["start_date"], ["2026-05-25"])
+            self.assertEqual(params["end_date"], ["2026-05-25"])
+            self.assertNotIn("current", params)
+            return {
+                "hourly": {
+                    "time": ["2026-05-25T08:00", "2026-05-25T09:00", "2026-05-25T10:00"],
+                    "temperature_2m": [27.1, 29.2, 30.4],
+                    "wind_speed_10m": [3.1, 6.2, 4.4],
+                    "wind_direction_10m": [80, 125, 150],
+                    "precipitation": [0.0, 0.7, 0.1],
+                }
+            }
+
+        snapshot = fetch_open_meteo_weather_snapshot(
+            round_id="round-1",
+            hole=7,
+            captured_at="2026-05-25T09:18:00Z",
+            latitude=22.279,
+            longitude=114.162,
+            transport=fake_transport,
+        )
+
+        self.assertEqual(len(captured_urls), 1)
+        self.assertEqual(snapshot["state"], "ready")
+        self.assertEqual(snapshot["capturedAt"], "2026-05-25T09:00:00Z")
+        self.assertEqual(snapshot["windSpeedMps"], 6.2)
+        self.assertEqual(snapshot["windDirectionDeg"], 125)
+        self.assertEqual(snapshot["temperatureC"], 29.2)
+        self.assertEqual(snapshot["precipitationMm"], 0.7)
+
     def test_open_meteo_provider_degrades_without_network_or_values(self) -> None:
         def failing_transport(_url: str) -> dict[str, object]:
             raise TimeoutError("provider timed out")
