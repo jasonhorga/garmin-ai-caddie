@@ -14,6 +14,13 @@ const connectorLabel = {
   garmin_oauth_feasibility: 'Official OAuth',
 }
 
+const nextActionLabel = {
+  connect_garmin: 'Connect Garmin',
+  review_history: 'Review history',
+  reauthenticate_garmin: 'Reauthenticate Garmin',
+  inspect_sync_error: 'Inspect sync error',
+}
+
 interface SyncStatusPanelProps {
   status: SyncStatusResponse
   onSync?: (adminToken?: string) => void
@@ -79,6 +86,9 @@ export function SyncStatusPanel({
         <p className="eyebrow">Garmin CN</p>
         <h2>{stateLabel[status.connector.state]}</h2>
         <p>{status.connector.detail}</p>
+        {status.connector.nextAction ? (
+          <span className="sync-next-action">{nextActionLabel[status.connector.nextAction]}</span>
+        ) : null}
         {status.connector.reauthRequired ? (
           <p className="sync-guidance">Reauthenticate the Garmin CN session before running another sync.</p>
         ) : null}

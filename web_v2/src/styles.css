@@ -586,6 +586,21 @@ p {
   font-weight: 750;
 }
 
+.sync-next-action {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  border: 1px solid #bbd6c1;
+  border-radius: 999px;
+  background: #eef7f0;
+  color: var(--green);
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
 .sync-run-meta {
   width: 100%;
   display: grid;

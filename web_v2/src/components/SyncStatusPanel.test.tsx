@@ -50,10 +50,17 @@ const baseStatus: SyncStatusResponse = {
 
 describe('SyncStatusPanel', () => {
   it('renders ready local snapshot counts', () => {
-    render(<SyncStatusPanel status={baseStatus} onSync={vi.fn()} syncState="idle" />)
+    render(
+      <SyncStatusPanel
+        status={{ ...baseStatus, connector: { ...baseStatus.connector, nextAction: 'review_history' } }}
+        onSync={vi.fn()}
+        syncState="idle"
+      />,
+    )
 
     expect(screen.getByText('Garmin CN')).toBeInTheDocument()
     expect(screen.getAllByText('ready').length).toBeGreaterThan(0)
+    expect(screen.getByText('Review history')).toHaveClass('sync-next-action')
     expect(screen.getByText('12 scorecards')).toBeInTheDocument()
     expect(screen.getByText('8 shot files')).toBeInTheDocument()
     expect(screen.getByText('local data')).toBeInTheDocument()
