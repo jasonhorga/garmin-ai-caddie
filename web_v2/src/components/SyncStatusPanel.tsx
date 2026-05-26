@@ -20,6 +20,11 @@ const capabilityStateLabel = {
   possible: 'possible',
 }
 
+const probeStateLabel = {
+  not_configured: 'not configured',
+  ready_for_manual_consent: 'ready for manual consent',
+}
+
 const nextActionLabel = {
   connect_garmin: 'Connect Garmin',
   review_history: 'Review history',
@@ -149,6 +154,22 @@ export function SyncStatusPanel({
                       </b>
                     </div>
                   ))}
+                </div>
+              ) : null}
+              {connector.probe ? (
+                <div className="sync-oauth-probe" aria-label="OAuth probe readiness">
+                  <span>
+                    <strong>OAuth probe</strong>
+                    <em>{connector.probe.liveProbeAllowed ? 'live probe allowed' : 'dry-run only'}</em>
+                  </span>
+                  <b className={`semantic-chip ${connector.probe.state === 'ready_for_manual_consent' ? 'quality-good' : 'quality-missing'}`}>
+                    {probeStateLabel[connector.probe.state]}
+                  </b>
+                  {connector.probe.missing.length ? (
+                    <p>Missing: {connector.probe.missing.join(', ')}</p>
+                  ) : (
+                    <p>Consent request is configured with redacted parameters.</p>
+                  )}
                 </div>
               ) : null}
             </div>

@@ -19,6 +19,14 @@ This project is designed for private golf data first. Secrets must stay local or
 - Test fixtures use static providers and must not require external model keys.
 - Provider errors should be redacted before returning through APIs or logs.
 
+## Garmin OAuth Feasibility Probe
+
+- Official Garmin OAuth remains a feasibility track until golf scorecards, shots, and course metadata are proven for a consented account.
+- Probe configuration uses `AI_CADDIE_GARMIN_OAUTH_CLIENT_ID`, `AI_CADDIE_GARMIN_OAUTH_CLIENT_SECRET`, `AI_CADDIE_GARMIN_OAUTH_REDIRECT_URI`, `AI_CADDIE_GARMIN_OAUTH_AUTH_URL`, `AI_CADDIE_GARMIN_OAUTH_TOKEN_URL`, and `AI_CADDIE_GARMIN_OAUTH_SCOPES`.
+- `AI_CADDIE_GARMIN_OAUTH_LIVE_PROBE=1` only marks that a manual live probe is allowed; automated tests must not call Garmin OAuth.
+- Sync status may expose boolean readiness and a redacted consent-request preview, but it must not echo the client id, client secret, tokens, redirect URI, or raw scopes.
+- OAuth feasibility must not replace the CN Web Session connector until it can sync the required golf history data.
+
 ## Admin Protection
 
 - Set `AI_CADDIE_ADMIN_TOKEN` for any private, staging, or production deployment.

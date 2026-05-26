@@ -271,6 +271,7 @@ class ConnectorStatus(BaseModel):
     track: str | None = None
     feasibilityQuestions: list[str] = Field(default_factory=list)
     capabilities: list[dict[str, Any]] = Field(default_factory=list)
+    probe: dict[str, Any] = Field(default_factory=dict)
 
 
 class SnapshotStatus(BaseModel):

@@ -50,6 +50,27 @@ const baseStatus: SyncStatusResponse = {
           migrationValue: true,
         },
       ],
+      probe: {
+        schema: 'ai-caddie-garmin-oauth-probe-v1',
+        state: 'not_configured',
+        liveProbeAllowed: false,
+        configured: {
+          clientId: false,
+          clientCredential: false,
+          redirectUri: false,
+          consentEndpoint: false,
+          exchangeEndpoint: false,
+          scopes: false,
+        },
+        missing: ['client_id', 'redirect_uri', 'consent_endpoint', 'exchange_endpoint', 'scopes'],
+        consentRequest: {
+          method: 'GET',
+          endpointConfigured: false,
+          parameterKeys: ['response_type', 'client_id', 'redirect_uri', 'scope', 'state'],
+          redactedPreview: null,
+        },
+        manualSteps: ['Register a Garmin OAuth client and redirect URI through the official developer path.'],
+      },
     },
   ],
   snapshot: {
@@ -95,6 +116,10 @@ describe('SyncStatusPanel', () => {
     expect(screen.getByText('unproven')).toBeInTheDocument()
     expect(screen.getByText('Identity')).toBeInTheDocument()
     expect(screen.getByText('possible')).toBeInTheDocument()
+    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('OAuth probe')
+    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('not configured')
+    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('client_id, redirect_uri, consent_endpoint, exchange_endpoint, scopes')
+    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('dry-run only')
   })
 
   it('renders reauth required state', () => {

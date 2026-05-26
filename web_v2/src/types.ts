@@ -471,6 +471,21 @@ export interface ConnectorCapability {
   migrationValue: boolean
 }
 
+export interface ConnectorProbeStatus {
+  schema: 'ai-caddie-garmin-oauth-probe-v1'
+  state: 'not_configured' | 'ready_for_manual_consent'
+  liveProbeAllowed: boolean
+  configured: Record<string, boolean>
+  missing: string[]
+  consentRequest: {
+    method: string
+    endpointConfigured: boolean
+    parameterKeys: string[]
+    redactedPreview: string | null
+  }
+  manualSteps: string[]
+}
+
 export interface ConnectorStatus {
   name: 'garmin_cn_web_session' | 'garmin_oauth_feasibility'
   state: ConnectorState
@@ -481,6 +496,7 @@ export interface ConnectorStatus {
   track?: string | null
   feasibilityQuestions?: string[]
   capabilities?: ConnectorCapability[]
+  probe?: ConnectorProbeStatus
 }
 
 export interface SyncLastRunStatus {
