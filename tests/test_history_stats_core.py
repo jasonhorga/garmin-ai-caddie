@@ -493,6 +493,58 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertIn("900001:1", stats["drillDown"]["holeRefs"])
         self.assertIn("900001:1:0", stats["drillDown"]["shotRefs"])
 
+    def test_aggregate_rows_expose_source_refs_coverage_and_confidence(self) -> None:
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+
+        self.assertEqual(stats["summary"]["sourceRefs"], ["900001", "900002", "900003"])
+        self.assertEqual(stats["summary"]["coverage"], {"ready": 3, "total": 3, "pct": 100.0})
+        self.assertEqual(stats["summary"]["confidence"], "medium")
+
+        year = stats["time"]["byYear"][0]
+        self.assertEqual(year["sourceRefs"], ["900001", "900002", "900003"])
+        self.assertEqual(year["coverage"], {"ready": 3, "total": 3, "pct": 100.0})
+        self.assertEqual(year["confidence"], "medium")
+
+        band_70s = next(row for row in stats["scoring"]["scoreBands"] if row["label"] == "70s")
+        self.assertEqual(band_70s["sourceRefs"], ["900001"])
+        self.assertEqual(band_70s["coverage"], {"ready": 1, "total": 2, "pct": 50.0})
+        self.assertEqual(band_70s["confidence"], "low")
+
+        outcome_bogey = next(row for row in stats["scoring"]["outcomeRows"] if row["key"] == "bogey")
+        self.assertIn("900001:5", outcome_bogey["sourceRefs"])
+        self.assertEqual(outcome_bogey["coverage"]["total"], 45)
+        self.assertEqual(outcome_bogey["confidence"], "high")
+
+        phase_stats = {row["phase"]: row for row in stats["scoring"]["phaseStats"]}
+        self.assertEqual(phase_stats["Putting"]["sourceRefs"], phase_stats["Putting"]["holeRefs"])
+        self.assertEqual(phase_stats["Putting"]["coverage"], {"ready": 45, "total": 45, "pct": 100.0})
+        self.assertEqual(phase_stats["Putting"]["confidence"], "high")
+        self.assertEqual(phase_stats["Short Game"]["sourceRefs"], phase_stats["Short Game"]["shotRefs"])
+        self.assertEqual(phase_stats["Short Game"]["coverage"], {"ready": 1, "total": 6, "pct": 16.7})
+
+        course = next(row for row in stats["courses"] if row["courseKey"] == "black_knight")
+        self.assertEqual(course["sourceRefs"], ["900001", "900002"])
+        self.assertEqual(course["coverage"], {"ready": 2, "total": 3, "pct": 66.7})
+        self.assertEqual(course["confidence"], "medium")
+
+        distribution = next(row for row in stats["courseDistribution"] if row["courseKey"] == "black_knight")
+        self.assertEqual(distribution["sourceRefs"], distribution["roundRefs"])
+        self.assertEqual(distribution["coverage"], {"ready": 2, "total": 3, "pct": 66.7})
+
+        hole = next(row for row in stats["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
+        self.assertEqual(hole["sourceRefs"], hole["holeRefs"])
+        self.assertEqual(hole["coverage"], {"ready": 2, "total": 2, "pct": 100.0})
+        self.assertEqual(hole["confidence"], "medium")
+
+        driver = next(row for row in stats["clubs"] if row["club"] == "1D")
+        self.assertEqual(driver["sourceRefs"], driver["shotRefs"])
+        self.assertEqual(driver["coverage"], {"ready": 2, "total": 2, "pct": 100.0})
+
+        data_quality = {row["label"]: row for row in stats["dataQuality"]}
+        self.assertEqual(data_quality["shots"]["sourceRefs"], data_quality["shots"]["refs"])
+        self.assertEqual(data_quality["shots"]["coverage"], {"ready": 2, "total": 3, "pct": 66.7})
+        self.assertEqual(data_quality["shots"]["confidence"], "medium")
+
     def test_improvement_pace_compares_baseline_recent_and_slope(self) -> None:
         stats = build_history_stats(improvement_history_data(), data_mode="fixture")
 

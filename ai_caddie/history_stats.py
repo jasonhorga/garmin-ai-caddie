@@ -194,6 +194,53 @@ def _confidence(sample_count: int) -> str:
     return "low"
 
 
+def _coverage(ready: int, total: int) -> dict[str, Any]:
+    return {
+        "ready": ready,
+        "total": total,
+        "pct": round(ready / total * 100, 1) if total else 0.0,
+    }
+
+
+def _source_refs(refs: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for ref in refs:
+        text = str(ref)
+        if not text or text == "None" or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def _with_aggregate_contract(
+    row: dict[str, Any],
+    refs: list[Any],
+    *,
+    ready: int | None = None,
+    total: int | None = None,
+    confidence_count: int | None = None,
+) -> dict[str, Any]:
+    source_refs = _source_refs(refs)
+    ready_count = len(source_refs) if ready is None else ready
+    total_count = len(source_refs) if total is None else total
+    row["sourceRefs"] = source_refs
+    row["coverage"] = _coverage(ready_count, total_count)
+    row["confidence"] = _confidence(len(source_refs) if confidence_count is None else confidence_count)
+    return row
+
+
+def _with_quality_contract(row: dict[str, Any]) -> dict[str, Any]:
+    ready = int(row.get("ready") or 0)
+    total = int(row.get("total") or 0)
+    refs = row.get("refs") if isinstance(row.get("refs"), list) else []
+    row["sourceRefs"] = _source_refs(refs)
+    row["coverage"] = _coverage(ready, total)
+    row["confidence"] = _confidence(ready)
+    return row
+
+
 def _hole_to_par(hole: dict[str, Any], fallback_par: int | None) -> int | None:
     par = hole.get("par")
     if isinstance(par, int):
@@ -253,21 +300,25 @@ def _summary(data: HistoryData) -> dict[str, Any]:
         for row in sorted(rounds18, key=lambda row: str(row.get("date") or ""), reverse=True)
         if row.get("strokes") is not None
     ]
-    return {
-        "totalRounds": len(data.rounds),
-        "eighteenHoleRounds": len(rounds18),
-        "nineHoleRounds": sum(1 for row in data.rounds if row.get("holesCompleted") == 9),
-        "mergedRounds": sum(1 for row in data.rounds if row.get("merged")),
-        "courseCount": len({row.get("courseKey") for row in data.rounds if row.get("courseKey")}),
-        "shotCount": len(data.shots),
-        "average18": average(scores18),
-        "median18": round(float(median(scores18)), 1) if scores18 else None,
-        "recent5Average": average(recent_scores18[:5]),
-        "recent10Average": average(recent_scores18[:10]),
-        "recent20Average": average(recent_scores18[:20]),
-        "bestScore": min(scores18) if scores18 else None,
-        "worstScore": max(scores18) if scores18 else None,
-    }
+    refs = [_round_id(row) for row in data.rounds]
+    return _with_aggregate_contract(
+        {
+            "totalRounds": len(data.rounds),
+            "eighteenHoleRounds": len(rounds18),
+            "nineHoleRounds": sum(1 for row in data.rounds if row.get("holesCompleted") == 9),
+            "mergedRounds": sum(1 for row in data.rounds if row.get("merged")),
+            "courseCount": len({row.get("courseKey") for row in data.rounds if row.get("courseKey")}),
+            "shotCount": len(data.shots),
+            "average18": average(scores18),
+            "median18": round(float(median(scores18)), 1) if scores18 else None,
+            "recent5Average": average(recent_scores18[:5]),
+            "recent10Average": average(recent_scores18[:10]),
+            "recent20Average": average(recent_scores18[:20]),
+            "bestScore": min(scores18) if scores18 else None,
+            "worstScore": max(scores18) if scores18 else None,
+        },
+        refs,
+    )
 
 
 def _time_stats(data: HistoryData) -> dict[str, Any]:
@@ -292,14 +343,20 @@ def _time_stats(data: HistoryData) -> dict[str, Any]:
             for row in rows
             if row.get("holesCompleted") == 18 and row.get("strokes") is not None
         ]
-        return {
-            "key": key,
-            "year": key if len(key) == 4 else None,
-            "roundCount": len(rows),
-            "average18": average(scores18),
-            "bestScore": min(scores18) if scores18 else None,
-            "roundIds": [_round_id(row) for row in rows],
-        }
+        round_ids = [_round_id(row) for row in rows]
+        return _with_aggregate_contract(
+            {
+                "key": key,
+                "year": key if len(key) == 4 else None,
+                "roundCount": len(rows),
+                "average18": average(scores18),
+                "bestScore": min(scores18) if scores18 else None,
+                "roundIds": round_ids,
+                "roundRefs": round_ids,
+            },
+            round_ids,
+            total=len(data.rounds),
+        )
 
     known_months = [key for key in sorted(by_month) if key != "unknown"]
     most_active_month = None
@@ -405,6 +462,7 @@ def _improvement_stats(data: HistoryData) -> dict[str, Any]:
 def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     bands: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
+    outcome_refs: dict[str, list[str]] = defaultdict(list)
     putt_corrections = _annotations_by_kind(annotations, "putt_correction")
     score_corrections = _annotations_by_kind(annotations, "score_correction")
     putts: list[int] = []
@@ -416,6 +474,8 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
     tee_refs: list[str] = []
     gir = Counter({"recorded": 0, "hit": 0})
     approach_refs: list[str] = []
+    total_holes = sum(len(row.get("holes") or []) for row in data.rounds)
+    effective_shots = _effective_shots(data, annotations)
     for row in data.rounds:
         if row.get("holesCompleted") == 18 and row.get("strokes") is not None:
             bands[_score_band(int(row["strokes"]))].append(_round_id(row))
@@ -455,17 +515,54 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             delta = int(score) - int(par)
             if delta <= -2:
                 outcomes["eagleOrBetter"] += 1
+                outcome_refs["eagleOrBetter"].append(ref)
             elif delta == -1:
                 outcomes["birdie"] += 1
+                outcome_refs["birdie"].append(ref)
             elif delta == 0:
                 outcomes["par"] += 1
+                outcome_refs["par"].append(ref)
             elif delta == 1:
                 outcomes["bogey"] += 1
+                outcome_refs["bogey"].append(ref)
             else:
                 outcomes["doubleOrWorse"] += 1
+                outcome_refs["doubleOrWorse"].append(ref)
+    total_rounds18 = sum(len(round_ids) for round_ids in bands.values())
+    total_outcomes = sum(len(refs) for refs in outcome_refs.values())
+    short_game_refs = [
+        str(shot.get("_ref"))
+        for shot in effective_shots
+        if str(shot.get("surface") or "").lower() in {"rough", "bunker"} and shot.get("_ref") is not None
+    ]
+    outcome_rows = [
+        _with_aggregate_contract(
+            {
+                "key": key,
+                "label": label,
+                "className": class_name,
+                "count": len(outcome_refs.get(key, [])),
+                "pct": round(len(outcome_refs.get(key, [])) / total_outcomes * 100, 1) if total_outcomes else 0.0,
+                "holeRefs": outcome_refs.get(key, []),
+            },
+            outcome_refs.get(key, []),
+            total=total_outcomes,
+        )
+        for key, label, class_name in [
+            ("eagleOrBetter", "Eagle+", "eagle"),
+            ("birdie", "Birdie", "birdie"),
+            ("par", "Par", "par"),
+            ("bogey", "Bogey", "bogey"),
+            ("doubleOrWorse", "Double+", "double"),
+        ]
+    ]
     return {
         "scoreBands": [
-            {"label": label, "count": len(round_ids), "roundIds": round_ids}
+            _with_aggregate_contract(
+                {"label": label, "count": len(round_ids), "roundIds": round_ids, "roundRefs": round_ids},
+                round_ids,
+                total=total_rounds18,
+            )
             for label, round_ids in bands.items()
         ],
         "outcomes": {
@@ -473,6 +570,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             "parOrBetter": outcomes["eagleOrBetter"] + outcomes["birdie"] + outcomes["par"],
             "bogeyOrWorse": outcomes["bogey"] + outcomes["doubleOrWorse"],
         },
+        "outcomeRows": outcome_rows,
         "putting": {
             "totalPutts": sum(putts),
             "holesWithPutts": len(putts),
@@ -482,45 +580,56 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             "correctedRefs": corrected_putt_refs,
         },
         "phaseStats": [
-            {
-                "phase": "Tee",
-                "fairwaysRecorded": fairways["recorded"],
-                "fairwaysHit": fairways["hit"],
-                "fairwayMissLeft": fairways["left"],
-                "fairwayMissRight": fairways["right"],
-                "holeRefs": tee_refs,
-            },
-            {
-                "phase": "Approach",
-                "girRecorded": gir["recorded"],
-                "gir": gir["hit"],
-                "missedGir": gir["recorded"] - gir["hit"],
-                "girPct": round(gir["hit"] / gir["recorded"] * 100, 1) if gir["recorded"] else None,
-                "holeRefs": approach_refs,
-            },
-            {
-                "phase": "Short Game",
-                "roughOrBunkerShots": sum(
-                    1
-                    for shot in _effective_shots(data, annotations)
-                    if str(shot.get("surface") or "").lower() in {"rough", "bunker"}
-                ),
-                "shotRefs": [
-                    str(shot.get("_ref"))
-                    for shot in _effective_shots(data, annotations)
-                    if str(shot.get("surface") or "").lower() in {"rough", "bunker"} and shot.get("_ref") is not None
-                ],
-            },
-            {
-                "phase": "Putting",
-                "totalPutts": sum(putts),
-                "holesWithPutts": len(putts),
-                "averagePutts": average(putts),
-                "threePutts": len(three_putt_refs),
-                "holeRefs": putt_refs,
-                "threePuttRefs": three_putt_refs,
-                "correctedRefs": corrected_putt_refs,
-            },
+            _with_aggregate_contract(
+                {
+                    "phase": "Tee",
+                    "fairwaysRecorded": fairways["recorded"],
+                    "fairwaysHit": fairways["hit"],
+                    "fairwayMissLeft": fairways["left"],
+                    "fairwayMissRight": fairways["right"],
+                    "holeRefs": tee_refs,
+                },
+                tee_refs,
+                ready=fairways["recorded"],
+                total=total_holes,
+            ),
+            _with_aggregate_contract(
+                {
+                    "phase": "Approach",
+                    "girRecorded": gir["recorded"],
+                    "gir": gir["hit"],
+                    "missedGir": gir["recorded"] - gir["hit"],
+                    "girPct": round(gir["hit"] / gir["recorded"] * 100, 1) if gir["recorded"] else None,
+                    "holeRefs": approach_refs,
+                },
+                approach_refs,
+                ready=gir["recorded"],
+                total=total_holes,
+            ),
+            _with_aggregate_contract(
+                {
+                    "phase": "Short Game",
+                    "roughOrBunkerShots": len(short_game_refs),
+                    "shotRefs": short_game_refs,
+                },
+                short_game_refs,
+                total=len(effective_shots),
+            ),
+            _with_aggregate_contract(
+                {
+                    "phase": "Putting",
+                    "totalPutts": sum(putts),
+                    "holesWithPutts": len(putts),
+                    "averagePutts": average(putts),
+                    "threePutts": len(three_putt_refs),
+                    "holeRefs": putt_refs,
+                    "threePuttRefs": three_putt_refs,
+                    "correctedRefs": corrected_putt_refs,
+                },
+                putt_refs,
+                ready=len(putts),
+                total=total_holes,
+            ),
         ],
         "scoreCorrections": {
             "count": len(corrected_score_refs),
@@ -534,27 +643,33 @@ def _courses(data: HistoryData) -> list[dict[str, Any]]:
     for row in data.rounds:
         grouped[str(row.get("courseKey") or "unknown")].append(row)
     out = []
+    total_rounds = len(data.rounds)
     for course_key, rows in grouped.items():
         rows_sorted = sorted(rows, key=lambda row: str(row.get("date") or ""), reverse=True)
+        round_ids = [_round_id(row) for row in rows_sorted]
         scores18 = [
             int(row["strokes"])
             for row in rows
             if row.get("holesCompleted") == 18 and row.get("strokes") is not None
         ]
         out.append(
-            {
-                "courseKey": course_key,
-                "courseName": str(rows_sorted[0].get("course") or rows_sorted[0].get("courseName") or "Unknown course"),
-                "roundCount": len(rows),
-                "average18": average(scores18),
-                "bestScore": min(scores18) if scores18 else None,
-                "worstScore": max(scores18) if scores18 else None,
-                "recentRoundId": _round_id(rows_sorted[0]),
-                "roundIds": [_round_id(row) for row in rows_sorted],
-                "roundRefs": [_round_id(row) for row in rows_sorted],
-                "recentForm": _course_recent_form(rows),
-                "geometryCoverage": _course_geometry_coverage(rows),
-            }
+            _with_aggregate_contract(
+                {
+                    "courseKey": course_key,
+                    "courseName": str(rows_sorted[0].get("course") or rows_sorted[0].get("courseName") or "Unknown course"),
+                    "roundCount": len(rows),
+                    "average18": average(scores18),
+                    "bestScore": min(scores18) if scores18 else None,
+                    "worstScore": max(scores18) if scores18 else None,
+                    "recentRoundId": _round_id(rows_sorted[0]),
+                    "roundIds": round_ids,
+                    "roundRefs": round_ids,
+                    "recentForm": _course_recent_form(rows),
+                    "geometryCoverage": _course_geometry_coverage(rows),
+                },
+                round_ids,
+                total=total_rounds,
+            )
         )
     return sorted(out, key=lambda row: (-row["roundCount"], row["courseName"]))
 
@@ -610,20 +725,25 @@ def _course_distribution(data: HistoryData) -> list[dict[str, Any]]:
     rows = []
     for course_key, course_rows in grouped.items():
         rows_sorted = sorted(course_rows, key=lambda row: str(row.get("date") or ""), reverse=True)
+        round_refs = [_round_id(row) for row in rows_sorted]
         rows.append(
-            {
-                "courseKey": course_key,
-                "courseName": str(rows_sorted[0].get("course") or rows_sorted[0].get("courseName") or "Unknown course"),
-                "roundCount": len(course_rows),
-                "pct": round(len(course_rows) / total * 100, 1) if total else 0.0,
-                "roundRefs": [_round_id(row) for row in rows_sorted],
-                "location": {
-                    "latitude": rows_sorted[0].get("lat"),
-                    "longitude": rows_sorted[0].get("lon"),
-                }
-                if rows_sorted[0].get("lat") is not None and rows_sorted[0].get("lon") is not None
-                else None,
-            }
+            _with_aggregate_contract(
+                {
+                    "courseKey": course_key,
+                    "courseName": str(rows_sorted[0].get("course") or rows_sorted[0].get("courseName") or "Unknown course"),
+                    "roundCount": len(course_rows),
+                    "pct": round(len(course_rows) / total * 100, 1) if total else 0.0,
+                    "roundRefs": round_refs,
+                    "location": {
+                        "latitude": rows_sorted[0].get("lat"),
+                        "longitude": rows_sorted[0].get("lon"),
+                    }
+                    if rows_sorted[0].get("lat") is not None and rows_sorted[0].get("lon") is not None
+                    else None,
+                },
+                round_refs,
+                total=total,
+            )
         )
     return sorted(rows, key=lambda row: (-row["roundCount"], row["courseName"]))
 
@@ -806,18 +926,21 @@ def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
                 issue_refs[(tag, "manual")].append(ref)
             refs.append(ref)
         out.append(
-            {
-                "courseKey": course_key,
-                "hole": number,
-                "sampleCount": len(pairs),
-                "averageToPar": average(deltas),
-                "worstToPar": max(deltas) if deltas else None,
-                "scoreDistribution": _hole_score_distribution(distribution_refs),
-                "repeatedIssues": _hole_repeated_issue_records(issue_refs),
-                "refs": refs,
-                "holeRefs": refs,
-                "geometryCoverage": _hole_geometry_coverage(pairs, number),
-            }
+            _with_aggregate_contract(
+                {
+                    "courseKey": course_key,
+                    "hole": number,
+                    "sampleCount": len(pairs),
+                    "averageToPar": average(deltas),
+                    "worstToPar": max(deltas) if deltas else None,
+                    "scoreDistribution": _hole_score_distribution(distribution_refs),
+                    "repeatedIssues": _hole_repeated_issue_records(issue_refs),
+                    "refs": refs,
+                    "holeRefs": refs,
+                    "geometryCoverage": _hole_geometry_coverage(pairs, number),
+                },
+                refs,
+            )
         )
     return sorted(out, key=lambda row: (row["courseKey"], row["hole"]))
 
@@ -838,19 +961,24 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
             if shot.get("_clubCorrected") and shot.get("_ref") is not None
         )
         out.append(
-            {
-                "club": club,
-                "sampleCount": len(distances),
-                "median": round(float(median(distances)), 1) if distances else None,
-                "p10": percentile(distances, 0.1),
-                "p90": percentile(distances, 0.9),
-                "max": max(distances) if distances else None,
-                "confidence": _confidence(len(distances)),
-                "roundIds": round_ids,
-                "shotRefs": shot_refs,
-                "correctedRefs": corrected_refs,
-                "correctionCount": len(corrected_refs),
-            }
+            _with_aggregate_contract(
+                {
+                    "club": club,
+                    "sampleCount": len(distances),
+                    "median": round(float(median(distances)), 1) if distances else None,
+                    "p10": percentile(distances, 0.1),
+                    "p90": percentile(distances, 0.9),
+                    "max": max(distances) if distances else None,
+                    "roundIds": round_ids,
+                    "shotRefs": shot_refs,
+                    "correctedRefs": corrected_refs,
+                    "correctionCount": len(corrected_refs),
+                },
+                shot_refs,
+                ready=len(distances),
+                total=len(shots),
+                confidence_count=len(distances),
+            )
         )
     return sorted(out, key=lambda row: row["club"])
 
@@ -956,13 +1084,15 @@ def _weather_quality(data: HistoryData, weather_snapshots: list[dict[str, Any]] 
             if row.get("state") == "ready" and row.get("roundId") is not None and row.get("hole") is not None
         }
     )
-    return {
-        "label": "weather",
-        "state": "good" if total_holes and len(ready_refs) >= total_holes else "partial" if ready_refs else "missing",
-        "ready": len(ready_refs),
-        "total": total_holes,
-        "refs": ready_refs,
-    }
+    return _with_quality_contract(
+        {
+            "label": "weather",
+            "state": "good" if total_holes and len(ready_refs) >= total_holes else "partial" if ready_refs else "missing",
+            "ready": len(ready_refs),
+            "total": total_holes,
+            "refs": ready_refs,
+        }
+    )
 
 
 def _geometry_quality(hole_rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -975,14 +1105,16 @@ def _geometry_quality(hole_rows: list[dict[str, Any]]) -> dict[str, Any]:
         if row.get("geometryCoverage") != "ready"
         for ref in (row.get("holeRefs") or row.get("refs") or [])
     ]
-    return {
-        "label": "geometry",
-        "state": "good" if total and ready == total else "partial" if ready or partial else "missing",
-        "ready": ready,
-        "partial": partial,
-        "total": total,
-        "refs": refs,
-    }
+    return _with_quality_contract(
+        {
+            "label": "geometry",
+            "state": "good" if total and ready == total else "partial" if ready or partial else "missing",
+            "ready": ready,
+            "partial": partial,
+            "total": total,
+            "refs": refs,
+        }
+    )
 
 
 def _report_quality(data: HistoryData, report_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -995,13 +1127,15 @@ def _report_quality(data: HistoryData, report_records: list[dict[str, Any]] | No
     missing_refs = [ref for ref in round_refs if ref not in reported_rounds]
     ready = len(round_refs) - len(missing_refs)
     total = len(round_refs)
-    return {
-        "label": "reports",
-        "state": "good" if total and ready == total else "partial" if ready else "missing",
-        "ready": ready,
-        "total": total,
-        "refs": missing_refs,
-    }
+    return _with_quality_contract(
+        {
+            "label": "reports",
+            "state": "good" if total and ready == total else "partial" if ready else "missing",
+            "ready": ready,
+            "total": total,
+            "refs": missing_refs,
+        }
+    )
 
 
 def _data_quality(
@@ -1016,35 +1150,43 @@ def _data_quality(
     annotation_count = len(annotations or [])
     corrections = [row for row in annotations or [] if row.get("kind") in CORRECTION_KINDS]
     return [
-        {
-            "label": "shots",
-            "state": "good" if total and shots_ready == total else "partial" if shots_ready else "missing",
-            "ready": shots_ready,
-            "total": total,
-            "refs": [str(row.get("id")) for row in data.raw_rounds if not row.get("hasShots")],
-        },
-        {
-            "label": "shot_rows",
-            "state": "good" if data.shots else "missing",
-            "ready": len(data.shots),
-            "total": len(data.shots),
-            "refs": [],
-        },
+        _with_quality_contract(
+            {
+                "label": "shots",
+                "state": "good" if total and shots_ready == total else "partial" if shots_ready else "missing",
+                "ready": shots_ready,
+                "total": total,
+                "refs": [str(row.get("id")) for row in data.raw_rounds if not row.get("hasShots")],
+            }
+        ),
+        _with_quality_contract(
+            {
+                "label": "shot_rows",
+                "state": "good" if data.shots else "missing",
+                "ready": len(data.shots),
+                "total": len(data.shots),
+                "refs": [],
+            }
+        ),
         _geometry_quality(hole_rows or []),
-        {
-            "label": "annotations",
-            "state": "good" if annotation_count else "missing",
-            "ready": annotation_count,
-            "total": annotation_count,
-            "refs": [str(row.get("id")) for row in annotations or []],
-        },
-        {
-            "label": "corrections",
-            "state": "good" if corrections else "missing",
-            "ready": len(corrections),
-            "total": annotation_count,
-            "refs": [str(row.get("id")) for row in corrections],
-        },
+        _with_quality_contract(
+            {
+                "label": "annotations",
+                "state": "good" if annotation_count else "missing",
+                "ready": annotation_count,
+                "total": annotation_count,
+                "refs": [str(row.get("id")) for row in annotations or []],
+            }
+        ),
+        _with_quality_contract(
+            {
+                "label": "corrections",
+                "state": "good" if corrections else "missing",
+                "ready": len(corrections),
+                "total": annotation_count,
+                "refs": [str(row.get("id")) for row in corrections],
+            }
+        ),
         _report_quality(data, report_records),
         _weather_quality(data, weather_snapshots),
     ]
