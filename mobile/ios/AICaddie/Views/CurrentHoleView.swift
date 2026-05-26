@@ -221,11 +221,11 @@ public struct CurrentHoleView: View {
             emit(kind: .location, timestamp: timestamp, payload: locationPayload)
         }
         emit(kind: .score, timestamp: timestamp, payload: ["strokes": .number(Double(score))])
-        emit(kind: .putt, timestamp: timestamp, payload: ["count": .number(Double(puttCount))])
-        emit(kind: .penalty, timestamp: timestamp, payload: ["count": .number(Double(penaltyCount))])
+        emit(kind: .putt, timestamp: timestamp, payload: ["putts": .number(Double(puttCount))])
+        emit(kind: .penalty, timestamp: timestamp, payload: ["penalties": .number(Double(penaltyCount))])
         emit(kind: .club, timestamp: timestamp, payload: ["clubName": .string(selectedClub)])
         if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            emit(kind: .note, timestamp: timestamp, payload: ["text": .string(note)])
+            emit(kind: .note, timestamp: timestamp, payload: ["note": .string(note)])
         }
         sendWatchState(decision: caddieDecision)
     }

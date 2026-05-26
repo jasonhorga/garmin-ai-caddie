@@ -335,6 +335,15 @@ class MobileContractTests(unittest.TestCase):
         ]:
             self.assertIn(payload_key, builder)
 
+    def test_current_hole_view_emits_canonical_scoring_payload_keys(self) -> None:
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+
+        self.assertIn('kind: .putt, timestamp: timestamp, payload: ["putts":', current_hole)
+        self.assertIn('kind: .penalty, timestamp: timestamp, payload: ["penalties":', current_hole)
+        self.assertIn('kind: .note, timestamp: timestamp, payload: ["note":', current_hole)
+        self.assertNotIn('payload: ["count":', current_hole)
+        self.assertNotIn('payload: ["text":', current_hole)
+
     def test_ios_media_capture_and_upload_surfaces(self) -> None:
         upload_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
         media_view = _read_required_source(self, IOS_DIR / "Views" / "MediaCaptureView.swift")

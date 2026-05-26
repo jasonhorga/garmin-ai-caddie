@@ -89,6 +89,48 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(suggestions["club-correction:club-correction"]["targetId"], "900001:1:2")
         self.assertEqual(suggestions["local-only-club:caddie-feedback"]["kind"], "caddie_feedback")
 
+    def test_reconciliation_normalizes_legacy_mobile_payload_aliases(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001",
+                [
+                    {
+                        "eventId": "legacy-putt-conflict",
+                        "roundId": "900001",
+                        "hole": 1,
+                        "kind": "putt",
+                        "payload": {"count": 3},
+                    },
+                    {
+                        "eventId": "legacy-penalty",
+                        "roundId": "900001",
+                        "hole": 2,
+                        "kind": "penalty",
+                        "payload": {"count": 1},
+                    },
+                    {
+                        "eventId": "legacy-note",
+                        "roundId": "900001",
+                        "hole": 2,
+                        "kind": "note",
+                        "payload": {"text": "blocked by trees"},
+                    },
+                ],
+                idempotency_key="legacy-aliases",
+                root=root,
+            )
+
+            result = reconcile_mobile_round_events("900001", fixture_history_data(), root=root)
+
+        conflicts = {row["eventId"]: row for row in result["conflicts"]}
+        local_only = {row["eventId"]: row for row in result["localOnly"]}
+        suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
+        self.assertEqual(conflicts["legacy-putt-conflict"]["localValue"], 3)
+        self.assertEqual(local_only["legacy-penalty"]["localValue"], 1)
+        self.assertEqual(local_only["legacy-note"]["localValue"], "blocked by trees")
+        self.assertEqual(suggestions["legacy-penalty:penalty-correction"]["payload"]["strokes"], 1)
+
     def test_applies_selected_reconciliation_suggestions_as_annotations_idempotently(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

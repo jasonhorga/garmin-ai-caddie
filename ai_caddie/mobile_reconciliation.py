@@ -86,6 +86,14 @@ def _candidate_audit(event: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _payload_value(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            return value
+    return None
+
+
 def _suggestion(
     suggestion_id: str,
     *,
@@ -242,7 +250,7 @@ def reconcile_mobile_round_events(
             candidate_audits.append(audit)
 
         if kind == "score":
-            local_value = payload.get("strokes")
+            local_value = _payload_value(payload, "strokes", "score")
             garmin = scores.get(hole)
             garmin_value = garmin.get("strokes") if garmin else None
             if garmin_value is None:
@@ -263,7 +271,7 @@ def reconcile_mobile_round_events(
             continue
 
         if kind == "putt":
-            local_value = payload.get("putts")
+            local_value = _payload_value(payload, "putts", "count")
             garmin = scores.get(hole)
             garmin_value = garmin.get("putts") if garmin else None
             if garmin_value is None:
@@ -283,8 +291,18 @@ def reconcile_mobile_round_events(
                 )
             continue
 
+        if kind == "penalty":
+            local_value = _payload_value(payload, "penalties", "count")
+            local_only.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "localValue": local_value})
+            continue
+
+        if kind == "note":
+            local_value = _payload_value(payload, "note", "text")
+            local_only.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "localValue": local_value})
+            continue
+
         if kind == "club":
-            club_name = payload.get("clubName")
+            club_name = _payload_value(payload, "clubName", "club")
             match = next(
                 (
                     shot
