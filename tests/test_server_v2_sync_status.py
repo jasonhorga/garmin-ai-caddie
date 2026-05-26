@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -25,6 +26,7 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertIn("golf scorecards", " ".join(payload["connectors"][1]["feasibilityQuestions"]))
         self.assertEqual(payload["connector"]["state"], "no_data")
         self.assertTrue(payload["connector"]["canSync"])
+        self.assertEqual(payload["connector"]["nextAction"], "connect_garmin")
         self.assertEqual(payload["snapshot"]["scorecardCount"], 0)
         self.assertEqual(payload["snapshot"]["shotFileCount"], 0)
         self.assertIsNone(payload["lastRun"])
@@ -42,8 +44,10 @@ class ServerV2SyncStatusTests(unittest.TestCase):
             payload = build_sync_status_response(root=root, data_mode="local").model_dump()
 
         self.assertEqual(payload["connector"]["state"], "ready")
+        self.assertEqual(payload["connector"]["nextAction"], "review_history")
         self.assertEqual(payload["snapshot"]["scorecardCount"], 2)
         self.assertEqual(payload["snapshot"]["shotFileCount"], 1)
+        self.assertRegex(payload["snapshot"]["lastSuccessfulSyncAt"], r"^\d{4}-\d{2}-\d{2}T")
 
     def test_build_sync_status_reports_fixture_mode_when_local_or_fixture_has_no_data(
         self,
@@ -74,6 +78,7 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["connector"]["state"], "reauth_required")
         self.assertTrue(payload["connector"]["reauthRequired"])
         self.assertFalse(payload["connector"]["canSync"])
+        self.assertEqual(payload["connector"]["nextAction"], "reauthenticate_garmin")
         self.assertEqual(payload["connector"]["detail"], "Garmin session expired.")
         self.assertEqual(payload["lastRun"]["state"], "reauth_required")
         self.assertEqual(payload["lastRun"]["errorCode"], "auth_failed")
@@ -95,6 +100,37 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["lastRun"]["state"], "ready")
         self.assertEqual(payload["lastRun"]["snapshotId"], "snap_123")
         self.assertIsNone(payload["lastRun"]["errorCode"])
+
+    def test_persisted_status_detail_is_redacted_before_status_response(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "data" / "sync" / "garmin_cn_status.json"
+            status_path.parent.mkdir(parents=True)
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-connector-status-v1",
+                        "connector": "garmin_cn_web_session",
+                        "state": "error",
+                        "detail": "bad cookie abc csrf def token ghi secret j authorization bearer",
+                        "snapshotId": None,
+                        "errorCode": "sync_failed",
+                        "updatedAt": "2026-05-25T00:00:00Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_sync_status_response(root=root, data_mode="local").model_dump()
+
+        self.assertEqual(payload["connector"]["state"], "error")
+        self.assertEqual(payload["connector"]["nextAction"], "inspect_sync_error")
+        text = json.dumps(payload, ensure_ascii=False).lower()
+        self.assertNotIn("cookie", text)
+        self.assertNotIn("csrf", text)
+        self.assertNotIn("token", text)
+        self.assertNotIn("secret", text)
+        self.assertNotIn("authorization", text)
 
     def test_sync_status_endpoint_uses_public_schema_alias(self) -> None:
         client = TestClient(app)

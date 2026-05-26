@@ -17,6 +17,7 @@ from ai_caddie.history import (
 )
 
 from .base import ConnectorState, SnapshotManifest
+from .redaction import sanitize_secret_text
 
 SYNC_DIR = Path("data") / "sync"
 SNAPSHOT_DIR = Path("data") / "snapshots"
@@ -415,7 +416,7 @@ def write_connector_status(
         "schema": "ai-caddie-connector-status-v1",
         "connector": "garmin_cn_web_session",
         "state": state,
-        "detail": detail,
+        "detail": sanitize_secret_text(detail),
         "snapshotId": snapshot_id,
         "errorCode": error_code,
         "updatedAt": _utc_now(),
@@ -428,7 +429,10 @@ def read_connector_status(*, root: Path = ROOT) -> dict[str, Any] | None:
     path = root / STATUS_FILE
     if not path.exists():
         return None
-    return json.loads(path.read_text())
+    payload = json.loads(path.read_text())
+    if isinstance(payload, dict) and "detail" in payload:
+        payload["detail"] = sanitize_secret_text(payload.get("detail") or "")
+    return payload
 
 
 def snapshot_to_payload(manifest: SnapshotManifest) -> dict[str, Any]:

@@ -29,6 +29,10 @@ SHOT_DIR = DATA_DIR / "shots"
 GOLF_BASE = "https://connect.garmin.cn/golf-api/gcs-golfcommunity/api/v2"
 
 
+class GarminAuthExpired(RuntimeError):
+    """Raised when Garmin CN web-session auth expires during a fetch run."""
+
+
 def make_session(*, force_refresh_auth: bool = False) -> requests.Session:
     try:
         auth = ensure_web_auth(force=force_refresh_auth, validate=False)
@@ -115,8 +119,7 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
                     auth_failures += 1
                     print(f"  [{i:>3}/{len(cards)}] {sid} auth-failed ({r.status_code}); aborting if {auth_failures} >= 3")
                     if auth_failures >= 3:
-                        print("[!!] 3 consecutive auth failures — cookie/csrf likely expired. Refresh and rerun.")
-                        return
+                        raise GarminAuthExpired("Garmin CN web-session auth expired during scorecard detail fetch")
                     time.sleep(2)
                     continue
                 r.raise_for_status()
@@ -124,6 +127,8 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
                 out.write_text(json.dumps(r.json(), ensure_ascii=False, indent=2))
                 print(f"  [{i:>3}/{len(cards)}] {sid} saved")
                 time.sleep(0.5)
+            except GarminAuthExpired:
+                raise
             except Exception as e:
                 print(f"  [{i:>3}/{len(cards)}] {sid} failed: {e}")
                 time.sleep(2)
@@ -162,12 +167,13 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
                     auth_failures += 1
                     print(f"     shots for {sid}: auth-failed ({r.status_code}); aborting if {auth_failures} >= 3")
                     if auth_failures >= 3:
-                        print("[!!] 3 consecutive auth failures — cookie/csrf likely expired. Refresh and rerun.")
-                        return
+                        raise GarminAuthExpired("Garmin CN web-session auth expired during shot fetch")
                     time.sleep(5)
                 else:
                     print(f"     shots for {sid}: status {r.status_code}")
                 time.sleep(1.5)
+            except GarminAuthExpired:
+                raise
             except Exception as e:
                 print(f"     shots for {sid} failed: {e}")
                 time.sleep(3)
@@ -181,7 +187,11 @@ def main() -> int:
     if not cards:
         print("[!!] no scorecards returned.")
         return 1
-    fetch_details(s, cards, with_shots=with_shots)
+    try:
+        fetch_details(s, cards, with_shots=with_shots)
+    except GarminAuthExpired as exc:
+        print(f"[!!] {exc}. Refresh Garmin auth and rerun.")
+        return 1
     print(f"\n[done] {len(cards)} rounds in {SCORECARD_DIR}")
     return 0
 

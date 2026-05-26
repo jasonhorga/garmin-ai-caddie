@@ -9,6 +9,7 @@ ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
 DistributionClass = Literal["eagle", "birdie", "bogey", "double"]
 ConnectorState = Literal["ready", "no_data", "reauth_required", "error", "not_available"]
 ConnectorName = Literal["garmin_cn_web_session", "garmin_oauth_feasibility"]
+ConnectorNextAction = Literal["connect_garmin", "review_history", "reauthenticate_garmin", "inspect_sync_error"]
 ResolvedDataModeName = Literal["local", "fixture"]
 ReportConfidence = Literal["low", "medium", "high"]
 GeometryCoverageState = Literal["ready", "partial", "missing"]
@@ -174,6 +175,7 @@ class ConnectorStatus(BaseModel):
     detail: str
     canSync: bool
     reauthRequired: bool
+    nextAction: ConnectorNextAction | None = None
     track: str | None = None
     feasibilityQuestions: list[str] = Field(default_factory=list)
 

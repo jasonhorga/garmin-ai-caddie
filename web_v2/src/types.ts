@@ -392,6 +392,7 @@ export interface ReviewReportResponse {
 }
 
 export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error' | 'not_available'
+export type ConnectorNextAction = 'connect_garmin' | 'review_history' | 'reauthenticate_garmin' | 'inspect_sync_error'
 export type ResolvedDataMode = 'local' | 'fixture'
 
 export interface ConnectorStatus {
@@ -400,6 +401,7 @@ export interface ConnectorStatus {
   detail: string
   canSync: boolean
   reauthRequired: boolean
+  nextAction?: ConnectorNextAction | null
   track?: string | null
   feasibilityQuestions?: string[]
 }

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ai_caddie.config import DataMode, get_settings
-from ai_caddie.connectors.garmin_cn import sanitize_error
 from ai_caddie.connectors.garmin_oauth import build_oauth_feasibility_status
+from ai_caddie.connectors.redaction import sanitize_secret_text
 from ai_caddie.connectors.snapshot import read_connector_status
 from ai_caddie.data import ROOT
 
@@ -18,11 +19,30 @@ def _count_json_files(path: Path) -> int:
 
 
 def _last_sync_at(paths: list[Path]) -> str | None:
-    existing = [path for path in paths if path.exists()]
+    existing: list[Path] = []
+    for path in paths:
+        if path.is_dir():
+            existing.extend(item for item in path.glob("*.json") if item.is_file())
+        elif path.exists():
+            existing.append(path)
     if not existing:
         return None
     newest = max(existing, key=lambda path: path.stat().st_mtime)
-    return str(newest.stat().st_mtime_ns)
+    return (
+        datetime.fromtimestamp(newest.stat().st_mtime, timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _next_action(state: str) -> str | None:
+    return {
+        "no_data": "connect_garmin",
+        "ready": "review_history",
+        "reauth_required": "reauthenticate_garmin",
+        "error": "inspect_sync_error",
+    }.get(state)
 
 
 def build_sync_status_response(
@@ -40,7 +60,7 @@ def build_sync_status_response(
     persisted_state = persisted.get("state") if persisted else None
     if persisted_state in {"reauth_required", "error"}:
         state = persisted_state
-        detail = str(persisted.get("detail") or "Garmin connector needs attention.")
+        detail = sanitize_secret_text(persisted.get("detail") or "Garmin connector needs attention.")
     else:
         state = "ready" if has_data else "no_data"
         detail = (
@@ -60,13 +80,14 @@ def build_sync_status_response(
         detail=detail,
         canSync=state != "reauth_required",
         reauthRequired=state == "reauth_required",
+        nextAction=_next_action(state),
     )
     oauth_connector = ConnectorStatus(**build_oauth_feasibility_status())
     last_run = None
     if persisted:
         last_run = SyncLastRunStatus(
             state=str(persisted.get("state") or "error"),
-            detail=sanitize_error(str(persisted.get("detail") or "")),
+            detail=sanitize_secret_text(persisted.get("detail") or ""),
             snapshotId=persisted.get("snapshotId"),
             errorCode=persisted.get("errorCode"),
             updatedAt=persisted.get("updatedAt"),

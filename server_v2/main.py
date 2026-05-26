@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hmac
+import os
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, Header, Query, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error
@@ -92,6 +94,12 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+def require_admin_token(header_value: str | None) -> None:
+    expected = os.environ.get("AI_CADDIE_ADMIN_TOKEN")
+    if expected and not hmac.compare_digest(header_value or "", expected):
+        raise HTTPException(status_code=401, detail="admin token required")
 
 
 @app.get("/")
@@ -345,7 +353,9 @@ def sync_garmin(
     response: Response,
     with_shots: bool = True,
     force_refresh_auth: bool = False,
+    x_ai_caddie_admin_token: Annotated[str | None, Header(alias="X-AI-Caddie-Admin-Token")] = None,
 ) -> SyncRunResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     result = GarminCnWebSessionConnector().sync(
         with_shots=with_shots,
         force_refresh_auth=force_refresh_auth,
@@ -366,5 +376,9 @@ def sync_garmin(
 
 
 @app.post("/api/v2/sync/garmin/session", response_model=GarminSessionImportResponse)
-def save_garmin_session(request: GarminSessionImportRequest) -> GarminSessionImportResponse:
+def save_garmin_session(
+    request: GarminSessionImportRequest,
+    x_ai_caddie_admin_token: Annotated[str | None, Header(alias="X-AI-Caddie-Admin-Token")] = None,
+) -> GarminSessionImportResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return save_garmin_session_response(request)

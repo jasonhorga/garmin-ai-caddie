@@ -2,28 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-import re
 
 from ai_caddie.data import ROOT
-from fetch import fetch_details, fetch_summary, make_session
+from fetch import GarminAuthExpired, fetch_details, fetch_summary, make_session
 
 from .base import ConnectorRunResult
+from .redaction import sanitize_secret_text
 from .snapshot import build_snapshot_manifest, write_connector_status, write_durable_snapshot, write_snapshot_manifest
-
-SECRET_PATTERNS = [
-    re.compile(r"cookie[^\s]*\s*[^,;\n]*", re.IGNORECASE),
-    re.compile(r"csrf[^\s]*\s*[^,;\n]*", re.IGNORECASE),
-    re.compile(r"token[^\s]*\s*[^,;\n]*", re.IGNORECASE),
-    re.compile(r"secret[^\s]*\s*[^,;\n]*", re.IGNORECASE),
-    re.compile(r"authorization[^\s]*\s*[^,;\n]*", re.IGNORECASE),
-]
 
 
 def sanitize_error(message: object) -> str:
-    text = str(message).replace(".garmin_tokens", "<credential-dir>")
-    for pattern in SECRET_PATTERNS:
-        text = pattern.sub("<redacted>", text)
-    return text[:240]
+    return sanitize_secret_text(message)
 
 
 def _snapshot_id() -> str:
@@ -62,7 +51,7 @@ class GarminCnWebSessionConnector:
                 snapshot=manifest,
                 safe_meta={"withShots": with_shots, "cardCount": len(cards)},
             )
-        except SystemExit as exc:
+        except (GarminAuthExpired, SystemExit) as exc:
             detail = "Garmin CN session expired or missing. Reconnect Garmin and retry."
             write_connector_status(
                 root=self.root,

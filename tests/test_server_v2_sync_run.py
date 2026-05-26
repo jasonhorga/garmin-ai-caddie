@@ -10,6 +10,47 @@ from server_v2.main import app
 
 
 class ServerV2SyncRunTests(unittest.TestCase):
+    def test_sync_garmin_endpoint_requires_admin_token_when_configured(self) -> None:
+        connector = Mock()
+
+        with (
+            patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}),
+            patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector),
+        ):
+            response = TestClient(app).post("/api/v2/sync/garmin")
+
+        self.assertEqual(response.status_code, 401)
+        connector.sync.assert_not_called()
+        self.assertNotIn("admin-secret", response.text)
+
+    def test_sync_garmin_endpoint_accepts_admin_token_header_when_configured(self) -> None:
+        manifest = SnapshotManifest(
+            snapshot_id="snap_api",
+            scorecard_count=1,
+            shot_file_count=0,
+            summary_present=True,
+            files=["data/summary.json"],
+        )
+        connector = Mock()
+        connector.sync.return_value = ConnectorRunResult(
+            connector="garmin_cn_web_session",
+            state="ready",
+            detail="Garmin CN sync completed.",
+            snapshot=manifest,
+        )
+
+        with (
+            patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}),
+            patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector),
+        ):
+            response = TestClient(app).post(
+                "/api/v2/sync/garmin",
+                headers={"X-AI-Caddie-Admin-Token": "admin-secret"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        connector.sync.assert_called_once()
+
     def test_sync_garmin_endpoint_returns_snapshot_payload(self) -> None:
         manifest = SnapshotManifest(
             snapshot_id="snap_api",

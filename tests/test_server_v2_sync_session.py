@@ -11,6 +11,50 @@ from server_v2.main import app
 
 
 class ServerV2SyncSessionTests(unittest.TestCase):
+    def test_sync_session_endpoint_requires_admin_token_when_configured(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}),
+                patch("server_v2.session.SESSION_ROOT", root),
+            ):
+                response = client.post(
+                    "/api/v2/sync/garmin/session",
+                    json={
+                        "webSessionHeader": "Cookie: JWT_WEB=abc123",
+                        "antiForgeryValue": "connect-csrf-token: csrf-secret-value",
+                    },
+                )
+                token_dir_exists = (root / ".garmin_tokens").exists()
+
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(token_dir_exists)
+        self.assertNotIn("admin-secret", response.text)
+
+    def test_sync_session_endpoint_accepts_admin_token_header_when_configured(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}),
+                patch("server_v2.session.SESSION_ROOT", root),
+            ):
+                response = client.post(
+                    "/api/v2/sync/garmin/session",
+                    headers={"X-AI-Caddie-Admin-Token": "admin-secret"},
+                    json={
+                        "webSessionHeader": "Cookie: JWT_WEB=abc123",
+                        "antiForgeryValue": "connect-csrf-token: csrf-secret-value",
+                    },
+                )
+                web_cookie_exists = (root / ".garmin_tokens" / "web_cookie.txt").exists()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(web_cookie_exists)
+
     def test_sync_session_endpoint_stores_material_without_echoing_secrets(self) -> None:
         client = TestClient(app)
 
@@ -55,9 +99,10 @@ class ServerV2SyncSessionTests(unittest.TestCase):
                         "antiForgeryValue": "csrf-secret-value",
                     },
                 )
+                token_dir_exists = (root / ".garmin_tokens").exists()
 
         self.assertEqual(response.status_code, 422)
-        self.assertFalse((root / ".garmin_tokens").exists())
+        self.assertFalse(token_dir_exists)
 
 
 if __name__ == "__main__":

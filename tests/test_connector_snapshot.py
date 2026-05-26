@@ -109,6 +109,28 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertNotIn("cookie", json.dumps(payload).lower())
         self.assertNotIn("csrf", json.dumps(payload).lower())
 
+    def test_connector_status_redacts_secret_like_detail_on_write_and_read(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            write_connector_status(
+                root=root,
+                state="error",
+                detail="failed cookie abc csrf def token ghi secret j authorization bearer",
+                snapshot_id=None,
+                error_code="sync_failed",
+            )
+            raw = json.loads((root / "data" / "sync" / "garmin_cn_status.json").read_text())
+            persisted = read_connector_status(root=root)
+
+        for payload in (raw, persisted):
+            text = json.dumps(payload, ensure_ascii=False).lower()
+            self.assertNotIn("cookie", text)
+            self.assertNotIn("csrf", text)
+            self.assertNotIn("token", text)
+            self.assertNotIn("secret", text)
+            self.assertNotIn("authorization", text)
+
     def test_durable_snapshot_copies_raw_files_and_normalized_history(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
