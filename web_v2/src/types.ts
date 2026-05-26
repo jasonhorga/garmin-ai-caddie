@@ -71,12 +71,14 @@ export interface DistributionFamily {
   count: number
   pct: number
   className: Exclude<ScoreClass, 'missing'>
+  roundRefs?: string[]
 }
 
 export interface DistributionBucket {
   label: string
   start: number
   count: number
+  roundRefs?: string[]
 }
 
 export interface ScoreDistribution {

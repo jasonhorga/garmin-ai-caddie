@@ -7,13 +7,14 @@ import { RoundCard } from './RoundCard'
 interface HistoryOverviewProps {
   data: HistoryOverviewResponse
   onNavigate?: (page: ProductPage) => void
+  onSelectRef?: (sourceRef: string) => void
 }
 
 function metricValue(value: number | null) {
   return value === null ? '-' : String(value)
 }
 
-export function HistoryOverview({ data, onNavigate = () => undefined }: HistoryOverviewProps) {
+export function HistoryOverview({ data, onNavigate = () => undefined, onSelectRef }: HistoryOverviewProps) {
   const metrics = data.metrics
 
   return (
@@ -75,12 +76,12 @@ export function HistoryOverview({ data, onNavigate = () => undefined }: HistoryO
             {data.recentRounds.length === 0 ? (
               <p className="round-empty">No recent Garmin rounds</p>
             ) : (
-              data.recentRounds.map((round) => <RoundCard key={round.id} round={round} />)
+              data.recentRounds.map((round) => <RoundCard key={round.id} round={round} onSelectRef={onSelectRef} />)
             )}
           </div>
         </section>
 
-        <DistributionPanel distribution={data.distribution} />
+        <DistributionPanel distribution={data.distribution} onSelectRef={onSelectRef} />
       </section>
     </main>
   )

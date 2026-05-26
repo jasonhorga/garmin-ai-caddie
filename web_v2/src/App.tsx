@@ -229,6 +229,16 @@ export default function App() {
     ) : null
   }
 
+  function renderDrilldownPanels() {
+    if (drilldownState.status === 'idle' && holeEvidenceState.status === 'idle') return null
+    return (
+      <div className="app-shell">
+        <HistoryDrilldownPanel state={drilldownState} />
+        {holeEvidenceState.status === 'idle' ? null : <HoleEvidencePanel state={holeEvidenceState} />}
+      </div>
+    )
+  }
+
   function renderStatsContent(data: HistoryStatsResponse) {
     if (activePage === 'courses') return <CourseStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
     if (activePage === 'holes') return <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
@@ -431,7 +441,8 @@ export default function App() {
       return (
         <>
           {renderSyncPanel()}
-          <HistoryTimeline data={roundsState.data} onNavigate={navigate} />
+          <HistoryTimeline data={roundsState.data} onNavigate={navigate} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+          {renderDrilldownPanels()}
         </>
       )
     }
@@ -568,7 +579,8 @@ export default function App() {
   return (
     <>
       {renderSyncPanel()}
-      <HistoryOverview data={overviewState.data} onNavigate={navigate} />
+      <HistoryOverview data={overviewState.data} onNavigate={navigate} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+      {renderDrilldownPanels()}
     </>
   )
 }

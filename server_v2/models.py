@@ -78,12 +78,14 @@ class DistributionFamily(BaseModel):
     count: int
     pct: float
     className: DistributionClass
+    roundRefs: list[str] = Field(default_factory=list)
 
 
 class DistributionBucket(BaseModel):
     label: str
     start: int
     count: int
+    roundRefs: list[str] = Field(default_factory=list)
 
 
 class ScoreDistribution(BaseModel):

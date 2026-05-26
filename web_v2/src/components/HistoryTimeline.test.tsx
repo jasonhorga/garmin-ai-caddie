@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
 import { HistoryTimeline } from './HistoryTimeline'
 import type { HistoryRoundsResponse } from '../types'
 
@@ -66,5 +67,15 @@ describe('HistoryTimeline', () => {
 
     expect(screen.getByText('No local Garmin rounds loaded')).toBeInTheDocument()
     expect(screen.getByText(/this remote workspace has 0 rounds/i)).toBeInTheDocument()
+  })
+
+  it('opens timeline round source refs', async () => {
+    const onSelectRef = vi.fn()
+
+    render(<HistoryTimeline data={payload} onNavigate={() => undefined} onSelectRef={onSelectRef} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+
+    expect(onSelectRef).toHaveBeenCalledWith('1')
   })
 })

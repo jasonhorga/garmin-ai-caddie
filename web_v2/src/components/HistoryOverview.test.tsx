@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
 import { HistoryOverview } from './HistoryOverview'
 import type { HistoryOverviewResponse } from '../types'
 
@@ -39,14 +40,14 @@ const payload: HistoryOverviewResponse = {
     best: 82,
     worst: 96,
     families: [
-      { label: '70s', count: 0, pct: 0, className: 'eagle' },
-      { label: '80s', count: 1, pct: 50, className: 'birdie' },
-      { label: '90s', count: 1, pct: 50, className: 'bogey' },
-      { label: '100+', count: 0, pct: 0, className: 'double' },
+      { label: '70s', count: 0, pct: 0, className: 'eagle', roundRefs: [] },
+      { label: '80s', count: 1, pct: 50, className: 'birdie', roundRefs: ['1'] },
+      { label: '90s', count: 1, pct: 50, className: 'bogey', roundRefs: ['2'] },
+      { label: '100+', count: 0, pct: 0, className: 'double', roundRefs: [] },
     ],
     histogram: [
-      { label: '80-84', start: 80, count: 1 },
-      { label: '95-99', start: 95, count: 1 },
+      { label: '80-84', start: 80, count: 1, roundRefs: ['1'] },
+      { label: '95-99', start: 95, count: 1, roundRefs: ['2'] },
     ],
   },
   dataQuality: [{ label: 'shots', state: 'partial', value: '50%', reason: '1/2 scorecards have usable shot files' }],
@@ -97,5 +98,17 @@ describe('HistoryOverview', () => {
     expect(screen.getByText(/this remote workspace has 0 rounds and 0 shot rows/i)).toBeInTheDocument()
     expect(screen.getByText('No recent Garmin rounds')).toBeInTheDocument()
     expect(screen.queryByText('Black Knight B')).not.toBeInTheDocument()
+  })
+
+  it('opens recent rounds and distribution source refs', async () => {
+    const onSelectRef = vi.fn()
+
+    render(<HistoryOverview data={payload} onSelectRef={onSelectRef} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20, score 82, ref 1' }))
+    await userEvent.click(screen.getAllByRole('button', { name: 'Open source 1' })[0])
+
+    expect(onSelectRef).toHaveBeenCalledWith('1')
+    expect(onSelectRef).toHaveBeenCalledTimes(2)
   })
 })

@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
 import { DistributionPanel } from './DistributionPanel'
 import type { ScoreDistribution } from '../types'
 
@@ -9,13 +10,13 @@ const distribution: ScoreDistribution = {
   best: 82,
   worst: 96,
   families: [
-    { label: '70s', count: 0, pct: 0, className: 'eagle' },
-    { label: '80s', count: 2, pct: 67, className: 'birdie' },
-    { label: '90s', count: 1, pct: 33, className: 'bogey' },
+    { label: '70s', count: 0, pct: 0, className: 'eagle', roundRefs: [] },
+    { label: '80s', count: 2, pct: 67, className: 'birdie', roundRefs: ['1', '2'] },
+    { label: '90s', count: 1, pct: 33, className: 'bogey', roundRefs: ['3'] },
   ],
   histogram: [
-    { label: '80-84', start: 80, count: 0 },
-    { label: '85-89', start: 85, count: 1 },
+    { label: '80-84', start: 80, count: 0, roundRefs: [] },
+    { label: '85-89', start: 85, count: 1, roundRefs: ['2'] },
   ],
 }
 
@@ -44,5 +45,17 @@ describe('DistributionPanel', () => {
     const { container } = render(<DistributionPanel distribution={{ ...distribution, histogram: [] }} />)
 
     expect(container.querySelectorAll('.histogram-row i')).toHaveLength(0)
+    expect(container.querySelector('.distribution-panel--refs')).not.toBeInTheDocument()
+  })
+
+  it('renders clickable source refs for distribution rows', async () => {
+    const onSelectRef = vi.fn()
+
+    const { container } = render(<DistributionPanel distribution={distribution} onSelectRef={onSelectRef} />)
+
+    expect(container.querySelector('.distribution-panel--refs')).toBeInTheDocument()
+    await userEvent.click(screen.getAllByRole('button', { name: 'Open source 2' })[0])
+
+    expect(onSelectRef).toHaveBeenCalledWith('2')
   })
 })

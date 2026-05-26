@@ -8,11 +8,16 @@ function formatToPar(value: number | null) {
   return String(value)
 }
 
-interface RoundCardProps {
-  round: RoundCardType
+function roundActionLabel(round: RoundCardType) {
+  return `Open round ${round.courseName}, ${round.date ?? 'Unknown date'}, score ${round.score ?? '-'}, ref ${round.id}`
 }
 
-export function RoundCard({ round }: RoundCardProps) {
+interface RoundCardProps {
+  round: RoundCardType
+  onSelectRef?: (sourceRef: string) => void
+}
+
+export function RoundCard({ round, onSelectRef }: RoundCardProps) {
   return (
     <article className="round-card">
       <div className="round-card-head">
@@ -27,6 +32,11 @@ export function RoundCard({ round }: RoundCardProps) {
           <span>{formatToPar(round.toPar)}</span>
         </div>
       </div>
+      {onSelectRef ? (
+        <button type="button" className="round-card-action" onClick={() => onSelectRef(round.id)} aria-label={roundActionLabel(round)}>
+          Open
+        </button>
+      ) : null}
       <ScoreStrip cells={round.scoreStrip} />
       <DataQualityChips badges={round.badges} />
     </article>

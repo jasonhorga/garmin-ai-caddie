@@ -90,19 +90,31 @@ def _pct(count: int, total: int) -> float:
 
 
 def _score_distribution(rounds18: list[dict[str, Any]]) -> ScoreDistribution:
-    scores = [int(r["strokes"]) for r in rounds18 if r.get("strokes") is not None]
     families = Counter({"70s": 0, "80s": 0, "90s": 0, "100+": 0})
     histogram: Counter[int] = Counter()
-    for score in scores:
+    family_refs: dict[str, list[str]] = {label: [] for label in ("70s", "80s", "90s", "100+")}
+    histogram_refs: dict[int, list[str]] = {}
+    scores: list[int] = []
+    for row in rounds18:
+        if row.get("strokes") is None:
+            continue
+        score = int(row["strokes"])
+        scores.append(score)
+        round_ref = str(row.get("id")) if row.get("id") is not None else None
         if score < 80:
-            families["70s"] += 1
+            family_label = "70s"
         elif score < 90:
-            families["80s"] += 1
+            family_label = "80s"
         elif score < 100:
-            families["90s"] += 1
+            family_label = "90s"
         else:
-            families["100+"] += 1
-        histogram[(score // 5) * 5] += 1
+            family_label = "100+"
+        bucket_start = (score // 5) * 5
+        families[family_label] += 1
+        histogram[bucket_start] += 1
+        if round_ref:
+            family_refs[family_label].append(round_ref)
+            histogram_refs.setdefault(bucket_start, []).append(round_ref)
     total = len(scores)
     class_by_family = {
         "70s": "eagle",
@@ -121,11 +133,17 @@ def _score_distribution(rounds18: list[dict[str, Any]]) -> ScoreDistribution:
                 count=families[label],
                 pct=_pct(families[label], total),
                 className=class_by_family[label],
+                roundRefs=family_refs[label],
             )
             for label in ("70s", "80s", "90s", "100+")
         ],
         histogram=[
-            DistributionBucket(label=f"{start}-{start + 4}", start=start, count=histogram[start])
+            DistributionBucket(
+                label=f"{start}-{start + 4}",
+                start=start,
+                count=histogram[start],
+                roundRefs=histogram_refs.get(start, []),
+            )
             for start in sorted(histogram)
         ],
     )

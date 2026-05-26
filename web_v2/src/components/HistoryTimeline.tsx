@@ -5,6 +5,7 @@ import { RoundCard } from './RoundCard'
 interface HistoryTimelineProps {
   data: HistoryRoundsResponse
   onNavigate: (page: ProductPage) => void
+  onSelectRef?: (sourceRef: string) => void
 }
 
 function metric(value: number | null) {
@@ -15,7 +16,7 @@ function monthSummary(group: MonthRoundGroup) {
   return `${group.count} ${group.count === 1 ? 'round' : 'rounds'}`
 }
 
-export function HistoryTimeline({ data, onNavigate }: HistoryTimelineProps) {
+export function HistoryTimeline({ data, onNavigate, onSelectRef }: HistoryTimelineProps) {
   return (
     <main className="app-shell">
       <ProductNav activePage="rounds" onNavigate={onNavigate} />
@@ -50,7 +51,7 @@ export function HistoryTimeline({ data, onNavigate }: HistoryTimelineProps) {
             </div>
             <div className="round-list">
               {group.rounds.map((round) => (
-                <RoundCard key={round.id} round={round} />
+                <RoundCard key={round.id} round={round} onSelectRef={onSelectRef} />
               ))}
             </div>
           </section>

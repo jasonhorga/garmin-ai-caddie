@@ -30,6 +30,35 @@ function overviewPayload() {
   }
 }
 
+function overviewPayloadWithRoundRefs() {
+  return {
+    ...overviewPayload(),
+    recentRounds: [
+      {
+        id: '1',
+        date: '2026-05-20T08:00:00',
+        courseName: 'Black Knight B',
+        courseKey: 'c_black',
+        holesCompleted: 18,
+        score: 82,
+        par: 72,
+        toPar: 10,
+        primaryIssue: null,
+        badges: [{ label: 'shots', state: 'good', value: 'ready', reason: 'ready' }],
+        scoreStrip: [{ hole: 1, par: 4, score: 4, toPar: 0, className: 'par' }],
+      },
+    ],
+    distribution: {
+      total: 1,
+      average: 82,
+      best: 82,
+      worst: 82,
+      families: [{ label: '80s', count: 1, pct: 100, className: 'birdie', roundRefs: ['1'] }],
+      histogram: [{ label: '80-84', start: 80, count: 1, roundRefs: ['1'] }],
+    },
+  }
+}
+
 function roundsPayload() {
   return {
     schema: 'ai-caddie-history-rounds-v2',
@@ -515,6 +544,34 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
     expect(screen.getByText('missing_shots')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
+  })
+
+  it('opens source detail directly from overview and rounds cards', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/rounds') return roundsPayload()
+        if (path === '/api/v2/history/drilldown/1') return { ...drilldownPayload(), ref: '1', refType: 'round', title: 'Black Knight B' }
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayloadWithRoundRefs()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+
+    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rounds' }))
+    expect(await screen.findByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/drilldown/1')).toHaveLength(2)
   })
 
   it('shows corrections history and adds a club correction from the response', async () => {
