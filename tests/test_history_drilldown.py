@@ -32,6 +32,57 @@ def raw_garmin_drilldown_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "700001", "hasShots": True}], rounds=[round_row], shots=shots)
 
 
+def provenance_drilldown_data() -> HistoryData:
+    round_row = {
+        "id": "merged_710001_710002",
+        "ids": [710001, 710002],
+        "date": "2026-05-25",
+        "course": "Provenance Course",
+        "courseKey": "provenance_course",
+        "holesCompleted": 18,
+        "strokes": 83,
+        "par": 72,
+        "holes": [{"number": 10, "strokes": 5, "par": 4, "putts": 2}],
+        "hasShots": True,
+        "provenance": {
+            "sourceConnector": "garmin_cn_web_session",
+            "snapshotId": "snap_provenance",
+            "sourceRecordType": "scorecard_merge",
+            "sourceRecordIds": ["710001", "710002"],
+            "sourceFiles": ["data/scorecards/710001.json", "data/scorecards/710002.json"],
+            "sourceRefs": [
+                "garmin_cn_web_session:snap_provenance:scorecard:710001",
+                "garmin_cn_web_session:snap_provenance:scorecard:710002",
+            ],
+            "fieldRefs": {"mergeRule": "same_day_two_9_hole_halves"},
+            "confidence": "high",
+            "status": "normalized",
+        },
+    }
+    shot = {
+        "id": "back-shot",
+        "roundId": "merged_710001_710002",
+        "scorecardId": 710002,
+        "hole": 10,
+        "club": "8I",
+        "distance": 142,
+        "surface": "green",
+        "provenance": {
+            "sourceConnector": "garmin_cn_web_session",
+            "snapshotId": "snap_provenance",
+            "sourceRecordType": "shot",
+            "sourceRecordId": "back-shot",
+            "parentRecordId": "710002",
+            "sourceFiles": ["data/shots/710002.json"],
+            "sourceRefs": ["garmin_cn_web_session:snap_provenance:shot:710002:back-shot"],
+            "fieldRefs": {"meters": "holeShots[].shots[].meters"},
+            "confidence": "high",
+            "status": "normalized",
+        },
+    }
+    return HistoryData(raw_rounds=[], rounds=[round_row], shots=[shot])
+
+
 class HistoryDrilldownTests(unittest.TestCase):
     def test_drilldown_index_lists_round_hole_and_shot_refs(self) -> None:
         index = build_drilldown_index(fixture_history_data())
@@ -94,6 +145,40 @@ class HistoryDrilldownTests(unittest.TestCase):
         self.assertEqual(detail["sourceFields"]["scorecardId"], 700001)
         self.assertEqual(detail["sourceFields"]["meters"], 141.8)
         self.assertEqual(detail["sourceFields"]["endLie"], "green")
+
+    def test_drilldown_index_lists_normalized_provenance_refs(self) -> None:
+        index = build_drilldown_index(provenance_drilldown_data())
+
+        self.assertIn("garmin_cn_web_session:snap_provenance:scorecard:710002", index["sourceRefs"])
+        self.assertIn("garmin_cn_web_session:snap_provenance:shot:710002:back-shot", index["sourceRefs"])
+
+    def test_resolves_normalized_scorecard_provenance_ref_to_merged_round(self) -> None:
+        detail = resolve_history_ref(
+            provenance_drilldown_data(),
+            "garmin_cn_web_session:snap_provenance:scorecard:710002",
+        )
+
+        self.assertTrue(detail["found"])
+        self.assertEqual(detail["refType"], "round")
+        self.assertEqual(detail["ref"], "garmin_cn_web_session:snap_provenance:scorecard:710002")
+        self.assertEqual(detail["round"]["id"], "merged_710001_710002")
+        self.assertEqual(detail["sourceFields"]["ids"], [710001, 710002])
+        self.assertEqual(detail["sourceFields"]["provenance"]["sourceRecordType"], "scorecard_merge")
+        self.assertIn("merged_710001_710002:10", detail["relatedRefs"]["holeRefs"])
+
+    def test_resolves_normalized_shot_provenance_ref_to_shot_context(self) -> None:
+        detail = resolve_history_ref(
+            provenance_drilldown_data(),
+            "garmin_cn_web_session:snap_provenance:shot:710002:back-shot",
+        )
+
+        self.assertTrue(detail["found"])
+        self.assertEqual(detail["refType"], "shot")
+        self.assertEqual(detail["round"]["id"], "merged_710001_710002")
+        self.assertEqual(detail["hole"]["number"], 10)
+        self.assertEqual(detail["shot"]["club"], "8I")
+        self.assertEqual(detail["sourceFields"]["provenance"]["sourceRecordId"], "back-shot")
+        self.assertEqual(detail["sourceFields"]["scorecardId"], 710002)
 
     def test_missing_ref_degrades_with_missing_data(self) -> None:
         detail = resolve_history_ref(fixture_history_data(), "900404:9:1")

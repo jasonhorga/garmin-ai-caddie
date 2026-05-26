@@ -49,6 +49,49 @@ def _parse_ref(source_ref: str) -> tuple[RefType, list[str]]:
     return "unknown", parts
 
 
+def _source_refs(row: dict[str, Any]) -> list[str]:
+    provenance = row.get("provenance")
+    if not isinstance(provenance, dict):
+        return []
+    refs = provenance.get("sourceRefs")
+    if not isinstance(refs, list):
+        return []
+    return [str(ref).strip() for ref in refs if str(ref).strip()]
+
+
+def _source_ref_index(rows: list[dict[str, Any]]) -> list[str]:
+    seen: set[str] = set()
+    refs: list[str] = []
+    for row in rows:
+        for ref in _source_refs(row):
+            if ref in seen:
+                continue
+            seen.add(ref)
+            refs.append(ref)
+    return refs
+
+
+def _round_aliases(data: HistoryData) -> dict[str, dict[str, Any]]:
+    aliases: dict[str, dict[str, Any]] = {}
+    for row in data.rounds:
+        row_id = _round_id(row)
+        aliases[row_id] = row
+        for item in row.get("ids") or []:
+            aliases[str(item)] = row
+        for source_ref in _source_refs(row):
+            aliases[source_ref] = row
+    return aliases
+
+
+def _shot_aliases(data: HistoryData) -> dict[str, tuple[int, dict[str, Any]]]:
+    aliases: dict[str, tuple[int, dict[str, Any]]] = {}
+    for index, shot in enumerate(data.shots):
+        aliases[_shot_ref(shot, index)] = (index, shot)
+        for source_ref in _source_refs(shot):
+            aliases[source_ref] = (index, shot)
+    return aliases
+
+
 def build_drilldown_index(data: HistoryData) -> dict[str, list[str]]:
     round_refs = [_round_id(row) for row in data.rounds]
     hole_refs = [
@@ -63,14 +106,24 @@ def build_drilldown_index(data: HistoryData) -> dict[str, list[str]]:
         "roundRefs": round_refs,
         "holeRefs": hole_refs,
         "shotRefs": shot_refs,
+        "sourceRefs": _source_ref_index([*data.rounds, *data.shots]),
     }
 
 
 def resolve_history_ref(data: HistoryData, source_ref: str) -> dict[str, Any]:
     ref = str(source_ref)
     ref_type, parts = _parse_ref(ref)
-    rounds_by_id = {_round_id(row): row for row in data.rounds}
-    shots_by_ref = {_shot_ref(shot, index): (index, shot) for index, shot in enumerate(data.shots)}
+    rounds_by_id = _round_aliases(data)
+    shots_by_ref = _shot_aliases(data)
+
+    if ref in rounds_by_id:
+        return _round_detail(data, rounds_by_id[ref], ref)
+    if ref in shots_by_ref:
+        index, shot = shots_by_ref[ref]
+        row = rounds_by_id.get(_shot_round_id(shot))
+        hole = _find_hole(row, str(shot.get("hole") or "")) if row else None
+        if row:
+            return _shot_detail(row, hole, shot, index, ref)
 
     if ref_type == "round" and parts:
         row = rounds_by_id.get(parts[0])
@@ -158,7 +211,10 @@ def _round_detail(data: HistoryData, row: dict[str, Any], ref: str) -> dict[str,
         hole=None,
         shot=None,
         related_refs={"roundRefs": [round_ref], "holeRefs": hole_refs, "shotRefs": shot_refs},
-        source_fields=_pick(row, ["id", "ids", "date", "course", "courseKey", "strokes", "par", "holesCompleted", "hasShots"]),
+        source_fields=_pick(
+            row,
+            ["id", "ids", "date", "course", "courseKey", "strokes", "par", "holesCompleted", "hasShots", "provenance"],
+        ),
     )
 
 
@@ -193,7 +249,10 @@ def _shot_detail(
     round_ref = _round_id(row)
     hole_number = int(shot.get("hole") or 0)
     shot_summary = _shot_summary(shot, index)
-    source_fields = _pick(shot, ["roundId", "scorecardId", "hole", "club", "clubName", "distance", "meters", "surface", "endLie"])
+    source_fields = _pick(
+        shot,
+        ["roundId", "scorecardId", "hole", "club", "clubName", "distance", "meters", "surface", "endLie", "provenance"],
+    )
     source_fields.setdefault("roundId", _shot_round_id(shot))
     source_fields.setdefault("club", _shot_club(shot))
     source_fields.setdefault("distance", _shot_distance(shot))
