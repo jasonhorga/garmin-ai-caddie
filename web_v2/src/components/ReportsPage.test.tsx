@@ -29,7 +29,14 @@ const report: ReviewReportResponse = {
   provider: 'StaticProvider',
   model: 'static',
   factsUsed: [
-    { label: 'summary_trend', source: 'summary', value: { totalRounds: 3, roundRefs: ['900001'] } },
+    {
+      label: 'summary_trend',
+      source: 'summary',
+      value: { totalRounds: 3, roundRefs: ['900001'] },
+      sourceRefs: ['900001', '900002'],
+      coverage: { ready: 2, total: 3, pct: 66.7 },
+      confidence: 'medium',
+    },
     {
       label: 'round_scorecard',
       source: 'history.rounds',
@@ -54,7 +61,15 @@ const report: ReviewReportResponse = {
       value: [{ shotRef: '900001:1:0', hole: 1, club: '1D', distance: 238, surface: 'fairway' }],
     },
   ],
-  missingData: [{ label: 'weather', state: 'partial', refs: ['900002'] }],
+  missingData: [
+    {
+      label: 'weather',
+      state: 'partial',
+      refs: ['900002'],
+      coverage: { ready: 1, total: 3, pct: 33.3 },
+      confidence: 'low',
+    },
+  ],
   narrative: 'Recent scoring improved, but weather coverage is partial.',
   confidence: 'medium',
 }
@@ -95,11 +110,15 @@ describe('ReportsPage', () => {
     expect(screen.getByText('club 1D')).toBeInTheDocument()
     expect(screen.getByText('distance 238')).toBeInTheDocument()
     expect(screen.getByText('weather')).toBeInTheDocument()
+    expect(screen.getByText('coverage 2/3 66.7%')).toBeInTheDocument()
+    expect(screen.getByText('medium fact confidence')).toBeInTheDocument()
+    expect(screen.getByText('coverage 1/3 33.3%')).toBeInTheDocument()
+    expect(screen.getByText('low missing confidence')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Open source 900002' }))
+    await userEvent.click(screen.getAllByRole('button', { name: 'Open source 900002' })[0])
     await userEvent.click(screen.getByRole('button', { name: 'Load trend report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Generate trend report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Load round report' }))

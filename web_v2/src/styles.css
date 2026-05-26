@@ -1856,7 +1856,8 @@ p {
 
 .fact-value,
 .fact-object,
-.fact-array {
+.fact-array,
+.report-metadata {
   min-width: 0;
   display: flex;
   flex-wrap: wrap;

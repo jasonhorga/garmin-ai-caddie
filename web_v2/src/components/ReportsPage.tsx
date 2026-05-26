@@ -138,6 +138,7 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
                 <strong>{String(fact.label ?? 'fact')}</strong>
                 <span>{String(fact.source ?? 'source')}</span>
                 <FactValue value={fact.value} />
+                <ReportMetadata row={fact} confidenceLabel="fact confidence" />
               </div>
               <SourceRefs refs={refsForFact(fact)} onSelectRef={onSelectRef} />
             </div>
@@ -148,8 +149,11 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
           {report.missingData.length ? (
             report.missingData.map((item, index) => (
               <div className="report-row" key={`${String(item.label)}-${index}`}>
-                <strong>{String(item.label ?? 'missing')}</strong>
-                <span>{String(item.state ?? item.reason ?? 'needs review')}</span>
+                <div className="report-row-main">
+                  <strong>{String(item.label ?? 'missing')}</strong>
+                  <span>{String(item.state ?? item.reason ?? 'needs review')}</span>
+                  <ReportMetadata row={item} confidenceLabel="missing confidence" />
+                </div>
                 <SourceRefs refs={refsForFact(item)} onSelectRef={onSelectRef} />
               </div>
             ))
@@ -160,6 +164,29 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
       </div>
     </section>
   )
+}
+
+function ReportMetadata({ row, confidenceLabel }: { row: Record<string, unknown>; confidenceLabel: string }) {
+  const coverage = metadataCoverage(row.coverage)
+  const confidence = typeof row.confidence === 'string' ? row.confidence : null
+  if (!coverage && !confidence) return null
+
+  return (
+    <div className="report-metadata">
+      {coverage ? <span className="fact-chip muted">{coverage}</span> : null}
+      {confidence ? <span className="fact-chip muted">{`${confidence} ${confidenceLabel}`}</span> : null}
+    </div>
+  )
+}
+
+function metadataCoverage(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const row = value as Record<string, unknown>
+  const ready = typeof row.ready === 'number' ? row.ready : null
+  const total = typeof row.total === 'number' ? row.total : null
+  const pct = typeof row.pct === 'number' ? row.pct : null
+  if (ready === null || total === null) return null
+  return `coverage ${ready}/${total}${pct === null ? '' : ` ${pct}%`}`
 }
 
 function FactValue({ value }: { value: unknown }) {
