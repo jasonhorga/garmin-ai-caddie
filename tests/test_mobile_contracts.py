@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+
+from ai_caddie.fixtures import fixture_history_data
+from ai_caddie.mobile_live import build_live_round_package
+from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 
 
 CONTRACT_DIR = Path("mobile") / "contracts"
@@ -92,6 +97,34 @@ class MobileContractTests(unittest.TestCase):
 
         _assert_schema_accepts(self, schema, package)
         self.assertEqual(schema["properties"]["caddieDecisionEndpoint"]["const"], "/api/v2/caddie/decision")
+
+    def test_live_round_package_uses_persisted_weather_snapshot(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_weather_snapshot(
+                build_weather_snapshot(
+                    round_id="900001",
+                    hole=1,
+                    captured_at="2026-05-25T08:00:00Z",
+                    latitude=22.279,
+                    longitude=114.162,
+                    source="manual",
+                    observed={
+                        "windSpeedMps": 5.4,
+                        "windDirectionDeg": 110,
+                        "temperatureC": 28.5,
+                        "precipitationMm": 0,
+                    },
+                ),
+                root=root,
+            )
+
+            package = build_live_round_package("900001", data=fixture_history_data(), root=root)
+
+        self.assertEqual(package["weatherSnapshot"]["state"], "ready")
+        self.assertEqual(package["weatherSnapshot"]["source"], "manual")
+        self.assertEqual(package["weatherSnapshot"]["windSpeedMps"], 5.4)
+        self.assertEqual(package["weatherSnapshot"]["hole"], 1)
 
     def test_live_round_event_schema_accepts_all_event_kinds(self) -> None:
         schema = _load_schema("live_round_event.schema.json")

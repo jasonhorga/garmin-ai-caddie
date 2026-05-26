@@ -10,7 +10,7 @@ from typing import Any
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import build_history_stats
-from ai_caddie.weather_context import build_weather_snapshot
+from ai_caddie.weather_context import build_weather_snapshot, latest_weather_snapshot
 
 
 EVENT_LOG = Path("data") / "mobile_events" / "events.jsonl"
@@ -100,6 +100,10 @@ def _cached_caddie_rules() -> dict[str, Any]:
     }
 
 
+def _weather_snapshot_for_package(round_id: str, *, root: Path | str | None = None) -> dict[str, Any]:
+    return latest_weather_snapshot(round_id, root=root) or build_weather_snapshot(round_id=round_id)
+
+
 def build_live_round_package(
     round_id: str,
     data: HistoryData | None = None,
@@ -167,7 +171,7 @@ def build_live_round_package(
             "readyHoles": ready_holes,
             "totalHoles": len(holes),
         },
-        "weatherSnapshot": build_weather_snapshot(round_id=round_id),
+        "weatherSnapshot": _weather_snapshot_for_package(round_id, root=root),
         "clubProfiles": club_profiles,
         "caddieDecisionEndpoint": "/api/v2/caddie/decision",
         "offlinePackageStatus": {
