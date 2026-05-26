@@ -14,6 +14,9 @@ DATA_PATHS = [
     Path("data") / "annotations",
     Path("data") / "media",
     Path("data") / "mobile_events",
+    Path("data") / "weather",
+    Path("data") / "reports",
+    Path("data") / "decision_audits",
 ]
 
 

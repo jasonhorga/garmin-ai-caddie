@@ -31,6 +31,9 @@ This project is designed for private golf data first. Secrets must stay local or
 - `data/annotations`
 - `data/media` metadata and local uploaded media files
 - `data/mobile_events`
+- `data/weather`
+- `data/reports`
+- `data/decision_audits`
 
 It excludes by default:
 

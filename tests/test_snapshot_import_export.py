@@ -20,6 +20,9 @@ class SnapshotImportExportTests(unittest.TestCase):
             (source / "data" / "sync").mkdir()
             (source / "data" / "annotations").mkdir()
             (source / "data" / "media").mkdir()
+            (source / "data" / "weather").mkdir()
+            (source / "data" / "reports").mkdir()
+            (source / "data" / "decision_audits").mkdir()
             (source / "data" / "summary.json").write_text("[]", encoding="utf-8")
             (source / "data" / "scorecards" / "1.json").write_text("{}", encoding="utf-8")
             (source / "data" / "shots" / "1.json").write_text("{}", encoding="utf-8")
@@ -27,6 +30,12 @@ class SnapshotImportExportTests(unittest.TestCase):
             (source / "data" / "sync" / "status.json").write_text("{}", encoding="utf-8")
             (source / "data" / "annotations" / "annotations.jsonl").write_text('{"kind":"issue_tag"}\n', encoding="utf-8")
             (source / "data" / "media" / "media_index.jsonl").write_text('{"mediaKind":"photo"}\n', encoding="utf-8")
+            (source / "data" / "weather" / "weather_snapshots.jsonl").write_text('{"state":"ready"}\n', encoding="utf-8")
+            (source / "data" / "reports" / "reports.jsonl").write_text('{"kind":"round"}\n', encoding="utf-8")
+            (source / "data" / "decision_audits" / "decision_audits.jsonl").write_text(
+                '{"classification":"execution"}\n',
+                encoding="utf-8",
+            )
             (source / ".env").write_text("SECRET=1", encoding="utf-8")
             (source / ".garmin_tokens").mkdir()
             (source / ".garmin_tokens" / "web_cookie.txt").write_text("cookie", encoding="utf-8")
@@ -47,12 +56,21 @@ class SnapshotImportExportTests(unittest.TestCase):
             self.assertIn("data/sync/status.json", names)
             self.assertIn("data/annotations/annotations.jsonl", names)
             self.assertIn("data/media/media_index.jsonl", names)
+            self.assertIn("data/weather/weather_snapshots.jsonl", names)
+            self.assertIn("data/reports/reports.jsonl", names)
+            self.assertIn("data/decision_audits/decision_audits.jsonl", names)
             self.assertNotIn(".env", names)
             self.assertNotIn(".garmin_tokens/web_cookie.txt", names)
             self.assertNotIn("clubs.json", names)
             self.assertEqual((target / "data" / "summary.json").read_text(encoding="utf-8"), "[]")
             self.assertEqual((target / "data" / "annotations" / "annotations.jsonl").read_text(encoding="utf-8"), '{"kind":"issue_tag"}\n')
             self.assertEqual((target / "data" / "media" / "media_index.jsonl").read_text(encoding="utf-8"), '{"mediaKind":"photo"}\n')
+            self.assertEqual((target / "data" / "weather" / "weather_snapshots.jsonl").read_text(encoding="utf-8"), '{"state":"ready"}\n')
+            self.assertEqual((target / "data" / "reports" / "reports.jsonl").read_text(encoding="utf-8"), '{"kind":"round"}\n')
+            self.assertEqual(
+                (target / "data" / "decision_audits" / "decision_audits.jsonl").read_text(encoding="utf-8"),
+                '{"classification":"execution"}\n',
+            )
             self.assertFalse((target / ".env").exists())
             self.assertFalse((target / ".garmin_tokens").exists())
             self.assertFalse((target / "clubs.json").exists())
