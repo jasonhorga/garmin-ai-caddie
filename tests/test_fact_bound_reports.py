@@ -220,6 +220,36 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("drilldown_refs", labels)
         self.assertEqual(facts["missingData"][0]["label"], "weather")
 
+    def test_report_facts_preserve_stat_source_refs_coverage_and_confidence(self) -> None:
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+        stats["dataQuality"].append(
+            {
+                "label": "weather",
+                "state": "partial",
+                "ready": 1,
+                "total": 45,
+                "refs": ["900001:7"],
+                "sourceRefs": ["900001:7"],
+                "coverage": {"ready": 1, "total": 45, "pct": 2.2},
+                "confidence": "low",
+            }
+        )
+
+        facts = build_trend_report_facts(stats, "year:2026")
+
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertEqual(by_label["summary_trend"]["sourceRefs"], ["900001", "900002", "900003"])
+        self.assertEqual(by_label["summary_trend"]["coverage"], {"ready": 3, "total": 3, "pct": 100.0})
+        self.assertEqual(by_label["summary_trend"]["confidence"], "medium")
+        self.assertEqual(by_label["time_period"]["sourceRefs"], ["900001", "900002", "900003"])
+        self.assertEqual(by_label["score_distribution"]["sourceRefs"], ["900001", "900002"])
+        self.assertEqual(by_label["phase_Putting"]["coverage"], {"ready": 45, "total": 45, "pct": 100.0})
+
+        weather_missing = next(row for row in facts["missingData"] if row["label"] == "weather" and row.get("sourceRefs") == ["900001:7"])
+        self.assertEqual(weather_missing["sourceRefs"], ["900001:7"])
+        self.assertEqual(weather_missing["coverage"], {"ready": 1, "total": 45, "pct": 2.2})
+        self.assertEqual(weather_missing["confidence"], "low")
+
     def test_trend_report_facts_expose_missing_period(self) -> None:
         facts = build_trend_report_facts(
             {

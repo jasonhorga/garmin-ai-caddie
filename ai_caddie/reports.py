@@ -37,9 +37,15 @@ def _fact(
         "value": value,
         "source": source,
     }
-    refs = _unique_strings(source_refs or [])
+    refs = _unique_strings([*(source_refs or []), *_metadata_source_refs(value)])
     if refs:
         row["sourceRefs"] = refs
+    coverage = _metadata_coverage(value)
+    if coverage:
+        row["coverage"] = coverage
+    confidence = _metadata_confidence(value)
+    if confidence:
+        row["confidence"] = confidence
     provenance_summary = _provenance_summary(provenance)
     if provenance_summary:
         row["provenance"] = provenance_summary
@@ -95,6 +101,45 @@ def _source_refs_from_fact_values(values: list[dict[str, Any]]) -> list[str]:
             for source_ref in _as_string_list(value.get("sourceRefs"))
         ]
     )
+
+
+def _metadata_source_refs(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        for key in ("sourceRefs", "roundRefs", "roundIds", "holeRefs", "shotRefs", "refs"):
+            refs = value.get(key)
+            if isinstance(refs, list):
+                return _unique_strings(refs)
+        return []
+    if isinstance(value, list):
+        return _unique_strings(
+            [
+                source_ref
+                for item in value
+                for source_ref in _metadata_source_refs(item)
+            ]
+        )
+    return []
+
+
+def _metadata_coverage(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict) and isinstance(value.get("coverage"), dict):
+        return dict(value["coverage"])
+    return None
+
+
+def _metadata_confidence(value: Any) -> str | None:
+    if isinstance(value, dict) and value.get("confidence") is not None:
+        return str(value["confidence"])
+    return None
+
+
+def _with_stat_metadata(value: dict[str, Any], source: Any) -> dict[str, Any]:
+    if not isinstance(source, dict):
+        return value
+    for key in ("sourceRefs", "coverage", "confidence"):
+        if key in source:
+            value[key] = source[key]
+    return value
 
 
 def build_round_report_facts(
@@ -337,15 +382,18 @@ def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict
     facts_used = [
         _fact(
             "summary_trend",
-            {
-                "totalRounds": summary.get("totalRounds"),
-                "average18": summary.get("average18"),
-                "median18": summary.get("median18"),
-                "recent5Average": summary.get("recent5Average"),
-                "recent10Average": summary.get("recent10Average"),
-                "recent20Average": summary.get("recent20Average"),
-                "bestScore": summary.get("bestScore"),
-            },
+            _with_stat_metadata(
+                {
+                    "totalRounds": summary.get("totalRounds"),
+                    "average18": summary.get("average18"),
+                    "median18": summary.get("median18"),
+                    "recent5Average": summary.get("recent5Average"),
+                    "recent10Average": summary.get("recent10Average"),
+                    "recent20Average": summary.get("recent20Average"),
+                    "bestScore": summary.get("bestScore"),
+                },
+                summary,
+            ),
             "summary",
         )
     ]
@@ -473,6 +521,11 @@ def _missing_data_quality_rows(data_quality: Any) -> list[dict[str, Any]]:
         refs = _as_string_list(finding.get("sourceRefs") or finding.get("refs") or finding.get("roundRefs") or finding.get("roundIds"))
         if refs:
             row["refs"] = refs
+            row["sourceRefs"] = refs
+        if isinstance(finding.get("coverage"), dict):
+            row["coverage"] = dict(finding["coverage"])
+        if finding.get("confidence") is not None:
+            row["confidence"] = finding.get("confidence")
         rows.append(row)
     return rows
 
