@@ -38,7 +38,7 @@ LiveRoundEventKind = Literal["score", "club", "putt", "penalty", "note", "locati
 
 _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
     "score": ({"strokes"}, {"source"}),
-    "club": ({"clubName"}, {"source", "decisionId", "actualShot"}),
+    "club": ({"clubName"}, {"source", "decisionId", "decision", "actualShot"}),
     "putt": ({"putts"}, {"source"}),
     "penalty": ({"penalties"}, {"source"}),
     "note": ({"note"}, {"source"}),
@@ -50,7 +50,7 @@ _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
 
 _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
     "score": {"strokes": "number", "source": "string"},
-    "club": {"clubName": "string", "source": "string", "decisionId": "string", "actualShot": "object"},
+    "club": {"clubName": "string", "source": "string", "decisionId": "string", "decision": "object", "actualShot": "object"},
     "putt": {"putts": "number", "source": "string"},
     "penalty": {"penalties": "number", "source": "string"},
     "note": {"note": "string", "source": "string"},
@@ -693,10 +693,12 @@ class MobileReconciliationApplyResponse(BaseModel):
     schema_: Literal["ai-caddie-mobile-reconciliation-apply-v1"] = Field(alias="schema")
     roundId: str
     appliedCount: int
+    decisionAuditCount: int = 0
     skippedCount: int
     missingSuggestionIds: list[str] = Field(default_factory=list)
     skippedSuggestionIds: list[str] = Field(default_factory=list)
     annotations: list[AnnotationRecord]
+    decisionAudits: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WeatherSnapshotResponse(BaseModel):

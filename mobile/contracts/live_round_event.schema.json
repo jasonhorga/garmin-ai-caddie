@@ -79,6 +79,7 @@
               "clubName": { "type": "string" },
               "source": { "type": "string" },
               "decisionId": { "type": "string" },
+              "decision": { "type": "object", "additionalProperties": true },
               "actualShot": { "type": "object", "additionalProperties": true }
             }
           }

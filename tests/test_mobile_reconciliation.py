@@ -6,6 +6,7 @@ import unittest
 
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.annotations import list_annotations
+from ai_caddie.decision import list_decision_audits
 from ai_caddie.mobile_live import append_event_batch
 from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 
@@ -211,6 +212,72 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(second["skippedCount"], 1)
         self.assertEqual([row["kind"] for row in annotations], ["putt_correction", "score_correction"])
         self.assertEqual(annotations[0]["payload"]["sourceSuggestionId"], "putt-conflict:putt-correction")
+
+    def test_apply_reconciliation_persists_caddie_feedback_as_decision_audit(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001",
+                [
+                    {
+                        "eventId": "offline-shot-audit",
+                        "roundId": "900001",
+                        "hole": 3,
+                        "kind": "club",
+                        "payload": {
+                            "clubName": "9I",
+                            "decisionId": "900001:3:tee",
+                            "decision": {
+                                "decisionId": "900001:3:tee",
+                                "sourceRef": "900001:3",
+                                "shotType": "tee",
+                                "phase": "tee_shot",
+                                "selectedOptionId": "stock",
+                                "selectedOption": {
+                                    "id": "stock",
+                                    "carry_m": 145.0,
+                                    "clubRecommendation": {"clubs": [{"clubName": "9I"}]},
+                                },
+                                "options": [
+                                    {"id": "safe", "carry_m": 120.0},
+                                    {"id": "stock", "carry_m": 145.0},
+                                    {"id": "attack", "carry_m": 175.0},
+                                ],
+                                "confidence": {"level": "medium"},
+                                "evidence": [{"sourceRefs": ["900001:3"]}],
+                            },
+                            "actualShot": {
+                                "roundId": "900001",
+                                "hole": 3,
+                                "shotOrder": 1,
+                                "clubName": "9I",
+                                "meters": 146.0,
+                                "end": {"lie": "Bunker", "feature": {"surface": {"kind": "bunker"}, "nearRisks": []}},
+                            },
+                        },
+                    },
+                ],
+                idempotency_key="audit-apply",
+                root=root,
+            )
+
+            result = apply_mobile_reconciliation_suggestions(
+                "900001",
+                fixture_history_data(),
+                suggestion_ids=["offline-shot-audit:caddie-feedback"],
+                root=root,
+                annotations_root=root,
+                decision_audit_root=root,
+            )
+            audits = list_decision_audits(root=root)
+
+        self.assertEqual(result["appliedCount"], 1)
+        self.assertEqual(result["decisionAuditCount"], 1)
+        self.assertEqual(result["decisionAudits"][0]["decisionId"], "900001:3:tee")
+        self.assertEqual(len(audits), 1)
+        self.assertEqual(audits[0]["classification"], "execution")
+        self.assertEqual(audits[0]["sourceRef"], "900001:3")
+        self.assertEqual(audits[0]["actualShotRefs"], ["900001:3:1"])
 
     def test_apply_reconciliation_writes_mobile_note_as_hole_note_idempotently(self) -> None:
         with TemporaryDirectory() as tmp:

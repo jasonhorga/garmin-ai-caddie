@@ -198,8 +198,7 @@ export function MobileReconciliationPanel({
             </button>
             {applyState.status === 'ready' ? (
               <span>
-                Applied {applyState.data.appliedCount} suggestions
-                {applyState.data.skippedCount ? `, skipped ${applyState.data.skippedCount}` : ''}
+                {applyStatusText(applyState.data)}
               </span>
             ) : null}
             {applyState.status === 'error' ? <span>{applyState.message}</span> : null}
@@ -222,10 +221,28 @@ export function MobileReconciliationPanel({
               ))}
             </div>
           ) : null}
+
+          {applyState.status === 'ready' && (applyState.data.decisionAudits ?? []).length ? (
+            <div className="mobile-reconcile-applied" aria-label="Stored decision audits">
+              {(applyState.data.decisionAudits ?? []).map((audit) => (
+                <article key={compactValue(audit.id) ?? compactValue(audit.decisionId) ?? 'audit'}>
+                  <strong>{compactValue(audit.classification) ?? 'audit'}</strong>
+                  <span>{compactValue(audit.decisionId) ?? '-'}</span>
+                </article>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>
   )
+}
+
+function applyStatusText(data: MobileReconciliationApplyResponse) {
+  const parts = [`Applied ${data.appliedCount} suggestions`]
+  if (data.decisionAuditCount ?? 0) parts.push(`stored ${formatCount(data.decisionAuditCount ?? 0, 'audit')}`)
+  if (data.skippedCount) parts.push(`skipped ${data.skippedCount}`)
+  return parts.join(', ')
 }
 
 function EvidenceRows({ title, rows }: { title: string; rows: Array<Record<string, unknown>> }) {

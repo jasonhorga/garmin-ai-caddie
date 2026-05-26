@@ -204,6 +204,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("count", payload_rules["penalty"]["properties"])
         self.assertEqual(payload_rules["note"]["required"], ["note"])
         self.assertNotIn("text", payload_rules["note"]["properties"])
+        self.assertEqual(payload_rules["club"]["properties"]["decision"]["type"], "object")
+        self.assertEqual(payload_rules["club"]["properties"]["actualShot"]["type"], "object")
         self.assertEqual(payload_rules["photo"]["properties"]["mediaType"]["const"], "photo")
         self.assertEqual(payload_rules["video"]["properties"]["mediaType"]["const"], "video")
         for kind in kinds:

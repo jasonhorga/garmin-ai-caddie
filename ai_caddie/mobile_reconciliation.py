@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.annotations import add_annotation, list_annotations
+from ai_caddie.decision import audit_decision, store_decision_audit
 from ai_caddie.history import HistoryData
 from ai_caddie.mobile_live import mobile_event_log
 
@@ -433,12 +434,15 @@ def apply_mobile_reconciliation_suggestions(
     suggestion_ids: list[str] | None = None,
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
+    decision_audit_root: Path | str | None = None,
 ) -> dict[str, Any]:
     reconciliation = reconcile_mobile_round_events(round_id, data, root=root)
     suggestions = {str(row.get("id")): row for row in reconciliation.get("annotationSuggestions", [])}
     requested_ids = list(suggestion_ids or suggestions.keys())
     existing_ids = _existing_source_suggestion_ids(root=annotations_root)
+    events_by_id = {str(row.get("eventId")): row for row in _event_rows(round_id, root=root) if row.get("eventId")}
     annotations: list[dict[str, Any]] = []
+    decision_audits: list[dict[str, Any]] = []
     skipped: list[str] = []
     missing: list[str] = []
 
@@ -450,22 +454,55 @@ def apply_mobile_reconciliation_suggestions(
         if str(suggestion_id) in existing_ids:
             skipped.append(str(suggestion_id))
             continue
+        payload = dict(row.get("payload") or {})
         record = add_annotation(
             str(row["targetType"]),
             str(row["targetId"]),
             str(row["kind"]),
-            dict(row.get("payload") or {}),
+            payload,
             root=annotations_root,
         )
         annotations.append(record)
         existing_ids.add(str(suggestion_id))
+        audit_record = _store_caddie_feedback_audit(
+            row,
+            events_by_id=events_by_id,
+            root=decision_audit_root,
+        )
+        if audit_record:
+            decision_audits.append(audit_record)
 
     return {
         "schema": "ai-caddie-mobile-reconciliation-apply-v1",
         "roundId": str(round_id),
         "appliedCount": len(annotations),
+        "decisionAuditCount": len(decision_audits),
         "skippedCount": len(skipped),
         "missingSuggestionIds": missing,
         "skippedSuggestionIds": skipped,
         "annotations": annotations,
+        "decisionAudits": decision_audits,
     }
+
+
+def _store_caddie_feedback_audit(
+    suggestion: dict[str, Any],
+    *,
+    events_by_id: dict[str, dict[str, Any]],
+    root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    if suggestion.get("kind") != "caddie_feedback":
+        return None
+    payload = suggestion.get("payload") if isinstance(suggestion.get("payload"), dict) else {}
+    event_id = str(payload.get("sourceEventId") or "")
+    event_payload = events_by_id.get(event_id, {}).get("payload")
+    if not isinstance(event_payload, dict):
+        return None
+    decision = event_payload.get("decision")
+    if not isinstance(decision, dict):
+        return None
+    actual_shot = payload.get("actualShot")
+    if not isinstance(actual_shot, dict):
+        actual_shot = event_payload.get("actualShot")
+    audit = audit_decision(decision, actual_shot if isinstance(actual_shot, dict) else None)
+    return store_decision_audit(audit, decision_id=str(payload.get("decisionId") or suggestion.get("targetId") or ""), root=root)

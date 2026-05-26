@@ -59,6 +59,7 @@ const applyResponse: MobileReconciliationApplyResponse = {
   schema: 'ai-caddie-mobile-reconciliation-apply-v1',
   roundId: '900001',
   appliedCount: 1,
+  decisionAuditCount: 1,
   skippedCount: 0,
   missingSuggestionIds: [],
   skippedSuggestionIds: [],
@@ -73,6 +74,7 @@ const applyResponse: MobileReconciliationApplyResponse = {
       source: 'manual',
     },
   ],
+  decisionAudits: [{ id: 'audit-1', decisionId: 'decision-1', classification: 'execution' }],
 }
 
 describe('MobileReconciliationPanel', () => {
@@ -115,8 +117,9 @@ describe('MobileReconciliationPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Apply selected suggestions' }))
 
     expect(onApply).toHaveBeenCalledWith('900001', ['score-conflict:score-correction', 'note-local:hole-note'])
-    expect(screen.getByText('Applied 1 suggestions')).toBeInTheDocument()
+    expect(screen.getByText('Applied 1 suggestions, stored 1 audit')).toBeInTheDocument()
     expect(within(screen.getByLabelText('Applied annotations')).getByText('score_correction')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Stored decision audits')).getByText('execution')).toBeInTheDocument()
   })
 
   it('renders local-only, Garmin-only, conflict, and audit evidence rows', () => {
@@ -145,10 +148,12 @@ describe('MobileReconciliationPanel', () => {
           data: {
             ...applyResponse,
             appliedCount: 0,
+            decisionAuditCount: 0,
             skippedCount: 1,
             skippedSuggestionIds: ['note-local:hole-note'],
             missingSuggestionIds: ['missing:hole-note'],
             annotations: [],
+            decisionAudits: [],
           },
         }}
         onLoad={vi.fn()}

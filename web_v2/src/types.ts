@@ -534,10 +534,12 @@ export interface MobileReconciliationApplyResponse {
   schema: 'ai-caddie-mobile-reconciliation-apply-v1'
   roundId: string
   appliedCount: number
+  decisionAuditCount: number
   skippedCount: number
   missingSuggestionIds: string[]
   skippedSuggestionIds: string[]
   annotations: AnnotationRecord[]
+  decisionAudits: Array<Record<string, unknown>>
 }
 
 export type ReadinessState = 'ready' | 'degraded' | 'error'

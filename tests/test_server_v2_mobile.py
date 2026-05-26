@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.decision import list_decision_audits
 from server_v2.main import app
 
 
@@ -504,6 +505,75 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["annotations"][0]["kind"], "hole_note")
         self.assertEqual(payload["annotations"][0]["targetId"], "900001:7")
         self.assertEqual(payload["annotations"][0]["payload"]["text"], "Into wind; take one more club.")
+
+    def test_mobile_reconciliation_apply_endpoint_persists_decision_audit(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "offline-shot-audit",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 3,
+            "kind": "club",
+            "payload": {
+                "clubName": "9I",
+                "decisionId": "900001:3:tee",
+                "decision": {
+                    "decisionId": "900001:3:tee",
+                    "sourceRef": "900001:3",
+                    "shotType": "tee",
+                    "phase": "tee_shot",
+                    "selectedOptionId": "stock",
+                    "selectedOption": {
+                        "id": "stock",
+                        "carry_m": 145.0,
+                        "clubRecommendation": {"clubs": [{"clubName": "9I"}]},
+                    },
+                    "options": [
+                        {"id": "safe", "carry_m": 120.0},
+                        {"id": "stock", "carry_m": 145.0},
+                        {"id": "attack", "carry_m": 175.0},
+                    ],
+                    "confidence": {"level": "medium"},
+                    "evidence": [{"sourceRefs": ["900001:3"]}],
+                },
+                "actualShot": {
+                    "roundId": "900001",
+                    "hole": 3,
+                    "shotOrder": 1,
+                    "clubName": "9I",
+                    "meters": 146.0,
+                    "end": {"lie": "Bunker", "feature": {"surface": {"kind": "bunker"}, "nearRisks": []}},
+                },
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch("server_v2.mobile.ANNOTATION_ROOT", root),
+                patch("server_v2.mobile.DECISION_AUDIT_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                event_response = client.post(
+                    "/api/v2/mobile/rounds/900001/events",
+                    headers={"Idempotency-Key": "audit-apply"},
+                    json={"roundId": "900001", "events": [event]},
+                )
+                apply_response = client.post(
+                    "/api/v2/mobile/rounds/900001/reconciliation/apply",
+                    json={"suggestionIds": ["offline-shot-audit:caddie-feedback"]},
+                )
+                audits = list_decision_audits(root=root)
+
+        self.assertEqual(event_response.status_code, 200)
+        self.assertEqual(apply_response.status_code, 200)
+        payload = apply_response.json()
+        self.assertEqual(payload["decisionAuditCount"], 1)
+        self.assertEqual(payload["decisionAudits"][0]["classification"], "execution")
+        self.assertEqual(audits[0]["sourceRef"], "900001:3")
+        self.assertEqual(audits[0]["actualShotRefs"], ["900001:3:1"])
 
 
 if __name__ == "__main__":
