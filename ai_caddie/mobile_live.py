@@ -20,6 +20,7 @@ OFFLINE_STALE_AFTER_HOURS = 6
 OFFLINE_EXPIRES_AFTER_HOURS = 24
 LIVE_SHOT_TYPES = ["tee", "approach", "recovery"]
 MANUAL_NOTE_KINDS = {"strategy_note", "hole_note", "round_note", "weather_context_note"}
+REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
 
 
 def _format_time(value: datetime) -> str:
@@ -570,6 +571,18 @@ def mobile_event_log(root: Path | str | None = None) -> Path:
     return Path(root or ".") / EVENT_LOG
 
 
+def _sanitized_live_event(event: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(event)
+    payload = sanitized.get("payload")
+    if not isinstance(payload, dict):
+        return sanitized
+    sanitized_payload = dict(payload)
+    if str(sanitized.get("kind") or "") in {"photo", "video"} and sanitized_payload.get("fileURL"):
+        sanitized_payload["fileURL"] = REDACTED_LOCAL_MEDIA_URL
+    sanitized["payload"] = sanitized_payload
+    return sanitized
+
+
 def append_event_batch(
     round_id: str,
     events: list[dict[str, Any]],
@@ -611,6 +624,7 @@ def append_event_batch(
     duplicate_event_ids = []
     with path.open("a", encoding="utf-8") as handle:
         for event in events:
+            event = _sanitized_live_event(event)
             event_id = str(event.get("eventId") or "")
             event_key = (round_key, event_id)
             if event_id and event_key in existing_event_ids:

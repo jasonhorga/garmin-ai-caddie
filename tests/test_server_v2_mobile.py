@@ -501,6 +501,48 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["accepted"], len(events))
 
+    def test_mobile_event_batch_redacts_photo_video_file_urls_before_storage_and_reconciliation(self) -> None:
+        client = TestClient(app)
+        local_file_url = "file:///private/var/mobile/Containers/Data/Application/app-id/tmp/lie.jpg"
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "photo-local-path",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "photo",
+            "payload": {
+                "assetLocalId": "asset-local-1",
+                "mediaType": "photo",
+                "source": "ios_camera",
+                "fileURL": local_file_url,
+                "mediaId": "media-1",
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                event_response = client.post(
+                    "/api/v2/mobile/rounds/900001/events",
+                    headers={"Idempotency-Key": "photo-local-path"},
+                    json={"roundId": "900001", "events": [event]},
+                )
+                reconciliation = client.get("/api/v2/mobile/rounds/900001/reconciliation")
+                log_text = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8")
+
+        combined_text = log_text + reconciliation.text
+        self.assertEqual(event_response.status_code, 200)
+        self.assertEqual(reconciliation.status_code, 200)
+        for private_fragment in ["file://", "/private/var", "lie.jpg", local_file_url]:
+            self.assertNotIn(private_fragment, combined_text)
+        self.assertIn("asset-local-1", combined_text)
+        self.assertIn("media-1", combined_text)
+        self.assertIn("[REDACTED_LOCAL_MEDIA_URL]", combined_text)
+
     def test_mobile_reconciliation_endpoint_uses_local_events_and_fixture_facts(self) -> None:
         client = TestClient(app)
         event = {
