@@ -140,6 +140,8 @@ def build_caddie_context(
                 "refs": _weather_refs(weather_snapshot),
             }
         )
+    else:
+        missing_data.append({"label": "weather", "reason": "no stored weather snapshot for this round or hole"})
     if current_location or target_location:
         evidence_rows.append(
             {

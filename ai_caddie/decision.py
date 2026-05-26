@@ -732,7 +732,7 @@ def _confidence(analysis: dict[str, Any], options: list[dict[str, Any]], selecte
         level = "medium" if level == "high" else level
         reasons.append("selected club profile sample is below confidence threshold")
     weather = _weather_snapshot(analysis)
-    if weather and weather.get("state") != "ready":
+    if weather is None or weather.get("state") != "ready":
         level = "medium" if level == "high" else level
         reasons.append("weather context is missing or incomplete")
     if not reasons:
@@ -800,7 +800,7 @@ def _missing_data(analysis: dict[str, Any], options: list[dict[str, Any]], selec
     if selected and _has_weak_club_sample(selected):
         rows.append({"label": "club_profiles", "reason": "matching club sample data missing or weak"})
     weather = _weather_snapshot(analysis)
-    if weather and weather.get("state") != "ready":
+    if weather is None or weather.get("state") != "ready":
         rows.append({"label": "weather", "reason": "weather snapshot missing or incomplete"})
     for finding in analysis.get("_visionMissing") or []:
         rows.append({

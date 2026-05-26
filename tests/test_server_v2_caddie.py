@@ -320,6 +320,27 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertTrue(any(row["kind"] == "live_location" for row in decision["evidence"]))
         self.assertTrue(any(row["kind"] == "weather" for row in decision["evidence"]))
 
+    def test_context_endpoint_reports_missing_weather_snapshot(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            with patch("server_v2.caddie.WEATHER_ROOT", Path(tmp), create=True):
+                response = client.get(
+                    "/api/v2/caddie/context",
+                    params={
+                        "source_ref": "900001:7",
+                        "shot_type": "approach",
+                        "distance_to_pin_m": 142,
+                        "lie": "fairway",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertNotIn("weatherSnapshot", payload["context"])
+        self.assertIn("weather", {row["label"] for row in payload["missingData"]})
+        self.assertFalse(any(row["label"] == "weather_snapshot" for row in payload["evidence"]))
+
     def test_context_endpoint_generates_route_evidence_for_tee_decision(self) -> None:
         client = TestClient(app)
 

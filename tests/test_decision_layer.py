@@ -100,6 +100,18 @@ def recovery_fixture(*, lie="rough", blocked=True):
     return data
 
 
+def ready_weather_snapshot():
+    return build_weather_snapshot(
+        round_id="round-1",
+        hole=4,
+        captured_at="2026-05-25T08:00:00Z",
+        latitude=22.279,
+        longitude=114.162,
+        source="manual",
+        observed={"windSpeedMps": 2.0, "windDirectionDeg": 90, "temperatureC": 27.0},
+    )
+
+
 def long_hole_fixture():
     data = analysis_fixture(stock_risk=1)
     data["distanceToPin_m"] = 520.0
@@ -178,7 +190,10 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("sequence", {row["kind"] for row in plan["evidence"]})
 
     def test_recommend_approach_uses_green_and_hazard_evidence(self) -> None:
-        plan = recommend_approach(approach_fixture())
+        context = approach_fixture()
+        context["weatherSnapshot"] = ready_weather_snapshot()
+
+        plan = recommend_approach(context)
 
         self.assertEqual(plan["schema"], "ai-caddie-decision-v2")
         self.assertEqual(plan["shotType"], "approach")
@@ -212,6 +227,7 @@ class DecisionLayerTests(unittest.TestCase):
     def test_strategy_mode_attack_selects_attack_when_clearance_and_dispersion_allow(self) -> None:
         context = approach_fixture()
         context["strategyMode"] = "attack"
+        context["weatherSnapshot"] = ready_weather_snapshot()
 
         plan = recommend_approach(context)
 
@@ -220,6 +236,14 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(plan["selectedOption"]["dispersion"]["state"], "modeled")
         self.assertEqual(plan["confidence"]["level"], "high")
         self.assertTrue(any(row["kind"] == "strategy" for row in plan["evidence"]))
+
+    def test_absent_weather_is_reported_as_missing_decision_context(self) -> None:
+        plan = recommend_approach(approach_fixture())
+
+        self.assertIn("weather", {row["label"] for row in plan["missingData"]})
+        self.assertEqual(plan["confidence"]["level"], "medium")
+        self.assertTrue(any("weather context" in row for row in plan["confidence"]["reasons"]))
+        self.assertFalse(any(row["kind"] == "weather" for row in plan["evidence"]))
 
     def test_strategy_mode_attack_does_not_override_low_confidence_geometry(self) -> None:
         context = approach_fixture(has_geometry=False)
