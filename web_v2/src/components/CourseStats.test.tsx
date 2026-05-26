@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { HistoryStatsResponse } from '../types'
@@ -10,7 +10,24 @@ const statsFixture: HistoryStatsResponse = {
   summary: {},
   time: {},
   scoring: {},
-  courseDistribution: [{ courseKey: 'black_knight', roundCount: 2, pct: 100, roundRefs: ['900001', '900002'] }],
+  courseDistribution: [
+    {
+      courseKey: 'black_knight',
+      courseName: 'Black Knight B',
+      roundCount: 2,
+      pct: 66.7,
+      roundRefs: ['900001', '900002'],
+      location: { latitude: 22.279, longitude: 114.162 },
+    },
+    {
+      courseKey: 'bay_course',
+      courseName: 'Bay Course',
+      roundCount: 1,
+      pct: 33.3,
+      roundRefs: ['900003'],
+      location: null,
+    },
+  ],
   records: {},
   courses: [
     {
@@ -45,8 +62,8 @@ describe('CourseStats', () => {
     render(<CourseStats data={statsFixture} onSelectRef={onSelectRef} />)
 
     expect(screen.getByRole('heading', { name: 'Course Stats' })).toBeInTheDocument()
-    expect(screen.getByText('Black Knight B')).toBeInTheDocument()
-    expect(screen.getByText('2 rounds')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Black Knight B' })).toBeInTheDocument()
+    expect(screen.getAllByText('2 rounds').length).toBeGreaterThan(0)
     expect(screen.getByText('avg 82')).toBeInTheDocument()
     expect(screen.getByText('best 77')).toBeInTheDocument()
     expect(screen.getByText('worst 87')).toBeInTheDocument()
@@ -54,15 +71,29 @@ describe('CourseStats', () => {
     expect(screen.getByText('improving -10')).toHaveClass('trend-improving')
     expect(screen.getByText('geometry missing 0/2')).toHaveClass('quality-missing')
     expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
-    expect(screen.getByRole('button', { name: 'Open source 900001' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
+  })
+
+  it('renders course distribution with location evidence and drill-down refs', () => {
+    const onSelectRef = vi.fn()
+    render(<CourseStats data={statsFixture} onSelectRef={onSelectRef} />)
+
+    expect(screen.getByRole('heading', { name: 'Course Distribution' })).toBeInTheDocument()
+    const distribution = screen.getByLabelText('Course distribution')
+    expect(within(distribution).getByText('Black Knight B')).toBeInTheDocument()
+    expect(within(distribution).getByText('66.7%')).toBeInTheDocument()
+    expect(within(distribution).getByText('22.2790, 114.1620')).toBeInTheDocument()
+    expect(within(distribution).getByText('Bay Course')).toBeInTheDocument()
+    expect(within(distribution).getByText('location missing')).toHaveClass('quality-missing')
+    expect(within(distribution).getAllByRole('button', { name: 'Open source 900003' }).length).toBeGreaterThan(0)
   })
 
   it('selects source refs for drill-down', async () => {
     const onSelectRef = vi.fn()
     render(<CourseStats data={statsFixture} onSelectRef={onSelectRef} />)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001' }))
+    await userEvent.click(screen.getAllByRole('button', { name: 'Open source 900001' })[0])
 
     expect(onSelectRef).toHaveBeenCalledWith('900001')
   })
