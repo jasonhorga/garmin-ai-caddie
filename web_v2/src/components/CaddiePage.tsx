@@ -58,6 +58,7 @@ interface CaddiePageProps {
   onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
   onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
   onAnalyzeMedia?: (mediaId: string) => void
+  onRedactMedia?: (mediaId: string) => void
   onSelectRef?: (sourceRef: string) => void
   selectedSourceRef?: string
 }
@@ -75,6 +76,7 @@ export function CaddiePage({
   onLoadMediaContext,
   onAttachMedia,
   onAnalyzeMedia,
+  onRedactMedia,
   onSelectRef = () => undefined,
   selectedSourceRef,
 }: CaddiePageProps) {
@@ -175,6 +177,7 @@ export function CaddiePage({
         onLoadMediaContext={onLoadMediaContext}
         onAttachMedia={onAttachMedia}
         onAnalyzeMedia={onAnalyzeMedia}
+        onRedactMedia={onRedactMedia}
       />
       <DecisionDetail state={decisionState} auditState={auditState} onCreateAudit={onCreateAudit} onSelectRef={onSelectRef} />
     </section>
@@ -822,11 +825,13 @@ function MediaContextPanel({
   onLoadMediaContext,
   onAttachMedia,
   onAnalyzeMedia,
+  onRedactMedia,
 }: {
   state: MediaContextState
   onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
   onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
   onAnalyzeMedia?: (mediaId: string) => void
+  onRedactMedia?: (mediaId: string) => void
 }) {
   const [targetType, setTargetType] = useState<MediaTargetType>('shot')
   const [targetId, setTargetId] = useState('fixture-round:4:approach')
@@ -918,8 +923,18 @@ function MediaContextPanel({
                   <span>{item.localPath}</span>
                 </div>
                 {onAnalyzeMedia ? (
-                  <button type="button" aria-label={`Analyze media ${item.id}`} onClick={() => onAnalyzeMedia(item.id)}>
+                  <button
+                    type="button"
+                    aria-label={`Analyze media ${item.id}`}
+                    onClick={() => onAnalyzeMedia(item.id)}
+                    disabled={item.privacyState === 'redacted'}
+                  >
                     Analyze
+                  </button>
+                ) : null}
+                {onRedactMedia && item.privacyState !== 'redacted' ? (
+                  <button type="button" aria-label={`Redact media ${item.id}`} onClick={() => onRedactMedia(item.id)}>
+                    Redact
                   </button>
                 ) : null}
               </article>

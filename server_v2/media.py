@@ -5,13 +5,14 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from ai_caddie.llm_providers import TextProvider, build_text_provider
-from ai_caddie.media import attach_media, find_media, media_for_target, store_media_content
+from ai_caddie.media import attach_media, find_media, media_for_target, redact_media, store_media_content
 from ai_caddie.vision_context import analyze_media_context, list_findings_for_target, store_vision_findings
 
 from .models import (
     MediaCreateRequest,
     MediaCreateResponse,
     MediaListResponse,
+    MediaRedactResponse,
     MediaRecord,
     MediaTargetType,
     VisionAnalysisResponse,
@@ -64,6 +65,17 @@ def list_target_media_response(target_type: MediaTargetType, target_id: str) -> 
         total=len(rows),
         media=rows,
         target={"targetType": target_type, "targetId": target_id},
+    )
+
+
+def redact_media_response(media_id: str) -> MediaRedactResponse:
+    result = redact_media(media_id, root=MEDIA_ROOT)
+    if result is None:
+        raise HTTPException(status_code=404, detail="media not found")
+    return MediaRedactResponse(
+        schema="ai-caddie-media-redact-v1",
+        media=_record(result["media"]),
+        deletedContent=bool(result["deletedContent"]),
     )
 
 

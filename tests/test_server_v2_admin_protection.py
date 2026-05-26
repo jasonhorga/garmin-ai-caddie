@@ -118,6 +118,14 @@ def _media_response() -> dict[str, object]:
     }
 
 
+def _media_redact_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-media-redact-v1",
+        "media": {**_media_response()["media"], "privacyState": "redacted", "localPath": "[redacted]"},
+        "deletedContent": True,
+    }
+
+
 def _media_list_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-media-list-v1",
@@ -349,12 +357,14 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         client = TestClient(app)
         annotation_handler = Mock()
         media_handler = Mock()
+        redact_handler = Mock(return_value=_media_redact_response())
         analyze_handler = Mock()
 
         with (
             patch.dict("os.environ", ADMIN_ENV),
             patch("server_v2.main.create_annotation_response", annotation_handler),
             patch("server_v2.main.create_media_response", media_handler),
+            patch("server_v2.main.redact_media_response", redact_handler, create=True),
             patch("server_v2.main.analyze_media_response", analyze_handler),
         ):
             annotation = client.post(
@@ -377,13 +387,16 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
                     "capturedAt": "2026-05-25T00:00:00Z",
                 },
             )
+            redact = client.post("/api/v2/media/media-1/redact")
             analyze = client.post("/api/v2/media/media-1/analyze")
 
         self.assertEqual(annotation.status_code, 401)
         self.assertEqual(media.status_code, 401)
+        self.assertEqual(redact.status_code, 401)
         self.assertEqual(analyze.status_code, 401)
         annotation_handler.assert_not_called()
         media_handler.assert_not_called()
+        redact_handler.assert_not_called()
         analyze_handler.assert_not_called()
 
     def test_admin_token_required_for_mobile_mutations_weather_persist_and_report_generation(self) -> None:
@@ -570,6 +583,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
             ),
             patch("server_v2.main.create_annotation_response", return_value=_annotation_response()),
             patch("server_v2.main.create_media_response", return_value=_media_response()),
+            patch("server_v2.main.redact_media_response", return_value=_media_redact_response(), create=True),
             patch("server_v2.main.analyze_media_response", return_value=_vision_response()),
             patch("server_v2.main.build_mobile_round_package_response", return_value=_mobile_package_response()),
             patch("server_v2.main.reconcile_mobile_round_response", return_value=_reconciliation_response()),
@@ -610,6 +624,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
                         "capturedAt": "2026-05-25T00:00:00Z",
                     },
                 ),
+                client.post("/api/v2/media/media-1/redact", headers=ADMIN_HEADER),
                 client.post("/api/v2/media/media-1/analyze", headers=ADMIN_HEADER),
                 client.post(
                     "/api/v2/mobile/rounds/live-round-1/events",

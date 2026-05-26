@@ -23,6 +23,7 @@ import type {
   MediaCreateRequest,
   MediaCreateResponse,
   MediaListResponse,
+  MediaRedactResponse,
   MediaTargetType,
   MobileReconciliationApplyResponse,
   MobileReconciliationResponse,
@@ -156,6 +157,10 @@ export function fetchMediaForTarget(targetType: MediaTargetType, targetId: strin
 
 export function analyzeMedia(mediaId: string, adminToken?: string): Promise<VisionAnalysisResponse> {
   return postEmpty<VisionAnalysisResponse>(`/api/v2/media/${encodeURIComponent(mediaId)}/analyze`, adminToken)
+}
+
+export function redactMedia(mediaId: string, adminToken?: string): Promise<MediaRedactResponse> {
+  return postEmpty<MediaRedactResponse>(`/api/v2/media/${encodeURIComponent(mediaId)}/redact`, adminToken)
 }
 
 export function fetchVisionFindingsForTarget(

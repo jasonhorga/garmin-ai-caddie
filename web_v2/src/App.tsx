@@ -25,6 +25,7 @@ import {
   generateTrendReport,
   applyMobileReconciliationSuggestions,
   fetchSyncStatus,
+  redactMedia,
   runGarminSync,
   saveGarminSession,
 } from './api'
@@ -536,6 +537,18 @@ export default function App() {
     }
   }
 
+  async function handleRedactMedia(mediaId: string) {
+    const response = await redactMedia(mediaId, currentAdminToken())
+    setMediaState((current) => {
+      if (current.status !== 'ready') return current
+      return {
+        ...current,
+        media: current.media.map((item) => (item.id === mediaId ? response.media : item)),
+        findings: current.findings.filter((finding) => finding.mediaId !== mediaId),
+      }
+    })
+  }
+
   if (overviewState.status === 'loading') {
     return (
       <main className="app-shell">
@@ -644,6 +657,7 @@ export default function App() {
             onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
             onAttachMedia={handleAttachMedia}
             onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}
+            onRedactMedia={(mediaId) => void handleRedactMedia(mediaId)}
             onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
             selectedSourceRef={selectedCaddieSourceRef}
           />

@@ -95,7 +95,15 @@ def attach_media(
     return record
 
 
-def list_media(*, root: Path | str | None = None) -> list[dict[str, Any]]:
+def _append_media_record(record: dict[str, Any], *, root: Path | str | None = None) -> dict[str, Any]:
+    path = media_index_file(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    return record
+
+
+def list_media_events(*, root: Path | str | None = None) -> list[dict[str, Any]]:
     path = media_index_file(root)
     if not path.exists():
         return []
@@ -104,6 +112,16 @@ def list_media(*, root: Path | str | None = None) -> list[dict[str, Any]]:
         if line.strip():
             records.append(json.loads(line))
     return records
+
+
+def list_media(*, root: Path | str | None = None) -> list[dict[str, Any]]:
+    latest_by_id: dict[str, dict[str, Any]] = {}
+    for record in list_media_events(root=root):
+        media_id = str(record.get("id") or "")
+        if not media_id:
+            continue
+        latest_by_id[media_id] = record
+    return list(latest_by_id.values())
 
 
 def media_for_target(target_type: str, target_id: str, *, root: Path | str | None = None) -> list[dict[str, Any]]:
@@ -116,3 +134,38 @@ def media_for_target(target_type: str, target_id: str, *, root: Path | str | Non
 
 def find_media(media_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
     return next((record for record in list_media(root=root) if record.get("id") == media_id), None)
+
+
+def _stored_content_path(record: dict[str, Any], *, root: Path | str | None = None) -> Path | None:
+    local_path = str(record.get("localPath") or "").strip()
+    if not local_path or local_path == "[redacted]":
+        return None
+    root_path = Path(root or ".").resolve()
+    candidate = Path(local_path)
+    if not candidate.is_absolute():
+        candidate = root_path / candidate
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(root_path)
+    except ValueError:
+        return None
+    return resolved
+
+
+def redact_media(media_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
+    current = find_media(media_id, root=root)
+    if current is None:
+        return None
+    content_path = _stored_content_path(current, root=root)
+    deleted_content = False
+    if content_path is not None and content_path.exists() and content_path.is_file():
+        content_path.unlink()
+        deleted_content = True
+    redacted = {
+        **current,
+        "createdAt": _created_at(),
+        "localPath": "[redacted]",
+        "privacyState": "redacted",
+    }
+    _append_media_record(redacted, root=root)
+    return {"media": redacted, "deletedContent": deleted_content}

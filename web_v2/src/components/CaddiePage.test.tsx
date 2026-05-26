@@ -242,6 +242,7 @@ describe('CaddiePage', () => {
     const onLoadMediaContext = vi.fn()
     const onAttachMedia = vi.fn()
     const onAnalyzeMedia = vi.fn()
+    const onRedactMedia = vi.fn()
     const onLoadCaddieContext = vi.fn()
 
     render(
@@ -263,6 +264,7 @@ describe('CaddiePage', () => {
         onLoadMediaContext={onLoadMediaContext}
         onAttachMedia={onAttachMedia}
         onAnalyzeMedia={onAnalyzeMedia}
+        onRedactMedia={onRedactMedia}
         onLoadCaddieContext={onLoadCaddieContext}
       />,
     )
@@ -303,6 +305,7 @@ describe('CaddiePage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
     await userEvent.click(screen.getByRole('button', { name: 'Load media context' }))
     await userEvent.click(screen.getByRole('button', { name: 'Analyze media media-1' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Redact media media-1' }))
     await userEvent.upload(screen.getByLabelText('Media file'), new File(['lie-bytes'], 'lie.jpg', { type: 'image/jpeg' }))
     await userEvent.click(screen.getByRole('button', { name: 'Attach media' }))
     await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
@@ -323,6 +326,7 @@ describe('CaddiePage', () => {
     })
     expect(onLoadMediaContext).toHaveBeenCalledWith({ targetType: 'shot', targetId: 'fixture-round:4:approach' })
     expect(onAnalyzeMedia).toHaveBeenCalledWith('media-1')
+    expect(onRedactMedia).toHaveBeenCalledWith('media-1')
     expect(onAttachMedia).toHaveBeenCalledWith(
       expect.objectContaining({
         targetType: 'shot',

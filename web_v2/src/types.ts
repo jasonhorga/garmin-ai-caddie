@@ -252,6 +252,12 @@ export interface MediaCreateResponse {
   media: MediaRecord
 }
 
+export interface MediaRedactResponse {
+  schema: 'ai-caddie-media-redact-v1'
+  media: MediaRecord
+  deletedContent: boolean
+}
+
 export interface MediaListResponse {
   schema: 'ai-caddie-media-list-v1'
   total: number

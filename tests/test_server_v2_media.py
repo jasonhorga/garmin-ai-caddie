@@ -12,6 +12,10 @@ from ai_caddie.llm_providers import StaticProvider
 from server_v2.main import app
 
 
+ADMIN_ENV = {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}
+ADMIN_HEADER = {"X-AI-Caddie-Admin-Token": "admin-secret"}
+
+
 class ServerV2MediaTests(unittest.TestCase):
     def test_media_create_list_and_analyze_do_not_expose_private_paths(self) -> None:
         client = TestClient(app)
@@ -115,6 +119,59 @@ class ServerV2MediaTests(unittest.TestCase):
         self.assertEqual(stored_bytes, b"uploaded-bytes")
         self.assertNotIn("uploaded-bytes", index_text)
         self.assertTrue(local_path.startswith("data/media/uploads/"))
+
+    def test_media_redact_requires_admin_removes_bytes_and_returns_latest_redacted_metadata(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.media.MEDIA_ROOT", root):
+                create_response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "fileName": "lie.jpg",
+                        "contentBase64": base64.b64encode(b"private-lie-bytes").decode("ascii"),
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                media_id = create_response.json()["media"]["id"]
+                local_path = create_response.json()["media"]["localPath"]
+                stored = root / local_path
+                existed_before_redact = stored.exists()
+
+                with patch.dict("os.environ", ADMIN_ENV):
+                    unauthorized = client.post(f"/api/v2/media/{media_id}/redact")
+                    redact_response = client.post(f"/api/v2/media/{media_id}/redact", headers=ADMIN_HEADER)
+                    list_response = client.get("/api/v2/media/target/shot/round-1:7:2", headers=ADMIN_HEADER)
+                    analyze_after_redact = client.post(f"/api/v2/media/{media_id}/analyze", headers=ADMIN_HEADER)
+
+        self.assertEqual(create_response.status_code, 200)
+        self.assertTrue(existed_before_redact)
+        self.assertEqual(unauthorized.status_code, 401)
+        self.assertEqual(redact_response.status_code, 200)
+        self.assertEqual(redact_response.json()["schema"], "ai-caddie-media-redact-v1")
+        self.assertTrue(redact_response.json()["deletedContent"])
+        self.assertEqual(redact_response.json()["media"]["id"], media_id)
+        self.assertEqual(redact_response.json()["media"]["privacyState"], "redacted")
+        self.assertEqual(redact_response.json()["media"]["localPath"], "[redacted]")
+        self.assertFalse(stored.exists())
+        self.assertNotIn(tmp, redact_response.text + list_response.text)
+        self.assertNotIn(local_path, redact_response.text + list_response.text)
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["total"], 1)
+        self.assertEqual(list_response.json()["media"][0]["id"], media_id)
+        self.assertEqual(list_response.json()["media"][0]["privacyState"], "redacted")
+        self.assertEqual(list_response.json()["media"][0]["localPath"], "[redacted]")
+
+        self.assertEqual(analyze_after_redact.status_code, 200)
+        self.assertEqual(analyze_after_redact.json()["findings"][0]["findingType"], "uncertainty")
+        self.assertIn("redacted", analyze_after_redact.json()["findings"][0]["missingInfo"][0])
+        self.assertNotIn(tmp, analyze_after_redact.text)
+        self.assertNotIn(local_path, analyze_after_redact.text)
 
 
 if __name__ == "__main__":

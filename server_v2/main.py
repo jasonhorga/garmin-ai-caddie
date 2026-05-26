@@ -34,6 +34,7 @@ from .media import (
     create_media_response,
     list_target_media_response,
     list_target_vision_findings_response,
+    redact_media_response,
 )
 from .mobile import (
     append_mobile_events_response,
@@ -69,6 +70,7 @@ from .models import (
     MediaCreateRequest,
     MediaCreateResponse,
     MediaListResponse,
+    MediaRedactResponse,
     MediaTargetType,
     MobileReconciliationApplyRequest,
     MobileReconciliationApplyResponse,
@@ -156,6 +158,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         ("/api/v2/caddie/decisions/", "/audit"),
         ("/api/v2/geometry/hole/", "/ensure"),
         ("/api/v2/media/", "/analyze"),
+        ("/api/v2/media/", "/redact"),
         ("/api/v2/mobile/rounds/", "/events"),
         ("/api/v2/mobile/rounds/", "/reconciliation/apply"),
         ("/api/v2/reports/round/", "/generate"),
@@ -202,6 +205,7 @@ def service_index() -> dict[str, object]:
             "mediaByTarget": "/api/v2/media/target/{target_type}/{target_id}",
             "visionFindingsByTarget": "/api/v2/media/target/{target_type}/{target_id}/findings",
             "analyzeMedia": "/api/v2/media/{media_id}/analyze",
+            "redactMedia": "/api/v2/media/{media_id}/redact",
             "mobileRoundPackage": "/api/v2/mobile/rounds/{round_id}/package",
             "mobileRoundEvents": "/api/v2/mobile/rounds/{round_id}/events",
             "mobileRoundReconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
@@ -414,6 +418,15 @@ def analyze_media(
 ) -> VisionAnalysisResponse:
     require_admin_token(x_ai_caddie_admin_token)
     return analyze_media_response(media_id)
+
+
+@app.post("/api/v2/media/{media_id}/redact", response_model=MediaRedactResponse)
+def redact_media(
+    media_id: str,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> MediaRedactResponse:
+    require_admin_token(x_ai_caddie_admin_token)
+    return redact_media_response(media_id)
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)

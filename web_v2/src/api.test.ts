@@ -28,6 +28,7 @@ import {
   fetchSyncStatus,
   fetchMobileReconciliation,
   applyMobileReconciliationSuggestions,
+  redactMedia,
   runGarminSync,
   saveGarminSession,
 } from './api'
@@ -830,6 +831,36 @@ describe('media API helpers', () => {
       method: 'POST',
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
+  })
+
+  it('redacts media with an admin token header', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-media-redact-v1',
+        media: {
+          id: 'media-1',
+          createdAt: '2026-05-25T00:00:00Z',
+          targetType: 'shot',
+          targetId: 'round-1:4:2',
+          mediaKind: 'photo',
+          localPath: '[redacted]',
+          capturedAt: '2026-05-25T08:00:00Z',
+          privacyState: 'redacted',
+          source: 'manual',
+        },
+        deletedContent: true,
+      }),
+    }))
+
+    const response = await redactMedia('media-1', 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/media/media-1/redact', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(response.media.privacyState).toBe('redacted')
+    expect(response.deletedContent).toBe(true)
   })
 
   it('sends admin token headers for protected media context reads', async () => {

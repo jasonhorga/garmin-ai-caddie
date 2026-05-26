@@ -560,6 +560,14 @@ class MediaCreateResponse(BaseModel):
     media: MediaRecord
 
 
+class MediaRedactResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-media-redact-v1"] = Field(alias="schema")
+    media: MediaRecord
+    deletedContent: bool
+
+
 class MediaListResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
