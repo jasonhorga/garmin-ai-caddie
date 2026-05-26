@@ -100,6 +100,19 @@ def recovery_fixture(*, lie="rough", blocked=True):
     return data
 
 
+def long_hole_fixture():
+    data = analysis_fixture(stock_risk=1)
+    data["distanceToPin_m"] = 520.0
+    data["clubProfiles"] = {
+        "1D": {"clubName": "1D", "sampleSize": 80, "median": 245.0, "p10": 215.0, "p90": 268.0},
+        "3W": {"clubName": "3W", "sampleSize": 45, "median": 218.0, "p10": 195.0, "p90": 236.0},
+        "5I": {"clubName": "5I", "sampleSize": 38, "median": 168.0, "p10": 150.0, "p90": 182.0},
+        "54": {"clubName": "54", "sampleSize": 30, "median": 94.0, "p10": 82.0, "p90": 104.0},
+        "58": {"clubName": "58", "sampleSize": 28, "median": 78.0, "p10": 66.0, "p90": 88.0},
+    }
+    return data
+
+
 class DecisionLayerTests(unittest.TestCase):
     def test_decision_payload_uses_v2_contract(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
@@ -131,6 +144,17 @@ class DecisionLayerTests(unittest.TestCase):
         clubs = [club["clubName"] for club in plan["selectedOption"]["clubRecommendation"]["clubs"]]
         self.assertIn("3H", clubs)
         self.assertNotIn("Putter", clubs)
+
+    def test_long_hole_decision_includes_multi_shot_sequences(self) -> None:
+        plan = build_decision_plan(long_hole_fixture())
+
+        labels = {sequence["label"] for sequence in plan["sequences"]}
+        self.assertIn("1D-3W-58", labels)
+        self.assertIn("3W-5I-54", labels)
+        stock_sequence = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
+        self.assertEqual(stock_sequence["expectedStrokes"], 3)
+        self.assertLessEqual(abs(stock_sequence["expectedRemaining_m"]), 30)
+        self.assertIn("sequence", {row["kind"] for row in plan["evidence"]})
 
     def test_recommend_approach_uses_green_and_hazard_evidence(self) -> None:
         plan = recommend_approach(approach_fixture())

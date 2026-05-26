@@ -1656,6 +1656,60 @@ p {
   margin: 8px 0;
 }
 
+.decision-sequences {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf7;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.decision-sequence-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.decision-sequence {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.decision-sequence.is-selected {
+  border-color: var(--birdie);
+  box-shadow: inset 0 0 0 1px rgba(90, 168, 216, .34);
+}
+
+.decision-sequence > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.decision-sequence strong,
+.decision-sequence p {
+  overflow-wrap: anywhere;
+}
+
+.decision-sequence strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.decision-sequence p {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .decision-outcome-audit {
   display: grid;
   gap: 10px;
@@ -1760,6 +1814,7 @@ p {
   .corrections-grid,
   .caddie-context-controls,
   .decision-options,
+  .decision-sequence-grid,
   .media-context-controls,
   .reports-layout,
   .report-evidence-grid,

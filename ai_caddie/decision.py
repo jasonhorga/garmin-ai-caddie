@@ -24,6 +24,10 @@ RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
 BAD_SURFACES = {"bunker", "water", "water_edge", "tree_area"}
 EXCLUDED_TEE_CLUBS = {"unknown", "?", "putter"}
 MIN_STRONG_CLUB_SAMPLE = 5
+MIN_SEQUENCE_DISTANCE_M = 260.0
+SCORING_CLUB_MIN_M = 45.0
+SCORING_CLUB_MAX_M = 115.0
+LONG_CLUB_MIN_M = 135.0
 VISION_USABLE_CONFIDENCE = {"medium", "high"}
 VISION_HAZARD_TYPES = {
     "visible_water": "water",
@@ -116,6 +120,183 @@ def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float
         })
     rows.sort(key=lambda row: (abs(row["deltaToCarry_m"]), -row["sampleSize"], row["clubName"]))
     return rows[:3]
+
+
+def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for name, profile in (profiles or {}).items():
+        club_name = str(profile.get("clubName") or name).strip()
+        if not club_name or club_name.lower() in EXCLUDED_TEE_CLUBS:
+            continue
+        median = profile.get("median")
+        if median is None:
+            continue
+        median_m = _float(median)
+        if median_m <= 0:
+            continue
+        rows.append({
+            "clubName": club_name,
+            "sampleSize": int(profile.get("sampleSize") or 0),
+            "median_m": round(median_m, 1),
+            "p10_m": round(_float(profile.get("p10"), median_m), 1),
+            "p90_m": round(_float(profile.get("p90"), median_m), 1),
+        })
+    return sorted(rows, key=lambda row: (-row["median_m"], -row["sampleSize"], row["clubName"]))
+
+
+def _sequence_distance(context: dict[str, Any]) -> float:
+    for key in ("holeRemaining_m", "remainingToPin_m", "distanceToPin_m"):
+        if context.get(key) is not None:
+            return _float(context.get(key))
+    return 0.0
+
+
+def _is_scoring_club(row: dict[str, Any]) -> bool:
+    name = str(row.get("clubName") or "").upper()
+    median_m = _float(row.get("median_m"))
+    if SCORING_CLUB_MIN_M <= median_m <= SCORING_CLUB_MAX_M:
+        return True
+    return name in {"PW", "GW", "SW", "LW", "50", "52", "54", "56", "58", "60"}
+
+
+def _best_scoring_club(rows: list[dict[str, Any]], remaining_m: float, *, mode: str) -> dict[str, Any] | None:
+    scoring = [row for row in rows if _is_scoring_club(row)]
+    if not scoring:
+        return None
+    if mode == "attack":
+        return max(scoring, key=lambda row: (_float(row.get("median_m")), row.get("sampleSize", 0)))
+    return min(scoring, key=lambda row: (abs(_float(row.get("median_m")) - remaining_m), -int(row.get("sampleSize") or 0)))
+
+
+def _sequence_step(row: dict[str, Any], remaining_before_m: float, role: str) -> dict[str, Any]:
+    carry_m = _float(row.get("median_m"))
+    remaining_after_m = round(remaining_before_m - carry_m, 1)
+    return {
+        "clubName": row.get("clubName"),
+        "role": role,
+        "targetCarry_m": round(carry_m, 1),
+        "expectedRemaining_m": remaining_after_m,
+        "sampleSize": row.get("sampleSize", 0),
+        "p10_m": row.get("p10_m"),
+        "p90_m": row.get("p90_m"),
+    }
+
+
+def _sequence_option(
+    *,
+    option_id: str,
+    label: str,
+    distance_m: float,
+    first: dict[str, Any],
+    second: dict[str, Any] | None,
+    scoring: dict[str, Any] | None,
+    risk_score: float,
+    rationale: str,
+) -> dict[str, Any]:
+    remaining = distance_m
+    steps = [_sequence_step(first, remaining, "advance")]
+    remaining = steps[-1]["expectedRemaining_m"]
+    if second is not None:
+        steps.append(_sequence_step(second, remaining, "position"))
+        remaining = steps[-1]["expectedRemaining_m"]
+    if scoring is not None:
+        steps.append(_sequence_step(scoring, remaining, "scoring"))
+        remaining = steps[-1]["expectedRemaining_m"]
+    return {
+        "id": option_id,
+        "label": "-".join(str(step["clubName"]) for step in steps),
+        "strategyLabel": label,
+        "clubs": steps,
+        "totalExpectedCarry_m": round(sum(_float(step.get("targetCarry_m")) for step in steps), 1),
+        "expectedRemaining_m": round(remaining, 1),
+        "expectedStrokes": len(steps),
+        "riskScore": risk_score,
+        "rationale": rationale,
+    }
+
+
+def _club_sequences(context: dict[str, Any]) -> list[dict[str, Any]]:
+    distance_m = _sequence_distance(context)
+    if distance_m < MIN_SEQUENCE_DISTANCE_M:
+        return []
+    rows = _club_profile_rows(context.get("clubProfiles") or {})
+    long_rows = [row for row in rows if _float(row.get("median_m")) >= LONG_CLUB_MIN_M]
+    if len(long_rows) < 2:
+        return []
+
+    longest = long_rows[0]
+    second_longest = long_rows[1]
+    safe_first = second_longest
+    safe_second = next((row for row in long_rows[2:] if row["clubName"] != safe_first["clubName"]), None)
+    stock_second = second_longest
+    attack_second = second_longest
+
+    safe_remaining = distance_m - _float(safe_first.get("median_m")) - _float((safe_second or {}).get("median_m"))
+    stock_remaining = distance_m - _float(longest.get("median_m")) - _float(stock_second.get("median_m"))
+    attack_remaining = distance_m - _float(longest.get("median_m")) - _float(attack_second.get("median_m"))
+
+    sequences = [
+        _sequence_option(
+            option_id="safe",
+            label="Position for a full scoring club",
+            distance_m=distance_m,
+            first=safe_first,
+            second=safe_second,
+            scoring=_best_scoring_club(rows, safe_remaining, mode="safe"),
+            risk_score=1.0,
+            rationale="Keep the first two swings below maximum pressure and leave a predictable scoring club.",
+        ),
+        _sequence_option(
+            option_id="stock",
+            label="Normal three-shot plan",
+            distance_m=distance_m,
+            first=longest,
+            second=stock_second,
+            scoring=_best_scoring_club(rows, stock_remaining, mode="stock"),
+            risk_score=2.0,
+            rationale="Use normal full swings and choose the wedge closest to the remaining number.",
+        ),
+        _sequence_option(
+            option_id="attack",
+            label="Maximize advancement",
+            distance_m=distance_m,
+            first=longest,
+            second=attack_second,
+            scoring=_best_scoring_club(rows, attack_remaining, mode="attack"),
+            risk_score=4.0,
+            rationale="Advance aggressively; only use when dispersion, lie, and hazards support it.",
+        ),
+    ]
+
+    deduped = []
+    seen = set()
+    for sequence in sequences:
+        key = sequence["label"]
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(sequence)
+    return deduped
+
+
+def _selected_sequence(sequences: list[dict[str, Any]], selected: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not sequences:
+        return None
+    selected_id = selected.get("id") if selected else "stock"
+    return next((sequence for sequence in sequences if sequence.get("id") == selected_id), sequences[0])
+
+
+def _sequence_evidence(sequences: list[dict[str, Any]], selected_sequence: dict[str, Any] | None) -> dict[str, Any] | None:
+    sequence = selected_sequence or (sequences[0] if sequences else None)
+    if not sequence:
+        return None
+    return {
+        "kind": "sequence",
+        "text": (
+            f"{sequence['strategyLabel']}: {sequence['label']} "
+            f"leaves {sequence['expectedRemaining_m']}m after {sequence['expectedStrokes']} shots"
+        ),
+    }
 
 
 def _fallback_club(route: dict[str, Any], analysis: dict[str, Any]) -> list[dict[str, Any]]:
@@ -653,6 +834,12 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
 def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list[dict[str, Any]]) -> dict[str, Any]:
     selected = _select_option(options)
     avoid_zones = selected.get("avoidZones", []) if selected else []
+    sequences = _club_sequences(analysis)
+    selected_sequence = _selected_sequence(sequences, selected)
+    evidence = _shot_evidence(analysis, selected)
+    sequence_evidence = _sequence_evidence(sequences, selected_sequence)
+    if sequence_evidence:
+        evidence.append(sequence_evidence)
     return {
         "schema": "ai-caddie-decision-v2",
         "shotType": shot_type,
@@ -662,13 +849,15 @@ def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list
         "selected": selected,
         "selectedOptionId": selected.get("id") if selected else None,
         "selectedOption": selected,
+        "sequences": sequences,
+        "selectedSequence": selected_sequence,
         "avoidZones": avoid_zones,
         "forbiddenZones": avoid_zones,
         "acceptableMiss": {
             "direction": "conservative",
             "rationale": "prefer the side that keeps known hazards out of play",
         },
-        "evidence": _shot_evidence(analysis, selected),
+        "evidence": evidence,
         "confidence": _confidence(analysis, options, selected),
         "missingData": _missing_data(analysis, options, selected),
         "auditCriteria": _audit_criteria(selected),
@@ -694,6 +883,12 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     options = _ordered_options(options)
     selected = _select_option(options)
     forbidden = selected.get("forbiddenZones", []) if selected else []
+    sequences = _club_sequences(analysis)
+    selected_sequence = _selected_sequence(sequences, selected)
+    evidence = _evidence(analysis, selected)
+    sequence_evidence = _sequence_evidence(sequences, selected_sequence)
+    if sequence_evidence:
+        evidence.append(sequence_evidence)
     acceptable_miss = {
         "direction": "not-modeled",
         "rationale": "left/right miss tolerance needs target-line and dispersion modeling",
@@ -715,10 +910,12 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
         "selected": selected,
         "selectedOptionId": selected.get("id") if selected else None,
         "selectedOption": selected,
+        "sequences": sequences,
+        "selectedSequence": selected_sequence,
         "avoidZones": forbidden,
         "forbiddenZones": forbidden,
         "acceptableMiss": acceptable_miss,
-        "evidence": _evidence(analysis, selected),
+        "evidence": evidence,
         "confidence": _confidence(analysis, options, selected),
         "missingData": _missing_data(analysis, options, selected),
         "auditCriteria": _audit_criteria(selected),

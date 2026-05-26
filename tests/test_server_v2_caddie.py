@@ -33,6 +33,43 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertEqual(payload["shotType"], "recovery")
         self.assertEqual(payload["selected"]["id"], "safe")
 
+    def test_decision_endpoint_exposes_multi_shot_sequences(self) -> None:
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v2/caddie/decision",
+            json={
+                "shotType": "tee",
+                "context": {
+                    "roundId": "round-1",
+                    "courseName": "Test Course",
+                    "hole": 8,
+                    "distanceToPin_m": 520.0,
+                    "geometry": {"hasHazards": True, "hasMeshes": True, "hazardCount": 5},
+                    "dataQuality": {"confidence": "high", "issues": []},
+                    "clubProfiles": {
+                        "1D": {"clubName": "1D", "sampleSize": 80, "median": 245.0, "p10": 215.0, "p90": 268.0},
+                        "3W": {"clubName": "3W", "sampleSize": 45, "median": 218.0, "p10": 195.0, "p90": 236.0},
+                        "5I": {"clubName": "5I", "sampleSize": 38, "median": 168.0, "p10": 150.0, "p90": 182.0},
+                        "54": {"clubName": "54", "sampleSize": 30, "median": 94.0, "p10": 82.0, "p90": 104.0},
+                        "58": {"clubName": "58", "sampleSize": 28, "median": 78.0, "p10": 66.0, "p90": 88.0},
+                    },
+                    "candidateRoutes": [
+                        {"id": "conservative_layup", "label": "safe layup", "carry_m": 218, "riskScore": 0},
+                        {"id": "stock_line", "label": "stock line", "carry_m": 245, "riskScore": 1},
+                        {"id": "aggressive_line", "label": "attack line", "carry_m": 260, "riskScore": 4},
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        labels = {sequence["label"] for sequence in payload["sequences"]}
+        self.assertIn("1D-3W-58", labels)
+        self.assertIn("3W-5I-54", labels)
+        self.assertEqual(payload["selectedSequence"]["id"], payload["selectedOptionId"])
+
     def test_decision_endpoint_rejects_invalid_shot_type(self) -> None:
         client = TestClient(app)
 

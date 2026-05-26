@@ -321,6 +321,8 @@ function DecisionDetail({
         })}
       </div>
 
+      <DecisionSequences sequences={decision.sequences ?? []} selectedSequence={decision.selectedSequence ?? null} />
+
       <div className="report-evidence-grid">
         <EvidenceList title="Evidence" rows={decision.evidence} />
         <EvidenceList title="Missing Data" rows={decision.missingData} />
@@ -328,6 +330,42 @@ function DecisionDetail({
         <EvidenceList title="Audit" rows={decision.auditCriteria} />
       </div>
       {onCreateAudit ? <DecisionAuditPanel state={auditState} onCreateAudit={() => onCreateAudit(decision)} /> : null}
+    </section>
+  )
+}
+
+function DecisionSequences({
+  sequences,
+  selectedSequence,
+}: {
+  sequences: Array<Record<string, unknown>>
+  selectedSequence: Record<string, unknown> | null
+}) {
+  if (!sequences.length) return null
+  const selectedId = selectedSequence ? String(selectedSequence.id ?? '') : ''
+  return (
+    <section className="decision-sequences" aria-label="Decision club sequences">
+      <div className="report-title-row">
+        <div>
+          <p className="eyebrow">Route sequencing</p>
+          <h3>Club Sequences</h3>
+        </div>
+      </div>
+      <div className="decision-sequence-grid">
+        {sequences.map((sequence) => {
+          const id = String(sequence.id ?? sequence.label ?? 'sequence')
+          const isSelected = id === selectedId
+          return (
+            <article className={`decision-sequence ${isSelected ? 'is-selected' : ''}`} key={id}>
+              <div>
+                <strong>{String(sequence.label ?? '-')}</strong>
+                {isSelected ? <span className="selected-pill">selected</span> : null}
+              </div>
+              <p>{formatSequenceMeta(sequence)}</p>
+            </article>
+          )
+        })}
+      </div>
     </section>
   )
 }
@@ -393,7 +431,7 @@ function EvidenceList({ title, rows }: { title: string; rows: Array<Record<strin
         rows.map((row, index) => (
           <div className="report-row" key={`${String(row.label ?? row.id ?? row.kind ?? title)}-${index}`}>
             <strong>{String(row.label ?? row.id ?? row.kind ?? 'item')}</strong>
-            <span>{String(row.value ?? row.reason ?? row.distance_m ?? row.carryToClear_m ?? '')}</span>
+            <span>{String(row.value ?? row.reason ?? row.text ?? row.distance_m ?? row.carryToClear_m ?? '')}</span>
           </div>
         ))
       ) : (
@@ -570,6 +608,17 @@ function buildDecisionRequest(
       ...(visionFindings.length ? { visionFindings } : {}),
     },
   }
+}
+
+function formatSequenceMeta(sequence: Record<string, unknown>): string {
+  const strokes = sequence.expectedStrokes
+  const remaining = sequence.expectedRemaining_m
+  const risk = sequence.riskScore
+  const parts = []
+  if (strokes !== undefined) parts.push(`${String(strokes)} shots`)
+  if (remaining !== undefined) parts.push(`${String(remaining)}m remaining`)
+  if (risk !== undefined) parts.push(`risk ${String(risk)}`)
+  return parts.join(' - ') || '-'
 }
 
 function buildFixtureRequest(

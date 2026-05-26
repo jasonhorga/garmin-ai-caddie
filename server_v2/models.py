@@ -285,6 +285,8 @@ class CaddieDecisionResponse(BaseModel):
     selected: dict[str, Any] | None
     selectedOptionId: str | None
     selectedOption: dict[str, Any] | None
+    sequences: list[dict[str, Any]] = Field(default_factory=list)
+    selectedSequence: dict[str, Any] | None = None
     avoidZones: list[dict[str, Any]]
     forbiddenZones: list[dict[str, Any]]
     acceptableMiss: dict[str, Any]

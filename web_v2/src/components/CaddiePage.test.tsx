@@ -24,10 +24,15 @@ const decision: CaddieDecisionResponse = {
   selected: { id: 'stock' },
   selectedOptionId: 'stock',
   selectedOption: { id: 'stock' },
+  sequences: [
+    { id: 'safe', label: '3W-5I-54', expectedStrokes: 3, expectedRemaining_m: 40, riskScore: 1 },
+    { id: 'stock', label: '1D-3W-58', expectedStrokes: 3, expectedRemaining_m: -21, riskScore: 2 },
+  ],
+  selectedSequence: { id: 'stock', label: '1D-3W-58', expectedStrokes: 3, expectedRemaining_m: -21, riskScore: 2 },
   avoidZones: [{ kind: 'water', id: 'water_front' }],
   forbiddenZones: [],
   acceptableMiss: { side: 'long' },
-  evidence: [{ label: 'water_front', value: 'carry 126m' }],
+  evidence: [{ label: 'water_front', value: 'carry 126m' }, { kind: 'sequence', text: 'Normal three-shot plan: 1D-3W-58' }],
   confidence: { level: 'medium', reason: 'fixture data' },
   missingData: [{ label: 'wind', reason: 'not cached' }],
   auditCriteria: [{ label: 'first shot avoids water' }],
@@ -151,7 +156,7 @@ describe('CaddiePage', () => {
     expect(screen.getByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
     expect(screen.getByText('Stock')).toBeInTheDocument()
     expect(screen.getByText('8I')).toBeInTheDocument()
-    expect(screen.getByText('selected')).toBeInTheDocument()
+    expect(screen.getAllByText('selected').length).toBeGreaterThan(0)
     expect(screen.getAllByText('water_front').length).toBeGreaterThan(0)
     expect(screen.getByText('wind')).toBeInTheDocument()
     expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)
@@ -162,6 +167,9 @@ describe('CaddiePage', () => {
     expect(screen.getByText('data/media/uploads/lie.jpg')).toBeInTheDocument()
     expect(screen.getByText('visible_bunker')).toBeInTheDocument()
     expect(screen.getByText('front bunker visible')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Club Sequences' })).toBeInTheDocument()
+    expect(screen.getByText('1D-3W-58')).toBeInTheDocument()
+    expect(screen.getAllByText(/3 shots/).length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: 'Caddie Context' })).toBeInTheDocument()
     expect(screen.getByText('history_drilldown')).toBeInTheDocument()
     expect(screen.getByText('31795 H7')).toBeInTheDocument()

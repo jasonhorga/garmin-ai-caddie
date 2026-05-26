@@ -117,6 +117,8 @@ export interface CaddieDecisionResponse {
   selected: Record<string, unknown> | null
   selectedOptionId: string | null
   selectedOption: Record<string, unknown> | null
+  sequences?: Array<Record<string, unknown>>
+  selectedSequence?: Record<string, unknown> | null
   avoidZones: Array<Record<string, unknown>>
   forbiddenZones: Array<Record<string, unknown>>
   acceptableMiss: Record<string, unknown>
