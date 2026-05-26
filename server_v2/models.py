@@ -94,7 +94,17 @@ def _is_number(value: object) -> bool:
 
 
 def _is_count(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
+    return _count_value(value) is not None
+
+
+def _count_value(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    return None
 
 
 def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
@@ -138,10 +148,12 @@ def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
     if kind in count_constraints:
         field, minimum = count_constraints[kind]
         value = payload[field]
-        if not _is_count(value):
+        count_value = _count_value(value)
+        if count_value is None:
             raise ValueError(f"{kind} payload field {field} must be an integer")
-        if value < minimum:
+        if count_value < minimum:
             raise ValueError(f"{kind} payload field {field} must be at least {minimum}")
+        payload[field] = count_value
 
 
 class DataQualityBadge(BaseModel):

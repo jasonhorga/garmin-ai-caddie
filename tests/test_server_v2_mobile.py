@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -600,6 +601,42 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["accepted"], len(events))
+
+    def test_mobile_event_batch_accepts_schema_integer_decimal_counts_and_stores_ints(self) -> None:
+        client = TestClient(app)
+        payloads = [
+            ("score", {"strokes": 4.0}),
+            ("putt", {"putts": 2.0}),
+            ("penalty", {"penalties": 1.0}),
+        ]
+        events = [
+            {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": f"event-{kind}-decimal-count",
+                "roundId": "live-round-1",
+                "timestamp": "2026-05-25T00:00:00Z",
+                "hole": 1,
+                "kind": kind,
+                "payload": payload,
+            }
+            for kind, payload in payloads
+        ]
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                response = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "decimal-counts-batch"},
+                    json={"roundId": "live-round-1", "events": events},
+                )
+                log_path = root / "data" / "mobile_events" / "events.jsonl"
+
+            self.assertEqual(response.status_code, 200)
+            stored = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(response.json()["accepted"], len(events))
+        self.assertEqual([row["event"]["payload"] for row in stored], [{"strokes": 4}, {"putts": 2}, {"penalties": 1}])
 
     def test_mobile_event_batch_redacts_photo_video_file_urls_before_storage_and_reconciliation(self) -> None:
         client = TestClient(app)
