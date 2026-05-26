@@ -276,6 +276,32 @@ class MobileContractTests(unittest.TestCase):
         ]:
             self.assertIn(payload_key, builder)
 
+    def test_ios_media_capture_and_upload_surfaces(self) -> None:
+        upload_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
+        media_view = _read_required_source(self, IOS_DIR / "Views" / "MediaCaptureView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+
+        self.assertIn("struct MediaCreateRequest: Codable", upload_client)
+        self.assertIn("struct MediaCreateResponse: Codable", upload_client)
+        self.assertIn("final class MediaUploadClient", upload_client)
+        self.assertIn("func uploadMedia", upload_client)
+        self.assertIn('"/api/v2/media"', upload_client)
+        for field in ["targetType", "targetId", "mediaKind", "fileName", "contentBase64", "capturedAt", "privacyState"]:
+            self.assertIn(field, upload_client)
+
+        self.assertIn("import PhotosUI", media_view)
+        self.assertIn("struct MediaCaptureView: View", media_view)
+        self.assertIn("PhotosPicker", media_view)
+        self.assertIn("matching: .images", media_view)
+        self.assertIn("matching: .videos", media_view)
+        self.assertIn("loadTransferable(type: Data.self)", media_view)
+        self.assertIn("base64EncodedString()", media_view)
+        self.assertIn("uploadMedia", media_view)
+        self.assertIn("makePhotoEvent", media_view)
+        self.assertIn("makeVideoEvent", media_view)
+        self.assertIn("MediaCaptureView", current_hole)
+        self.assertIn("MediaUploadClient", current_hole)
+
     def test_ios_caddie_decision_client_posts_shared_decision_contract(self) -> None:
         client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
 
