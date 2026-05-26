@@ -205,6 +205,7 @@ export default function App() {
 
   async function handleSelectSourceRef(sourceRef: string): Promise<HistoryDrilldownResponse | null> {
     setSelectedCaddieSourceRef(sourceRef)
+    setCaddieContextState((current) => (loadedCaddieContextSourceRef(current) === sourceRef.trim() ? current : { status: 'idle' }))
     setDrilldownState({ status: 'loading', sourceRef })
     setHoleEvidenceState({ status: 'idle' })
     try {
@@ -728,6 +729,13 @@ function holeGeometryTargetFromDrilldown(
 function numericField(row: Record<string, unknown> | null, key: string): number | null {
   const value = row?.[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function loadedCaddieContextSourceRef(state: DeferredLoadState<CaddieContextResponse>): string {
+  if (state.status !== 'ready') return ''
+  const direct = typeof state.data.sourceRef === 'string' ? state.data.sourceRef.trim() : ''
+  if (direct) return direct
+  return typeof state.data.context?.sourceRef === 'string' ? state.data.context.sourceRef.trim() : ''
 }
 
 function holeFromSourceRef(sourceRef: string): number | null {

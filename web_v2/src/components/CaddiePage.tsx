@@ -91,7 +91,7 @@ export function CaddiePage({
   const [strategyMode, setStrategyMode] = useState('')
   const weatherSnapshot = weatherState.status === 'ready' ? weatherState.data : null
   const visionFindings = mediaState.status === 'ready' ? mediaState.findings : []
-  const hasSourceContext = contextState.status === 'ready'
+  const hasSourceContext = contextStateMatchesSourceRef(contextState, contextSourceRef)
 
   useEffect(() => {
     const nextSourceRef = selectedSourceRef?.trim()
@@ -646,6 +646,15 @@ function ContextRows({ title, rows }: { title: string; rows: Array<Record<string
 
 function recordRows(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => row !== null && typeof row === 'object') : []
+}
+
+function contextStateMatchesSourceRef(state: CaddieContextLoadState, sourceRef: string): boolean {
+  if (state.status !== 'ready') return false
+  return normalizeSourceRef(state.data.sourceRef) === normalizeSourceRef(sourceRef) || normalizeSourceRef(state.data.context?.sourceRef) === normalizeSourceRef(sourceRef)
+}
+
+function normalizeSourceRef(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 function recordFrom(value: unknown): Record<string, unknown> {

@@ -213,6 +213,28 @@ describe('CaddiePage', () => {
     )
   })
 
+  it('blocks plan requests when the loaded context belongs to a stale source ref', async () => {
+    const onRequestDecision = vi.fn()
+
+    render(
+      <CaddiePage
+        decisionState={{ status: 'idle' }}
+        contextState={{ status: 'ready', data: caddieContext }}
+        selectedSourceRef="900002:5:4"
+        onRequestDecision={onRequestDecision}
+      />,
+    )
+
+    expect(screen.getByLabelText('Source ref')).toHaveValue('900002:5:4')
+    expect(screen.getByText('Load caddie context before requesting a source-bound plan.')).toBeInTheDocument()
+    const requestButton = screen.getByRole('button', { name: 'Request caddie plan' })
+    expect(requestButton).toBeDisabled()
+
+    await userEvent.click(requestButton)
+
+    expect(onRequestDecision).not.toHaveBeenCalled()
+  })
+
   it('renders decision evidence and requests a source-bound plan', async () => {
     const onRequestDecision = vi.fn()
     const onCreateAudit = vi.fn()
