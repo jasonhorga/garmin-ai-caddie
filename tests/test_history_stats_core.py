@@ -79,6 +79,12 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(course["bestScore"], 77)
         self.assertEqual(course["roundIds"], ["900001", "900002"])
         self.assertIn(course["geometryCoverage"], {"ready", "partial", "missing"})
+        self.assertEqual(course["recentForm"]["baselineAverage18"], 95.0)
+        self.assertEqual(course["recentForm"]["recentAverage18"], 77.0)
+        self.assertEqual(course["recentForm"]["deltaAverage18"], -18.0)
+        self.assertEqual(course["recentForm"]["direction"], "improving")
+        self.assertEqual(course["recentForm"]["baselineRoundRefs"], ["900002"])
+        self.assertEqual(course["recentForm"]["recentRoundRefs"], ["900001"])
 
         hole = next(row for row in stats["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
         self.assertEqual(hole["sampleCount"], 2)

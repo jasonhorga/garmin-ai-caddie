@@ -463,10 +463,54 @@ def _courses(data: HistoryData) -> list[dict[str, Any]]:
                 "recentRoundId": _round_id(rows_sorted[0]),
                 "roundIds": [_round_id(row) for row in rows_sorted],
                 "roundRefs": [_round_id(row) for row in rows_sorted],
+                "recentForm": _course_recent_form(rows),
                 "geometryCoverage": _course_geometry_coverage(rows),
             }
         )
     return sorted(out, key=lambda row: (-row["roundCount"], row["courseName"]))
+
+
+def _course_recent_form(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    rounds18 = [
+        row
+        for row in sorted(rows, key=lambda item: str(item.get("date") or ""))
+        if row.get("holesCompleted") == 18 and row.get("strokes") is not None
+    ]
+    scores = [float(row["strokes"]) for row in rounds18]
+    refs = [_round_id(row) for row in rounds18]
+    if not scores:
+        return {
+            "roundCount": 0,
+            "windowSize": 0,
+            "baselineAverage18": None,
+            "recentAverage18": None,
+            "deltaAverage18": None,
+            "direction": "insufficient_data",
+            "confidence": "insufficient",
+            "roundRefs": [],
+            "baselineRoundRefs": [],
+            "recentRoundRefs": [],
+        }
+
+    window_size = min(5, max(1, len(scores) // 2))
+    baseline_scores = scores[:window_size]
+    recent_scores = scores[-window_size:]
+    baseline_average = average(baseline_scores)
+    recent_average = average(recent_scores)
+    delta_average = round(float(recent_average) - float(baseline_average), 1) if baseline_average is not None and recent_average is not None else None
+    slope = _linear_slope(scores)
+    return {
+        "roundCount": len(scores),
+        "windowSize": window_size,
+        "baselineAverage18": baseline_average,
+        "recentAverage18": recent_average,
+        "deltaAverage18": delta_average,
+        "direction": _improvement_direction(delta_average, slope),
+        "confidence": _improvement_confidence(len(scores)),
+        "roundRefs": refs,
+        "baselineRoundRefs": refs[:window_size],
+        "recentRoundRefs": refs[-window_size:],
+    }
 
 
 def _course_distribution(data: HistoryData) -> list[dict[str, Any]]:

@@ -20,6 +20,14 @@ const statsFixture: HistoryStatsResponse = {
       average18: 82,
       bestScore: 77,
       worstScore: 87,
+      recentForm: {
+        baselineAverage18: 87,
+        recentAverage18: 77,
+        deltaAverage18: -10,
+        direction: 'improving',
+        baselineRoundRefs: ['900002'],
+        recentRoundRefs: ['900001'],
+      },
       geometryCoverage: 'missing',
       roundIds: ['900001', '900002'],
     },
@@ -42,6 +50,8 @@ describe('CourseStats', () => {
     expect(screen.getByText('avg 82')).toBeInTheDocument()
     expect(screen.getByText('best 77')).toBeInTheDocument()
     expect(screen.getByText('worst 87')).toBeInTheDocument()
+    expect(screen.getByText('recent 77')).toBeInTheDocument()
+    expect(screen.getByText('improving -10')).toHaveClass('trend-improving')
     expect(screen.getByText('geometry missing 0/2')).toHaveClass('quality-missing')
     expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
     expect(screen.getByRole('button', { name: 'Open source 900001' })).toBeInTheDocument()

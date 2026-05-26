@@ -1,7 +1,7 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
-import { asString, formatNumber, semanticClass } from './statsValues'
+import { asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface CourseStatsProps {
   data: HistoryStatsResponse
@@ -28,27 +28,41 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
             <p>Sync Garmin rounds or switch to fixture mode to populate course distribution.</p>
           </article>
         ) : null}
-        {courses.map((course) => (
-          <article key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="stats-item">
-            <div className="stats-item-main">
-              <h2>{asString(course.courseName) ?? 'Unknown course'}</h2>
-              <p>{asString(course.courseKey) ?? 'unknown'}</p>
-            </div>
-            <div className="stats-item-facts" aria-label={`${asString(course.courseName) ?? 'course'} facts`}>
-              <span>{formatNumber(course.roundCount)} rounds</span>
-              <span>avg {formatNumber(course.average18)}</span>
-              <span>best {formatNumber(course.bestScore)}</span>
-              <span>worst {formatNumber(course.worstScore)}</span>
-              {asString(course.geometryCoverage) ? (
-                <span className={`semantic-chip ${semanticClass('quality', course.geometryCoverage)}`}>geometry {asString(course.geometryCoverage)}</span>
-              ) : null}
-            </div>
-            <p className="stats-refs">
-              <SourceRefs refs={course.roundRefs ?? course.roundIds} onSelectRef={onSelectRef} />
-            </p>
-          </article>
-        ))}
+        {courses.map((course) => {
+          const recentForm = asRecord(course.recentForm)
+          const direction = asString(recentForm.direction)
+          return (
+            <article key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="stats-item">
+              <div className="stats-item-main">
+                <h2>{asString(course.courseName) ?? 'Unknown course'}</h2>
+                <p>{asString(course.courseKey) ?? 'unknown'}</p>
+              </div>
+              <div className="stats-item-facts" aria-label={`${asString(course.courseName) ?? 'course'} facts`}>
+                <span>{formatNumber(course.roundCount)} rounds</span>
+                <span>avg {formatNumber(course.average18)}</span>
+                <span>best {formatNumber(course.bestScore)}</span>
+                <span>worst {formatNumber(course.worstScore)}</span>
+                {recentForm.recentAverage18 !== undefined ? <span>recent {formatNumber(recentForm.recentAverage18)}</span> : null}
+                {direction ? (
+                  <span className={`semantic-chip ${semanticClass('trend', direction)}`}>
+                    {direction} {formatSigned(recentForm.deltaAverage18)}
+                  </span>
+                ) : null}
+                {asString(course.geometryCoverage) ? (
+                  <span className={`semantic-chip ${semanticClass('quality', course.geometryCoverage)}`}>geometry {asString(course.geometryCoverage)}</span>
+                ) : null}
+              </div>
+              <p className="stats-refs">
+                <SourceRefs refs={course.roundRefs ?? course.roundIds} onSelectRef={onSelectRef} />
+              </p>
+            </article>
+          )
+        })}
       </div>
     </section>
   )
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
