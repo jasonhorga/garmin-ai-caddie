@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   CaddieDecisionAuditRecord,
   CaddieContextParams,
@@ -59,6 +59,7 @@ interface CaddiePageProps {
   onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
   onAnalyzeMedia?: (mediaId: string) => void
   onSelectRef?: (sourceRef: string) => void
+  selectedSourceRef?: string
 }
 
 export function CaddiePage({
@@ -75,9 +76,12 @@ export function CaddiePage({
   onAttachMedia,
   onAnalyzeMedia,
   onSelectRef = () => undefined,
+  selectedSourceRef,
 }: CaddiePageProps) {
   const [shotType, setShotType] = useState<CaddieShotType>('approach')
-  const [contextSourceRef, setContextSourceRef] = useState('900001:7')
+  const initialSelectedSourceRef = selectedSourceRef?.trim() || '900001:7'
+  const previousSelectedSourceRef = useRef(selectedSourceRef?.trim() || '')
+  const [contextSourceRef, setContextSourceRef] = useState(initialSelectedSourceRef)
   const [contextDistance, setContextDistance] = useState('142')
   const [contextLie, setContextLie] = useState('fairway')
   const [currentLatitude, setCurrentLatitude] = useState('')
@@ -88,6 +92,14 @@ export function CaddiePage({
   const weatherSnapshot = weatherState.status === 'ready' ? weatherState.data : null
   const visionFindings = mediaState.status === 'ready' ? mediaState.findings : []
   const hasSourceContext = contextState.status === 'ready'
+
+  useEffect(() => {
+    const nextSourceRef = selectedSourceRef?.trim()
+    if (nextSourceRef && nextSourceRef !== previousSelectedSourceRef.current) {
+      setContextSourceRef(nextSourceRef)
+    }
+    previousSelectedSourceRef.current = nextSourceRef || ''
+  }, [selectedSourceRef])
 
   return (
     <section className="caddie-workspace">

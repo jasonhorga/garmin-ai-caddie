@@ -101,6 +101,7 @@ export default function App() {
   const [weatherState, setWeatherState] = useState<DeferredLoadState<WeatherSnapshotResponse>>({ status: 'idle' })
   const [caddieContextState, setCaddieContextState] = useState<DeferredLoadState<CaddieContextResponse>>({ status: 'idle' })
   const [mediaState, setMediaState] = useState<MediaContextState>({ status: 'idle' })
+  const [selectedCaddieSourceRef, setSelectedCaddieSourceRef] = useState('900001:7')
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
@@ -203,6 +204,7 @@ export default function App() {
   }
 
   async function handleSelectSourceRef(sourceRef: string): Promise<HistoryDrilldownResponse | null> {
+    setSelectedCaddieSourceRef(sourceRef)
     setDrilldownState({ status: 'loading', sourceRef })
     setHoleEvidenceState({ status: 'idle' })
     try {
@@ -642,6 +644,7 @@ export default function App() {
             onAttachMedia={handleAttachMedia}
             onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}
             onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            selectedSourceRef={selectedCaddieSourceRef}
           />
         </main>
       </>

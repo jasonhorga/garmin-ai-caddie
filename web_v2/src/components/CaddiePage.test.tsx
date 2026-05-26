@@ -167,6 +167,52 @@ describe('CaddiePage', () => {
     expect(onRequestDecision).not.toHaveBeenCalled()
   })
 
+  it('uses a selected history source ref when loading caddie context', async () => {
+    const onLoadCaddieContext = vi.fn()
+    const selectedProps = {
+      decisionState: { status: 'idle' } as const,
+      contextState: { status: 'idle' } as const,
+      selectedSourceRef: '900002:5:4',
+      onRequestDecision: vi.fn(),
+      onLoadCaddieContext,
+    }
+
+    render(<CaddiePage {...selectedProps} />)
+
+    expect(screen.getByLabelText('Source ref')).toHaveValue('900002:5:4')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
+
+    expect(onLoadCaddieContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceRef: '900002:5:4',
+      }),
+    )
+  })
+
+  it('keeps manual source ref overrides after the selected ref prefill', async () => {
+    const onLoadCaddieContext = vi.fn()
+    const selectedProps = {
+      decisionState: { status: 'idle' } as const,
+      contextState: { status: 'idle' } as const,
+      selectedSourceRef: '900002:5:4',
+      onRequestDecision: vi.fn(),
+      onLoadCaddieContext,
+    }
+
+    render(<CaddiePage {...selectedProps} />)
+
+    await userEvent.clear(screen.getByLabelText('Source ref'))
+    await userEvent.type(screen.getByLabelText('Source ref'), 'manual-round:3')
+    await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
+
+    expect(onLoadCaddieContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceRef: 'manual-round:3',
+      }),
+    )
+  })
+
   it('renders decision evidence and requests a source-bound plan', async () => {
     const onRequestDecision = vi.fn()
     const onCreateAudit = vi.fn()

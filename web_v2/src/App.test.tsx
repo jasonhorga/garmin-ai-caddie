@@ -518,6 +518,22 @@ function drilldownPayload() {
   }
 }
 
+function selectedShotDrilldownPayload() {
+  return {
+    schema: 'ai-caddie-history-drilldown-v1',
+    ref: '900002:5:4',
+    refType: 'shot',
+    found: true,
+    title: '1D on H5',
+    round: { id: '900002', score: 87 },
+    hole: { number: 5, par: 5, strokes: 6, toPar: 1 },
+    shot: { club: '1D', distance: 255, surface: 'rough' },
+    relatedRefs: { roundRefs: ['900002'], holeRefs: ['900002:5'], shotRefs: ['900002:5:4'] },
+    sourceFields: { clubName: '1D', meters: 255 },
+    missingData: [],
+  }
+}
+
 function roundDrilldownPayload() {
   return {
     schema: 'ai-caddie-history-drilldown-v1',
@@ -1005,5 +1021,38 @@ describe('App navigation', () => {
       meters: 137,
       end: { lie: 'fringe', feature: { surface: { kind: 'fringe' }, nearRisks: [] } },
     })
+  })
+
+  it('carries a selected history source ref into the caddie context request', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/drilldown/900002%3A5%3A4') return selectedShotDrilldownPayload()
+        if (String(path).startsWith('/api/v2/caddie/context')) return caddieContextPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Clubs' }))
+    expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900002:5:4' }))
+
+    expect(await screen.findByText('1D on H5')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Caddie' }))
+    expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Source ref')).toHaveValue('900002:5:4')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/caddie/context?source_ref=900002%3A5%3A4&shot_type=approach&distance_to_pin_m=142&lie=fairway',
+    )
   })
 })
