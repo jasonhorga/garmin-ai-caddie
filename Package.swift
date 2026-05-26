@@ -21,7 +21,8 @@ let package = Package(
         ),
         .target(
             name: "AICaddieWatch",
-            path: "mobile/ios/AICaddieWatch"
+            path: "mobile/ios/AICaddieWatch",
+            exclude: ["AICaddieWatchApp.swift"]
         ),
         .testTarget(
             name: "AICaddieTests",
