@@ -79,6 +79,7 @@ export function CaddiePage({
   const [contextLie, setContextLie] = useState('fairway')
   const weatherSnapshot = weatherState.status === 'ready' ? weatherState.data : null
   const visionFindings = mediaState.status === 'ready' ? mediaState.findings : []
+  const hasSourceContext = contextState.status === 'ready'
 
   return (
     <section className="caddie-workspace">
@@ -104,10 +105,12 @@ export function CaddiePage({
         ) : null}
         <button
           type="button"
+          disabled={!hasSourceContext}
           onClick={() => onRequestDecision(buildDecisionRequest(shotType, contextState, weatherSnapshot, visionFindings))}
         >
           Request caddie plan
         </button>
+        {!hasSourceContext ? <span className="caddie-context-required">Load caddie context before requesting a source-bound plan.</span> : null}
       </section>
 
       {onLoadWeather ? <WeatherContextPanel state={weatherState} /> : null}
@@ -606,7 +609,13 @@ function buildDecisionRequest(
   weatherSnapshot: WeatherSnapshotResponse | null,
   visionFindings: VisionFindingRecord[] = [],
 ): CaddieDecisionRequest {
-  const baseContext = contextState.status === 'ready' ? contextState.data.context : buildFixtureRequest(shotType).context
+  const baseContext =
+    contextState.status === 'ready'
+      ? contextState.data.context
+      : {
+          shotType,
+          missingData: [{ label: 'caddie_context', reason: 'source-bound context has not been loaded' }],
+        }
   return {
     shotType,
     context: {
@@ -627,53 +636,6 @@ function formatSequenceMeta(sequence: Record<string, unknown>): string {
   if (remaining !== undefined) parts.push(`${String(remaining)}m remaining`)
   if (risk !== undefined) parts.push(`risk ${String(risk)}`)
   return parts.join(' - ') || '-'
-}
-
-function buildFixtureRequest(
-  shotType: CaddieShotType,
-): CaddieDecisionRequest {
-  if (shotType === 'tee') {
-    return {
-      shotType,
-      context: {
-        courseName: 'Fixture Links',
-        hole: 1,
-        shotType,
-        clubProfiles: {
-          '1W': { clubName: '1W', sampleSize: 24, median: 221, p10: 190, p90: 249 },
-          '3H': { clubName: '3H', sampleSize: 18, median: 178, p10: 158, p90: 198 },
-        },
-      },
-    }
-  }
-  if (shotType === 'recovery') {
-    return {
-      shotType,
-      context: {
-        courseName: 'Fixture Links',
-        hole: 11,
-        distanceToPin_m: 178,
-        lie: 'rough',
-        blockedView: true,
-        hazards: [{ kind: 'tree_area', id: 'trees_right', distance_m: 6 }],
-      },
-    }
-  }
-  return {
-    shotType,
-    context: {
-      courseName: 'Fixture Links',
-      hole: 4,
-      distanceToPin_m: 142,
-      lie: 'fairway',
-      hazards: [{ kind: 'water', id: 'water_front', carryToClear_m: 126, distance_m: 14 }],
-      clubProfiles: {
-        '9I': { clubName: '9I', sampleSize: 24, median: 132, p10: 120, p90: 140 },
-        '8I': { clubName: '8I', sampleSize: 24, median: 144, p10: 132, p90: 153 },
-        '7I': { clubName: '7I', sampleSize: 24, median: 156, p10: 142, p90: 168 },
-      },
-    },
-  }
 }
 
 function numericInput(value: string): number | undefined {

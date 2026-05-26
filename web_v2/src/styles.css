@@ -1478,6 +1478,18 @@ p {
   cursor: pointer;
 }
 
+.caddie-control-bar button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.caddie-context-required {
+  grid-column: 1 / -1;
+  color: var(--double);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .weather-context-panel {
   display: flex;
   justify-content: space-between;

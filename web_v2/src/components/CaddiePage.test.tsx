@@ -132,7 +132,27 @@ const caddieContext: CaddieContextResponse = {
 }
 
 describe('CaddiePage', () => {
-  it('renders decision evidence and requests a fixture-backed plan', async () => {
+  it('blocks caddie plan requests until source-bound context is loaded', async () => {
+    const onRequestDecision = vi.fn()
+
+    render(
+      <CaddiePage
+        decisionState={{ status: 'idle' }}
+        contextState={{ status: 'idle' }}
+        onRequestDecision={onRequestDecision}
+      />,
+    )
+
+    expect(screen.getByText('Load caddie context before requesting a source-bound plan.')).toBeInTheDocument()
+    const requestButton = screen.getByRole('button', { name: 'Request caddie plan' })
+    expect(requestButton).toBeDisabled()
+
+    await userEvent.click(requestButton)
+
+    expect(onRequestDecision).not.toHaveBeenCalled()
+  })
+
+  it('renders decision evidence and requests a source-bound plan', async () => {
     const onRequestDecision = vi.fn()
     const onCreateAudit = vi.fn()
     const onLoadWeather = vi.fn()
