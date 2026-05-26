@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ai_caddie.llm_providers import StaticProvider, build_text_provider
 from ai_caddie.reports import (
+    audit_report_narrative,
     build_report_inferences,
     build_round_report_facts,
     build_trend_report_facts,
@@ -57,6 +58,23 @@ def _report_response(report: dict[str, object], *, kind: str, subject_id: str) -
             default_confidence=str(payload.get("confidence") or "low"),
         ),
     )
+    unsupported_claims = payload.get("unsupportedClaims")
+    if not isinstance(unsupported_claims, list):
+        unsupported_claims = audit_report_narrative(
+            str(payload.get("narrative") or ""),
+            [row for row in facts_used if isinstance(row, dict)],
+            [row for row in missing_data if isinstance(row, dict)],
+        )
+        payload["unsupportedClaims"] = unsupported_claims
+    payload.setdefault(
+        "factBinding",
+        {
+            "state": "needs_review" if unsupported_claims else "bound",
+            "unsupportedClaimCount": len(unsupported_claims),
+        },
+    )
+    if unsupported_claims:
+        payload["confidence"] = "low"
     return ReviewReportResponse(**payload)
 
 

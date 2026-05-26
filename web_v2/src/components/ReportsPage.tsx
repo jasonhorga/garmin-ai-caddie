@@ -246,12 +246,14 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
         <span className="fact-chip">{report.subjectId}</span>
         <span className="fact-chip muted">model</span>
         <span className="fact-chip">{report.model}</span>
+        <ReportFactBinding factBinding={report.factBinding} />
         <SourceRefs refs={report.sourceRefs} onSelectRef={onSelectRef} />
       </section>
       <p className="report-narrative">{report.narrative}</p>
 
       <div className="report-evidence-grid">
         <ReportInferences inferences={report.inferencesMade} onSelectRef={onSelectRef} />
+        <UnsupportedClaims claims={report.unsupportedClaims} onSelectRef={onSelectRef} />
         <section aria-label="Report facts">
           <h3>Facts</h3>
           {report.factsUsed.map((fact, index) => (
@@ -284,6 +286,47 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
           )}
         </section>
       </div>
+    </section>
+  )
+}
+
+function ReportFactBinding({ factBinding }: { factBinding: unknown }) {
+  const row = factBinding && typeof factBinding === 'object' && !Array.isArray(factBinding) ? (factBinding as Record<string, unknown>) : {}
+  const state = typeof row.state === 'string' && row.state.trim() ? row.state : 'bound'
+  return <span className="fact-chip muted">{`${state} binding`}</span>
+}
+
+function UnsupportedClaims({
+  claims,
+  onSelectRef,
+}: {
+  claims: unknown
+  onSelectRef?: (sourceRef: string) => void
+}) {
+  const rows = asRecordArray(claims)
+  return (
+    <section className="report-unsupported-claims" aria-label="Unsupported report claims">
+      <h3>Unsupported Claims</h3>
+      {rows.length ? (
+        rows.map((claim, index) => (
+          <div className="report-row" key={`${String(claim.category ?? 'claim')}-${index}`}>
+            <div className="report-row-main">
+              <strong>{String(claim.category ?? 'claim')}</strong>
+              <span>{String(claim.claim ?? 'Unsupported claim')}</span>
+              {typeof claim.reason === 'string' ? <span>{claim.reason}</span> : null}
+              <div className="report-metadata">
+                {labeledChips(claim.missingDataLabels, 'missing')}
+                {typeof claim.confidence === 'string' ? (
+                  <span className="fact-chip muted">{`${claim.confidence} claim confidence`}</span>
+                ) : null}
+              </div>
+            </div>
+            <SourceRefs refs={claimRefs(claim)} onSelectRef={onSelectRef} />
+          </div>
+        ))
+      ) : (
+        <p>None</p>
+      )}
     </section>
   )
 }
@@ -452,6 +495,10 @@ function labeledChips(value: unknown, suffix: string) {
 
 function inferenceRefs(inference: Record<string, unknown>): string[] {
   return uniqueStrings([...asStringArray(inference.sourceRefs), ...asStringArray(inference.missingDataRefs)])
+}
+
+function claimRefs(claim: Record<string, unknown>): string[] {
+  return uniqueStrings([...asStringArray(claim.sourceRefs), ...asStringArray(claim.missingDataRefs)])
 }
 
 function uniqueStrings(values: string[]): string[] {

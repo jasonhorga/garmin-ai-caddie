@@ -347,6 +347,8 @@ class ReviewReportResponse(BaseModel):
     factsUsed: list[dict[str, Any]]
     missingData: list[dict[str, Any]]
     inferencesMade: list[dict[str, Any]] = Field(default_factory=list)
+    unsupportedClaims: list[dict[str, Any]] = Field(default_factory=list)
+    factBinding: dict[str, Any] = Field(default_factory=lambda: {"state": "bound", "unsupportedClaimCount": 0})
     narrative: str
     confidence: ReportConfidence
 

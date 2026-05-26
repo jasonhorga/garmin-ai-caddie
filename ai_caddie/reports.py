@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -142,6 +143,38 @@ _SOURCE_REF_KEYS = {
     "baselineRefs",
     "recentRefs",
 }
+
+_UNSUPPORTED_CLAIM_RULES = {
+    "weather": {
+        "keywords": ("weather", "wind", "rain", "temperature", "precipitation", "gust"),
+        "support": ("weather", "wind", "rain", "temperature", "precipitation", "gust"),
+    },
+    "lie": {
+        "keywords": ("lie", "stance", "slope", "blocked view"),
+        "support": ("lie", "surface", "stance", "slope", "blocked view", "rough", "fairway", "bunker"),
+    },
+    "penalty": {
+        "keywords": ("penalty", "penalties", "ob", "out of bounds", "water"),
+        "support": ("penalty", "penalties", "ob", "out of bounds", "water", "hazard"),
+    },
+    "club": {
+        "keywords": ("club", "driver", "wood", "iron", "wedge", "putter", "hybrid"),
+        "support": ("club", "clubname", "recommendedclub", "driver", "wood", "iron", "wedge", "putter", "hybrid"),
+    },
+}
+
+_CLUB_TOKEN_PATTERN = re.compile(r"\b(?:[1-9]i|[1-9]w|[1-9]h|pw|gw|sw|lw|1d)\b", re.IGNORECASE)
+_MISSING_CALLOUT_TERMS = (
+    "missing",
+    "unavailable",
+    "not recorded",
+    "not cached",
+    "no data",
+    "unknown",
+    "uncertain",
+    "lack",
+    "lacking",
+)
 
 
 def report_source_refs(value: Any) -> list[str]:
@@ -905,6 +938,80 @@ def build_report_inferences(
     return rows
 
 
+def audit_report_narrative(
+    narrative: str,
+    facts_used: list[dict[str, Any]],
+    missing_data: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    facts_text = _audit_text(facts_used)
+    missing_labels = _missing_labels(missing_data)
+    missing_refs = _missing_refs(missing_data)
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for sentence in _narrative_sentences(narrative):
+        sentence_text = sentence.strip()
+        if not sentence_text:
+            continue
+        for category, rule in _UNSUPPORTED_CLAIM_RULES.items():
+            if not _sentence_mentions_category(sentence_text, category, rule):
+                continue
+            if _facts_support_category(facts_text, category, rule):
+                continue
+            if _missing_data_callout_allowed(sentence_text, category, missing_labels):
+                continue
+            key = (category, sentence_text)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "category": category,
+                    "claim": sentence_text[:240],
+                    "reason": f"Narrative references {category} without a supporting structured fact.",
+                    "confidence": "low",
+                    "sourceRefs": [],
+                    "missingDataRefs": missing_refs,
+                    "missingDataLabels": missing_labels,
+                }
+            )
+    return rows
+
+
+def _audit_text(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).lower()
+
+
+def _narrative_sentences(narrative: str) -> list[str]:
+    text = redact_private_text(narrative).replace("\n", " ").strip()
+    if not text:
+        return []
+    return [part.strip() for part in re.split(r"(?<=[.!?。！？])\s+", text) if part.strip()]
+
+
+def _sentence_mentions_category(sentence: str, category: str, rule: dict[str, tuple[str, ...]]) -> bool:
+    lowered = sentence.lower()
+    if any(keyword in lowered for keyword in rule["keywords"]):
+        return True
+    return category == "club" and bool(_CLUB_TOKEN_PATTERN.search(sentence))
+
+
+def _facts_support_category(facts_text: str, category: str, rule: dict[str, tuple[str, ...]]) -> bool:
+    if category == "club" and _CLUB_TOKEN_PATTERN.search(facts_text):
+        return True
+    return any(keyword in facts_text for keyword in rule["support"])
+
+
+def _missing_data_callout_allowed(sentence: str, category: str, missing_labels: list[str]) -> bool:
+    lowered = sentence.lower()
+    if not any(term in lowered for term in _MISSING_CALLOUT_TERMS):
+        return False
+    if category in {label.lower() for label in missing_labels}:
+        return True
+    if category == "weather" and any(label.lower() in {"wind", "weather"} for label in missing_labels):
+        return True
+    return False
+
+
 def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, Any]:
     safe_facts = _redact_value(facts)
     facts_used = safe_facts.get("factsUsed", []) if isinstance(safe_facts.get("factsUsed"), list) else []
@@ -926,6 +1033,9 @@ def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, 
         ],
         max_tokens=1200,
     )
+    safe_narrative = redact_private_text(narrative)
+    unsupported_claims = audit_report_narrative(safe_narrative, facts_used, missing_data)
+    confidence = "low" if unsupported_claims else _confidence(facts_used, missing_data)
     return {
         "schema": "ai-caddie-review-report-v1",
         "kind": kind,
@@ -936,6 +1046,11 @@ def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, 
         "factsUsed": facts_used,
         "missingData": missing_data,
         "inferencesMade": build_report_inferences(facts_used, missing_data),
-        "narrative": redact_private_text(narrative),
-        "confidence": _confidence(facts_used, missing_data),
+        "unsupportedClaims": unsupported_claims,
+        "factBinding": {
+            "state": "needs_review" if unsupported_claims else "bound",
+            "unsupportedClaimCount": len(unsupported_claims),
+        },
+        "narrative": safe_narrative,
+        "confidence": confidence,
     }

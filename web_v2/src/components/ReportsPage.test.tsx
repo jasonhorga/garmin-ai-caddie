@@ -82,6 +82,16 @@ const report: ReviewReportResponse = {
       missingDataLabels: ['weather'],
     },
   ],
+  unsupportedClaims: [
+    {
+      category: 'weather',
+      claim: 'Wind was strong all day.',
+      reason: 'Narrative references weather without a supporting structured fact.',
+      missingDataRefs: ['900002'],
+      missingDataLabels: ['weather'],
+    },
+  ],
+  factBinding: { state: 'needs_review', unsupportedClaimCount: 1 },
   narrative: 'Recent scoring improved, but weather coverage is partial.',
   confidence: 'medium',
 }
@@ -158,7 +168,7 @@ describe('ReportsPage', () => {
     expect(screen.getByText('toPar -1')).toBeInTheDocument()
     expect(screen.getByText('club 1D')).toBeInTheDocument()
     expect(screen.getByText('distance 238')).toBeInTheDocument()
-    expect(screen.getByText('weather')).toBeInTheDocument()
+    expect(screen.getAllByText('weather').length).toBeGreaterThan(0)
     expect(screen.getByText('coverage 2/3 66.7%')).toBeInTheDocument()
     expect(screen.getByText('medium fact confidence')).toBeInTheDocument()
     expect(screen.getByText('coverage 1/3 33.3%')).toBeInTheDocument()
@@ -171,6 +181,14 @@ describe('ReportsPage', () => {
     expect(within(inferences).getByText('medium inference confidence')).toBeInTheDocument()
     expect(within(inferences).getByRole('button', { name: 'Open source 900001' })).toBeInTheDocument()
     expect(within(inferences).getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
+    expect(screen.getByText('needs_review binding')).toBeInTheDocument()
+    const unsupportedClaims = screen.getByLabelText('Unsupported report claims')
+    expect(within(unsupportedClaims).getByRole('heading', { name: 'Unsupported Claims' })).toBeInTheDocument()
+    expect(within(unsupportedClaims).getByText('weather')).toBeInTheDocument()
+    expect(within(unsupportedClaims).getByText('Wind was strong all day.')).toBeInTheDocument()
+    expect(within(unsupportedClaims).getByText('Narrative references weather without a supporting structured fact.')).toBeInTheDocument()
+    expect(within(unsupportedClaims).getByText('weather missing')).toBeInTheDocument()
+    expect(within(unsupportedClaims).getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)

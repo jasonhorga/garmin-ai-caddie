@@ -62,6 +62,18 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(response.json()["narrative"], "generated review")
         self.assertEqual(response.json()["model"], "static")
 
+    def test_generated_report_response_flags_unsupported_sensitive_claims(self) -> None:
+        client = TestClient(app)
+
+        with patch("server_v2.reports.build_text_provider", return_value=StaticProvider("Wind was strong all day.")):
+            response = client.post("/api/v2/reports/round/900001/generate")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["factBinding"]["state"], "needs_review")
+        self.assertEqual(payload["confidence"], "low")
+        self.assertIn("weather", {row["category"] for row in payload["unsupportedClaims"]})
+
     def test_generated_round_report_is_stored_and_returned_by_get(self) -> None:
         client = TestClient(app)
 

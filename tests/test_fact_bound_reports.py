@@ -147,6 +147,66 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertTrue(any("three_putt" in row["claim"] and row["sourceRefs"] == ["round-2:7"] for row in inferences))
         self.assertTrue(any("execution" in row["claim"] and row["factLabels"] == ["decision_audit_trends"] for row in inferences))
 
+    def test_generated_report_flags_sensitive_claims_not_supported_by_facts(self) -> None:
+        facts = {
+            "schema": "ai-caddie-report-facts-v1",
+            "kind": "trend",
+            "subjectId": "recent_10",
+            "factsUsed": [
+                {
+                    "label": "summary_trend",
+                    "source": "summary",
+                    "value": {"totalRounds": 3, "recent10Average": 84.0},
+                    "sourceRefs": ["900001", "900002", "900003"],
+                }
+            ],
+            "missingData": [
+                {
+                    "label": "weather",
+                    "state": "missing",
+                    "sourceRefs": ["900001"],
+                }
+            ],
+        }
+
+        report = generate_report(
+            facts,
+            StaticProvider("Wind was strong all day. The rough lie caused a penalty and 8I was the wrong club."),
+        )
+
+        unsupported = report["unsupportedClaims"]
+        self.assertEqual(report["factBinding"]["state"], "needs_review")
+        self.assertEqual(report["factBinding"]["unsupportedClaimCount"], len(unsupported))
+        self.assertEqual(report["confidence"], "low")
+        self.assertIn("weather", {row["category"] for row in unsupported})
+        self.assertIn("lie", {row["category"] for row in unsupported})
+        self.assertIn("penalty", {row["category"] for row in unsupported})
+        self.assertIn("club", {row["category"] for row in unsupported})
+        self.assertTrue(all(row["claim"] for row in unsupported))
+        self.assertTrue(all(row["missingDataLabels"] == ["weather"] for row in unsupported))
+
+    def test_generated_report_allows_missing_data_callouts(self) -> None:
+        facts = {
+            "schema": "ai-caddie-report-facts-v1",
+            "kind": "trend",
+            "subjectId": "recent_10",
+            "factsUsed": [
+                {
+                    "label": "summary_trend",
+                    "source": "summary",
+                    "value": {"totalRounds": 3, "recent10Average": 84.0},
+                    "sourceRefs": ["900001", "900002", "900003"],
+                }
+            ],
+            "missingData": [{"label": "weather", "state": "missing", "sourceRefs": ["900001"]}],
+        }
+
+        report = generate_report(facts, StaticProvider("Weather is missing, so wind should stay uncertain."))
+
+        self.assertEqual(report["unsupportedClaims"], [])
+        self.assertEqual(report["factBinding"], {"state": "bound", "unsupportedClaimCount": 0})
+        self.assertEqual(report["confidence"], "medium")
+
     def test_report_source_refs_include_inference_missing_data_refs(self) -> None:
         refs = report_source_refs(
             {
