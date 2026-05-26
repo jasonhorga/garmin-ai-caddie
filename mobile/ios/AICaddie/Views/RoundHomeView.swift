@@ -57,6 +57,11 @@ public struct RoundHomeView: View {
                     } label: {
                         Label("Sync", systemImage: "arrow.triangle.2.circlepath")
                     }
+                    NavigationLink {
+                        GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken)
+                    } label: {
+                        Label("Garmin Session", systemImage: "key")
+                    }
                 }
 
                 Section("Holes") {

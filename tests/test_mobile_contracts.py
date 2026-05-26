@@ -519,6 +519,35 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("offlineStore: OfflineStore? = nil", current_hole)
         self.assertIn("offlineStore: offlineStore", current_hole)
 
+    def test_ios_garmin_session_connector_surface_imports_session_material_without_passwords(self) -> None:
+        session_client = _read_required_source(self, IOS_DIR / "Services" / "GarminSessionClient.swift")
+        session_view = _read_required_source(self, IOS_DIR / "Views" / "GarminSessionView.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+
+        self.assertIn("struct GarminSessionImportRequest: Codable", session_client)
+        self.assertIn("let webSessionHeader: String", session_client)
+        self.assertIn("let antiForgeryValue: String", session_client)
+        self.assertIn("struct GarminSessionImportResponse: Codable", session_client)
+        self.assertIn("final class GarminSessionClient", session_client)
+        self.assertIn("func importSession", session_client)
+        self.assertIn('"/api/v2/sync/session"', session_client)
+        self.assertIn('request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")', session_client)
+        self.assertNotIn("password", session_client.lower())
+        self.assertNotIn("username", session_client.lower())
+
+        self.assertIn("struct GarminSessionView: View", session_view)
+        self.assertIn("SecureField(\"Web session header\"", session_view)
+        self.assertIn("SecureField(\"CSRF token\"", session_view)
+        self.assertIn("GarminSessionClient(baseURL:", session_view)
+        self.assertIn("client.importSession", session_view)
+        self.assertIn("webSessionHeader = \"\"", session_view)
+        self.assertIn("antiForgeryValue = \"\"", session_view)
+        self.assertNotIn("password", session_view.lower())
+        self.assertNotIn("username", session_view.lower())
+
+        self.assertIn("GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        self.assertIn('Label("Garmin Session"', round_home)
+
     def test_ios_caddie_decision_client_posts_shared_decision_contract(self) -> None:
         client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
 
