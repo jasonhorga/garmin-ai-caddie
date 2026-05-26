@@ -8,7 +8,7 @@ from typing import Any
 
 from ai_caddie.annotations import annotations_for_target
 from ai_caddie.decision_api import ShotType, validate_shot_type
-from ai_caddie.geometry_evidence import build_hole_map_dto, geometry_coverage_for_hole
+from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
 from ai_caddie.history_drilldown import resolve_history_ref
 from ai_caddie.history_stats import DataModeName, build_history_stats
@@ -30,6 +30,9 @@ def build_caddie_context(
     current_location: dict[str, Any] | None = None,
     target_location: dict[str, Any] | None = None,
     strategy_mode: str | None = None,
+    route_start: dict[str, Any] | None = None,
+    route_target: dict[str, Any] | None = None,
+    landing_radius_m: float = 18.0,
 ) -> dict[str, Any]:
     normalized_shot_type = validate_shot_type(shot_type)
     drilldown = resolve_history_ref(data, source_ref)
@@ -67,6 +70,23 @@ def build_caddie_context(
             missing_data.append({"label": "geometry", "reason": "geometry evidence could not be loaded"})
     else:
         missing_data.append({"label": "geometry", "reason": "globalId or local hole is missing from source ref"})
+
+    route_evidence = _route_evidence_for_context(
+        global_id=global_id,
+        local_hole=local_hole,
+        route_start=route_start,
+        route_target=route_target,
+        landing_radius_m=landing_radius_m,
+    )
+    if route_evidence:
+        evidence_rows.append(
+            {
+                "label": "route_geometry",
+                "value": f"route length {route_evidence.get('routeLength_m')}m",
+                "refs": [source_ref],
+            }
+        )
+        missing_data.extend(route_evidence.get("missingData") or [])
 
     effective_distance = _as_float(distance_to_pin_m)
     if effective_distance is None and shot_row.get("distance") is not None:
@@ -148,6 +168,8 @@ def build_caddie_context(
         },
         **history_context,
     }
+    if route_evidence:
+        context["routeEvidence"] = {**route_evidence, "sourceRefs": [source_ref]}
     if effective_distance is not None:
         context["distanceToPin_m"] = round(float(effective_distance), 1)
     if effective_lie is not None:
@@ -171,6 +193,30 @@ def build_caddie_context(
         "evidence": evidence_rows,
         "missingData": _dedupe_missing(missing_data),
     }
+
+
+def _route_evidence_for_context(
+    *,
+    global_id: int | None,
+    local_hole: int | None,
+    route_start: dict[str, Any] | None,
+    route_target: dict[str, Any] | None,
+    landing_radius_m: float,
+) -> dict[str, Any] | None:
+    if not route_start or not route_target:
+        return None
+    if global_id is None or local_hole is None:
+        return {"missingData": [{"label": "route_geometry", "reason": "globalId or local hole is missing"}]}
+    try:
+        return build_route_geometry_evidence(
+            global_id,
+            local_hole,
+            start=route_start,
+            target=route_target,
+            landing_radius_m=landing_radius_m,
+        )
+    except Exception:
+        return {"missingData": [{"label": "route_geometry", "reason": "route geometry evidence could not be loaded"}]}
 
 
 def _missing_context(source_ref: str, shot_type: ShotType, missing_data: list[dict[str, Any]]) -> dict[str, Any]:

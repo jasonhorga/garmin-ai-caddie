@@ -308,6 +308,11 @@ def caddie_context(
     target_latitude: float | None = None,
     target_longitude: float | None = None,
     strategy_mode: str | None = None,
+    start_x: float | None = None,
+    start_y: float | None = None,
+    target_x: float | None = None,
+    target_y: float | None = None,
+    landing_radius_m: float = 18.0,
 ) -> CaddieContextResponse:
     return build_caddie_context_response(
         source_ref=source_ref,
@@ -319,6 +324,11 @@ def caddie_context(
         target_latitude=target_latitude,
         target_longitude=target_longitude,
         strategy_mode=strategy_mode,
+        start_x=start_x,
+        start_y=start_y,
+        target_x=target_x,
+        target_y=target_y,
+        landing_radius_m=landing_radius_m,
     )
 
 

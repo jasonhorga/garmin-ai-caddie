@@ -40,6 +40,11 @@ def build_caddie_context_response(
     target_latitude: float | None = None,
     target_longitude: float | None = None,
     strategy_mode: str | None = None,
+    start_x: float | None = None,
+    start_y: float | None = None,
+    target_x: float | None = None,
+    target_y: float | None = None,
+    landing_radius_m: float = 18.0,
 ) -> CaddieContextResponse:
     data, mode = load_history_data_for_mode()
     return CaddieContextResponse(
@@ -56,6 +61,9 @@ def build_caddie_context_response(
             current_location=_location(current_latitude, current_longitude),
             target_location=_location(target_latitude, target_longitude),
             strategy_mode=strategy_mode,
+            route_start=_local_point(start_x, start_y),
+            route_target=_local_point(target_x, target_y),
+            landing_radius_m=landing_radius_m,
         )
     )
 
@@ -64,6 +72,12 @@ def _location(latitude: float | None, longitude: float | None) -> dict[str, floa
     if latitude is None or longitude is None:
         return None
     return {"latitude": float(latitude), "longitude": float(longitude), "source": "live_input"}
+
+
+def _local_point(x: float | None, y: float | None) -> dict[str, float] | None:
+    if x is None or y is None:
+        return None
+    return {"x": float(x), "y": float(y)}
 
 
 def _audit_record(row: dict[str, object] | None) -> CaddieDecisionAuditRecord | None:

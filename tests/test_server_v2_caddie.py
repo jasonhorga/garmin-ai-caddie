@@ -320,6 +320,60 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertTrue(any(row["kind"] == "live_location" for row in decision["evidence"]))
         self.assertTrue(any(row["kind"] == "weather" for row in decision["evidence"]))
 
+    def test_context_endpoint_generates_route_evidence_for_tee_decision(self) -> None:
+        client = TestClient(app)
+
+        with patch(
+            "ai_caddie.caddie_context.build_route_geometry_evidence",
+            return_value={
+                "schema": "ai-caddie-route-geometry-evidence-v1",
+                "globalId": 31795,
+                "localHole": 7,
+                "coverage": "ready",
+                "routeStartLocal": [0.0, 0.0],
+                "routeTargetLocal": [0.0, 182.0],
+                "routeLength_m": 182.0,
+                "landingWindowLocal": {"center": [0.0, 182.0], "radius_m": 18.0},
+                "lineIntersections": [],
+                "hazardClearances": [
+                    {"hazardId": "water_crossing", "kind": "water", "carryToFront_m": 90.0, "carryToClear_m": 110.0},
+                    {"hazardId": "fairway_bunker", "kind": "bunker", "carryToFront_m": 136.0, "carryToClear_m": 150.0},
+                ],
+                "avoidZones": [
+                    {"id": "water_crossing", "kind": "water", "carryToClear_m": 110.0},
+                    {"id": "fairway_bunker", "kind": "bunker", "carryToClear_m": 150.0},
+                ],
+                "missingData": [],
+            },
+        ):
+            context_response = client.get(
+                "/api/v2/caddie/context",
+                params={
+                    "source_ref": "900001:7",
+                    "shot_type": "tee",
+                    "start_x": 0,
+                    "start_y": 0,
+                    "target_x": 0,
+                    "target_y": 182,
+                },
+            )
+
+        self.assertEqual(context_response.status_code, 200)
+        payload = context_response.json()
+        context = payload["context"]
+        self.assertEqual(context["routeEvidence"]["routeLength_m"], 182.0)
+        self.assertTrue(any(row["label"] == "route_geometry" for row in payload["evidence"]))
+
+        context.pop("candidateRoutes", None)
+        decision_response = client.post("/api/v2/caddie/decision", json={"shotType": "tee", "context": context})
+
+        self.assertEqual(decision_response.status_code, 200)
+        decision = decision_response.json()
+        self.assertEqual([option["id"] for option in decision["options"]], ["safe", "stock", "attack"])
+        self.assertEqual(decision["selected"]["targetLocal"], [0.0, 182.0])
+        self.assertIn("bunker", {zone["kind"] for zone in decision["avoidZones"]})
+        self.assertTrue(any(row["kind"] == "route_geometry" for row in decision["evidence"]))
+
 
 if __name__ == "__main__":
     unittest.main()
