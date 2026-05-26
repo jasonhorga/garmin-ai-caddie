@@ -27,6 +27,12 @@ function displayNumber(value: unknown) {
   return number === null ? '-' : String(number)
 }
 
+function displaySigned(value: unknown) {
+  const number = asNumber(value)
+  if (number === null) return '-'
+  return number > 0 ? `+${number}` : String(number)
+}
+
 function roundLabel(value: unknown) {
   const number = asNumber(value)
   return `${number === null ? '-' : number} rounds`
@@ -55,6 +61,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   ]
   const quarters = asRows(data.time.byQuarter).slice(0, 4)
   const playFrequency = asRecord(data.time.playFrequency)
+  const improvement = asRecord(data.time.improvement)
   const phaseStats = asRows(data.scoring.phaseStats)
   const courseMix = data.courses.slice(0, 5)
 
@@ -112,6 +119,54 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
           </article>
         </div>
       </section>
+
+      {Object.keys(improvement).length ? (
+        <section className="panel compact-panel" aria-label="Improvement pace">
+          <div className="section-head">
+            <div>
+              <h2>Improvement Pace</h2>
+              <p>Baseline vs recent 18-hole scoring, with per-round trend and source rounds.</p>
+            </div>
+            <span className={`confidence-pill ${asString(improvement.confidence) ?? 'low'}`}>
+              {asString(improvement.confidence) ?? 'unknown'}
+            </span>
+          </div>
+          <div className="mini-metric-grid">
+            <article className="mini-metric">
+              <span>Direction</span>
+              <b>{asString(improvement.direction) ?? '-'}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Baseline</span>
+              <b>{displayNumber(improvement.baselineAverage18)}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Recent</span>
+              <b>{displayNumber(improvement.recentAverage18)}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Delta</span>
+              <b>{displaySigned(improvement.deltaAverage18)} strokes</b>
+            </article>
+            <article className="mini-metric">
+              <span>Trend</span>
+              <b>{displaySigned(improvement.strokesPerRoundTrend)}/round</b>
+            </article>
+          </div>
+          <div className="stat-list improvement-refs">
+            <div className="stat-row">
+              <span>Baseline refs</span>
+              <b>{displayNumber(improvement.windowSize)} rounds</b>
+              <SourceRefs refs={improvement.baselineRoundRefs} onSelectRef={onSelectRef} />
+            </div>
+            <div className="stat-row">
+              <span>Recent refs</span>
+              <b>{displayNumber(improvement.windowSize)} rounds</b>
+              <SourceRefs refs={improvement.recentRoundRefs} onSelectRef={onSelectRef} />
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="stats-grid">
         <section className="panel compact-panel" aria-label="Score bands">

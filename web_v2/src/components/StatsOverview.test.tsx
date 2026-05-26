@@ -28,6 +28,17 @@ const statsFixture: HistoryStatsResponse = {
       { key: '2026-04', roundCount: 1, average18: 87, bestScore: 87 },
     ],
     playFrequency: { totalMonths: 3, roundsPerMonth: 1, mostActiveMonth: { key: '2026-05', roundCount: 1 } },
+    improvement: {
+      direction: 'improving',
+      confidence: 'high',
+      windowSize: 3,
+      baselineAverage18: 92,
+      recentAverage18: 82,
+      deltaAverage18: -10,
+      strokesPerRoundTrend: -3.03,
+      baselineRoundRefs: ['900004', '900005', '900006'],
+      recentRoundRefs: ['900001', '900002', '900003'],
+    },
   },
   scoring: {
     scoreBands: [
@@ -74,6 +85,10 @@ describe('StatsOverview', () => {
     expect(screen.getByText('Recent 5')).toBeInTheDocument()
     expect(screen.getByText('Recent 10')).toBeInTheDocument()
     expect(screen.getByText('Recent 20')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Improvement Pace' })).toBeInTheDocument()
+    expect(screen.getByText('improving')).toBeInTheDocument()
+    expect(screen.getByText('-10 strokes')).toBeInTheDocument()
+    expect(screen.getByText('-3.03/round')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Quarter Trend' })).toBeInTheDocument()
     expect(screen.getByText('2026-Q2')).toBeInTheDocument()
     expect(screen.getAllByText('2 rounds').length).toBeGreaterThan(0)

@@ -6,8 +6,28 @@ import unittest
 
 from ai_caddie.annotations import add_annotation
 from ai_caddie.fixtures import fixture_history_data
+from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import build_history_stats
 from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
+
+
+def improvement_history_data() -> HistoryData:
+    scores = [94, 92, 90, 84, 82, 80]
+    rounds = [
+        {
+            "id": f"improve-{index + 1}",
+            "date": f"2026-{index + 1:02d}-01",
+            "course": "Trend Course",
+            "courseKey": "trend_course",
+            "holesCompleted": 18,
+            "strokes": score,
+            "par": 72,
+            "holes": [],
+            "hasShots": True,
+        }
+        for index, score in enumerate(scores)
+    ]
+    return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=[])
 
 
 class HistoryStatsCoreTests(unittest.TestCase):
@@ -231,6 +251,20 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(stats["drillDown"]["roundRefs"], ["900001", "900002", "900003"])
         self.assertIn("900001:1", stats["drillDown"]["holeRefs"])
         self.assertIn("900001:1:0", stats["drillDown"]["shotRefs"])
+
+    def test_improvement_pace_compares_baseline_recent_and_slope(self) -> None:
+        stats = build_history_stats(improvement_history_data(), data_mode="fixture")
+
+        improvement = stats["time"]["improvement"]
+        self.assertEqual(improvement["direction"], "improving")
+        self.assertEqual(improvement["confidence"], "high")
+        self.assertEqual(improvement["windowSize"], 3)
+        self.assertEqual(improvement["baselineAverage18"], 92.0)
+        self.assertEqual(improvement["recentAverage18"], 82.0)
+        self.assertEqual(improvement["deltaAverage18"], -10.0)
+        self.assertEqual(improvement["strokesPerRoundTrend"], -3.03)
+        self.assertEqual(improvement["baselineRoundRefs"], ["improve-1", "improve-2", "improve-3"])
+        self.assertEqual(improvement["recentRoundRefs"], ["improve-4", "improve-5", "improve-6"])
 
 
 if __name__ == "__main__":

@@ -217,11 +217,94 @@ def _time_stats(data: HistoryData) -> dict[str, Any]:
         "byYear": [pack(key, by_year[key]) for key in sorted(by_year, reverse=True)],
         "byQuarter": [pack(key, by_quarter[key]) for key in sorted(by_quarter, reverse=True)],
         "byMonth": [pack(key, by_month[key]) for key in sorted(by_month, reverse=True)],
+        "improvement": _improvement_stats(data),
         "playFrequency": {
             "totalMonths": len(known_months),
             "roundsPerMonth": average([len(by_month[key]) for key in known_months]),
             "mostActiveMonth": most_active_month,
         },
+    }
+
+
+def _score_rounds18(data: HistoryData) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in sorted(data.rounds, key=lambda row: str(row.get("date") or ""))
+        if row.get("holesCompleted") == 18 and row.get("strokes") is not None
+    ]
+
+
+def _linear_slope(values: list[float]) -> float | None:
+    if len(values) < 2:
+        return None
+    xs = list(range(len(values)))
+    x_mean = sum(xs) / len(xs)
+    y_mean = sum(values) / len(values)
+    denominator = sum((x - x_mean) ** 2 for x in xs)
+    if denominator == 0:
+        return None
+    numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, values, strict=True))
+    return round(numerator / denominator, 2)
+
+
+def _improvement_direction(delta_average: float | None, slope: float | None) -> str:
+    if delta_average is None or slope is None:
+        return "insufficient_data"
+    if delta_average <= -1.0 and slope < -0.1:
+        return "improving"
+    if delta_average >= 1.0 and slope > 0.1:
+        return "declining"
+    return "flat"
+
+
+def _improvement_confidence(round_count: int) -> str:
+    if round_count >= 6:
+        return "high"
+    if round_count >= 4:
+        return "medium"
+    if round_count >= 2:
+        return "low"
+    return "insufficient"
+
+
+def _improvement_stats(data: HistoryData) -> dict[str, Any]:
+    rounds18 = _score_rounds18(data)
+    scores = [float(row["strokes"]) for row in rounds18]
+    round_refs = [_round_id(row) for row in rounds18]
+    if len(scores) < 2:
+        return {
+            "roundCount": len(scores),
+            "windowSize": len(scores),
+            "baselineAverage18": average(scores),
+            "recentAverage18": average(scores),
+            "deltaAverage18": None,
+            "strokesPerRoundTrend": None,
+            "direction": "insufficient_data",
+            "confidence": _improvement_confidence(len(scores)),
+            "roundRefs": round_refs,
+            "baselineRoundRefs": round_refs,
+            "recentRoundRefs": round_refs,
+        }
+
+    window_size = min(5, max(2, len(scores) // 2))
+    baseline_scores = scores[:window_size]
+    recent_scores = scores[-window_size:]
+    baseline_average = average(baseline_scores)
+    recent_average = average(recent_scores)
+    delta_average = round(float(recent_average) - float(baseline_average), 1) if baseline_average is not None and recent_average is not None else None
+    slope = _linear_slope(scores)
+    return {
+        "roundCount": len(scores),
+        "windowSize": window_size,
+        "baselineAverage18": baseline_average,
+        "recentAverage18": recent_average,
+        "deltaAverage18": delta_average,
+        "strokesPerRoundTrend": slope,
+        "direction": _improvement_direction(delta_average, slope),
+        "confidence": _improvement_confidence(len(scores)),
+        "roundRefs": round_refs,
+        "baselineRoundRefs": round_refs[:window_size],
+        "recentRoundRefs": round_refs[-window_size:],
     }
 
 
