@@ -19,8 +19,23 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public let createdAt: String
 }
 
+public struct WatchRoundStatePayload: Codable, Equatable {
+    public let roundId: String
+    public let hole: Int
+    public let par: Int
+    public let distanceM: Double?
+    public let targetNote: String?
+    public let suggestedClub: String?
+    public let selectedClub: String?
+    public let score: Int
+    public let putts: Int
+    public let penaltyCount: Int
+    public let caddieConfidence: String
+}
+
 public final class WatchEventBridge: NSObject {
     private let offlineStore: OfflineStore
+    private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
     public init(offlineStore: OfflineStore = OfflineStore()) {
@@ -45,6 +60,46 @@ public final class WatchEventBridge: NSObject {
         }
     }
 
+    public func makeWatchRoundStatePayload(
+        package: LiveRoundPackage,
+        hole: Hole,
+        score: Int,
+        putts: Int,
+        penaltyCount: Int,
+        selectedClub: String?,
+        decision: CaddieDecisionResponse?
+    ) -> WatchRoundStatePayload {
+        let selected = selectedOption(from: decision)
+        return WatchRoundStatePayload(
+            roundId: package.roundId,
+            hole: hole.number,
+            par: hole.par,
+            distanceM: number(selected?["carry_m"]) ?? number(selected?["carryM"]),
+            targetNote: string(selected?["label"]) ?? string(selected?["routeLabel"]),
+            suggestedClub: clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]),
+            selectedClub: selectedClub,
+            score: score,
+            putts: putts,
+            penaltyCount: penaltyCount,
+            caddieConfidence: confidenceLevel(from: decision)
+        )
+    }
+
+    public func sendStateToWatch(_ state: WatchRoundStatePayload) throws {
+        let data = try encoder.encode(state)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw URLError(.cannotParseResponse)
+        }
+        guard WCSession.isSupported() else {
+            return
+        }
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(["state": object], replyHandler: nil)
+        } else {
+            WCSession.default.transferUserInfo(["state": object])
+        }
+    }
+
     private func liveEvent(
         _ watchEvent: WatchInputEvent,
         kind: LiveRoundEventKind,
@@ -64,6 +119,55 @@ public final class WatchEventBridge: NSObject {
 
     private func numericPayload(_ value: String) -> JSONValue {
         .number(Double(value) ?? 0)
+    }
+
+    private func selectedOption(from decision: CaddieDecisionResponse?) -> [String: JSONValue]? {
+        guard let decision else {
+            return nil
+        }
+        if let selectedOption = decision.selectedOption {
+            return selectedOption
+        }
+        if let selected = decision.selected {
+            return selected
+        }
+        if let selectedOptionId = decision.selectedOptionId,
+           let option = decision.options.first(where: { string($0["id"]) == selectedOptionId }) {
+            return option
+        }
+        return decision.options.first
+    }
+
+    private func confidenceLevel(from decision: CaddieDecisionResponse?) -> String {
+        guard let decision else {
+            return "low"
+        }
+        return string(decision.confidence["level"]) ?? string(decision.confidence["confidence"]) ?? "low"
+    }
+
+    private func clubName(_ value: JSONValue?) -> String? {
+        guard case .object(let recommendation) = value,
+              case .array(let clubs) = recommendation["clubs"],
+              let first = clubs.first,
+              case .object(let club) = first
+        else {
+            return nil
+        }
+        return string(club["clubName"])
+    }
+
+    private func string(_ value: JSONValue?) -> String? {
+        if case .string(let raw) = value {
+            return raw
+        }
+        return nil
+    }
+
+    private func number(_ value: JSONValue?) -> Double? {
+        if case .number(let raw) = value {
+            return raw
+        }
+        return nil
     }
 }
 

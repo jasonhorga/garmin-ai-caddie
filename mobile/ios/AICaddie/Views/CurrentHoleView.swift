@@ -7,6 +7,7 @@ public struct CurrentHoleView: View {
     public let onEvent: (LiveRoundEvent) -> Void
     private let requestBuilder = CaddieDecisionRequestBuilder()
     private let caddieClient: CaddieDecisionClient?
+    private let watchBridge: WatchEventBridge?
 
     @State private var score: Int
     @State private var puttCount: Int = 2
@@ -22,12 +23,14 @@ public struct CurrentHoleView: View {
         hole: Hole,
         caddieBaseURL: URL? = nil,
         caddieClient: CaddieDecisionClient? = nil,
+        watchBridge: WatchEventBridge? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
         self.package = package
         self.hole = hole
         self.onEvent = onEvent
         self.caddieClient = caddieClient ?? caddieBaseURL.map { CaddieDecisionClient(baseURL: $0) }
+        self.watchBridge = watchBridge
         self._score = State(initialValue: hole.par)
         self._selectedClub = State(initialValue: package.clubProfiles.first?.clubName ?? "")
     }
@@ -112,10 +115,12 @@ public struct CurrentHoleView: View {
     private func loadCaddieDecision() async {
         guard let caddieClient else {
             caddieErrorMessage = "Offline package ready. Connect to refresh caddie decision."
+            sendWatchState(decision: nil)
             return
         }
         guard let request = makeCaddieDecisionRequest() else {
             caddieErrorMessage = "No caddie context seed for this hole."
+            sendWatchState(decision: nil)
             return
         }
 
@@ -127,8 +132,25 @@ public struct CurrentHoleView: View {
         do {
             caddieDecision = try await caddieClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
             caddieErrorMessage = nil
+            sendWatchState(decision: caddieDecision)
         } catch {
             caddieErrorMessage = "Caddie decision unavailable. Cached plan remains visible."
+            sendWatchState(decision: caddieDecision)
+        }
+    }
+
+    private func sendWatchState(decision: CaddieDecisionResponse?) {
+        let state = watchBridge?.makeWatchRoundStatePayload(
+            package: package,
+            hole: hole,
+            score: score,
+            putts: puttCount,
+            penaltyCount: penaltyCount,
+            selectedClub: selectedClub,
+            decision: decision
+        )
+        if let state {
+            try? watchBridge?.sendStateToWatch(state)
         }
     }
 
@@ -141,6 +163,7 @@ public struct CurrentHoleView: View {
         if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             emit(kind: .note, timestamp: timestamp, payload: ["text": .string(note)])
         }
+        sendWatchState(decision: caddieDecision)
     }
 
     private func emit(kind: LiveRoundEventKind, timestamp: String, payload: [String: JSONValue]) {
