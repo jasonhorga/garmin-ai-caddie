@@ -134,8 +134,11 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
           <h3>Facts</h3>
           {report.factsUsed.map((fact, index) => (
             <div className="report-row" key={`${String(fact.label)}-${index}`}>
-              <strong>{String(fact.label ?? 'fact')}</strong>
-              <span>{String(fact.source ?? 'source')}</span>
+              <div className="report-row-main">
+                <strong>{String(fact.label ?? 'fact')}</strong>
+                <span>{String(fact.source ?? 'source')}</span>
+                <FactValue value={fact.value} />
+              </div>
               <SourceRefs refs={refsForFact(fact)} onSelectRef={onSelectRef} />
             </div>
           ))}
@@ -157,6 +160,71 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
       </div>
     </section>
   )
+}
+
+function FactValue({ value }: { value: unknown }) {
+  if (value === undefined || value === null) return null
+  if (Array.isArray(value)) return <FactArray rows={value} />
+  if (typeof value === 'object') return <FactObject value={value as Record<string, unknown>} />
+  return <div className="fact-value">{formatFactPrimitive(value)}</div>
+}
+
+function FactArray({ rows }: { rows: unknown[] }) {
+  const displayRows = rows.slice(0, 4)
+  return (
+    <div className="fact-array">
+      {displayRows.map((row, index) => {
+        if (row && typeof row === 'object' && !Array.isArray(row)) {
+          return <FactObject key={factObjectKey(row as Record<string, unknown>, index)} value={row as Record<string, unknown>} compact />
+        }
+        return (
+          <span className="fact-chip" key={`${String(row)}-${index}`}>
+            {formatFactPrimitive(row)}
+          </span>
+        )
+      })}
+      {rows.length > displayRows.length ? <span className="fact-chip muted">+{rows.length - displayRows.length} more</span> : null}
+    </div>
+  )
+}
+
+function FactObject({ value, compact = false }: { value: Record<string, unknown>; compact?: boolean }) {
+  const entries = Object.entries(value).filter(([, item]) => isRenderableFactPrimitive(item))
+  if (!entries.length) return null
+  return (
+    <div className={compact ? 'fact-object compact' : 'fact-object'}>
+      {entries.map(([key, item]) => (
+        <span className="fact-chip" key={key}>
+          {formatFactPair(key, item)}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function isRenderableFactPrimitive(value: unknown): boolean {
+  return value === null || ['string', 'number', 'boolean'].includes(typeof value)
+}
+
+function formatFactPair(key: string, value: unknown): string {
+  const rendered = formatFactPrimitive(value, key)
+  if (key === 'course') return rendered
+  return `${key} ${rendered}`
+}
+
+function formatFactPrimitive(value: unknown, key = ''): string {
+  if (value === null) return 'none'
+  if (typeof value === 'number') {
+    if (key === 'toPar' && value > 0) return `+${value}`
+    return String(value)
+  }
+  if (typeof value === 'boolean') return value ? 'yes' : 'no'
+  return String(value)
+}
+
+function factObjectKey(value: Record<string, unknown>, index: number): string {
+  const ref = value.holeRef ?? value.shotRef ?? value.roundRef ?? value.id
+  return `${String(ref ?? 'row')}-${index}`
 }
 
 function buildTrendOptions(stats: HistoryStatsResponse): Option[] {

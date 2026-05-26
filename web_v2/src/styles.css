@@ -1678,7 +1678,43 @@ p {
   padding: 9px 0;
 }
 
+.report-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
 .report-row span {
+  color: var(--muted);
+}
+
+.fact-value,
+.fact-object,
+.fact-array {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.fact-object.compact {
+  padding-bottom: 2px;
+}
+
+.fact-chip {
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8faf7;
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 750;
+  line-height: 1.25;
+  padding: 3px 7px;
+  overflow-wrap: anywhere;
+}
+
+.fact-chip.muted {
   color: var(--muted);
 }
 

@@ -28,7 +28,32 @@ const report: ReviewReportResponse = {
   kind: 'trend',
   provider: 'StaticProvider',
   model: 'static',
-  factsUsed: [{ label: 'summary_trend', source: 'summary', value: { totalRounds: 3, roundRefs: ['900001'] } }],
+  factsUsed: [
+    { label: 'summary_trend', source: 'summary', value: { totalRounds: 3, roundRefs: ['900001'] } },
+    {
+      label: 'round_scorecard',
+      source: 'history.rounds',
+      value: {
+        roundRef: '900001',
+        course: 'Black Knight B/C',
+        score: 77,
+        toPar: 5,
+      },
+    },
+    {
+      label: 'round_hole_outcomes',
+      source: 'history.rounds.holes',
+      value: [
+        { holeRef: '900001:1', hole: 1, strokes: 4, par: 4, toPar: 0 },
+        { holeRef: '900001:2', hole: 2, strokes: 3, par: 4, toPar: -1 },
+      ],
+    },
+    {
+      label: 'round_shots',
+      source: 'history.shots',
+      value: [{ shotRef: '900001:1:0', hole: 1, club: '1D', distance: 238, surface: 'fairway' }],
+    },
+  ],
   missingData: [{ label: 'weather', state: 'partial', refs: ['900002'] }],
   narrative: 'Recent scoring improved, but weather coverage is partial.',
   confidence: 'medium',
@@ -62,8 +87,15 @@ describe('ReportsPage', () => {
     expect(screen.getByRole('option', { name: '900001' })).toBeInTheDocument()
     expect(screen.getByText('Recent scoring improved, but weather coverage is partial.')).toBeInTheDocument()
     expect(screen.getByText('summary_trend')).toBeInTheDocument()
+    expect(screen.getByText('Black Knight B/C')).toBeInTheDocument()
+    expect(screen.getByText('score 77')).toBeInTheDocument()
+    expect(screen.getByText('toPar +5')).toBeInTheDocument()
+    expect(screen.getByText('holeRef 900001:2')).toBeInTheDocument()
+    expect(screen.getByText('toPar -1')).toBeInTheDocument()
+    expect(screen.getByText('club 1D')).toBeInTheDocument()
+    expect(screen.getByText('distance 238')).toBeInTheDocument()
     expect(screen.getByText('weather')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open source 900001' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
 
