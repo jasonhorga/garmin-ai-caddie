@@ -26,6 +26,7 @@ import type {
   MobileReconciliationApplyResponse,
   MobileReconciliationResponse,
   ReadinessResponse,
+  ReviewReportIndexResponse,
   ReviewReportResponse,
   SyncRunResponse,
   SyncStatusResponse,
@@ -205,6 +206,10 @@ export function fetchHoleMap(
 
 export function fetchRoundReport(roundId: string): Promise<ReviewReportResponse> {
   return getJson<ReviewReportResponse>(`/api/v2/reports/round/${encodeURIComponent(roundId)}`)
+}
+
+export function fetchReportIndex(): Promise<ReviewReportIndexResponse> {
+  return getJson<ReviewReportIndexResponse>('/api/v2/reports')
 }
 
 export function generateRoundReport(roundId: string, adminToken?: string): Promise<ReviewReportResponse> {

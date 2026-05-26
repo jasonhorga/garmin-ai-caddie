@@ -403,6 +403,23 @@ export interface ReviewReportResponse {
   confidence: ReportConfidence
 }
 
+export interface ReviewReportIndexItem {
+  id: string
+  storedAt: string
+  kind: ReportKind
+  subjectId: string
+  confidence: ReportConfidence
+  provider: string
+  model: string
+  sourceRefs: string[]
+}
+
+export interface ReviewReportIndexResponse {
+  schema: 'ai-caddie-review-report-index-v1'
+  total: number
+  reports: ReviewReportIndexItem[]
+}
+
 export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error' | 'not_available'
 export type ConnectorNextAction = 'connect_garmin' | 'review_history' | 'reauthenticate_garmin' | 'inspect_sync_error'
 export type ResolvedDataMode = 'local' | 'fixture'

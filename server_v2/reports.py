@@ -8,6 +8,7 @@ from ai_caddie.reports import (
     build_trend_report_facts,
     generate_report,
     latest_report_record,
+    list_report_records,
     redact_private_text,
     report_source_refs,
     store_report,
@@ -15,7 +16,7 @@ from ai_caddie.reports import (
 
 from .data_source import load_history_data_for_mode
 from .history_stats import load_history_stats_response
-from .models import ReviewReportResponse
+from .models import ReviewReportIndexResponse, ReviewReportResponse
 
 
 REPORT_ROOT = Path(".")
@@ -45,6 +46,47 @@ def _report_response(report: dict[str, object], *, kind: str, subject_id: str) -
         ),
     )
     return ReviewReportResponse(**payload)
+
+
+def _report_index_item(record: dict[str, object], sequence: int) -> dict[str, object]:
+    report = record.get("report")
+    report_payload = report if isinstance(report, dict) else {}
+    kind = str(report_payload.get("kind") or record.get("kind") or "round")
+    subject_id = redact_private_text(report_payload.get("subjectId") or record.get("subjectId") or "")
+    source_refs = report_source_refs(
+        {
+            "sourceRefs": report_payload.get("sourceRefs"),
+            "factsUsed": report_payload.get("factsUsed"),
+            "missingData": report_payload.get("missingData"),
+        }
+    )
+    return {
+        "id": str(record.get("id") or ""),
+        "storedAt": str(record.get("storedAt") or ""),
+        "sequence": sequence,
+        "kind": kind,
+        "subjectId": subject_id,
+        "confidence": str(report_payload.get("confidence") or "low"),
+        "provider": str(report_payload.get("provider") or "unknown"),
+        "model": str(report_payload.get("model") or "unknown"),
+        "sourceRefs": source_refs,
+    }
+
+
+def load_report_index_response() -> ReviewReportIndexResponse:
+    items = [
+        _report_index_item(record, sequence)
+        for sequence, record in enumerate(list_report_records(root=REPORT_ROOT))
+        if isinstance(record, dict)
+    ]
+    items.sort(key=lambda item: (str(item.get("storedAt") or ""), int(item.get("sequence") or 0)), reverse=True)
+    for item in items:
+        item.pop("sequence", None)
+    return ReviewReportIndexResponse(
+        schema="ai-caddie-review-report-index-v1",
+        total=len(items),
+        reports=items,
+    )
 
 
 def load_round_report_response(round_id: str) -> ReviewReportResponse:

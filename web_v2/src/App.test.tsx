@@ -285,6 +285,35 @@ function trendReportPayload() {
   }
 }
 
+function reportIndexPayload() {
+  return {
+    schema: 'ai-caddie-review-report-index-v1',
+    total: 2,
+    reports: [
+      {
+        id: 'trend-report',
+        storedAt: '2026-05-26T00:00:00Z',
+        kind: 'trend',
+        subjectId: 'recent_10',
+        confidence: 'medium',
+        provider: 'StaticProvider',
+        model: 'static',
+        sourceRefs: ['900001'],
+      },
+      {
+        id: 'round-report',
+        storedAt: '2026-05-25T00:00:00Z',
+        kind: 'round',
+        subjectId: '900001',
+        confidence: 'high',
+        provider: 'StaticProvider',
+        model: 'static',
+        sourceRefs: ['900001'],
+      },
+    ],
+  }
+}
+
 function caddieDecisionPayload() {
   return {
     schema: 'ai-caddie-decision-v2',
@@ -762,6 +791,7 @@ describe('App navigation', () => {
       ok: true,
       json: async () => {
         if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/reports') return reportIndexPayload()
         if (path === '/api/v2/reports/trend/recent_10') return trendReportPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayload()
@@ -775,10 +805,14 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reports' }))
 
     expect(await screen.findByRole('heading', { name: 'Reports' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Report inventory' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open stored trend recent_10' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Load trend report' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open stored trend recent_10' }))
 
     expect(await screen.findByText('Trend review from stored facts.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/trend/recent_10')
   })
 
@@ -787,6 +821,7 @@ describe('App navigation', () => {
       ok: true,
       json: async () => {
         if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/reports') return reportIndexPayload()
         if (path === '/api/v2/reports/trend/recent_10') return trendReportPayload()
         if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -800,7 +835,8 @@ describe('App navigation', () => {
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Reports' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Load trend report' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Open source 900001' }))
+    const identity = await screen.findByLabelText('Report identity')
+    await userEvent.click(within(identity).getByRole('button', { name: 'Open source 900001' }))
 
     expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001')

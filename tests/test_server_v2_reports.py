@@ -148,6 +148,64 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("abc123", response.text)
 
+    def test_report_index_lists_stored_reports_without_private_payload(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_report(
+                {
+                    "schema": "ai-caddie-review-report-v1",
+                    "kind": "round",
+                    "provider": "StaticProvider",
+                    "model": "static",
+                    "factsUsed": [{"label": "round", "source": "test", "sourceRefs": ["900001"]}],
+                    "missingData": [],
+                    "narrative": "round review should not be in index",
+                    "confidence": "high",
+                },
+                kind="round",
+                subject_id="900001",
+                root=root,
+            )
+            store_report(
+                {
+                    "schema": "ai-caddie-review-report-v1",
+                    "kind": "trend",
+                    "provider": "StaticProvider",
+                    "model": "static",
+                    "factsUsed": [{"label": "trend", "source": "test", "sourceRefs": ["900001", "900002"]}],
+                    "missingData": [{"label": "weather", "sourceRefs": ["900003"]}],
+                    "narrative": "trend token=abc123 should not leak",
+                    "confidence": "medium",
+                },
+                kind="trend",
+                subject_id="token=abc123",
+                root=root,
+            )
+
+            with patch("server_v2.reports.REPORT_ROOT", root):
+                response = client.get("/api/v2/reports")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-review-report-index-v1")
+        self.assertEqual(payload["total"], 2)
+        self.assertEqual(payload["reports"][0]["kind"], "trend")
+        self.assertEqual(payload["reports"][0]["subjectId"], "token=[REDACTED]")
+        self.assertEqual(payload["reports"][0]["confidence"], "medium")
+        self.assertEqual(payload["reports"][0]["sourceRefs"], ["900001", "900002", "900003"])
+        self.assertNotIn("narrative", payload["reports"][0])
+        self.assertNotIn("abc123", response.text)
+
+    def test_service_index_includes_report_index(self) -> None:
+        client = TestClient(app)
+
+        response = client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["endpoints"]["reportIndex"], "/api/v2/reports")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ import {
   fetchLatestCaddieDecisionAudit,
   fetchReadiness,
   fetchWeatherSnapshot,
+  fetchReportIndex,
   fetchTrendReport,
   analyzeMedia,
   generateRoundReport,
@@ -211,6 +212,34 @@ describe('report API helpers', () => {
     expect(generated.narrative).toBe('trend review')
     expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/reports/trend/quarter%3A2026-Q2')
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/trend/quarter%3A2026-Q2/generate', { method: 'POST' })
+  })
+
+  it('loads the report inventory index', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-review-report-index-v1',
+        total: 1,
+        reports: [
+          {
+            id: 'report-1',
+            storedAt: '2026-05-26T00:00:00Z',
+            kind: 'trend',
+            subjectId: 'recent_10',
+            confidence: 'medium',
+            provider: 'StaticProvider',
+            model: 'static',
+            sourceRefs: ['900001'],
+          },
+        ],
+      }),
+    })))
+
+    const payload = await fetchReportIndex()
+
+    expect(payload.schema).toBe('ai-caddie-review-report-index-v1')
+    expect(payload.reports[0].subjectId).toBe('recent_10')
+    expect(fetch).toHaveBeenCalledWith('/api/v2/reports')
   })
 
   it('sends admin token headers for protected report generation', async () => {

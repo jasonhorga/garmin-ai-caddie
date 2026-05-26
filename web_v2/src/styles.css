@@ -1801,6 +1801,80 @@ p {
   cursor: not-allowed;
 }
 
+.report-inventory {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 16px;
+}
+
+.report-inventory h2 {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.report-inventory p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.report-inventory-head,
+.report-inventory-row,
+.report-inventory-title,
+.report-inventory-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-inventory-head,
+.report-inventory-row {
+  justify-content: space-between;
+}
+
+.report-inventory-list {
+  display: grid;
+  gap: 10px;
+}
+
+.report-inventory-row {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.report-inventory-main {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.report-inventory-title strong,
+.report-inventory-meta span {
+  overflow-wrap: anywhere;
+}
+
+.report-inventory-meta {
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.report-inventory-row > button {
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
+.report-inventory-row > button:hover {
+  border-color: var(--accent);
+}
+
 .report-title-row {
   display: flex;
   align-items: flex-start;

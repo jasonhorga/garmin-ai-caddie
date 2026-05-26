@@ -16,6 +16,7 @@ import {
   fetchHistoryStats,
   fetchReadiness,
   fetchMobileReconciliation,
+  fetchReportIndex,
   fetchRoundReport,
   fetchTrendReport,
   fetchVisionFindingsForTarget,
@@ -66,6 +67,7 @@ import type {
   MediaCreateRequest,
   MediaTargetType,
   ReadinessResponse,
+  ReviewReportIndexResponse,
   ReviewReportResponse,
   GarminSessionImportRequest,
   MobileReconciliationApplyResponse,
@@ -90,6 +92,7 @@ export default function App() {
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
+  const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
   const [readinessState, setReadinessState] = useState<DeferredLoadState<ReadinessResponse>>({ status: 'idle' })
   const [mobileReconciliationState, setMobileReconciliationState] = useState<MobileReconciliationPanelState>({ status: 'idle' })
   const [mobileReconciliationApplyState, setMobileReconciliationApplyState] = useState<MobileReconciliationApplyState>({ status: 'idle' })
@@ -169,6 +172,18 @@ export default function App() {
           setAnnotationsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
         )
     }
+    if (page === 'reports' && reportIndexState.status === 'idle') {
+      loadReportIndex()
+    }
+  }
+
+  function loadReportIndex() {
+    setReportIndexState({ status: 'loading' })
+    fetchReportIndex()
+      .then((data) => setReportIndexState({ status: 'ready', data }))
+      .catch((error: unknown) =>
+        setReportIndexState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
+      )
   }
 
   async function handleCreateAnnotation(request: AnnotationCreateRequest): Promise<AnnotationCreateResponse> {
@@ -293,6 +308,7 @@ export default function App() {
         <ReportsPage
           stats={data}
           reportState={reportState}
+          reportIndexState={reportIndexState}
           onLoadTrend={handleLoadTrendReport}
           onGenerateTrend={handleGenerateTrendReport}
           onLoadRound={handleLoadRoundReport}
@@ -338,11 +354,12 @@ export default function App() {
     return <StatsOverview data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
   }
 
-  async function loadReport(loader: () => Promise<ReviewReportResponse>) {
+  async function loadReport(loader: () => Promise<ReviewReportResponse>, refreshIndex = false) {
     setReportState({ status: 'loading' })
     try {
       const data = await loader()
       setReportState({ status: 'ready', data })
+      if (refreshIndex) loadReportIndex()
     } catch (error: unknown) {
       setReportState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
     }
@@ -353,7 +370,7 @@ export default function App() {
   }
 
   function handleGenerateTrendReport(period: string) {
-    void loadReport(() => generateTrendReport(period, currentAdminToken()))
+    void loadReport(() => generateTrendReport(period, currentAdminToken()), true)
   }
 
   function handleLoadRoundReport(roundId: string) {
@@ -361,7 +378,7 @@ export default function App() {
   }
 
   function handleGenerateRoundReport(roundId: string) {
-    void loadReport(() => generateRoundReport(roundId, currentAdminToken()))
+    void loadReport(() => generateRoundReport(roundId, currentAdminToken()), true)
   }
 
   async function handleLoadMobileReconciliation(roundId: string): Promise<MobileReconciliationResponse | null> {

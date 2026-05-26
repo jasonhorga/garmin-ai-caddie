@@ -1,11 +1,18 @@
 import { useMemo, useState } from 'react'
-import type { HistoryStatsResponse, ReviewReportResponse } from '../types'
+import type { HistoryStatsResponse, ReviewReportIndexResponse, ReviewReportIndexItem, ReviewReportResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
+
+type ReportIndexState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; data: ReviewReportIndexResponse }
 
 interface ReportsPageProps {
   stats: HistoryStatsResponse
   reportState: { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: ReviewReportResponse }
+  reportIndexState: ReportIndexState
   onLoadTrend: (period: string) => void
   onGenerateTrend: (period: string) => void
   onLoadRound: (roundId: string) => void
@@ -21,6 +28,7 @@ interface Option {
 export function ReportsPage({
   stats,
   reportState,
+  reportIndexState,
   onLoadTrend,
   onGenerateTrend,
   onLoadRound,
@@ -82,11 +90,117 @@ export function ReportsPage({
               Generate round report
             </button>
           </div>
+
+          <ReportInventory
+            state={reportIndexState}
+            onLoadTrend={onLoadTrend}
+            onLoadRound={onLoadRound}
+            onSelectRef={onSelectRef}
+          />
         </section>
 
         <ReportDetail state={reportState} onSelectRef={onSelectRef} />
       </div>
     </section>
+  )
+}
+
+function ReportInventory({
+  state,
+  onLoadTrend,
+  onLoadRound,
+  onSelectRef,
+}: {
+  state: ReportIndexState
+  onLoadTrend: (period: string) => void
+  onLoadRound: (roundId: string) => void
+  onSelectRef?: (sourceRef: string) => void
+}) {
+  if (state.status === 'loading') {
+    return (
+      <section className="report-inventory" aria-label="Report inventory">
+        <h2>Report inventory</h2>
+        <p>Loading stored reports</p>
+      </section>
+    )
+  }
+
+  if (state.status === 'error') {
+    return (
+      <section className="report-inventory" aria-label="Report inventory">
+        <h2>Report inventory</h2>
+        <p>{state.message}</p>
+      </section>
+    )
+  }
+
+  if (state.status !== 'ready' || state.data.reports.length === 0) {
+    return (
+      <section className="report-inventory" aria-label="Report inventory">
+        <h2>Report inventory</h2>
+        <p>No stored reports</p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="report-inventory" aria-label="Report inventory">
+      <div className="report-inventory-head">
+        <h2>Report inventory</h2>
+        <span className="fact-chip muted">{state.data.total} stored</span>
+      </div>
+      <div className="report-inventory-list">
+        {state.data.reports.map((report) => (
+          <ReportInventoryRow
+            key={report.id || `${report.kind}-${report.subjectId}-${report.storedAt}`}
+            report={report}
+            onLoadTrend={onLoadTrend}
+            onLoadRound={onLoadRound}
+            onSelectRef={onSelectRef}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ReportInventoryRow({
+  report,
+  onLoadTrend,
+  onLoadRound,
+  onSelectRef,
+}: {
+  report: ReviewReportIndexItem
+  onLoadTrend: (period: string) => void
+  onLoadRound: (roundId: string) => void
+  onSelectRef?: (sourceRef: string) => void
+}) {
+  const handleOpen = () => {
+    if (report.kind === 'trend') {
+      onLoadTrend(report.subjectId)
+    } else {
+      onLoadRound(report.subjectId)
+    }
+  }
+
+  return (
+    <div className="report-inventory-row">
+      <div className="report-inventory-main">
+        <div className="report-inventory-title">
+          <span className="fact-chip muted">{report.kind}</span>
+          <strong>{report.subjectId}</strong>
+        </div>
+        <div className="report-inventory-meta">
+          <span>{report.provider}</span>
+          <span>{report.model}</span>
+          <span>{report.confidence} confidence</span>
+        </div>
+        <SourceRefs refs={report.sourceRefs} onSelectRef={onSelectRef} />
+      </div>
+      <button type="button" onClick={handleOpen} aria-label={`Open stored ${report.kind} ${report.subjectId}`}>
+        Open
+      </button>
+    </div>
   )
 }
 

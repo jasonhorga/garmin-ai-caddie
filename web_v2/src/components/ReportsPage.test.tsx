@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { ReportsPage } from './ReportsPage'
-import type { HistoryStatsResponse, ReviewReportResponse } from '../types'
+import type { HistoryStatsResponse, ReviewReportIndexResponse, ReviewReportResponse } from '../types'
 
 const stats: HistoryStatsResponse = {
   schema: 'ai-caddie-history-stats-v1',
@@ -76,6 +76,33 @@ const report: ReviewReportResponse = {
   confidence: 'medium',
 }
 
+const reportIndex: ReviewReportIndexResponse = {
+  schema: 'ai-caddie-review-report-index-v1',
+  total: 2,
+  reports: [
+    {
+      id: 'trend-report',
+      storedAt: '2026-05-26T00:00:00Z',
+      kind: 'trend',
+      subjectId: 'recent_10',
+      confidence: 'medium',
+      provider: 'StaticProvider',
+      model: 'static',
+      sourceRefs: ['900001', '900002'],
+    },
+    {
+      id: 'round-report',
+      storedAt: '2026-05-25T00:00:00Z',
+      kind: 'round',
+      subjectId: '900001',
+      confidence: 'high',
+      provider: 'StaticProvider',
+      model: 'static',
+      sourceRefs: ['900001'],
+    },
+  ],
+}
+
 describe('ReportsPage', () => {
   it('renders trend and round report controls and displayed evidence', async () => {
     const onLoadTrend = vi.fn()
@@ -88,6 +115,7 @@ describe('ReportsPage', () => {
       <ReportsPage
         stats={stats}
         reportState={{ status: 'ready', data: report }}
+        reportIndexState={{ status: 'ready', data: reportIndex }}
         onLoadTrend={onLoadTrend}
         onGenerateTrend={onGenerateTrend}
         onLoadRound={onLoadRound}
@@ -97,14 +125,21 @@ describe('ReportsPage', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Reports' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Report inventory' })).toBeInTheDocument()
+    const inventory = screen.getByLabelText('Report inventory')
+    expect(within(inventory).getByText('2 stored')).toBeInTheDocument()
+    expect(within(inventory).getByText('trend')).toBeInTheDocument()
+    expect(within(inventory).getByText('round')).toBeInTheDocument()
+    expect(within(inventory).getByText('recent_10')).toBeInTheDocument()
+    expect(within(inventory).getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getByText('reports partial 1/3')).toHaveClass('quality-partial')
     expect(screen.getByRole('option', { name: 'Recent 10' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Q 2026-Q2' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Year 2026' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '900001' })).toBeInTheDocument()
     expect(screen.getByText('Recent scoring improved, but weather coverage is partial.')).toBeInTheDocument()
-    expect(screen.getByText('recent_10')).toBeInTheDocument()
-    expect(screen.getByText('static')).toBeInTheDocument()
+    expect(screen.getAllByText('recent_10').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('static').length).toBeGreaterThan(0)
     expect(screen.getByText('summary_trend')).toBeInTheDocument()
     expect(screen.getByText('Black Knight B/C')).toBeInTheDocument()
     expect(screen.getByText('score 77')).toBeInTheDocument()
@@ -120,7 +155,7 @@ describe('ReportsPage', () => {
     expect(screen.getByText('low missing confidence')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
-    expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)
     expect(within(screen.getByLabelText('Report identity')).getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Open source 900002' })[0])
@@ -128,12 +163,16 @@ describe('ReportsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Generate trend report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Load round report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Generate round report' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open stored trend recent_10' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open stored round 900001' }))
 
     expect(onLoadTrend).toHaveBeenCalledWith('recent_10')
     expect(onGenerateTrend).toHaveBeenCalledWith('recent_10')
     expect(onSelectRef).toHaveBeenCalledWith('900002')
     expect(onLoadRound).toHaveBeenCalledWith('900001')
     expect(onGenerateRound).toHaveBeenCalledWith('900001')
+    expect(onLoadTrend).toHaveBeenCalledWith('recent_10')
+    expect(onLoadRound).toHaveBeenCalledWith('900001')
 
     const facts = screen.getByLabelText('Report facts')
     expect(within(facts).getByText('summary')).toBeInTheDocument()

@@ -67,6 +67,7 @@ from .models import (
     MobileReconciliationApplyRequest,
     MobileReconciliationApplyResponse,
     MobileReconciliationResponse,
+    ReviewReportIndexResponse,
     ReviewReportResponse,
     SyncRunResponse,
     SyncStatusResponse,
@@ -77,6 +78,7 @@ from .models import (
 from .reports import (
     generate_round_report_response,
     generate_trend_report_response,
+    load_report_index_response,
     load_round_report_response,
     load_trend_report_response,
 )
@@ -179,6 +181,7 @@ def service_index() -> dict[str, object]:
             "mobileRoundReconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
             "mobileRoundReconciliationApply": "/api/v2/mobile/rounds/{round_id}/reconciliation/apply",
             "weatherSnapshot": "/api/v2/weather/snapshot",
+            "reportIndex": "/api/v2/reports",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
             "trendReport": "/api/v2/reports/trend/{period}",
@@ -394,6 +397,11 @@ def weather_snapshot(
         temperature_c=temperature_c,
         precipitation_mm=precipitation_mm,
     )
+
+
+@app.get("/api/v2/reports", response_model=ReviewReportIndexResponse)
+def report_index() -> ReviewReportIndexResponse:
+    return load_report_index_response()
 
 
 @app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)

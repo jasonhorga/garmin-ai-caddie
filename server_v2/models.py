@@ -348,6 +348,14 @@ class ReviewReportResponse(BaseModel):
     confidence: ReportConfidence
 
 
+class ReviewReportIndexResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-review-report-index-v1"] = Field(alias="schema")
+    total: int
+    reports: list[dict[str, Any]]
+
+
 class GeometryEvidenceResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
