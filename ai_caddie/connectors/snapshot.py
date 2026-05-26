@@ -7,8 +7,14 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from ai_caddie.data import ROOT
-from ai_caddie.history import HistoryData, canonical_course_name, course_key
+from ai_caddie.data import ROOT, semicircle_to_deg
+from ai_caddie.history import (
+    HistoryData,
+    canonical_course_name,
+    course_key,
+    merge_same_day_halves,
+    millionths_to_deg,
+)
 
 from .base import ConnectorState, SnapshotManifest
 
@@ -120,6 +126,10 @@ def _normalize_scorecard(path: Path, *, root: Path) -> dict[str, Any] | None:
         "frontNineGlobalCourseId": scorecard.get("frontNineGlobalCourseId") or scorecard.get("courseGlobalId"),
         "backNineGlobalCourseId": scorecard.get("backNineGlobalCourseId"),
         "snapshotId": scorecard.get("courseSnapshotId"),
+        "lat": millionths_to_deg(snapshot.get("lat")),
+        "lon": millionths_to_deg(snapshot.get("lon")),
+        "city": snapshot.get("city"),
+        "country": snapshot.get("country"),
         "par": sum(par_values) if par_values else snapshot.get("roundPar"),
         "holePars": hole_pars,
         "holes": holes,
@@ -155,6 +165,27 @@ def _club_lookup(shot_payload: dict[str, Any]) -> dict[Any, str]:
     return lookup
 
 
+def _loc_to_wgs84(loc: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(loc, dict):
+        return None
+    lat = semicircle_to_deg(loc.get("lat"))
+    lon = semicircle_to_deg(loc.get("lon"))
+    if lat is None or lon is None:
+        return None
+    return {"lat": lat, "lon": lon, "lie": loc.get("lie"), "lieSource": loc.get("lieSource")}
+
+
+def _shot_hole_ref(round_row: dict[str, Any], hole: int) -> tuple[Any, int]:
+    if hole <= 9:
+        return (
+            round_row.get("frontNineGlobalCourseId") or round_row.get("globalId") or round_row.get("courseId"),
+            hole,
+        )
+    if round_row.get("backNineGlobalCourseId"):
+        return round_row.get("backNineGlobalCourseId"), hole - 9
+    return round_row.get("globalId") or round_row.get("courseId"), hole
+
+
 def _normalize_shot_file(path: Path, *, root: Path, round_row: dict[str, Any]) -> list[dict[str, Any]]:
     try:
         payload = _read_json(path)
@@ -168,6 +199,7 @@ def _normalize_shot_file(path: Path, *, root: Path, round_row: dict[str, Any]) -
     rows: list[dict[str, Any]] = []
     for hole_data in payload.get("holeShots", []) or []:
         hole = int(hole_data.get("holeNumber") or 0)
+        global_id, local_hole = _shot_hole_ref(round_row, hole)
         for shot in hole_data.get("shots", []) or []:
             club_id = shot.get("clubId")
             club = clubs.get(club_id) or str(club_id or "Unknown")
@@ -182,8 +214,8 @@ def _normalize_shot_file(path: Path, *, root: Path, round_row: dict[str, Any]) -
                     "courseCanonical": round_row.get("courseCanonical"),
                     "courseKey": round_row.get("courseKey"),
                     "hole": hole,
-                    "globalId": round_row.get("globalId") or round_row.get("courseId"),
-                    "localHole": hole,
+                    "globalId": global_id,
+                    "localHole": local_hole,
                     "order": shot.get("shotOrder"),
                     "clubId": club_id,
                     "club": club,
@@ -192,6 +224,8 @@ def _normalize_shot_file(path: Path, *, root: Path, round_row: dict[str, Any]) -
                     "auto": shot.get("autoShotType"),
                     "distance": shot.get("meters"),
                     "meters": shot.get("meters"),
+                    "start": _loc_to_wgs84(shot.get("startLoc")),
+                    "end": _loc_to_wgs84(shot.get("endLoc")),
                     "surface": end_loc.get("lie"),
                     "endLie": end_loc.get("lie"),
                     "sourceFile": _relative(path, root),
@@ -238,13 +272,14 @@ def write_snapshot_manifest(*, root: Path = ROOT, manifest: SnapshotManifest) ->
 
 def build_normalized_snapshot_payload(*, root: Path = ROOT, manifest: SnapshotManifest) -> dict[str, Any]:
     scorecard_paths = [root / file_name for file_name in manifest.files if file_name.startswith("data/scorecards/")]
-    rounds = [
+    raw_rounds = [
         row
         for path in scorecard_paths
         for row in [_normalize_scorecard(path, root=root)]
         if row is not None
     ]
-    rounds_by_id = {str(row.get("id")): row for row in rounds}
+    raw_rounds.sort(key=lambda row: row.get("date") or "")
+    rounds_by_id = {str(row.get("id")): row for row in raw_rounds}
     shots = [
         shot
         for file_name in manifest.files
@@ -254,15 +289,7 @@ def build_normalized_snapshot_payload(*, root: Path = ROOT, manifest: SnapshotMa
         if round_row is not None
         for shot in _normalize_shot_file(path, root=root, round_row=round_row)
     ]
-    raw_rounds = [
-        {
-            "id": row.get("id"),
-            "hasShots": row.get("hasShots"),
-            "shotStatus": row.get("shotStatus"),
-            "sourceFile": row.get("sourceFile"),
-        }
-        for row in rounds
-    ]
+    rounds = merge_same_day_halves(raw_rounds)
     return {
         "schema": "ai-caddie-normalized-history-v1",
         "snapshotId": manifest.snapshot_id,

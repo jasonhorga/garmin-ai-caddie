@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from ai_caddie.data import deg_to_semicircle
 from ai_caddie.connectors.snapshot import (
     build_snapshot_manifest,
     load_latest_snapshot_history,
@@ -13,6 +14,63 @@ from ai_caddie.connectors.snapshot import (
     write_connector_status,
     write_snapshot_manifest,
 )
+from ai_caddie.history import history_course_detail, history_hole
+
+
+def _write_scorecard(
+    root: Path,
+    scorecard_id: int,
+    *,
+    date: str,
+    course: str,
+    hole_numbers: list[int],
+    hole_pars: str,
+    strokes: int,
+    course_global_id: int = 31795,
+    front_global_id: int | None = None,
+    back_global_id: int | None = None,
+    lat: int | None = None,
+    lon: int | None = None,
+    city: str | None = None,
+    country: str | None = None,
+) -> None:
+    (root / "data" / "scorecards").mkdir(parents=True, exist_ok=True)
+    holes = [
+        {"number": number, "strokes": 4, "par": int(hole_pars[index]), "putts": 2}
+        for index, number in enumerate(hole_numbers)
+    ]
+    snapshot = {"name": course, "holePars": hole_pars, "roundPar": sum(int(item) for item in hole_pars)}
+    if lat is not None:
+        snapshot["lat"] = lat
+    if lon is not None:
+        snapshot["lon"] = lon
+    if city is not None:
+        snapshot["city"] = city
+    if country is not None:
+        snapshot["country"] = country
+    (root / "data" / "scorecards" / f"{scorecard_id}.json").write_text(
+        json.dumps(
+            {
+                "scorecardDetails": [
+                    {
+                        "scorecard": {
+                            "id": scorecard_id,
+                            "formattedStartTime": date,
+                            "courseGlobalId": course_global_id,
+                            "frontNineGlobalCourseId": front_global_id or course_global_id,
+                            "backNineGlobalCourseId": back_global_id,
+                            "holesCompleted": len(hole_numbers),
+                            "strokes": strokes,
+                            "holes": holes,
+                        },
+                        "scorecardStats": {"round": {"putts": len(hole_numbers) * 2}},
+                    }
+                ],
+                "courseSnapshots": [snapshot],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 class ConnectorSnapshotTests(unittest.TestCase):
@@ -117,6 +175,148 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertEqual(history.shots[0]["club"], "8I")
         self.assertEqual(history.shots[0]["distance"], 142)
         self.assertEqual(history.shots[0]["surface"], "green")
+
+    def test_durable_snapshot_merges_same_day_nine_hole_halves_like_local_history(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                201,
+                date="2026-05-25T08:00:00",
+                course="Twin Lakes ~ Front",
+                hole_numbers=list(range(1, 10)),
+                hole_pars="444444444",
+                strokes=42,
+            )
+            _write_scorecard(
+                root,
+                202,
+                date="2026-05-25T10:30:00",
+                course="Twin Lakes ~ Back",
+                hole_numbers=list(range(1, 10)),
+                hole_pars="555555555",
+                strokes=41,
+            )
+
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_merged")
+            write_durable_snapshot(root=root, manifest=manifest)
+            history = load_latest_snapshot_history(root=root)
+
+        self.assertIsNotNone(history)
+        assert history is not None
+        self.assertEqual([row["id"] for row in history.raw_rounds], [201, 202])
+        self.assertEqual(len(history.rounds), 1)
+        merged = history.rounds[0]
+        self.assertEqual(merged["id"], "merged_201_202")
+        self.assertEqual(merged["ids"], [201, 202])
+        self.assertTrue(merged["merged"])
+        self.assertEqual(merged["holesCompleted"], 18)
+        self.assertEqual(merged["strokes"], 83)
+        self.assertEqual(merged["par"], 81)
+        self.assertEqual(merged["holePars"], "444444444555555555")
+        self.assertEqual([hole["number"] for hole in merged["holes"]], list(range(1, 19)))
+
+    def test_durable_snapshot_preserves_course_location_for_history_views(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                301,
+                date="2026-05-25T08:00:00",
+                course="Geo Links",
+                hole_numbers=list(range(1, 10)),
+                hole_pars="444444444",
+                strokes=39,
+                lat=31_123_456,
+                lon=121_654_321,
+                city="Shanghai",
+                country="CN",
+            )
+
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_geo")
+            write_durable_snapshot(root=root, manifest=manifest)
+            history = load_latest_snapshot_history(root=root)
+
+        self.assertIsNotNone(history)
+        assert history is not None
+        row = history.rounds[0]
+        self.assertAlmostEqual(row["lat"], 31.123456)
+        self.assertAlmostEqual(row["lon"], 121.654321)
+        self.assertEqual(row["city"], "Shanghai")
+        self.assertEqual(row["country"], "CN")
+        course = history_course_detail(row["courseKey"], data=history)["course"]
+        self.assertAlmostEqual(course["lat"], 31.123456)
+        self.assertAlmostEqual(course["lon"], 121.654321)
+        self.assertEqual(course["city"], "Shanghai")
+        self.assertEqual(course["country"], "CN")
+
+    def test_durable_snapshot_preserves_shot_routes_for_history_hole_evidence(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                401,
+                date="2026-05-25T08:00:00",
+                course="Route Links",
+                hole_numbers=[1],
+                hole_pars="4",
+                strokes=4,
+                course_global_id=31795,
+            )
+            (root / "data" / "shots").mkdir(parents=True)
+            (root / "data" / "shots" / "401.json").write_text(
+                json.dumps(
+                    {
+                        "clubDetails": [{"clubId": 10, "name": "8I"}],
+                        "holeShots": [
+                            {
+                                "holeNumber": 1,
+                                "shots": [
+                                    {
+                                        "id": "shot-route-1",
+                                        "shotOrder": 1,
+                                        "clubId": 10,
+                                        "meters": 142,
+                                        "startLoc": {
+                                            "lat": deg_to_semicircle(31.1234),
+                                            "lon": deg_to_semicircle(121.1234),
+                                            "lie": "Tee Box",
+                                        },
+                                        "endLoc": {
+                                            "lat": deg_to_semicircle(31.1244),
+                                            "lon": deg_to_semicircle(121.1254),
+                                            "lie": "green",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_routes")
+            write_durable_snapshot(root=root, manifest=manifest)
+            history = load_latest_snapshot_history(root=root)
+
+        self.assertIsNotNone(history)
+        assert history is not None
+        shot = history.shots[0]
+        self.assertAlmostEqual(shot["start"]["lat"], 31.1234)
+        self.assertAlmostEqual(shot["start"]["lon"], 121.1234)
+        self.assertEqual(shot["start"]["lie"], "Tee Box")
+        self.assertAlmostEqual(shot["end"]["lat"], 31.1244)
+        self.assertAlmostEqual(shot["end"]["lon"], 121.1254)
+        self.assertEqual(shot["end"]["lie"], "green")
+        self.assertNotIn("cookie", json.dumps(shot).lower())
+        self.assertNotIn("token", json.dumps(shot).lower())
+
+        hole = history_hole(31795, 1, include_overlay=False, data=history)
+        evidence_shot = hole["rounds"][0]["shots"][0]
+        self.assertEqual(evidence_shot["id"], "shot-route-1")
+        self.assertAlmostEqual(evidence_shot["start"]["lat"], 31.1234)
+        self.assertAlmostEqual(evidence_shot["end"]["lon"], 121.1254)
 
     def test_connector_status_roundtrip_is_secret_free(self) -> None:
         with TemporaryDirectory() as tmp:
