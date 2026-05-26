@@ -125,6 +125,36 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertTrue(payload["inferencesMade"])
         self.assertEqual(payload["inferencesMade"][0]["missingDataRefs"], ["900002"])
 
+    def test_stored_report_response_normalizes_stale_fact_binding(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_report(
+                {
+                    "schema": "ai-caddie-review-report-v1",
+                    "kind": "round",
+                    "provider": "StaticProvider",
+                    "model": "static",
+                    "factsUsed": [{"label": "summary", "source": "test", "sourceRefs": ["900001"], "value": {"score": 82}}],
+                    "missingData": [{"label": "weather", "sourceRefs": ["900001"]}],
+                    "narrative": "Wind was strong all day.",
+                    "factBinding": {"state": "bound", "unsupportedClaimCount": 0},
+                    "confidence": "medium",
+                },
+                kind="round",
+                subject_id="900001",
+                root=root,
+            )
+            with patch("server_v2.reports.REPORT_ROOT", root):
+                response = client.get("/api/v2/reports/round/900001")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["factBinding"]["state"], "needs_review")
+        self.assertEqual(payload["factBinding"]["unsupportedClaimCount"], 1)
+        self.assertEqual(payload["confidence"], "low")
+
     def test_get_trend_report_returns_stub_fact_bound_report(self) -> None:
         client = TestClient(app)
 

@@ -207,6 +207,55 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertEqual(report["factBinding"], {"state": "bound", "unsupportedClaimCount": 0})
         self.assertEqual(report["confidence"], "medium")
 
+    def test_report_audit_requires_specific_supported_fact_values(self) -> None:
+        facts = {
+            "schema": "ai-caddie-report-facts-v1",
+            "kind": "round",
+            "subjectId": "900001",
+            "factsUsed": [
+                {
+                    "label": "round_shots",
+                    "source": "history.shots",
+                    "value": [{"shotRef": "900001:1:0", "club": None, "surface": None}],
+                    "sourceRefs": ["900001:1:0"],
+                }
+            ],
+            "missingData": [],
+        }
+
+        report = generate_report(facts, StaticProvider("The 8I was the wrong club. The rough lie caused the miss."))
+
+        self.assertIn("club", {row["category"] for row in report["unsupportedClaims"]})
+        self.assertIn("lie", {row["category"] for row in report["unsupportedClaims"]})
+
+    def test_report_audit_does_not_flag_benign_observed_text_as_ob_penalty(self) -> None:
+        facts = {
+            "schema": "ai-caddie-report-facts-v1",
+            "kind": "trend",
+            "subjectId": "recent_10",
+            "factsUsed": [{"label": "summary_trend", "source": "summary", "value": {"totalRounds": 3}}],
+            "missingData": [],
+        }
+
+        report = generate_report(facts, StaticProvider("Observed scoring improved across the sample."))
+
+        self.assertEqual(report["unsupportedClaims"], [])
+        self.assertEqual(report["factBinding"], {"state": "bound", "unsupportedClaimCount": 0})
+
+    def test_report_audit_flags_assertion_after_missing_data_callout(self) -> None:
+        facts = {
+            "schema": "ai-caddie-report-facts-v1",
+            "kind": "trend",
+            "subjectId": "recent_10",
+            "factsUsed": [{"label": "summary_trend", "source": "summary", "value": {"totalRounds": 3}}],
+            "missingData": [{"label": "weather", "state": "missing", "sourceRefs": ["900001"]}],
+        }
+
+        report = generate_report(facts, StaticProvider("Weather is missing, but wind was strong all day."))
+
+        self.assertIn("weather", {row["category"] for row in report["unsupportedClaims"]})
+        self.assertTrue(any("wind was strong" in row["claim"] for row in report["unsupportedClaims"]))
+
     def test_report_source_refs_include_inference_missing_data_refs(self) -> None:
         refs = report_source_refs(
             {

@@ -66,13 +66,10 @@ def _report_response(report: dict[str, object], *, kind: str, subject_id: str) -
             [row for row in missing_data if isinstance(row, dict)],
         )
         payload["unsupportedClaims"] = unsupported_claims
-    payload.setdefault(
-        "factBinding",
-        {
-            "state": "needs_review" if unsupported_claims else "bound",
-            "unsupportedClaimCount": len(unsupported_claims),
-        },
-    )
+    payload["factBinding"] = {
+        "state": "needs_review" if unsupported_claims else "bound",
+        "unsupportedClaimCount": len(unsupported_claims),
+    }
     if unsupported_claims:
         payload["confidence"] = "low"
     return ReviewReportResponse(**payload)

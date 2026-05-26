@@ -147,23 +147,43 @@ _SOURCE_REF_KEYS = {
 _UNSUPPORTED_CLAIM_RULES = {
     "weather": {
         "keywords": ("weather", "wind", "rain", "temperature", "precipitation", "gust"),
-        "support": ("weather", "wind", "rain", "temperature", "precipitation", "gust"),
     },
     "lie": {
-        "keywords": ("lie", "stance", "slope", "blocked view"),
-        "support": ("lie", "surface", "stance", "slope", "blocked view", "rough", "fairway", "bunker"),
+        "keywords": ("lie", "stance", "slope", "blocked view", "rough", "fairway", "bunker"),
     },
     "penalty": {
         "keywords": ("penalty", "penalties", "ob", "out of bounds", "water"),
-        "support": ("penalty", "penalties", "ob", "out of bounds", "water", "hazard"),
     },
     "club": {
         "keywords": ("club", "driver", "wood", "iron", "wedge", "putter", "hybrid"),
-        "support": ("club", "clubname", "recommendedclub", "driver", "wood", "iron", "wedge", "putter", "hybrid"),
     },
 }
 
 _CLUB_TOKEN_PATTERN = re.compile(r"\b(?:[1-9]i|[1-9]w|[1-9]h|pw|gw|sw|lw|1d)\b", re.IGNORECASE)
+_CLAIM_FRAGMENT_SPLIT_PATTERN = re.compile(r"\s*(?:;|\bbut\b|\bhowever\b|\byet\b)\s*", re.IGNORECASE)
+_CATEGORY_MENTION_PATTERNS = {
+    "weather": re.compile(r"\b(weather|wind|rain|temperature|precipitation|gusts?)\b", re.IGNORECASE),
+    "lie": re.compile(r"\b(lie|stance|slope|blocked view|rough|fairway|bunker)\b", re.IGNORECASE),
+    "penalty": re.compile(r"\b(penalt(?:y|ies)|ob|out of bounds|water)\b", re.IGNORECASE),
+    "club": re.compile(r"\b(club|driver|wood|iron|wedge|putter|hybrid)\b", re.IGNORECASE),
+}
+_WEATHER_FACT_KEYS = {
+    "weather",
+    "weathersnapshot",
+    "windspeedmps",
+    "winddirectiondeg",
+    "temperaturec",
+    "precipitationmm",
+    "rain",
+    "gust",
+}
+_LIE_FACT_KEYS = {"lie", "surface", "stance", "slope", "blockedview", "endlie", "resultlie"}
+_PENALTY_FACT_KEYS = {"penalty", "penalties", "hazard", "hazards", "nearrisks", "avoidzones", "forbiddenzones"}
+_CLUB_FACT_KEYS = {"club", "clubname", "recommendedclub", "actualclub", "selectedclub"}
+_LIE_VALUE_TOKENS = {"rough", "fairway", "bunker", "green", "fringe", "tee", "sand", "blocked", "slope"}
+_PENALTY_VALUE_TOKENS = {"penalty", "penalties", "water", "ob", "hazard", "bunker"}
+_WEATHER_VALUE_TOKENS = {"weather", "wind", "rain", "temperature", "precipitation", "gust"}
+_CLUB_WORD_TOKENS = {"driver", "wood", "iron", "wedge", "putter", "hybrid", "club"}
 _MISSING_CALLOUT_TERMS = (
     "missing",
     "unavailable",
@@ -943,42 +963,40 @@ def audit_report_narrative(
     facts_used: list[dict[str, Any]],
     missing_data: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    facts_text = _audit_text(facts_used)
+    support = _fact_support_index(facts_used)
     missing_labels = _missing_labels(missing_data)
     missing_refs = _missing_refs(missing_data)
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for sentence in _narrative_sentences(narrative):
-        sentence_text = sentence.strip()
-        if not sentence_text:
-            continue
-        for category, rule in _UNSUPPORTED_CLAIM_RULES.items():
-            if not _sentence_mentions_category(sentence_text, category, rule):
+        for fragment in _claim_fragments(sentence):
+            fragment_text = fragment.strip(" ,")
+            if not fragment_text:
                 continue
-            if _facts_support_category(facts_text, category, rule):
-                continue
-            if _missing_data_callout_allowed(sentence_text, category, missing_labels):
-                continue
-            key = (category, sentence_text)
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append(
-                {
-                    "category": category,
-                    "claim": sentence_text[:240],
-                    "reason": f"Narrative references {category} without a supporting structured fact.",
-                    "confidence": "low",
-                    "sourceRefs": [],
-                    "missingDataRefs": missing_refs,
-                    "missingDataLabels": missing_labels,
-                }
-            )
+            for category, rule in _UNSUPPORTED_CLAIM_RULES.items():
+                mentioned = _mentioned_support_tokens(fragment_text, category, rule)
+                if not mentioned:
+                    continue
+                if _claim_supported_by_facts(category, mentioned, support):
+                    continue
+                if _missing_data_callout_allowed(fragment_text, category, missing_labels):
+                    continue
+                key = (category, fragment_text)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(
+                    {
+                        "category": category,
+                        "claim": fragment_text[:240],
+                        "reason": f"Narrative references {category} without a supporting structured fact.",
+                        "confidence": "low",
+                        "sourceRefs": [],
+                        "missingDataRefs": missing_refs,
+                        "missingDataLabels": missing_labels,
+                    }
+                )
     return rows
-
-
-def _audit_text(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).lower()
 
 
 def _narrative_sentences(narrative: str) -> list[str]:
@@ -988,17 +1006,168 @@ def _narrative_sentences(narrative: str) -> list[str]:
     return [part.strip() for part in re.split(r"(?<=[.!?。！？])\s+", text) if part.strip()]
 
 
-def _sentence_mentions_category(sentence: str, category: str, rule: dict[str, tuple[str, ...]]) -> bool:
+def _claim_fragments(sentence: str) -> list[str]:
+    return [fragment.strip() for fragment in _CLAIM_FRAGMENT_SPLIT_PATTERN.split(sentence) if fragment.strip()]
+
+
+def _mentioned_support_tokens(sentence: str, category: str, rule: dict[str, tuple[str, ...]]) -> set[str]:
     lowered = sentence.lower()
-    if any(keyword in lowered for keyword in rule["keywords"]):
-        return True
-    return category == "club" and bool(_CLUB_TOKEN_PATTERN.search(sentence))
+    pattern = _CATEGORY_MENTION_PATTERNS[category]
+    if not pattern.search(sentence) and not (category == "club" and _CLUB_TOKEN_PATTERN.search(sentence)):
+        return set()
+    if category == "club":
+        tokens = _club_tokens(sentence)
+        if tokens:
+            return tokens
+        return {"club"}
+    if category == "weather":
+        return _tokens_from_terms(lowered, _WEATHER_VALUE_TOKENS)
+    if category == "lie":
+        return _tokens_from_terms(lowered, _LIE_VALUE_TOKENS) or {"lie"}
+    if category == "penalty":
+        tokens = _tokens_from_terms(lowered, _PENALTY_VALUE_TOKENS)
+        if re.search(r"\bout of bounds\b", lowered):
+            tokens.add("ob")
+        if re.search(r"\bpenalt(?:y|ies)\b", lowered):
+            tokens.add("penalty")
+        return tokens or {"penalty"}
+    return set(rule["keywords"])
 
 
-def _facts_support_category(facts_text: str, category: str, rule: dict[str, tuple[str, ...]]) -> bool:
-    if category == "club" and _CLUB_TOKEN_PATTERN.search(facts_text):
+def _tokens_from_terms(text: str, terms: set[str]) -> set[str]:
+    tokens = set()
+    for term in terms:
+        if _term_in_text(term, text):
+            tokens.add(_normalize_support_token(term))
+    return tokens
+
+
+def _term_in_text(term: str, text: str) -> bool:
+    if " " in term:
+        return term in text
+    return bool(re.search(rf"\b{re.escape(term)}\b", text, re.IGNORECASE))
+
+
+def _normalize_support_token(value: str) -> str:
+    token = value.strip().lower().replace(" ", "_")
+    if token == "penalties":
+        return "penalty"
+    if token == "out_of_bounds":
+        return "ob"
+    if token == "gusts":
+        return "gust"
+    return token
+
+
+def _club_tokens(value: Any) -> set[str]:
+    text = str(value)
+    tokens = {match.group(0).lower() for match in _CLUB_TOKEN_PATTERN.finditer(text)}
+    lowered = text.lower()
+    for word in _CLUB_WORD_TOKENS:
+        if _term_in_text(word, lowered):
+            tokens.add(word)
+    return tokens
+
+
+def _claim_supported_by_facts(category: str, mentioned: set[str], support: dict[str, set[str]]) -> bool:
+    supported = support.get(category, set())
+    if category == "club":
+        exact_tokens = {token for token in mentioned if token not in _CLUB_WORD_TOKENS and token != "club"}
+        return exact_tokens.issubset(supported) if exact_tokens else bool(supported)
+    if category == "weather":
+        exact_tokens = {token for token in mentioned if token != "weather"}
+        return exact_tokens.issubset(supported) if exact_tokens else bool(supported)
+    if category == "lie":
+        exact_tokens = {token for token in mentioned if token != "lie"}
+        return exact_tokens.issubset(supported) if exact_tokens else bool(supported)
+    if category == "penalty":
+        if "water" in mentioned and ("water" in supported or "hazard" in supported):
+            return True
+        return mentioned.issubset(supported)
+    return bool(supported)
+
+
+def _fact_support_index(facts_used: list[dict[str, Any]]) -> dict[str, set[str]]:
+    support = {"weather": set(), "lie": set(), "penalty": set(), "club": set()}
+    for fact in facts_used:
+        if not isinstance(fact, dict):
+            continue
+        fact_value = fact.get("value")
+        if _meaningful_fact_value(fact_value):
+            label_source = f"{fact.get('label', '')} {fact.get('source', '')}".lower()
+            if any(_term_in_text(term, label_source) for term in _WEATHER_VALUE_TOKENS):
+                support["weather"].add("weather")
+            if any(_term_in_text(term, label_source) for term in _PENALTY_VALUE_TOKENS):
+                support["penalty"].add("penalty")
+        _collect_fact_support(fact_value, support)
+    return support
+
+
+def _collect_fact_support(value: Any, support: dict[str, set[str]], key_hint: str = "") -> None:
+    normalized_key = key_hint.lower().replace("_", "")
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key_hint.lower() in {"clubprofiles", "club_profiles"}:
+                support["club"].update(_club_tokens(key))
+            if _meaningful_fact_value(item):
+                _add_keyed_support(str(key), item, support)
+            _collect_fact_support(item, support, str(key))
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_fact_support(item, support, key_hint)
+        return
+    if not _meaningful_fact_value(value):
+        return
+    text = str(value).lower()
+    if normalized_key in _CLUB_FACT_KEYS:
+        support["club"].update(_club_tokens(value))
+    if normalized_key in _LIE_FACT_KEYS:
+        support["lie"].update(_tokens_from_terms(text, _LIE_VALUE_TOKENS) or {"lie"})
+    if normalized_key in _WEATHER_FACT_KEYS:
+        support["weather"].update(_weather_tokens_for_key(normalized_key))
+    if normalized_key in _PENALTY_FACT_KEYS:
+        support["penalty"].update(_tokens_from_terms(text, _PENALTY_VALUE_TOKENS) or {"penalty"})
+
+
+def _add_keyed_support(key: str, value: Any, support: dict[str, set[str]]) -> None:
+    normalized_key = key.lower().replace("_", "")
+    text = str(value).lower()
+    if normalized_key in _WEATHER_FACT_KEYS:
+        support["weather"].update(_weather_tokens_for_key(normalized_key))
+    if normalized_key in _LIE_FACT_KEYS:
+        support["lie"].update(_tokens_from_terms(text, _LIE_VALUE_TOKENS) or {"lie"})
+    if normalized_key in _PENALTY_FACT_KEYS:
+        support["penalty"].update(_tokens_from_terms(text, _PENALTY_VALUE_TOKENS) or {"penalty"})
+    if normalized_key in _CLUB_FACT_KEYS:
+        support["club"].update(_club_tokens(value))
+
+
+def _weather_tokens_for_key(normalized_key: str) -> set[str]:
+    tokens = {"weather"}
+    if "wind" in normalized_key:
+        tokens.add("wind")
+    if "temperature" in normalized_key:
+        tokens.add("temperature")
+    if "precipitation" in normalized_key or "rain" in normalized_key:
+        tokens.update({"precipitation", "rain"})
+    if "gust" in normalized_key:
+        tokens.add("gust")
+    return tokens
+
+
+def _meaningful_fact_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (int, float, bool)):
         return True
-    return any(keyword in facts_text for keyword in rule["support"])
+    if isinstance(value, list):
+        return any(_meaningful_fact_value(item) for item in value)
+    if isinstance(value, dict):
+        return any(_meaningful_fact_value(item) for item in value.values())
+    return True
 
 
 def _missing_data_callout_allowed(sentence: str, category: str, missing_labels: list[str]) -> bool:
