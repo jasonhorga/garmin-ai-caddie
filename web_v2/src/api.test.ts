@@ -20,6 +20,7 @@ import {
   fetchWeatherSnapshot,
   fetchTrendReport,
   analyzeMedia,
+  generateRoundReport,
   generateTrendReport,
   fetchVisionFindingsForTarget,
   fetchSyncStatus,
@@ -211,6 +212,34 @@ describe('report API helpers', () => {
     expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/reports/trend/quarter%3A2026-Q2')
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/trend/quarter%3A2026-Q2/generate', { method: 'POST' })
   })
+
+  it('sends admin token headers for protected report generation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-review-report-v1',
+        kind: 'round',
+        provider: 'StaticProvider',
+        model: 'static',
+        factsUsed: [],
+        missingData: [],
+        narrative: 'round review',
+        confidence: 'medium',
+      }),
+    })))
+
+    await generateRoundReport('900001', 'admin-secret')
+    await generateTrendReport('quarter:2026-Q2', 'admin-secret')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/reports/round/900001/generate', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/trend/quarter%3A2026-Q2/generate', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
 })
 
 describe('fetchCaddieDecision', () => {
@@ -249,6 +278,38 @@ describe('fetchCaddieDecision', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v2/caddie/decision', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+  })
+
+  it('sends the admin token header for protected caddie decision requests', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-decision-v2',
+        shotType: 'approach',
+        phase: 'Approach',
+        context: {},
+        options: [],
+        selected: null,
+        selectedOptionId: null,
+        selectedOption: null,
+        avoidZones: [],
+        forbiddenZones: [],
+        acceptableMiss: {},
+        evidence: [],
+        confidence: {},
+        missingData: [],
+        auditCriteria: [],
+      }),
+    })))
+
+    const request = { shotType: 'approach' as const, context: { distanceToPin_m: 142 } }
+    await fetchCaddieDecision(request, 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/caddie/decision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
       body: JSON.stringify(request),
     })
   })
@@ -340,6 +401,33 @@ describe('caddie audit API helpers', () => {
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/caddie/decisions/round-1%3A4%3A2/audit/latest')
     expect(created.record.audit.classification).toBe('execution')
   })
+
+  it('sends the admin token header for protected decision audits', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-decision-audit-store-v1',
+        record: {
+          id: 'audit-1',
+          storedAt: '2026-05-25T00:00:00Z',
+          decisionId: 'round-1:4:2',
+          audit: { classification: 'execution' },
+        },
+      }),
+    }))
+
+    const request = {
+      decision: { selectedOptionId: 'stock' },
+      actualShot: { clubName: '8I', meters: 143 },
+    }
+    await createCaddieDecisionAudit('round-1:4:2', request, 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/caddie/decisions/round-1%3A4%3A2/audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      body: JSON.stringify(request),
+    })
+  })
 })
 
 describe('fetchWeatherSnapshot', () => {
@@ -385,6 +473,34 @@ describe('fetchWeatherSnapshot', () => {
       '/api/v2/weather/snapshot?source=manual&round_id=fixture-round&hole=4&captured_at=2026-05-25T08%3A00%3A00Z&latitude=22.279&longitude=114.162&wind_speed_mps=5.4&wind_direction_deg=110&temperature_c=28.5&precipitation_mm=0',
     )
     expect(data.windSpeedMps).toBe(5.4)
+  })
+
+  it('sends the admin token header when persisting weather snapshots', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-weather-snapshot-v1',
+        state: 'ready',
+        source: 'manual',
+        roundId: 'fixture-round',
+        hole: 4,
+        capturedAt: '2026-05-25T08:00:00Z',
+        location: { latitude: 22.279, longitude: 114.162 },
+        windSpeedMps: 5.4,
+        windDirectionDeg: 110,
+        temperatureC: 28.5,
+        precipitationMm: 0,
+        confidence: 'medium',
+        missingData: [],
+      }),
+    }))
+
+    await fetchWeatherSnapshot({ source: 'manual', persist: true, roundId: 'fixture-round' }, 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v2/weather/snapshot?source=manual&persist=true&round_id=fixture-round',
+      { headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' } },
+    )
   })
 })
 
@@ -517,6 +633,62 @@ describe('media API helpers', () => {
     expect(listed.media).toHaveLength(1)
     expect(analyzed.findings[0].findingType).toBe('visible_bunker')
     expect(findings.findings[0].evidenceText).toBe('front bunker visible')
+  })
+
+  it('sends admin token headers for protected media create and analysis', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/media') {
+          return {
+            schema: 'ai-caddie-media-create-v1',
+            media: {
+              id: 'media-1',
+              createdAt: '2026-05-25T00:00:00Z',
+              targetType: 'shot',
+              targetId: 'round-1:4:2',
+              mediaKind: 'photo',
+              localPath: 'data/media/uploads/lie.jpg',
+              capturedAt: '2026-05-25T08:00:00Z',
+              privacyState: 'private_local',
+              source: 'manual',
+            },
+          }
+        }
+        return {
+          schema: 'ai-caddie-vision-context-v1',
+          mediaId: 'media-1',
+          targetType: 'shot',
+          targetId: 'round-1:4:2',
+          mediaKind: 'photo',
+          provider: 'static',
+          model: 'static',
+          findings: [],
+        }
+      },
+    })))
+
+    const request = {
+      targetType: 'shot' as const,
+      targetId: 'round-1:4:2',
+      mediaKind: 'photo' as const,
+      fileName: 'lie.jpg',
+      contentBase64: 'ZmFrZQ==',
+      capturedAt: '2026-05-25T08:00:00Z',
+      privacyState: 'private_local' as const,
+    }
+    await createMedia(request, 'admin-secret')
+    await analyzeMedia('media-1', 'admin-secret')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      body: JSON.stringify(request),
+    })
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/media/media-1/analyze', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
   })
 })
 
@@ -765,6 +937,29 @@ describe('mobile reconciliation API helpers', () => {
     expect(data.appliedCount).toBe(1)
     expect(data.annotations[0].kind).toBe('putt_correction')
   })
+
+  it('sends the admin token header for protected mobile reconciliation apply', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-mobile-reconciliation-apply-v1',
+        roundId: '900001',
+        appliedCount: 0,
+        skippedCount: 0,
+        missingSuggestionIds: [],
+        skippedSuggestionIds: [],
+        annotations: [],
+      }),
+    }))
+
+    await applyMobileReconciliationSuggestions('900001', ['score-conflict:score-correction'], 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      body: JSON.stringify({ suggestionIds: ['score-conflict:score-correction'] }),
+    })
+  })
 })
 
 describe('runGarminSync', () => {
@@ -957,6 +1152,38 @@ describe('annotation API helpers', () => {
     })
     expect(data.schema).toBe('ai-caddie-annotation-create-v1')
     expect(data.annotation.id).toBe('ann-2')
+  })
+
+  it('sends the admin token header for protected annotation creation', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-annotation-create-v1',
+        annotation: {
+          id: 'ann-2',
+          createdAt: '2026-05-25T10:35:00Z',
+          targetType: 'hole',
+          targetId: 'round-1:7',
+          kind: 'issue_tag',
+          payload: { tag: 'approach_short' },
+          source: 'manual',
+        },
+      }),
+    }))
+
+    const request = {
+      targetType: 'hole' as const,
+      targetId: 'round-1:7',
+      kind: 'issue_tag' as const,
+      payload: { tag: 'approach_short' },
+    }
+    await createAnnotation(request, 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/annotations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      body: JSON.stringify(request),
+    })
   })
 
   it('loads annotation history for a target', async () => {

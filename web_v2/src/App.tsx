@@ -104,6 +104,7 @@ export default function App() {
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
   const [sessionSaveState, setSessionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null)
+  const [adminToken, setAdminToken] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -128,6 +129,11 @@ export default function App() {
       cancelled = true
     }
   }, [])
+
+  function currentAdminToken(): string | undefined {
+    const trimmed = adminToken.trim()
+    return trimmed.length ? trimmed : undefined
+  }
 
   function navigate(page: ProductPage) {
     setActivePage(page)
@@ -166,7 +172,7 @@ export default function App() {
   }
 
   async function handleCreateAnnotation(request: AnnotationCreateRequest): Promise<AnnotationCreateResponse> {
-    const response = await createAnnotation(request)
+    const response = await createAnnotation(request, currentAdminToken())
     setAnnotationsState((current) => {
       if (current.status !== 'ready') return current
       return {
@@ -225,7 +231,7 @@ export default function App() {
   async function handleRunSync(adminToken?: string) {
     setSyncRunState('running')
     try {
-      await runGarminSync({ withShots: true, forceRefreshAuth: false, adminToken })
+      await runGarminSync({ withShots: true, forceRefreshAuth: false, adminToken: adminToken ?? currentAdminToken() })
       const status = await fetchSyncStatus()
       setSyncStatus(status)
       setSyncRunState('idle')
@@ -240,7 +246,7 @@ export default function App() {
     setSessionSaveState('saving')
     setSessionSaveError(null)
     try {
-      await saveGarminSession(request, adminToken)
+      await saveGarminSession(request, adminToken ?? currentAdminToken())
       const status = await fetchSyncStatus()
       setSyncStatus(status)
       setSessionSaveState('saved')
@@ -260,6 +266,8 @@ export default function App() {
           onSaveSession={handleSaveGarminSession}
           sessionSaveState={sessionSaveState}
           sessionSaveError={sessionSaveError}
+          adminTokenValue={adminToken}
+          onAdminTokenChange={setAdminToken}
         />
       </div>
     ) : null
@@ -311,6 +319,8 @@ export default function App() {
               onSaveSession={handleSaveGarminSession}
               sessionSaveState={sessionSaveState}
               sessionSaveError={sessionSaveError}
+              adminTokenValue={adminToken}
+              onAdminTokenChange={setAdminToken}
             />
           ) : null}
           <MobileReconciliationPanel
@@ -343,7 +353,7 @@ export default function App() {
   }
 
   function handleGenerateTrendReport(period: string) {
-    void loadReport(() => generateTrendReport(period))
+    void loadReport(() => generateTrendReport(period, currentAdminToken()))
   }
 
   function handleLoadRoundReport(roundId: string) {
@@ -351,7 +361,7 @@ export default function App() {
   }
 
   function handleGenerateRoundReport(roundId: string) {
-    void loadReport(() => generateRoundReport(roundId))
+    void loadReport(() => generateRoundReport(roundId, currentAdminToken()))
   }
 
   async function handleLoadMobileReconciliation(roundId: string): Promise<MobileReconciliationResponse | null> {
@@ -377,7 +387,7 @@ export default function App() {
   ): Promise<MobileReconciliationApplyResponse | null> {
     setMobileReconciliationApplyState({ status: 'applying' })
     try {
-      const data = await applyMobileReconciliationSuggestions(roundId, suggestionIds)
+      const data = await applyMobileReconciliationSuggestions(roundId, suggestionIds, currentAdminToken())
       setMobileReconciliationApplyState({ status: 'ready', data })
       return data
     } catch (error: unknown) {
@@ -390,7 +400,7 @@ export default function App() {
     setDecisionState({ status: 'loading' })
     setDecisionAuditState({ status: 'idle' })
     try {
-      const data = await fetchCaddieDecision(request)
+      const data = await fetchCaddieDecision(request, currentAdminToken())
       setDecisionState({ status: 'ready', data })
     } catch (error: unknown) {
       setDecisionState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
@@ -400,10 +410,14 @@ export default function App() {
   async function handleCreateDecisionAudit(decision: CaddieDecisionResponse, actualShot: Record<string, unknown>) {
     setDecisionAuditState({ status: 'loading' })
     try {
-      const response = await createCaddieDecisionAudit(decisionIdFromDecision(decision), {
-        decision,
-        actualShot,
-      })
+      const response = await createCaddieDecisionAudit(
+        decisionIdFromDecision(decision),
+        {
+          decision,
+          actualShot,
+        },
+        currentAdminToken(),
+      )
       setDecisionAuditState({ status: 'ready', data: response.record })
     } catch (error: unknown) {
       setDecisionAuditState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
@@ -413,18 +427,21 @@ export default function App() {
   async function handleLoadWeather() {
     setWeatherState({ status: 'loading' })
     try {
-      const snapshot = await fetchWeatherSnapshot({
-        source: 'manual',
-        roundId: 'fixture-round',
-        hole: 4,
-        capturedAt: '2026-05-25T08:00:00Z',
-        latitude: 22.279,
-        longitude: 114.162,
-        windSpeedMps: 5.4,
-        windDirectionDeg: 110,
-        temperatureC: 28.5,
-        precipitationMm: 0,
-      })
+      const snapshot = await fetchWeatherSnapshot(
+        {
+          source: 'manual',
+          roundId: 'fixture-round',
+          hole: 4,
+          capturedAt: '2026-05-25T08:00:00Z',
+          latitude: 22.279,
+          longitude: 114.162,
+          windSpeedMps: 5.4,
+          windDirectionDeg: 110,
+          temperatureC: 28.5,
+          precipitationMm: 0,
+        },
+        currentAdminToken(),
+      )
       setWeatherState({ status: 'ready', data: snapshot })
     } catch (error: unknown) {
       setWeatherState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
@@ -466,7 +483,7 @@ export default function App() {
   }
 
   async function handleAttachMedia(request: MediaCreateRequest) {
-    const response = await createMedia(request)
+    const response = await createMedia(request, currentAdminToken())
     setMediaState((current) => {
       if (current.status === 'ready' && current.targetType === request.targetType && current.targetId === request.targetId) {
         return {
@@ -486,7 +503,7 @@ export default function App() {
 
   async function handleAnalyzeMedia(mediaId: string) {
     const target = mediaState.status === 'ready' ? { targetType: mediaState.targetType, targetId: mediaState.targetId } : null
-    await analyzeMedia(mediaId)
+    await analyzeMedia(mediaId, currentAdminToken())
     if (!target) return
     try {
       const findings = await fetchVisionFindingsForTarget(target.targetType, target.targetId)

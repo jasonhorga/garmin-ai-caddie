@@ -302,16 +302,40 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@Published public private(set) var apiBaseURL: URL?", app_swift)
         self.assertIn("defaultAPIBaseURL", app_swift)
         self.assertIn("apiBaseURL: model.apiBaseURL", app_swift)
-        self.assertIn("resolvedAPIBaseURL.map { SyncClient(baseURL: $0) }", app_swift)
+        self.assertIn("resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }", app_swift)
 
         self.assertIn("public let apiBaseURL: URL?", round_home)
         self.assertIn("apiBaseURL: URL? = nil", round_home)
         self.assertIn("caddieBaseURL: apiBaseURL", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, watchBridge: watchBridge, onEvent: onEvent)", round_home)
 
         self.assertIn("caddieBaseURL: URL? = nil", current_hole)
         self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
         self.assertIn("MediaUploadClient(baseURL:", current_hole)
+
+    def test_ios_clients_attach_admin_token_header_when_configured(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        caddie_client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
+        media_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
+
+        self.assertIn("AI_CADDIE_ADMIN_TOKEN", app_swift)
+        self.assertIn("@Published public private(set) var adminToken: String?", app_swift)
+        self.assertIn("adminToken: model.adminToken", app_swift)
+        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken)", app_swift)
+
+        self.assertIn("public let adminToken: String?", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken", round_home)
+
+        self.assertIn("adminToken: String? = nil", current_hole)
+        self.assertIn("CaddieDecisionClient(baseURL: $0, adminToken: adminToken)", current_hole)
+        self.assertIn("MediaUploadClient(baseURL: $0, adminToken: adminToken)", current_hole)
+
+        for source in [sync_client, caddie_client, media_client]:
+            self.assertIn("private let adminToken: String?", source)
+            self.assertIn('request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")', source)
 
     def test_ios_app_activates_watch_bridge_for_live_round(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -325,7 +349,7 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("public let watchBridge: WatchEventBridge?", round_home)
         self.assertIn("watchBridge: WatchEventBridge? = nil", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, watchBridge: watchBridge, onEvent: onEvent)", round_home)
 
         self.assertIn("watchBridge: WatchEventBridge? = nil", current_hole)
         self.assertIn("sendWatchState(decision:", current_hole)
@@ -474,7 +498,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundHomeView: View", round_home)
         self.assertIn("public let onEvent", round_home)
         self.assertIn("syncStatus", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, watchBridge: watchBridge, onEvent: onEvent)", round_home)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)

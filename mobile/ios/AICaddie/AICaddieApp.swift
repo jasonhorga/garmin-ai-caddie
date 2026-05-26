@@ -16,6 +16,7 @@ public struct AICaddieApp: App {
                         pendingEventCount: model.pendingEventCount,
                         syncStatus: model.syncStatus,
                         apiBaseURL: model.apiBaseURL,
+                        adminToken: model.adminToken,
                         watchBridge: model.watchBridge,
                         onEvent: model.handleEvent,
                         onSync: {
@@ -41,6 +42,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var pendingEventCount: Int = 0
     @Published public private(set) var syncStatus: String = "Offline ready"
     @Published public private(set) var apiBaseURL: URL?
+    @Published public private(set) var adminToken: String?
     public let watchBridge: WatchEventBridge?
 
     private let offlineStore: OfflineStore
@@ -49,14 +51,17 @@ public final class LiveRoundAppModel: ObservableObject {
     public init(
         offlineStore: OfflineStore = OfflineStore(),
         apiBaseURL: URL? = nil,
+        adminToken: String? = nil,
         watchBridge: WatchEventBridge? = WatchEventBridge(),
         syncClient: SyncClient? = nil
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
+        let resolvedAdminToken = adminToken ?? Self.defaultAdminToken()
         self.offlineStore = offlineStore
         self.apiBaseURL = resolvedAPIBaseURL
+        self.adminToken = resolvedAdminToken
         self.watchBridge = watchBridge
-        self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0) }
+        self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
     }
 
     public func bootstrap() async {
@@ -126,6 +131,11 @@ public final class LiveRoundAppModel: ObservableObject {
             return nil
         }
         return resolvedAPIBaseURL
+    }
+
+    private static func defaultAdminToken() -> String? {
+        let token = ProcessInfo.processInfo.environment["AI_CADDIE_ADMIN_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return token?.isEmpty == false ? token : nil
     }
 
     private func idempotencyKey(roundId: String, events: [LiveRoundEvent]) -> String {

@@ -4,8 +4,10 @@ import hmac
 import os
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, Header, HTTPException, Query, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.datastructures import QueryParams
 
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error
 from ai_caddie.connectors.snapshot import snapshot_to_payload
@@ -95,11 +97,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+AdminTokenHeader = Annotated[str | None, Header(alias="X-AI-Caddie-Admin-Token")]
+
 
 def require_admin_token(header_value: str | None) -> None:
     expected = os.environ.get("AI_CADDIE_ADMIN_TOKEN")
     if expected and not hmac.compare_digest(header_value or "", expected):
         raise HTTPException(status_code=401, detail="admin token required")
+
+
+def _truthy_query_flag(value: str | None) -> bool:
+    return str(value or "").lower() in {"1", "true", "on", "yes"}
+
+
+def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> bool:
+    normalized_method = method.upper()
+    if normalized_method == "GET":
+        return path == "/api/v2/weather/snapshot" and _truthy_query_flag(query_params.get("persist"))
+    if normalized_method != "POST":
+        return False
+    exact_paths = {
+        "/api/v2/caddie/decision",
+        "/api/v2/annotations",
+        "/api/v2/media",
+        "/api/v2/sync/garmin",
+        "/api/v2/sync/garmin/session",
+    }
+    if path in exact_paths:
+        return True
+    protected_prefix_suffix = (
+        ("/api/v2/caddie/decisions/", "/audit"),
+        ("/api/v2/media/", "/analyze"),
+        ("/api/v2/mobile/rounds/", "/events"),
+        ("/api/v2/mobile/rounds/", "/reconciliation/apply"),
+        ("/api/v2/reports/round/", "/generate"),
+        ("/api/v2/reports/trend/", "/generate"),
+    )
+    return any(path.startswith(prefix) and path.endswith(suffix) for prefix, suffix in protected_prefix_suffix)
+
+
+@app.middleware("http")
+async def enforce_admin_token_before_body_validation(request: Request, call_next):
+    if _requires_admin_token(request.method, request.url.path, request.query_params):
+        try:
+            require_admin_token(request.headers.get("x-ai-caddie-admin-token"))
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    return await call_next(request)
 
 
 @app.get("/")
@@ -218,12 +262,21 @@ def caddie_context(
 
 
 @app.post("/api/v2/caddie/decision", response_model=CaddieDecisionResponse)
-def caddie_decision(request: CaddieDecisionRequest) -> CaddieDecisionResponse:
+def caddie_decision(
+    request: CaddieDecisionRequest,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> CaddieDecisionResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return build_caddie_decision_response(request)
 
 
 @app.post("/api/v2/caddie/decisions/{decision_id}/audit", response_model=CaddieDecisionAuditStoreResponse)
-def caddie_decision_audit(decision_id: str, request: CaddieDecisionAuditRequest) -> CaddieDecisionAuditStoreResponse:
+def caddie_decision_audit(
+    decision_id: str,
+    request: CaddieDecisionAuditRequest,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> CaddieDecisionAuditStoreResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return create_decision_audit_response(decision_id, request)
 
 
@@ -238,7 +291,11 @@ def annotations() -> AnnotationListResponse:
 
 
 @app.post("/api/v2/annotations", response_model=AnnotationCreateResponse)
-def create_annotation(request: AnnotationCreateRequest) -> AnnotationCreateResponse:
+def create_annotation(
+    request: AnnotationCreateRequest,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> AnnotationCreateResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return create_annotation_response(request)
 
 
@@ -248,7 +305,11 @@ def annotations_by_target(target_type: AnnotationTargetType, target_id: str) -> 
 
 
 @app.post("/api/v2/media", response_model=MediaCreateResponse)
-def create_media(request: MediaCreateRequest) -> MediaCreateResponse:
+def create_media(
+    request: MediaCreateRequest,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> MediaCreateResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return create_media_response(request)
 
 
@@ -263,7 +324,11 @@ def vision_findings_by_target(target_type: MediaTargetType, target_id: str) -> V
 
 
 @app.post("/api/v2/media/{media_id}/analyze", response_model=VisionAnalysisResponse)
-def analyze_media(media_id: str) -> VisionAnalysisResponse:
+def analyze_media(
+    media_id: str,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> VisionAnalysisResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return analyze_media_response(media_id)
 
 
@@ -277,7 +342,9 @@ def mobile_round_events(
     round_id: str,
     request: LiveRoundEventBatchRequest,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> LiveRoundEventBatchResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return append_mobile_events_response(round_id, request, idempotency_key=idempotency_key)
 
 
@@ -290,7 +357,9 @@ def mobile_round_reconciliation(round_id: str) -> dict[str, object]:
 def mobile_round_reconciliation_apply(
     round_id: str,
     request: MobileReconciliationApplyRequest,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> MobileReconciliationApplyResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return apply_mobile_round_reconciliation_response(round_id, request)
 
 
@@ -307,7 +376,10 @@ def weather_snapshot(
     wind_direction_deg: int | None = None,
     temperature_c: float | None = None,
     precipitation_mm: float | None = None,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> WeatherSnapshotResponse:
+    if persist:
+        require_admin_token(x_ai_caddie_admin_token)
     return load_weather_snapshot_response(
         source=source,
         persist=persist,
@@ -329,7 +401,8 @@ def round_report(round_id: str) -> ReviewReportResponse:
 
 
 @app.post("/api/v2/reports/round/{round_id}/generate", response_model=ReviewReportResponse)
-def generate_round_report(round_id: str) -> ReviewReportResponse:
+def generate_round_report(round_id: str, x_ai_caddie_admin_token: AdminTokenHeader = None) -> ReviewReportResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return generate_round_report_response(round_id)
 
 
@@ -339,7 +412,8 @@ def trend_report(period: str) -> ReviewReportResponse:
 
 
 @app.post("/api/v2/reports/trend/{period}/generate", response_model=ReviewReportResponse)
-def generate_trend_report(period: str) -> ReviewReportResponse:
+def generate_trend_report(period: str, x_ai_caddie_admin_token: AdminTokenHeader = None) -> ReviewReportResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return generate_trend_report_response(period)
 
 
@@ -353,7 +427,7 @@ def sync_garmin(
     response: Response,
     with_shots: bool = True,
     force_refresh_auth: bool = False,
-    x_ai_caddie_admin_token: Annotated[str | None, Header(alias="X-AI-Caddie-Admin-Token")] = None,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> SyncRunResponse:
     require_admin_token(x_ai_caddie_admin_token)
     result = GarminCnWebSessionConnector().sync(
@@ -378,7 +452,7 @@ def sync_garmin(
 @app.post("/api/v2/sync/garmin/session", response_model=GarminSessionImportResponse)
 def save_garmin_session(
     request: GarminSessionImportRequest,
-    x_ai_caddie_admin_token: Annotated[str | None, Header(alias="X-AI-Caddie-Admin-Token")] = None,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> GarminSessionImportResponse:
     require_admin_token(x_ai_caddie_admin_token)
     return save_garmin_session_response(request)

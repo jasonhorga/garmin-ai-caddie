@@ -35,8 +35,10 @@ import type {
   VisionFindingsListResponse,
 } from './types'
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path)
+async function getJson<T>(path: string, adminToken?: string): Promise<T> {
+  const headers = adminTokenHeader(adminToken)
+  const init = Object.keys(headers).length ? { headers } : undefined
+  const response = init ? await fetch(path, init) : await fetch(path)
   if (!response.ok) {
     throw new Error(`GET ${path} failed: ${response.status} ${response.statusText}`)
   }
@@ -60,6 +62,17 @@ async function postJson<T>(path: string, body: unknown, adminToken?: string): Pr
   return response.json() as Promise<T>
 }
 
+async function postEmpty<T>(path: string, adminToken?: string): Promise<T> {
+  const headers = adminTokenHeader(adminToken)
+  const init: RequestInit = { method: 'POST' }
+  if (Object.keys(headers).length) init.headers = headers
+  const response = await fetch(path, init)
+  if (!response.ok) {
+    throw new Error(`POST ${path} failed: ${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<T>
+}
+
 function appendParam(query: URLSearchParams, key: string, value: string | number | boolean | undefined): void {
   if (value !== undefined) query.append(key, String(value))
 }
@@ -68,8 +81,8 @@ export function fetchHistoryOverview(): Promise<HistoryOverviewResponse> {
   return getJson<HistoryOverviewResponse>('/api/v2/history/overview')
 }
 
-export function fetchCaddieDecision(request: CaddieDecisionRequest): Promise<CaddieDecisionResponse> {
-  return postJson<CaddieDecisionResponse>('/api/v2/caddie/decision', request)
+export function fetchCaddieDecision(request: CaddieDecisionRequest, adminToken?: string): Promise<CaddieDecisionResponse> {
+  return postJson<CaddieDecisionResponse>('/api/v2/caddie/decision', request, adminToken)
 }
 
 export function fetchCaddieContext(params: CaddieContextParams): Promise<CaddieContextResponse> {
@@ -85,10 +98,12 @@ export function fetchCaddieContext(params: CaddieContextParams): Promise<CaddieC
 export function createCaddieDecisionAudit(
   decisionId: string,
   request: CaddieDecisionAuditRequest,
+  adminToken?: string,
 ): Promise<CaddieDecisionAuditStoreResponse> {
   return postJson<CaddieDecisionAuditStoreResponse>(
     `/api/v2/caddie/decisions/${encodeURIComponent(decisionId)}/audit`,
     request,
+    adminToken,
   )
 }
 
@@ -98,7 +113,7 @@ export function fetchLatestCaddieDecisionAudit(decisionId: string): Promise<Cadd
   )
 }
 
-export function fetchWeatherSnapshot(params: WeatherSnapshotParams = {}): Promise<WeatherSnapshotResponse> {
+export function fetchWeatherSnapshot(params: WeatherSnapshotParams = {}, adminToken?: string): Promise<WeatherSnapshotResponse> {
   const query = new URLSearchParams()
   appendParam(query, 'source', params.source)
   appendParam(query, 'persist', params.persist)
@@ -112,11 +127,11 @@ export function fetchWeatherSnapshot(params: WeatherSnapshotParams = {}): Promis
   appendParam(query, 'temperature_c', params.temperatureC)
   appendParam(query, 'precipitation_mm', params.precipitationMm)
   const suffix = query.toString()
-  return getJson<WeatherSnapshotResponse>(`/api/v2/weather/snapshot${suffix ? `?${suffix}` : ''}`)
+  return getJson<WeatherSnapshotResponse>(`/api/v2/weather/snapshot${suffix ? `?${suffix}` : ''}`, adminToken)
 }
 
-export function createMedia(request: MediaCreateRequest): Promise<MediaCreateResponse> {
-  return postJson<MediaCreateResponse>('/api/v2/media', request)
+export function createMedia(request: MediaCreateRequest, adminToken?: string): Promise<MediaCreateResponse> {
+  return postJson<MediaCreateResponse>('/api/v2/media', request, adminToken)
 }
 
 export function fetchMediaForTarget(targetType: MediaTargetType, targetId: string): Promise<MediaListResponse> {
@@ -125,13 +140,8 @@ export function fetchMediaForTarget(targetType: MediaTargetType, targetId: strin
   )
 }
 
-export function analyzeMedia(mediaId: string): Promise<VisionAnalysisResponse> {
-  return fetch(`/api/v2/media/${encodeURIComponent(mediaId)}/analyze`, { method: 'POST' }).then((response) => {
-    if (!response.ok) {
-      throw new Error(`POST /api/v2/media/${mediaId}/analyze failed: ${response.status} ${response.statusText}`)
-    }
-    return response.json() as Promise<VisionAnalysisResponse>
-  })
+export function analyzeMedia(mediaId: string, adminToken?: string): Promise<VisionAnalysisResponse> {
+  return postEmpty<VisionAnalysisResponse>(`/api/v2/media/${encodeURIComponent(mediaId)}/analyze`, adminToken)
 }
 
 export function fetchVisionFindingsForTarget(
@@ -197,26 +207,16 @@ export function fetchRoundReport(roundId: string): Promise<ReviewReportResponse>
   return getJson<ReviewReportResponse>(`/api/v2/reports/round/${encodeURIComponent(roundId)}`)
 }
 
-export function generateRoundReport(roundId: string): Promise<ReviewReportResponse> {
-  return fetch(`/api/v2/reports/round/${encodeURIComponent(roundId)}/generate`, { method: 'POST' }).then((response) => {
-    if (!response.ok) {
-      throw new Error(`POST /api/v2/reports/round/${roundId}/generate failed: ${response.status} ${response.statusText}`)
-    }
-    return response.json() as Promise<ReviewReportResponse>
-  })
+export function generateRoundReport(roundId: string, adminToken?: string): Promise<ReviewReportResponse> {
+  return postEmpty<ReviewReportResponse>(`/api/v2/reports/round/${encodeURIComponent(roundId)}/generate`, adminToken)
 }
 
 export function fetchTrendReport(period: string): Promise<ReviewReportResponse> {
   return getJson<ReviewReportResponse>(`/api/v2/reports/trend/${encodeURIComponent(period)}`)
 }
 
-export function generateTrendReport(period: string): Promise<ReviewReportResponse> {
-  return fetch(`/api/v2/reports/trend/${encodeURIComponent(period)}/generate`, { method: 'POST' }).then((response) => {
-    if (!response.ok) {
-      throw new Error(`POST /api/v2/reports/trend/${period}/generate failed: ${response.status} ${response.statusText}`)
-    }
-    return response.json() as Promise<ReviewReportResponse>
-  })
+export function generateTrendReport(period: string, adminToken?: string): Promise<ReviewReportResponse> {
+  return postEmpty<ReviewReportResponse>(`/api/v2/reports/trend/${encodeURIComponent(period)}/generate`, adminToken)
 }
 
 export function fetchSyncStatus(): Promise<SyncStatusResponse> {
@@ -234,10 +234,12 @@ export function fetchMobileReconciliation(roundId: string): Promise<MobileReconc
 export function applyMobileReconciliationSuggestions(
   roundId: string,
   suggestionIds: string[],
+  adminToken?: string,
 ): Promise<MobileReconciliationApplyResponse> {
   return postJson<MobileReconciliationApplyResponse>(
     `/api/v2/mobile/rounds/${encodeURIComponent(roundId)}/reconciliation/apply`,
     { suggestionIds },
+    adminToken,
   )
 }
 
@@ -265,8 +267,8 @@ export function fetchAnnotations(): Promise<AnnotationListResponse> {
   return getJson<AnnotationListResponse>('/api/v2/annotations')
 }
 
-export function createAnnotation(request: AnnotationCreateRequest): Promise<AnnotationCreateResponse> {
-  return postJson<AnnotationCreateResponse>('/api/v2/annotations', request)
+export function createAnnotation(request: AnnotationCreateRequest, adminToken?: string): Promise<AnnotationCreateResponse> {
+  return postJson<AnnotationCreateResponse>('/api/v2/annotations', request, adminToken)
 }
 
 export function fetchAnnotationsForTarget(

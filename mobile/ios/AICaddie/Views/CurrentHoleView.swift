@@ -30,6 +30,7 @@ public struct CurrentHoleView: View {
         package: LiveRoundPackage,
         hole: Hole,
         caddieBaseURL: URL? = nil,
+        adminToken: String? = nil,
         caddieClient: CaddieDecisionClient? = nil,
         watchBridge: WatchEventBridge? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
@@ -37,8 +38,8 @@ public struct CurrentHoleView: View {
         self.package = package
         self.hole = hole
         self.onEvent = onEvent
-        self.caddieClient = caddieClient ?? caddieBaseURL.map { CaddieDecisionClient(baseURL: $0) }
-        self.mediaUploadClient = caddieBaseURL.map { MediaUploadClient(baseURL: $0) }
+        self.caddieClient = caddieClient ?? caddieBaseURL.map { CaddieDecisionClient(baseURL: $0, adminToken: adminToken) }
+        self.mediaUploadClient = caddieBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
         self.watchBridge = watchBridge
         self._score = State(initialValue: hole.par)
         self._selectedClub = State(initialValue: package.clubProfiles.first?.clubName ?? "")

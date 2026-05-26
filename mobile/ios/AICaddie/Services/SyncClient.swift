@@ -12,12 +12,14 @@ public struct SyncResult: Codable, Equatable {
 
 public final class SyncClient {
     private let baseURL: URL
+    private let adminToken: String?
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    public init(baseURL: URL, session: URLSession = .shared) {
+    public init(baseURL: URL, adminToken: String? = nil, session: URLSession = .shared) {
         self.baseURL = baseURL
+        self.adminToken = adminToken
         self.session = session
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
@@ -40,6 +42,9 @@ public final class SyncClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
         request.httpBody = try encoder.encode(EventBatch(roundId: roundId, events: events))
 
         let (data, response) = try await session.data(for: request)

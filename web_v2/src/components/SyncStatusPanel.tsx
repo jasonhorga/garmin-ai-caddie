@@ -28,6 +28,8 @@ interface SyncStatusPanelProps {
   onSaveSession?: (request: GarminSessionImportRequest, adminToken?: string) => void | Promise<void>
   sessionSaveState?: 'idle' | 'saving' | 'saved' | 'error'
   sessionSaveError?: string | null
+  adminTokenValue?: string
+  onAdminTokenChange?: (value: string) => void
 }
 
 export function SyncStatusPanel({
@@ -37,10 +39,13 @@ export function SyncStatusPanel({
   onSaveSession,
   sessionSaveState = 'idle',
   sessionSaveError = null,
+  adminTokenValue,
+  onAdminTokenChange,
 }: SyncStatusPanelProps) {
-  const [adminToken, setAdminToken] = useState('')
+  const [localAdminToken, setLocalAdminToken] = useState('')
   const [webSessionHeader, setWebSessionHeader] = useState('')
   const [antiForgeryValue, setAntiForgeryValue] = useState('')
+  const adminToken = adminTokenValue ?? localAdminToken
   const isRunning = syncState === 'running'
   const canRun = Boolean(onSync) && status.connector.canSync && !status.connector.reauthRequired && !isRunning
   const connectors = status.connectors && status.connectors.length ? status.connectors : [status.connector]
@@ -78,6 +83,14 @@ export function SyncStatusPanel({
   function normalizedAdminToken() {
     const trimmed = adminToken.trim()
     return trimmed.length ? trimmed : undefined
+  }
+
+  function updateAdminToken(value: string) {
+    if (onAdminTokenChange) {
+      onAdminTokenChange(value)
+      return
+    }
+    setLocalAdminToken(value)
   }
 
   return (
@@ -130,7 +143,7 @@ export function SyncStatusPanel({
           id="sync-admin-token"
           type="password"
           value={adminToken}
-          onChange={(event) => setAdminToken(event.target.value)}
+          onChange={(event) => updateAdminToken(event.target.value)}
           spellCheck={false}
           autoComplete="off"
         />

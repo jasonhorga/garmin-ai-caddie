@@ -6,6 +6,7 @@ public struct RoundHomeView: View {
     public let pendingEventCount: Int
     public let syncStatus: String
     public let apiBaseURL: URL?
+    public let adminToken: String?
     public let watchBridge: WatchEventBridge?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onSync: () -> Void
@@ -15,6 +16,7 @@ public struct RoundHomeView: View {
         pendingEventCount: Int = 0,
         syncStatus: String = "Offline ready",
         apiBaseURL: URL? = nil,
+        adminToken: String? = nil,
         watchBridge: WatchEventBridge? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onSync: @escaping () -> Void = {}
@@ -23,6 +25,7 @@ public struct RoundHomeView: View {
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
         self.apiBaseURL = apiBaseURL
+        self.adminToken = adminToken
         self.watchBridge = watchBridge
         self.onEvent = onEvent
         self.onSync = onSync
@@ -56,7 +59,7 @@ public struct RoundHomeView: View {
                 Section("Holes") {
                     ForEach(package.holes) { hole in
                         NavigationLink {
-                            CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, watchBridge: watchBridge, onEvent: onEvent)
+                            CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, watchBridge: watchBridge, onEvent: onEvent)
                         } label: {
                             HStack {
                                 Text("\(hole.number)")
