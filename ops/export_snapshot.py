@@ -19,6 +19,11 @@ DATA_PATHS = [
     Path("data") / "decision_audits",
 ]
 
+GEOMETRY_OUTPUT_PATHS = [
+    Path("output") / "prodgeometry_hazards",
+    Path("output") / "prodgeometry",
+]
+
 
 def _iter_files(source_root: Path, include_clubs: bool) -> list[Path]:
     files: list[Path] = []
@@ -28,6 +33,10 @@ def _iter_files(source_root: Path, include_clubs: bool) -> list[Path]:
             files.append(relative)
         elif path.is_dir():
             files.extend(sorted(item.relative_to(source_root) for item in path.rglob("*") if item.is_file()))
+    for relative in GEOMETRY_OUTPUT_PATHS:
+        path = source_root / relative
+        if path.is_dir():
+            files.extend(sorted(item.relative_to(source_root) for item in path.rglob("*.json") if item.is_file()))
     if include_clubs and (source_root / "clubs.json").is_file():
         files.append(Path("clubs.json"))
     return sorted(set(files))

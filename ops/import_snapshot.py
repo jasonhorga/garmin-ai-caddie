@@ -5,6 +5,17 @@ from pathlib import Path, PurePosixPath
 import shutil
 import tarfile
 
+SUPPORTED_OUTPUT_DIRS = {
+    ("output", "prodgeometry_hazards"),
+    ("output", "prodgeometry"),
+}
+
+
+def _is_supported_output_path(path: PurePosixPath) -> bool:
+    if len(path.parts) < 3:
+        return False
+    return path.parts[:2] in SUPPORTED_OUTPUT_DIRS and path.suffix == ".json"
+
 
 def _validate_member_name(name: str) -> None:
     path = PurePosixPath(name)
@@ -12,6 +23,10 @@ def _validate_member_name(name: str) -> None:
         raise ValueError(f"unsafe snapshot path: {name}")
     if not path.parts:
         raise ValueError("empty snapshot path")
+    if path.parts[0] == "output":
+        if not _is_supported_output_path(path):
+            raise ValueError(f"unsupported snapshot path: {name}")
+        return
     if path.parts[0] != "data" and name != "clubs.json":
         raise ValueError(f"unsupported snapshot path: {name}")
 

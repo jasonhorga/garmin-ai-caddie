@@ -23,6 +23,9 @@ class SnapshotImportExportTests(unittest.TestCase):
             (source / "data" / "weather").mkdir()
             (source / "data" / "reports").mkdir()
             (source / "data" / "decision_audits").mkdir()
+            (source / "output" / "prodgeometry_hazards").mkdir(parents=True)
+            (source / "output" / "prodgeometry").mkdir(parents=True)
+            (source / "output" / "prodgeometry_overlay").mkdir(parents=True)
             (source / "data" / "summary.json").write_text("[]", encoding="utf-8")
             (source / "data" / "scorecards" / "1.json").write_text("{}", encoding="utf-8")
             (source / "data" / "shots" / "1.json").write_text("{}", encoding="utf-8")
@@ -34,6 +37,18 @@ class SnapshotImportExportTests(unittest.TestCase):
             (source / "data" / "reports" / "reports.jsonl").write_text('{"kind":"round"}\n', encoding="utf-8")
             (source / "data" / "decision_audits" / "decision_audits.jsonl").write_text(
                 '{"classification":"execution"}\n',
+                encoding="utf-8",
+            )
+            (source / "output" / "prodgeometry_hazards" / "gid31795_h04_hazards.json").write_text(
+                '{"hazards":[]}',
+                encoding="utf-8",
+            )
+            (source / "output" / "prodgeometry" / "gid31795_h04_meshes.json").write_text(
+                '{"meshes":[]}',
+                encoding="utf-8",
+            )
+            (source / "output" / "prodgeometry_overlay" / "debug.png").write_text(
+                "not portable snapshot data",
                 encoding="utf-8",
             )
             (source / ".env").write_text("SECRET=1", encoding="utf-8")
@@ -59,6 +74,9 @@ class SnapshotImportExportTests(unittest.TestCase):
             self.assertIn("data/weather/weather_snapshots.jsonl", names)
             self.assertIn("data/reports/reports.jsonl", names)
             self.assertIn("data/decision_audits/decision_audits.jsonl", names)
+            self.assertIn("output/prodgeometry_hazards/gid31795_h04_hazards.json", names)
+            self.assertIn("output/prodgeometry/gid31795_h04_meshes.json", names)
+            self.assertNotIn("output/prodgeometry_overlay/debug.png", names)
             self.assertNotIn(".env", names)
             self.assertNotIn(".garmin_tokens/web_cookie.txt", names)
             self.assertNotIn("clubs.json", names)
@@ -71,6 +89,15 @@ class SnapshotImportExportTests(unittest.TestCase):
                 (target / "data" / "decision_audits" / "decision_audits.jsonl").read_text(encoding="utf-8"),
                 '{"classification":"execution"}\n',
             )
+            self.assertEqual(
+                (target / "output" / "prodgeometry_hazards" / "gid31795_h04_hazards.json").read_text(encoding="utf-8"),
+                '{"hazards":[]}',
+            )
+            self.assertEqual(
+                (target / "output" / "prodgeometry" / "gid31795_h04_meshes.json").read_text(encoding="utf-8"),
+                '{"meshes":[]}',
+            )
+            self.assertFalse((target / "output" / "prodgeometry_overlay" / "debug.png").exists())
             self.assertFalse((target / ".env").exists())
             self.assertFalse((target / ".garmin_tokens").exists())
             self.assertFalse((target / "clubs.json").exists())
@@ -96,6 +123,17 @@ class SnapshotImportExportTests(unittest.TestCase):
             payload.write_text("bad", encoding="utf-8")
             with tarfile.open(tarball, "w:gz") as archive:
                 archive.add(payload, arcname="../escape.txt")
+
+            with self.assertRaises(ValueError):
+                import_snapshot(tarball, target_root=Path(tmp) / "target")
+
+    def test_import_rejects_unsupported_output_paths(self) -> None:
+        with TemporaryDirectory() as tmp:
+            tarball = Path(tmp) / "bad-output.tar.gz"
+            payload = Path(tmp) / "payload.json"
+            payload.write_text("{}", encoding="utf-8")
+            with tarfile.open(tarball, "w:gz") as archive:
+                archive.add(payload, arcname="output/prodgeometry_overlay/debug.json")
 
             with self.assertRaises(ValueError):
                 import_snapshot(tarball, target_root=Path(tmp) / "target")

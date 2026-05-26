@@ -94,6 +94,48 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertIn("data/scorecards/1.json", manifest.files)
         self.assertNotIn(".garmin_tokens", " ".join(manifest.files))
 
+    def test_snapshot_manifest_and_durable_copy_include_prodgeometry_assets(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "output" / "prodgeometry_hazards" / "gid31795_h04_hazards.json"
+            mesh = root / "output" / "prodgeometry" / "gid31795_h04_meshes.json"
+            ignored = root / "output" / "prodgeometry_overlay" / "debug.png"
+            hazard.parent.mkdir(parents=True)
+            mesh.parent.mkdir(parents=True)
+            ignored.parent.mkdir(parents=True)
+            hazard.write_text('{"hazards":[]}', encoding="utf-8")
+            mesh.write_text('{"meshes":[]}', encoding="utf-8")
+            ignored.write_text("not snapshot data", encoding="utf-8")
+
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_geometry")
+            write_durable_snapshot(root=root, manifest=manifest)
+            hazard_copied = (
+                root
+                / "data"
+                / "snapshots"
+                / "snap_geometry"
+                / "raw"
+                / "output"
+                / "prodgeometry_hazards"
+                / "gid31795_h04_hazards.json"
+            ).exists()
+            mesh_copied = (
+                root
+                / "data"
+                / "snapshots"
+                / "snap_geometry"
+                / "raw"
+                / "output"
+                / "prodgeometry"
+                / "gid31795_h04_meshes.json"
+            ).exists()
+
+        self.assertIn("output/prodgeometry_hazards/gid31795_h04_hazards.json", manifest.files)
+        self.assertIn("output/prodgeometry/gid31795_h04_meshes.json", manifest.files)
+        self.assertNotIn("output/prodgeometry_overlay/debug.png", manifest.files)
+        self.assertTrue(hazard_copied)
+        self.assertTrue(mesh_copied)
+
     def test_write_snapshot_manifest_persists_json(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

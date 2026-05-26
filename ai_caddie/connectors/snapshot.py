@@ -22,6 +22,10 @@ from .redaction import sanitize_secret_text
 SYNC_DIR = Path("data") / "sync"
 SNAPSHOT_DIR = Path("data") / "snapshots"
 STATUS_FILE = SYNC_DIR / "garmin_cn_status.json"
+GEOMETRY_ASSET_DIRS = (
+    Path("output") / "prodgeometry_hazards",
+    Path("output") / "prodgeometry",
+)
 
 
 def _utc_now() -> str:
@@ -39,6 +43,12 @@ def _json_files(path: Path) -> list[Path]:
     if not path.exists():
         return []
     return sorted(item for item in path.glob("*.json") if item.is_file())
+
+
+def _json_files_recursive(path: Path) -> list[Path]:
+    if not path.exists():
+        return []
+    return sorted(item for item in path.rglob("*.json") if item.is_file())
 
 
 def _read_json(path: Path) -> Any:
@@ -284,6 +294,8 @@ def build_snapshot_manifest(*, root: Path = ROOT, snapshot_id: str) -> SnapshotM
         files.append(_relative(summary, root))
     files.extend(_relative(path, root) for path in scorecards)
     files.extend(_relative(path, root) for path in shots)
+    for relative_dir in GEOMETRY_ASSET_DIRS:
+        files.extend(_relative(path, root) for path in _json_files_recursive(root / relative_dir))
     return SnapshotManifest(
         snapshot_id=snapshot_id,
         scorecard_count=len(scorecards),
