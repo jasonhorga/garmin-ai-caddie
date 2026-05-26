@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ai_caddie.history import HistoryData
 from ai_caddie.llm_providers import LLMMessage, TextProvider, redact_secret_text
 
 
@@ -31,7 +32,12 @@ def _fact(label: str, value: Any, source: str) -> dict[str, Any]:
     }
 
 
-def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> dict[str, Any]:
+def build_round_report_facts(
+    history_stats: dict[str, Any],
+    round_id: str,
+    *,
+    history_data: HistoryData | None = None,
+) -> dict[str, Any]:
     summary = history_stats.get("summary") if isinstance(history_stats.get("summary"), dict) else {}
     scoring = history_stats.get("scoring") if isinstance(history_stats.get("scoring"), dict) else {}
     data_quality = history_stats.get("dataQuality") if isinstance(history_stats.get("dataQuality"), list) else []
@@ -43,6 +49,13 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
         _fact("average_18", summary.get("average18"), "summary.average18"),
         _fact("best_score", summary.get("bestScore"), "summary.bestScore"),
     ]
+    round_row = _find_round(history_data, round_id)
+    if round_row:
+        facts_used.append(_fact("round_scorecard", _round_scorecard_fact(round_row), "history.rounds"))
+        facts_used.append(_fact("round_hole_outcomes", _round_hole_outcomes(round_row), "history.rounds.holes"))
+        round_shots = _round_shot_facts(history_data, round_id)
+        if round_shots:
+            facts_used.append(_fact("round_shots", round_shots, "history.shots"))
 
     putting = scoring.get("putting") if isinstance(scoring.get("putting"), dict) else {}
     if putting:
@@ -75,6 +88,9 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
         )[:1]
         if top_issue:
             facts_used.append(_fact("top_issue", top_issue[0], "issues"))
+        round_issues = _round_issue_facts(issues, round_id)
+        if round_issues:
+            facts_used.append(_fact("round_issues", round_issues, "issues"))
 
     for band in scoring.get("scoreBands", []) if isinstance(scoring.get("scoreBands"), list) else []:
         if not isinstance(band, dict):
@@ -92,6 +108,8 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
     missing_data: list[dict[str, Any]] = []
     if str(round_id) not in all_round_ids:
         missing_data.append({"label": "round_reference", "reason": f"{round_id} not present in drillDown.roundIds"})
+    if history_data is not None and not round_row:
+        missing_data.append({"label": "round_scorecard", "reason": f"{round_id} not present in normalized history data"})
     missing_data.extend(_missing_data_quality_rows(data_quality))
 
     return {
@@ -101,6 +119,109 @@ def build_round_report_facts(history_stats: dict[str, Any], round_id: str) -> di
         "factsUsed": facts_used,
         "missingData": missing_data,
     }
+
+
+def _find_round(history_data: HistoryData | None, round_id: str) -> dict[str, Any] | None:
+    if history_data is None:
+        return None
+    requested = str(round_id)
+    for row in history_data.rounds:
+        ids = {str(row.get("id") or ""), *(str(item) for item in (row.get("ids") or []))}
+        if requested in ids:
+            return row
+    return None
+
+
+def _round_scorecard_fact(round_row: dict[str, Any]) -> dict[str, Any]:
+    score = round_row.get("strokes")
+    par = round_row.get("par")
+    return {
+        "roundRef": str(round_row.get("id")),
+        "date": round_row.get("date"),
+        "course": round_row.get("course"),
+        "courseKey": round_row.get("courseKey"),
+        "holesCompleted": round_row.get("holesCompleted"),
+        "score": score,
+        "par": par,
+        "toPar": int(score) - int(par) if isinstance(score, int) and isinstance(par, int) else None,
+        "putts": round_row.get("putts"),
+        "hasShots": round_row.get("hasShots"),
+        "shotStatus": round_row.get("shotStatus"),
+    }
+
+
+def _round_hole_outcomes(round_row: dict[str, Any]) -> list[dict[str, Any]]:
+    round_ref = str(round_row.get("id"))
+    hole_pars = str(round_row.get("holePars") or "")
+    outcomes: list[dict[str, Any]] = []
+    for index, hole in enumerate(round_row.get("holes") or [], start=1):
+        if not isinstance(hole, dict):
+            continue
+        number = int(hole.get("number") or index)
+        par = hole.get("par")
+        if not isinstance(par, int) and 1 <= number <= len(hole_pars):
+            try:
+                par = int(hole_pars[number - 1])
+            except ValueError:
+                par = None
+        score = hole.get("strokes")
+        outcomes.append(
+            {
+                "holeRef": f"{round_ref}:{number}",
+                "hole": number,
+                "strokes": score,
+                "par": par,
+                "toPar": int(score) - int(par) if isinstance(score, int) and isinstance(par, int) else None,
+                "putts": hole.get("putts"),
+                "fairway": hole.get("fairway"),
+                "gir": hole.get("gir"),
+            }
+        )
+    return outcomes
+
+
+def _round_shot_facts(history_data: HistoryData | None, round_id: str) -> list[dict[str, Any]]:
+    if history_data is None:
+        return []
+    requested = str(round_id)
+    rows: list[dict[str, Any]] = []
+    for index, shot in enumerate(history_data.shots):
+        if str(shot.get("roundId")) != requested:
+            continue
+        rows.append(
+            {
+                "shotRef": f"{shot.get('roundId')}:{shot.get('hole')}:{index}",
+                "hole": shot.get("hole"),
+                "club": shot.get("club") or shot.get("clubName"),
+                "distance": shot.get("distance") or shot.get("meters"),
+                "surface": shot.get("surface") or shot.get("endLie"),
+            }
+        )
+    return rows
+
+
+def _round_issue_facts(issues: list[Any], round_id: str) -> list[dict[str, Any]]:
+    requested = str(round_id)
+    rows: list[dict[str, Any]] = []
+    for issue in issues:
+        if not isinstance(issue, dict):
+            continue
+        refs = _as_string_list(issue.get("sourceRefs") or issue.get("refs"))
+        round_refs = [ref for ref in refs if ref == requested or ref.startswith(f"{requested}:")]
+        if not round_refs:
+            continue
+        rows.append(
+            {
+                "issue": issue.get("issue"),
+                "phase": issue.get("phase"),
+                "reason": issue.get("reason"),
+                "confidence": issue.get("confidence"),
+                "source": issue.get("source"),
+                "count": len(round_refs),
+                "refs": round_refs,
+            }
+        )
+    return sorted(rows, key=lambda row: (-int(row.get("count") or 0), str(row.get("issue") or "")))[:8]
 
 
 def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict[str, Any]:

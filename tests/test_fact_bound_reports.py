@@ -4,7 +4,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.llm_providers import LLMMessage
+from ai_caddie.history_stats import build_history_stats
 from ai_caddie.reports import (
     build_round_report_facts,
     build_trend_report_facts,
@@ -77,6 +79,24 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("course_distribution", labels)
         self.assertIn("record_book", labels)
         self.assertIn(report["confidence"], {"low", "medium", "high"})
+
+    def test_round_report_facts_bind_requested_scorecard_holes_shots_and_issues(self) -> None:
+        data = fixture_history_data()
+        stats = build_history_stats(data, data_mode="fixture")
+
+        facts = build_round_report_facts(stats, "900001", history_data=data)
+
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertEqual(by_label["round_scorecard"]["value"]["roundRef"], "900001")
+        self.assertEqual(by_label["round_scorecard"]["value"]["course"], "Black Knight B/C")
+        self.assertEqual(by_label["round_scorecard"]["value"]["score"], 77)
+        self.assertEqual(by_label["round_scorecard"]["value"]["toPar"], 5)
+        self.assertEqual(by_label["round_hole_outcomes"]["value"][0]["holeRef"], "900001:1")
+        self.assertEqual(by_label["round_hole_outcomes"]["value"][0]["toPar"], 0)
+        self.assertEqual(by_label["round_shots"]["value"][0]["shotRef"], "900001:1:0")
+        self.assertEqual(by_label["round_shots"]["value"][0]["club"], "1D")
+        self.assertIn("round_issues", by_label)
+        self.assertNotIn({"label": "round_reference", "reason": "900001 not present in drillDown.roundIds"}, facts["missingData"])
 
     def test_trend_report_facts_bind_period_trends_issues_and_drilldown_refs(self) -> None:
         facts = build_trend_report_facts(

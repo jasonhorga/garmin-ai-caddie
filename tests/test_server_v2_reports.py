@@ -20,7 +20,9 @@ class ServerV2ReportsTests(unittest.TestCase):
     def test_get_round_report_returns_stub_fact_bound_report(self) -> None:
         client = TestClient(app)
 
-        response = client.get("/api/v2/reports/round/900001")
+        with TemporaryDirectory() as tmp:
+            with patch("server_v2.reports.REPORT_ROOT", Path(tmp)):
+                response = client.get("/api/v2/reports/round/900001")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -28,6 +30,10 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(payload["kind"], "round")
         self.assertIn("factsUsed", payload)
         self.assertIn("missingData", payload)
+        labels = {row["label"] for row in payload["factsUsed"]}
+        self.assertIn("round_scorecard", labels)
+        self.assertIn("round_hole_outcomes", labels)
+        self.assertIn("round_shots", labels)
 
     def test_report_facts_include_course_distribution_from_history_stats_api_model(self) -> None:
         client = TestClient(app)
