@@ -43,6 +43,11 @@ function refsFor(row: Record<string, unknown>) {
   return row.roundRefs ?? row.holeRefs ?? row.shotRefs ?? row.sourceRefs ?? row.refs ?? row.roundIds
 }
 
+function refsPreview(row: Record<string, unknown>, limit = 4) {
+  const refs = refsFor(row)
+  return Array.isArray(refs) ? refs.slice(0, limit) : refs
+}
+
 function recordScore(row: Record<string, unknown>) {
   const score = displayNumber(row.score)
   const toPar = displaySigned(row.toPar)
@@ -80,13 +85,16 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const improvement = asRecord(data.time.improvement)
   const phaseStats = asRows(data.scoring.phaseStats)
   const scoringOutcomes = asRecord(data.scoring.outcomes)
-  const outcomeRows = [
-    ['Eagle+', scoringOutcomes.eagleOrBetter, 'eagle'],
-    ['Birdie', scoringOutcomes.birdie, 'birdie'],
-    ['Par', scoringOutcomes.par, 'par'],
-    ['Bogey', scoringOutcomes.bogey, 'bogey'],
-    ['Double+', scoringOutcomes.doubleOrWorse, 'double'],
-  ]
+  const scoreOutcomeRows = asRows(data.scoring.outcomeRows)
+  const outcomeRows = scoreOutcomeRows.length
+    ? scoreOutcomeRows
+    : [
+        { label: 'Eagle+', count: scoringOutcomes.eagleOrBetter, className: 'eagle' },
+        { label: 'Birdie', count: scoringOutcomes.birdie, className: 'birdie' },
+        { label: 'Par', count: scoringOutcomes.par, className: 'par' },
+        { label: 'Bogey', count: scoringOutcomes.bogey, className: 'bogey' },
+        { label: 'Double+', count: scoringOutcomes.doubleOrWorse, className: 'double' },
+      ]
   const courseDistribution = data.courseDistribution.slice(0, 6)
   const courseMix = data.courses.slice(0, 5)
   const records = asRecord(data.records)
@@ -254,10 +262,12 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
             </div>
           </div>
           <div className="score-outcome-grid">
-            {outcomeRows.map(([label, value, className]) => (
-              <span key={String(label)} className={`score-outcome score-${String(className)}`}>
-                <strong>{String(label)}</strong>
-                <b>{displayNumber(value)}</b>
+            {outcomeRows.map((outcome) => (
+              <span key={asString(outcome.key) ?? asString(outcome.label) ?? 'outcome'} className={`score-outcome score-${asString(outcome.className) ?? 'par'}`}>
+                <strong>{asString(outcome.label) ?? 'Outcome'}</strong>
+                <b>{displayNumber(outcome.count)}</b>
+                {asNumber(outcome.pct) !== null ? <em>{displayNumber(outcome.pct)}%</em> : null}
+                <SourceRefs refs={refsPreview(outcome)} onSelectRef={onSelectRef} />
               </span>
             ))}
           </div>

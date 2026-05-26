@@ -942,7 +942,8 @@ p {
 }
 
 .score-outcome strong,
-.score-outcome b {
+.score-outcome b,
+.score-outcome em {
   overflow-wrap: anywhere;
 }
 
@@ -953,6 +954,13 @@ p {
 .score-outcome b {
   font-size: 22px;
   line-height: 1;
+}
+
+.score-outcome em {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  opacity: 0.9;
 }
 
 .course-distribution-map {

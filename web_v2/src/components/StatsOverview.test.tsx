@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { HistoryStatsResponse } from '../types'
 import { StatsOverview } from './StatsOverview'
@@ -58,6 +58,13 @@ const statsFixture: HistoryStatsResponse = {
       parOrBetter: 25,
       bogeyOrWorse: 20,
     },
+    outcomeRows: [
+      { key: 'eagleOrBetter', label: 'Eagle+', className: 'eagle', count: 1, pct: 2.2, holeRefs: ['900001:9'] },
+      { key: 'birdie', label: 'Birdie', className: 'birdie', count: 4, pct: 8.9, holeRefs: ['900002:2'] },
+      { key: 'par', label: 'Par', className: 'par', count: 20, pct: 44.4, holeRefs: ['900003:3'] },
+      { key: 'bogey', label: 'Bogey', className: 'bogey', count: 16, pct: 35.6, holeRefs: ['900004:4'] },
+      { key: 'doubleOrWorse', label: 'Double+', className: 'double', count: 4, pct: 8.9, holeRefs: ['900005:5'] },
+    ],
     phaseStats: [
       { phase: 'Approach', girPct: 42.2, missedGir: 26, holeRefs: ['900001:1'] },
       { phase: 'Putting', averagePutts: 2.1, threePutts: 5, holeRefs: ['900002:5'] },
@@ -129,6 +136,7 @@ describe('StatsOverview', () => {
     expect(screen.getByText('Par')).toBeInTheDocument()
     expect(screen.getByText('Bogey')).toBeInTheDocument()
     expect(screen.getByText('Double+')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Score outcomes')).getByRole('button', { name: 'Open source 900001:9' })).toBeInTheDocument()
     expect(screen.getByText('70s')).toBeInTheDocument()
     expect(screen.getAllByText('2026-05').length).toBeGreaterThan(0)
     expect(screen.getByText('avg 77')).toBeInTheDocument()
