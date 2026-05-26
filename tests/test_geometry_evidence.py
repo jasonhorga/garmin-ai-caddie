@@ -8,6 +8,7 @@ from unittest.mock import patch
 from ai_caddie.geometry_evidence import (
     build_hole_map_dto,
     build_hole_geometry_evidence,
+    classify_shot_surface,
     geometry_coverage_for_course,
     geometry_coverage_for_hole,
 )
@@ -149,6 +150,60 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertGreater(first_coordinate[0], 100.0)
         self.assertGreater(first_coordinate[1], 20.0)
         self.assertNotIn(tmp, str(dto))
+
+    def test_classifies_shot_surface_from_synthetic_geometry_polygons(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h04_hazards.json"
+            mesh = root / "gid31795_h04_meshes.json"
+            hazard.write_text(
+                """
+                {
+                  "refLat": 22.279,
+                  "refLon": 114.162,
+                  "hazards": [
+                    {"id": "water_front", "kind": "water", "polygon": [[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]}
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            mesh.write_text(
+                """
+                {
+                  "surfaces": [
+                    {"id": "green", "kind": "green", "polygon": [[30, 30], [45, 30], [45, 45], [30, 45], [30, 30]]}
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                water = classify_shot_surface(31795, 4, {"ref": "shot-water", "end": {"x": 10, "y": 10}})
+                green = classify_shot_surface(31795, 4, {"ref": "shot-green", "end": {"x": 35, "y": 35}})
+                unknown = classify_shot_surface(31795, 4, {"ref": "shot-unknown", "end": {"x": 80, "y": 80}})
+                evidence = build_hole_geometry_evidence(
+                    {
+                        "globalId": 31795,
+                        "localHole": 4,
+                        "shots": [
+                            {"ref": "shot-water", "end": {"x": 10, "y": 10}},
+                            {"ref": "shot-green", "end": {"x": 35, "y": 35}},
+                        ],
+                    }
+                )
+
+        self.assertEqual(water["surface"]["kind"], "water")
+        self.assertEqual(water["surface"]["source"], "hazard")
+        self.assertEqual(water["surface"]["id"], "water_front")
+        self.assertEqual(green["surface"]["kind"], "green")
+        self.assertEqual(green["surface"]["source"], "mesh")
+        self.assertEqual(unknown["surface"]["kind"], "unknown")
+        self.assertEqual(unknown["missingData"][0]["label"], "surface_match")
+        self.assertEqual([row["surface"]["kind"] for row in evidence["surfaceClassifications"]], ["water", "green"])
 
 
 if __name__ == "__main__":
