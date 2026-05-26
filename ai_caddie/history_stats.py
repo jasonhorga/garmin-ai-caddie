@@ -751,15 +751,20 @@ def _course_distribution(data: HistoryData) -> list[dict[str, Any]]:
 def _round_record(row: dict[str, Any]) -> dict[str, Any]:
     score = row.get("strokes")
     par = row.get("par")
-    return {
-        "roundRef": _round_id(row),
-        "courseKey": row.get("courseKey"),
-        "courseName": str(row.get("course") or row.get("courseName") or "Unknown course"),
-        "date": row.get("date"),
-        "score": int(score) if score is not None else None,
-        "par": int(par) if par is not None else None,
-        "toPar": int(score) - int(par) if score is not None and par is not None else None,
-    }
+    round_ref = _round_id(row)
+    return _with_aggregate_contract(
+        {
+            "roundRef": round_ref,
+            "courseKey": row.get("courseKey"),
+            "courseName": str(row.get("course") or row.get("courseName") or "Unknown course"),
+            "date": row.get("date"),
+            "score": int(score) if score is not None else None,
+            "par": int(par) if par is not None else None,
+            "toPar": int(score) - int(par) if score is not None and par is not None else None,
+        },
+        [round_ref],
+        total=1,
+    )
 
 
 def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -806,18 +811,28 @@ def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
         "bestNine": _round_record(min(rounds9, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds9 else None,
         "mostPlayedCourse": courses[0] if courses else None,
         "longestShots": [
-            {
-                "shotRef": str(shot.get("_ref")),
-                "roundRef": _shot_round_id(shot),
-                "holeRef": f"{_shot_round_id(shot)}:{shot.get('hole')}",
-                "club": _shot_club(shot),
-                "distance": float(_shot_distance(shot)),
-                "surface": _shot_surface(shot),
-            }
+            _with_aggregate_contract(
+                {
+                    "shotRef": str(shot.get("_ref")),
+                    "roundRef": _shot_round_id(shot),
+                    "holeRef": f"{_shot_round_id(shot)}:{shot.get('hole')}",
+                    "club": _shot_club(shot),
+                    "distance": float(_shot_distance(shot)),
+                    "surface": _shot_surface(shot),
+                },
+                [shot.get("_ref")],
+                total=1,
+            )
             for shot in sorted(shots, key=lambda item: (-float(item.get("distance") or 0), str(item.get("_ref"))))[:5]
         ],
-        "bestHoleOutcomes": sorted(hole_outcomes, key=lambda item: (int(item["toPar"]), int(item["score"]), str(item["holeRef"])))[:5],
-        "worstHoleOutcomes": sorted(hole_outcomes, key=lambda item: (-int(item["toPar"]), -int(item["score"]), str(item["holeRef"])))[:5],
+        "bestHoleOutcomes": [
+            _with_aggregate_contract(dict(item), [item.get("holeRef")], total=1)
+            for item in sorted(hole_outcomes, key=lambda item: (int(item["toPar"]), int(item["score"]), str(item["holeRef"])))[:5]
+        ],
+        "worstHoleOutcomes": [
+            _with_aggregate_contract(dict(item), [item.get("holeRef")], total=1)
+            for item in sorted(hole_outcomes, key=lambda item: (-int(item["toPar"]), -int(item["score"]), str(item["holeRef"])))[:5]
+        ],
     }
 
 
@@ -831,14 +846,18 @@ def _hole_score_distribution(bucket_refs: dict[str, list[str]]) -> list[dict[str
     ]
     total = sum(len(refs) for refs in bucket_refs.values())
     return [
-        {
-            "key": key,
-            "label": label,
-            "className": class_name,
-            "count": len(bucket_refs.get(key, [])),
-            "pct": round(len(bucket_refs.get(key, [])) / total * 100, 1) if total else 0.0,
-            "holeRefs": bucket_refs.get(key, []),
-        }
+        _with_aggregate_contract(
+            {
+                "key": key,
+                "label": label,
+                "className": class_name,
+                "count": len(bucket_refs.get(key, [])),
+                "pct": round(len(bucket_refs.get(key, [])) / total * 100, 1) if total else 0.0,
+                "holeRefs": bucket_refs.get(key, []),
+            },
+            bucket_refs.get(key, []),
+            total=total,
+        )
         for key, label, class_name in ordered
     ]
 

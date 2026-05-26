@@ -22,8 +22,28 @@ const statsFixture: HistoryStatsResponse = {
       geometryCoverage: 'missing',
       scoreDistribution: [
         { key: 'par', label: 'Par', className: 'par', count: 0, pct: 0, holeRefs: [] },
-        { key: 'bogey', label: 'Bogey', className: 'bogey', count: 1, pct: 50, holeRefs: ['900001:7'] },
-        { key: 'doubleOrWorse', label: 'Double+', className: 'double', count: 1, pct: 50, holeRefs: ['900002:7'] },
+        {
+          key: 'bogey',
+          label: 'Bogey',
+          className: 'bogey',
+          count: 1,
+          pct: 50,
+          holeRefs: ['900001:7'],
+          sourceRefs: ['900001:7'],
+          coverage: { ready: 1, total: 2, pct: 50 },
+          confidence: 'low',
+        },
+        {
+          key: 'doubleOrWorse',
+          label: 'Double+',
+          className: 'double',
+          count: 1,
+          pct: 50,
+          holeRefs: ['900002:7'],
+          sourceRefs: ['900002:7'],
+          coverage: { ready: 1, total: 2, pct: 50 },
+          confidence: 'low',
+        },
       ],
       repeatedIssues: [
         {
@@ -61,6 +81,8 @@ describe('HoleStats', () => {
     expect(screen.getByText('Double+')).toBeInTheDocument()
     expect(screen.getAllByText('1')[0]).toBeInTheDocument()
     expect(screen.getAllByText('50%')).toHaveLength(2)
+    expect(screen.getAllByText('coverage 1/2 50%')).toHaveLength(2)
+    expect(screen.getAllByText('low confidence')).toHaveLength(2)
     expect(screen.getByText('double_or_worse')).toBeInTheDocument()
     expect(screen.getByText('Course Management')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001:7' })).toHaveLength(2)

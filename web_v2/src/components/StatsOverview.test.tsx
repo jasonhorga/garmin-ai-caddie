@@ -81,12 +81,12 @@ const statsFixture: HistoryStatsResponse = {
     },
   ],
   records: {
-    best18: { score: 77, toPar: 5, roundRef: '900001' },
-    worst18: { score: 95, toPar: 23, roundRef: '900002' },
-    bestNine: { score: 38, toPar: 2, roundRef: '900003' },
+    best18: { score: 77, toPar: 5, roundRef: '900001', sourceRefs: ['900001'], coverage: { ready: 1, total: 1, pct: 100 }, confidence: 'low' },
+    worst18: { score: 95, toPar: 23, roundRef: '900002', sourceRefs: ['900002'], coverage: { ready: 1, total: 1, pct: 100 }, confidence: 'low' },
+    bestNine: { score: 38, toPar: 2, roundRef: '900003', sourceRefs: ['900003'], coverage: { ready: 1, total: 1, pct: 100 }, confidence: 'low' },
     mostPlayedCourse: { courseKey: 'black_knight', courseName: 'Black Knight B/C', roundCount: 2, roundRefs: ['900001', '900002'] },
-    longestShots: [{ club: '1D', distance: 238, shotRef: '900001:1:0' }],
-    bestHoleOutcomes: [{ holeRef: '900003:2', toPar: -1, score: 4, par: 5 }],
+    longestShots: [{ club: '1D', distance: 238, shotRef: '900001:1:0', sourceRefs: ['900001:1:0'], coverage: { ready: 1, total: 1, pct: 100 }, confidence: 'low' }],
+    bestHoleOutcomes: [{ holeRef: '900003:2', toPar: -1, score: 4, par: 5, sourceRefs: ['900003:2'], coverage: { ready: 1, total: 1, pct: 100 }, confidence: 'low' }],
   },
   courses: [
     {
@@ -180,6 +180,9 @@ describe('StatsOverview', () => {
     expect(screen.getByText('38 / +2')).toBeInTheDocument()
     expect(screen.getByText('Longest shot')).toBeInTheDocument()
     expect(screen.getByText('1D 238m')).toBeInTheDocument()
+    const recordBook = screen.getByLabelText('Record book')
+    expect(within(recordBook).getAllByText('coverage 1/1 100%').length).toBeGreaterThan(0)
+    expect(within(recordBook).getAllByText('low confidence').length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Open source 900001:1:0' })).toBeInTheDocument()
   })
 })

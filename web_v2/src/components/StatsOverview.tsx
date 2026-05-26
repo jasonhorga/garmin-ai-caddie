@@ -40,7 +40,10 @@ function roundLabel(value: unknown) {
 }
 
 function refsFor(row: Record<string, unknown>) {
-  return row.roundRefs ?? row.holeRefs ?? row.shotRefs ?? row.sourceRefs ?? row.refs ?? row.roundIds
+  const refs = row.roundRefs ?? row.holeRefs ?? row.shotRefs ?? row.sourceRefs ?? row.refs ?? row.roundIds
+  if (refs) return refs
+  const singular = row.roundRef ?? row.holeRef ?? row.shotRef
+  return singular ? [singular] : []
 }
 
 function refsPreview(row: Record<string, unknown>, limit = 4) {
@@ -52,6 +55,27 @@ function recordScore(row: Record<string, unknown>) {
   const score = displayNumber(row.score)
   const toPar = displaySigned(row.toPar)
   return `${score} / ${toPar}`
+}
+
+function metadataCoverage(value: unknown): string | null {
+  const row = asRecord(value)
+  const ready = asNumber(row.ready)
+  const total = asNumber(row.total)
+  const pct = asNumber(row.pct)
+  if (ready === null || total === null) return null
+  return `coverage ${ready}/${total}${pct === null ? '' : ` ${pct}%`}`
+}
+
+function AggregateMeta({ row }: { row: Record<string, unknown> }) {
+  const coverage = metadataCoverage(row.coverage)
+  const confidence = asString(row.confidence)
+  if (!coverage && !confidence) return null
+  return (
+    <span className="aggregate-meta">
+      {coverage ? <span className="fact-chip muted">{coverage}</span> : null}
+      {confidence ? <span className="fact-chip muted">{confidence} confidence</span> : null}
+    </span>
+  )
 }
 
 function phaseFact(row: Record<string, unknown>) {
@@ -440,34 +464,52 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
             <div className="stat-row">
               <span>Best 18</span>
               <b>{recordScore(best18)}</b>
-              <SourceRefs refs={best18.roundRef ? [String(best18.roundRef)] : []} onSelectRef={onSelectRef} />
+              <span className="record-evidence">
+                <AggregateMeta row={best18} />
+                <SourceRefs refs={refsFor(best18)} onSelectRef={onSelectRef} />
+              </span>
             </div>
             <div className="stat-row">
               <span>Worst 18</span>
               <b>{recordScore(worst18)}</b>
-              <SourceRefs refs={worst18.roundRef ? [String(worst18.roundRef)] : []} onSelectRef={onSelectRef} />
+              <span className="record-evidence">
+                <AggregateMeta row={worst18} />
+                <SourceRefs refs={refsFor(worst18)} onSelectRef={onSelectRef} />
+              </span>
             </div>
             <div className="stat-row">
               <span>Best 9</span>
               <b>{recordScore(bestNine)}</b>
-              <SourceRefs refs={bestNine.roundRef ? [String(bestNine.roundRef)] : []} onSelectRef={onSelectRef} />
+              <span className="record-evidence">
+                <AggregateMeta row={bestNine} />
+                <SourceRefs refs={refsFor(bestNine)} onSelectRef={onSelectRef} />
+              </span>
             </div>
             <div className="stat-row">
               <span>Most played</span>
               <b>{asString(mostPlayedCourse.courseName) ?? '-'}</b>
-              <SourceRefs refs={refsFor(mostPlayedCourse)} onSelectRef={onSelectRef} />
+              <span className="record-evidence">
+                <AggregateMeta row={mostPlayedCourse} />
+                <SourceRefs refs={refsFor(mostPlayedCourse)} onSelectRef={onSelectRef} />
+              </span>
             </div>
             <div className="stat-row">
               <span>Longest shot</span>
               <b>
                 {asString(longestShot.club) ?? '-'} {displayNumber(longestShot.distance)}m
               </b>
-              <SourceRefs refs={longestShot.shotRef ? [String(longestShot.shotRef)] : []} onSelectRef={onSelectRef} />
+              <span className="record-evidence">
+                <AggregateMeta row={longestShot} />
+                <SourceRefs refs={refsFor(longestShot)} onSelectRef={onSelectRef} />
+              </span>
             </div>
             <div className="stat-row">
               <span>Best hole</span>
               <b>{recordScore(bestHole)}</b>
-              <SourceRefs refs={bestHole.holeRef ? [String(bestHole.holeRef)] : []} onSelectRef={onSelectRef} />
+              <span className="record-evidence">
+                <AggregateMeta row={bestHole} />
+                <SourceRefs refs={refsFor(bestHole)} onSelectRef={onSelectRef} />
+              </span>
             </div>
           </div>
         </section>
