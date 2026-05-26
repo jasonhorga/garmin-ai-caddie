@@ -418,6 +418,54 @@ function drilldownPayload() {
   }
 }
 
+function roundDrilldownPayload() {
+  return {
+    schema: 'ai-caddie-history-drilldown-v1',
+    ref: '900001',
+    refType: 'round',
+    found: true,
+    title: 'Black Knight B - 2026-05-18',
+    round: { id: '900001', score: 77 },
+    hole: null,
+    shot: null,
+    relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:1'], shotRefs: ['900001:1:0'] },
+    sourceFields: { id: '900001', strokes: 77 },
+    missingData: [],
+  }
+}
+
+function overviewRoundDrilldownPayload() {
+  return {
+    schema: 'ai-caddie-history-drilldown-v1',
+    ref: '1',
+    refType: 'round',
+    found: true,
+    title: 'Black Knight B',
+    round: { id: '1', score: 82 },
+    hole: null,
+    shot: null,
+    relatedRefs: { roundRefs: ['1'], holeRefs: ['1:1'], shotRefs: ['1:1:0'] },
+    sourceFields: { id: '1', strokes: 82 },
+    missingData: [],
+  }
+}
+
+function overviewHoleDrilldownPayload() {
+  return {
+    schema: 'ai-caddie-history-drilldown-v1',
+    ref: '1:1',
+    refType: 'hole',
+    found: true,
+    title: 'Black Knight B H1',
+    round: { id: '1', score: 82 },
+    hole: { number: 1, par: 4, strokes: 4 },
+    shot: null,
+    relatedRefs: { roundRefs: ['1'], holeRefs: ['1:1'], shotRefs: ['1:1:0'] },
+    sourceFields: { number: 1, strokes: 4 },
+    missingData: [],
+  }
+}
+
 function holeDrilldownPayload() {
   return {
     schema: 'ai-caddie-history-drilldown-v1',
@@ -514,6 +562,7 @@ describe('App navigation', () => {
       json: async () => {
         if (path === '/api/v2/history/stats') return statsPayload()
         if (path === '/api/v2/history/drilldown/900001%3A1%3A0') return drilldownPayload()
+        if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayload()
       },
@@ -538,6 +587,10 @@ describe('App navigation', () => {
     expect(screen.getByText('1D on H1')).toBeInTheDocument()
     expect(screen.getByText('geometry')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A0')
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001' }))
+
+    expect(await screen.findByText('Black Knight B - 2026-05-18')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001')
 
     await userEvent.click(screen.getByRole('button', { name: 'Issues' }))
 
@@ -551,7 +604,8 @@ describe('App navigation', () => {
       ok: true,
       json: async () => {
         if (path === '/api/v2/history/rounds') return roundsPayload()
-        if (path === '/api/v2/history/drilldown/1') return { ...drilldownPayload(), ref: '1', refType: 'round', title: 'Black Knight B' }
+        if (path === '/api/v2/history/drilldown/1%3A1') return overviewHoleDrilldownPayload()
+        if (path === '/api/v2/history/drilldown/1') return overviewRoundDrilldownPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayloadWithRoundRefs()
       },
@@ -566,6 +620,10 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
     expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(1)
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1')
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 1:1' }))
+
+    expect(await screen.findByText('Black Knight B H1')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1%3A1')
 
     await userEvent.click(screen.getByRole('button', { name: 'Rounds' }))
     expect(await screen.findByRole('heading', { name: 'Rounds' })).toBeInTheDocument()

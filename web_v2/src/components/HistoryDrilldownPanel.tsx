@@ -1,4 +1,5 @@
 import type { HistoryDrilldownResponse } from '../types'
+import { SourceRefs } from './SourceRefs'
 
 export type HistoryDrilldownPanelState =
   | { status: 'idle' }
@@ -8,6 +9,7 @@ export type HistoryDrilldownPanelState =
 
 interface HistoryDrilldownPanelProps {
   state: HistoryDrilldownPanelState
+  onSelectRef?: (sourceRef: string) => void
 }
 
 function valueText(value: unknown): string {
@@ -41,7 +43,56 @@ function DetailRows({ title, record }: { title: string; record: Record<string, u
   )
 }
 
-export function HistoryDrilldownPanel({ state }: HistoryDrilldownPanelProps) {
+function MissingDataRows({ rows }: { rows: Array<Record<string, unknown>> }) {
+  if (rows.length === 0) return null
+
+  return (
+    <section className="drilldown-block" aria-label="Missing data">
+      <h3>Missing Data</h3>
+      <div className="drilldown-rows">
+        {rows.map((row, index) => (
+          <div key={`${valueText(row.label)}-${index}`} className="drilldown-row">
+            <span>{valueText(row.label)}</span>
+            <b>{valueText(row.state ?? row.reason ?? row.value)}</b>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function RelatedRefs({
+  relatedRefs,
+  onSelectRef,
+}: {
+  relatedRefs: HistoryDrilldownResponse['relatedRefs']
+  onSelectRef?: (sourceRef: string) => void
+}) {
+  const groups = [
+    ['Rounds', relatedRefs.roundRefs],
+    ['Holes', relatedRefs.holeRefs],
+    ['Shots', relatedRefs.shotRefs],
+  ] as const
+  if (!groups.some(([, refs]) => refs.length > 0)) return null
+
+  return (
+    <section className="drilldown-block" aria-label="Related sources">
+      <h3>Related Sources</h3>
+      <div className="drilldown-rows">
+        {groups.map(([label, refs]) => (
+          <div key={label} className="drilldown-row">
+            <span>{label}</span>
+            <b>
+              <SourceRefs refs={refs} onSelectRef={onSelectRef} />
+            </b>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+export function HistoryDrilldownPanel({ state, onSelectRef }: HistoryDrilldownPanelProps) {
   if (state.status === 'idle') return null
 
   if (state.status === 'loading') {
@@ -69,7 +120,7 @@ export function HistoryDrilldownPanel({ state }: HistoryDrilldownPanelProps) {
       <div className="drilldown-title-row">
         <div>
           <p className="eyebrow">Evidence Drill-Down</p>
-          <h2>Source Detail</h2>
+          <h2>{data.found ? 'Source Detail' : 'Source Unavailable'}</h2>
           <p>{data.title}</p>
         </div>
         <div className="drilldown-meta">
@@ -86,19 +137,8 @@ export function HistoryDrilldownPanel({ state }: HistoryDrilldownPanelProps) {
         <DetailRows title="Source Fields" record={data.sourceFields} />
       </div>
 
-      {data.missingData.length ? (
-        <section className="drilldown-block" aria-label="Missing data">
-          <h3>Missing Data</h3>
-          <div className="drilldown-rows">
-            {data.missingData.map((row, index) => (
-              <div key={`${valueText(row.label)}-${index}`} className="drilldown-row">
-                <span>{valueText(row.label)}</span>
-                <b>{valueText(row.state)}</b>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <RelatedRefs relatedRefs={data.relatedRefs} onSelectRef={onSelectRef} />
+      <MissingDataRows rows={data.missingData} />
     </section>
   )
 }

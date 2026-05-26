@@ -233,7 +233,7 @@ export default function App() {
     if (drilldownState.status === 'idle' && holeEvidenceState.status === 'idle') return null
     return (
       <div className="app-shell">
-        <HistoryDrilldownPanel state={drilldownState} />
+        <HistoryDrilldownPanel state={drilldownState} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
         {holeEvidenceState.status === 'idle' ? null : <HoleEvidencePanel state={holeEvidenceState} />}
       </div>
     )
@@ -475,7 +475,7 @@ export default function App() {
           <main className="app-shell">
             <ProductNav activePage={activePage} onNavigate={navigate} />
             {renderStatsContent(statsState.data)}
-            <HistoryDrilldownPanel state={drilldownState} />
+            <HistoryDrilldownPanel state={drilldownState} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
             {holeEvidenceState.status === 'idle' ? null : <HoleEvidencePanel state={holeEvidenceState} />}
           </main>
         </>
