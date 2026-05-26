@@ -23,6 +23,8 @@ import {
   generateTrendReport,
   fetchVisionFindingsForTarget,
   fetchSyncStatus,
+  fetchMobileReconciliation,
+  applyMobileReconciliationSuggestions,
   runGarminSync,
   saveGarminSession,
 } from './api'
@@ -651,6 +653,89 @@ describe('fetchReadiness', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v2/readiness')
     expect(data.schema).toBe('ai-caddie-readiness-v1')
     expect(data.checks[0].label).toBe('history')
+  })
+})
+
+describe('mobile reconciliation API helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads mobile reconciliation for a round with encoded ids', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-mobile-reconciliation-v1',
+        roundId: 'round:1',
+        summary: {
+          eventCount: 1,
+          matchedCount: 0,
+          localOnlyCount: 0,
+          garminOnlyCount: 0,
+          conflictCount: 1,
+          candidateDecisionAuditCount: 0,
+          annotationSuggestionCount: 1,
+        },
+        matched: [],
+        localOnly: [],
+        garminOnly: [],
+        conflicts: [{ eventId: 'score-conflict', kind: 'score', hole: 1, localValue: 5, garminValue: 4, ref: 'round:1:1' }],
+        candidateDecisionAudits: [],
+        annotationSuggestions: [
+          {
+            id: 'score-conflict:score-correction',
+            targetType: 'hole',
+            targetId: 'round:1:1',
+            kind: 'score_correction',
+            payload: { from: 4, to: 5, sourceEventId: 'score-conflict' },
+            reason: 'Local score input can correct the derived score for this hole.',
+            confidence: 'medium',
+          },
+        ],
+      }),
+    }))
+
+    const data = await fetchMobileReconciliation('round:1')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/mobile/rounds/round%3A1/reconciliation')
+    expect(data.schema).toBe('ai-caddie-mobile-reconciliation-v1')
+    expect(data.annotationSuggestions[0].kind).toBe('score_correction')
+  })
+
+  it('applies selected mobile reconciliation suggestions', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-mobile-reconciliation-apply-v1',
+        roundId: '900001',
+        appliedCount: 1,
+        skippedCount: 0,
+        missingSuggestionIds: [],
+        skippedSuggestionIds: [],
+        annotations: [
+          {
+            id: 'ann-1',
+            createdAt: '2026-05-25T11:00:00Z',
+            targetType: 'hole',
+            targetId: '900001:1',
+            kind: 'putt_correction',
+            payload: { from: 2, to: 3, sourceSuggestionId: 'putt-conflict:putt-correction' },
+            source: 'manual',
+          },
+        ],
+      }),
+    }))
+
+    const data = await applyMobileReconciliationSuggestions('900001', ['putt-conflict:putt-correction'])
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suggestionIds: ['putt-conflict:putt-correction'] }),
+    })
+    expect(data.appliedCount).toBe(1)
+    expect(data.annotations[0].kind).toBe('putt_correction')
   })
 })
 

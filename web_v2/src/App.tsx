@@ -15,12 +15,14 @@ import {
   fetchHistoryRounds,
   fetchHistoryStats,
   fetchReadiness,
+  fetchMobileReconciliation,
   fetchRoundReport,
   fetchTrendReport,
   fetchVisionFindingsForTarget,
   fetchWeatherSnapshot,
   generateRoundReport,
   generateTrendReport,
+  applyMobileReconciliationSuggestions,
   fetchSyncStatus,
   runGarminSync,
   saveGarminSession,
@@ -36,6 +38,11 @@ import { HistoryTimeline } from './components/HistoryTimeline'
 import { HoleEvidencePanel, type HoleEvidenceState } from './components/HoleEvidencePanel'
 import { HoleStats } from './components/HoleStats'
 import { IssueStats } from './components/IssueStats'
+import {
+  MobileReconciliationPanel,
+  type MobileReconciliationApplyState,
+  type MobileReconciliationPanelState,
+} from './components/MobileReconciliationPanel'
 import { ProductNav } from './components/ProductNav'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
@@ -61,6 +68,8 @@ import type {
   ReadinessResponse,
   ReviewReportResponse,
   GarminSessionImportRequest,
+  MobileReconciliationApplyResponse,
+  MobileReconciliationResponse,
   SyncStatusResponse,
   WeatherSnapshotResponse,
 } from './types'
@@ -82,6 +91,8 @@ export default function App() {
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [readinessState, setReadinessState] = useState<DeferredLoadState<ReadinessResponse>>({ status: 'idle' })
+  const [mobileReconciliationState, setMobileReconciliationState] = useState<MobileReconciliationPanelState>({ status: 'idle' })
+  const [mobileReconciliationApplyState, setMobileReconciliationApplyState] = useState<MobileReconciliationApplyState>({ status: 'idle' })
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
   const [decisionAuditState, setDecisionAuditState] = useState<DeferredLoadState<CaddieDecisionAuditRecord | null>>({ status: 'idle' })
   const [weatherState, setWeatherState] = useState<DeferredLoadState<WeatherSnapshotResponse>>({ status: 'idle' })
@@ -302,6 +313,12 @@ export default function App() {
               sessionSaveError={sessionSaveError}
             />
           ) : null}
+          <MobileReconciliationPanel
+            state={mobileReconciliationState}
+            applyState={mobileReconciliationApplyState}
+            onLoad={(roundId) => void handleLoadMobileReconciliation(roundId)}
+            onApply={(roundId, suggestionIds) => void handleApplyMobileReconciliation(roundId, suggestionIds)}
+          />
           {readinessState.status === 'ready' ? <ReadinessPanel readiness={readinessState.data} /> : null}
           {readinessState.status === 'error' ? <ReadinessPanel readiness={null} error={readinessState.message} /> : null}
           <DataQualityPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
@@ -335,6 +352,38 @@ export default function App() {
 
   function handleGenerateRoundReport(roundId: string) {
     void loadReport(() => generateRoundReport(roundId))
+  }
+
+  async function handleLoadMobileReconciliation(roundId: string): Promise<MobileReconciliationResponse | null> {
+    setMobileReconciliationState({ status: 'loading', roundId })
+    setMobileReconciliationApplyState({ status: 'idle' })
+    try {
+      const data = await fetchMobileReconciliation(roundId)
+      setMobileReconciliationState({ status: 'ready', data })
+      return data
+    } catch (error: unknown) {
+      setMobileReconciliationState({
+        status: 'error',
+        roundId,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      })
+      return null
+    }
+  }
+
+  async function handleApplyMobileReconciliation(
+    roundId: string,
+    suggestionIds: string[],
+  ): Promise<MobileReconciliationApplyResponse | null> {
+    setMobileReconciliationApplyState({ status: 'applying' })
+    try {
+      const data = await applyMobileReconciliationSuggestions(roundId, suggestionIds)
+      setMobileReconciliationApplyState({ status: 'ready', data })
+      return data
+    } catch (error: unknown) {
+      setMobileReconciliationApplyState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+      return null
+    }
   }
 
   async function handleRequestCaddieDecision(request: CaddieDecisionRequest) {

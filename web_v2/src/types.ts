@@ -457,6 +457,48 @@ export interface GarminSessionImportResponse {
   source: 'manual_paste'
 }
 
+export interface MobileReconciliationSummary {
+  eventCount: number
+  matchedCount: number
+  localOnlyCount: number
+  garminOnlyCount: number
+  conflictCount: number
+  candidateDecisionAuditCount: number
+  annotationSuggestionCount: number
+}
+
+export interface MobileReconciliationSuggestion {
+  id: string
+  targetType: AnnotationTargetType
+  targetId: string
+  kind: AnnotationKind
+  payload: Record<string, unknown>
+  reason: string
+  confidence: ReportConfidence
+}
+
+export interface MobileReconciliationResponse {
+  schema: 'ai-caddie-mobile-reconciliation-v1'
+  roundId: string
+  summary: MobileReconciliationSummary
+  matched: Array<Record<string, unknown>>
+  localOnly: Array<Record<string, unknown>>
+  garminOnly: Array<Record<string, unknown>>
+  conflicts: Array<Record<string, unknown>>
+  candidateDecisionAudits: Array<Record<string, unknown>>
+  annotationSuggestions: MobileReconciliationSuggestion[]
+}
+
+export interface MobileReconciliationApplyResponse {
+  schema: 'ai-caddie-mobile-reconciliation-apply-v1'
+  roundId: string
+  appliedCount: number
+  skippedCount: number
+  missingSuggestionIds: string[]
+  skippedSuggestionIds: string[]
+  annotations: AnnotationRecord[]
+}
+
 export type ReadinessState = 'ready' | 'degraded' | 'error'
 
 export interface ReadinessCheck {

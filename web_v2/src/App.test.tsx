@@ -173,6 +173,60 @@ function readinessPayload() {
   }
 }
 
+function mobileReconciliationPayload() {
+  return {
+    schema: 'ai-caddie-mobile-reconciliation-v1',
+    roundId: '900001',
+    summary: {
+      eventCount: 1,
+      matchedCount: 0,
+      localOnlyCount: 0,
+      garminOnlyCount: 0,
+      conflictCount: 1,
+      candidateDecisionAuditCount: 0,
+      annotationSuggestionCount: 1,
+    },
+    matched: [],
+    localOnly: [],
+    garminOnly: [],
+    conflicts: [{ eventId: 'score-conflict', kind: 'score', hole: 1, localValue: 5, garminValue: 4, ref: '900001:1' }],
+    candidateDecisionAudits: [],
+    annotationSuggestions: [
+      {
+        id: 'score-conflict:score-correction',
+        targetType: 'hole',
+        targetId: '900001:1',
+        kind: 'score_correction',
+        payload: { from: 4, to: 5, sourceEventId: 'score-conflict' },
+        reason: 'Local score input can correct the derived score for this hole.',
+        confidence: 'medium',
+      },
+    ],
+  }
+}
+
+function mobileReconciliationApplyPayload() {
+  return {
+    schema: 'ai-caddie-mobile-reconciliation-apply-v1',
+    roundId: '900001',
+    appliedCount: 1,
+    skippedCount: 0,
+    missingSuggestionIds: [],
+    skippedSuggestionIds: [],
+    annotations: [
+      {
+        id: 'ann-mobile-1',
+        createdAt: '2026-05-25T11:00:00Z',
+        targetType: 'hole',
+        targetId: '900001:1',
+        kind: 'score_correction',
+        payload: { from: 4, to: 5, sourceSuggestionId: 'score-conflict:score-correction' },
+        source: 'manual',
+      },
+    ],
+  }
+}
+
 function annotationsPayload() {
   return {
     schema: 'ai-caddie-annotations-v1',
@@ -711,13 +765,17 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/trend/recent_10')
   })
 
-  it('opens the sync and data quality workspace', async () => {
-    const fetchMock = vi.fn(async (path: string) => ({
+  it('opens the sync and data quality workspace and applies mobile reconciliation suggestions', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
         if (path === '/api/v2/history/stats') return statsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/readiness') return readinessPayload()
+        if (path === '/api/v2/mobile/rounds/900001/reconciliation') return mobileReconciliationPayload()
+        if (path === '/api/v2/mobile/rounds/900001/reconciliation/apply' && init?.method === 'POST') {
+          return mobileReconciliationApplyPayload()
+        }
         return overviewPayload()
       },
     }))
@@ -735,8 +793,21 @@ describe('App navigation', () => {
     expect(screen.getByText('dataMode: fixture')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Data Quality' })).toBeInTheDocument()
     expect(screen.getByText('shots')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Mobile Reconciliation' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Review offline events' }))
+    expect(await screen.findByText('Local score input can correct the derived score for this hole.')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Apply selected suggestions' }))
+    expect(await screen.findByText('Applied 1 suggestions')).toBeInTheDocument()
+
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/mobile/rounds/900001/reconciliation/apply',
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 
   it('loads hole geometry evidence after selecting a hole source ref', async () => {

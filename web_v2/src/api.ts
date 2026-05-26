@@ -23,6 +23,8 @@ import type {
   MediaCreateResponse,
   MediaListResponse,
   MediaTargetType,
+  MobileReconciliationApplyResponse,
+  MobileReconciliationResponse,
   ReadinessResponse,
   ReviewReportResponse,
   SyncRunResponse,
@@ -209,6 +211,20 @@ export function fetchSyncStatus(): Promise<SyncStatusResponse> {
 
 export function fetchReadiness(): Promise<ReadinessResponse> {
   return getJson<ReadinessResponse>('/api/v2/readiness')
+}
+
+export function fetchMobileReconciliation(roundId: string): Promise<MobileReconciliationResponse> {
+  return getJson<MobileReconciliationResponse>(`/api/v2/mobile/rounds/${encodeURIComponent(roundId)}/reconciliation`)
+}
+
+export function applyMobileReconciliationSuggestions(
+  roundId: string,
+  suggestionIds: string[],
+): Promise<MobileReconciliationApplyResponse> {
+  return postJson<MobileReconciliationApplyResponse>(
+    `/api/v2/mobile/rounds/${encodeURIComponent(roundId)}/reconciliation/apply`,
+    { suggestionIds },
+  )
 }
 
 export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: boolean }): Promise<SyncRunResponse> {
