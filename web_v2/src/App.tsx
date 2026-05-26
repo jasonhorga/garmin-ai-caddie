@@ -166,7 +166,7 @@ export default function App() {
     }
     if (page === 'corrections' && annotationsState.status === 'idle') {
       setAnnotationsState({ status: 'loading' })
-      fetchAnnotations()
+      fetchAnnotations(currentAdminToken())
         .then((data) => setAnnotationsState({ status: 'ready', data }))
         .catch((error: unknown) =>
           setAnnotationsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),

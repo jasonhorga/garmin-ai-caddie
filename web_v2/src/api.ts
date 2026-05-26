@@ -271,8 +271,8 @@ export function saveGarminSession(request: GarminSessionImportRequest, adminToke
   return postJson<GarminSessionImportResponse>('/api/v2/sync/garmin/session', request, adminToken)
 }
 
-export function fetchAnnotations(): Promise<AnnotationListResponse> {
-  return getJson<AnnotationListResponse>('/api/v2/annotations')
+export function fetchAnnotations(adminToken?: string): Promise<AnnotationListResponse> {
+  return getJson<AnnotationListResponse>('/api/v2/annotations', adminToken)
 }
 
 export function createAnnotation(request: AnnotationCreateRequest, adminToken?: string): Promise<AnnotationCreateResponse> {
@@ -282,8 +282,10 @@ export function createAnnotation(request: AnnotationCreateRequest, adminToken?: 
 export function fetchAnnotationsForTarget(
   targetType: AnnotationTargetType,
   targetId: string,
+  adminToken?: string,
 ): Promise<AnnotationListResponse> {
   return getJson<AnnotationListResponse>(
     `/api/v2/annotations/target/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}`,
+    adminToken,
   )
 }

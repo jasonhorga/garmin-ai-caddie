@@ -1264,4 +1264,26 @@ describe('annotation API helpers', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v2/annotations/target/hole/round-1%3A7')
     expect(data.target).toEqual({ targetType: 'hole', targetId: 'round-1:7' })
   })
+
+  it('sends the admin token header for protected annotation reads', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-annotations-v1',
+        total: 0,
+        target: null,
+        annotations: [],
+      }),
+    }))
+
+    await fetchAnnotations('admin-secret')
+    await fetchAnnotationsForTarget('hole', 'round-1:7', 'admin-secret')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/annotations', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/annotations/target/hole/round-1%3A7', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
 })

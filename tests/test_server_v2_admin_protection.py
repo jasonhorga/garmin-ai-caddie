@@ -82,6 +82,14 @@ def _annotation_response() -> dict[str, object]:
     }
 
 
+def _annotation_list_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-annotations-v1",
+        "total": 1,
+        "annotations": [_annotation_response()["annotation"]],
+    }
+
+
 def _media_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-media-create-v1",
@@ -385,6 +393,25 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         media_handler.assert_not_called()
         findings_handler.assert_not_called()
         self.assertNotIn("admin-secret", media.text + findings.text)
+
+    def test_admin_token_required_for_annotation_reads_when_configured(self) -> None:
+        client = TestClient(app)
+        annotations_handler = Mock(return_value=_annotation_list_response())
+        target_handler = Mock(return_value=_annotation_list_response())
+
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.list_annotation_response", annotations_handler),
+            patch("server_v2.main.list_target_annotation_response", target_handler),
+        ):
+            annotations = client.get("/api/v2/annotations")
+            target_annotations = client.get("/api/v2/annotations/target/hole/round-1:7")
+
+        self.assertEqual(annotations.status_code, 401)
+        self.assertEqual(target_annotations.status_code, 401)
+        annotations_handler.assert_not_called()
+        target_handler.assert_not_called()
+        self.assertNotIn("admin-secret", annotations.text + target_annotations.text)
 
     def test_mobile_package_and_reconciliation_reads_remain_public_without_admin_token(self) -> None:
         client = TestClient(app)

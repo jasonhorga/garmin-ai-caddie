@@ -118,6 +118,8 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
     if normalized_method == "GET":
         return (
             (path == "/api/v2/weather/snapshot" and _truthy_query_flag(query_params.get("persist")))
+            or path == "/api/v2/annotations"
+            or path.startswith("/api/v2/annotations/target/")
             or path.startswith("/api/v2/media/target/")
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
