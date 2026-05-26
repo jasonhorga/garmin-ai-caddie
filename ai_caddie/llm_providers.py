@@ -102,11 +102,18 @@ class NvidiaNimProvider:
         self.base_url = base_url.rstrip("/")
         self.model = model
 
-    def chat(self, messages: Iterable[LLMMessage], max_tokens: int | None = None) -> str:
+    @staticmethod
+    def _media_content_part(media_part: LLMMediaPart) -> dict[str, object]:
+        encoded = base64.b64encode(media_part.data).decode("ascii")
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{media_part.mime_type};base64,{encoded}"},
+        }
+
+    def _chat_completion(self, payload: dict[str, object]) -> str:
         payload = {
+            **payload,
             "model": self.model,
-            "messages": [{"role": item.role, "content": item.content} for item in messages],
-            "max_tokens": max_tokens or 1800,
         }
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
@@ -126,6 +133,38 @@ class NvidiaNimProvider:
             return str(body["choices"][0]["message"]["content"])
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderRuntimeError("NVIDIA NIM response did not include choices[0].message.content") from exc
+
+    def chat(self, messages: Iterable[LLMMessage], max_tokens: int | None = None) -> str:
+        return self._chat_completion(
+            {
+                "messages": [{"role": item.role, "content": item.content} for item in messages],
+                "max_tokens": max_tokens or 1800,
+            }
+        )
+
+    def chat_multimodal(
+        self,
+        messages: Iterable[LLMMessage],
+        media_parts: Iterable[LLMMediaPart],
+        max_tokens: int | None = None,
+    ) -> str:
+        media_content = [self._media_content_part(item) for item in media_parts]
+        media_attached = not media_content
+        payload_messages: list[dict[str, object]] = []
+        for item in messages:
+            if item.role == "user" and not media_attached:
+                payload_messages.append(
+                    {
+                        "role": item.role,
+                        "content": [{"type": "text", "text": item.content}, *media_content],
+                    }
+                )
+                media_attached = True
+            else:
+                payload_messages.append({"role": item.role, "content": item.content})
+        if not media_attached:
+            payload_messages.append({"role": "user", "content": media_content})
+        return self._chat_completion({"messages": payload_messages, "max_tokens": max_tokens or 1800})
 
 
 class GeminiApiKeyProvider:

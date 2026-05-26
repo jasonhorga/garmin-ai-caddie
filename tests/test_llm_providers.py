@@ -12,6 +12,7 @@ from ai_caddie.llm_providers import (
     GeminiApiKeyProvider,
     LLMMediaPart,
     LLMMessage,
+    NvidiaNimProvider,
     ProviderConfigurationError,
     StaticProvider,
     build_text_provider,
@@ -42,6 +43,66 @@ class LLMProviderTests(unittest.TestCase):
         self.assertIn("NVIDIA_API_KEY is not configured", text)
         self.assertNotIn("Bearer", text)
         self.assertNotIn("secret", text.lower())
+
+    def test_nvidia_nim_provider_serializes_multimodal_parts_for_openai_compatible_vision(self) -> None:
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    {
+                        "choices": [
+                            {"message": {"content": "nim vision review"}}
+                        ]
+                    }
+                ).encode("utf-8")
+
+        def fake_urlopen(request, timeout):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        provider = NvidiaNimProvider(
+            api_key="nim-secret-key",
+            base_url="https://integrate.api.nvidia.com/v1",
+            model="meta/llama-3.2-11b-vision-instruct",
+        )
+        with patch("ai_caddie.llm_providers.urllib.request.urlopen", fake_urlopen):
+            reply = provider.chat_multimodal(
+                [
+                    LLMMessage(role="system", content="facts only"),
+                    LLMMessage(role="user", content="inspect the lie photo"),
+                ],
+                [LLMMediaPart(media_type="image", mime_type="image/jpeg", data=b"image-bytes")],
+                max_tokens=333,
+            )
+
+        self.assertEqual(reply, "nim vision review")
+        self.assertEqual(captured["timeout"], 60)
+        request = captured["request"]
+        self.assertEqual(request.full_url, "https://integrate.api.nvidia.com/v1/chat/completions")
+        self.assertEqual(request.headers["Authorization"], "Bearer nim-secret-key")
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["model"], "meta/llama-3.2-11b-vision-instruct")
+        self.assertEqual(payload["max_tokens"], 333)
+        self.assertEqual(payload["messages"][0], {"role": "system", "content": "facts only"})
+        content = payload["messages"][1]["content"]
+        self.assertEqual(content[0], {"type": "text", "text": "inspect the lie photo"})
+        self.assertEqual(
+            content[1],
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/jpeg;base64,aW1hZ2UtYnl0ZXM="},
+            },
+        )
+        self.assertNotIn("mediaBytesBase64", request.data.decode("utf-8"))
+        self.assertNotIn("image-bytes", request.data.decode("utf-8"))
 
     def test_gemini_api_key_provider_calls_generate_content_without_leaking_key(self) -> None:
         captured = {}
