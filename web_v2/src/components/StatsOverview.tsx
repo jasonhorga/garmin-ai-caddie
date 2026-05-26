@@ -1,5 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
+import { StatsQualityChips } from './StatsQualityChips'
 
 interface StatsOverviewProps {
   data: HistoryStatsResponse
@@ -57,8 +58,17 @@ function phaseFact(row: Record<string, unknown>) {
   return `${displayNumber(row.sampleCount ?? row.count ?? row.roundCount)} records`
 }
 
+function locationLabel(value: unknown): string {
+  const location = asRecord(value)
+  const latitude = asNumber(location.latitude)
+  const longitude = asNumber(location.longitude)
+  if (latitude === null || longitude === null) return '-'
+  return `${latitude}, ${longitude}`
+}
+
 export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const scoreBands = asRows(data.scoring.scoreBands)
+  const yearRows = asRows(data.time.byYear).slice(0, 4)
   const recentMonths = asRows(data.time.byMonth).slice(0, 4)
   const recentWindows = [
     ['Recent 5', data.summary.recent5Average],
@@ -69,6 +79,15 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const playFrequency = asRecord(data.time.playFrequency)
   const improvement = asRecord(data.time.improvement)
   const phaseStats = asRows(data.scoring.phaseStats)
+  const scoringOutcomes = asRecord(data.scoring.outcomes)
+  const outcomeRows = [
+    ['Eagle+', scoringOutcomes.eagleOrBetter, 'eagle'],
+    ['Birdie', scoringOutcomes.birdie, 'birdie'],
+    ['Par', scoringOutcomes.par, 'par'],
+    ['Bogey', scoringOutcomes.bogey, 'bogey'],
+    ['Double+', scoringOutcomes.doubleOrWorse, 'double'],
+  ]
+  const courseDistribution = data.courseDistribution.slice(0, 6)
   const courseMix = data.courses.slice(0, 5)
   const records = asRecord(data.records)
   const best18 = asRecord(records.best18)
@@ -106,6 +125,33 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
           <span>Shot rows</span>
           <b>{displayNumber(data.summary.shotCount)}</b>
         </article>
+      </section>
+
+      <section className="panel compact-panel" aria-label="Round format">
+        <div className="section-head">
+          <div>
+            <h2>Round Format</h2>
+            <p>18-hole, 9-hole, and merged same-day history separation.</p>
+          </div>
+        </div>
+        <div className="mini-metric-grid">
+          <article className="mini-metric">
+            <span>18-hole rounds</span>
+            <b>{displayNumber(data.summary.eighteenHoleRounds)}</b>
+          </article>
+          <article className="mini-metric">
+            <span>9-hole rounds</span>
+            <b>{displayNumber(data.summary.nineHoleRounds)}</b>
+          </article>
+          <article className="mini-metric">
+            <span>Merged same-day rounds</span>
+            <b>{displayNumber(data.summary.mergedRounds)}</b>
+          </article>
+          <article className="mini-metric">
+            <span>Courses played</span>
+            <b>{displayNumber(data.summary.courseCount)}</b>
+          </article>
+        </div>
       </section>
 
       <section className="panel compact-panel" aria-label="Recent form">
@@ -182,6 +228,41 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
       ) : null}
 
       <section className="stats-grid">
+        <section className="panel compact-panel" aria-label="Year summary">
+          <div className="section-head">
+            <div>
+              <h2>Year Summary</h2>
+              <p>Annual scoring trend with direct source rounds.</p>
+            </div>
+          </div>
+          <div className="stat-list">
+            {yearRows.map((year) => (
+              <div key={asString(year.key) ?? asString(year.year) ?? 'unknown'} className="stat-row">
+                <span>{asString(year.year) ?? asString(year.key) ?? 'Unknown'}</span>
+                <b>{roundLabel(year.roundCount)}</b>
+                <SourceRefs refs={refsFor(year)} onSelectRef={onSelectRef} />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel compact-panel" aria-label="Score outcomes">
+          <div className="section-head">
+            <div>
+              <h2>Score Outcomes</h2>
+              <p>Hole-level scoring shape across the loaded history.</p>
+            </div>
+          </div>
+          <div className="score-outcome-grid">
+            {outcomeRows.map(([label, value, className]) => (
+              <span key={String(label)} className={`score-outcome score-${String(className)}`}>
+                <strong>{String(label)}</strong>
+                <b>{displayNumber(value)}</b>
+              </span>
+            ))}
+          </div>
+        </section>
+
         <section className="panel compact-panel" aria-label="Score bands">
           <div className="section-head">
             <div>
@@ -290,6 +371,51 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
                 <SourceRefs refs={refsFor(course)} onSelectRef={onSelectRef} />
               </div>
             ))}
+          </div>
+        </section>
+
+        <section className="panel compact-panel" aria-label="Course distribution map">
+          <div className="section-head">
+            <div>
+              <h2>Course Distribution Map</h2>
+              <p>Coordinate-backed course distribution, with refs ready for drill-down.</p>
+            </div>
+          </div>
+          <div className="course-distribution-map">
+            {courseDistribution.map((course) => (
+              <div key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="course-distribution-row">
+                <span className="course-map-pin" aria-hidden="true" />
+                <div>
+                  <strong>{asString(course.courseName) ?? asString(course.courseKey) ?? 'Unknown course'}</strong>
+                  <span>
+                    {displayNumber(course.pct)}% / {roundLabel(course.roundCount)}
+                  </span>
+                  <em>{locationLabel(course.location)}</em>
+                </div>
+                <SourceRefs refs={refsFor(course)} onSelectRef={onSelectRef} />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel compact-panel" aria-label="Data coverage">
+          <div className="section-head">
+            <div>
+              <h2>Data Coverage</h2>
+              <p>Coverage and missing-data signals that constrain the statistics above.</p>
+            </div>
+          </div>
+          <StatsQualityChips data={data} labels={['shots', 'annotations', 'corrections', 'reports', 'weather']} />
+          <div className="stat-list">
+            {data.dataQuality
+              .filter((finding) => ['shots', 'annotations', 'corrections', 'reports', 'weather'].includes(asString(finding.label) ?? ''))
+              .map((finding) => (
+                <div key={asString(finding.label) ?? 'quality'} className="stat-row">
+                  <span>{asString(finding.label) ?? 'quality'}</span>
+                  <b>{asString(finding.state) ?? 'unknown'}</b>
+                  <SourceRefs refs={finding.refs} onSelectRef={onSelectRef} />
+                </div>
+              ))}
           </div>
         </section>
 

@@ -9,6 +9,9 @@ const statsFixture: HistoryStatsResponse = {
   summary: {
     totalRounds: 3,
     eighteenHoleRounds: 2,
+    nineHoleRounds: 1,
+    mergedRounds: 1,
+    courseCount: 2,
     average18: 82,
     median18: 82,
     recent5Average: 82,
@@ -19,6 +22,7 @@ const statsFixture: HistoryStatsResponse = {
     shotCount: 6,
   },
   time: {
+    byYear: [{ key: '2026', year: '2026', roundCount: 3, average18: 82, bestScore: 77, roundIds: ['900001', '900002', '900003'] }],
     byQuarter: [
       { key: '2026-Q2', roundCount: 2, average18: 82, bestScore: 77, roundIds: ['900001', '900002'] },
       { key: '2026-Q1', roundCount: 1, average18: null, bestScore: null, roundIds: ['900003'] },
@@ -45,12 +49,30 @@ const statsFixture: HistoryStatsResponse = {
       { label: '70s', count: 1, roundIds: ['900001'] },
       { label: '80s', count: 1, roundIds: ['900002'] },
     ],
+    outcomes: {
+      eagleOrBetter: 1,
+      birdie: 4,
+      par: 20,
+      bogey: 16,
+      doubleOrWorse: 4,
+      parOrBetter: 25,
+      bogeyOrWorse: 20,
+    },
     phaseStats: [
       { phase: 'Approach', girPct: 42.2, missedGir: 26, holeRefs: ['900001:1'] },
       { phase: 'Putting', averagePutts: 2.1, threePutts: 5, holeRefs: ['900002:5'] },
     ],
   },
-  courseDistribution: [{ courseKey: 'black_knight', roundCount: 2, pct: 66.7, roundRefs: ['900001', '900002'] }],
+  courseDistribution: [
+    {
+      courseKey: 'black_knight',
+      courseName: 'Black Knight B/C',
+      roundCount: 2,
+      pct: 66.7,
+      roundRefs: ['900001', '900002'],
+      location: { latitude: 22.279, longitude: 114.162 },
+    },
+  ],
   records: {
     best18: { score: 77, toPar: 5, roundRef: '900001' },
     worst18: { score: 95, toPar: 23, roundRef: '900002' },
@@ -71,7 +93,13 @@ const statsFixture: HistoryStatsResponse = {
   holes: [],
   clubs: [],
   issues: [],
-  dataQuality: [],
+  dataQuality: [
+    { label: 'shots', state: 'partial', ready: 2, total: 3, refs: ['900003'] },
+    { label: 'annotations', state: 'good', ready: 2, total: 2, refs: ['ann-1', 'ann-2'] },
+    { label: 'corrections', state: 'good', ready: 1, total: 2, refs: ['corr-1'] },
+    { label: 'reports', state: 'partial', ready: 1, total: 3, refs: ['900002', '900003'] },
+    { label: 'weather', state: 'missing', ready: 0, total: 45, refs: [] },
+  ],
   drillDown: { roundIds: ['900001', '900002', '900003'] },
 }
 
@@ -87,6 +115,20 @@ describe('StatsOverview', () => {
     expect(screen.getAllByText('82').length).toBeGreaterThan(0)
     expect(screen.getByText('Best score')).toBeInTheDocument()
     expect(screen.getByText('77')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Round Format' })).toBeInTheDocument()
+    expect(screen.getByText('18-hole rounds')).toBeInTheDocument()
+    expect(screen.getByText('9-hole rounds')).toBeInTheDocument()
+    expect(screen.getByText('Merged same-day rounds')).toBeInTheDocument()
+    expect(screen.getByText('Courses played')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Year Summary' })).toBeInTheDocument()
+    expect(screen.getByText('2026')).toBeInTheDocument()
+    expect(screen.getAllByText('3 rounds').length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { name: 'Score Outcomes' })).toBeInTheDocument()
+    expect(screen.getByText('Eagle+')).toBeInTheDocument()
+    expect(screen.getByText('Birdie')).toBeInTheDocument()
+    expect(screen.getByText('Par')).toBeInTheDocument()
+    expect(screen.getByText('Bogey')).toBeInTheDocument()
+    expect(screen.getByText('Double+')).toBeInTheDocument()
     expect(screen.getByText('70s')).toBeInTheDocument()
     expect(screen.getAllByText('2026-05').length).toBeGreaterThan(0)
     expect(screen.getByText('avg 77')).toBeInTheDocument()
@@ -110,6 +152,15 @@ describe('StatsOverview', () => {
     expect(screen.getByText('avg putts 2.1')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Course Mix' })).toBeInTheDocument()
     expect(screen.getAllByText('Black Knight B/C').length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { name: 'Course Distribution Map' })).toBeInTheDocument()
+    expect(screen.getByText('66.7% / 2 rounds')).toBeInTheDocument()
+    expect(screen.getByText('22.279, 114.162')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Data Coverage' })).toBeInTheDocument()
+    expect(screen.getByText('shots partial 2/3')).toHaveClass('quality-partial')
+    expect(screen.getByText('annotations good 2/2')).toHaveClass('quality-good')
+    expect(screen.getByText('corrections good 1/2')).toHaveClass('quality-good')
+    expect(screen.getByText('reports partial 1/3')).toHaveClass('quality-partial')
+    expect(screen.getByText('weather missing 0/45')).toHaveClass('quality-missing')
     expect(screen.getByRole('heading', { name: 'Record Book' })).toBeInTheDocument()
     expect(screen.getByText('Best 18')).toBeInTheDocument()
     expect(screen.getByText('77 / +5')).toBeInTheDocument()

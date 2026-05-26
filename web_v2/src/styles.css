@@ -883,6 +883,84 @@ p {
   color: var(--ink);
 }
 
+.score-outcome-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.score-outcome {
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: 7px;
+  color: #ffffff;
+  padding: 10px;
+}
+
+.score-outcome strong,
+.score-outcome b {
+  overflow-wrap: anywhere;
+}
+
+.score-outcome strong {
+  font-size: 12px;
+}
+
+.score-outcome b {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.course-distribution-map {
+  display: grid;
+  gap: 8px;
+}
+
+.course-distribution-row {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.course-map-pin {
+  width: 14px;
+  height: 14px;
+  border: 3px solid #0f8f5f;
+  border-radius: 999px;
+  background: #e8f5ee;
+}
+
+.course-distribution-row div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.course-distribution-row strong,
+.course-distribution-row span,
+.course-distribution-row em {
+  overflow-wrap: anywhere;
+}
+
+.course-distribution-row strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.course-distribution-row span,
+.course-distribution-row em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
 .stats-list {
   display: grid;
   gap: 10px;
@@ -1062,6 +1140,16 @@ p {
   font-size: 11px;
   font-weight: 800;
   opacity: 0.9;
+}
+
+.hole-distribution-bucket .source-refs {
+  grid-column: 1 / -1;
+}
+
+.hole-distribution-bucket .source-ref-button,
+.hole-distribution-bucket .source-ref-token {
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #ffffff;
 }
 
 .hole-issues {
@@ -2320,6 +2408,10 @@ p {
   .mini-metric-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .score-outcome-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
@@ -2340,6 +2432,11 @@ p {
 
   .mini-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .score-outcome-grid,
+  .course-distribution-row {
+    grid-template-columns: 1fr;
   }
 
   .score-strip {

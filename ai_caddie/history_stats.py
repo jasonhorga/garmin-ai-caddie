@@ -257,6 +257,7 @@ def _summary(data: HistoryData) -> dict[str, Any]:
         "totalRounds": len(data.rounds),
         "eighteenHoleRounds": len(rounds18),
         "nineHoleRounds": sum(1 for row in data.rounds if row.get("holesCompleted") == 9),
+        "mergedRounds": sum(1 for row in data.rounds if row.get("merged")),
         "courseCount": len({row.get("courseKey") for row in data.rounds if row.get("courseKey")}),
         "shotCount": len(data.shots),
         "average18": average(scores18),

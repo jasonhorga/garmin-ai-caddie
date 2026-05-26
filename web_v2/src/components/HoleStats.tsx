@@ -55,6 +55,7 @@ export function HoleStats({ data, onSelectRef }: HoleStatsProps) {
                           <strong>{asString(row.label) ?? 'Outcome'}</strong>
                           <b>{formatNumber(row.count)}</b>
                           <em>{formatNumber(row.pct)}%</em>
+                          <SourceRefs refs={row.holeRefs ?? row.refs ?? row.sourceRefs} onSelectRef={onSelectRef} />
                         </span>
                       ))}
                     </div>

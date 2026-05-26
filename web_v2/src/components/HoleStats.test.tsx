@@ -63,8 +63,8 @@ describe('HoleStats', () => {
     expect(screen.getAllByText('50%')).toHaveLength(2)
     expect(screen.getByText('double_or_worse')).toBeInTheDocument()
     expect(screen.getByText('Course Management')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open source 900001:7' })).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Open source 900002:7' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Open source 900001:7' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Open source 900002:7' })).toHaveLength(3)
   })
 
   it('renders an empty state when no hole aggregates exist', () => {

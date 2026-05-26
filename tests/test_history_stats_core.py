@@ -115,11 +115,35 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(stats["summary"]["totalRounds"], 3)
         self.assertEqual(stats["summary"]["eighteenHoleRounds"], 2)
         self.assertEqual(stats["summary"]["nineHoleRounds"], 1)
+        self.assertEqual(stats["summary"]["mergedRounds"], 0)
         self.assertEqual(stats["summary"]["courseCount"], 2)
         self.assertEqual(stats["summary"]["shotCount"], 6)
         self.assertEqual(stats["time"]["byYear"][0]["year"], "2026")
         self.assertEqual(stats["time"]["byYear"][0]["roundCount"], 3)
         self.assertGreaterEqual(len(stats["time"]["byMonth"]), 3)
+
+    def test_summary_exposes_same_day_nine_hole_merge_count(self) -> None:
+        round_row = {
+            "id": "merged_1_2",
+            "ids": [1, 2],
+            "date": "2026-05-25",
+            "course": "Merge Course",
+            "courseKey": "merge_course",
+            "holesCompleted": 18,
+            "strokes": 82,
+            "par": 72,
+            "holes": [],
+            "hasShots": True,
+            "merged": True,
+        }
+
+        stats = build_history_stats(
+            HistoryData(raw_rounds=[{"id": 1, "hasShots": True}, {"id": 2, "hasShots": True}], rounds=[round_row], shots=[]),
+            data_mode="fixture",
+        )
+
+        self.assertEqual(stats["summary"]["totalRounds"], 1)
+        self.assertEqual(stats["summary"]["mergedRounds"], 1)
 
     def test_scoring_bands_and_counts_have_drilldown_refs(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
