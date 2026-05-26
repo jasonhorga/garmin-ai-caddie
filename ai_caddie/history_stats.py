@@ -10,6 +10,7 @@ from ai_caddie.geometry_evidence import geometry_coverage_for_course, geometry_c
 from ai_caddie.history import HistoryData, average, percentile
 from ai_caddie.history_drilldown import build_drilldown_index
 from ai_caddie.issue_taxonomy import issue_record
+from ai_caddie.reports import list_report_records
 from ai_caddie.weather_context import list_weather_snapshots
 
 DataModeName = Literal["local", "fixture"]
@@ -771,10 +772,51 @@ def _weather_quality(data: HistoryData, weather_snapshots: list[dict[str, Any]] 
     }
 
 
+def _geometry_quality(hole_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total = sum(int(row.get("sampleCount") or 0) for row in hole_rows)
+    ready = sum(int(row.get("sampleCount") or 0) for row in hole_rows if row.get("geometryCoverage") == "ready")
+    partial = sum(int(row.get("sampleCount") or 0) for row in hole_rows if row.get("geometryCoverage") == "partial")
+    refs = [
+        str(ref)
+        for row in hole_rows
+        if row.get("geometryCoverage") != "ready"
+        for ref in (row.get("holeRefs") or row.get("refs") or [])
+    ]
+    return {
+        "label": "geometry",
+        "state": "good" if total and ready == total else "partial" if ready or partial else "missing",
+        "ready": ready,
+        "partial": partial,
+        "total": total,
+        "refs": refs,
+    }
+
+
+def _report_quality(data: HistoryData, report_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    round_refs = [_round_id(row) for row in data.rounds]
+    reported_rounds = {
+        str(record.get("subjectId"))
+        for record in report_records or []
+        if record.get("kind") == "round" and record.get("subjectId") is not None
+    }
+    missing_refs = [ref for ref in round_refs if ref not in reported_rounds]
+    ready = len(round_refs) - len(missing_refs)
+    total = len(round_refs)
+    return {
+        "label": "reports",
+        "state": "good" if total and ready == total else "partial" if ready else "missing",
+        "ready": ready,
+        "total": total,
+        "refs": missing_refs,
+    }
+
+
 def _data_quality(
     data: HistoryData,
     annotations: list[dict[str, Any]] | None = None,
     weather_snapshots: list[dict[str, Any]] | None = None,
+    hole_rows: list[dict[str, Any]] | None = None,
+    report_records: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     total = len(data.raw_rounds)
     shots_ready = sum(1 for row in data.raw_rounds if row.get("hasShots"))
@@ -795,6 +837,7 @@ def _data_quality(
             "total": len(data.shots),
             "refs": [],
         },
+        _geometry_quality(hole_rows or []),
         {
             "label": "annotations",
             "state": "good" if annotation_count else "missing",
@@ -809,6 +852,7 @@ def _data_quality(
             "total": annotation_count,
             "refs": [str(row.get("id")) for row in corrections],
         },
+        _report_quality(data, report_records),
         _weather_quality(data, weather_snapshots),
     ]
 
@@ -819,9 +863,12 @@ def build_history_stats(
     data_mode: DataModeName,
     annotations_root: Path | str | None = None,
     weather_root: Path | str | None = None,
+    reports_root: Path | str | None = None,
 ) -> dict[str, Any]:
     annotations = list_annotations(root=annotations_root)
     weather_snapshots = list_weather_snapshots(root=weather_root)
+    report_records = list_report_records(root=reports_root)
+    hole_rows = _holes(data, annotations)
     return {
         "schema": "ai-caddie-history-stats-v1",
         "dataMode": data_mode,
@@ -831,9 +878,9 @@ def build_history_stats(
         "courseDistribution": _course_distribution(data),
         "records": _records(data, annotations),
         "courses": _courses(data),
-        "holes": _holes(data, annotations),
+        "holes": hole_rows,
         "clubs": _clubs(data, annotations),
         "issues": _issues(data, annotations),
-        "dataQuality": _data_quality(data, annotations, weather_snapshots),
+        "dataQuality": _data_quality(data, annotations, weather_snapshots, hole_rows, report_records),
         "drillDown": build_drilldown_index(data),
     }

@@ -8,6 +8,7 @@ from ai_caddie.annotations import add_annotation
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import build_history_stats
+from ai_caddie.reports import store_report
 from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 
 
@@ -253,6 +254,44 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(weather_quality["ready"], 1)
         self.assertEqual(weather_quality["total"], 45)
         self.assertEqual(weather_quality["refs"], ["900001:7"])
+
+    def test_geometry_and_report_coverage_are_reported_in_data_quality(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_report(
+                {
+                    "schema": "ai-caddie-review-report-v1",
+                    "kind": "round",
+                    "provider": "StaticProvider",
+                    "model": "static",
+                    "factsUsed": [],
+                    "missingData": [],
+                    "narrative": "stored report",
+                    "confidence": "high",
+                },
+                kind="round",
+                subject_id="900001",
+                root=root,
+            )
+
+            stats = build_history_stats(
+                fixture_history_data(),
+                data_mode="fixture",
+                annotations_root=root,
+                reports_root=root,
+            )
+
+        geometry_quality = next(row for row in stats["dataQuality"] if row["label"] == "geometry")
+        self.assertEqual(geometry_quality["state"], "missing")
+        self.assertEqual(geometry_quality["ready"], 0)
+        self.assertEqual(geometry_quality["total"], 45)
+        self.assertIn("900001:1", geometry_quality["refs"])
+
+        report_quality = next(row for row in stats["dataQuality"] if row["label"] == "reports")
+        self.assertEqual(report_quality["state"], "partial")
+        self.assertEqual(report_quality["ready"], 1)
+        self.assertEqual(report_quality["total"], 3)
+        self.assertEqual(report_quality["refs"], ["900002", "900003"])
 
     def test_stats_include_trends_frequency_distribution_phase_stats_and_typed_refs(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

@@ -15,7 +15,11 @@ const statsFixture: HistoryStatsResponse = {
   holes: [],
   clubs: [],
   issues: [],
-  dataQuality: [{ label: 'shots', state: 'partial', ready: 1, total: 3, refs: ['900003'] }],
+  dataQuality: [
+    { label: 'shots', state: 'partial', ready: 1, total: 3, refs: ['900003'] },
+    { label: 'geometry', state: 'missing', ready: 0, total: 45, refs: ['900001:1'] },
+    { label: 'reports', state: 'partial', ready: 1, total: 3, refs: ['900002', '900003'] },
+  ],
   drillDown: {},
 }
 
@@ -25,9 +29,14 @@ describe('DataQualityPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Data Quality' })).toBeInTheDocument()
     expect(screen.getByText('shots')).toBeInTheDocument()
-    expect(screen.getByText('partial')).toHaveClass('quality-partial')
-    expect(screen.getByText('1/3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
+    expect(screen.getAllByText('partial')[0]).toHaveClass('quality-partial')
+    expect(screen.getAllByText('1/3').length).toBeGreaterThan(0)
+    expect(screen.getByText('geometry')).toBeInTheDocument()
+    expect(screen.getByText('missing')).toHaveClass('quality-missing')
+    expect(screen.getByText('0/45')).toBeInTheDocument()
+    expect(screen.getByText('reports')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Open source 900003' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Open source 900001:1' })).toBeInTheDocument()
   })
 
   it('renders an empty state when no quality findings exist', () => {
