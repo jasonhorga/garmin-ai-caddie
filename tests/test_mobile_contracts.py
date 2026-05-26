@@ -245,6 +245,29 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("offlineStore.appendEvent", app_swift)
         self.assertIn("RoundHomeView", app_swift)
 
+    def test_ios_app_model_syncs_pending_events_to_backend(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+
+        self.assertIn("private let syncClient: SyncClient?", app_swift)
+        self.assertIn("AI_CADDIE_API_BASE_URL", app_swift)
+        self.assertIn("func syncPendingEvents() async", app_swift)
+        self.assertIn("offlineStore.loadPendingEvents(roundId:", app_swift)
+        self.assertIn("postEventBatchWithRetry", app_swift)
+        self.assertIn("offlineStore.appendSyncMarker", app_swift)
+        self.assertIn("pendingEventCount = try offlineStore.loadPendingEvents", app_swift)
+        self.assertIn("No sync server configured", app_swift)
+
+        self.assertIn("func loadPendingEvents(roundId:", offline_store)
+        self.assertIn("lastIndex(where:", offline_store)
+        self.assertIn("kind != .syncMarker", offline_store)
+
+        self.assertIn("public let onSync", round_home)
+        self.assertIn("Button", round_home)
+        self.assertIn("onSync()", round_home)
+        self.assertIn('Label("Sync"', round_home)
+
     def test_ios_event_builder_supports_location_media_and_scoring_inputs(self) -> None:
         builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
 

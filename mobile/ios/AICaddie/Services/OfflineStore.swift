@@ -76,6 +76,25 @@ public final class OfflineStore {
             }
     }
 
+    public func loadPendingEvents(roundId: String? = nil) throws -> [LiveRoundEvent] {
+        let events = try loadEvents()
+            .filter { event in
+                roundId == nil || event.roundId == roundId
+            }
+        let lastSyncMarkerIndex = events.lastIndex(where: { event in
+            event.kind == .syncMarker
+        })
+        let candidates: [LiveRoundEvent]
+        if let lastSyncMarkerIndex {
+            candidates = Array(events[events.index(after: lastSyncMarkerIndex)...])
+        } else {
+            candidates = events
+        }
+        return candidates.filter { event in
+            event.kind != .syncMarker
+        }
+    }
+
     public func appendSyncMarker(roundId: String, timestamp: String) throws {
         let event = LiveRoundEvent(
             eventId: UUID().uuidString,

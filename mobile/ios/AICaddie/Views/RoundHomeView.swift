@@ -5,17 +5,20 @@ public struct RoundHomeView: View {
     public let pendingEventCount: Int
     public let syncStatus: String
     public let onEvent: (LiveRoundEvent) -> Void
+    public let onSync: () -> Void
 
     public init(
         package: LiveRoundPackage,
         pendingEventCount: Int = 0,
         syncStatus: String = "Offline ready",
-        onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
+        onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
+        onSync: @escaping () -> Void = {}
     ) {
         self.package = package
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
         self.onEvent = onEvent
+        self.onSync = onSync
     }
 
     public var body: some View {
@@ -36,6 +39,11 @@ public struct RoundHomeView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    Button {
+                        onSync()
+                    } label: {
+                        Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                    }
                 }
 
                 Section("Holes") {
