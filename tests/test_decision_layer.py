@@ -457,6 +457,43 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(latest["audit"]["classification"], "unknown")
         self.assertIn('"decisionId": "round-1:1:1"', raw)
 
+    def test_decision_audit_sanitizes_refs_and_private_payload_before_storage(self) -> None:
+        audit = audit_decision(
+            {
+                "decisionId": "token=abc123",
+                "sourceRef": "/home/ubuntu/.garmin_tokens/session",
+                "phase": "Approach",
+                "selectedOptionId": "stock",
+                "selectedOption": {"id": "stock", "note": "cookie=super-secret"},
+                "evidenceRefs": ["900001:4", "token=abc123", "/home/ubuntu/private"],
+                "confidence": {"level": "medium"},
+            },
+            {
+                "sourceRef": "cookie=shot-secret",
+                "shotOrder": 1,
+                "clubName": "8I",
+                "meters": 143.0,
+                "note": "secret=shot-note",
+                "end": {"lie": "Green", "feature": {"surface": {"kind": "green"}, "nearRisks": []}},
+            },
+        )
+
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stored = store_decision_audit(audit, decision_id="token=abc123", root=root)
+            raw = (root / "data" / "decision_audits" / "decision_audits.jsonl").read_text(encoding="utf-8")
+
+        self.assertIsNone(stored["sourceRef"])
+        self.assertEqual(stored["evidenceRefs"], ["900001:4"])
+        self.assertEqual(stored["actualShotRefs"], [])
+        self.assertNotIn("abc123", raw)
+        self.assertNotIn("super-secret", raw)
+        self.assertNotIn("shot-secret", raw)
+        self.assertNotIn("/home/ubuntu", raw)
+
     def test_hole_summary_exposes_decision_audit(self) -> None:
         shot = {
             "shotOrder": 1,

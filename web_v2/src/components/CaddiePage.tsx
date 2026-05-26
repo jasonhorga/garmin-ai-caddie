@@ -13,6 +13,7 @@ import type {
   WeatherSnapshotResponse,
   VisionFindingRecord,
 } from '../types'
+import { SourceRefs } from './SourceRefs'
 
 type AuditState =
   | { status: 'idle' }
@@ -57,6 +58,7 @@ interface CaddiePageProps {
   onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
   onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
   onAnalyzeMedia?: (mediaId: string) => void
+  onSelectRef?: (sourceRef: string) => void
 }
 
 export function CaddiePage({
@@ -72,6 +74,7 @@ export function CaddiePage({
   onLoadMediaContext,
   onAttachMedia,
   onAnalyzeMedia,
+  onSelectRef = () => undefined,
 }: CaddiePageProps) {
   const [shotType, setShotType] = useState<CaddieShotType>('approach')
   const [contextSourceRef, setContextSourceRef] = useState('900001:7')
@@ -131,7 +134,7 @@ export function CaddiePage({
         onAttachMedia={onAttachMedia}
         onAnalyzeMedia={onAnalyzeMedia}
       />
-      <DecisionDetail state={decisionState} auditState={auditState} onCreateAudit={onCreateAudit} />
+      <DecisionDetail state={decisionState} auditState={auditState} onCreateAudit={onCreateAudit} onSelectRef={onSelectRef} />
     </section>
   )
 }
@@ -269,10 +272,12 @@ function DecisionDetail({
   state,
   auditState,
   onCreateAudit,
+  onSelectRef,
 }: {
   state: CaddiePageProps['decisionState']
   auditState: AuditState
   onCreateAudit?: (decision: CaddieDecisionResponse, actualShot: Record<string, unknown>) => void
+  onSelectRef: (sourceRef: string) => void
 }) {
   if (state.status === 'loading') {
     return (
@@ -341,6 +346,7 @@ function DecisionDetail({
           decision={decision}
           state={auditState}
           onCreateAudit={(actualShot) => onCreateAudit(decision, actualShot)}
+          onSelectRef={onSelectRef}
         />
       ) : null}
     </section>
@@ -387,10 +393,12 @@ function DecisionAuditPanel({
   decision,
   state,
   onCreateAudit,
+  onSelectRef,
 }: {
   decision: CaddieDecisionResponse
   state: AuditState
   onCreateAudit: (actualShot: Record<string, unknown>) => void
+  onSelectRef: (sourceRef: string) => void
 }) {
   const selected = decision.selectedOption ?? decision.selected ?? {}
   const defaultClub = String(selected.recommendedClub ?? selected.club ?? '')
@@ -450,10 +458,16 @@ function DecisionAuditPanel({
     )
   }
 
-  const audit = state.status === 'ready' ? state.data?.audit : null
+  const record = state.status === 'ready' ? state.data : null
+  const audit = record?.audit ?? null
   const classification = audit ? String(audit.classification ?? 'unknown') : null
   const planned = audit ? String(audit.plannedOptionId ?? '-') : '-'
   const actual = audit ? String(audit.actualOptionId ?? '-') : '-'
+  const executionMatch = recordFrom(audit?.executionMatch)
+  const result = recordFrom(audit?.result)
+  const actualShotRefs = stringRows(record?.actualShotRefs ?? audit?.actualShotRefs)
+  const evidenceRefs = stringRows(record?.evidenceRefs ?? audit?.evidenceRefs)
+  const suggestion = auditSuggestion(audit?.modelUpdateSuggestion)
 
   return (
     <section className="decision-outcome-audit" aria-label="Decision outcome audit">
@@ -466,6 +480,35 @@ function DecisionAuditPanel({
       </div>
       {auditControls}
       {classification ? <span className={`audit-classification audit-${classification}`}>{classification}</span> : null}
+      {audit ? (
+        <div className="decision-audit-summary">
+          <div className="report-row">
+            <strong>actual shot</strong>
+            <SourceRefs refs={actualShotRefs} onSelectRef={onSelectRef} />
+          </div>
+          <div className="report-row">
+            <strong>evidence</strong>
+            <SourceRefs refs={evidenceRefs} onSelectRef={onSelectRef} />
+          </div>
+          <div className="decision-audit-facts" aria-label="Decision audit execution facts">
+            <span className="fact-chip">club match {booleanLabel(executionMatch.clubMatch)}</span>
+            <span className="fact-chip">distance {metersLabel(executionMatch.distanceDelta_m)}</span>
+            <span className="fact-chip">risk {booleanLabel(executionMatch.riskTriggered)}</span>
+          </div>
+          {Object.keys(result).length ? (
+            <p className="decision-audit-result">
+              {[
+                result.clubName ? String(result.clubName) : null,
+                result.meters !== undefined && result.meters !== null ? `${String(result.meters)}m` : null,
+                result.surface ? String(result.surface) : null,
+              ]
+                .filter(Boolean)
+                .join(' - ')}
+            </p>
+          ) : null}
+          {suggestion ? <p className="decision-audit-suggestion">{suggestion}</p> : null}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -517,6 +560,32 @@ function ContextRows({ title, rows }: { title: string; rows: Array<Record<string
 
 function recordRows(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => row !== null && typeof row === 'object') : []
+}
+
+function recordFrom(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function stringRows(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : []
+}
+
+function booleanLabel(value: unknown): string {
+  if (value === true) return 'yes'
+  if (value === false) return 'no'
+  return 'unknown'
+}
+
+function metersLabel(value: unknown): string {
+  if (value === undefined || value === null || value === '') return 'unknown'
+  return `${String(value)}m`
+}
+
+function auditSuggestion(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  const row = recordFrom(value)
+  const suggestion = row.text ?? row.suggestion ?? row.reason
+  return typeof suggestion === 'string' && suggestion.trim() ? suggestion : null
 }
 
 function MediaContextPanel({

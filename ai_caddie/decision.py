@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ai_caddie.llm_providers import redact_secret_text
+
 
 ROUTE_TO_OPTION = {
     "conservative_layup": "safe",
@@ -34,6 +36,7 @@ VISION_HAZARD_TYPES = {
     "visible_bunker": "bunker",
 }
 SOURCE_REF_KEYS = {"sourceRef", "sourceRefs", "refs", "roundRef", "roundRefs", "holeRef", "holeRefs", "shotRef", "shotRefs"}
+AUDIT_REF_KEYS = SOURCE_REF_KEYS | {"decisionSourceRef", "evidenceRefs", "actualShotRefs"}
 UNSAFE_REF_MARKERS = ("cookie", "csrf", "password", "secret", "token", "/home/", "\\", "\n", "\r")
 
 
@@ -120,6 +123,13 @@ def _evidence_refs(context: dict[str, Any], source_ref: str | None) -> list[str]
     return _dedupe(refs)
 
 
+def _explicit_evidence_refs(decision: dict[str, Any], source_ref: str | None) -> list[str]:
+    refs = decision.get("evidenceRefs")
+    if isinstance(refs, list):
+        return _dedupe(ref for ref in (_safe_ref(item) for item in refs) if ref)
+    return _evidence_refs(decision, source_ref)
+
+
 def _actual_shot_refs(decision: dict[str, Any], actual_shot: dict[str, Any] | None) -> list[str]:
     if not actual_shot:
         return []
@@ -142,24 +152,56 @@ def decision_audit_file(root: Path | str | None = None) -> Path:
     return Path(root or ".") / "data" / "decision_audits" / "decision_audits.jsonl"
 
 
+def _sanitize_ref_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return _dedupe(ref for ref in (_safe_ref(item) for item in value) if ref)
+
+
+def _sanitize_audit_value(value: Any, *, key: str | None = None) -> Any:
+    if key in AUDIT_REF_KEYS:
+        if isinstance(value, list):
+            return _sanitize_ref_list(value)
+        return _safe_ref(value)
+    if key in {"decisionId", "selectedOptionId", "plannedOptionId", "actualOptionId"}:
+        return _safe_ref(value)
+    if isinstance(value, dict):
+        return {str(item_key): _sanitize_audit_value(item_value, key=str(item_key)) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_audit_value(item) for item in value]
+    if isinstance(value, str):
+        return redact_secret_text(value)
+    return value
+
+
+def _sanitize_decision_id(value: Any) -> str:
+    return _safe_ref(value) or "redacted-decision"
+
+
+def _sanitize_audit_payload(audit: dict[str, Any]) -> dict[str, Any]:
+    cleaned = _sanitize_audit_value(audit)
+    return cleaned if isinstance(cleaned, dict) else {}
+
+
 def store_decision_audit(
     audit: dict[str, Any],
     *,
     decision_id: str,
     root: Path | str | None = None,
 ) -> dict[str, Any]:
+    safe_audit = _sanitize_audit_payload(audit)
     record = {
         "id": uuid4().hex,
         "storedAt": _stored_at(),
-        "decisionId": str(decision_id),
-        "sourceRef": audit.get("decisionSourceRef"),
-        "selectedOptionId": audit.get("selectedOptionId") or audit.get("plannedOptionId"),
-        "plannedOptionId": audit.get("plannedOptionId"),
-        "actualOptionId": audit.get("actualOptionId"),
-        "actualShotRefs": audit.get("actualShotRefs") or [],
-        "evidenceRefs": audit.get("evidenceRefs") or [],
-        "classification": audit.get("classification"),
-        "audit": audit,
+        "decisionId": _sanitize_decision_id(decision_id),
+        "sourceRef": safe_audit.get("decisionSourceRef"),
+        "selectedOptionId": safe_audit.get("selectedOptionId") or safe_audit.get("plannedOptionId"),
+        "plannedOptionId": safe_audit.get("plannedOptionId"),
+        "actualOptionId": safe_audit.get("actualOptionId"),
+        "actualShotRefs": _sanitize_ref_list(safe_audit.get("actualShotRefs")),
+        "evidenceRefs": _sanitize_ref_list(safe_audit.get("evidenceRefs")),
+        "classification": safe_audit.get("classification"),
+        "audit": safe_audit,
     }
     path = decision_audit_file(root)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1218,9 +1260,9 @@ def audit_decision(decision: dict[str, Any], actual_shot: dict[str, Any] | None)
     selected = decision.get("selectedOption") or decision.get("selected") or {}
     selected_option_id = decision.get("selectedOptionId") or selected.get("id")
     phase = decision.get("phase") or f"{decision.get('shotType', 'unknown')}_shot"
-    decision_id = decision.get("decisionId")
-    decision_source_ref = decision.get("sourceRef") or (decision.get("context") or {}).get("sourceRef")
-    evidence_refs = decision.get("evidenceRefs") or _evidence_refs(decision, _safe_ref(decision_source_ref))
+    decision_id = _safe_ref(decision.get("decisionId"))
+    decision_source_ref = _safe_ref(decision.get("sourceRef") or (decision.get("context") or {}).get("sourceRef"))
+    evidence_refs = _explicit_evidence_refs(decision, decision_source_ref)
     actual_refs = _actual_shot_refs(decision, actual_shot)
     if not actual_shot:
         return {

@@ -2494,6 +2494,29 @@ p {
   font-weight: 850;
 }
 
+.decision-audit-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.decision-audit-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.decision-audit-result,
+.decision-audit-suggestion {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.decision-audit-suggestion {
+  color: var(--text);
+}
+
 .audit-execution {
   background: #e4f2e8;
   color: var(--green);

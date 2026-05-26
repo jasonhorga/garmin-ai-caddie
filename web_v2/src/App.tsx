@@ -641,6 +641,7 @@ export default function App() {
             onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
             onAttachMedia={handleAttachMedia}
             onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}
+            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
           />
         </main>
       </>

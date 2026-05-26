@@ -69,6 +69,42 @@ class ServerV2CaddieAuditTests(unittest.TestCase):
         self.assertEqual(payload["decisionId"], "missing-decision")
         self.assertIsNone(payload["record"])
 
+    def test_decision_audit_api_does_not_echo_private_refs_or_payload(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.caddie.DECISION_AUDIT_ROOT", root):
+                response = client.post(
+                    "/api/v2/caddie/decisions/token=abc123/audit",
+                    json={
+                        "decision": {
+                            "decisionId": "token=abc123",
+                            "sourceRef": "/home/ubuntu/.garmin_tokens/session",
+                            "phase": "Approach",
+                            "selectedOptionId": "stock",
+                            "selectedOption": {"id": "stock", "note": "cookie=super-secret"},
+                            "evidenceRefs": ["fixture-round:4", "token=abc123"],
+                            "confidence": {"level": "medium"},
+                        },
+                        "actualShot": {
+                            "sourceRef": "secret=shot-secret",
+                            "shotOrder": 1,
+                            "clubName": "8I",
+                            "meters": 143.0,
+                            "end": {"lie": "Green", "feature": {"surface": {"kind": "green"}, "nearRisks": []}},
+                        },
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["record"]["evidenceRefs"], ["fixture-round:4"])
+        self.assertEqual(response.json()["record"]["actualShotRefs"], [])
+        self.assertNotIn("abc123", response.text)
+        self.assertNotIn("super-secret", response.text)
+        self.assertNotIn("shot-secret", response.text)
+        self.assertNotIn("/home/ubuntu", response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -71,9 +71,9 @@ const auditRecord: CaddieDecisionAuditRecord = {
     actualShotRefs: ['fixture-links:4:1'],
     evidenceRefs: ['fixture-links:4'],
     classification: 'execution',
-    executionMatch: { hasFirstShot: true, clubMatch: true, distanceDelta_m: -1 },
+    executionMatch: { hasFirstShot: true, clubMatch: true, distanceDelta_m: -1, riskTriggered: false },
     result: { clubName: '8I', meters: 143, surface: 'green' },
-    modelUpdateSuggestion: { kind: 'none' },
+    modelUpdateSuggestion: 'Keep the strategic option, but track whether this miss pattern repeats.',
   },
 }
 
@@ -209,6 +209,12 @@ describe('CaddiePage', () => {
     expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)
     expect(screen.getByText('execution')).toHaveClass('audit-execution')
     expect(screen.getByText('planned stock -> actual stock')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source fixture-links:4:1' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Open source fixture-links:4' }).length).toBeGreaterThan(0)
+    expect(screen.getByText('club match yes')).toBeInTheDocument()
+    expect(screen.getByText('distance -1m')).toBeInTheDocument()
+    expect(screen.getByText('risk no')).toBeInTheDocument()
+    expect(screen.getByText('Keep the strategic option, but track whether this miss pattern repeats.')).toBeInTheDocument()
     expect(screen.getByText('5.4 m/s')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Media Context' })).toBeInTheDocument()
     expect(screen.getByText('data/media/uploads/lie.jpg')).toBeInTheDocument()
