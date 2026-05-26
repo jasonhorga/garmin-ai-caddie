@@ -206,6 +206,40 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(unknown["missingData"][0]["label"], "surface_match")
         self.assertEqual([row["surface"]["kind"] for row in evidence["surfaceClassifications"]], ["water", "green"])
 
+    def test_classifies_mesh_surfaces_from_garmin_prodgeometry_layer_names(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h05_hazards.json"
+            mesh = root / "gid31795_h05_meshes.json"
+            hazard.write_text('{"refLat":22.279,"refLon":114.162,"hazards":[]}', encoding="utf-8")
+            mesh.write_text(
+                """
+                {
+                  "surfaces": [
+                    {"id": "bounds", "kind": "PlayableBounds.drc", "polygon": [[0, 0], [120, 0], [120, 120], [0, 120], [0, 0]]},
+                    {"id": "fairway", "type": "Fairway.drc", "polygon": [[10, 10], [40, 10], [40, 40], [10, 40], [10, 10]]},
+                    {"id": "rough", "surface": "Rough.drc", "polygon": [[50, 10], [90, 10], [90, 40], [50, 40], [50, 10]]},
+                    {"id": "tee", "name": "Teebox.drc", "polygon": [[10, 50], [30, 50], [30, 70], [10, 70], [10, 50]]}
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                fairway = classify_shot_surface(31795, 5, {"ref": "shot-fairway", "end": {"x": 20, "y": 20}})
+                rough = classify_shot_surface(31795, 5, {"ref": "shot-rough", "end": {"x": 60, "y": 20}})
+                tee = classify_shot_surface(31795, 5, {"ref": "shot-tee", "end": {"x": 20, "y": 60}})
+                bounds = classify_shot_surface(31795, 5, {"ref": "shot-bounds", "end": {"x": 100, "y": 100}})
+
+        self.assertEqual(fairway["surface"]["kind"], "fairway")
+        self.assertEqual(rough["surface"]["kind"], "rough")
+        self.assertEqual(tee["surface"]["kind"], "teebox")
+        self.assertEqual(bounds["surface"]["kind"], "playable_bounds")
+        self.assertNotIn(".drc", str([fairway["surface"], rough["surface"], tee["surface"], bounds["surface"]]))
+
     def test_route_evidence_computes_hazard_carry_clearance_and_landing_window(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

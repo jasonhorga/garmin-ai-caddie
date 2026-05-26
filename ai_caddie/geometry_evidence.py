@@ -22,6 +22,40 @@ MAP_PROVIDERS = {
         "gcj02": False,
     },
 }
+SURFACE_KIND_ALIASES = {
+    "bunker": "bunker",
+    "bunkerdrc": "bunker",
+    "sand": "bunker",
+    "sandtrap": "bunker",
+    "lake": "water",
+    "lakedrc": "water",
+    "water": "water",
+    "waterhazard": "water",
+    "lakeside": "water_edge",
+    "lakesidedrc": "water_edge",
+    "wateredge": "water_edge",
+    "water_edge": "water_edge",
+    "green": "green",
+    "greendrc": "green",
+    "puttinggreen": "green",
+    "fairway": "fairway",
+    "fairwaydrc": "fairway",
+    "rough": "rough",
+    "roughdrc": "rough",
+    "teebox": "teebox",
+    "teeboxdrc": "teebox",
+    "tee": "teebox",
+    "tee_box": "teebox",
+    "treearea": "tree_area",
+    "treeareadrc": "tree_area",
+    "tree_area": "tree_area",
+    "trees": "tree_area",
+    "playablebounds": "playable_bounds",
+    "playableboundsdrc": "playable_bounds",
+    "playable_bounds": "playable_bounds",
+    "bounds": "playable_bounds",
+}
+SURFACE_PRIORITY = ["water", "bunker", "green", "fairway", "rough", "tree_area", "teebox", "playable_bounds"]
 
 
 def _display_path(path: Path) -> str:
@@ -136,17 +170,90 @@ def _mesh_surface_rows(meshes: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _surface_kind_values(row: dict[str, Any]) -> list[Any]:
+    values = []
+    for key in ("kind", "type", "surface", "name", "source", "file", "filename", "layer"):
+        value = row.get(key)
+        if value is not None:
+            values.append(value)
+    return values
+
+
+def _surface_value_to_text(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("kind", "type", "surface", "name", "source", "file", "filename", "layer"):
+            nested = value.get(key)
+            if nested is not None:
+                text = _surface_value_to_text(nested)
+                if text:
+                    return text
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _snake_case_surface_name(value: str) -> str:
+    stem = value.replace("\\", "/").rsplit("/", 1)[-1]
+    if "." in stem:
+        stem = stem.rsplit(".", 1)[0]
+    chars: list[str] = []
+    previous = ""
+    for char in stem:
+        if char.isupper() and previous and (previous.islower() or previous.isdigit()):
+            chars.append("_")
+        if char.isalnum():
+            chars.append(char.lower())
+        elif chars and chars[-1] != "_":
+            chars.append("_")
+        previous = char
+    return "".join(chars).strip("_") or "unknown"
+
+
+def _normalize_surface_kind(value: Any) -> str | None:
+    text = _surface_value_to_text(value)
+    if text is None:
+        return None
+    leaf = text.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    lower = leaf.lower().replace("-", "_").replace(" ", "_")
+    compact = "".join(char for char in lower if char.isalnum())
+    return SURFACE_KIND_ALIASES.get(lower) or SURFACE_KIND_ALIASES.get(compact) or _snake_case_surface_name(leaf)
+
+
+def _surface_kind(row: dict[str, Any], fallback: str) -> str:
+    for value in _surface_kind_values(row):
+        kind = _normalize_surface_kind(value)
+        if kind:
+            return kind
+    return fallback
+
+
+def _surface_priority(kind: str) -> int:
+    if kind in SURFACE_PRIORITY:
+        return SURFACE_PRIORITY.index(kind)
+    return len(SURFACE_PRIORITY)
+
+
 def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: str) -> dict[str, Any] | None:
+    matches = []
     for index, row in enumerate(rows):
         polygon = row.get("polygon") or row.get("points") or row.get("path")
         if not isinstance(polygon, list):
             continue
         if _point_in_ring(point, polygon):
-            return {
-                "kind": str(row.get("kind") or row.get("type") or row.get("surface") or source),
-                "source": source,
-                "id": str(row.get("id") or f"{source}-{index + 1}"),
-            }
+            kind = _surface_kind(row, source)
+            matches.append(
+                {
+                    "priority": _surface_priority(kind),
+                    "index": index,
+                    "surface": {
+                        "kind": kind,
+                        "source": source,
+                        "id": str(row.get("id") or f"{source}-{index + 1}"),
+                    },
+                }
+            )
+    if matches:
+        return min(matches, key=lambda row: (row["priority"], row["index"]))["surface"]
     return None
 
 
