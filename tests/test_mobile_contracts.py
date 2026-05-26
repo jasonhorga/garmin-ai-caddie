@@ -268,6 +268,25 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onSync()", round_home)
         self.assertIn('Label("Sync"', round_home)
 
+    def test_ios_api_base_url_feeds_live_caddie_and_media_upload(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+
+        self.assertIn("@Published public private(set) var apiBaseURL: URL?", app_swift)
+        self.assertIn("defaultAPIBaseURL", app_swift)
+        self.assertIn("apiBaseURL: model.apiBaseURL", app_swift)
+        self.assertIn("resolvedAPIBaseURL.map { SyncClient(baseURL: $0) }", app_swift)
+
+        self.assertIn("public let apiBaseURL: URL?", round_home)
+        self.assertIn("apiBaseURL: URL? = nil", round_home)
+        self.assertIn("caddieBaseURL: apiBaseURL", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, onEvent: onEvent)", round_home)
+
+        self.assertIn("caddieBaseURL: URL? = nil", current_hole)
+        self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
+        self.assertIn("MediaUploadClient(baseURL:", current_hole)
+
     def test_ios_event_builder_supports_location_media_and_scoring_inputs(self) -> None:
         builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
 
@@ -397,7 +416,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundHomeView: View", round_home)
         self.assertIn("public let onEvent", round_home)
         self.assertIn("syncStatus", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, onEvent: onEvent)", round_home)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)

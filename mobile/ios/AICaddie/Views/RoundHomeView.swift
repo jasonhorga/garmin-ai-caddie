@@ -1,9 +1,11 @@
+import Foundation
 import SwiftUI
 
 public struct RoundHomeView: View {
     public let package: LiveRoundPackage
     public let pendingEventCount: Int
     public let syncStatus: String
+    public let apiBaseURL: URL?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onSync: () -> Void
 
@@ -11,12 +13,14 @@ public struct RoundHomeView: View {
         package: LiveRoundPackage,
         pendingEventCount: Int = 0,
         syncStatus: String = "Offline ready",
+        apiBaseURL: URL? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onSync: @escaping () -> Void = {}
     ) {
         self.package = package
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
+        self.apiBaseURL = apiBaseURL
         self.onEvent = onEvent
         self.onSync = onSync
     }
@@ -49,7 +53,7 @@ public struct RoundHomeView: View {
                 Section("Holes") {
                     ForEach(package.holes) { hole in
                         NavigationLink {
-                            CurrentHoleView(package: package, hole: hole, onEvent: onEvent)
+                            CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, onEvent: onEvent)
                         } label: {
                             HStack {
                                 Text("\(hole.number)")

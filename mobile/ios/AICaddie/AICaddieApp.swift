@@ -15,6 +15,7 @@ public struct AICaddieApp: App {
                         package: package,
                         pendingEventCount: model.pendingEventCount,
                         syncStatus: model.syncStatus,
+                        apiBaseURL: model.apiBaseURL,
                         onEvent: model.handleEvent,
                         onSync: {
                             Task {
@@ -38,13 +39,20 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var package: LiveRoundPackage?
     @Published public private(set) var pendingEventCount: Int = 0
     @Published public private(set) var syncStatus: String = "Offline ready"
+    @Published public private(set) var apiBaseURL: URL?
 
     private let offlineStore: OfflineStore
     private let syncClient: SyncClient?
 
-    public init(offlineStore: OfflineStore = OfflineStore(), syncClient: SyncClient? = nil) {
+    public init(
+        offlineStore: OfflineStore = OfflineStore(),
+        apiBaseURL: URL? = nil,
+        syncClient: SyncClient? = nil
+    ) {
+        let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         self.offlineStore = offlineStore
-        self.syncClient = syncClient ?? Self.defaultSyncClient()
+        self.apiBaseURL = resolvedAPIBaseURL
+        self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0) }
     }
 
     public func bootstrap() async {
@@ -106,14 +114,14 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    private static func defaultSyncClient() -> SyncClient? {
+    private static func defaultAPIBaseURL() -> URL? {
         guard
             let rawURL = ProcessInfo.processInfo.environment["AI_CADDIE_API_BASE_URL"],
-            let baseURL = URL(string: rawURL)
+            let resolvedAPIBaseURL = URL(string: rawURL)
         else {
             return nil
         }
-        return SyncClient(baseURL: baseURL)
+        return resolvedAPIBaseURL
     }
 
     private func idempotencyKey(roundId: String, events: [LiveRoundEvent]) -> String {
