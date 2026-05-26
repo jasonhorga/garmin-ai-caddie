@@ -120,6 +120,31 @@ class AnnotationStoreTests(unittest.TestCase):
         self.assertIn("[REDACTED]", combined)
         self.assertIn("[REDACTED_PATH]", combined)
 
+    def test_existing_annotation_payloads_are_redacted_on_read(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = annotation_file(root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                (
+                    '{"id":"legacy","createdAt":"2026-05-25T00:00:00Z","targetType":"hole",'
+                    '"targetId":"round-1:7","kind":"strategy_note",'
+                    '"payload":{"text":"cookie=session-value token=abc123 /home/player/raw.json",'
+                    '"nested":{"summary":"connect-csrf-token: csrf-value"}},'
+                    '"source":"manual"}\n'
+                ),
+                encoding="utf-8",
+            )
+
+            records = list_annotations(root=root)
+            target_records = annotations_for_target("hole", "round-1:7", root=root)
+
+        combined = f"{records} {target_records}"
+        for forbidden in ["session-value", "abc123", "/home/player/raw.json", "csrf-value"]:
+            self.assertNotIn(forbidden, combined)
+        self.assertIn("[REDACTED]", combined)
+        self.assertIn("[REDACTED_PATH]", combined)
+
 
 if __name__ == "__main__":
     unittest.main()
