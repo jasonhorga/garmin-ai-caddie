@@ -22,6 +22,7 @@ export type AnnotationKind =
   | 'lie_correction'
   | 'penalty_correction'
   | 'putt_correction'
+  | 'score_correction'
   | 'weather_context_note'
   | 'strategy_note'
   | 'caddie_feedback'

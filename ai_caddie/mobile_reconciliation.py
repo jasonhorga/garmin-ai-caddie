@@ -141,18 +141,16 @@ def _annotation_suggestions(
         elif kind == "score":
             suggestions.append(
                 _suggestion(
-                    f"{event_id}:hole-note",
+                    f"{event_id}:score-correction",
                     target_type="hole",
                     target_id=ref,
-                    kind="hole_note",
+                    kind="score_correction",
                     payload={
-                        "text": f"Local score {local_value} differs from synced Garmin score {garmin_value}.",
-                        "localValue": local_value,
-                        "garminValue": garmin_value,
+                        "from": garmin_value,
+                        "to": local_value,
                         "sourceEventId": event_id,
                     },
-                    reason="Score conflicts require human review before changing derived scoring.",
-                    confidence="low",
+                    reason="Local score input can correct the derived score for this hole.",
                 )
             )
 

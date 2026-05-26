@@ -63,12 +63,13 @@ class ServerV2AnnotationTests(unittest.TestCase):
                     )
                     for kind, payload in [
                         ("putt_correction", {"from": 2, "to": 4}),
+                        ("score_correction", {"from": 5, "to": 4}),
                         ("weather_context_note", {"text": "wind into from the left"}),
                         ("strategy_note", {"text": "aimed right center"}),
                     ]
                 ]
 
-        self.assertEqual([response.status_code for response in responses], [200, 200, 200])
+        self.assertEqual([response.status_code for response in responses], [200, 200, 200, 200])
 
     def test_annotation_post_rejects_invalid_target_and_kind(self) -> None:
         client = TestClient(app)

@@ -13,6 +13,7 @@ type CorrectionFormKind =
   | 'lie_correction'
   | 'penalty_correction'
   | 'putt_correction'
+  | 'score_correction'
   | 'issue_tag'
   | 'weather_context_note'
   | 'strategy_note'
@@ -29,6 +30,7 @@ const correctionKinds: Array<{ value: CorrectionFormKind; label: string }> = [
   { value: 'lie_correction', label: 'Lie correction' },
   { value: 'penalty_correction', label: 'Penalty correction' },
   { value: 'putt_correction', label: 'Putt correction' },
+  { value: 'score_correction', label: 'Score correction' },
   { value: 'issue_tag', label: 'Issue tag' },
   { value: 'weather_context_note', label: 'Weather note' },
   { value: 'strategy_note', label: 'Strategy note' },
@@ -48,6 +50,7 @@ function labelKind(kind: AnnotationKind) {
     lie_correction: 'Lie correction',
     penalty_correction: 'Penalty correction',
     putt_correction: 'Putt correction',
+    score_correction: 'Score correction',
     weather_context_note: 'Weather note',
     strategy_note: 'Strategy note',
     caddie_feedback: 'Caddie feedback',
@@ -86,6 +89,11 @@ function payloadSummary(record: AnnotationRecord) {
     const from = compactPayloadValue(payload.from)
     const to = compactPayloadValue(payload.to)
     if (from && to) return `${from} -> ${to} putts`
+  }
+  if (record.kind === 'score_correction') {
+    const from = compactPayloadValue(payload.from)
+    const to = compactPayloadValue(payload.to)
+    if (from && to) return `${from} -> ${to} strokes`
   }
   if (record.kind === 'lie_correction') {
     const from = compactPayloadValue(payload.from)
@@ -141,6 +149,8 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
   const [penaltyReason, setPenaltyReason] = useState('')
   const [recordedPutts, setRecordedPutts] = useState('')
   const [correctedPutts, setCorrectedPutts] = useState('')
+  const [recordedScore, setRecordedScore] = useState('')
+  const [correctedScore, setCorrectedScore] = useState('')
   const [issueTag, setIssueTag] = useState('')
   const [feedbackRating, setFeedbackRating] = useState('helpful')
   const [note, setNote] = useState('')
@@ -172,6 +182,13 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
       kind = 'putt_correction'
       const from = numericPayloadValue(recordedPutts)
       const to = numericPayloadValue(correctedPutts)
+      if (from !== null) payload.from = from
+      if (to !== null) payload.to = to
+      if (trimmedNote) payload.note = trimmedNote
+    } else if (correctionKind === 'score_correction') {
+      kind = 'score_correction'
+      const from = numericPayloadValue(recordedScore)
+      const to = numericPayloadValue(correctedScore)
       if (from !== null) payload.from = from
       if (to !== null) payload.to = to
       if (trimmedNote) payload.note = trimmedNote
@@ -218,6 +235,8 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
       setPenaltyReason('')
       setRecordedPutts('')
       setCorrectedPutts('')
+      setRecordedScore('')
+      setCorrectedScore('')
       setIssueTag('')
       setFeedbackRating('helpful')
       setNote('')
@@ -327,6 +346,19 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
                 <label>
                   <span>Corrected putts</span>
                   <input inputMode="numeric" value={correctedPutts} onChange={(event) => setCorrectedPutts(event.target.value)} />
+                </label>
+              </>
+            ) : null}
+
+            {correctionKind === 'score_correction' ? (
+              <>
+                <label>
+                  <span>Recorded score</span>
+                  <input inputMode="numeric" value={recordedScore} onChange={(event) => setRecordedScore(event.target.value)} />
+                </label>
+                <label>
+                  <span>Corrected score</span>
+                  <input inputMode="numeric" value={correctedScore} onChange={(event) => setCorrectedScore(event.target.value)} />
                 </label>
               </>
             ) : null}

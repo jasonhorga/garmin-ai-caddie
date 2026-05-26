@@ -80,8 +80,8 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(result["candidateDecisionAudits"][0]["decisionId"], "900001:3:1")
         suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
         self.assertEqual(result["summary"]["annotationSuggestionCount"], 4)
-        self.assertEqual(suggestions["score-conflict:hole-note"]["kind"], "hole_note")
-        self.assertEqual(suggestions["score-conflict:hole-note"]["targetId"], "900001:1")
+        self.assertEqual(suggestions["score-conflict:score-correction"]["kind"], "score_correction")
+        self.assertEqual(suggestions["score-conflict:score-correction"]["targetId"], "900001:1")
         self.assertEqual(suggestions["putt-conflict:putt-correction"]["kind"], "putt_correction")
         self.assertEqual(suggestions["putt-conflict:putt-correction"]["payload"]["from"], 2)
         self.assertEqual(suggestions["putt-conflict:putt-correction"]["payload"]["to"], 3)
@@ -117,7 +117,7 @@ class MobileReconciliationTests(unittest.TestCase):
             first = apply_mobile_reconciliation_suggestions(
                 "900001",
                 fixture_history_data(),
-                suggestion_ids=["putt-conflict:putt-correction", "score-conflict:hole-note"],
+                suggestion_ids=["putt-conflict:putt-correction", "score-conflict:score-correction"],
                 root=root,
                 annotations_root=root,
             )
@@ -135,7 +135,7 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(first["skippedCount"], 0)
         self.assertEqual(second["appliedCount"], 0)
         self.assertEqual(second["skippedCount"], 1)
-        self.assertEqual([row["kind"] for row in annotations], ["putt_correction", "hole_note"])
+        self.assertEqual([row["kind"] for row in annotations], ["putt_correction", "score_correction"])
         self.assertEqual(annotations[0]["payload"]["sourceSuggestionId"], "putt-conflict:putt-correction")
 
 

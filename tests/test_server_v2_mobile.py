@@ -196,7 +196,7 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-mobile-reconciliation-v1")
         self.assertEqual(payload["summary"]["conflictCount"], 1)
         self.assertEqual(payload["conflicts"][0]["eventId"], "score-conflict")
-        self.assertEqual(payload["annotationSuggestions"][0]["id"], "score-conflict:hole-note")
+        self.assertEqual(payload["annotationSuggestions"][0]["id"], "score-conflict:score-correction")
 
     def test_mobile_reconciliation_apply_endpoint_creates_selected_annotations(self) -> None:
         client = TestClient(app)

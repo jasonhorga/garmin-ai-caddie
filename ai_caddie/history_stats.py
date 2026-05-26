@@ -14,7 +14,7 @@ from ai_caddie.reports import list_report_records
 from ai_caddie.weather_context import list_weather_snapshots
 
 DataModeName = Literal["local", "fixture"]
-CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction"}
+CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction", "score_correction"}
 
 
 def _round_id(row: dict[str, Any]) -> str:
@@ -60,6 +60,58 @@ def _corrected_putt_value(
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _corrected_score_value(
+    hole_ref: str,
+    original: Any,
+    corrections: dict[str, dict[str, Any]],
+) -> int | None:
+    value = original
+    if hole_ref in corrections:
+        value = _payload_value(corrections[hole_ref], "to", "score", "strokes", "correctedScore")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _effective_score_data(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> HistoryData:
+    score_corrections = _annotations_by_kind(annotations, "score_correction")
+    if not score_corrections:
+        return data
+
+    rounds: list[dict[str, Any]] = []
+    for row in data.rounds:
+        row_copy = dict(row)
+        holes: list[dict[str, Any]] = []
+        round_delta = 0
+        corrected_refs: list[str] = []
+        for hole in row.get("holes") or []:
+            hole_copy = dict(hole)
+            number = int(hole_copy.get("number") or 0)
+            ref = _hole_ref(row, number) if number else ""
+            if ref in score_corrections:
+                corrected = _corrected_score_value(ref, hole_copy.get("strokes"), score_corrections)
+                if corrected is not None:
+                    try:
+                        round_delta += corrected - int(hole_copy.get("strokes"))
+                    except (TypeError, ValueError):
+                        pass
+                    hole_copy["strokes"] = corrected
+                    hole_copy["_scoreCorrected"] = True
+                    corrected_refs.append(ref)
+            holes.append(hole_copy)
+        if corrected_refs:
+            row_copy["holes"] = holes
+            if row_copy.get("strokes") is not None:
+                try:
+                    row_copy["strokes"] = int(row_copy["strokes"]) + round_delta
+                except (TypeError, ValueError):
+                    pass
+            row_copy["_scoreCorrectedRefs"] = corrected_refs
+        rounds.append(row_copy)
+    return HistoryData(raw_rounds=data.raw_rounds, rounds=rounds, shots=data.shots)
 
 
 def _effective_shots(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -325,10 +377,12 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
     bands: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
     putt_corrections = _annotations_by_kind(annotations, "putt_correction")
+    score_corrections = _annotations_by_kind(annotations, "score_correction")
     putts: list[int] = []
     putt_refs: list[str] = []
     three_putt_refs: list[str] = []
     corrected_putt_refs: list[str] = []
+    corrected_score_refs: list[str] = []
     fairways = Counter({"recorded": 0, "hit": 0, "left": 0, "right": 0})
     tee_refs: list[str] = []
     gir = Counter({"recorded": 0, "hit": 0})
@@ -350,6 +404,8 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                     three_putt_refs.append(ref)
                 if ref in putt_corrections:
                     corrected_putt_refs.append(ref)
+            if ref in score_corrections:
+                corrected_score_refs.append(ref)
             fairway = str(hole.get("fairway") or "").lower()
             if fairway:
                 fairways["recorded"] += 1
@@ -437,6 +493,10 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                 "correctedRefs": corrected_putt_refs,
             },
         ],
+        "scoreCorrections": {
+            "count": len(corrected_score_refs),
+            "correctedRefs": corrected_score_refs,
+        },
     }
 
 
@@ -912,16 +972,17 @@ def build_history_stats(
     annotations = list_annotations(root=annotations_root)
     weather_snapshots = list_weather_snapshots(root=weather_root)
     report_records = list_report_records(root=reports_root)
-    hole_rows = _holes(data, annotations)
+    scored_data = _effective_score_data(data, annotations)
+    hole_rows = _holes(scored_data, annotations)
     return {
         "schema": "ai-caddie-history-stats-v1",
         "dataMode": data_mode,
-        "summary": _summary(data),
-        "time": _time_stats(data),
-        "scoring": _scoring(data, annotations),
-        "courseDistribution": _course_distribution(data),
-        "records": _records(data, annotations),
-        "courses": _courses(data),
+        "summary": _summary(scored_data),
+        "time": _time_stats(scored_data),
+        "scoring": _scoring(scored_data, annotations),
+        "courseDistribution": _course_distribution(scored_data),
+        "records": _records(scored_data, annotations),
+        "courses": _courses(scored_data),
         "holes": hole_rows,
         "clubs": _clubs(data, annotations),
         "issues": _issues(data, annotations),

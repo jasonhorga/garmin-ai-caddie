@@ -200,11 +200,22 @@ class HistoryStatsCoreTests(unittest.TestCase):
                 {"from": 2, "to": 4},
                 root=root,
             )
+            add_annotation(
+                "hole",
+                "900001:1",
+                "score_correction",
+                {"from": 4, "to": 6},
+                root=root,
+            )
 
             stats = build_history_stats(data, data_mode="fixture", annotations_root=root)
 
         self.assertEqual(data.shots[1]["club"], "8I")
         self.assertEqual(data.shots[4]["surface"], "rough")
+        self.assertEqual(data.rounds[0]["strokes"], base_stats["summary"]["bestScore"])
+        self.assertEqual(data.rounds[0]["holes"][0]["strokes"], 4)
+        self.assertEqual(stats["summary"]["bestScore"], base_stats["summary"]["bestScore"] + 2)
+        self.assertEqual(stats["records"]["best18"]["score"], base_stats["records"]["best18"]["score"] + 2)
 
         club_labels = {row["club"] for row in stats["clubs"]}
         self.assertIn("7I", club_labels)
@@ -227,10 +238,15 @@ class HistoryStatsCoreTests(unittest.TestCase):
             base_stats["scoring"]["putting"]["totalPutts"] + 2,
         )
         self.assertEqual(stats["scoring"]["putting"]["correctedRefs"], ["900001:7"])
+        self.assertEqual(stats["scoring"]["scoreCorrections"]["correctedRefs"], ["900001:1"])
+        self.assertEqual(
+            stats["scoring"]["outcomes"]["doubleOrWorse"],
+            base_stats["scoring"]["outcomes"]["doubleOrWorse"] + 1,
+        )
 
         correction_quality = next(row for row in stats["dataQuality"] if row["label"] == "corrections")
         self.assertEqual(correction_quality["state"], "good")
-        self.assertEqual(correction_quality["ready"], 4)
+        self.assertEqual(correction_quality["ready"], 5)
 
     def test_weather_coverage_is_reported_from_persisted_snapshots(self) -> None:
         with TemporaryDirectory() as tmp:

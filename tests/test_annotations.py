@@ -23,6 +23,7 @@ class AnnotationStoreTests(unittest.TestCase):
             ("shot", "round-1:7:2", "lie_correction", {"from": "rough", "to": "fairway"}),
             ("hole", "round-1:7", "penalty_correction", {"strokes": 1, "reason": "water"}),
             ("hole", "round-1:7", "putt_correction", {"from": 2, "to": 4}),
+            ("hole", "round-1:7", "score_correction", {"from": 5, "to": 4}),
             ("hole", "round-1:7", "weather_context_note", {"text": "wind into from the left"}),
             ("hole", "round-1:7", "strategy_note", {"text": "intended target was right center"}),
             ("decision", "round-1:7:2", "caddie_feedback", {"rating": "too_aggressive"}),
@@ -35,9 +36,9 @@ class AnnotationStoreTests(unittest.TestCase):
                 for target_type, target_id, kind, payload in cases
             ]
 
-            self.assertEqual(len(records), 11)
-            self.assertEqual(len(list_annotations(root=root)), 11)
-            self.assertEqual(len(annotation_file(root).read_text(encoding="utf-8").splitlines()), 11)
+            self.assertEqual(len(records), 12)
+            self.assertEqual(len(list_annotations(root=root)), 12)
+            self.assertEqual(len(annotation_file(root).read_text(encoding="utf-8").splitlines()), 12)
             for record, (target_type, target_id, kind, payload) in zip(records, cases):
                 self.assertTrue(record["id"])
                 self.assertTrue(record["createdAt"].endswith("Z"))
@@ -55,6 +56,7 @@ class AnnotationStoreTests(unittest.TestCase):
                     "issue_tag",
                     "penalty_correction",
                     "putt_correction",
+                    "score_correction",
                     "weather_context_note",
                     "strategy_note",
                 ],
