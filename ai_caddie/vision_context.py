@@ -235,17 +235,27 @@ def analyze_media_context(
     media_parts, media_status = _media_payload(media, root=root)
     chat_multimodal = getattr(provider, "chat_multimodal", None)
     uses_multimodal = callable(chat_multimodal)
+    if not media_parts:
+        return _uncertainty(
+            media,
+            provider,
+            "media content is unavailable; no structured image/video media parts were sent",
+        )
+    if not uses_multimodal:
+        return _uncertainty(
+            media,
+            provider,
+            "provider does not support structured image/video media parts",
+        )
     provider_media_status = (
         f"{media_status}; mediaPartCount={len(media_parts)}; multimodalProvider=true"
-        if uses_multimodal
-        else f"{media_status}; mediaPartCount=0; mediaContentSent=false; multimodalProvider=false"
     )
     prompt = (
         "Analyze golf media as uncertain evidence only. Return JSON findings using only "
         f"{sorted(ALLOWED_FINDING_TYPES)} with confidence low/medium/high. "
         "Do not treat image or video observations as automatic truth. "
         "If media content is unavailable or was not supplied as a structured image/video part, return uncertainty. "
-        f"Media kind={media.get('mediaKind')} path={redact_secret_text(media.get('localPath'))}. "
+        f"Media kind={media.get('mediaKind')} path={_redact_private_text(media.get('localPath'))}. "
         f"{provider_media_status}"
     )
     messages = [

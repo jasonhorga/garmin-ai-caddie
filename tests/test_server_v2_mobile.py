@@ -69,6 +69,31 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertIn(payload["selectedOptionId"], {"safe", "stock", "attack"})
         self.assertGreaterEqual(len(payload["evidence"]), 1)
 
+    def test_mobile_round_package_approach_and_recovery_seeds_degrade_with_missing_live_inputs(self) -> None:
+        client = TestClient(app)
+
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            package_response = client.get("/api/v2/mobile/rounds/900001/package")
+            seed = next(row for row in package_response.json()["caddieContextSeeds"] if row["hole"] == 1)
+            approach = client.post(
+                "/api/v2/caddie/decision",
+                json={"shotType": "approach", "context": seed["context"]},
+            )
+            recovery = client.post(
+                "/api/v2/caddie/decision",
+                json={"shotType": "recovery", "context": seed["context"]},
+            )
+
+        for response in (approach, recovery):
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual([row["id"] for row in payload["options"]], ["safe", "stock", "attack"])
+            missing_labels = {row["label"] for row in payload["missingData"]}
+            self.assertIn("current_location", missing_labels)
+            self.assertIn("distance_to_pin", missing_labels)
+            self.assertIn("lie", missing_labels)
+            self.assertIn("weather", missing_labels)
+
     def test_mobile_event_batch_is_idempotent_and_temp_rooted(self) -> None:
         client = TestClient(app)
         event = {

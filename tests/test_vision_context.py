@@ -41,6 +41,26 @@ class RecordingVisionProvider:
         )
 
 
+class TextOnlyVisionProvider:
+    model = "text-only"
+
+    def __init__(self) -> None:
+        self.called = False
+
+    def chat(self, messages, max_tokens=None):
+        self.called = True
+        return json.dumps(
+            [
+                {
+                    "findingType": "visible_water",
+                    "evidenceText": "I cannot see pixels but will guess water",
+                    "confidence": "high",
+                    "missingInfo": [],
+                }
+            ]
+        )
+
+
 class VisionContextTests(unittest.TestCase):
     def test_static_provider_returns_allowed_finding_contract(self) -> None:
         provider = StaticProvider(
@@ -55,15 +75,23 @@ class VisionContextTests(unittest.TestCase):
                 ]
             )
         )
-        media = {
-            "id": "media-1",
-            "targetType": "shot",
-            "targetId": "round-1:7:2",
-            "mediaKind": "photo",
-            "localPath": "uploads/shot.jpg",
-        }
 
-        result = analyze_media_context(media, provider)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "uploads" / "shot.jpg"
+            image.parent.mkdir()
+            image.write_bytes(b"image-bytes")
+            result = analyze_media_context(
+                {
+                    "id": "media-1",
+                    "targetType": "shot",
+                    "targetId": "round-1:7:2",
+                    "mediaKind": "photo",
+                    "localPath": "uploads/shot.jpg",
+                },
+                provider,
+                root=root,
+            )
 
         self.assertEqual(result["schema"], "ai-caddie-vision-context-v1")
         self.assertEqual(result["mediaId"], "media-1")
@@ -75,14 +103,56 @@ class VisionContextTests(unittest.TestCase):
         self.assertIn(result["findings"][0]["findingType"], ALLOWED_FINDING_TYPES)
 
     def test_invalid_or_unparseable_provider_reply_degrades_to_uncertainty(self) -> None:
-        result = analyze_media_context(
-            {"id": "media-2", "mediaKind": "video", "localPath": "uploads/swing.mp4"},
-            StaticProvider("not json"),
-        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = root / "uploads" / "swing.mp4"
+            video.parent.mkdir()
+            video.write_bytes(b"video-bytes")
+            result = analyze_media_context(
+                {"id": "media-2", "mediaKind": "video", "localPath": "uploads/swing.mp4"},
+                StaticProvider("not json"),
+                root=root,
+            )
 
         self.assertEqual(result["findings"][0]["findingType"], "uncertainty")
         self.assertEqual(result["findings"][0]["confidence"], "low")
         self.assertIn("provider response", result["findings"][0]["missingInfo"][0])
+
+    def test_text_only_provider_degrades_instead_of_guessing_visual_findings(self) -> None:
+        provider = TextOnlyVisionProvider()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "uploads" / "shot.jpg"
+            image.parent.mkdir()
+            image.write_bytes(b"image-bytes")
+            result = analyze_media_context(
+                {
+                    "id": "media-text-only",
+                    "targetType": "shot",
+                    "targetId": "round-1:7:2",
+                    "mediaKind": "photo",
+                    "localPath": "uploads/shot.jpg",
+                },
+                provider,
+                root=root,
+            )
+
+        self.assertFalse(provider.called)
+        self.assertEqual(result["findings"][0]["findingType"], "uncertainty")
+        self.assertEqual(result["findings"][0]["confidence"], "low")
+        self.assertIn("structured image/video media parts", result["findings"][0]["missingInfo"][0])
+
+    def test_missing_media_content_degrades_without_calling_multimodal_provider(self) -> None:
+        provider = RecordingVisionProvider()
+
+        result = analyze_media_context(
+            {"id": "media-missing", "mediaKind": "photo", "localPath": "uploads/missing.jpg"},
+            provider,
+        )
+
+        self.assertEqual(provider.messages, [])
+        self.assertEqual(result["findings"][0]["findingType"], "uncertainty")
+        self.assertIn("media content is unavailable", result["findings"][0]["missingInfo"][0])
 
     def test_media_bytes_are_sent_as_structured_multimodal_parts(self) -> None:
         provider = RecordingVisionProvider()
@@ -113,6 +183,29 @@ class VisionContextTests(unittest.TestCase):
         self.assertNotIn("aW1hZ2UtYnl0ZXM=", prompt)
         self.assertNotIn("image-bytes", prompt)
         self.assertIn("byteLength=11", prompt)
+
+    def test_multimodal_prompt_redacts_absolute_private_media_path(self) -> None:
+        provider = RecordingVisionProvider()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "private-media" / "shot.jpg"
+            image.parent.mkdir()
+            image.write_bytes(b"image-bytes")
+            result = analyze_media_context(
+                {
+                    "id": "media-private-path",
+                    "targetType": "shot",
+                    "targetId": "round-1:7:2",
+                    "mediaKind": "photo",
+                    "localPath": str(image),
+                },
+                provider,
+                root=root,
+            )
+
+        self.assertEqual(result["findings"][0]["findingType"], "visible_water")
+        self.assertNotIn(tmp, provider.messages[-1].content)
+        self.assertIn("[REDACTED_PATH]", provider.messages[-1].content)
 
     def test_video_bytes_are_sent_as_structured_multimodal_parts(self) -> None:
         provider = RecordingVisionProvider()

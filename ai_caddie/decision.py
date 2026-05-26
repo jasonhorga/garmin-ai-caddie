@@ -447,6 +447,13 @@ def _evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) -> list
 
 def _missing_data(analysis: dict[str, Any], options: list[dict[str, Any]], selected: dict[str, Any] | None) -> list[dict[str, Any]]:
     rows = []
+    shot_type = str(analysis.get("shotType") or "")
+    if not isinstance(analysis.get("currentLocation"), dict):
+        rows.append({"label": "current_location", "reason": "live GPS position is missing for current-shot planning"})
+    if shot_type in {"approach", "recovery"} and analysis.get("distanceToPin_m") is None:
+        rows.append({"label": "distance_to_pin", "reason": "live distance to pin or target is missing"})
+    if shot_type in {"approach", "recovery"} and not str(analysis.get("lie") or "").strip():
+        rows.append({"label": "lie", "reason": "live lie input or vision-confirmed lie is missing"})
     geometry = analysis.get("geometry") or {}
     if not geometry.get("hasHazards"):
         rows.append({"label": "hazards", "reason": "prodgeometry hazard data missing"})

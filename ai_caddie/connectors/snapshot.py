@@ -234,6 +234,45 @@ def _normalize_shot_file(path: Path, *, root: Path, round_row: dict[str, Any]) -
     return rows
 
 
+def _remap_shots_to_merged_rounds(shots: list[dict[str, Any]], rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    aliases: dict[str, dict[str, Any]] = {}
+    for row in rounds:
+        row_id = row.get("id")
+        ids = row.get("ids") if isinstance(row.get("ids"), list) else [row_id]
+        if row.get("merged") and len(ids) >= 2:
+            aliases[str(ids[0])] = {
+                "roundId": row_id,
+                "holeOffset": 0,
+                "globalId": row.get("frontNineGlobalCourseId") or row.get("globalId") or row.get("courseId"),
+            }
+            aliases[str(ids[1])] = {
+                "roundId": row_id,
+                "holeOffset": 9,
+                "globalId": row.get("backNineGlobalCourseId") or row.get("globalId") or row.get("courseId"),
+            }
+        elif row_id is not None:
+            aliases[str(row_id)] = {"roundId": row_id, "holeOffset": 0, "globalId": None}
+
+    remapped: list[dict[str, Any]] = []
+    for shot in shots:
+        row = dict(shot)
+        raw_round_id = str(row.get("scorecardId") or row.get("roundId") or "")
+        alias = aliases.get(raw_round_id)
+        if alias:
+            row["roundId"] = alias["roundId"]
+            try:
+                original_hole = int(row.get("hole") or 0)
+            except (TypeError, ValueError):
+                original_hole = 0
+            if original_hole:
+                row["hole"] = original_hole + int(alias["holeOffset"] or 0)
+                row["localHole"] = original_hole
+            if alias.get("globalId") is not None:
+                row["globalId"] = alias["globalId"]
+        remapped.append(row)
+    return remapped
+
+
 def build_snapshot_manifest(*, root: Path = ROOT, snapshot_id: str) -> SnapshotManifest:
     data_dir = root / "data"
     summary = data_dir / "summary.json"
@@ -290,6 +329,7 @@ def build_normalized_snapshot_payload(*, root: Path = ROOT, manifest: SnapshotMa
         for shot in _normalize_shot_file(path, root=root, round_row=round_row)
     ]
     rounds = merge_same_day_halves(raw_rounds)
+    shots = _remap_shots_to_merged_rounds(shots, rounds)
     return {
         "schema": "ai-caddie-normalized-history-v1",
         "snapshotId": manifest.snapshot_id,

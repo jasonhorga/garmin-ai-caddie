@@ -15,6 +15,7 @@ from ai_caddie.connectors.snapshot import (
     write_snapshot_manifest,
 )
 from ai_caddie.history import history_course_detail, history_hole
+from ai_caddie.history_drilldown import build_drilldown_index, resolve_history_ref
 
 
 def _write_scorecard(
@@ -215,6 +216,89 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertEqual(merged["par"], 81)
         self.assertEqual(merged["holePars"], "444444444555555555")
         self.assertEqual([hole["number"] for hole in merged["holes"]], list(range(1, 19)))
+
+    def test_merged_snapshot_shot_refs_resolve_to_merged_round_and_back_nine_holes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                201,
+                date="2026-05-25T08:00:00",
+                course="Twin Lakes ~ Front",
+                hole_numbers=list(range(1, 10)),
+                hole_pars="444444444",
+                strokes=42,
+                course_global_id=900,
+                front_global_id=111,
+                back_global_id=222,
+            )
+            _write_scorecard(
+                root,
+                202,
+                date="2026-05-25T10:30:00",
+                course="Twin Lakes ~ Back",
+                hole_numbers=list(range(1, 10)),
+                hole_pars="555555555",
+                strokes=41,
+                course_global_id=222,
+                front_global_id=222,
+            )
+            (root / "data" / "shots").mkdir(parents=True)
+            for scorecard_id, shot_id, club_id in [(201, "front-shot", 10), (202, "back-shot", 11)]:
+                (root / "data" / "shots" / f"{scorecard_id}.json").write_text(
+                    json.dumps(
+                        {
+                            "clubDetails": [{"clubId": club_id, "name": "8I"}],
+                            "holeShots": [
+                                {
+                                    "holeNumber": 1,
+                                    "shots": [
+                                        {
+                                            "id": shot_id,
+                                            "shotOrder": 1,
+                                            "clubId": club_id,
+                                            "meters": 142,
+                                            "startLoc": {
+                                                "lat": deg_to_semicircle(31.1),
+                                                "lon": deg_to_semicircle(121.1),
+                                                "lie": "Tee Box",
+                                            },
+                                            "endLoc": {
+                                                "lat": deg_to_semicircle(31.2),
+                                                "lon": deg_to_semicircle(121.2),
+                                                "lie": "green",
+                                            },
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_merged_shots")
+            write_durable_snapshot(root=root, manifest=manifest)
+            history = load_latest_snapshot_history(root=root)
+
+        self.assertIsNotNone(history)
+        assert history is not None
+        self.assertEqual([shot["roundId"] for shot in history.shots], ["merged_201_202", "merged_201_202"])
+        self.assertEqual([shot["scorecardId"] for shot in history.shots], [201, 202])
+        self.assertEqual([shot["hole"] for shot in history.shots], [1, 10])
+        self.assertEqual(history.shots[1]["globalId"], 222)
+        self.assertEqual(history.shots[1]["localHole"], 1)
+
+        index = build_drilldown_index(history)
+        self.assertIn("merged_201_202:1:0", index["shotRefs"])
+        self.assertIn("merged_201_202:10:1", index["shotRefs"])
+        detail = resolve_history_ref(history, "merged_201_202:10:1")
+        self.assertTrue(detail["found"])
+        self.assertEqual(detail["hole"]["number"], 10)
+        self.assertEqual(detail["sourceFields"]["scorecardId"], 202)
+
+        back_hole = history_hole(222, 1, include_overlay=False, data=history)
+        self.assertEqual(back_hole["rounds"][0]["shots"][0]["id"], "back-shot")
 
     def test_durable_snapshot_preserves_course_location_for_history_views(self) -> None:
         with TemporaryDirectory() as tmp:

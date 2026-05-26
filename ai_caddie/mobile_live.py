@@ -248,6 +248,7 @@ def _caddie_context_seeds(
     holes: list[dict[str, Any]],
     course_key: str,
     club_profiles: list[dict[str, Any]],
+    weather_snapshot: dict[str, Any],
 ) -> list[dict[str, Any]]:
     global_id = int(round_row.get("globalId") or 0)
     course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
@@ -281,6 +282,7 @@ def _caddie_context_seeds(
             "yards": hole.get("yards"),
             "geometry": geometry,
             "hazards": geometry.get("hazards") or [],
+            "weatherSnapshot": weather_snapshot,
             "clubProfiles": decision_clubs,
             "candidateRoutes": _tee_candidate_routes(hole, club_profiles, geometry.get("hazards") or []),
             "historicalHole": {
@@ -375,6 +377,7 @@ def build_live_round_package(
     if not club_profiles:
         club_profiles = [{"clubName": "8I", "sampleSize": 0, "median_m": 140.0, "p10_m": 130.0, "p90_m": 150.0}]
     ready_holes = sum(1 for hole in holes if hole["geometryCoverage"] == "ready")
+    weather_snapshot = _weather_snapshot_for_package(round_id, root=root)
     prepared_at = datetime.now(UTC).replace(microsecond=0)
     return {
         "schema": "ai-caddie-live-round-package-v1",
@@ -398,8 +401,9 @@ def build_live_round_package(
             holes=holes,
             course_key=course_key,
             club_profiles=club_profiles,
+            weather_snapshot=weather_snapshot,
         ),
-        "weatherSnapshot": _weather_snapshot_for_package(round_id, root=root),
+        "weatherSnapshot": weather_snapshot,
         "clubProfiles": club_profiles,
         "caddieDecisionEndpoint": "/api/v2/caddie/decision",
         "offlinePackageStatus": {
