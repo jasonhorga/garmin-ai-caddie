@@ -36,6 +36,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertIn("mobile/ios/project.yml", checks["native_mobile"]["evidence"]["projectManifest"])
         self.assertIn("xcodebuild test", checks["native_mobile"]["evidence"]["macosCommands"][0])
         self.assertIn("ops/smoke_private_trial.sh", checks["operations"]["evidence"]["scripts"])
+        self.assertEqual(checks["operations"]["evidence"]["deploymentManifests"], ["render.yaml", "web_v2/vercel.json"])
 
     def test_service_index_and_smoke_script_advertise_readiness(self) -> None:
         client = TestClient(app)

@@ -160,7 +160,11 @@ def build_readiness_response() -> dict[str, Any]:
         "docs/deployment/private-trial.md",
         "docs/operations/runbook.md",
     ]
-    missing_ops = [path for path in [*required_scripts, *required_docs] if not Path(path).exists()]
+    deployment_manifests = [
+        "render.yaml",
+        "web_v2/vercel.json",
+    ]
+    missing_ops = [path for path in [*required_scripts, *required_docs, *deployment_manifests] if not Path(path).exists()]
     checks.append(
         _check(
             "operations",
@@ -171,6 +175,7 @@ def build_readiness_response() -> dict[str, Any]:
             {
                 "scripts": required_scripts,
                 "docs": required_docs,
+                "deploymentManifests": deployment_manifests,
                 "missing": missing_ops,
             },
         )
