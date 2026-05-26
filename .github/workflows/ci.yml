@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - testing-sandbox
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    env:
+      AI_CADDIE_DATA_MODE: fixture
+      AI_CADDIE_SECURITY_PROFILE: private
+      AI_CADDIE_ADMIN_TOKEN: ci-admin-token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install Python dependencies
+        run: uv sync
+      - name: Compile Python sources
+        run: uv run python -m py_compile $(git ls-files '*.py')
+      - name: Run backend tests
+        run: uv run python -m unittest discover -s tests -v
+      - name: Start fixture API
+        run: |
+          uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000 > /tmp/ai-caddie-api.log 2>&1 &
+          for attempt in {1..30}; do
+            curl -fsS http://127.0.0.1:9000/api/v2/health && exit 0
+            sleep 1
+          done
+          cat /tmp/ai-caddie-api.log
+          exit 1
+      - name: Private trial smoke
+        run: ops/smoke_private_trial.sh http://127.0.0.1:9000
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web_v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web_v2/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Run component tests
+        run: npm test -- --run
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run visual smoke
+        run: npm run test:e2e
