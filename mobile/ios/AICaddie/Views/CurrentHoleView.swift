@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 public struct CurrentHoleView: View {
@@ -5,17 +6,28 @@ public struct CurrentHoleView: View {
     public let hole: Hole
     public let onEvent: (LiveRoundEvent) -> Void
     private let requestBuilder = CaddieDecisionRequestBuilder()
+    private let caddieClient: CaddieDecisionClient?
 
     @State private var score: Int
     @State private var puttCount: Int = 2
     @State private var penaltyCount: Int = 0
     @State private var selectedClub: String
     @State private var note: String = ""
+    @State private var caddieDecision: CaddieDecisionResponse?
+    @State private var isLoadingCaddieDecision = false
+    @State private var caddieErrorMessage: String?
 
-    public init(package: LiveRoundPackage, hole: Hole, onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }) {
+    public init(
+        package: LiveRoundPackage,
+        hole: Hole,
+        caddieBaseURL: URL? = nil,
+        caddieClient: CaddieDecisionClient? = nil,
+        onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
+    ) {
         self.package = package
         self.hole = hole
         self.onEvent = onEvent
+        self.caddieClient = caddieClient ?? caddieBaseURL.map { CaddieDecisionClient(baseURL: $0) }
         self._score = State(initialValue: hole.par)
         self._selectedClub = State(initialValue: package.clubProfiles.first?.clubName ?? "")
     }
@@ -30,10 +42,30 @@ public struct CurrentHoleView: View {
                     Text("Par \(hole.par)")
                         .foregroundStyle(.secondary)
                 }
-                CaddiePlanView(
-                    options: CaddiePlanOption.defaultOptions,
-                    selectedOptionId: "stock"
-                )
+                if let caddieDecision {
+                    CaddiePlanView(response: caddieDecision)
+                } else {
+                    CaddiePlanView(
+                        options: CaddiePlanOption.defaultOptions,
+                        selectedOptionId: "stock"
+                    )
+                }
+                if isLoadingCaddieDecision {
+                    ProgressView("Updating caddie")
+                }
+                if let caddieErrorMessage {
+                    Text(caddieErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    Task {
+                        await loadCaddieDecision()
+                    }
+                } label: {
+                    Label("Refresh caddie", systemImage: "arrow.clockwise")
+                }
+                .disabled(isLoadingCaddieDecision)
             }
 
             Section("Input") {
@@ -54,6 +86,9 @@ public struct CurrentHoleView: View {
             }
         }
         .navigationTitle("Hole \(hole.number)")
+        .task(id: hole.number) {
+            await loadCaddieDecision()
+        }
     }
 
     private var caddieContextSeed: CaddieContextSeed? {
@@ -71,6 +106,30 @@ public struct CurrentHoleView: View {
                 lie: "fairway"
             )
         )
+    }
+
+    @MainActor
+    private func loadCaddieDecision() async {
+        guard let caddieClient else {
+            caddieErrorMessage = "Offline package ready. Connect to refresh caddie decision."
+            return
+        }
+        guard let request = makeCaddieDecisionRequest() else {
+            caddieErrorMessage = "No caddie context seed for this hole."
+            return
+        }
+
+        isLoadingCaddieDecision = true
+        defer {
+            isLoadingCaddieDecision = false
+        }
+
+        do {
+            caddieDecision = try await caddieClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
+            caddieErrorMessage = nil
+        } catch {
+            caddieErrorMessage = "Caddie decision unavailable. Cached plan remains visible."
+        }
     }
 
     private func submitEvents() {
