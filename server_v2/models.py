@@ -624,6 +624,40 @@ class MobileReconciliationApplyRequest(BaseModel):
     suggestionIds: list[str] = Field(default_factory=list)
 
 
+class MobileReconciliationSummary(BaseModel):
+    eventCount: int
+    matchedCount: int
+    localOnlyCount: int
+    garminOnlyCount: int
+    conflictCount: int
+    candidateDecisionAuditCount: int
+    annotationSuggestionCount: int
+
+
+class MobileReconciliationSuggestion(BaseModel):
+    id: str
+    targetType: AnnotationTargetType
+    targetId: str
+    kind: AnnotationKind
+    payload: dict[str, Any]
+    reason: str
+    confidence: ReportConfidence
+
+
+class MobileReconciliationResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-mobile-reconciliation-v1"] = Field(alias="schema")
+    roundId: str
+    summary: MobileReconciliationSummary
+    matched: list[dict[str, Any]] = Field(default_factory=list)
+    localOnly: list[dict[str, Any]] = Field(default_factory=list)
+    garminOnly: list[dict[str, Any]] = Field(default_factory=list)
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    candidateDecisionAudits: list[dict[str, Any]] = Field(default_factory=list)
+    annotationSuggestions: list[MobileReconciliationSuggestion] = Field(default_factory=list)
+
+
 class MobileReconciliationApplyResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 

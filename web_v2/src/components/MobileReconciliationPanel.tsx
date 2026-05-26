@@ -32,10 +32,28 @@ function compactValue(value: unknown) {
   return null
 }
 
+function rowValue(row: Record<string, unknown>) {
+  return (
+    compactValue(row.localValue) ??
+    compactValue(row.garminValue) ??
+    compactValue(row.ref) ??
+    compactValue(row.decisionId) ??
+    compactValue(row.actualOptionId) ??
+    compactValue(row.kind) ??
+    ''
+  )
+}
+
+function rowLabel(row: Record<string, unknown>, fallback: string) {
+  return compactValue(row.eventId) ?? compactValue(row.ref) ?? compactValue(row.decisionId) ?? compactValue(row.kind) ?? fallback
+}
+
 function suggestionSummary(suggestion: MobileReconciliationSuggestion) {
   const from = compactValue(suggestion.payload.from)
   const to = compactValue(suggestion.payload.to)
   if (from && to) return `${from} -> ${to}`
+  const text = compactValue(suggestion.payload.text) ?? compactValue(suggestion.payload.note)
+  if (text) return text
   const strokes = compactValue(suggestion.payload.strokes)
   if (strokes) return `${strokes} penalty`
   const sourceEventId = compactValue(suggestion.payload.sourceEventId)
@@ -167,6 +185,13 @@ export function MobileReconciliationPanel({
             ))}
           </div>
 
+          <div className="mobile-reconcile-evidence-grid">
+            <EvidenceRows title="Local-only mobile events" rows={readyData.localOnly} />
+            <EvidenceRows title="Reconciliation conflicts" rows={readyData.conflicts} />
+            <EvidenceRows title="Garmin-only facts" rows={readyData.garminOnly} />
+            <EvidenceRows title="Candidate decision audits" rows={readyData.candidateDecisionAudits} />
+          </div>
+
           <div className="mobile-reconcile-actions">
             <button type="button" onClick={handleApply} disabled={!readyData.annotationSuggestions.length || selectedIds.length === 0 || isApplying}>
               {isApplying ? 'Applying suggestions' : 'Apply selected suggestions'}
@@ -180,6 +205,13 @@ export function MobileReconciliationPanel({
             {applyState.status === 'error' ? <span>{applyState.message}</span> : null}
           </div>
 
+          {applyState.status === 'ready' ? (
+            <div className="mobile-reconcile-apply-details" aria-label="Reconciliation apply details">
+              {applyState.data.skippedSuggestionIds.length ? <span>Skipped: {applyState.data.skippedSuggestionIds.join(', ')}</span> : null}
+              {applyState.data.missingSuggestionIds.length ? <span>Missing: {applyState.data.missingSuggestionIds.join(', ')}</span> : null}
+            </div>
+          ) : null}
+
           {applyState.status === 'ready' && applyState.data.annotations.length ? (
             <div className="mobile-reconcile-applied" aria-label="Applied annotations">
               {applyState.data.annotations.map((annotation) => (
@@ -192,6 +224,24 @@ export function MobileReconciliationPanel({
           ) : null}
         </div>
       ) : null}
+    </section>
+  )
+}
+
+function EvidenceRows({ title, rows }: { title: string; rows: Array<Record<string, unknown>> }) {
+  return (
+    <section className="mobile-reconcile-evidence" aria-label={title}>
+      <h3>{title}</h3>
+      {rows.length ? (
+        rows.map((row, index) => (
+          <div className="report-row" key={`${title}-${rowLabel(row, String(index))}-${index}`}>
+            <strong>{rowLabel(row, String(index))}</strong>
+            <span>{rowValue(row)}</span>
+          </div>
+        ))
+      ) : (
+        <p>None</p>
+      )}
     </section>
   )
 }

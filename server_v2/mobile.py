@@ -14,6 +14,7 @@ from .models import (
     LiveRoundPackageResponse,
     MobileReconciliationApplyRequest,
     MobileReconciliationApplyResponse,
+    MobileReconciliationResponse,
 )
 
 
@@ -46,9 +47,9 @@ def append_mobile_events_response(
     return LiveRoundEventBatchResponse(**result)
 
 
-def reconcile_mobile_round_response(round_id: str) -> dict[str, object]:
+def reconcile_mobile_round_response(round_id: str) -> MobileReconciliationResponse:
     data, _mode = load_history_data_for_mode()
-    return reconcile_mobile_round_events(round_id, data, root=MOBILE_ROOT)
+    return MobileReconciliationResponse(**reconcile_mobile_round_events(round_id, data, root=MOBILE_ROOT))
 
 
 def apply_mobile_round_reconciliation_response(

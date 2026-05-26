@@ -130,6 +130,38 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(local_only["legacy-penalty"]["localValue"], 1)
         self.assertEqual(local_only["legacy-note"]["localValue"], "blocked by trees")
         self.assertEqual(suggestions["legacy-penalty:penalty-correction"]["payload"]["strokes"], 1)
+        self.assertEqual(suggestions["legacy-note:hole-note"]["kind"], "hole_note")
+        self.assertEqual(suggestions["legacy-note:hole-note"]["targetId"], "900001:2")
+        self.assertEqual(suggestions["legacy-note:hole-note"]["payload"]["text"], "blocked by trees")
+        self.assertEqual(suggestions["legacy-note:hole-note"]["payload"]["sourceEventId"], "legacy-note")
+
+    def test_reconciliation_suggests_hole_note_annotations_from_mobile_note_events(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001",
+                [
+                    {
+                        "eventId": "wind-note",
+                        "roundId": "900001",
+                        "hole": 7,
+                        "kind": "note",
+                        "payload": {"note": "Wind hurting; favor center green."},
+                    },
+                ],
+                idempotency_key="note-batch",
+                root=root,
+            )
+
+            result = reconcile_mobile_round_events("900001", fixture_history_data(), root=root)
+
+        suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
+        self.assertEqual(result["summary"]["annotationSuggestionCount"], 1)
+        self.assertEqual(suggestions["wind-note:hole-note"]["targetType"], "hole")
+        self.assertEqual(suggestions["wind-note:hole-note"]["targetId"], "900001:7")
+        self.assertEqual(suggestions["wind-note:hole-note"]["kind"], "hole_note")
+        self.assertEqual(suggestions["wind-note:hole-note"]["payload"]["text"], "Wind hurting; favor center green.")
+        self.assertEqual(suggestions["wind-note:hole-note"]["payload"]["sourceEventId"], "wind-note")
 
     def test_applies_selected_reconciliation_suggestions_as_annotations_idempotently(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -179,6 +211,49 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(second["skippedCount"], 1)
         self.assertEqual([row["kind"] for row in annotations], ["putt_correction", "score_correction"])
         self.assertEqual(annotations[0]["payload"]["sourceSuggestionId"], "putt-conflict:putt-correction")
+
+    def test_apply_reconciliation_writes_mobile_note_as_hole_note_idempotently(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001",
+                [
+                    {
+                        "eventId": "strategy-note",
+                        "roundId": "900001",
+                        "hole": 7,
+                        "kind": "note",
+                        "payload": {"note": "Good miss is long-left today."},
+                    },
+                ],
+                idempotency_key="note-apply",
+                root=root,
+            )
+
+            first = apply_mobile_reconciliation_suggestions(
+                "900001",
+                fixture_history_data(),
+                suggestion_ids=["strategy-note:hole-note"],
+                root=root,
+                annotations_root=root,
+            )
+            second = apply_mobile_reconciliation_suggestions(
+                "900001",
+                fixture_history_data(),
+                suggestion_ids=["strategy-note:hole-note"],
+                root=root,
+                annotations_root=root,
+            )
+            annotations = list_annotations(root=root)
+
+        self.assertEqual(first["appliedCount"], 1)
+        self.assertEqual(second["appliedCount"], 0)
+        self.assertEqual(second["skippedSuggestionIds"], ["strategy-note:hole-note"])
+        self.assertEqual(annotations[0]["targetType"], "hole")
+        self.assertEqual(annotations[0]["targetId"], "900001:7")
+        self.assertEqual(annotations[0]["kind"], "hole_note")
+        self.assertEqual(annotations[0]["payload"]["text"], "Good miss is long-left today.")
+        self.assertEqual(annotations[0]["payload"]["sourceEventId"], "strategy-note")
 
 
 if __name__ == "__main__":

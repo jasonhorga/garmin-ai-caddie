@@ -8,17 +8,20 @@ const reconciliation: MobileReconciliationResponse = {
   schema: 'ai-caddie-mobile-reconciliation-v1',
   roundId: '900001',
   summary: {
-    eventCount: 3,
+    eventCount: 5,
     matchedCount: 1,
-    localOnlyCount: 1,
-    garminOnlyCount: 0,
+    localOnlyCount: 2,
+    garminOnlyCount: 1,
     conflictCount: 1,
     candidateDecisionAuditCount: 1,
-    annotationSuggestionCount: 2,
+    annotationSuggestionCount: 3,
   },
   matched: [{ eventId: 'club-match', kind: 'club', hole: 1, ref: '900001:1:1' }],
-  localOnly: [{ eventId: 'penalty-local', kind: 'penalty', hole: 3, localValue: 1 }],
-  garminOnly: [],
+  localOnly: [
+    { eventId: 'penalty-local', kind: 'penalty', hole: 3, localValue: 1 },
+    { eventId: 'note-local', kind: 'note', hole: 7, localValue: 'Wind hurting; favor center green.' },
+  ],
+  garminOnly: [{ kind: 'club', hole: 2, garminValue: '3W', ref: '900001:2:1' }],
   conflicts: [{ eventId: 'score-conflict', kind: 'score', hole: 1, localValue: 5, garminValue: 4, ref: '900001:1' }],
   candidateDecisionAudits: [{ eventId: 'audit-1', decisionId: 'decision-1', hole: 1, actualShot: { clubName: '8I' } }],
   annotationSuggestions: [
@@ -29,6 +32,15 @@ const reconciliation: MobileReconciliationResponse = {
       kind: 'score_correction',
       payload: { from: 4, to: 5, sourceEventId: 'score-conflict' },
       reason: 'Local score input can correct the derived score for this hole.',
+      confidence: 'medium',
+    },
+    {
+      id: 'note-local:hole-note',
+      targetType: 'hole',
+      targetId: '900001:7',
+      kind: 'hole_note',
+      payload: { text: 'Wind hurting; favor center green.', sourceEventId: 'note-local' },
+      reason: 'Local mobile note can be preserved as an auditable hole note.',
       confidence: 'medium',
     },
     {
@@ -89,20 +101,64 @@ describe('MobileReconciliationPanel', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Mobile Reconciliation' })).toBeInTheDocument()
-    expect(screen.getByText('3 events')).toBeInTheDocument()
+    expect(screen.getByText('5 events')).toBeInTheDocument()
     expect(screen.getByText('1 conflict')).toBeInTheDocument()
-    expect(screen.getByText('2 suggestions')).toBeInTheDocument()
+    expect(screen.getByText('3 suggestions')).toBeInTheDocument()
     expect(screen.getAllByText('score_correction').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('hole_note').length).toBeGreaterThan(0)
     expect(screen.getAllByText('900001:1').length).toBeGreaterThan(0)
     expect(screen.getByText('4 -> 5')).toBeInTheDocument()
+    expect(screen.getAllByText('Wind hurting; favor center green.').length).toBeGreaterThan(0)
     expect(screen.getByText('Offline live event includes an actual shot that can audit this caddie decision.')).toBeInTheDocument()
 
     await userEvent.click(screen.getByLabelText('Select suggestion audit-1:caddie-feedback'))
     await userEvent.click(screen.getByRole('button', { name: 'Apply selected suggestions' }))
 
-    expect(onApply).toHaveBeenCalledWith('900001', ['score-conflict:score-correction'])
+    expect(onApply).toHaveBeenCalledWith('900001', ['score-conflict:score-correction', 'note-local:hole-note'])
     expect(screen.getByText('Applied 1 suggestions')).toBeInTheDocument()
     expect(within(screen.getByLabelText('Applied annotations')).getByText('score_correction')).toBeInTheDocument()
+  })
+
+  it('renders local-only, Garmin-only, conflict, and audit evidence rows', () => {
+    render(
+      <MobileReconciliationPanel
+        state={{ status: 'ready', data: reconciliation }}
+        applyState={{ status: 'idle' }}
+        onLoad={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    )
+
+    expect(within(screen.getByLabelText('Local-only mobile events')).getByText('note-local')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Local-only mobile events')).getByText('Wind hurting; favor center green.')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Garmin-only facts')).getByText('900001:2:1')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Reconciliation conflicts')).getByText('score-conflict')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Candidate decision audits')).getByText('decision-1')).toBeInTheDocument()
+  })
+
+  it('shows skipped and missing apply results', () => {
+    render(
+      <MobileReconciliationPanel
+        state={{ status: 'ready', data: reconciliation }}
+        applyState={{
+          status: 'ready',
+          data: {
+            ...applyResponse,
+            appliedCount: 0,
+            skippedCount: 1,
+            skippedSuggestionIds: ['note-local:hole-note'],
+            missingSuggestionIds: ['missing:hole-note'],
+            annotations: [],
+          },
+        }}
+        onLoad={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Applied 0 suggestions, skipped 1')).toBeInTheDocument()
+    expect(screen.getByText('Skipped: note-local:hole-note')).toBeInTheDocument()
+    expect(screen.getByText('Missing: missing:hole-note')).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no annotation suggestions', () => {

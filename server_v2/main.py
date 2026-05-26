@@ -66,6 +66,7 @@ from .models import (
     MediaTargetType,
     MobileReconciliationApplyRequest,
     MobileReconciliationApplyResponse,
+    MobileReconciliationResponse,
     ReviewReportResponse,
     SyncRunResponse,
     SyncStatusResponse,
@@ -348,8 +349,8 @@ def mobile_round_events(
     return append_mobile_events_response(round_id, request, idempotency_key=idempotency_key)
 
 
-@app.get("/api/v2/mobile/rounds/{round_id}/reconciliation")
-def mobile_round_reconciliation(round_id: str) -> dict[str, object]:
+@app.get("/api/v2/mobile/rounds/{round_id}/reconciliation", response_model=MobileReconciliationResponse)
+def mobile_round_reconciliation(round_id: str) -> MobileReconciliationResponse:
     return reconcile_mobile_round_response(round_id)
 
 

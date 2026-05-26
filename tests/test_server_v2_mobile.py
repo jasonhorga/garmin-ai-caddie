@@ -394,6 +394,39 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["conflicts"][0]["eventId"], "score-conflict")
         self.assertEqual(payload["annotationSuggestions"][0]["id"], "score-conflict:score-correction")
 
+    def test_mobile_reconciliation_endpoint_returns_typed_note_suggestion(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "hole-note",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 7,
+            "kind": "note",
+            "payload": {"note": "Ball above feet; aim right center."},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                client.post(
+                    "/api/v2/mobile/rounds/900001/events",
+                    headers={"Idempotency-Key": "note-endpoint"},
+                    json={"roundId": "900001", "events": [event]},
+                )
+                response = client.get("/api/v2/mobile/rounds/900001/reconciliation")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-mobile-reconciliation-v1")
+        self.assertEqual(payload["localOnly"][0]["eventId"], "hole-note")
+        self.assertEqual(payload["annotationSuggestions"][0]["id"], "hole-note:hole-note")
+        self.assertEqual(payload["annotationSuggestions"][0]["kind"], "hole_note")
+        self.assertEqual(payload["annotationSuggestions"][0]["payload"]["text"], "Ball above feet; aim right center.")
+
     def test_mobile_reconciliation_apply_endpoint_creates_selected_annotations(self) -> None:
         client = TestClient(app)
         event = {
@@ -435,6 +468,42 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["annotations"][0]["targetId"], "900001:1")
         self.assertEqual(duplicate.json()["appliedCount"], 0)
         self.assertEqual(duplicate.json()["skippedCount"], 1)
+
+    def test_mobile_reconciliation_apply_endpoint_creates_mobile_note_annotation(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "hole-note",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 7,
+            "kind": "note",
+            "payload": {"note": "Into wind; take one more club."},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch("server_v2.mobile.ANNOTATION_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                client.post(
+                    "/api/v2/mobile/rounds/900001/events",
+                    headers={"Idempotency-Key": "note-apply"},
+                    json={"roundId": "900001", "events": [event]},
+                )
+                response = client.post(
+                    "/api/v2/mobile/rounds/900001/reconciliation/apply",
+                    json={"suggestionIds": ["hole-note:hole-note"]},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["appliedCount"], 1)
+        self.assertEqual(payload["annotations"][0]["kind"], "hole_note")
+        self.assertEqual(payload["annotations"][0]["targetId"], "900001:7")
+        self.assertEqual(payload["annotations"][0]["payload"]["text"], "Into wind; take one more club.")
 
 
 if __name__ == "__main__":

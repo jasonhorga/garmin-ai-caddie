@@ -201,6 +201,19 @@ def _annotation_suggestions(
                     reason="Local penalty marker was not present in synced Garmin facts.",
                 )
             )
+        elif kind == "note":
+            note_text = str(local_value or "").strip()
+            if note_text:
+                suggestions.append(
+                    _suggestion(
+                        f"{event_id}:hole-note",
+                        target_type="hole",
+                        target_id=f"{row.get('roundId') or ''}:{hole}",
+                        kind="hole_note",
+                        payload={"text": note_text, "sourceEventId": event_id},
+                        reason="Local mobile note can be preserved as an auditable hole note.",
+                    )
+                )
 
     for audit in candidate_audits:
         event_id = str(audit.get("eventId") or "")
@@ -254,7 +267,15 @@ def reconcile_mobile_round_events(
             garmin = scores.get(hole)
             garmin_value = garmin.get("strokes") if garmin else None
             if garmin_value is None:
-                local_only.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "localValue": local_value})
+                local_only.append(
+                    {
+                        "eventId": event.get("eventId"),
+                        "roundId": event.get("roundId"),
+                        "kind": kind,
+                        "hole": hole,
+                        "localValue": local_value,
+                    }
+                )
             elif local_value == garmin_value:
                 matched.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "ref": garmin["ref"]})
             else:
@@ -275,7 +296,15 @@ def reconcile_mobile_round_events(
             garmin = scores.get(hole)
             garmin_value = garmin.get("putts") if garmin else None
             if garmin_value is None:
-                local_only.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "localValue": local_value})
+                local_only.append(
+                    {
+                        "eventId": event.get("eventId"),
+                        "roundId": event.get("roundId"),
+                        "kind": kind,
+                        "hole": hole,
+                        "localValue": local_value,
+                    }
+                )
             elif local_value == garmin_value:
                 matched.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "ref": garmin["ref"]})
             else:
@@ -293,12 +322,28 @@ def reconcile_mobile_round_events(
 
         if kind == "penalty":
             local_value = _payload_value(payload, "penalties", "count")
-            local_only.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "localValue": local_value})
+            local_only.append(
+                {
+                    "eventId": event.get("eventId"),
+                    "roundId": event.get("roundId"),
+                    "kind": kind,
+                    "hole": hole,
+                    "localValue": local_value,
+                }
+            )
             continue
 
         if kind == "note":
             local_value = _payload_value(payload, "note", "text")
-            local_only.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "localValue": local_value})
+            local_only.append(
+                {
+                    "eventId": event.get("eventId"),
+                    "roundId": event.get("roundId"),
+                    "kind": kind,
+                    "hole": hole,
+                    "localValue": local_value,
+                }
+            )
             continue
 
         if kind == "club":
@@ -315,10 +360,26 @@ def reconcile_mobile_round_events(
                 matched.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "ref": match["ref"]})
                 unmatched_shots.pop(str(match["ref"]), None)
             else:
-                local_only.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "localValue": club_name})
+                local_only.append(
+                    {
+                        "eventId": event.get("eventId"),
+                        "roundId": event.get("roundId"),
+                        "kind": kind,
+                        "hole": hole,
+                        "localValue": club_name,
+                    }
+                )
             continue
 
-        local_only.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "localValue": payload})
+        local_only.append(
+            {
+                "eventId": event.get("eventId"),
+                "roundId": event.get("roundId"),
+                "kind": kind,
+                "hole": hole,
+                "localValue": payload,
+            }
+        )
 
     garmin_only = [
         {
