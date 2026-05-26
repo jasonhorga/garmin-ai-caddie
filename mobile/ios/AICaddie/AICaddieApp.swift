@@ -47,12 +47,14 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private let offlineStore: OfflineStore
     private let syncClient: SyncClient?
+    private let preferredRoundId: String
 
     public init(
         offlineStore: OfflineStore = OfflineStore(),
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
         watchBridge: WatchEventBridge? = WatchEventBridge(),
+        preferredRoundId: String? = nil,
         syncClient: SyncClient? = nil
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
@@ -61,22 +63,24 @@ public final class LiveRoundAppModel: ObservableObject {
         self.apiBaseURL = resolvedAPIBaseURL
         self.adminToken = resolvedAdminToken
         self.watchBridge = watchBridge
+        self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
     }
 
     public func bootstrap() async {
         do {
+            if let remotePackage = await fetchRemotePackage() {
+                try offlineStore.saveRoundPackage(remotePackage)
+                try activatePackage(remotePackage, status: "Remote package cached")
+                return
+            }
             if let cached = try offlineStore.loadCurrentRoundPackage() {
-                package = cached
-                pendingEventCount = try offlineStore.loadPendingEvents(roundId: cached.roundId).count
-                syncStatus = "Cached package ready"
+                try activatePackage(cached, status: "Cached package ready")
                 return
             }
             let fixture = try loadFixturePackage()
             try offlineStore.saveRoundPackage(fixture)
-            package = fixture
-            pendingEventCount = try offlineStore.loadPendingEvents(roundId: fixture.roundId).count
-            syncStatus = "Fixture package cached"
+            try activatePackage(fixture, status: "Fixture package cached")
         } catch {
             syncStatus = "Offline package unavailable"
         }
@@ -136,6 +140,32 @@ public final class LiveRoundAppModel: ObservableObject {
     private static func defaultAdminToken() -> String? {
         let token = ProcessInfo.processInfo.environment["AI_CADDIE_ADMIN_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         return token?.isEmpty == false ? token : nil
+    }
+
+    private static func defaultLiveRoundId() -> String {
+        let roundId = ProcessInfo.processInfo.environment["AI_CADDIE_LIVE_ROUND_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let roundId, !roundId.isEmpty {
+            return roundId
+        }
+        return "900001"
+    }
+
+    private func fetchRemotePackage() async -> LiveRoundPackage? {
+        guard let syncClient else {
+            return nil
+        }
+        do {
+            return try await syncClient.fetchRoundPackage(roundId: preferredRoundId)
+        } catch {
+            syncStatus = "Package sync unavailable; using cache"
+            return nil
+        }
+    }
+
+    private func activatePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
+        package = nextPackage
+        pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
+        syncStatus = status
     }
 
     private func idempotencyKey(roundId: String, events: [LiveRoundEvent]) -> String {
