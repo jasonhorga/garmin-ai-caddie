@@ -373,6 +373,7 @@ class GeometryEvidenceResponse(BaseModel):
     sourceRef: str | None = None
     shotRoutes: list[dict[str, Any]] = Field(default_factory=list)
     surfaceClassifications: list[dict[str, Any]] = Field(default_factory=list)
+    routeEvidence: dict[str, Any] | None = None
     evidence: list[dict[str, Any]]
     missingData: list[dict[str, Any]]
 

@@ -77,12 +77,32 @@ def load_course_geometry_coverage_response(global_id: int, holes: list[int] | No
     return CourseGeometryCoverageResponse(**geometry_coverage_for_course(global_id, holes=requested_holes))
 
 
-def load_hole_geometry_evidence_response(global_id: int, local_hole: int, source_ref: str | None = None) -> GeometryEvidenceResponse:
+def load_hole_geometry_evidence_response(
+    global_id: int,
+    local_hole: int,
+    source_ref: str | None = None,
+    *,
+    start_x: float | None = None,
+    start_y: float | None = None,
+    target_x: float | None = None,
+    target_y: float | None = None,
+    landing_radius_m: float = 18.0,
+) -> GeometryEvidenceResponse:
     data = None
     if source_ref:
         data, _mode = data_source.load_history_data_for_mode()
+    start = {"x": start_x, "y": start_y} if start_x is not None and start_y is not None else None
+    target = {"x": target_x, "y": target_y} if target_x is not None and target_y is not None else None
     return GeometryEvidenceResponse(
-        **build_source_bound_hole_geometry_evidence(global_id, local_hole, data=data, source_ref=source_ref)
+        **build_source_bound_hole_geometry_evidence(
+            global_id,
+            local_hole,
+            data=data,
+            source_ref=source_ref,
+            start=start,
+            target=target,
+            landing_radius_m=landing_radius_m,
+        )
     )
 
 

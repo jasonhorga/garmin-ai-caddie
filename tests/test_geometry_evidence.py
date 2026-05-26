@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.geometry_evidence import (
+    build_route_geometry_evidence,
     build_hole_map_dto,
     build_hole_geometry_evidence,
     classify_shot_surface,
@@ -204,6 +205,48 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(unknown["surface"]["kind"], "unknown")
         self.assertEqual(unknown["missingData"][0]["label"], "surface_match")
         self.assertEqual([row["surface"]["kind"] for row in evidence["surfaceClassifications"]], ["water", "green"])
+
+    def test_route_evidence_computes_hazard_carry_clearance_and_landing_window(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h07_hazards.json"
+            hazard.write_text(
+                """
+                {
+                  "refLat": 22.279,
+                  "refLon": 114.162,
+                  "hazards": [
+                    {
+                      "id": "water_crossing",
+                      "kind": "water",
+                      "polygon": [[80, -10], [110, -10], [110, 10], [80, 10], [80, -10]]
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
+            ):
+                route = build_route_geometry_evidence(
+                    31795,
+                    7,
+                    start={"x": 0, "y": 0},
+                    target={"x": 200, "y": 0},
+                    landing_radius_m=18,
+                )
+
+        self.assertEqual(route["schema"], "ai-caddie-route-geometry-evidence-v1")
+        self.assertEqual(route["coverage"], "partial")
+        self.assertEqual(route["routeLength_m"], 200.0)
+        self.assertEqual(route["landingWindowLocal"], {"center": [200.0, 0.0], "radius_m": 18.0})
+        self.assertEqual(route["lineIntersections"][0]["hazardId"], "water_crossing")
+        self.assertEqual([row["distanceFromStart_m"] for row in route["lineIntersections"]], [80.0, 110.0])
+        self.assertEqual(route["hazardClearances"][0]["carryToFront_m"], 80.0)
+        self.assertEqual(route["hazardClearances"][0]["carryToClear_m"], 110.0)
+        self.assertEqual(route["avoidZones"], [{"id": "water_crossing", "kind": "water", "carryToClear_m": 110.0}])
 
 
 if __name__ == "__main__":

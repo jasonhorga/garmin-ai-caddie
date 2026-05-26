@@ -211,6 +211,35 @@ class ServerV2GeometryTests(unittest.TestCase):
         self.assertEqual(payload["evidence"][-1]["label"], "shot_routes")
         self.assertNotIn(tmp, response.text)
 
+    def test_hole_evidence_endpoint_can_include_route_clearance(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h07_hazards.json"
+            mesh = root / "gid31795_h07_meshes.json"
+            hazard.write_text(
+                '{"refLat":22.279,"refLon":114.162,"hazards":[{"id":"water_crossing","kind":"water","polygon":[[80,-10],[110,-10],[110,10],[80,10],[80,-10]]}]}',
+                encoding="utf-8",
+            )
+            mesh.write_text("{}", encoding="utf-8")
+            with (
+                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                response = client.get(
+                    "/api/v2/geometry/hole/31795/7?start_x=0&start_y=0&target_x=200&target_y=0&landing_radius_m=18"
+                )
+
+        self.assertEqual(response.status_code, 200)
+        route = response.json()["routeEvidence"]
+        self.assertEqual(route["schema"], "ai-caddie-route-geometry-evidence-v1")
+        self.assertEqual(route["hazardClearances"][0]["hazardId"], "water_crossing")
+        self.assertEqual(route["hazardClearances"][0]["carryToFront_m"], 80.0)
+        self.assertEqual(route["hazardClearances"][0]["carryToClear_m"], 110.0)
+        self.assertEqual(route["avoidZones"][0]["kind"], "water")
+        self.assertNotIn(tmp, response.text)
+
     def test_hole_map_endpoint_exposes_wgs84_feature_collection(self) -> None:
         client = TestClient(app)
 

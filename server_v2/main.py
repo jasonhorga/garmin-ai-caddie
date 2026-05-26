@@ -253,8 +253,26 @@ def geometry_course_coverage(
 
 
 @app.get("/api/v2/geometry/hole/{global_id}/{local_hole}", response_model=GeometryEvidenceResponse)
-def geometry_hole_evidence(global_id: int, local_hole: int, source_ref: str | None = None) -> GeometryEvidenceResponse:
-    return load_hole_geometry_evidence_response(global_id, local_hole, source_ref=source_ref)
+def geometry_hole_evidence(
+    global_id: int,
+    local_hole: int,
+    source_ref: str | None = None,
+    start_x: float | None = None,
+    start_y: float | None = None,
+    target_x: float | None = None,
+    target_y: float | None = None,
+    landing_radius_m: float = 18.0,
+) -> GeometryEvidenceResponse:
+    return load_hole_geometry_evidence_response(
+        global_id,
+        local_hole,
+        source_ref=source_ref,
+        start_x=start_x,
+        start_y=start_y,
+        target_x=target_x,
+        target_y=target_y,
+        landing_radius_m=landing_radius_m,
+    )
 
 
 @app.get("/api/v2/geometry/hole/{global_id}/{local_hole}/map", response_model=HoleMapResponse)

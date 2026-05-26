@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 from typing import Any, Iterable, Literal
 
 from ai_caddie.data import ROOT, hazard_path, local_to_wgs84, mesh_path, read_json, wgs84_to_local
@@ -202,6 +203,168 @@ def classify_shot_surface(global_id: int, local_hole: int, shot: dict[str, Any])
     }
 
 
+def build_route_geometry_evidence(
+    global_id: int,
+    local_hole: int,
+    *,
+    start: Any,
+    target: Any | None = None,
+    landing_radius_m: float = 18.0,
+) -> dict[str, Any]:
+    coverage = geometry_coverage_for_hole(int(global_id), int(local_hole))
+    hazards = _load_json_if_ready(hazard_path(int(global_id), int(local_hole))) or {}
+    ref_lat = hazards.get("refLat")
+    ref_lon = hazards.get("refLon")
+    ref_lat_float = float(ref_lat) if ref_lat is not None else None
+    ref_lon_float = float(ref_lon) if ref_lon is not None else None
+    start_local = _position_to_local(start, ref_lat_float, ref_lon_float)
+    target_position = target
+    if target_position is None and isinstance(hazards.get("target"), dict):
+        target_position = hazards["target"].get("position")
+    target_local = _position_to_local(target_position, ref_lat_float, ref_lon_float)
+    missing_data = list(coverage["missingData"])
+    if start_local is None:
+        missing_data.append({"label": "route_start", "reason": "route start position is unavailable"})
+    if target_local is None:
+        missing_data.append({"label": "route_target", "reason": "route target position is unavailable"})
+    if hazards and (ref_lat_float is None or ref_lon_float is None):
+        missing_data.append({"label": "geometry_reference", "reason": "hazard geometry missing WGS84 reference"})
+
+    line_intersections: list[dict[str, Any]] = []
+    hazard_clearances: list[dict[str, Any]] = []
+    avoid_zones: list[dict[str, Any]] = []
+    route_length = _point_distance(start_local, target_local) if start_local and target_local else None
+
+    if start_local and target_local:
+        for index, hazard in enumerate(hazards.get("hazards") or []):
+            if not isinstance(hazard, dict):
+                continue
+            route_rows = _route_intersections_for_hazard(
+                start_local,
+                target_local,
+                hazard,
+                fallback_id=f"hazard-{index + 1}",
+            )
+            if not route_rows:
+                continue
+            line_intersections.extend(route_rows)
+            distances = [float(row["distanceFromStart_m"]) for row in route_rows]
+            hazard_id = str(hazard.get("id") or f"hazard-{index + 1}")
+            kind = str(hazard.get("kind") or hazard.get("type") or "hazard")
+            clear = {
+                "hazardId": hazard_id,
+                "kind": kind,
+                "carryToFront_m": round(min(distances), 1),
+                "carryToClear_m": round(max(distances), 1),
+                "intersectionCount": len(route_rows),
+            }
+            hazard_clearances.append(clear)
+            avoid_zones.append({"id": hazard_id, "kind": kind, "carryToClear_m": clear["carryToClear_m"]})
+
+    line_intersections.sort(key=lambda row: (float(row.get("distanceFromStart_m") or 0), str(row.get("hazardId") or "")))
+    hazard_clearances.sort(key=lambda row: (float(row.get("carryToFront_m") or 0), str(row.get("hazardId") or "")))
+    avoid_zones.sort(key=lambda row: (float(row.get("carryToClear_m") or 0), str(row.get("id") or "")))
+
+    return {
+        "schema": "ai-caddie-route-geometry-evidence-v1",
+        "globalId": int(global_id),
+        "localHole": int(local_hole),
+        "coverage": coverage["coverage"],
+        "routeStartLocal": _rounded_point(start_local),
+        "routeTargetLocal": _rounded_point(target_local),
+        "routeLength_m": round(route_length, 1) if route_length is not None else None,
+        "landingWindowLocal": {
+            "center": _rounded_point(target_local),
+            "radius_m": round(float(landing_radius_m), 1),
+        }
+        if target_local is not None
+        else None,
+        "lineIntersections": line_intersections,
+        "hazardClearances": hazard_clearances,
+        "avoidZones": avoid_zones,
+        "missingData": missing_data,
+    }
+
+
+def _rounded_point(point: list[float] | None) -> list[float] | None:
+    if point is None:
+        return None
+    return [round(float(point[0]), 3), round(float(point[1]), 3)]
+
+
+def _point_distance(start: list[float] | None, end: list[float] | None) -> float | None:
+    if start is None or end is None:
+        return None
+    return math.hypot(float(end[0]) - float(start[0]), float(end[1]) - float(start[1]))
+
+
+def _route_intersections_for_hazard(
+    start: list[float],
+    target: list[float],
+    hazard: dict[str, Any],
+    *,
+    fallback_id: str,
+) -> list[dict[str, Any]]:
+    ring = hazard.get("polygon") or hazard.get("points") or hazard.get("path")
+    if not isinstance(ring, list) or len(ring) < 3:
+        return []
+    hazard_id = str(hazard.get("id") or fallback_id)
+    kind = str(hazard.get("kind") or hazard.get("type") or "hazard")
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[float, float, float]] = set()
+    points = ring if ring[0] == ring[-1] else [*ring, ring[0]]
+    for first, second in zip(points, points[1:]):
+        if not isinstance(first, (list, tuple)) or not isinstance(second, (list, tuple)) or len(first) < 2 or len(second) < 2:
+            continue
+        intersection = _segment_intersection(
+            (float(start[0]), float(start[1])),
+            (float(target[0]), float(target[1])),
+            (float(first[0]), float(first[1])),
+            (float(second[0]), float(second[1])),
+        )
+        if intersection is None:
+            continue
+        x, y, t = intersection
+        distance = math.hypot(x - float(start[0]), y - float(start[1]))
+        key = (round(x, 3), round(y, 3), round(distance, 3))
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "hazardId": hazard_id,
+                "kind": kind,
+                "local": [round(x, 3), round(y, 3)],
+                "routeFraction": round(t, 4),
+                "distanceFromStart_m": round(distance, 1),
+            }
+        )
+    rows.sort(key=lambda row: float(row["distanceFromStart_m"]))
+    return rows
+
+
+def _segment_intersection(
+    p1: tuple[float, float],
+    p2: tuple[float, float],
+    q1: tuple[float, float],
+    q2: tuple[float, float],
+) -> tuple[float, float, float] | None:
+    x1, y1 = p1
+    x2, y2 = p2
+    x3, y3 = q1
+    x4, y4 = q2
+    denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(denominator) < 1e-9:
+        return None
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denominator
+    u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / denominator
+    if t < -1e-9 or t > 1 + 1e-9 or u < -1e-9 or u > 1 + 1e-9:
+        return None
+    x = x1 + t * (x2 - x1)
+    y = y1 + t * (y2 - y1)
+    return x, y, t
+
+
 def _feature(geometry: dict[str, Any], properties: dict[str, Any]) -> dict[str, Any]:
     return {"type": "Feature", "geometry": geometry, "properties": properties}
 
@@ -334,8 +497,19 @@ def build_source_bound_hole_geometry_evidence(
     *,
     data: Any | None = None,
     source_ref: str | None = None,
+    start: Any | None = None,
+    target: Any | None = None,
+    landing_radius_m: float = 18.0,
 ) -> dict[str, Any]:
     evidence = geometry_coverage_for_hole(global_id, local_hole)
+    if start is not None or target is not None:
+        evidence["routeEvidence"] = build_route_geometry_evidence(
+            global_id,
+            local_hole,
+            start=start,
+            target=target,
+            landing_radius_m=landing_radius_m,
+        )
     if not source_ref:
         return evidence
 
