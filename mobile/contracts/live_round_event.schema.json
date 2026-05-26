@@ -60,7 +60,7 @@
             "additionalProperties": false,
             "required": ["strokes"],
             "properties": {
-              "strokes": { "type": "number", "minimum": 1 },
+              "strokes": { "type": "integer", "minimum": 1 },
               "source": { "type": "string" }
             }
           }
@@ -95,7 +95,7 @@
             "additionalProperties": false,
             "required": ["putts"],
             "properties": {
-              "putts": { "type": "number", "minimum": 0 },
+              "putts": { "type": "integer", "minimum": 0 },
               "source": { "type": "string" }
             }
           }
@@ -111,7 +111,7 @@
             "additionalProperties": false,
             "required": ["penalties"],
             "properties": {
-              "penalties": { "type": "number", "minimum": 0 },
+              "penalties": { "type": "integer", "minimum": 0 },
               "source": { "type": "string" }
             }
           }

@@ -493,6 +493,74 @@ class ServerV2MobileTests(unittest.TestCase):
                         log_path = root / "data" / "mobile_events" / "events.jsonl"
 
                 self.assertEqual(response.status_code, 422)
+                self.assertNotIn("NaN", response.text)
+                self.assertNotIn("Infinity", response.text)
+                self.assertFalse(log_path.exists())
+
+    def test_mobile_event_batch_rejects_non_count_scoring_values_without_writing(self) -> None:
+        client = TestClient(app)
+        invalid_events = [
+            ("fractional-score", "score", {"strokes": 4.5}),
+            ("fractional-putts", "putt", {"putts": 1.5}),
+            ("fractional-penalties", "penalty", {"penalties": 0.5}),
+        ]
+
+        for event_id, kind, payload in invalid_events:
+            with self.subTest(kind=kind, event_id=event_id):
+                event = {
+                    "schema": "ai-caddie-live-round-event-v1",
+                    "eventId": event_id,
+                    "roundId": "live-round-1",
+                    "timestamp": "2026-05-25T00:00:00Z",
+                    "hole": 1,
+                    "kind": kind,
+                    "payload": payload,
+                }
+                with TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    with patch("server_v2.mobile.MOBILE_ROOT", root):
+                        response = client.post(
+                            "/api/v2/mobile/rounds/live-round-1/events",
+                            headers={"Idempotency-Key": f"{event_id}-batch"},
+                            json={"roundId": "live-round-1", "events": [event]},
+                        )
+                        log_path = root / "data" / "mobile_events" / "events.jsonl"
+
+                self.assertEqual(response.status_code, 422)
+                self.assertFalse(log_path.exists())
+
+    def test_mobile_event_batch_rejects_non_finite_scoring_values_without_writing(self) -> None:
+        client = TestClient(app)
+        invalid_events = [
+            ("nan-score", "score", '"strokes": NaN'),
+            ("infinite-putts", "putt", '"putts": Infinity'),
+            ("infinite-penalties", "penalty", '"penalties": Infinity'),
+        ]
+
+        for event_id, kind, payload_fields in invalid_events:
+            with self.subTest(kind=kind, event_id=event_id):
+                raw_body = (
+                    '{"roundId":"live-round-1","events":[{'
+                    '"schema":"ai-caddie-live-round-event-v1",'
+                    f'"eventId":"{event_id}",'
+                    '"roundId":"live-round-1",'
+                    '"timestamp":"2026-05-25T00:00:00Z",'
+                    '"hole":1,'
+                    f'"kind":"{kind}",'
+                    f'"payload":{{{payload_fields}}}'
+                    '}]}'
+                )
+                with TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    with patch("server_v2.mobile.MOBILE_ROOT", root):
+                        response = client.post(
+                            "/api/v2/mobile/rounds/live-round-1/events",
+                            headers={"Idempotency-Key": f"{event_id}-batch", "Content-Type": "application/json"},
+                            content=raw_body,
+                        )
+                        log_path = root / "data" / "mobile_events" / "events.jsonl"
+
+                self.assertEqual(response.status_code, 422)
                 self.assertFalse(log_path.exists())
 
     def test_mobile_event_batch_accepts_canonical_payload_shapes(self) -> None:

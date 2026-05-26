@@ -5,6 +5,7 @@ import os
 from typing import Annotated, Literal
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
@@ -109,6 +110,28 @@ app.add_middleware(
 )
 
 AdminTokenHeader = Annotated[str | None, Header(alias="X-AI-Caddie-Admin-Token")]
+
+
+def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, object]]:
+    errors = []
+    for row in exc.errors():
+        if not isinstance(row, dict):
+            errors.append({"type": "value_error", "loc": [], "msg": str(row)})
+            continue
+        loc = row.get("loc")
+        errors.append(
+            {
+                "type": str(row.get("type") or "value_error"),
+                "loc": list(loc) if isinstance(loc, (list, tuple)) else [],
+                "msg": str(row.get("msg") or "Invalid request"),
+            }
+        )
+    return errors
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse({"detail": _safe_validation_errors(exc)}, status_code=422)
 
 
 def _security_profile_requires_admin() -> bool:

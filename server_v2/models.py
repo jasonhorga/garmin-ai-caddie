@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -89,7 +90,11 @@ _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
 
 
 def _is_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _is_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
@@ -125,12 +130,18 @@ def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
     media_type = payload.get("mediaType")
     if kind in {"photo", "video"} and media_type != kind:
         raise ValueError(f"{kind} payload mediaType must be {kind}")
-    if kind == "score" and payload["strokes"] < 1:
-        raise ValueError("score payload field strokes must be at least 1")
-    if kind == "putt" and payload["putts"] < 0:
-        raise ValueError("putt payload field putts must be at least 0")
-    if kind == "penalty" and payload["penalties"] < 0:
-        raise ValueError("penalty payload field penalties must be at least 0")
+    count_constraints = {
+        "score": ("strokes", 1),
+        "putt": ("putts", 0),
+        "penalty": ("penalties", 0),
+    }
+    if kind in count_constraints:
+        field, minimum = count_constraints[kind]
+        value = payload[field]
+        if not _is_count(value):
+            raise ValueError(f"{kind} payload field {field} must be an integer")
+        if value < minimum:
+            raise ValueError(f"{kind} payload field {field} must be at least {minimum}")
 
 
 class DataQualityBadge(BaseModel):
