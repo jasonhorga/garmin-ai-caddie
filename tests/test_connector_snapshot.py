@@ -466,6 +466,122 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertAlmostEqual(evidence_shot["start"]["lat"], 31.1234)
         self.assertAlmostEqual(evidence_shot["end"]["lon"], 121.1254)
 
+    def test_normalized_snapshot_records_source_provenance_for_rounds_and_shots(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                501,
+                date="2026-05-25T08:00:00",
+                course="Provenance Links",
+                hole_numbers=[1],
+                hole_pars="4",
+                strokes=4,
+                course_global_id=31795,
+            )
+            (root / "data" / "shots").mkdir(parents=True)
+            (root / "data" / "shots" / "501.json").write_text(
+                json.dumps(
+                    {
+                        "clubDetails": [{"clubId": 10, "name": "8I"}],
+                        "holeShots": [
+                            {
+                                "holeNumber": 1,
+                                "shots": [
+                                    {
+                                        "id": "shot-prov-1",
+                                        "shotOrder": 1,
+                                        "clubId": 10,
+                                        "meters": 142,
+                                        "startLoc": {"lat": deg_to_semicircle(31.1), "lon": deg_to_semicircle(121.1)},
+                                        "endLoc": {"lat": deg_to_semicircle(31.2), "lon": deg_to_semicircle(121.2)},
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_provenance")
+            normalized_path = write_durable_snapshot(root=root, manifest=manifest)
+            payload = json.loads(normalized_path.read_text(encoding="utf-8"))
+
+        round_provenance = payload["rawRounds"][0]["provenance"]
+        self.assertEqual(round_provenance["sourceConnector"], "garmin_cn_web_session")
+        self.assertEqual(round_provenance["snapshotId"], "snap_provenance")
+        self.assertEqual(round_provenance["sourceRecordType"], "scorecard")
+        self.assertEqual(round_provenance["sourceRecordId"], "501")
+        self.assertEqual(round_provenance["sourceFiles"], ["data/scorecards/501.json"])
+        self.assertEqual(round_provenance["sourceRefs"], ["garmin_cn_web_session:snap_provenance:scorecard:501"])
+        self.assertEqual(round_provenance["status"], "normalized")
+        self.assertEqual(round_provenance["confidence"], "high")
+        self.assertEqual(round_provenance["normalizedAt"], payload["createdAt"])
+        self.assertEqual(round_provenance["fieldRefs"]["strokes"], "scorecardDetails[0].scorecard.strokes")
+        self.assertEqual(round_provenance["fieldRefs"]["holes"], "scorecardDetails[0].scorecard.holes")
+        self.assertEqual(round_provenance["fieldRefs"]["courseGlobalId"], "scorecardDetails[0].scorecard.courseGlobalId")
+        self.assertEqual(payload["rounds"][0]["provenance"], round_provenance)
+
+        shot_provenance = payload["shots"][0]["provenance"]
+        self.assertEqual(shot_provenance["sourceConnector"], "garmin_cn_web_session")
+        self.assertEqual(shot_provenance["snapshotId"], "snap_provenance")
+        self.assertEqual(shot_provenance["sourceRecordType"], "shot")
+        self.assertEqual(shot_provenance["sourceRecordId"], "shot-prov-1")
+        self.assertEqual(shot_provenance["parentRecordId"], "501")
+        self.assertEqual(shot_provenance["sourceFiles"], ["data/shots/501.json"])
+        self.assertEqual(shot_provenance["sourceRefs"], ["garmin_cn_web_session:snap_provenance:shot:501:shot-prov-1"])
+        self.assertEqual(shot_provenance["fieldRefs"]["meters"], "holeShots[].shots[].meters")
+        self.assertEqual(shot_provenance["fieldRefs"]["startLoc"], "holeShots[].shots[].startLoc")
+        self.assertEqual(shot_provenance["fieldRefs"]["endLoc"], "holeShots[].shots[].endLoc")
+
+    def test_merged_snapshot_round_provenance_combines_halves(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                601,
+                date="2026-05-25T08:00:00",
+                course="Twin Lakes ~ Front",
+                hole_numbers=list(range(1, 10)),
+                hole_pars="444444444",
+                strokes=42,
+            )
+            _write_scorecard(
+                root,
+                602,
+                date="2026-05-25T10:30:00",
+                course="Twin Lakes ~ Back",
+                hole_numbers=list(range(1, 10)),
+                hole_pars="555555555",
+                strokes=41,
+            )
+
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_merge_provenance")
+            normalized_path = write_durable_snapshot(root=root, manifest=manifest)
+            payload = json.loads(normalized_path.read_text(encoding="utf-8"))
+
+        merged = payload["rounds"][0]
+        provenance = merged["provenance"]
+        self.assertEqual(merged["id"], "merged_601_602")
+        self.assertEqual(provenance["sourceConnector"], "garmin_cn_web_session")
+        self.assertEqual(provenance["snapshotId"], "snap_merge_provenance")
+        self.assertEqual(provenance["sourceRecordType"], "scorecard_merge")
+        self.assertEqual(provenance["sourceRecordIds"], ["601", "602"])
+        self.assertEqual(
+            provenance["sourceFiles"],
+            ["data/scorecards/601.json", "data/scorecards/602.json"],
+        )
+        self.assertEqual(
+            provenance["sourceRefs"],
+            [
+                "garmin_cn_web_session:snap_merge_provenance:scorecard:601",
+                "garmin_cn_web_session:snap_merge_provenance:scorecard:602",
+            ],
+        )
+        self.assertEqual(provenance["fieldRefs"]["mergeRule"], "same_day_two_9_hole_halves")
+        self.assertEqual(provenance["normalizedAt"], payload["createdAt"])
+
     def test_connector_status_roundtrip_is_secret_free(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

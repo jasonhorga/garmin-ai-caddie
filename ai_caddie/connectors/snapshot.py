@@ -26,6 +26,7 @@ GEOMETRY_ASSET_DIRS = (
     Path("output") / "prodgeometry_hazards",
     Path("output") / "prodgeometry",
 )
+SOURCE_CONNECTOR = "garmin_cn_web_session"
 
 
 def _utc_now() -> str:
@@ -59,6 +60,64 @@ def _coerce_id(value: Any) -> Any:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     return value
+
+
+def _string_id(value: Any) -> str:
+    return str(value)
+
+
+def _unique_strings(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        text = str(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
+
+
+def _provenance(
+    *,
+    snapshot_id: str,
+    normalized_at: str,
+    source_record_type: str,
+    source_record_id: Any,
+    source_file: str,
+    field_refs: dict[str, str],
+    source_record_ids: list[Any] | None = None,
+    source_files: list[str] | None = None,
+    source_refs: list[str] | None = None,
+    parent_record_id: Any | None = None,
+    confidence: str = "high",
+    status: str = "normalized",
+) -> dict[str, Any]:
+    record_ids = _unique_strings(source_record_ids or [source_record_id])
+    files = _unique_strings(source_files or [source_file])
+    record_id = _string_id(source_record_id)
+    if source_refs is None:
+        if source_record_type == "shot" and parent_record_id is not None:
+            source_refs = [f"{SOURCE_CONNECTOR}:{snapshot_id}:shot:{parent_record_id}:{record_id}"]
+        else:
+            source_refs = [f"{SOURCE_CONNECTOR}:{snapshot_id}:{source_record_type}:{record_id}"]
+    payload: dict[str, Any] = {
+        "sourceConnector": SOURCE_CONNECTOR,
+        "snapshotId": snapshot_id,
+        "sourceRecordType": source_record_type,
+        "sourceRecordId": record_id,
+        "sourceRecordIds": record_ids,
+        "sourceFile": files[0] if files else source_file,
+        "sourceFiles": files,
+        "sourceRefs": _unique_strings(source_refs),
+        "fieldRefs": dict(field_refs),
+        "status": status,
+        "confidence": confidence,
+        "normalizedAt": normalized_at,
+    }
+    if parent_record_id is not None:
+        payload["parentRecordId"] = _string_id(parent_record_id)
+    return payload
 
 
 def _par_from_hole_pars(hole_pars: str, hole_number: int) -> int | None:
@@ -102,7 +161,13 @@ def _shot_file_ready(path: Path) -> bool:
     return not bool(isinstance(payload, dict) and payload.get("_no_data"))
 
 
-def _normalize_scorecard(path: Path, *, root: Path) -> dict[str, Any] | None:
+def _normalize_scorecard(
+    path: Path,
+    *,
+    root: Path,
+    snapshot_id: str,
+    normalized_at: str,
+) -> dict[str, Any] | None:
     try:
         raw = _read_json(path)
         detail = raw["scorecardDetails"][0]
@@ -123,6 +188,7 @@ def _normalize_scorecard(path: Path, *, root: Path) -> dict[str, Any] | None:
     par_values = [hole.get("par") for hole in holes if isinstance(hole.get("par"), int)]
     shot_path = root / "data" / "shots" / f"{scorecard_id}.json"
     has_shots = _shot_file_ready(shot_path)
+    source_file = _relative(path, root)
     return {
         "id": scorecard_id,
         "ids": [scorecard_id],
@@ -162,7 +228,24 @@ def _normalize_scorecard(path: Path, *, root: Path) -> dict[str, Any] | None:
         "hasShots": has_shots,
         "shotStatus": "ready" if has_shots else "no_data" if shot_path.exists() else "missing",
         "merged": False,
-        "sourceFile": _relative(path, root),
+        "sourceFile": source_file,
+        "provenance": _provenance(
+            snapshot_id=snapshot_id,
+            normalized_at=normalized_at,
+            source_record_type="scorecard",
+            source_record_id=scorecard_id,
+            source_file=source_file,
+            field_refs={
+                "id": "scorecardDetails[0].scorecard.id",
+                "date": "scorecardDetails[0].scorecard.formattedStartTime",
+                "strokes": "scorecardDetails[0].scorecard.strokes",
+                "holes": "scorecardDetails[0].scorecard.holes",
+                "holesCompleted": "scorecardDetails[0].scorecard.holesCompleted",
+                "courseGlobalId": "scorecardDetails[0].scorecard.courseGlobalId",
+                "courseSnapshot": "courseSnapshots[0]",
+                "roundStats": "scorecardDetails[0].scorecardStats.round",
+            },
+        ),
     }
 
 
@@ -197,7 +280,14 @@ def _shot_hole_ref(round_row: dict[str, Any], hole: int) -> tuple[Any, int]:
     return round_row.get("globalId") or round_row.get("courseId"), hole
 
 
-def _normalize_shot_file(path: Path, *, root: Path, round_row: dict[str, Any]) -> list[dict[str, Any]]:
+def _normalize_shot_file(
+    path: Path,
+    *,
+    root: Path,
+    round_row: dict[str, Any],
+    snapshot_id: str,
+    normalized_at: str,
+) -> list[dict[str, Any]]:
     try:
         payload = _read_json(path)
     except Exception:
@@ -207,6 +297,7 @@ def _normalize_shot_file(path: Path, *, root: Path, round_row: dict[str, Any]) -
 
     clubs = _club_lookup(payload)
     scorecard_id = round_row.get("id")
+    source_file = _relative(path, root)
     rows: list[dict[str, Any]] = []
     for hole_data in payload.get("holeShots", []) or []:
         hole = int(hole_data.get("holeNumber") or 0)
@@ -215,6 +306,7 @@ def _normalize_shot_file(path: Path, *, root: Path, round_row: dict[str, Any]) -
             club_id = shot.get("clubId")
             club = clubs.get(club_id) or str(club_id or "Unknown")
             end_loc = shot.get("endLoc") if isinstance(shot.get("endLoc"), dict) else {}
+            shot_id = shot.get("id") or f"{scorecard_id}:{hole}:{shot.get('shotOrder') or len(rows) + 1}"
             rows.append(
                 {
                     "id": shot.get("id"),
@@ -239,10 +331,76 @@ def _normalize_shot_file(path: Path, *, root: Path, round_row: dict[str, Any]) -
                     "end": _loc_to_wgs84(shot.get("endLoc")),
                     "surface": end_loc.get("lie"),
                     "endLie": end_loc.get("lie"),
-                    "sourceFile": _relative(path, root),
+                    "sourceFile": source_file,
+                    "provenance": _provenance(
+                        snapshot_id=snapshot_id,
+                        normalized_at=normalized_at,
+                        source_record_type="shot",
+                        source_record_id=shot_id,
+                        parent_record_id=scorecard_id,
+                        source_file=source_file,
+                        field_refs={
+                            "holeNumber": "holeShots[].holeNumber",
+                            "id": "holeShots[].shots[].id",
+                            "shotOrder": "holeShots[].shots[].shotOrder",
+                            "clubId": "holeShots[].shots[].clubId",
+                            "meters": "holeShots[].shots[].meters",
+                            "startLoc": "holeShots[].shots[].startLoc",
+                            "endLoc": "holeShots[].shots[].endLoc",
+                        },
+                    ),
                 }
             )
     return rows
+
+
+def _merge_provenance_for_round(
+    row: dict[str, Any],
+    raw_rounds_by_id: dict[str, dict[str, Any]],
+    *,
+    snapshot_id: str,
+    normalized_at: str,
+) -> dict[str, Any]:
+    if not row.get("merged"):
+        return row
+    ids = row.get("ids") if isinstance(row.get("ids"), list) else []
+    source_provenance = [
+        raw_rounds_by_id[str(item)].get("provenance")
+        for item in ids
+        if str(item) in raw_rounds_by_id and isinstance(raw_rounds_by_id[str(item)].get("provenance"), dict)
+    ]
+    if not source_provenance:
+        return row
+    merged = dict(row)
+    source_files = _unique_strings(
+        [
+            file_name
+            for provenance in source_provenance
+            for file_name in provenance.get("sourceFiles", [])
+        ]
+    )
+    source_refs = _unique_strings(
+        [
+            source_ref
+            for provenance in source_provenance
+            for source_ref in provenance.get("sourceRefs", [])
+        ]
+    )
+    merged["provenance"] = _provenance(
+        snapshot_id=snapshot_id,
+        normalized_at=normalized_at,
+        source_record_type="scorecard_merge",
+        source_record_id=merged.get("id"),
+        source_record_ids=ids,
+        source_file=source_files[0] if source_files else str(merged.get("sourceFile") or ""),
+        source_files=source_files,
+        source_refs=source_refs,
+        field_refs={
+            "mergeRule": "same_day_two_9_hole_halves",
+            "sourceRows": "rawRounds.ids",
+        },
+    )
+    return merged
 
 
 def _remap_shots_to_merged_rounds(shots: list[dict[str, Any]], rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -323,11 +481,19 @@ def write_snapshot_manifest(*, root: Path = ROOT, manifest: SnapshotManifest) ->
 
 
 def build_normalized_snapshot_payload(*, root: Path = ROOT, manifest: SnapshotManifest) -> dict[str, Any]:
+    created_at = _utc_now()
     scorecard_paths = [root / file_name for file_name in manifest.files if file_name.startswith("data/scorecards/")]
     raw_rounds = [
         row
         for path in scorecard_paths
-        for row in [_normalize_scorecard(path, root=root)]
+        for row in [
+            _normalize_scorecard(
+                path,
+                root=root,
+                snapshot_id=manifest.snapshot_id,
+                normalized_at=created_at,
+            )
+        ]
         if row is not None
     ]
     raw_rounds.sort(key=lambda row: row.get("date") or "")
@@ -339,14 +505,23 @@ def build_normalized_snapshot_payload(*, root: Path = ROOT, manifest: SnapshotMa
         for path in [root / file_name]
         for round_row in [rounds_by_id.get(path.stem)]
         if round_row is not None
-        for shot in _normalize_shot_file(path, root=root, round_row=round_row)
+        for shot in _normalize_shot_file(
+            path,
+            root=root,
+            round_row=round_row,
+            snapshot_id=manifest.snapshot_id,
+            normalized_at=created_at,
+        )
     ]
-    rounds = merge_same_day_halves(raw_rounds)
+    rounds = [
+        _merge_provenance_for_round(row, rounds_by_id, snapshot_id=manifest.snapshot_id, normalized_at=created_at)
+        for row in merge_same_day_halves(raw_rounds)
+    ]
     shots = _remap_shots_to_merged_rounds(shots, rounds)
     return {
         "schema": "ai-caddie-normalized-history-v1",
         "snapshotId": manifest.snapshot_id,
-        "createdAt": _utc_now(),
+        "createdAt": created_at,
         "sourceFiles": manifest.files,
         "rawRounds": raw_rounds,
         "rounds": rounds,

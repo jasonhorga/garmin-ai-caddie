@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from ai_caddie.fixtures import fixture_history_data
+from ai_caddie.history import HistoryData
 from ai_caddie.llm_providers import LLMMessage
 from ai_caddie.history_stats import build_history_stats
 from ai_caddie.reports import (
@@ -97,6 +98,89 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertEqual(by_label["round_shots"]["value"][0]["club"], "1D")
         self.assertIn("round_issues", by_label)
         self.assertNotIn({"label": "round_reference", "reason": "900001 not present in drillDown.roundIds"}, facts["missingData"])
+
+    def test_round_report_facts_expose_normalized_provenance_source_refs(self) -> None:
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {
+                    "id": "910001",
+                    "ids": ["910001"],
+                    "date": "2026-05-25T08:00:00",
+                    "course": "Evidence Links",
+                    "courseKey": "c_evidence",
+                    "holesCompleted": 1,
+                    "strokes": 4,
+                    "par": 4,
+                    "putts": 2,
+                    "hasShots": True,
+                    "shotStatus": "ready",
+                    "holes": [{"number": 1, "strokes": 4, "par": 4, "putts": 2}],
+                    "provenance": {
+                        "sourceConnector": "garmin_cn_web_session",
+                        "snapshotId": "snap_report",
+                        "sourceRecordType": "scorecard",
+                        "sourceRecordId": "910001",
+                        "sourceRecordIds": ["910001"],
+                        "sourceFiles": ["data/scorecards/910001.json"],
+                        "sourceRefs": ["garmin_cn_web_session:snap_report:scorecard:910001"],
+                        "confidence": "high",
+                        "status": "normalized",
+                    },
+                }
+            ],
+            shots=[
+                {
+                    "id": "shot-report-1",
+                    "roundId": "910001",
+                    "scorecardId": "910001",
+                    "hole": 1,
+                    "club": "8I",
+                    "distance": 142,
+                    "surface": "green",
+                    "provenance": {
+                        "sourceConnector": "garmin_cn_web_session",
+                        "snapshotId": "snap_report",
+                        "sourceRecordType": "shot",
+                        "sourceRecordId": "shot-report-1",
+                        "parentRecordId": "910001",
+                        "sourceRecordIds": ["shot-report-1"],
+                        "sourceFiles": ["data/shots/910001.json"],
+                        "sourceRefs": ["garmin_cn_web_session:snap_report:shot:910001:shot-report-1"],
+                        "confidence": "high",
+                        "status": "normalized",
+                    },
+                }
+            ],
+        )
+
+        facts = build_round_report_facts(
+            {
+                "schema": "ai-caddie-history-stats-v1",
+                "summary": {"totalRounds": 1, "average18": None, "bestScore": None},
+                "scoring": {},
+                "dataQuality": [],
+                "drillDown": {"roundIds": ["910001"]},
+            },
+            "910001",
+            history_data=data,
+        )
+
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertEqual(
+            by_label["round_scorecard"]["sourceRefs"],
+            ["garmin_cn_web_session:snap_report:scorecard:910001"],
+        )
+        self.assertEqual(by_label["round_scorecard"]["provenance"]["snapshotId"], "snap_report")
+        self.assertEqual(by_label["round_scorecard"]["provenance"]["sourceFiles"], ["data/scorecards/910001.json"])
+        self.assertEqual(
+            by_label["round_shots"]["sourceRefs"],
+            ["garmin_cn_web_session:snap_report:shot:910001:shot-report-1"],
+        )
+        self.assertEqual(
+            by_label["round_shots"]["value"][0]["sourceRefs"],
+            ["garmin_cn_web_session:snap_report:shot:910001:shot-report-1"],
+        )
 
     def test_trend_report_facts_bind_period_trends_issues_and_drilldown_refs(self) -> None:
         facts = build_trend_report_facts(

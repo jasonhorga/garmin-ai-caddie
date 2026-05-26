@@ -24,12 +24,77 @@ def _redact_value(value: Any) -> Any:
     return value
 
 
-def _fact(label: str, value: Any, source: str) -> dict[str, Any]:
-    return {
+def _fact(
+    label: str,
+    value: Any,
+    source: str,
+    *,
+    source_refs: list[str] | None = None,
+    provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
         "label": label,
         "value": value,
         "source": source,
     }
+    refs = _unique_strings(source_refs or [])
+    if refs:
+        row["sourceRefs"] = refs
+    provenance_summary = _provenance_summary(provenance)
+    if provenance_summary:
+        row["provenance"] = provenance_summary
+    return row
+
+
+def _unique_strings(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        text = str(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
+
+
+def _source_refs_from_provenance(provenance: Any) -> list[str]:
+    if not isinstance(provenance, dict):
+        return []
+    refs = provenance.get("sourceRefs")
+    if isinstance(refs, list):
+        return _unique_strings(refs)
+    return []
+
+
+def _provenance_summary(provenance: Any) -> dict[str, Any] | None:
+    if not isinstance(provenance, dict):
+        return None
+    keys = [
+        "sourceConnector",
+        "snapshotId",
+        "sourceRecordType",
+        "sourceRecordId",
+        "sourceRecordIds",
+        "parentRecordId",
+        "sourceFiles",
+        "sourceRefs",
+        "confidence",
+        "status",
+        "normalizedAt",
+    ]
+    summary = {key: provenance[key] for key in keys if key in provenance}
+    return summary or None
+
+
+def _source_refs_from_fact_values(values: list[dict[str, Any]]) -> list[str]:
+    return _unique_strings(
+        [
+            source_ref
+            for value in values
+            for source_ref in _as_string_list(value.get("sourceRefs"))
+        ]
+    )
 
 
 def build_round_report_facts(
@@ -51,11 +116,36 @@ def build_round_report_facts(
     ]
     round_row = _find_round(history_data, round_id)
     if round_row:
-        facts_used.append(_fact("round_scorecard", _round_scorecard_fact(round_row), "history.rounds"))
-        facts_used.append(_fact("round_hole_outcomes", _round_hole_outcomes(round_row), "history.rounds.holes"))
+        round_provenance = round_row.get("provenance")
+        round_source_refs = _source_refs_from_provenance(round_provenance)
+        facts_used.append(
+            _fact(
+                "round_scorecard",
+                _round_scorecard_fact(round_row),
+                "history.rounds",
+                source_refs=round_source_refs,
+                provenance=round_provenance if isinstance(round_provenance, dict) else None,
+            )
+        )
+        facts_used.append(
+            _fact(
+                "round_hole_outcomes",
+                _round_hole_outcomes(round_row),
+                "history.rounds.holes",
+                source_refs=round_source_refs,
+                provenance=round_provenance if isinstance(round_provenance, dict) else None,
+            )
+        )
         round_shots = _round_shot_facts(history_data, round_id)
         if round_shots:
-            facts_used.append(_fact("round_shots", round_shots, "history.shots"))
+            facts_used.append(
+                _fact(
+                    "round_shots",
+                    round_shots,
+                    "history.shots",
+                    source_refs=_source_refs_from_fact_values(round_shots),
+                )
+            )
 
     putting = scoring.get("putting") if isinstance(scoring.get("putting"), dict) else {}
     if putting:
@@ -189,15 +279,28 @@ def _round_shot_facts(history_data: HistoryData | None, round_id: str) -> list[d
         if str(shot.get("roundId")) != requested:
             continue
         rows.append(
-            {
-                "shotRef": f"{shot.get('roundId')}:{shot.get('hole')}:{index}",
-                "hole": shot.get("hole"),
-                "club": shot.get("club") or shot.get("clubName"),
-                "distance": shot.get("distance") or shot.get("meters"),
-                "surface": shot.get("surface") or shot.get("endLie"),
-            }
+            _with_row_provenance(
+                {
+                    "shotRef": f"{shot.get('roundId')}:{shot.get('hole')}:{index}",
+                    "hole": shot.get("hole"),
+                    "club": shot.get("club") or shot.get("clubName"),
+                    "distance": shot.get("distance") or shot.get("meters"),
+                    "surface": shot.get("surface") or shot.get("endLie"),
+                },
+                shot.get("provenance"),
+            )
         )
     return rows
+
+
+def _with_row_provenance(row: dict[str, Any], provenance: Any) -> dict[str, Any]:
+    source_refs = _source_refs_from_provenance(provenance)
+    if source_refs:
+        row["sourceRefs"] = source_refs
+    provenance_summary = _provenance_summary(provenance)
+    if provenance_summary:
+        row["provenance"] = provenance_summary
+    return row
 
 
 def _round_issue_facts(issues: list[Any], round_id: str) -> list[dict[str, Any]]:
