@@ -441,6 +441,21 @@ export interface SyncRunResponse {
   snapshot: SyncSnapshotPayload | null
 }
 
+export interface GarminSessionImportRequest {
+  webSessionHeader: string
+  antiForgeryValue: string
+}
+
+export interface GarminSessionImportResponse {
+  schema: 'ai-caddie-garmin-session-import-v1'
+  connector: 'garmin_cn_web_session'
+  state: 'stored'
+  detail: string
+  sessionFieldCount: number
+  antiForgeryPresent: boolean
+  source: 'manual_paste'
+}
+
 export type ReadinessState = 'ready' | 'degraded' | 'error'
 
 export interface ReadinessCheck {

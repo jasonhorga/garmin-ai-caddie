@@ -489,6 +489,7 @@ p {
 
 .sync-panel {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 16px;
   align-items: center;
@@ -620,6 +621,84 @@ p {
 
 .sync-run-meta em {
   color: var(--muted);
+}
+
+.sync-action {
+  min-height: 38px;
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--green);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.sync-action:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.sync-session-form {
+  display: grid;
+  grid-template-columns: 132px minmax(220px, 1fr) 120px minmax(160px, 240px) auto auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.sync-session-form label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.sync-session-form input,
+.sync-session-form textarea,
+.sync-session-form button {
+  min-height: 36px;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
+.sync-session-form textarea {
+  resize: vertical;
+}
+
+.sync-session-form button {
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.sync-session-form button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.sync-session-state,
+.sync-session-error {
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.sync-session-state {
+  color: var(--green);
+}
+
+.sync-session-error {
+  color: var(--double);
 }
 
 .readiness-panel {
@@ -1978,6 +2057,10 @@ p {
   }
 
   .sync-run-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-session-form {
     grid-template-columns: 1fr;
   }
 

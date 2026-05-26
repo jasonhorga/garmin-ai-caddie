@@ -1,4 +1,5 @@
-import type { SyncStatusResponse } from '../types'
+import { useState, type FormEvent } from 'react'
+import type { GarminSessionImportRequest, SyncStatusResponse } from '../types'
 
 const stateLabel = {
   ready: 'ready',
@@ -17,12 +18,38 @@ interface SyncStatusPanelProps {
   status: SyncStatusResponse
   onSync?: () => void
   syncState?: 'idle' | 'running' | 'error'
+  onSaveSession?: (request: GarminSessionImportRequest) => void | Promise<void>
+  sessionSaveState?: 'idle' | 'saving' | 'saved' | 'error'
+  sessionSaveError?: string | null
 }
 
-export function SyncStatusPanel({ status, onSync, syncState = 'idle' }: SyncStatusPanelProps) {
+export function SyncStatusPanel({
+  status,
+  onSync,
+  syncState = 'idle',
+  onSaveSession,
+  sessionSaveState = 'idle',
+  sessionSaveError = null,
+}: SyncStatusPanelProps) {
+  const [webSessionHeader, setWebSessionHeader] = useState('')
+  const [antiForgeryValue, setAntiForgeryValue] = useState('')
   const isRunning = syncState === 'running'
   const canRun = Boolean(onSync) && status.connector.canSync && !status.connector.reauthRequired && !isRunning
   const connectors = status.connectors && status.connectors.length ? status.connectors : [status.connector]
+  const canSaveSession =
+    Boolean(onSaveSession) &&
+    sessionSaveState !== 'saving' &&
+    webSessionHeader.trim().length > 0 &&
+    antiForgeryValue.trim().length > 0
+
+  function handleSessionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!canSaveSession || !onSaveSession) return
+    void onSaveSession({
+      webSessionHeader,
+      antiForgeryValue,
+    })
+  }
 
   return (
     <section className="sync-panel" aria-label="Garmin sync status">
@@ -68,6 +95,30 @@ export function SyncStatusPanel({ status, onSync, syncState = 'idle' }: SyncStat
       <button className="sync-action" type="button" onClick={onSync} disabled={!canRun}>
         {isRunning ? 'Syncing' : 'Sync now'}
       </button>
+      {onSaveSession ? (
+        <form className="sync-session-form" aria-label="Garmin session import" onSubmit={handleSessionSubmit}>
+          <label htmlFor="web-session-header">Web session header</label>
+          <textarea
+            id="web-session-header"
+            value={webSessionHeader}
+            onChange={(event) => setWebSessionHeader(event.target.value)}
+            rows={2}
+            spellCheck={false}
+          />
+          <label htmlFor="anti-forgery-value">Anti-forgery value</label>
+          <input
+            id="anti-forgery-value"
+            value={antiForgeryValue}
+            onChange={(event) => setAntiForgeryValue(event.target.value)}
+            spellCheck={false}
+          />
+          <button type="submit" disabled={!canSaveSession}>
+            {sessionSaveState === 'saving' ? 'Saving session' : 'Save session'}
+          </button>
+          {sessionSaveState === 'saved' ? <span className="sync-session-state">session saved</span> : null}
+          {sessionSaveState === 'error' ? <span className="sync-session-error">{sessionSaveError ?? 'session save failed'}</span> : null}
+        </form>
+      ) : null}
     </section>
   )
 }

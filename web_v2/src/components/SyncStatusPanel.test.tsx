@@ -105,4 +105,33 @@ describe('SyncStatusPanel', () => {
 
     expect(screen.getByRole('button', { name: /syncing/i })).toBeDisabled()
   })
+
+  it('submits manually pasted Garmin session material', async () => {
+    const user = userEvent.setup()
+    const onSaveSession = vi.fn()
+
+    render(
+      <SyncStatusPanel
+        status={{
+          ...baseStatus,
+          connector: {
+            ...baseStatus.connector,
+            state: 'reauth_required',
+            detail: 'Garmin session expired.',
+            reauthRequired: true,
+          },
+        }}
+        onSaveSession={onSaveSession}
+      />,
+    )
+
+    await user.type(screen.getByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
+    await user.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
+    await user.click(screen.getByRole('button', { name: 'Save session' }))
+
+    expect(onSaveSession).toHaveBeenCalledWith({
+      webSessionHeader: 'Cookie: JWT_WEB=abc123',
+      antiForgeryValue: 'connect-csrf-token: csrf-secret-value',
+    })
+  })
 })

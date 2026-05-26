@@ -24,6 +24,7 @@ import {
   fetchVisionFindingsForTarget,
   fetchSyncStatus,
   runGarminSync,
+  saveGarminSession,
 } from './api'
 
 describe('fetchHistoryOverview', () => {
@@ -686,6 +687,45 @@ describe('runGarminSync', () => {
     })
     expect(data.schema).toBe('ai-caddie-sync-run-v2')
     expect(data.snapshot?.snapshotId).toBe('snap_1')
+  })
+})
+
+describe('saveGarminSession', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('posts manual Garmin session material without expecting echoed values', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-garmin-session-import-v1',
+        connector: 'garmin_cn_web_session',
+        state: 'stored',
+        detail: 'Garmin CN web session saved for local sync.',
+        sessionFieldCount: 2,
+        antiForgeryPresent: true,
+        source: 'manual_paste',
+      }),
+    }))
+
+    const data = await saveGarminSession({
+      webSessionHeader: 'Cookie: JWT_WEB=abc123',
+      antiForgeryValue: 'connect-csrf-token: csrf-secret-value',
+    })
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/sync/garmin/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        webSessionHeader: 'Cookie: JWT_WEB=abc123',
+        antiForgeryValue: 'connect-csrf-token: csrf-secret-value',
+      }),
+    })
+    expect(data.schema).toBe('ai-caddie-garmin-session-import-v1')
+    expect(JSON.stringify(data)).not.toContain('abc123')
+    expect(JSON.stringify(data)).not.toContain('csrf-secret-value')
   })
 })
 

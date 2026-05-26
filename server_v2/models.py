@@ -222,6 +222,23 @@ class SyncRunResponse(BaseModel):
     snapshot: SyncSnapshotPayload | None
 
 
+class GarminSessionImportRequest(BaseModel):
+    webSessionHeader: str = Field(min_length=1)
+    antiForgeryValue: str = Field(min_length=1)
+
+
+class GarminSessionImportResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-garmin-session-import-v1"] = Field(alias="schema")
+    connector: Literal["garmin_cn_web_session"]
+    state: Literal["stored"]
+    detail: str
+    sessionFieldCount: int
+    antiForgeryPresent: bool
+    source: Literal["manual_paste"]
+
+
 class ReviewReportResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 

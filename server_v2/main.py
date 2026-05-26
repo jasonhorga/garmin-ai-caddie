@@ -40,6 +40,8 @@ from .models import (
     CaddieDecisionAuditRequest,
     CaddieDecisionAuditStoreResponse,
     CourseGeometryCoverageResponse,
+    GarminSessionImportRequest,
+    GarminSessionImportResponse,
     GeometryEvidenceResponse,
     HistoryDrilldownResponse,
     HoleMapResponse,
@@ -67,6 +69,7 @@ from .reports import (
     load_trend_report_response,
 )
 from .readiness import build_readiness_response
+from .session import save_garmin_session_response
 from .sync_status import load_sync_status_response
 
 
@@ -121,6 +124,7 @@ def service_index() -> dict[str, object]:
             "generateTrendReport": "/api/v2/reports/trend/{period}/generate",
             "syncStatus": "/api/v2/sync/status",
             "syncGarmin": "/api/v2/sync/garmin",
+            "saveGarminSession": "/api/v2/sync/garmin/session",
         },
     }
 
@@ -338,3 +342,8 @@ def sync_garmin(
         errorCode=result.error_code,
         snapshot=snapshot_to_payload(result.snapshot) if result.snapshot else None,
     )
+
+
+@app.post("/api/v2/sync/garmin/session", response_model=GarminSessionImportResponse)
+def save_garmin_session(request: GarminSessionImportRequest) -> GarminSessionImportResponse:
+    return save_garmin_session_response(request)

@@ -16,6 +16,8 @@ import type {
   HistoryStatsResponse,
   CourseGeometryCoverageResponse,
   GeometryEvidenceResponse,
+  GarminSessionImportRequest,
+  GarminSessionImportResponse,
   HoleMapResponse,
   MediaCreateRequest,
   MediaCreateResponse,
@@ -220,6 +222,10 @@ export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: b
     }
     return response.json() as Promise<SyncRunResponse>
   })
+}
+
+export function saveGarminSession(request: GarminSessionImportRequest): Promise<GarminSessionImportResponse> {
+  return postJson<GarminSessionImportResponse>('/api/v2/sync/garmin/session', request)
 }
 
 export function fetchAnnotations(): Promise<AnnotationListResponse> {

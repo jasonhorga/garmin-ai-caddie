@@ -23,6 +23,7 @@ import {
   generateTrendReport,
   fetchSyncStatus,
   runGarminSync,
+  saveGarminSession,
 } from './api'
 import { CaddiePage, type MediaContextState } from './components/CaddiePage'
 import { ClubStats } from './components/ClubStats'
@@ -59,6 +60,7 @@ import type {
   MediaTargetType,
   ReadinessResponse,
   ReviewReportResponse,
+  GarminSessionImportRequest,
   SyncStatusResponse,
   WeatherSnapshotResponse,
 } from './types'
@@ -89,6 +91,8 @@ export default function App() {
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
+  const [sessionSaveState, setSessionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [sessionSaveError, setSessionSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -221,10 +225,31 @@ export default function App() {
     }
   }
 
+  async function handleSaveGarminSession(request: GarminSessionImportRequest) {
+    setSessionSaveState('saving')
+    setSessionSaveError(null)
+    try {
+      await saveGarminSession(request)
+      const status = await fetchSyncStatus()
+      setSyncStatus(status)
+      setSessionSaveState('saved')
+    } catch (error: unknown) {
+      setSessionSaveError(error instanceof Error ? error.message : 'Unknown error')
+      setSessionSaveState('error')
+    }
+  }
+
   function renderSyncPanel() {
     return syncStatus ? (
       <div className="app-shell sync-panel-shell">
-        <SyncStatusPanel status={syncStatus} onSync={handleRunSync} syncState={syncRunState} />
+        <SyncStatusPanel
+          status={syncStatus}
+          onSync={handleRunSync}
+          syncState={syncRunState}
+          onSaveSession={handleSaveGarminSession}
+          sessionSaveState={sessionSaveState}
+          sessionSaveError={sessionSaveError}
+        />
       </div>
     ) : null
   }
@@ -267,7 +292,16 @@ export default function App() {
               <p>Garmin connector state, local snapshot coverage, and confidence-impacting gaps.</p>
             </div>
           </div>
-          {syncStatus ? <SyncStatusPanel status={syncStatus} onSync={handleRunSync} syncState={syncRunState} /> : null}
+          {syncStatus ? (
+            <SyncStatusPanel
+              status={syncStatus}
+              onSync={handleRunSync}
+              syncState={syncRunState}
+              onSaveSession={handleSaveGarminSession}
+              sessionSaveState={sessionSaveState}
+              sessionSaveError={sessionSaveError}
+            />
+          ) : null}
           {readinessState.status === 'ready' ? <ReadinessPanel readiness={readinessState.data} /> : null}
           {readinessState.status === 'error' ? <ReadinessPanel readiness={null} error={readinessState.message} /> : null}
           <DataQualityPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
