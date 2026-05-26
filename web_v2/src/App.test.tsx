@@ -816,8 +816,8 @@ describe('App navigation', () => {
       json: async () => {
         if (path === '/api/v2/history/stats') return statsPayload()
         if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
-        if (path === '/api/v2/geometry/hole/31795/7') return holeGeometryEvidencePayload()
-        if (path === '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery') return holeMapPayload()
+        if (path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7') return holeGeometryEvidencePayload()
+        if (path === '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7') return holeMapPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayload()
       },
@@ -838,8 +838,8 @@ describe('App navigation', () => {
     expect(screen.getByText('WGS84')).toBeInTheDocument()
     expect(screen.getByText('pin')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A7')
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7')
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7?source_ref=900001%3A7')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7')
   })
 
   it('opens the caddie workspace, attaches media context, and requests a decision', async () => {

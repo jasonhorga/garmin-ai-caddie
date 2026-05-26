@@ -282,6 +282,9 @@ export interface GeometryEvidenceResponse {
   coverage: GeometryCoverageState
   hasHazards: boolean
   hasMeshes: boolean
+  sourceRef?: string | null
+  shotRoutes?: Array<Record<string, unknown>>
+  surfaceClassifications?: Array<Record<string, unknown>>
   evidence: Array<Record<string, unknown>>
   missingData: Array<Record<string, unknown>>
 }

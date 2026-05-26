@@ -162,9 +162,16 @@ export function fetchCourseGeometryCoverage(
   )
 }
 
-export function fetchHoleGeometryEvidence(globalId: number, localHole: number): Promise<GeometryEvidenceResponse> {
+export function fetchHoleGeometryEvidence(
+  globalId: number,
+  localHole: number,
+  sourceRef?: string,
+): Promise<GeometryEvidenceResponse> {
+  const query = new URLSearchParams()
+  appendParam(query, 'source_ref', sourceRef)
+  const suffix = query.toString()
   return getJson<GeometryEvidenceResponse>(
-    `/api/v2/geometry/hole/${encodeURIComponent(String(globalId))}/${encodeURIComponent(String(localHole))}`,
+    `/api/v2/geometry/hole/${encodeURIComponent(String(globalId))}/${encodeURIComponent(String(localHole))}${suffix ? `?${suffix}` : ''}`,
   )
 }
 
@@ -172,8 +179,10 @@ export function fetchHoleMap(
   globalId: number,
   localHole: number,
   provider = 'esri_world_imagery',
+  sourceRef?: string,
 ): Promise<HoleMapResponse> {
   const query = new URLSearchParams({ provider })
+  appendParam(query, 'source_ref', sourceRef)
   return getJson<HoleMapResponse>(
     `/api/v2/geometry/hole/${encodeURIComponent(String(globalId))}/${encodeURIComponent(String(localHole))}/map?${query.toString()}`,
   )

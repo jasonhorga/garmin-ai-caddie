@@ -195,7 +195,7 @@ def classify_shot_surface(global_id: int, local_hole: int, shot: dict[str, Any])
         "schema": "ai-caddie-shot-surface-classification-v1",
         "globalId": int(global_id),
         "localHole": int(local_hole),
-        "shotRef": str(shot.get("ref") or shot.get("id") or ""),
+        "shotRef": str(shot.get("ref") or shot.get("shotRef") or shot.get("id") or ""),
         "surface": surface,
         "evidence": evidence,
         "missingData": missing_data,
@@ -325,6 +325,108 @@ def geometry_coverage_for_course(global_id: int, holes: Iterable[int] = range(1,
         "partialHoles": partial,
         "totalHoles": len(hole_rows),
         "holes": hole_rows,
+    }
+
+
+def build_source_bound_hole_geometry_evidence(
+    global_id: int,
+    local_hole: int,
+    *,
+    data: Any | None = None,
+    source_ref: str | None = None,
+) -> dict[str, Any]:
+    evidence = geometry_coverage_for_hole(global_id, local_hole)
+    if not source_ref:
+        return evidence
+
+    source_ref_value = str(source_ref)
+    shot_routes = _shot_routes_for_source(data, int(global_id), int(local_hole), source_ref_value)
+    evidence["sourceRef"] = source_ref_value
+    evidence["shotRoutes"] = shot_routes
+    if shot_routes:
+        evidence["evidence"].append(
+            {
+                "label": "shot_routes",
+                "sourceRef": source_ref_value,
+                "count": len(shot_routes),
+                "refs": [route["shotRef"] for route in shot_routes],
+            }
+        )
+        evidence["surfaceClassifications"] = [
+            classify_shot_surface(int(global_id), int(local_hole), route)
+            for route in shot_routes
+        ]
+    else:
+        evidence["missingData"].append(
+            {
+                "label": "source_shots",
+                "reason": f"{source_ref_value} has no matching normalized shots for this geometry hole",
+            }
+        )
+    return evidence
+
+
+def _shot_routes_for_source(data: Any | None, global_id: int, local_hole: int, source_ref: str) -> list[dict[str, Any]]:
+    if data is None:
+        return []
+    shots = getattr(data, "shots", []) or []
+    routes = []
+    for index, shot in enumerate(shots):
+        if not isinstance(shot, dict):
+            continue
+        shot_ref = _shot_ref_for_source_bound_route(shot, index)
+        if not _shot_matches_geometry_hole(shot, global_id, local_hole):
+            continue
+        if not _shot_matches_source_ref(shot, shot_ref, source_ref):
+            continue
+        route = _shot_route(shot, shot_ref)
+        if route is not None:
+            routes.append(route)
+    return routes
+
+
+def _shot_ref_for_source_bound_route(shot: dict[str, Any], index: int) -> str:
+    round_id = str(shot.get("roundId") or shot.get("scorecardId") or "")
+    hole = str(shot.get("hole") or shot.get("localHole") or "")
+    return f"{round_id}:{hole}:{index}"
+
+
+def _shot_matches_geometry_hole(shot: dict[str, Any], global_id: int, local_hole: int) -> bool:
+    shot_global = shot.get("globalId")
+    if shot_global is not None and int(shot_global) != int(global_id):
+        return False
+    shot_local_hole = shot.get("localHole") if shot.get("localHole") is not None else shot.get("hole")
+    return shot_local_hole is not None and int(shot_local_hole) == int(local_hole)
+
+
+def _shot_matches_source_ref(shot: dict[str, Any], shot_ref: str, source_ref: str) -> bool:
+    if source_ref == shot_ref:
+        return True
+    parts = [part for part in source_ref.split(":") if part != ""]
+    round_id = str(shot.get("roundId") or shot.get("scorecardId") or "")
+    hole = str(shot.get("hole") or shot.get("localHole") or "")
+    if len(parts) == 1:
+        return parts[0] == round_id
+    if len(parts) == 2:
+        return parts[0] == round_id and parts[1] == hole
+    return False
+
+
+def _shot_route(shot: dict[str, Any], shot_ref: str) -> dict[str, Any] | None:
+    start = shot.get("start") or shot.get("startLoc")
+    end = shot.get("end") or shot.get("endLoc")
+    if start is None and end is None:
+        return None
+    return {
+        "ref": shot_ref,
+        "shotRef": shot_ref,
+        "roundId": str(shot.get("roundId") or shot.get("scorecardId") or ""),
+        "hole": shot.get("hole") or shot.get("localHole"),
+        "club": shot.get("club") or shot.get("clubName"),
+        "distance": shot.get("distance") or shot.get("meters"),
+        "surface": shot.get("surface") or shot.get("endLie"),
+        "start": start,
+        "end": end,
     }
 
 

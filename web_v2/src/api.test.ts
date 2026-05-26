@@ -586,6 +586,34 @@ describe('geometry API helpers', () => {
     expect(map.provider.coordinateSystem).toBe('WGS84')
     expect(map.layers).toContain('target')
   })
+
+  it('loads source-bound hole evidence and map routes with encoded source refs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-geometry-evidence-v1',
+        globalId: 31795,
+        localHole: 7,
+        coverage: 'ready',
+        hasHazards: true,
+        hasMeshes: true,
+        sourceRef: '900001:7',
+        shotRoutes: [{ shotRef: '900001:7:0', club: '7I' }],
+        surfaceClassifications: [{ shotRef: '900001:7:0', surface: { kind: 'green' } }],
+        evidence: [],
+        missingData: [],
+      }),
+    })))
+
+    await fetchHoleGeometryEvidence(31795, 7, '900001:7')
+    await fetchHoleMap(31795, 7, 'esri_world_imagery', '900001:7')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7')
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7',
+    )
+  })
 })
 
 describe('fetchSyncStatus', () => {

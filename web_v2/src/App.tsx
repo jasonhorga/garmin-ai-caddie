@@ -209,8 +209,8 @@ export default function App() {
     setHoleEvidenceState({ status: 'loading', sourceRef })
     try {
       const [evidence, map] = await Promise.all([
-        fetchHoleGeometryEvidence(target.globalId, target.localHole),
-        fetchHoleMap(target.globalId, target.localHole),
+        fetchHoleGeometryEvidence(target.globalId, target.localHole, sourceRef),
+        fetchHoleMap(target.globalId, target.localHole, 'esri_world_imagery', sourceRef),
       ])
       setHoleEvidenceState({ status: 'ready', sourceRef, evidence, map })
     } catch (error: unknown) {

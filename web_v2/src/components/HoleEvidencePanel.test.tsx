@@ -12,6 +12,9 @@ const readyState: HoleEvidenceState = {
     coverage: 'ready',
     hasHazards: true,
     hasMeshes: true,
+    sourceRef: '900001:7',
+    shotRoutes: [{ shotRef: '900001:7:0', club: '7I', distance: 144, surface: 'green' }],
+    surfaceClassifications: [{ shotRef: '900001:7:0', surface: { kind: 'green', source: 'mesh', id: 'green' } }],
     evidence: [{ label: 'hazards', ref: 'output/prodgeometry_hazards/gid31795_h07_hazards.json' }],
     missingData: [],
   },
@@ -65,6 +68,11 @@ describe('HoleEvidencePanel', () => {
     expect(within(layers).getByText('target')).toBeInTheDocument()
     expect(screen.getByText('2 features')).toBeInTheDocument()
     expect(screen.getByText('water-left')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Shot Routes' })).toBeInTheDocument()
+    expect(screen.getAllByText('900001:7:0').length).toBeGreaterThan(0)
+    expect(screen.getByText('7I 144m green')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Surface Classifications' })).toBeInTheDocument()
+    expect(screen.getByText('green / mesh')).toBeInTheDocument()
     expect(screen.getByText('hazards')).toBeInTheDocument()
     expect(screen.getByText('output/prodgeometry_hazards/gid31795_h07_hazards.json')).toBeInTheDocument()
     expect(screen.getByText('shot_routes')).toBeInTheDocument()

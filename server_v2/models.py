@@ -262,6 +262,9 @@ class GeometryEvidenceResponse(BaseModel):
     coverage: GeometryCoverageState
     hasHazards: bool
     hasMeshes: bool
+    sourceRef: str | None = None
+    shotRoutes: list[dict[str, Any]] = Field(default_factory=list)
+    surfaceClassifications: list[dict[str, Any]] = Field(default_factory=list)
     evidence: list[dict[str, Any]]
     missingData: list[dict[str, Any]]
 

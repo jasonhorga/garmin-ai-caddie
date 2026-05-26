@@ -42,6 +42,8 @@ export function HoleEvidencePanel({ state }: HoleEvidencePanelProps) {
   const providerLabel = asString(state.map.provider.label) ?? asString(state.map.provider.name) ?? 'Map provider'
   const coordinateSystem = asString(state.map.provider.coordinateSystem) ?? 'unknown'
   const features = state.map.featureCollection.features
+  const shotRoutes = asRecordArray(state.evidence.shotRoutes)
+  const surfaceClassifications = asRecordArray(state.evidence.surfaceClassifications)
 
   return (
     <section className="hole-evidence-panel" aria-label="Hole geometry evidence">
@@ -72,10 +74,51 @@ export function HoleEvidencePanel({ state }: HoleEvidencePanelProps) {
             <span>{features.length} features</span>
           </div>
           <FeatureList features={features} />
+          <ShotRoutes rows={shotRoutes} />
+          <SurfaceClassifications rows={surfaceClassifications} />
           <EvidenceRows title="Evidence Files" rows={state.evidence.evidence} />
           <EvidenceRows title="Missing Data" rows={[...state.evidence.missingData, ...state.map.missingData]} />
         </div>
       </div>
+    </section>
+  )
+}
+
+function ShotRoutes({ rows }: { rows: Array<Record<string, unknown>> }) {
+  if (!rows.length) return null
+  return (
+    <section aria-label="Shot routes" className="hole-evidence-rows">
+      <h3>Shot Routes</h3>
+      {rows.slice(0, 8).map((row, index) => {
+        const ref = asString(row.shotRef) ?? asString(row.ref) ?? `shot-${index + 1}`
+        return (
+          <div className="report-row" key={`${ref}-${index}`}>
+            <strong>{ref}</strong>
+            <span>{shotRouteLabel(row)}</span>
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
+function SurfaceClassifications({ rows }: { rows: Array<Record<string, unknown>> }) {
+  if (!rows.length) return null
+  return (
+    <section aria-label="Surface classifications" className="hole-evidence-rows">
+      <h3>Surface Classifications</h3>
+      {rows.slice(0, 8).map((row, index) => {
+        const ref = asString(row.shotRef) ?? `shot-${index + 1}`
+        const surface = asRecord(row.surface)
+        const kind = asString(surface?.kind) ?? 'unknown'
+        const source = asString(surface?.source) ?? 'none'
+        return (
+          <div className="report-row" key={`${ref}-${index}`}>
+            <strong>{ref}</strong>
+            <span>{kind} / {source}</span>
+          </div>
+        )
+      })}
     </section>
   )
 }
@@ -98,6 +141,21 @@ function FeatureList({ features }: { features: GeoJsonFeature[] }) {
       })}
     </section>
   )
+}
+
+function shotRouteLabel(row: Record<string, unknown>): string {
+  const club = asString(row.club) ?? 'club unknown'
+  const distance = typeof row.distance === 'number' ? `${row.distance}m` : asString(row.distance) ?? ''
+  const surface = asString(row.surface) ?? ''
+  return [club, distance, surface].filter(Boolean).join(' ')
+}
+
+function asRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : []
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
 
 function EvidenceRows({ title, rows }: { title: string; rows: Array<Record<string, unknown>> }) {

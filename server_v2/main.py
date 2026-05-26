@@ -180,13 +180,18 @@ def geometry_course_coverage(
 
 
 @app.get("/api/v2/geometry/hole/{global_id}/{local_hole}", response_model=GeometryEvidenceResponse)
-def geometry_hole_evidence(global_id: int, local_hole: int) -> GeometryEvidenceResponse:
-    return load_hole_geometry_evidence_response(global_id, local_hole)
+def geometry_hole_evidence(global_id: int, local_hole: int, source_ref: str | None = None) -> GeometryEvidenceResponse:
+    return load_hole_geometry_evidence_response(global_id, local_hole, source_ref=source_ref)
 
 
 @app.get("/api/v2/geometry/hole/{global_id}/{local_hole}/map", response_model=HoleMapResponse)
-def geometry_hole_map(global_id: int, local_hole: int, provider: str = "esri_world_imagery") -> HoleMapResponse:
-    return load_hole_map_response(global_id, local_hole, provider=provider)
+def geometry_hole_map(
+    global_id: int,
+    local_hole: int,
+    provider: str = "esri_world_imagery",
+    source_ref: str | None = None,
+) -> HoleMapResponse:
+    return load_hole_map_response(global_id, local_hole, provider=provider, source_ref=source_ref)
 
 
 @app.get("/api/v2/caddie/context", response_model=CaddieContextResponse)
