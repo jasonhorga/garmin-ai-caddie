@@ -105,6 +105,7 @@ export function fetchCaddieContext(params: CaddieContextParams, adminToken?: str
   appendParam(query, 'target_x', params.targetX)
   appendParam(query, 'target_y', params.targetY)
   appendParam(query, 'landing_radius_m', params.landingRadiusM)
+  appendParam(query, 'captured_at', params.capturedAt)
   return getJson<CaddieContextResponse>(`/api/v2/caddie/context?${query.toString()}`, adminToken)
 }
 

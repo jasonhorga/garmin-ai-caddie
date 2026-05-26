@@ -982,7 +982,9 @@ describe('App navigation', () => {
     expect(await screen.findByText('8I')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/v2/weather/snapshot?source=manual'))
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v2/caddie/context?source_ref=900001%3A7&shot_type=approach&distance_to_pin_m=142&lie=fairway',
+      expect.stringMatching(
+        /^\/api\/v2\/caddie\/context\?source_ref=900001%3A7&shot_type=approach&distance_to_pin_m=142&lie=fairway&captured_at=/,
+      ),
     )
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/shot/fixture-round%3A4%3Aapproach')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/shot/fixture-round%3A4%3Aapproach/findings')
@@ -1052,7 +1054,9 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v2/caddie/context?source_ref=900002%3A5%3A4&shot_type=approach&distance_to_pin_m=142&lie=fairway',
+      expect.stringMatching(
+        /^\/api\/v2\/caddie\/context\?source_ref=900002%3A5%3A4&shot_type=approach&distance_to_pin_m=142&lie=fairway&captured_at=/,
+      ),
     )
   })
 })

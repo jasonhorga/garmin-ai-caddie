@@ -318,12 +318,15 @@ describe('CaddiePage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Audit outcome' }))
 
     expect(onLoadWeather).toHaveBeenCalledTimes(1)
-    expect(onLoadCaddieContext).toHaveBeenCalledWith({
-      sourceRef: '900001:7',
-      shotType: 'approach',
-      distanceToPinM: 142,
-      lie: 'fairway',
-    })
+    expect(onLoadCaddieContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceRef: '900001:7',
+        shotType: 'approach',
+        distanceToPinM: 142,
+        lie: 'fairway',
+        capturedAt: expect.any(String),
+      }),
+    )
     expect(onLoadMediaContext).toHaveBeenCalledWith({ targetType: 'shot', targetId: 'fixture-round:4:approach' })
     expect(onAnalyzeMedia).toHaveBeenCalledWith('media-1')
     expect(onRedactMedia).toHaveBeenCalledWith('media-1')
@@ -388,6 +391,27 @@ describe('CaddiePage', () => {
         targetLatitude: 22.2799,
         targetLongitude: 114.162,
         strategyMode: 'protect_score',
+      }),
+    )
+  })
+
+  it('includes the current decision timestamp when loading source-bound context', async () => {
+    const onLoadCaddieContext = vi.fn()
+
+    render(
+      <CaddiePage
+        decisionState={{ status: 'idle' }}
+        contextState={{ status: 'idle' }}
+        onRequestDecision={vi.fn()}
+        onLoadCaddieContext={onLoadCaddieContext}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
+
+    expect(onLoadCaddieContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capturedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       }),
     )
   })

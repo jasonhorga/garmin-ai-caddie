@@ -320,6 +320,46 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertTrue(any(row["kind"] == "live_location" for row in decision["evidence"]))
         self.assertTrue(any(row["kind"] == "weather" for row in decision["evidence"]))
 
+    def test_context_endpoint_selects_stored_weather_at_decision_time(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for captured_at, wind_speed in [
+                ("2026-05-25T08:00:00Z", 4.0),
+                ("2026-05-25T09:00:00Z", 6.0),
+                ("2026-05-25T15:00:00Z", 12.0),
+            ]:
+                store_weather_snapshot(
+                    build_weather_snapshot(
+                        round_id="900001",
+                        hole=7,
+                        captured_at=captured_at,
+                        latitude=22.279,
+                        longitude=114.162,
+                        source="manual",
+                        observed={"windSpeedMps": wind_speed, "windDirectionDeg": 0, "temperatureC": 28.5},
+                    ),
+                    root=root,
+                )
+
+            with patch("server_v2.caddie.WEATHER_ROOT", root, create=True):
+                context_response = client.get(
+                    "/api/v2/caddie/context",
+                    params={
+                        "source_ref": "900001:7",
+                        "shot_type": "approach",
+                        "distance_to_pin_m": 142,
+                        "lie": "fairway",
+                        "captured_at": "2026-05-25T09:15:00Z",
+                    },
+                )
+
+        self.assertEqual(context_response.status_code, 200)
+        weather = context_response.json()["context"]["weatherSnapshot"]
+        self.assertEqual(weather["capturedAt"], "2026-05-25T09:00:00Z")
+        self.assertEqual(weather["windSpeedMps"], 6.0)
+
     def test_context_endpoint_reports_missing_weather_snapshot(self) -> None:
         client = TestClient(app)
 

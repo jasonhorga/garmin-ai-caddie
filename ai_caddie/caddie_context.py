@@ -13,7 +13,7 @@ from ai_caddie.history import HistoryData
 from ai_caddie.history_drilldown import resolve_history_ref
 from ai_caddie.history_stats import DataModeName, build_history_stats
 from ai_caddie.vision_context import list_findings_for_target
-from ai_caddie.weather_context import latest_weather_snapshot
+from ai_caddie.weather_context import weather_snapshot_for_time
 
 
 def build_caddie_context(
@@ -33,6 +33,7 @@ def build_caddie_context(
     route_start: dict[str, Any] | None = None,
     route_target: dict[str, Any] | None = None,
     landing_radius_m: float = 18.0,
+    captured_at: str | None = None,
 ) -> dict[str, Any]:
     normalized_shot_type = validate_shot_type(shot_type)
     drilldown = resolve_history_ref(data, source_ref)
@@ -130,6 +131,7 @@ def build_caddie_context(
     weather_snapshot = _weather_snapshot_for_context(
         round_id=str(round_row.get("id") or source_ref.split(":")[0]),
         local_hole=local_hole,
+        captured_at=captured_at,
         weather_root=weather_root,
     )
     if weather_snapshot:
@@ -368,11 +370,16 @@ def _weather_snapshot_for_context(
     *,
     round_id: str,
     local_hole: int | None,
+    captured_at: str | None,
     weather_root: Path | str | None,
 ) -> dict[str, Any] | None:
     if not round_id:
         return None
-    return latest_weather_snapshot(round_id, local_hole, root=weather_root) or latest_weather_snapshot(round_id, root=weather_root)
+    return weather_snapshot_for_time(round_id, local_hole, captured_at, root=weather_root) or weather_snapshot_for_time(
+        round_id,
+        captured_at=captured_at,
+        root=weather_root,
+    )
 
 
 def _weather_evidence_value(snapshot: dict[str, Any]) -> str:

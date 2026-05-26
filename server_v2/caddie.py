@@ -45,6 +45,7 @@ def build_caddie_context_response(
     target_x: float | None = None,
     target_y: float | None = None,
     landing_radius_m: float = 18.0,
+    captured_at: str | None = None,
 ) -> CaddieContextResponse:
     data, mode = load_history_data_for_mode()
     return CaddieContextResponse(
@@ -64,6 +65,7 @@ def build_caddie_context_response(
             route_start=_local_point(start_x, start_y),
             route_target=_local_point(target_x, target_y),
             landing_radius_m=landing_radius_m,
+            captured_at=captured_at,
         )
     )
 

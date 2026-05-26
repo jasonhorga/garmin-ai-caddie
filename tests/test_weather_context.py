@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from urllib.parse import parse_qs, urlparse
 
+import ai_caddie.weather_context as weather_context
 from ai_caddie.weather_context import (
     build_weather_snapshot,
     fetch_open_meteo_weather_snapshot,
@@ -175,6 +176,38 @@ class WeatherContextTests(unittest.TestCase):
         self.assertEqual(len(snapshots), 2)
         self.assertEqual(latest["capturedAt"], "2026-05-25T09:00:00Z")
         self.assertEqual(latest["windSpeedMps"], 6.0)
+
+    def test_weather_snapshot_for_time_prefers_latest_at_or_before_decision_time(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for captured_at, wind_speed in [
+                ("2026-05-25T08:00:00Z", 4.0),
+                ("2026-05-25T09:00:00Z", 6.0),
+                ("2026-05-25T15:00:00Z", 12.0),
+            ]:
+                store_weather_snapshot(
+                    build_weather_snapshot(
+                        round_id="round-1",
+                        hole=7,
+                        captured_at=captured_at,
+                        latitude=22.279,
+                        longitude=114.162,
+                        source="manual",
+                        observed={"windSpeedMps": wind_speed},
+                    ),
+                    root=root,
+                )
+
+            selector = getattr(weather_context, "weather_snapshot_for_time", None)
+            self.assertIsNotNone(selector)
+            selected = selector("round-1", 7, "2026-05-25T09:15:00Z", root=root)
+            before_first = selector("round-1", 7, "2026-05-25T07:30:00Z", root=root)
+            without_decision_time = selector("round-1", 7, root=root)
+
+        self.assertEqual(selected["capturedAt"], "2026-05-25T09:00:00Z")
+        self.assertEqual(selected["windSpeedMps"], 6.0)
+        self.assertEqual(before_first["capturedAt"], "2026-05-25T08:00:00Z")
+        self.assertEqual(without_decision_time["capturedAt"], "2026-05-25T15:00:00Z")
 
 
 if __name__ == "__main__":

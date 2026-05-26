@@ -150,6 +150,7 @@ export interface CaddieContextParams {
   targetX?: number
   targetY?: number
   landingRadiusM?: number
+  capturedAt?: string
 }
 
 export interface CaddieContextResponse {

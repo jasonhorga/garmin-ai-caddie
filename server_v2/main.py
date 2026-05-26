@@ -326,6 +326,7 @@ def caddie_context(
     target_x: float | None = None,
     target_y: float | None = None,
     landing_radius_m: float = 18.0,
+    captured_at: str | None = None,
 ) -> CaddieContextResponse:
     return build_caddie_context_response(
         source_ref=source_ref,
@@ -342,6 +343,7 @@ def caddie_context(
         target_x=target_x,
         target_y=target_y,
         landing_radius_m=landing_radius_m,
+        captured_at=captured_at,
     )
 
 

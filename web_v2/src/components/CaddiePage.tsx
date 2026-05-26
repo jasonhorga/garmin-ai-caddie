@@ -420,7 +420,7 @@ function buildContextLoadParams({
   routeTargetY: string
   landingRadius: string
 }): CaddieContextParams {
-  const params: CaddieContextParams = { sourceRef, shotType }
+  const params: CaddieContextParams = { sourceRef, shotType, capturedAt: new Date().toISOString() }
   const distanceToPinM = numericInput(distance)
   const liveCurrentLatitude = numericInput(currentLatitude)
   const liveCurrentLongitude = numericInput(currentLongitude)
