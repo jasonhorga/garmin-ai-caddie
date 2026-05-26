@@ -21,7 +21,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertIn(payload["status"], {"ready", "degraded"})
         labels = {check["label"] for check in payload["checks"]}
         self.assertGreaterEqual(labels, {"service", "history", "sync", "mobile", "secret_handling"})
-        self.assertGreaterEqual(labels, {"mobile_package", "mobile_events", "media_context", "reports", "operations"})
+        self.assertGreaterEqual(labels, {"mobile_package", "mobile_events", "media_context", "reports", "operations", "native_mobile"})
         self.assertNotIn("cookie", str(payload).lower())
         self.assertNotIn("csrf", str(payload).lower())
         self.assertNotIn("token", str(payload).lower())
@@ -31,6 +31,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["media_context"]["state"], "ready")
         self.assertEqual(checks["reports"]["state"], "ready")
         self.assertEqual(checks["operations"]["state"], "ready")
+        self.assertEqual(checks["native_mobile"]["state"], "degraded")
+        self.assertEqual(checks["native_mobile"]["evidence"]["nativeBuild"], "environment_blocked")
+        self.assertIn("mobile/ios/project.yml", checks["native_mobile"]["evidence"]["projectManifest"])
+        self.assertIn("xcodebuild test", checks["native_mobile"]["evidence"]["macosCommands"][0])
         self.assertIn("ops/smoke_private_trial.sh", checks["operations"]["evidence"]["scripts"])
 
     def test_service_index_and_smoke_script_advertise_readiness(self) -> None:

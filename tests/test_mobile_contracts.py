@@ -316,6 +316,53 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("offlineStore.appendEvent", app_swift)
         self.assertIn("RoundHomeView", app_swift)
 
+    def test_ios_and_watch_native_project_manifest_defines_app_targets(self) -> None:
+        project = _read_required_source(self, Path("mobile") / "ios" / "project.yml")
+        readme = _read_required_source(self, Path("mobile") / "ios" / "README.md")
+
+        for expected in [
+            "name: AICaddieNative",
+            "deploymentTarget:",
+            "iOS: \"17.0\"",
+            "watchOS: \"10.0\"",
+            "AICaddie:",
+            "type: application",
+            "platform: iOS",
+            "mobile/ios/AICaddie",
+            "mobile/ios/AICaddie/Info.plist",
+            "AICaddieTests:",
+            "type: bundle.unit-test",
+            "AICaddieWatch:",
+            "platform: watchOS",
+            "mobile/ios/AICaddieWatch",
+            "mobile/ios/AICaddieWatch/Info.plist",
+            "AICaddieWatchTests:",
+        ]:
+            self.assertIn(expected, project)
+        self.assertIn("xcodegen generate --spec mobile/ios/project.yml", readme)
+        self.assertIn("xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj", readme)
+
+    def test_ios_and_watch_info_plists_declare_required_live_permissions(self) -> None:
+        ios_plist = _read_required_source(self, IOS_DIR / "Info.plist")
+        watch_plist = _read_required_source(self, WATCH_DIR / "Info.plist")
+
+        for expected in [
+            "CFBundleIdentifier",
+            "com.ai-caddie.mobile",
+            "NSLocationWhenInUseUsageDescription",
+            "NSCameraUsageDescription",
+            "NSPhotoLibraryUsageDescription",
+            "NSPhotoLibraryAddUsageDescription",
+        ]:
+            self.assertIn(expected, ios_plist)
+
+        for expected in [
+            "CFBundleIdentifier",
+            "com.ai-caddie.mobile.watchkitapp",
+            "WKApplication",
+        ]:
+            self.assertIn(expected, watch_plist)
+
     def test_ios_start_round_prepares_selected_offline_package(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         start_view = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")

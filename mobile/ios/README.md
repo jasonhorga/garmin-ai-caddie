@@ -11,7 +11,9 @@ uv run python -m unittest tests.test_mobile_contracts -v
 Native build and unit tests require macOS with Xcode:
 
 ```bash
-xcodebuild test -scheme AICaddie -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodegen generate --spec mobile/ios/project.yml
+xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddie -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddieWatch -destination 'platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)'
 ```
 
 The iOS app should cache a live round package before play, append local events while offline, and sync the event log when network access returns.

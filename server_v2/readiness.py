@@ -18,6 +18,38 @@ def _check(label: str, state: str, detail: str, evidence: dict[str, Any] | None 
     }
 
 
+def _native_mobile_check() -> dict[str, Any]:
+    required_paths = [
+        "mobile/ios/project.yml",
+        "mobile/ios/AICaddie/Info.plist",
+        "mobile/ios/AICaddie/AICaddieApp.swift",
+        "mobile/ios/AICaddieWatch/Info.plist",
+        "mobile/ios/AICaddieWatch/AICaddieWatchApp.swift",
+        "mobile/ios/AICaddieTests/OfflineStoreTests.swift",
+        "mobile/ios/AICaddieWatchTests/WatchRoundStateTests.swift",
+    ]
+    missing = [path for path in required_paths if not Path(path).exists()]
+    return _check(
+        "native_mobile",
+        "degraded",
+        (
+            "iOS and Watch app source plus project manifest are present; native Xcode build must run on macOS."
+            if not missing
+            else "Some native iOS/Watch packaging files are missing."
+        ),
+        {
+            "nativeBuild": "environment_blocked",
+            "projectManifest": "mobile/ios/project.yml",
+            "missing": missing,
+            "linuxContractCommand": "uv run python -m unittest tests.test_mobile_contracts -v",
+            "macosCommands": [
+                "xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddie -destination 'platform=iOS Simulator,name=iPhone 16'",
+                "xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddieWatch -destination 'platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)'",
+            ],
+        },
+    )
+
+
 def build_readiness_response() -> dict[str, Any]:
     checks: list[dict[str, Any]] = [
         _check("service", "ready", "API process is responding."),
@@ -97,6 +129,7 @@ def build_readiness_response() -> dict[str, Any]:
             },
         )
     )
+    checks.append(_native_mobile_check())
     try:
         report = load_trend_report_response("recent_10")
         checks.append(
