@@ -12,6 +12,7 @@ from ai_caddie.geometry_evidence import build_hole_map_dto, geometry_coverage_fo
 from ai_caddie.history import HistoryData
 from ai_caddie.history_drilldown import resolve_history_ref
 from ai_caddie.history_stats import DataModeName, build_history_stats
+from ai_caddie.vision_context import list_findings_for_target
 
 
 def build_caddie_context(
@@ -23,6 +24,7 @@ def build_caddie_context(
     lie: str | None = None,
     data_mode: DataModeName = "local",
     annotations_root: Path | str | None = None,
+    vision_root: Path | str | None = None,
 ) -> dict[str, Any]:
     normalized_shot_type = validate_shot_type(shot_type)
     drilldown = resolve_history_ref(data, source_ref)
@@ -84,6 +86,21 @@ def build_caddie_context(
         round_id=str(round_row.get("id") or source_ref.split(":")[0]),
         source_ref=source_ref,
     )
+    vision_findings = _vision_findings_for_context(
+        source_ref=source_ref,
+        ref_type=str(drilldown.get("refType") or ""),
+        round_id=str(round_row.get("id") or source_ref.split(":")[0]),
+        local_hole=local_hole,
+        vision_root=vision_root,
+    )
+    if vision_findings:
+        evidence_rows.append(
+            {
+                "label": "vision_findings",
+                "value": f"{len(vision_findings)} stored finding(s)",
+                "refs": _finding_refs(vision_findings),
+            }
+        )
 
     context = {
         "roundId": str(round_row.get("id") or source_ref.split(":")[0]),
@@ -108,6 +125,8 @@ def build_caddie_context(
         context["distanceToPin_m"] = round(float(effective_distance), 1)
     if effective_lie is not None:
         context["lie"] = effective_lie
+    if vision_findings:
+        context["visionFindings"] = vision_findings
 
     return {
         "schema": "ai-caddie-context-v1",
@@ -217,6 +236,49 @@ def _manual_notes(
             }
         )
     return [row for row in out if row["note"]]
+
+
+def _vision_findings_for_context(
+    *,
+    source_ref: str,
+    ref_type: str,
+    round_id: str,
+    local_hole: int | None,
+    vision_root: Path | str | None,
+) -> list[dict[str, Any]]:
+    targets: list[tuple[str, str]] = []
+    if ref_type == "shot" or source_ref.count(":") >= 2:
+        targets.append(("shot", source_ref))
+    if local_hole is not None:
+        targets.append(("hole", _hole_ref_for_source(source_ref, round_id, local_hole)))
+    targets.append(("round", round_id))
+
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for target_type, target_id in targets:
+        for finding in list_findings_for_target(target_type, target_id, root=vision_root):
+            key = (
+                str(finding.get("id") or ""),
+                str(finding.get("targetType") or target_type),
+                str(finding.get("targetId") or target_id),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(finding)
+    return rows
+
+
+def _finding_refs(findings: list[dict[str, Any]]) -> list[str]:
+    refs = []
+    for finding in findings:
+        target_id = str(finding.get("targetId") or "")
+        media_id = str(finding.get("mediaId") or "")
+        if target_id:
+            refs.append(target_id)
+        if media_id:
+            refs.append(f"media:{media_id}")
+    return refs
 
 
 def _hole_ref_for_source(source_ref: str, round_id: str, local_hole: int) -> str:

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.annotations import add_annotation
 from ai_caddie.decision_api import build_decision_request_from_fixture
+from ai_caddie.vision_context import store_vision_findings
 from server_v2.main import app
 
 
@@ -209,6 +210,59 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertIn("approach_short", {row["issue"] for row in context["historicalHoleIssues"]})
         self.assertEqual(context["manualNotes"][0]["kind"], "strategy_note")
         self.assertIn("center green", context["manualNotes"][0]["note"])
+
+    def test_context_endpoint_binds_stored_vision_findings_to_decision_context(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_vision_findings(
+                {
+                    "mediaId": "media-shot-1",
+                    "targetType": "shot",
+                    "targetId": "900002:7:5",
+                    "mediaKind": "photo",
+                    "provider": "static",
+                    "model": "static",
+                    "findings": [
+                        {
+                            "findingType": "blocked_view",
+                            "evidenceText": "tree limbs block the direct recovery window",
+                            "confidence": "high",
+                        },
+                        {
+                            "findingType": "visible_bunker",
+                            "evidenceText": "front bunker visible",
+                            "confidence": "medium",
+                        },
+                    ],
+                },
+                root=root,
+            )
+
+            with patch("server_v2.caddie.VISION_ROOT", root, create=True):
+                context_response = client.get(
+                    "/api/v2/caddie/context",
+                    params={
+                        "source_ref": "900002:7:5",
+                        "shot_type": "recovery",
+                        "distance_to_pin_m": 90,
+                        "lie": "fairway",
+                    },
+                )
+
+        self.assertEqual(context_response.status_code, 200)
+        context = context_response.json()["context"]
+        self.assertEqual([row["findingType"] for row in context["visionFindings"]], ["blocked_view", "visible_bunker"])
+        self.assertTrue(any(row["label"] == "vision_findings" for row in context_response.json()["evidence"]))
+
+        decision_response = client.post("/api/v2/caddie/decision", json={"shotType": "recovery", "context": context})
+
+        self.assertEqual(decision_response.status_code, 200)
+        decision = decision_response.json()
+        self.assertEqual(decision["selectedOptionId"], "safe")
+        self.assertTrue(any(row["kind"] == "vision" and "blocked_view" in row["text"] for row in decision["evidence"]))
+        self.assertIn("bunker", {zone["kind"] for zone in decision["avoidZones"]})
 
 
 if __name__ == "__main__":

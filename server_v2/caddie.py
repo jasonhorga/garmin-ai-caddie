@@ -20,6 +20,7 @@ from .models import (
 
 
 DECISION_AUDIT_ROOT = Path(".")
+VISION_ROOT = Path(".")
 
 
 def build_caddie_decision_response(request: CaddieDecisionRequest) -> CaddieDecisionResponse:
@@ -44,6 +45,7 @@ def build_caddie_context_response(
             lie=lie,
             data_mode=mode,
             annotations_root=ANNOTATION_ROOT,
+            vision_root=VISION_ROOT,
         )
     )
 
