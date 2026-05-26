@@ -514,6 +514,31 @@ class MobileContractTests(unittest.TestCase):
         for field in ["selectedOptionId", "options", "avoidZones", "evidence", "confidence", "missingData"]:
             self.assertIn(field, client)
 
+    def test_ios_club_events_capture_decision_and_actual_shot_for_audit(self) -> None:
+        client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
+        builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+
+        self.assertIn("let decisionId: String?", client)
+        self.assertIn("let sourceRef: String?", client)
+        self.assertIn("let evidenceRefs: [String]?", client)
+        self.assertIn("var auditPayload: [String: JSONValue]", client)
+
+        self.assertIn("makeClubEvent(", builder)
+        self.assertIn("decision: CaddieDecisionResponse? = nil", builder)
+        self.assertIn("actualShot: [String: JSONValue]? = nil", builder)
+        self.assertIn('payload["decisionId"] = .string(decisionId)', builder)
+        self.assertIn('payload["decision"] = .object(decision.auditPayload)', builder)
+        self.assertIn('payload["actualShot"] = .object(actualShot)', builder)
+
+        self.assertIn("private func clubEventPayload() -> [String: JSONValue]", current_hole)
+        self.assertIn("private func actualShotPayload() -> [String: JSONValue]", current_hole)
+        self.assertIn("caddieDecision", current_hole)
+        self.assertIn('payload["decisionId"] = .string(decisionId)', current_hole)
+        self.assertIn('payload["decision"] = .object(decision.auditPayload)', current_hole)
+        self.assertIn('payload["actualShot"] = .object(actualShotPayload())', current_hole)
+        self.assertIn("emit(kind: .club, timestamp: timestamp, payload: clubEventPayload())", current_hole)
+
     def test_ios_caddie_request_builder_uses_offline_context_seed_and_live_inputs(self) -> None:
         builder = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift")
 

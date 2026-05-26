@@ -12,6 +12,9 @@ public struct CaddieDecisionRequest: Codable, Equatable {
 
 public struct CaddieDecisionResponse: Codable, Equatable {
     public let schema: String
+    public let decisionId: String?
+    public let sourceRef: String?
+    public let evidenceRefs: [String]?
     public let shotType: String
     public let phase: String
     public let context: [String: JSONValue]
@@ -26,6 +29,42 @@ public struct CaddieDecisionResponse: Codable, Equatable {
     public let confidence: [String: JSONValue]
     public let missingData: [[String: JSONValue]]
     public let auditCriteria: [[String: JSONValue]]
+
+    public var auditPayload: [String: JSONValue] {
+        var payload: [String: JSONValue] = [
+            "schema": .string(schema),
+            "shotType": .string(shotType),
+            "phase": .string(phase),
+            "context": .object(context),
+            "options": .array(options.map { .object($0) }),
+            "avoidZones": .array(avoidZones.map { .object($0) }),
+            "forbiddenZones": .array(forbiddenZones.map { .object($0) }),
+            "acceptableMiss": .object(acceptableMiss),
+            "evidence": .array(evidence.map { .object($0) }),
+            "confidence": .object(confidence),
+            "missingData": .array(missingData.map { .object($0) }),
+            "auditCriteria": .array(auditCriteria.map { .object($0) }),
+        ]
+        if let decisionId {
+            payload["decisionId"] = .string(decisionId)
+        }
+        if let sourceRef {
+            payload["sourceRef"] = .string(sourceRef)
+        }
+        if let evidenceRefs {
+            payload["evidenceRefs"] = .array(evidenceRefs.map { .string($0) })
+        }
+        if let selectedOptionId {
+            payload["selectedOptionId"] = .string(selectedOptionId)
+        }
+        if let selected {
+            payload["selected"] = .object(selected)
+        }
+        if let selectedOption {
+            payload["selectedOption"] = .object(selectedOption)
+        }
+        return payload
+    }
 }
 
 public final class CaddieDecisionClient {

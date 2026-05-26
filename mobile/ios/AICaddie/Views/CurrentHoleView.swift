@@ -228,11 +228,44 @@ public struct CurrentHoleView: View {
         emit(kind: .score, timestamp: timestamp, payload: ["strokes": .number(Double(score))])
         emit(kind: .putt, timestamp: timestamp, payload: ["putts": .number(Double(puttCount))])
         emit(kind: .penalty, timestamp: timestamp, payload: ["penalties": .number(Double(penaltyCount))])
-        emit(kind: .club, timestamp: timestamp, payload: ["clubName": .string(selectedClub)])
+        emit(kind: .club, timestamp: timestamp, payload: clubEventPayload())
         if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             emit(kind: .note, timestamp: timestamp, payload: ["note": .string(note)])
         }
         sendWatchState(decision: caddieDecision)
+    }
+
+    private func clubEventPayload() -> [String: JSONValue] {
+        var payload: [String: JSONValue] = ["clubName": .string(selectedClub)]
+        if let decision = caddieDecision {
+            if let decisionId = decision.decisionId {
+                payload["decisionId"] = .string(decisionId)
+            }
+            payload["decision"] = .object(decision.auditPayload)
+            payload["actualShot"] = .object(actualShotPayload())
+        }
+        return payload
+    }
+
+    private func actualShotPayload() -> [String: JSONValue] {
+        var payload: [String: JSONValue] = [
+            "clubName": .string(selectedClub),
+            "shotOrder": .number(1),
+            "end": .object(["lie": .string(selectedLie)]),
+        ]
+        if let distanceToPin = Double(distanceToPinText) {
+            payload["remainingToTarget_m"] = .number(distanceToPin)
+        }
+        if let currentCoordinate {
+            payload["position"] = .object([
+                "latitude": .number(currentCoordinate.latitude),
+                "longitude": .number(currentCoordinate.longitude),
+            ])
+        }
+        if let currentHorizontalAccuracyM {
+            payload["horizontalAccuracyM"] = .number(currentHorizontalAccuracyM)
+        }
+        return payload
     }
 
     private func emit(kind: LiveRoundEventKind, timestamp: String, payload: [String: JSONValue]) {
