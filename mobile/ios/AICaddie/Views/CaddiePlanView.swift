@@ -12,6 +12,44 @@ public struct CaddiePlanOption: Identifiable, Equatable {
         CaddiePlanOption(id: "stock", label: "Stock", carryM: 144, riskScore: 2, clubName: "8I"),
         CaddiePlanOption(id: "attack", label: "Attack", carryM: 152, riskScore: 4, clubName: "7I")
     ]
+
+    public static func options(from response: CaddieDecisionResponse) -> [CaddiePlanOption] {
+        let parsed = response.options.enumerated().map { index, option in
+            CaddiePlanOption(
+                id: string(option["id"]) ?? "option-\(index + 1)",
+                label: string(option["label"]) ?? string(option["routeLabel"]) ?? "Option \(index + 1)",
+                carryM: number(option["carry_m"]) ?? number(option["carryM"]) ?? 0,
+                riskScore: number(option["riskScore"]) ?? 0,
+                clubName: clubName(option["clubRecommendation"]) ?? string(option["clubName"]) ?? "-"
+            )
+        }
+        return parsed.isEmpty ? defaultOptions : parsed
+    }
+
+    private static func string(_ value: JSONValue?) -> String? {
+        if case .string(let raw) = value {
+            return raw
+        }
+        return nil
+    }
+
+    private static func number(_ value: JSONValue?) -> Double? {
+        if case .number(let raw) = value {
+            return raw
+        }
+        return nil
+    }
+
+    private static func clubName(_ value: JSONValue?) -> String? {
+        guard case .object(let recommendation) = value,
+              case .array(let clubs) = recommendation["clubs"],
+              let first = clubs.first,
+              case .object(let club) = first
+        else {
+            return nil
+        }
+        return string(club["clubName"])
+    }
 }
 
 public struct CaddiePlanView: View {
@@ -21,6 +59,12 @@ public struct CaddiePlanView: View {
     public init(options: [CaddiePlanOption], selectedOptionId: String) {
         self.options = options
         self.selectedOptionId = selectedOptionId
+    }
+
+    public init(response: CaddieDecisionResponse) {
+        let responseOptions = CaddiePlanOption.options(from: response)
+        self.options = responseOptions
+        self.selectedOptionId = response.selectedOptionId ?? responseOptions.first?.id ?? "stock"
     }
 
     public var body: some View {
