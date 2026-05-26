@@ -9,6 +9,7 @@ public struct MediaCaptureView: View {
     public let offlineStore: OfflineStore?
     public let uploadClient: MediaUploadClient?
     public let onEvent: (LiveRoundEvent) -> Void
+    public let onVisionFindings: ([[String: JSONValue]]) -> Void
 
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var selectedVideoItem: PhotosPickerItem?
@@ -22,7 +23,8 @@ public struct MediaCaptureView: View {
         targetId: String,
         offlineStore: OfflineStore? = nil,
         uploadClient: MediaUploadClient? = nil,
-        onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
+        onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
+        onVisionFindings: @escaping ([[String: JSONValue]]) -> Void = { _ in }
     ) {
         self.roundId = roundId
         self.hole = hole
@@ -30,6 +32,7 @@ public struct MediaCaptureView: View {
         self.offlineStore = offlineStore
         self.uploadClient = uploadClient
         self.onEvent = onEvent
+        self.onVisionFindings = onVisionFindings
     }
 
     public var body: some View {
@@ -91,30 +94,44 @@ public struct MediaCaptureView: View {
                 contentBase64: data.base64EncodedString(),
                 capturedAt: capturedAt
             )
+            var uploadedMediaId: String?
+            var analyzedFindings: [[String: JSONValue]] = []
             if let uploadClient {
                 do {
-                    _ = try await uploadClient.uploadMedia(request)
+                    let uploadResponse = try await uploadClient.uploadMedia(request)
+                    uploadedMediaId = uploadResponse.media.id
+                    let analysis = try await uploadClient.analyzeMedia(mediaId: uploadResponse.media.id)
+                    analyzedFindings = analysis.findings.map { $0.contextPayload }
+                    if !analyzedFindings.isEmpty {
+                        onVisionFindings(analyzedFindings)
+                    }
                 } catch {
-                    // The media bytes are already in OfflineStore; event sync can retry upload later.
+                    // The media bytes are already in OfflineStore; event sync can retry upload/analysis later.
                 }
             }
-            emitMediaEvent(mediaKind: mediaKind, fileName: savedMedia?.fileName ?? fileName, fileURL: savedMedia?.fileURL, capturedAt: capturedAt)
-            statusText = "\(mediaKind.capitalized) attached"
+            emitMediaEvent(
+                mediaKind: mediaKind,
+                fileName: savedMedia?.fileName ?? fileName,
+                fileURL: savedMedia?.fileURL,
+                capturedAt: capturedAt,
+                mediaId: uploadedMediaId
+            )
+            statusText = analyzedFindings.isEmpty ? "\(mediaKind.capitalized) attached" : "\(mediaKind.capitalized) analyzed"
         } catch {
             statusText = "\(mediaKind.capitalized) attach failed"
         }
     }
 
-    private func emitMediaEvent(mediaKind: String, fileName: String, fileURL: URL?, capturedAt: String) {
+    private func emitMediaEvent(mediaKind: String, fileName: String, fileURL: URL?, capturedAt: String, mediaId: String?) {
         let builder = LiveRoundEventBuilder(
             roundId: roundId,
             idFactory: { UUID().uuidString },
             now: { ISO8601DateFormatter().date(from: capturedAt) ?? Date() }
         )
         if mediaKind == "photo" {
-            onEvent(builder.makePhotoEvent(hole: hole, assetLocalId: fileName, fileURL: fileURL, note: nil))
+            onEvent(builder.makePhotoEvent(hole: hole, assetLocalId: fileName, fileURL: fileURL, note: nil, mediaId: mediaId))
         } else {
-            onEvent(builder.makeVideoEvent(hole: hole, assetLocalId: fileName, fileURL: fileURL, durationS: nil, note: nil))
+            onEvent(builder.makeVideoEvent(hole: hole, assetLocalId: fileName, fileURL: fileURL, durationS: nil, note: nil, mediaId: mediaId))
         }
     }
 }

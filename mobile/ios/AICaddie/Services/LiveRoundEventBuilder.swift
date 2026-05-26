@@ -38,7 +38,8 @@ public final class LiveRoundEventBuilder {
         hole: Int,
         assetLocalId: String,
         fileURL: URL?,
-        note: String? = nil
+        note: String? = nil,
+        mediaId: String? = nil
     ) -> LiveRoundEvent {
         var payload: [String: JSONValue] = [
             "assetLocalId": .string(assetLocalId),
@@ -47,6 +48,9 @@ public final class LiveRoundEventBuilder {
         ]
         payload["fileURL"] = jsonStringOrNull(fileURL?.absoluteString)
         payload["note"] = jsonStringOrNull(note)
+        if let mediaId {
+            payload["mediaId"] = .string(mediaId)
+        }
         return event(hole: hole, kind: .photo, payload: payload)
     }
 
@@ -55,7 +59,8 @@ public final class LiveRoundEventBuilder {
         assetLocalId: String,
         fileURL: URL?,
         durationS: Double?,
-        note: String? = nil
+        note: String? = nil,
+        mediaId: String? = nil
     ) -> LiveRoundEvent {
         var payload: [String: JSONValue] = [
             "assetLocalId": .string(assetLocalId),
@@ -65,6 +70,9 @@ public final class LiveRoundEventBuilder {
         payload["fileURL"] = jsonStringOrNull(fileURL?.absoluteString)
         payload["durationS"] = jsonNumberOrNull(durationS)
         payload["note"] = jsonStringOrNull(note)
+        if let mediaId {
+            payload["mediaId"] = .string(mediaId)
+        }
         return event(hole: hole, kind: .video, payload: payload)
     }
 

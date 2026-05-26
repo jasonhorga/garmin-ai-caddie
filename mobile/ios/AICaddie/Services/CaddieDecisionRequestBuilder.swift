@@ -9,6 +9,7 @@ public struct LiveCaddieInput {
     public let targetCoordinate: CLLocationCoordinate2D?
     public let horizontalAccuracyM: Double?
     public let strategyMode: String?
+    public let visionFindings: [[String: JSONValue]]
 
     public init(
         shotType: String,
@@ -17,7 +18,8 @@ public struct LiveCaddieInput {
         coordinate: CLLocationCoordinate2D? = nil,
         targetCoordinate: CLLocationCoordinate2D? = nil,
         horizontalAccuracyM: Double? = nil,
-        strategyMode: String? = nil
+        strategyMode: String? = nil,
+        visionFindings: [[String: JSONValue]] = []
     ) {
         self.shotType = shotType
         self.distanceToPinM = distanceToPinM
@@ -26,6 +28,7 @@ public struct LiveCaddieInput {
         self.targetCoordinate = targetCoordinate
         self.horizontalAccuracyM = horizontalAccuracyM
         self.strategyMode = strategyMode
+        self.visionFindings = visionFindings
     }
 }
 
@@ -65,6 +68,9 @@ public final class CaddieDecisionRequestBuilder {
         }
         if let strategyMode = input.strategyMode, !strategyMode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             context["strategyMode"] = .string(strategyMode)
+        }
+        if !input.visionFindings.isEmpty {
+            context["visionFindings"] = .array(input.visionFindings.map { .object($0) })
         }
 
         return CaddieDecisionRequest(shotType: input.shotType, context: context)

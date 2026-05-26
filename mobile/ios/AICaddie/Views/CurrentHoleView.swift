@@ -26,6 +26,7 @@ public struct CurrentHoleView: View {
     @State private var caddieDecision: CaddieDecisionResponse?
     @State private var isLoadingCaddieDecision = false
     @State private var caddieErrorMessage: String?
+    @State private var visionFindings: [[String: JSONValue]] = []
 
     public init(
         package: LiveRoundPackage,
@@ -122,7 +123,13 @@ public struct CurrentHoleView: View {
                     targetId: caddieContextSeed?.sourceRef ?? "\(package.roundId):\(hole.number)",
                     offlineStore: offlineStore,
                     uploadClient: mediaUploadClient,
-                    onEvent: onEvent
+                    onEvent: onEvent,
+                    onVisionFindings: { findings in
+                        visionFindings = findings
+                        Task {
+                            await loadCaddieDecision()
+                        }
+                    }
                 )
             }
         }
@@ -164,7 +171,8 @@ public struct CurrentHoleView: View {
                 distanceToPinM: Double(distanceToPinText),
                 lie: selectedLie,
                 coordinate: currentCoordinate,
-                horizontalAccuracyM: currentHorizontalAccuracyM
+                horizontalAccuracyM: currentHorizontalAccuracyM,
+                visionFindings: visionFindings
             )
         )
     }

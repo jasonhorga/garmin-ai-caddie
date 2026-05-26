@@ -583,6 +583,40 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("targetCoordinate: CLLocationCoordinate2D?", builder)
         self.assertIn("strategyMode: String?", builder)
 
+    def test_ios_vision_findings_feed_live_caddie_request_context(self) -> None:
+        upload_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
+        builder = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift")
+        media_view = _read_required_source(self, IOS_DIR / "Views" / "MediaCaptureView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+
+        self.assertIn("struct VisionFinding: Codable", upload_client)
+        self.assertIn("struct VisionAnalysisResponse: Codable", upload_client)
+        self.assertIn("struct VisionFindingsListResponse: Codable", upload_client)
+        self.assertIn("var contextPayload: [String: JSONValue]", upload_client)
+        self.assertIn("func analyzeMedia(mediaId:", upload_client)
+        self.assertIn("func fetchVisionFindingsForTarget(targetType: String, targetId: String)", upload_client)
+        self.assertIn('"/api/v2/media/"', upload_client)
+        self.assertIn('"/analyze"', upload_client)
+        self.assertIn('"/api/v2/media/target/"', upload_client)
+        self.assertIn('"/findings"', upload_client)
+
+        self.assertIn("public let visionFindings: [[String: JSONValue]]", builder)
+        self.assertIn("visionFindings: [[String: JSONValue]] = []", builder)
+        self.assertIn('context["visionFindings"] = .array(input.visionFindings.map { .object($0) })', builder)
+
+        self.assertIn("public let onVisionFindings: ([[String: JSONValue]]) -> Void", media_view)
+        self.assertIn("onVisionFindings: @escaping ([[String: JSONValue]]) -> Void", media_view)
+        self.assertIn("uploadClient.analyzeMedia(mediaId:", media_view)
+        self.assertIn("analysis.findings.map { $0.contextPayload }", media_view)
+        self.assertIn("onVisionFindings(analyzedFindings)", media_view)
+        self.assertIn("mediaId: uploadedMediaId", media_view)
+
+        self.assertIn("@State private var visionFindings: [[String: JSONValue]] = []", current_hole)
+        self.assertIn("visionFindings: visionFindings", current_hole)
+        self.assertIn("onVisionFindings: { findings in", current_hole)
+        self.assertIn("visionFindings = findings", current_hole)
+        self.assertIn("await loadCaddieDecision()", current_hole)
+
     def test_ios_phone_bridge_maps_watch_inputs_to_offline_live_events(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
 
