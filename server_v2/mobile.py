@@ -23,7 +23,7 @@ ANNOTATION_ROOT = Path(".")
 DECISION_AUDIT_ROOT = Path(".")
 
 
-def build_mobile_round_package_response(round_id: str) -> LiveRoundPackageResponse:
+def build_mobile_round_package_response(round_id: str, *, captured_at: str | None = None) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode()
     return LiveRoundPackageResponse(
         **build_live_round_package(
@@ -32,6 +32,7 @@ def build_mobile_round_package_response(round_id: str) -> LiveRoundPackageRespon
             data_mode=mode,
             root=MOBILE_ROOT,
             annotations_root=ANNOTATION_ROOT,
+            captured_at=captured_at,
         )
     )
 

@@ -12,7 +12,7 @@ from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import build_history_stats
-from ai_caddie.weather_context import build_weather_snapshot, latest_weather_snapshot
+from ai_caddie.weather_context import build_weather_snapshot, weather_snapshot_for_time
 
 
 EVENT_LOG = Path("data") / "mobile_events" / "events.jsonl"
@@ -108,8 +108,16 @@ def _cached_caddie_rules() -> dict[str, Any]:
     }
 
 
-def _weather_snapshot_for_package(round_id: str, *, root: Path | str | None = None) -> dict[str, Any]:
-    return latest_weather_snapshot(round_id, root=root) or build_weather_snapshot(round_id=round_id)
+def _weather_snapshot_for_package(
+    round_id: str,
+    *,
+    captured_at: str | None = None,
+    root: Path | str | None = None,
+) -> dict[str, Any]:
+    return weather_snapshot_for_time(round_id, captured_at=captured_at, root=root) or build_weather_snapshot(
+        round_id=round_id,
+        captured_at=captured_at,
+    )
 
 
 def _hole_stats_row(stats: dict[str, Any], *, course_key: str, hole: int) -> dict[str, Any]:
@@ -437,6 +445,7 @@ def build_live_round_package(
     data_mode: str = "fixture",
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
+    captured_at: str | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     stats = build_history_stats(
@@ -497,7 +506,7 @@ def build_live_round_package(
     if not club_profiles:
         club_profiles = [{"clubName": "8I", "sampleSize": 0, "median_m": 140.0, "p10_m": 130.0, "p90_m": 150.0}]
     ready_holes = sum(1 for hole in holes if hole["geometryCoverage"] == "ready")
-    weather_snapshot = _weather_snapshot_for_package(round_id, root=root)
+    weather_snapshot = _weather_snapshot_for_package(round_id, captured_at=captured_at, root=root)
     prepared_at = datetime.now(UTC).replace(microsecond=0)
     package_state = "ready" if round_found else "degraded"
     selected_round_id = str(round_row.get("id") or "").strip() or None

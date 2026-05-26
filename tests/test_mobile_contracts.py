@@ -175,6 +175,38 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(package["weatherSnapshot"]["windSpeedMps"], 5.4)
         self.assertEqual(package["weatherSnapshot"]["hole"], 1)
 
+    def test_live_round_package_selects_weather_snapshot_at_prepared_time(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for captured_at, wind_speed in [
+                ("2026-05-25T08:00:00Z", 4.0),
+                ("2026-05-25T09:00:00Z", 6.0),
+                ("2026-05-25T15:00:00Z", 12.0),
+            ]:
+                store_weather_snapshot(
+                    build_weather_snapshot(
+                        round_id="900001",
+                        hole=1,
+                        captured_at=captured_at,
+                        latitude=22.279,
+                        longitude=114.162,
+                        source="manual",
+                        observed={"windSpeedMps": wind_speed},
+                    ),
+                    root=root,
+                )
+
+            package = build_live_round_package(
+                "900001",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                root=root,
+                captured_at="2026-05-25T09:15:00Z",
+            )
+
+        self.assertEqual(package["weatherSnapshot"]["capturedAt"], "2026-05-25T09:00:00Z")
+        self.assertEqual(package["weatherSnapshot"]["windSpeedMps"], 6.0)
+
     def test_live_round_package_includes_offline_caddie_context_seeds(self) -> None:
         package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")
 

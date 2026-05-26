@@ -549,7 +549,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
 
         self.assertEqual(package.status_code, 200)
         self.assertEqual(reconciliation.status_code, 200)
-        package_handler.assert_called_once_with("live-round-1")
+        package_handler.assert_called_once_with("live-round-1", captured_at=None)
         reconciliation_handler.assert_called_once_with("live-round-1")
 
     def test_private_security_profile_fails_closed_when_admin_token_is_missing(self) -> None:

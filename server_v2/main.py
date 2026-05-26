@@ -432,8 +432,8 @@ def redact_media(
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
-def mobile_round_package(round_id: str) -> LiveRoundPackageResponse:
-    return build_mobile_round_package_response(round_id)
+def mobile_round_package(round_id: str, captured_at: str | None = None) -> LiveRoundPackageResponse:
+    return build_mobile_round_package_response(round_id, captured_at=captured_at)
 
 
 @app.post("/api/v2/mobile/rounds/{round_id}/events", response_model=LiveRoundEventBatchResponse)

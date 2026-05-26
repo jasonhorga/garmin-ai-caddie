@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.annotations import add_annotation
 from ai_caddie.decision import list_decision_audits
+from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 
 
@@ -75,6 +76,43 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["course"]["name"], "Bay Practice Nine")
         self.assertEqual(payload["course"]["globalId"], 41825)
         self.assertEqual(len(payload["holes"]), 9)
+
+    def test_mobile_round_package_endpoint_selects_weather_at_prepared_time(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for captured_at, wind_speed in [
+                ("2026-05-25T08:00:00Z", 4.0),
+                ("2026-05-25T09:00:00Z", 6.0),
+                ("2026-05-25T15:00:00Z", 12.0),
+            ]:
+                store_weather_snapshot(
+                    build_weather_snapshot(
+                        round_id="900001",
+                        hole=1,
+                        captured_at=captured_at,
+                        latitude=22.279,
+                        longitude=114.162,
+                        source="manual",
+                        observed={"windSpeedMps": wind_speed},
+                    ),
+                    root=root,
+                )
+
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                response = client.get(
+                    "/api/v2/mobile/rounds/900001/package",
+                    params={"captured_at": "2026-05-25T09:15:00Z"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        weather = response.json()["weatherSnapshot"]
+        self.assertEqual(weather["capturedAt"], "2026-05-25T09:00:00Z")
+        self.assertEqual(weather["windSpeedMps"], 6.0)
 
     def test_mobile_round_package_tee_seed_can_drive_caddie_decision(self) -> None:
         client = TestClient(app)
