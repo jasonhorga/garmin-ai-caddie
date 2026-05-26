@@ -135,9 +135,10 @@ export function createMedia(request: MediaCreateRequest, adminToken?: string): P
   return postJson<MediaCreateResponse>('/api/v2/media', request, adminToken)
 }
 
-export function fetchMediaForTarget(targetType: MediaTargetType, targetId: string): Promise<MediaListResponse> {
+export function fetchMediaForTarget(targetType: MediaTargetType, targetId: string, adminToken?: string): Promise<MediaListResponse> {
   return getJson<MediaListResponse>(
     `/api/v2/media/target/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}`,
+    adminToken,
   )
 }
 
@@ -148,9 +149,11 @@ export function analyzeMedia(mediaId: string, adminToken?: string): Promise<Visi
 export function fetchVisionFindingsForTarget(
   targetType: MediaTargetType,
   targetId: string,
+  adminToken?: string,
 ): Promise<VisionFindingsListResponse> {
   return getJson<VisionFindingsListResponse>(
     `/api/v2/media/target/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}/findings`,
+    adminToken,
   )
 }
 

@@ -99,6 +99,15 @@ def _media_response() -> dict[str, object]:
     }
 
 
+def _media_list_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-media-list-v1",
+        "total": 1,
+        "target": {"targetType": "shot", "targetId": "round-1:7:2"},
+        "media": [_media_response()["media"]],
+    }
+
+
 def _vision_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-vision-context-v1",
@@ -109,6 +118,31 @@ def _vision_response() -> dict[str, object]:
         "provider": "static",
         "model": "static",
         "findings": [],
+    }
+
+
+def _vision_findings_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-vision-findings-list-v1",
+        "total": 1,
+        "target": {"targetType": "shot", "targetId": "round-1:7:2"},
+        "findings": [
+            {
+                "id": "finding-1",
+                "createdAt": "2026-05-25T00:01:00Z",
+                "targetType": "shot",
+                "targetId": "round-1:7:2",
+                "mediaId": "media-1",
+                "mediaKind": "photo",
+                "findingType": "visible_bunker",
+                "evidenceText": "front bunker visible",
+                "confidence": "medium",
+                "missingInfo": [],
+                "provider": "static",
+                "model": "static",
+                "source": "vision_model",
+            }
+        ],
     }
 
 
@@ -332,6 +366,25 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         package_handler.assert_not_called()
         reconciliation_handler.assert_not_called()
         self.assertNotIn("admin-secret", package.text + reconciliation.text)
+
+    def test_admin_token_required_for_media_context_reads_when_configured(self) -> None:
+        client = TestClient(app)
+        media_handler = Mock(return_value=_media_list_response())
+        findings_handler = Mock(return_value=_vision_findings_response())
+
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.list_target_media_response", media_handler),
+            patch("server_v2.main.list_target_vision_findings_response", findings_handler),
+        ):
+            media = client.get("/api/v2/media/target/shot/round-1:7:2")
+            findings = client.get("/api/v2/media/target/shot/round-1:7:2/findings")
+
+        self.assertEqual(media.status_code, 401)
+        self.assertEqual(findings.status_code, 401)
+        media_handler.assert_not_called()
+        findings_handler.assert_not_called()
+        self.assertNotIn("admin-secret", media.text + findings.text)
 
     def test_mobile_package_and_reconciliation_reads_remain_public_without_admin_token(self) -> None:
         client = TestClient(app)

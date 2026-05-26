@@ -725,6 +725,33 @@ describe('media API helpers', () => {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })
+
+  it('sends admin token headers for protected media context reads', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/media/target/shot/round-1%3A4%3A2') {
+          return { schema: 'ai-caddie-media-list-v1', total: 0, target: { targetType: 'shot', targetId: 'round-1:4:2' }, media: [] }
+        }
+        return {
+          schema: 'ai-caddie-vision-findings-list-v1',
+          total: 0,
+          target: { targetType: 'shot', targetId: 'round-1:4:2' },
+          findings: [],
+        }
+      },
+    })))
+
+    await fetchMediaForTarget('shot', 'round-1:4:2', 'admin-secret')
+    await fetchVisionFindingsForTarget('shot', 'round-1:4:2', 'admin-secret')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/media/target/shot/round-1%3A4%3A2', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/media/target/shot/round-1%3A4%3A2/findings', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
 })
 
 describe('geometry API helpers', () => {

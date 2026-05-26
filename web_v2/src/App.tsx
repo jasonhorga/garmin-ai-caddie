@@ -479,8 +479,8 @@ export default function App() {
     setMediaState({ status: 'loading', ...target })
     try {
       const [media, findings] = await Promise.all([
-        fetchMediaForTarget(target.targetType, target.targetId),
-        fetchVisionFindingsForTarget(target.targetType, target.targetId),
+        fetchMediaForTarget(target.targetType, target.targetId, currentAdminToken()),
+        fetchVisionFindingsForTarget(target.targetType, target.targetId, currentAdminToken()),
       ])
       setMediaState({
         status: 'ready',
@@ -523,7 +523,7 @@ export default function App() {
     await analyzeMedia(mediaId, currentAdminToken())
     if (!target) return
     try {
-      const findings = await fetchVisionFindingsForTarget(target.targetType, target.targetId)
+      const findings = await fetchVisionFindingsForTarget(target.targetType, target.targetId, currentAdminToken())
       setMediaState((current) => {
         if (current.status !== 'ready' || current.targetType !== target.targetType || current.targetId !== target.targetId) return current
         return { ...current, findings: findings.findings }
