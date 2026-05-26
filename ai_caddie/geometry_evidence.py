@@ -219,11 +219,24 @@ def _normalize_surface_kind(value: Any) -> str | None:
     return SURFACE_KIND_ALIASES.get(lower) or SURFACE_KIND_ALIASES.get(compact) or _snake_case_surface_name(leaf)
 
 
+def _known_surface_kind(value: Any) -> str | None:
+    text = _surface_value_to_text(value)
+    if text is None:
+        return None
+    leaf = text.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    lower = leaf.lower().replace("-", "_").replace(" ", "_")
+    compact = "".join(char for char in lower if char.isalnum())
+    return SURFACE_KIND_ALIASES.get(lower) or SURFACE_KIND_ALIASES.get(compact)
+
+
 def _surface_kind(row: dict[str, Any], fallback: str) -> str:
     for value in _surface_kind_values(row):
         kind = _normalize_surface_kind(value)
         if kind:
             return kind
+    id_kind = _known_surface_kind(row.get("id"))
+    if id_kind:
+        return id_kind
     return fallback
 
 
