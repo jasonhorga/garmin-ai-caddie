@@ -30,6 +30,26 @@ const baseStatus: SyncStatusResponse = {
       reauthRequired: false,
       track: 'official_oauth',
       feasibilityQuestions: ['Can official OAuth access golf scorecards?'],
+      capabilities: [
+        {
+          key: 'scorecards',
+          label: 'Golf scorecards',
+          state: 'unproven',
+          evidence: 'OAuth access to Garmin golf scorecards is not documented for this build.',
+          nextStep: 'Verify whether the official OAuth program can read scorecard records.',
+          canReplaceCnConnector: false,
+          migrationValue: true,
+        },
+        {
+          key: 'identity',
+          label: 'Identity',
+          state: 'possible',
+          evidence: 'OAuth can still provide an account migration path if golf data is unavailable.',
+          nextStep: 'Keep the connector interface replaceable.',
+          canReplaceCnConnector: false,
+          migrationValue: true,
+        },
+      ],
     },
   ],
   snapshot: {
@@ -71,6 +91,10 @@ describe('SyncStatusPanel', () => {
     expect(screen.getByText('Official OAuth')).toBeInTheDocument()
     expect(screen.getByText('not available')).toHaveClass('quality-missing')
     expect(screen.getByText('Can official OAuth access golf scorecards?')).toBeInTheDocument()
+    expect(screen.getByText('Golf scorecards')).toBeInTheDocument()
+    expect(screen.getByText('unproven')).toBeInTheDocument()
+    expect(screen.getByText('Identity')).toBeInTheDocument()
+    expect(screen.getByText('possible')).toBeInTheDocument()
   })
 
   it('renders reauth required state', () => {

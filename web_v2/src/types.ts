@@ -438,6 +438,18 @@ export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error' |
 export type ConnectorNextAction = 'connect_garmin' | 'review_history' | 'reauthenticate_garmin' | 'inspect_sync_error'
 export type ResolvedDataMode = 'local' | 'fixture'
 
+export type ConnectorCapabilityState = 'unproven' | 'not_available' | 'possible'
+
+export interface ConnectorCapability {
+  key: string
+  label: string
+  state: ConnectorCapabilityState
+  evidence: string
+  nextStep: string
+  canReplaceCnConnector: boolean
+  migrationValue: boolean
+}
+
 export interface ConnectorStatus {
   name: 'garmin_cn_web_session' | 'garmin_oauth_feasibility'
   state: ConnectorState
@@ -447,6 +459,7 @@ export interface ConnectorStatus {
   nextAction?: ConnectorNextAction | null
   track?: string | null
   feasibilityQuestions?: string[]
+  capabilities?: ConnectorCapability[]
 }
 
 export interface SyncLastRunStatus {

@@ -270,6 +270,7 @@ class ConnectorStatus(BaseModel):
     nextAction: ConnectorNextAction | None = None
     track: str | None = None
     feasibilityQuestions: list[str] = Field(default_factory=list)
+    capabilities: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SnapshotStatus(BaseModel):

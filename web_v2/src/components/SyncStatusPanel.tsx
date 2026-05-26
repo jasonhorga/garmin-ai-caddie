@@ -14,6 +14,12 @@ const connectorLabel = {
   garmin_oauth_feasibility: 'Official OAuth',
 }
 
+const capabilityStateLabel = {
+  unproven: 'unproven',
+  not_available: 'not available',
+  possible: 'possible',
+}
+
 const nextActionLabel = {
   connect_garmin: 'Connect Garmin',
   review_history: 'Review history',
@@ -130,6 +136,21 @@ export function SyncStatusPanel({
               <strong>{connectorLabel[connector.name]}</strong>
               <p>{connector.detail}</p>
               {connector.feasibilityQuestions?.[0] ? <p>{connector.feasibilityQuestions[0]}</p> : null}
+              {connector.capabilities?.length ? (
+                <div className="sync-capabilities" aria-label={`${connectorLabel[connector.name]} capability matrix`}>
+                  {connector.capabilities.map((capability) => (
+                    <div key={capability.key} className="sync-capability-row">
+                      <span>
+                        <strong>{capability.label}</strong>
+                        <em>{capability.nextStep}</em>
+                      </span>
+                      <b className={`semantic-chip ${capability.state === 'possible' ? 'quality-good' : 'quality-missing'}`}>
+                        {capabilityStateLabel[capability.state]}
+                      </b>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <span className={`semantic-chip ${connector.state === 'ready' ? 'quality-good' : 'quality-missing'}`}>
               {stateLabel[connector.state]}

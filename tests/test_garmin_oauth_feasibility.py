@@ -18,6 +18,27 @@ class GarminOauthFeasibilityTests(unittest.TestCase):
         self.assertNotIn("client_secret", str(status).lower())
         self.assertNotIn("access_token", str(status).lower())
 
+    def test_oauth_feasibility_exposes_capability_matrix(self) -> None:
+        status = build_oauth_feasibility_status()
+
+        capabilities = {row["key"]: row for row in status["capabilities"]}
+
+        self.assertEqual(
+            sorted(capabilities),
+            ["course_metadata", "fit_golf_activity", "golf_shots", "identity", "scorecards"],
+        )
+        self.assertEqual(capabilities["scorecards"]["label"], "Golf scorecards")
+        self.assertEqual(capabilities["scorecards"]["state"], "unproven")
+        self.assertFalse(capabilities["scorecards"]["canReplaceCnConnector"])
+        self.assertIn("OAuth", capabilities["scorecards"]["evidence"])
+        self.assertIn("scorecard", capabilities["scorecards"]["nextStep"].lower())
+        self.assertEqual(capabilities["identity"]["state"], "possible")
+        self.assertTrue(capabilities["identity"]["migrationValue"])
+        for row in capabilities.values():
+            self.assertIn(row["state"], ["unproven", "not_available", "possible"])
+            self.assertNotIn("client_secret", str(row).lower())
+            self.assertNotIn("access_token", str(row).lower())
+
 
 if __name__ == "__main__":
     unittest.main()

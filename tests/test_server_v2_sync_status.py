@@ -24,6 +24,11 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["connectors"][1]["state"], "not_available")
         self.assertFalse(payload["connectors"][1]["canSync"])
         self.assertIn("golf scorecards", " ".join(payload["connectors"][1]["feasibilityQuestions"]))
+        oauth_capabilities = {row["key"]: row for row in payload["connectors"][1]["capabilities"]}
+        self.assertEqual(oauth_capabilities["scorecards"]["state"], "unproven")
+        self.assertFalse(oauth_capabilities["scorecards"]["canReplaceCnConnector"])
+        self.assertEqual(oauth_capabilities["identity"]["state"], "possible")
+        self.assertTrue(oauth_capabilities["identity"]["migrationValue"])
         self.assertEqual(payload["connector"]["state"], "no_data")
         self.assertTrue(payload["connector"]["canSync"])
         self.assertEqual(payload["connector"]["nextAction"], "connect_garmin")
