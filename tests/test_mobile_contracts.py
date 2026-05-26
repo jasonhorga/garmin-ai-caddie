@@ -626,6 +626,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("sendQuickInputEvent", sync_swift)
         self.assertIn("queueInputEvent", sync_swift)
         self.assertIn("flushQueue", sync_swift)
+        self.assertIn("markEventsAcknowledged", sync_swift)
+        self.assertIn("removeAcknowledgedEventIds", sync_swift)
         self.assertIn("queued_events.json", sync_swift)
         self.assertIn("stateURL", sync_swift)
         self.assertIn("current_state.json", sync_swift)
@@ -635,6 +637,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public func receiveState(_ state: WatchRoundState) {\n        currentState = state\n        try? persistState(state)", sync_swift)
         self.assertIn("sessionReachabilityDidChange", sync_swift)
         self.assertIn("try? flushQueue()", sync_swift)
+        self.assertIn('reply["accepted"] as? Bool', sync_swift)
+        self.assertNotIn("try FileManager.default.removeItem(at: queueURL)\n    }", sync_swift)
 
     def test_watch_views_define_glance_and_quick_inputs(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))

@@ -24,6 +24,49 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(try client.loadQueuedEvents(), [event])
     }
 
+    func testAcknowledgedQueueRemovalKeepsUnconfirmedEvents() throws {
+        let queueURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("queued_events.json")
+        let client = WatchSyncClient(queueURL: queueURL)
+        let first = WatchInputEvent(
+            eventId: "event-1",
+            roundId: "round-1",
+            hole: 3,
+            kind: .score,
+            value: "4",
+            createdAt: "2026-05-25T00:00:00Z"
+        )
+        let second = WatchInputEvent(
+            eventId: "event-2",
+            roundId: "round-1",
+            hole: 3,
+            kind: .club,
+            value: "8I",
+            createdAt: "2026-05-25T00:01:00Z"
+        )
+        let third = WatchInputEvent(
+            eventId: "event-3",
+            roundId: "round-1",
+            hole: 3,
+            kind: .putt,
+            value: "2",
+            createdAt: "2026-05-25T00:02:00Z"
+        )
+
+        try client.queueInputEvent(first)
+        try client.queueInputEvent(second)
+        try client.queueInputEvent(third)
+
+        try client.markEventsAcknowledged(["event-1", "event-3"])
+
+        XCTAssertEqual(try client.loadQueuedEvents(), [second])
+
+        try client.markEventsAcknowledged(["event-2"])
+
+        XCTAssertEqual(try client.loadQueuedEvents(), [])
+    }
+
     func testReceiveStatePersistsLastRoundStateForOfflineRelaunch() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

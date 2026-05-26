@@ -72,9 +72,11 @@ public final class WatchSyncClient: NSObject, ObservableObject {
 
     public func queueInputEvent(_ event: WatchInputEvent) throws {
         var events = try loadQueuedEvents()
+        guard !events.contains(where: { $0.eventId == event.eventId }) else {
+            return
+        }
         events.append(event)
-        try FileManager.default.createDirectory(at: queueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(events).write(to: queueURL, options: [.atomic])
+        try writeQueuedEvents(events)
     }
 
     public func loadQueuedEvents() throws -> [WatchInputEvent] {
@@ -96,25 +98,69 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         try encoder.encode(state).write(to: stateURL, options: [.atomic])
     }
 
+    public func markEventsAcknowledged(_ eventIds: [String]) throws {
+        try removeAcknowledgedEventIds(Set(eventIds))
+    }
+
+    private func removeAcknowledgedEventIds(_ eventIds: Set<String>) throws {
+        guard !eventIds.isEmpty else {
+            return
+        }
+        let remaining = try loadQueuedEvents().filter { event in
+            !eventIds.contains(event.eventId)
+        }
+        try writeQueuedEvents(remaining)
+    }
+
+    private func writeQueuedEvents(_ events: [WatchInputEvent]) throws {
+        try FileManager.default.createDirectory(at: queueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard !events.isEmpty else {
+            if FileManager.default.fileExists(atPath: queueURL.path) {
+                try FileManager.default.removeItem(at: queueURL)
+            }
+            return
+        }
+        try encoder.encode(events).write(to: queueURL, options: [.atomic])
+    }
+
     public func flushQueue() throws {
         let events = try loadQueuedEvents()
         guard !events.isEmpty else {
             return
         }
         for event in events {
-            try sendToPhone(event)
+            try sendToPhone(event, queueOnFailure: false, removeFromQueueOnAck: true)
         }
-        try FileManager.default.removeItem(at: queueURL)
     }
 
-    private func sendToPhone(_ event: WatchInputEvent) throws {
+    private func sendToPhone(
+        _ event: WatchInputEvent,
+        queueOnFailure: Bool = true,
+        removeFromQueueOnAck: Bool = false
+    ) throws {
         let data = try encoder.encode(event)
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw URLError(.cannotParseResponse)
         }
-        WCSession.default.sendMessage(["event": object], replyHandler: nil) { [weak self] _ in
-            try? self?.queueInputEvent(event)
-        }
+        WCSession.default.sendMessage(
+            ["event": object],
+            replyHandler: { [weak self] reply in
+                let accepted = reply["accepted"] as? Bool ?? false
+                if accepted {
+                    let acknowledgedEventId = reply["eventId"] as? String ?? event.eventId
+                    if removeFromQueueOnAck {
+                        try? self?.markEventsAcknowledged([acknowledgedEventId])
+                    }
+                } else if queueOnFailure {
+                    try? self?.queueInputEvent(event)
+                }
+            },
+            errorHandler: { [weak self] _ in
+                if queueOnFailure {
+                    try? self?.queueInputEvent(event)
+                }
+            }
+        )
     }
 
     private func receiveStatePayload(_ state: [String: Any]) {
