@@ -1,0 +1,124 @@
+{
+  "schema": "ai-caddie-sanitized-private-round-acceptance-v1",
+  "roundId": "900001",
+  "hole": 1,
+  "decisionShotType": "tee",
+  "idempotencyKey": "sanitized-acceptance-batch-1",
+  "decisionContextPatch": {
+    "dataQuality": {
+      "confidence": "high",
+      "issues": []
+    },
+    "geometry": {
+      "coverage": "ready",
+      "hasHazards": true,
+      "hasMeshes": true,
+      "hazardCount": 2,
+      "hazards": [
+        {
+          "id": "acceptance_bunker_left",
+          "kind": "bunker",
+          "carryToClear_m": 190.0
+        }
+      ]
+    },
+    "weatherSnapshot": {
+      "schema": "ai-caddie-weather-snapshot-v1",
+      "state": "ready",
+      "source": "manual",
+      "roundId": "900001",
+      "hole": 1,
+      "capturedAt": "2026-05-25T08:00:00Z",
+      "location": {
+        "latitude": 22.279,
+        "longitude": 114.162
+      },
+      "windSpeedMps": 2.0,
+      "windDirectionDeg": 90,
+      "temperatureC": 27.0,
+      "precipitationMm": 0.0,
+      "confidence": "high",
+      "missingData": []
+    },
+    "clubProfiles": {
+      "1D": {
+        "clubName": "1D",
+        "sampleSize": 24,
+        "median": 231.5,
+        "p10": 225.0,
+        "p90": 238.0,
+        "median_m": 231.5,
+        "p10_m": 225.0,
+        "p90_m": 238.0
+      }
+    }
+  },
+  "media": {
+    "targetType": "shot",
+    "targetId": "900001:1:1",
+    "mediaKind": "photo",
+    "fileName": "acceptance-lie.jpg",
+    "contentBase64": "ZmFrZS1pbWFnZS1ieXRlcw==",
+    "capturedAt": "2026-05-25T08:10:00Z",
+    "privacyState": "private_local"
+  },
+  "visionReply": {
+    "findings": [
+      {
+        "findingType": "poor_lie",
+        "evidenceText": "Ball sits down in light rough beside the fairway cut.",
+        "confidence": "medium",
+        "missingInfo": []
+      },
+      {
+        "findingType": "visible_bunker",
+        "evidenceText": "A front-left bunker is visible near the landing window.",
+        "confidence": "medium",
+        "missingInfo": []
+      }
+    ]
+  },
+  "noteEvent": {
+    "schema": "ai-caddie-live-round-event-v1",
+    "eventId": "acceptance-note-1",
+    "roundId": "900001",
+    "timestamp": "2026-05-25T08:11:00Z",
+    "hole": 1,
+    "kind": "note",
+    "payload": {
+      "note": "Sanitized acceptance note: wind hurting from the left."
+    }
+  },
+  "clubEvent": {
+    "schema": "ai-caddie-live-round-event-v1",
+    "eventId": "acceptance-club-1",
+    "roundId": "900001",
+    "timestamp": "2026-05-25T08:12:00Z",
+    "hole": 1,
+    "kind": "club",
+    "payload": {
+      "clubName": "1D"
+    }
+  },
+  "actualShot": {
+    "roundId": "900001",
+    "hole": 1,
+    "shotOrder": 1,
+    "end": {
+      "lie": "Bunker",
+      "feature": {
+        "surface": {
+          "kind": "bunker"
+        },
+        "nearRisks": [
+          {
+            "kind": "bunker",
+            "distance_m": 0.0
+          }
+        ]
+      }
+    }
+  },
+  "expectedAuditClassification": "execution",
+  "reportReply": "Sanitized acceptance report."
+}
