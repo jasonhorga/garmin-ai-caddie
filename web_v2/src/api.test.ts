@@ -916,6 +916,35 @@ describe('geometry API helpers', () => {
       '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7',
     )
   })
+
+  it('loads hole evidence with route geometry query parameters', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-geometry-evidence-v1',
+        globalId: 31795,
+        localHole: 7,
+        coverage: 'ready',
+        hasHazards: true,
+        hasMeshes: true,
+        routeEvidence: { routeLength_m: 200 },
+        evidence: [],
+        missingData: [],
+      }),
+    })))
+
+    await fetchHoleGeometryEvidence(31795, 7, '900001:7', {
+      startX: 0,
+      startY: 0,
+      targetX: 200,
+      targetY: 0,
+      landingRadiusM: 18,
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7&start_x=0&start_y=0&target_x=200&target_y=0&landing_radius_m=18',
+    )
+  })
 })
 
 describe('fetchSyncStatus', () => {

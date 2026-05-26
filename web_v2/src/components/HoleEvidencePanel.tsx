@@ -44,6 +44,7 @@ export function HoleEvidencePanel({ state }: HoleEvidencePanelProps) {
   const features = state.map.featureCollection.features
   const shotRoutes = asRecordArray(state.evidence.shotRoutes)
   const surfaceClassifications = asRecordArray(state.evidence.surfaceClassifications)
+  const routeEvidence = asRecord(state.evidence.routeEvidence)
 
   return (
     <section className="hole-evidence-panel" aria-label="Hole geometry evidence">
@@ -76,10 +77,45 @@ export function HoleEvidencePanel({ state }: HoleEvidencePanelProps) {
           <FeatureList features={features} />
           <ShotRoutes rows={shotRoutes} />
           <SurfaceClassifications rows={surfaceClassifications} />
+          <RouteEvidence route={routeEvidence} />
           <EvidenceRows title="Evidence Files" rows={state.evidence.evidence} />
           <EvidenceRows title="Missing Data" rows={[...state.evidence.missingData, ...state.map.missingData]} />
         </div>
       </div>
+    </section>
+  )
+}
+
+function RouteEvidence({ route }: { route: Record<string, unknown> | null }) {
+  if (!route) return null
+  const clearances = asRecordArray(route.hazardClearances)
+  const avoidZones = asRecordArray(route.avoidZones)
+  const landingWindow = asRecord(route.landingWindowLocal)
+  return (
+    <section aria-label="Route Evidence" className="hole-evidence-rows">
+      <h3>Route Evidence</h3>
+      <div className="report-row">
+        <strong>route</strong>
+        <span>{routeLengthLabel(route.routeLength_m)}</span>
+      </div>
+      {landingWindow ? (
+        <div className="report-row">
+          <strong>landing</strong>
+          <span>{landingWindowLabel(landingWindow)}</span>
+        </div>
+      ) : null}
+      {clearances.slice(0, 5).map((row, index) => (
+        <div className="report-row" key={`clearance-${asString(row.hazardId) ?? asString(row.id) ?? index}`}>
+          <strong>{asString(row.hazardId) ?? asString(row.id) ?? `hazard-${index + 1}`}</strong>
+          <span>{riskClearanceLabel(row)}</span>
+        </div>
+      ))}
+      {avoidZones.slice(0, 5).map((row, index) => (
+        <div className="report-row" key={`avoid-${asString(row.id) ?? index}`}>
+          <strong>{asString(row.id) ?? `avoid-${index + 1}`}</strong>
+          <span>{riskClearanceLabel(row)}</span>
+        </div>
+      ))}
     </section>
   )
 }
@@ -141,6 +177,26 @@ function FeatureList({ features }: { features: GeoJsonFeature[] }) {
       })}
     </section>
   )
+}
+
+function routeLengthLabel(value: unknown): string {
+  return `route length ${formatMeters(value)}`
+}
+
+function landingWindowLabel(row: Record<string, unknown>): string {
+  const center = Array.isArray(row.center) ? row.center.map((value) => Number(value)).filter(Number.isFinite) : []
+  const centerLabel = center.length >= 2 ? `[${center[0]}, ${center[1]}]` : 'unknown'
+  return `landing window ${centerLabel} r=${formatMeters(row.radius_m)}`
+}
+
+function riskClearanceLabel(row: Record<string, unknown>): string {
+  const kind = asString(row.kind) ?? 'risk'
+  return `${kind} clear ${formatMeters(row.carryToClear_m)}`
+}
+
+function formatMeters(value: unknown): string {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? `${numeric}m` : 'unknown'
 }
 
 function shotRouteLabel(row: Record<string, unknown>): string {

@@ -306,8 +306,29 @@ export interface GeometryEvidenceResponse {
   sourceRef?: string | null
   shotRoutes?: Array<Record<string, unknown>>
   surfaceClassifications?: Array<Record<string, unknown>>
+  routeEvidence?: RouteGeometryEvidence | null
   evidence: Array<Record<string, unknown>>
   missingData: Array<Record<string, unknown>>
+}
+
+export interface RouteGeometryEvidence {
+  routeLength_m?: number
+  routeStartLocal?: number[]
+  routeTargetLocal?: number[]
+  landingWindowLocal?: Record<string, unknown>
+  lineIntersections?: Array<Record<string, unknown>>
+  hazardClearances?: Array<Record<string, unknown>>
+  avoidZones?: Array<Record<string, unknown>>
+  missingData?: Array<Record<string, unknown>>
+  sourceRefs?: string[]
+}
+
+export interface HoleGeometryRouteParams {
+  startX?: number
+  startY?: number
+  targetX?: number
+  targetY?: number
+  landingRadiusM?: number
 }
 
 export interface CourseGeometryCoverageResponse {

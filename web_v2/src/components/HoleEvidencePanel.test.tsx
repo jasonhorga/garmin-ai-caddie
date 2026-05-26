@@ -15,6 +15,15 @@ const readyState: HoleEvidenceState = {
     sourceRef: '900001:7',
     shotRoutes: [{ shotRef: '900001:7:0', club: '7I', distance: 144, surface: 'green' }],
     surfaceClassifications: [{ shotRef: '900001:7:0', surface: { kind: 'green', source: 'mesh', id: 'green' } }],
+    routeEvidence: {
+      routeLength_m: 182,
+      landingWindowLocal: { center: [0, 182], radius_m: 18 },
+      hazardClearances: [
+        { hazardId: 'water_crossing', kind: 'water', carryToFront_m: 90, carryToClear_m: 110 },
+        { hazardId: 'fairway_bunker', kind: 'bunker', carryToFront_m: 136, carryToClear_m: 150 },
+      ],
+      avoidZones: [{ id: 'fairway_bunker', kind: 'bunker', carryToClear_m: 150 }],
+    },
     evidence: [{ label: 'hazards', ref: 'output/prodgeometry_hazards/gid31795_h07_hazards.json' }],
     missingData: [],
   },
@@ -73,6 +82,13 @@ describe('HoleEvidencePanel', () => {
     expect(screen.getByText('7I 144m green')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Surface Classifications' })).toBeInTheDocument()
     expect(screen.getByText('green / mesh')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Route Evidence' })).toBeInTheDocument()
+    expect(screen.getByText('route length 182m')).toBeInTheDocument()
+    expect(screen.getByText('landing window [0, 182] r=18m')).toBeInTheDocument()
+    expect(screen.getByText('water_crossing')).toBeInTheDocument()
+    expect(screen.getByText('water clear 110m')).toBeInTheDocument()
+    expect(screen.getAllByText('fairway_bunker').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('bunker clear 150m').length).toBeGreaterThan(0)
     expect(screen.getByText('hazards')).toBeInTheDocument()
     expect(screen.getByText('output/prodgeometry_hazards/gid31795_h07_hazards.json')).toBeInTheDocument()
     expect(screen.getByText('shot_routes')).toBeInTheDocument()
