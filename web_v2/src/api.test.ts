@@ -552,6 +552,23 @@ describe('caddie audit API helpers', () => {
       body: JSON.stringify(request),
     })
   })
+
+  it('sends the admin token header for protected latest decision audit reads', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-decision-audit-latest-v1',
+        record: null,
+      }),
+    }))
+
+    await fetchLatestCaddieDecisionAudit('round-1:4:2', 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v2/caddie/decisions/round-1%3A4%3A2/audit/latest',
+      { headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' } },
+    )
+  })
 })
 
 describe('fetchWeatherSnapshot', () => {

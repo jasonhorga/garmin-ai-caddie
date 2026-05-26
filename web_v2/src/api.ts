@@ -119,9 +119,10 @@ export function createCaddieDecisionAudit(
   )
 }
 
-export function fetchLatestCaddieDecisionAudit(decisionId: string): Promise<CaddieDecisionAuditLatestResponse> {
+export function fetchLatestCaddieDecisionAudit(decisionId: string, adminToken?: string): Promise<CaddieDecisionAuditLatestResponse> {
   return getJson<CaddieDecisionAuditLatestResponse>(
     `/api/v2/caddie/decisions/${encodeURIComponent(decisionId)}/audit/latest`,
+    adminToken,
   )
 }
 

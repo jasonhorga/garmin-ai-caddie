@@ -331,6 +331,20 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         context_handler.assert_not_called()
         self.assertNotIn("admin-secret", response.text)
 
+    def test_admin_token_required_for_caddie_audit_latest_reads_when_configured(self) -> None:
+        client = TestClient(app)
+        audit_handler = Mock(return_value={"schema": "ai-caddie-decision-audit-latest-v1", "decisionId": "decision-1", "record": None})
+
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.latest_decision_audit_response", audit_handler),
+        ):
+            response = client.get("/api/v2/caddie/decisions/decision-1/audit/latest")
+
+        self.assertEqual(response.status_code, 401)
+        audit_handler.assert_not_called()
+        self.assertNotIn("admin-secret", response.text)
+
     def test_admin_token_required_for_private_write_and_media_ai_routes_when_configured(self) -> None:
         client = TestClient(app)
         annotation_handler = Mock()
@@ -550,6 +564,10 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
             patch("server_v2.main.build_caddie_context_response", return_value=_caddie_context_response()),
             patch("server_v2.main.build_caddie_decision_response", return_value=_decision_response()),
             patch("server_v2.main.create_decision_audit_response", return_value=_audit_response()),
+            patch(
+                "server_v2.main.latest_decision_audit_response",
+                return_value={"schema": "ai-caddie-decision-audit-latest-v1", "decisionId": "decision-1", "record": None},
+            ),
             patch("server_v2.main.create_annotation_response", return_value=_annotation_response()),
             patch("server_v2.main.create_media_response", return_value=_media_response()),
             patch("server_v2.main.analyze_media_response", return_value=_vision_response()),
@@ -569,6 +587,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
                     headers=ADMIN_HEADER,
                     json={"decision": _decision_response(), "actualShot": {"clubName": "8I"}},
                 ),
+                client.get("/api/v2/caddie/decisions/decision-1/audit/latest", headers=ADMIN_HEADER),
                 client.post(
                     "/api/v2/annotations",
                     headers=ADMIN_HEADER,

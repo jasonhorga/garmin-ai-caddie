@@ -132,6 +132,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         return (
             (path == "/api/v2/weather/snapshot" and _truthy_query_flag(query_params.get("persist")))
             or path == "/api/v2/caddie/context"
+            or (path.startswith("/api/v2/caddie/decisions/") and path.endswith("/audit/latest"))
             or path == "/api/v2/annotations"
             or path.startswith("/api/v2/annotations/target/")
             or path.startswith("/api/v2/media/target/")
@@ -360,7 +361,11 @@ def caddie_decision_audit(
 
 
 @app.get("/api/v2/caddie/decisions/{decision_id}/audit/latest", response_model=CaddieDecisionAuditLatestResponse)
-def caddie_decision_audit_latest(decision_id: str) -> CaddieDecisionAuditLatestResponse:
+def caddie_decision_audit_latest(
+    decision_id: str,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> CaddieDecisionAuditLatestResponse:
+    require_admin_token(x_ai_caddie_admin_token)
     return latest_decision_audit_response(decision_id)
 
 
