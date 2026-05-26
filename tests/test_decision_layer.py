@@ -296,6 +296,56 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(plan["acceptableMiss"]["selectedOptionId"], "stock")
         self.assertNotEqual(plan["acceptableMiss"]["direction"], "not-modeled")
 
+    def test_tee_decision_synthesizes_options_from_route_evidence_without_candidate_routes(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context.pop("candidateRoutes")
+        context["sourceRef"] = "900001:7"
+        context["routeEvidence"] = {
+            "schema": "ai-caddie-route-geometry-evidence-v1",
+            "routeStartLocal": [0.0, 0.0],
+            "routeTargetLocal": [0.0, 182.0],
+            "routeLength_m": 182.0,
+            "landingWindowLocal": {"center": [0.0, 182.0], "radius_m": 18.0},
+            "hazardClearances": [
+                {"hazardId": "water_crossing", "kind": "water", "carryToFront_m": 90.0, "carryToClear_m": 110.0},
+                {"hazardId": "fairway_bunker", "kind": "bunker", "carryToFront_m": 136.0, "carryToClear_m": 150.0},
+            ],
+            "avoidZones": [
+                {"id": "water_crossing", "kind": "water", "carryToClear_m": 110.0},
+                {"id": "fairway_bunker", "kind": "bunker", "carryToClear_m": 150.0},
+            ],
+            "sourceRefs": ["geometry:31795:7:route"],
+        }
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual([option["id"] for option in plan["options"]], ["safe", "stock", "attack"])
+        self.assertEqual(plan["selectedOptionId"], "stock")
+        self.assertEqual(plan["selected"]["targetLocal"], [0.0, 182.0])
+        self.assertEqual(plan["selected"]["hazardClearance"]["minimumClearance_m"], 32.0)
+        self.assertEqual(plan["selected"]["hazardClearance"]["criticalHazardId"], "fairway_bunker")
+        self.assertIn("bunker", {zone["kind"] for zone in plan["avoidZones"]})
+        self.assertIn("geometry:31795:7:route", plan["evidenceRefs"])
+        self.assertTrue(any(row["kind"] == "route_geometry" for row in plan["evidence"]))
+        self.assertNotIn("routes", {row["label"] for row in plan["missingData"]})
+
+    def test_tee_decision_keeps_candidate_route_evidence_when_route_evidence_also_present(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["routeEvidence"] = {
+            "schema": "ai-caddie-route-geometry-evidence-v1",
+            "routeStartLocal": [0.0, 0.0],
+            "routeTargetLocal": [0.0, 182.0],
+            "routeLength_m": 182.0,
+            "hazardClearances": [{"hazardId": "water_crossing", "kind": "water", "carryToClear_m": 110.0}],
+            "avoidZones": [{"id": "water_crossing", "kind": "water", "carryToClear_m": 110.0}],
+        }
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual(plan["selectedOption"]["routeId"], "stock_line")
+        self.assertTrue(any(row["kind"] == "club_profile" for row in plan["evidence"]))
+        self.assertFalse(any(row["kind"] == "route_geometry" for row in plan["evidence"]))
+
     def test_recovery_consumes_medium_high_confidence_vision_findings(self) -> None:
         context = recovery_fixture(lie="fairway", blocked=False)
         context["hazards"] = []

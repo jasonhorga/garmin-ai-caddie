@@ -479,22 +479,146 @@ def _forbidden_zones_from_route(route: dict[str, Any]) -> list[dict[str, Any]]:
     for risk in route.get("lineRisks") or []:
         kind = risk.get("kind")
         if kind in RISK_KINDS:
-            zones.append({
+            zone = {
                 "kind": kind,
                 "source": "line",
                 "id": risk.get("id"),
                 "reason": "target line intersects known risk",
-            })
+            }
+            if risk.get("carryToClear_m") is not None:
+                zone["carryToClear_m"] = risk.get("carryToClear_m")
+            if risk.get("carryToFront_m") is not None:
+                zone["carryToFront_m"] = risk.get("carryToFront_m")
+            zones.append(zone)
     for risk in route.get("nearRisks") or []:
         kind = risk.get("kind")
         if kind in RISK_KINDS:
-            zones.append({
+            zone = {
                 "kind": kind,
                 "source": "landing",
+                "id": risk.get("id"),
                 "distance_m": risk.get("distance_m"),
                 "reason": "landing zone is close to known risk",
-            })
+            }
+            if risk.get("carryToClear_m") is not None:
+                zone["carryToClear_m"] = risk.get("carryToClear_m")
+            zones.append(zone)
     return zones
+
+
+def _route_evidence_zones(route_evidence: dict[str, Any]) -> list[dict[str, Any]]:
+    zones: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in route_evidence.get("hazardClearances") or []:
+        if not isinstance(row, dict):
+            continue
+        hazard_id = str(row.get("hazardId") or row.get("id") or "").strip()
+        if not hazard_id:
+            continue
+        by_id[hazard_id] = row
+    seen: set[tuple[str, str]] = set()
+    for row in [*(route_evidence.get("avoidZones") or []), *(route_evidence.get("hazardClearances") or [])]:
+        if not isinstance(row, dict):
+            continue
+        hazard_id = str(row.get("id") or row.get("hazardId") or "").strip()
+        kind = str(row.get("kind") or by_id.get(hazard_id, {}).get("kind") or "").strip()
+        if kind not in RISK_KINDS or not hazard_id:
+            continue
+        key = (hazard_id, kind)
+        if key in seen:
+            continue
+        seen.add(key)
+        clearance = by_id.get(hazard_id, row)
+        zones.append(
+            {
+                "kind": kind,
+                "source": "route_geometry",
+                "id": hazard_id,
+                "carryToFront_m": clearance.get("carryToFront_m"),
+                "carryToClear_m": clearance.get("carryToClear_m") if clearance.get("carryToClear_m") is not None else row.get("carryToClear_m"),
+                "reason": "route geometry intersects known risk",
+            }
+        )
+    return zones
+
+
+def _local_point(value: Any) -> list[float] | None:
+    if not isinstance(value, list) or len(value) < 2:
+        return None
+    try:
+        return [float(value[0]), float(value[1])]
+    except (TypeError, ValueError):
+        return None
+
+
+def _local_distance(start: list[float] | None, target: list[float] | None) -> float | None:
+    if start is None or target is None:
+        return None
+    return math.hypot(target[0] - start[0], target[1] - start[1])
+
+
+def _route_evidence_length(route_evidence: dict[str, Any]) -> float:
+    route_length = _float(route_evidence.get("routeLength_m"))
+    if route_length > 0:
+        return route_length
+    return _local_distance(_local_point(route_evidence.get("routeStartLocal")), _local_point(route_evidence.get("routeTargetLocal"))) or 0.0
+
+
+def _route_target_for_carry(route_evidence: dict[str, Any], carry_m: float, route_length: float) -> list[float] | None:
+    start = _local_point(route_evidence.get("routeStartLocal"))
+    target = _local_point(route_evidence.get("routeTargetLocal"))
+    if start is None or target is None or route_length <= 0:
+        landing = route_evidence.get("landingWindowLocal")
+        center = landing.get("center") if isinstance(landing, dict) else None
+        return _local_point(center) or target
+    ratio = carry_m / route_length
+    return [round(start[0] + (target[0] - start[0]) * ratio, 1), round(start[1] + (target[1] - start[1]) * ratio, 1)]
+
+
+def _route_evidence_risk_score(option_id: str, carry_m: float, zones: list[dict[str, Any]]) -> float:
+    base = {"safe": 1.0, "stock": 1.0, "attack": 3.0}.get(option_id, 2.0)
+    clearance = _hazard_clearance(carry_m, zones)
+    minimum = clearance.get("minimumClearance_m")
+    if clearance.get("state") == "cannot_clear":
+        base += 6.0
+    elif minimum is not None and _float(minimum) < 8.0:
+        base += 3.0
+    elif minimum is not None and _float(minimum) < 16.0:
+        base += 1.0
+    return base
+
+
+def _routes_from_route_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]]:
+    route_evidence = analysis.get("routeEvidence")
+    if not isinstance(route_evidence, dict):
+        return []
+    route_length = _route_evidence_length(route_evidence)
+    if route_length <= 0:
+        return []
+    zones = _route_evidence_zones(route_evidence)
+    safe_delta = min(20.0, max(10.0, route_length * 0.1))
+    attack_delta = min(20.0, max(10.0, route_length * 0.08))
+    specs = [
+        ("conservative_layup", "safe route-geometry layup", "safe", max(1.0, route_length - safe_delta)),
+        ("stock_line", "stock route-geometry line", "stock", route_length),
+        ("aggressive_line", "attack route-geometry extension", "attack", route_length + attack_delta),
+    ]
+    routes = []
+    for route_id, label, option_id, carry_m in specs:
+        routes.append(
+            {
+                "id": route_id,
+                "label": label,
+                "carry_m": round(carry_m, 1),
+                "landingLocal": _route_target_for_carry(route_evidence, carry_m, route_length),
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": zones,
+                "riskScore": _route_evidence_risk_score(option_id, carry_m, zones),
+                "source": "routeEvidence",
+            }
+        )
+    return routes
 
 
 def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
@@ -577,7 +701,12 @@ def _confidence(analysis: dict[str, Any], options: list[dict[str, Any]], selecte
     return {"level": level, "reasons": sorted(set(reasons))}
 
 
-def _evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _evidence(
+    analysis: dict[str, Any],
+    selected: dict[str, Any] | None,
+    *,
+    include_route_geometry: bool = False,
+) -> list[dict[str, Any]]:
     geometry = analysis.get("geometry") or {}
     rows = [{
         "kind": "geometry",
@@ -587,6 +716,17 @@ def _evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) -> list
             else "prodgeometry mesh data is missing"
         ),
     }]
+    route_evidence = analysis.get("routeEvidence")
+    if include_route_geometry and isinstance(route_evidence, dict):
+        rows.append(
+            {
+                "kind": "route_geometry",
+                "text": (
+                    f"route length={route_evidence.get('routeLength_m')}m; "
+                    f"hazard clearances={len(route_evidence.get('hazardClearances') or [])}"
+                ),
+            }
+        )
     if selected:
         rows.append({
             "kind": "route_risk",
@@ -1206,14 +1346,16 @@ def recommend_recovery(context: dict[str, Any]) -> dict[str, Any]:
 
 def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     """Build a tee-shot decision plan from an existing hole analysis."""
-    routes = analysis.get("candidateRoutes") or []
+    candidate_routes = analysis.get("candidateRoutes") or []
+    used_route_evidence = not candidate_routes
+    routes = candidate_routes or _routes_from_route_evidence(analysis)
     options = [_option_from_route(route, analysis) for route in routes]
     options = _ordered_options(options)
     selected = _select_option(options, _strategy_mode(analysis))
     forbidden = selected.get("forbiddenZones", []) if selected else []
     sequences = _club_sequences(analysis)
     selected_sequence = _selected_sequence(sequences, selected)
-    evidence = _evidence(analysis, selected)
+    evidence = _evidence(analysis, selected, include_route_geometry=used_route_evidence)
     sequence_evidence = _sequence_evidence(sequences, selected_sequence)
     if sequence_evidence:
         evidence.append(sequence_evidence)
