@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -12,6 +12,88 @@ from server_v2.main import app
 
 
 class ServerV2GeometryTests(unittest.TestCase):
+    def test_geometry_ensure_endpoint_returns_cached_result_without_private_paths(self) -> None:
+        client = TestClient(app)
+        handler = Mock(
+            return_value={
+                "status": "cached",
+                "ok": True,
+                "globalId": 31795,
+                "localHole": 4,
+                "hazards": "/tmp/private-cache/prodgeometry_hazards/gid31795_h04_hazards.json",
+                "meshes": "output/prodgeometry/gid31795_h04_meshes.json",
+            }
+        )
+
+        with patch("server_v2.geometry.ensure_prodgeometry", handler):
+            response = client.post("/api/v2/geometry/hole/31795/4/ensure")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-geometry-ensure-v1")
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "cached")
+        self.assertEqual(payload["globalId"], 31795)
+        self.assertEqual(payload["localHole"], 4)
+        self.assertIn("gid31795_h04_meshes.json", payload["meshes"])
+        self.assertNotIn("/tmp/private-cache", response.text)
+        handler.assert_called_once_with(31795, 4, profile_id=None, force=False)
+
+    def test_geometry_ensure_endpoint_preserves_download_metadata_and_force_flag(self) -> None:
+        client = TestClient(app)
+        handler = Mock(
+            return_value={
+                "status": "downloaded",
+                "ok": True,
+                "globalId": 31795,
+                "localHole": 9,
+                "releaseSource": "live",
+                "releaseId": "release-123",
+                "courseName": "Fixture Links",
+                "hazards": "output/prodgeometry_hazards/gid31795_h09_hazards.json",
+                "meshes": "output/prodgeometry/gid31795_h09_meshes.json",
+                "steps": {"download": "ok", "decode": "ok"},
+            }
+        )
+
+        with patch("server_v2.geometry.ensure_prodgeometry", handler):
+            response = client.post("/api/v2/geometry/hole/31795/9/ensure?force=true&profile_id=player-1")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "downloaded")
+        self.assertEqual(payload["releaseSource"], "live")
+        self.assertEqual(payload["releaseId"], "release-123")
+        self.assertEqual(payload["courseName"], "Fixture Links")
+        self.assertEqual(payload["steps"], {"download": "ok", "decode": "ok"})
+        handler.assert_called_once_with(31795, 9, profile_id="player-1", force=True)
+
+    def test_geometry_ensure_endpoint_sanitizes_failed_result(self) -> None:
+        client = TestClient(app)
+        handler = Mock(
+            return_value={
+                "status": "failed",
+                "ok": False,
+                "globalId": 31795,
+                "localHole": 2,
+                "error": "download failed token=abc123 cookie=session-value /home/ubuntu/.garmin_tokens/session",
+                "steps": {"request": "authorization: Bearer secret-token"},
+            }
+        )
+
+        with patch("server_v2.geometry.ensure_prodgeometry", handler):
+            response = client.post("/api/v2/geometry/hole/31795/2/ensure")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "failed")
+        self.assertIn("[REDACTED]", payload["error"])
+        self.assertNotIn("abc123", response.text)
+        self.assertNotIn("session-value", response.text)
+        self.assertNotIn("secret-token", response.text)
+        self.assertNotIn("/home/ubuntu", response.text)
+
     def test_course_coverage_endpoint_uses_public_schema_alias(self) -> None:
         client = TestClient(app)
 

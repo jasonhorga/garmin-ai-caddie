@@ -23,7 +23,12 @@ from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_drilldown import load_history_drilldown_response
 from .history_stats import load_history_stats_response
-from .geometry import load_course_geometry_coverage_response, load_hole_geometry_evidence_response, load_hole_map_response
+from .geometry import (
+    load_course_geometry_coverage_response,
+    load_geometry_ensure_response,
+    load_hole_geometry_evidence_response,
+    load_hole_map_response,
+)
 from .media import (
     analyze_media_response,
     create_media_response,
@@ -51,6 +56,7 @@ from .models import (
     CourseGeometryCoverageResponse,
     GarminSessionImportRequest,
     GarminSessionImportResponse,
+    GeometryEnsureResponse,
     GeometryEvidenceResponse,
     HistoryDrilldownResponse,
     HoleMapResponse,
@@ -139,6 +145,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         return True
     protected_prefix_suffix = (
         ("/api/v2/caddie/decisions/", "/audit"),
+        ("/api/v2/geometry/hole/", "/ensure"),
         ("/api/v2/media/", "/analyze"),
         ("/api/v2/mobile/rounds/", "/events"),
         ("/api/v2/mobile/rounds/", "/reconciliation/apply"),
@@ -174,6 +181,7 @@ def service_index() -> dict[str, object]:
             "historyDrilldown": "/api/v2/history/drilldown/{source_ref}",
             "geometryCourseCoverage": "/api/v2/geometry/course/{global_id}/coverage",
             "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
+            "geometryEnsure": "/api/v2/geometry/hole/{global_id}/{local_hole}/ensure",
             "geometryHoleMap": "/api/v2/geometry/hole/{global_id}/{local_hole}/map",
             "caddieContext": "/api/v2/caddie/context",
             "caddieDecision": "/api/v2/caddie/decision",
@@ -257,6 +265,18 @@ def geometry_hole_map(
     source_ref: str | None = None,
 ) -> HoleMapResponse:
     return load_hole_map_response(global_id, local_hole, provider=provider, source_ref=source_ref)
+
+
+@app.post("/api/v2/geometry/hole/{global_id}/{local_hole}/ensure", response_model=GeometryEnsureResponse)
+def geometry_hole_ensure(
+    global_id: int,
+    local_hole: int,
+    profile_id: str | None = None,
+    force: bool = False,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> GeometryEnsureResponse:
+    require_admin_token(x_ai_caddie_admin_token)
+    return load_geometry_ensure_response(global_id, local_hole, profile_id=profile_id, force=force)
 
 
 @app.get("/api/v2/caddie/context", response_model=CaddieContextResponse)

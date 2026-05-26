@@ -456,6 +456,20 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         trend_handler.assert_not_called()
         self.assertNotIn("admin-secret", index.text + round_report.text + trend_report.text)
 
+    def test_admin_token_required_for_geometry_ensure_when_configured(self) -> None:
+        client = TestClient(app)
+        ensure_handler = Mock()
+
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.load_geometry_ensure_response", ensure_handler),
+        ):
+            response = client.post("/api/v2/geometry/hole/31795/4/ensure?force=true")
+
+        self.assertEqual(response.status_code, 401)
+        ensure_handler.assert_not_called()
+        self.assertNotIn("admin-secret", response.text)
+
     def test_mobile_package_and_reconciliation_reads_remain_public_without_admin_token(self) -> None:
         client = TestClient(app)
         package_handler = Mock(return_value=_mobile_package_response())

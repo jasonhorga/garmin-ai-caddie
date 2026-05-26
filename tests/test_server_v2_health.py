@@ -21,6 +21,7 @@ class ServerV2HealthTests(unittest.TestCase):
         self.assertEqual(response.json()["endpoints"]["historyStats"], "/api/v2/history/stats")
         self.assertEqual(response.json()["endpoints"]["geometryCourseCoverage"], "/api/v2/geometry/course/{global_id}/coverage")
         self.assertEqual(response.json()["endpoints"]["geometryHoleEvidence"], "/api/v2/geometry/hole/{global_id}/{local_hole}")
+        self.assertEqual(response.json()["endpoints"]["geometryEnsure"], "/api/v2/geometry/hole/{global_id}/{local_hole}/ensure")
         self.assertEqual(response.json()["endpoints"]["caddieDecision"], "/api/v2/caddie/decision")
         self.assertEqual(response.json()["endpoints"]["annotations"], "/api/v2/annotations")
         self.assertEqual(response.json()["endpoints"]["annotationsByTarget"], "/api/v2/annotations/target/{target_type}/{target_id}")

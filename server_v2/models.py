@@ -13,6 +13,7 @@ ConnectorNextAction = Literal["connect_garmin", "review_history", "reauthenticat
 ResolvedDataModeName = Literal["local", "fixture"]
 ReportConfidence = Literal["low", "medium", "high"]
 GeometryCoverageState = Literal["ready", "partial", "missing"]
+GeometryEnsureStatus = Literal["cached", "downloaded", "failed"]
 CaddieShotType = Literal["tee", "approach", "recovery"]
 AnnotationTargetType = Literal["round", "hole", "shot", "decision"]
 AnnotationKind = Literal[
@@ -382,6 +383,23 @@ class CourseGeometryCoverageResponse(BaseModel):
     partialHoles: int
     totalHoles: int
     holes: list[dict[str, Any]]
+
+
+class GeometryEnsureResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-geometry-ensure-v1"] = Field(alias="schema")
+    status: GeometryEnsureStatus
+    ok: bool
+    globalId: int
+    localHole: int
+    releaseSource: str | None = None
+    releaseId: str | None = None
+    courseName: str | None = None
+    hazards: str | None = None
+    meshes: str | None = None
+    steps: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
 
 
 class HoleMapResponse(BaseModel):
