@@ -415,10 +415,10 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <p>Coverage and missing-data signals that constrain the statistics above.</p>
             </div>
           </div>
-          <StatsQualityChips data={data} labels={['shots', 'annotations', 'corrections', 'reports', 'weather']} />
+          <StatsQualityChips data={data} labels={['shots', 'putts', 'club_samples', 'annotations', 'corrections', 'reports', 'weather']} />
           <div className="stat-list">
             {data.dataQuality
-              .filter((finding) => ['shots', 'annotations', 'corrections', 'reports', 'weather'].includes(asString(finding.label) ?? ''))
+              .filter((finding) => ['shots', 'putts', 'club_samples', 'annotations', 'corrections', 'reports', 'weather'].includes(asString(finding.label) ?? ''))
               .map((finding) => (
                 <div key={asString(finding.label) ?? 'quality'} className="stat-row">
                   <span>{asString(finding.label) ?? 'quality'}</span>

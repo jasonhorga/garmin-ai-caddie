@@ -102,6 +102,8 @@ const statsFixture: HistoryStatsResponse = {
   issues: [],
   dataQuality: [
     { label: 'shots', state: 'partial', ready: 2, total: 3, refs: ['900003'] },
+    { label: 'putts', state: 'good', ready: 45, total: 45, refs: [] },
+    { label: 'club_samples', state: 'partial', ready: 1, total: 5, refs: ['900001:2:2'] },
     { label: 'annotations', state: 'good', ready: 2, total: 2, refs: ['ann-1', 'ann-2'] },
     { label: 'corrections', state: 'good', ready: 1, total: 2, refs: ['corr-1'] },
     { label: 'reports', state: 'partial', ready: 1, total: 3, refs: ['900002', '900003'] },
@@ -165,6 +167,8 @@ describe('StatsOverview', () => {
     expect(screen.getByText('22.279, 114.162')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Data Coverage' })).toBeInTheDocument()
     expect(screen.getByText('shots partial 2/3')).toHaveClass('quality-partial')
+    expect(screen.getByText('putts good 45/45')).toHaveClass('quality-good')
+    expect(screen.getByText('club_samples partial 1/5')).toHaveClass('quality-partial')
     expect(screen.getByText('annotations good 2/2')).toHaveClass('quality-good')
     expect(screen.getByText('corrections good 1/2')).toHaveClass('quality-good')
     expect(screen.getByText('reports partial 1/3')).toHaveClass('quality-partial')

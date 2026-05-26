@@ -1205,6 +1205,59 @@ def _shot_row_quality(data: HistoryData) -> dict[str, Any]:
     )
 
 
+def _putt_quality(data: HistoryData) -> dict[str, Any]:
+    ready_refs: list[str] = []
+    missing_refs: list[str] = []
+    for row in data.rounds:
+        for hole in row.get("holes") or []:
+            if not isinstance(hole, dict):
+                continue
+            number = int(hole.get("number") or 0)
+            if not number or hole.get("strokes") is None:
+                continue
+            ref = _hole_ref(row, number)
+            if hole.get("putts") is None:
+                missing_refs.append(ref)
+            else:
+                ready_refs.append(ref)
+    total = len(ready_refs) + len(missing_refs)
+    return _with_quality_contract(
+        {
+            "label": "putts",
+            "state": "good" if total and not missing_refs else "partial" if ready_refs else "missing",
+            "ready": len(ready_refs),
+            "total": total,
+            "refs": missing_refs,
+        }
+    )
+
+
+def _club_sample_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    shots_by_club: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for shot in _effective_shots(data, annotations):
+        if _shot_distance(shot) is None:
+            continue
+        shots_by_club[_shot_club(shot)].append(shot)
+    low_sample_refs = [
+        str(shot.get("_ref"))
+        for shots in shots_by_club.values()
+        if len(shots) < 2
+        for shot in shots
+        if shot.get("_ref") is not None
+    ]
+    ready = sum(1 for shots in shots_by_club.values() if len(shots) >= 2)
+    total = len(shots_by_club)
+    return _with_quality_contract(
+        {
+            "label": "club_samples",
+            "state": "good" if total and ready == total else "partial" if ready else "missing",
+            "ready": ready,
+            "total": total,
+            "refs": low_sample_refs,
+        }
+    )
+
+
 def _data_quality(
     data: HistoryData,
     annotations: list[dict[str, Any]] | None = None,
@@ -1227,6 +1280,8 @@ def _data_quality(
             }
         ),
         _shot_row_quality(data),
+        _putt_quality(data),
+        _club_sample_quality(data, annotations),
         _geometry_quality(hole_rows or []),
         _with_quality_contract(
             {

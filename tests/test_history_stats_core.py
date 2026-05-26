@@ -633,6 +633,11 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(data_quality["shots"]["sourceRefs"], data_quality["shots"]["refs"])
         self.assertEqual(data_quality["shots"]["coverage"], {"ready": 2, "total": 3, "pct": 66.7})
         self.assertEqual(data_quality["shots"]["confidence"], "medium")
+        self.assertEqual(data_quality["putts"]["state"], "good")
+        self.assertEqual(data_quality["putts"]["coverage"], {"ready": 45, "total": 45, "pct": 100.0})
+        self.assertEqual(data_quality["club_samples"]["state"], "partial")
+        self.assertEqual(data_quality["club_samples"]["coverage"], {"ready": 1, "total": 5, "pct": 20.0})
+        self.assertIn("900001:2:2", data_quality["club_samples"]["sourceRefs"])
 
     def test_improvement_pace_compares_baseline_recent_and_slope(self) -> None:
         stats = build_history_stats(improvement_history_data(), data_mode="fixture")
