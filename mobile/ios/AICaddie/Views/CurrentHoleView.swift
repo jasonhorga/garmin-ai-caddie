@@ -9,6 +9,7 @@ public struct CurrentHoleView: View {
     private let requestBuilder = CaddieDecisionRequestBuilder()
     private let caddieClient: CaddieDecisionClient?
     private let mediaUploadClient: MediaUploadClient?
+    private let offlineStore: OfflineStore?
     private let watchBridge: WatchEventBridge?
 
     @StateObject private var locationProvider = LocationProvider()
@@ -32,6 +33,7 @@ public struct CurrentHoleView: View {
         caddieBaseURL: URL? = nil,
         adminToken: String? = nil,
         caddieClient: CaddieDecisionClient? = nil,
+        offlineStore: OfflineStore? = nil,
         watchBridge: WatchEventBridge? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
@@ -40,6 +42,7 @@ public struct CurrentHoleView: View {
         self.onEvent = onEvent
         self.caddieClient = caddieClient ?? caddieBaseURL.map { CaddieDecisionClient(baseURL: $0, adminToken: adminToken) }
         self.mediaUploadClient = caddieBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
+        self.offlineStore = offlineStore
         self.watchBridge = watchBridge
         self._score = State(initialValue: hole.par)
         self._selectedClub = State(initialValue: package.clubProfiles.first?.clubName ?? "")
@@ -117,6 +120,7 @@ public struct CurrentHoleView: View {
                     roundId: package.roundId,
                     hole: hole.number,
                     targetId: caddieContextSeed?.sourceRef ?? "\(package.roundId):\(hole.number)",
+                    offlineStore: offlineStore,
                     uploadClient: mediaUploadClient,
                     onEvent: onEvent
                 )

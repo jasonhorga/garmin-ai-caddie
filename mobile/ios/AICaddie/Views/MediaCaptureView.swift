@@ -6,6 +6,7 @@ public struct MediaCaptureView: View {
     public let roundId: String
     public let hole: Int
     public let targetId: String
+    public let offlineStore: OfflineStore?
     public let uploadClient: MediaUploadClient?
     public let onEvent: (LiveRoundEvent) -> Void
 
@@ -19,12 +20,14 @@ public struct MediaCaptureView: View {
         roundId: String,
         hole: Int,
         targetId: String,
+        offlineStore: OfflineStore? = nil,
         uploadClient: MediaUploadClient? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
         self.roundId = roundId
         self.hole = hole
         self.targetId = targetId
+        self.offlineStore = offlineStore
         self.uploadClient = uploadClient
         self.onEvent = onEvent
     }
@@ -66,34 +69,52 @@ public struct MediaCaptureView: View {
             }
             let capturedAt = formatter.string(from: Date())
             let fileName = "\(targetId.replacingOccurrences(of: ":", with: "-"))-\(mediaKind).bin"
+            let savedMedia: PendingMediaAttachment?
+            if let offlineStore {
+                savedMedia = try offlineStore.savePendingMedia(
+                    data: data,
+                    roundId: roundId,
+                    hole: hole,
+                    targetId: targetId,
+                    mediaKind: mediaKind,
+                    fileName: fileName,
+                    capturedAt: capturedAt
+                )
+            } else {
+                savedMedia = nil
+            }
             let request = MediaCreateRequest(
                 targetType: "hole",
                 targetId: targetId,
                 mediaKind: mediaKind,
-                fileName: fileName,
+                fileName: savedMedia?.fileName ?? fileName,
                 contentBase64: data.base64EncodedString(),
                 capturedAt: capturedAt
             )
             if let uploadClient {
-                _ = try await uploadClient.uploadMedia(request)
+                do {
+                    _ = try await uploadClient.uploadMedia(request)
+                } catch {
+                    // The media bytes are already in OfflineStore; event sync can retry upload later.
+                }
             }
-            emitMediaEvent(mediaKind: mediaKind, fileName: fileName, capturedAt: capturedAt)
+            emitMediaEvent(mediaKind: mediaKind, fileName: savedMedia?.fileName ?? fileName, fileURL: savedMedia?.fileURL, capturedAt: capturedAt)
             statusText = "\(mediaKind.capitalized) attached"
         } catch {
             statusText = "\(mediaKind.capitalized) attach failed"
         }
     }
 
-    private func emitMediaEvent(mediaKind: String, fileName: String, capturedAt: String) {
+    private func emitMediaEvent(mediaKind: String, fileName: String, fileURL: URL?, capturedAt: String) {
         let builder = LiveRoundEventBuilder(
             roundId: roundId,
             idFactory: { UUID().uuidString },
             now: { ISO8601DateFormatter().date(from: capturedAt) ?? Date() }
         )
         if mediaKind == "photo" {
-            onEvent(builder.makePhotoEvent(hole: hole, assetLocalId: fileName, fileURL: nil, note: nil))
+            onEvent(builder.makePhotoEvent(hole: hole, assetLocalId: fileName, fileURL: fileURL, note: nil))
         } else {
-            onEvent(builder.makeVideoEvent(hole: hole, assetLocalId: fileName, fileURL: nil, durationS: nil, note: nil))
+            onEvent(builder.makeVideoEvent(hole: hole, assetLocalId: fileName, fileURL: fileURL, durationS: nil, note: nil))
         }
     }
 }

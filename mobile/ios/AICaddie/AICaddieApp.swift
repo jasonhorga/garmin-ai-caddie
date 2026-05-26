@@ -17,6 +17,7 @@ public struct AICaddieApp: App {
                         syncStatus: model.syncStatus,
                         apiBaseURL: model.apiBaseURL,
                         adminToken: model.adminToken,
+                        offlineStore: model.offlineStore,
                         watchBridge: model.watchBridge,
                         onEvent: model.handleEvent,
                         onSync: {
@@ -44,9 +45,10 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var apiBaseURL: URL?
     @Published public private(set) var adminToken: String?
     public let watchBridge: WatchEventBridge?
+    public let offlineStore: OfflineStore
 
-    private let offlineStore: OfflineStore
     private let syncClient: SyncClient?
+    private let mediaUploadClient: MediaUploadClient?
     private let preferredRoundId: String
 
     public init(
@@ -65,6 +67,7 @@ public final class LiveRoundAppModel: ObservableObject {
         self.watchBridge = watchBridge
         self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
+        self.mediaUploadClient = resolvedAPIBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken) }
     }
 
     public func bootstrap() async {
@@ -107,10 +110,11 @@ public final class LiveRoundAppModel: ObservableObject {
         }
 
         do {
+            let uploadedMediaCount = try await syncPendingMedia(roundId: package.roundId)
             let events = try offlineStore.loadPendingEvents(roundId: package.roundId)
             pendingEventCount = events.count
             guard !events.isEmpty else {
-                syncStatus = "No pending events"
+                syncStatus = uploadedMediaCount > 0 ? "Synced \(uploadedMediaCount) media" : "No pending events"
                 return
             }
             syncStatus = "Syncing \(events.count) events"
@@ -121,10 +125,34 @@ public final class LiveRoundAppModel: ObservableObject {
             )
             try offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()))
             pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
-            syncStatus = result.duplicate ? "Events already synced" : "Synced \(result.accepted) events"
+            let mediaSuffix = uploadedMediaCount > 0 ? ", \(uploadedMediaCount) media" : ""
+            syncStatus = result.duplicate ? "Events already synced" : "Synced \(result.accepted) events\(mediaSuffix)"
         } catch {
             syncStatus = "Sync failed"
         }
+    }
+
+    public func syncPendingMedia(roundId: String) async throws -> Int {
+        guard let mediaUploadClient else {
+            return 0
+        }
+        let pendingMedia = try offlineStore.loadPendingMedia(roundId: roundId)
+        var uploadedIds = Set<String>()
+        for media in pendingMedia {
+            let mediaData = try Data(contentsOf: media.fileURL)
+            let request = MediaCreateRequest(
+                targetType: "hole",
+                targetId: media.targetId,
+                mediaKind: media.mediaKind,
+                fileName: media.fileName,
+                contentBase64: mediaData.base64EncodedString(),
+                capturedAt: media.capturedAt
+            )
+            _ = try await mediaUploadClient.uploadMedia(request)
+            uploadedIds.insert(media.id)
+        }
+        try offlineStore.removePendingMedia(ids: uploadedIds)
+        return uploadedIds.count
     }
 
     private static func defaultAPIBaseURL() -> URL? {

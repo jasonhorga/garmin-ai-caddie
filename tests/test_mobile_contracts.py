@@ -352,7 +352,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let apiBaseURL: URL?", round_home)
         self.assertIn("apiBaseURL: URL? = nil", round_home)
         self.assertIn("caddieBaseURL: apiBaseURL", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, onEvent: onEvent)", round_home)
 
         self.assertIn("caddieBaseURL: URL? = nil", current_hole)
         self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
@@ -394,7 +394,7 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("public let watchBridge: WatchEventBridge?", round_home)
         self.assertIn("watchBridge: WatchEventBridge? = nil", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, onEvent: onEvent)", round_home)
 
         self.assertIn("watchBridge: WatchEventBridge? = nil", current_hole)
         self.assertIn("sendWatchState(decision:", current_hole)
@@ -466,6 +466,39 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("makeVideoEvent", media_view)
         self.assertIn("MediaCaptureView", current_hole)
         self.assertIn("MediaUploadClient", current_hole)
+
+    def test_ios_media_capture_persists_bytes_for_offline_sync(self) -> None:
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        media_view = _read_required_source(self, IOS_DIR / "Views" / "MediaCaptureView.swift")
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+
+        self.assertIn("struct PendingMediaAttachment: Codable", offline_store)
+        self.assertIn("pendingMediaDirectoryURL", offline_store)
+        self.assertIn("pending_media.jsonl", offline_store)
+        self.assertIn("func savePendingMedia", offline_store)
+        self.assertIn("func loadPendingMedia", offline_store)
+        self.assertIn("func removePendingMedia", offline_store)
+        self.assertIn("data.write(to: fileURL, options: [.atomic])", offline_store)
+
+        self.assertIn("public let offlineStore: OfflineStore?", media_view)
+        self.assertIn("offlineStore.savePendingMedia", media_view)
+        self.assertIn("fileURL: savedMedia?.fileURL", media_view)
+        self.assertIn("contentBase64: data.base64EncodedString()", media_view)
+
+        self.assertIn("private let mediaUploadClient: MediaUploadClient?", app_swift)
+        self.assertIn("func syncPendingMedia(roundId: String) async throws -> Int", app_swift)
+        self.assertIn("offlineStore.loadPendingMedia(roundId:", app_swift)
+        self.assertIn("Data(contentsOf: media.fileURL)", app_swift)
+        self.assertIn("mediaUploadClient.uploadMedia", app_swift)
+        self.assertIn("offlineStore.removePendingMedia", app_swift)
+
+        self.assertIn("public let offlineStore: OfflineStore?", round_home)
+        self.assertIn("offlineStore: model.offlineStore", app_swift)
+        self.assertIn("offlineStore: offlineStore", round_home)
+        self.assertIn("offlineStore: OfflineStore? = nil", current_hole)
+        self.assertIn("offlineStore: offlineStore", current_hole)
 
     def test_ios_caddie_decision_client_posts_shared_decision_contract(self) -> None:
         client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
@@ -547,7 +580,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundHomeView: View", round_home)
         self.assertIn("public let onEvent", round_home)
         self.assertIn("syncStatus", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, onEvent: onEvent)", round_home)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)
