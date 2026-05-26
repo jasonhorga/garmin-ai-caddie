@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import type { MobileReconciliationApplyResponse, MobileReconciliationResponse, MobileReconciliationSuggestion } from '../types'
 
 export type MobileReconciliationPanelState =
@@ -50,25 +50,29 @@ export function MobileReconciliationPanel({
   defaultRoundId = '900001',
 }: MobileReconciliationPanelProps) {
   const [roundId, setRoundId] = useState(defaultRoundId)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [roundIdDirty, setRoundIdDirty] = useState(false)
+  const [deselectedKeys, setDeselectedKeys] = useState<string[]>([])
   const readyData = state.status === 'ready' ? state.data : null
   const isApplying = applyState.status === 'applying'
-
-  useEffect(() => {
-    if (!readyData) return
-    setRoundId(readyData.roundId)
-    setSelectedIds(readyData.annotationSuggestions.map((suggestion) => suggestion.id))
-  }, [readyData])
+  const displayRoundId = readyData && !roundIdDirty ? readyData.roundId : roundId
+  const selectedIds = readyData
+    ? readyData.annotationSuggestions
+        .map((suggestion) => suggestion.id)
+        .filter((id) => !deselectedKeys.includes(`${readyData.roundId}:${id}`))
+    : []
 
   function handleLoad(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const trimmed = roundId.trim()
+    const trimmed = displayRoundId.trim()
     if (!trimmed) return
+    setRoundIdDirty(false)
     onLoad(trimmed)
   }
 
   function toggleSuggestion(id: string) {
-    setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+    if (!readyData) return
+    const key = `${readyData.roundId}:${id}`
+    setDeselectedKeys((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]))
   }
 
   function handleApply() {
@@ -90,11 +94,14 @@ export function MobileReconciliationPanel({
         <label htmlFor="mobile-reconcile-round-id">Round ID</label>
         <input
           id="mobile-reconcile-round-id"
-          value={roundId}
-          onChange={(event) => setRoundId(event.target.value)}
+          value={displayRoundId}
+          onChange={(event) => {
+            setRoundIdDirty(true)
+            setRoundId(event.target.value)
+          }}
           spellCheck={false}
         />
-        <button type="submit" disabled={!roundId.trim() || state.status === 'loading'}>
+        <button type="submit" disabled={!displayRoundId.trim() || state.status === 'loading'}>
           {state.status === 'loading' ? 'Reviewing events' : 'Review offline events'}
         </button>
       </form>
