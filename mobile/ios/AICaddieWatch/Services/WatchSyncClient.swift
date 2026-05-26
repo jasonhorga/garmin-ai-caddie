@@ -116,6 +116,16 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             try? self?.queueInputEvent(event)
         }
     }
+
+    private func receiveStatePayload(_ state: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(state),
+              let data = try? JSONSerialization.data(withJSONObject: state),
+              let decoded = try? decoder.decode(WatchRoundState.self, from: data)
+        else {
+            return
+        }
+        receiveState(decoded)
+    }
 }
 
 extension WatchSyncClient: WCSessionDelegate {
@@ -136,13 +146,16 @@ extension WatchSyncClient: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        guard let state = message["state"] as? [String: Any],
-              JSONSerialization.isValidJSONObject(state),
-              let data = try? JSONSerialization.data(withJSONObject: state),
-              let decoded = try? decoder.decode(WatchRoundState.self, from: data)
-        else {
+        guard let state = message["state"] as? [String: Any] else {
             return
         }
-        receiveState(decoded)
+        receiveStatePayload(state)
+    }
+
+    public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        guard let state = userInfo["state"] as? [String: Any] else {
+            return
+        }
+        receiveStatePayload(state)
     }
 }

@@ -27,7 +27,11 @@ public final class SyncClient {
 
     public func fetchRoundPackage(roundId: String) async throws -> LiveRoundPackage {
         let url = baseURL.appendingPathComponent("/api/v2/mobile/rounds/\(roundId)/package")
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url)
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
         try validate(response: response)
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }

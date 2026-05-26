@@ -124,6 +124,59 @@ def _reconciliation_apply_response() -> dict[str, object]:
     }
 
 
+def _mobile_package_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-live-round-package-v1",
+        "roundId": "live-round-1",
+        "playerProfile": {"playerId": "player-1", "displayName": "Test Player", "handedness": "right"},
+        "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
+        "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
+        "geometryCoverage": {"state": "partial", "readyHoles": 12, "totalHoles": 18},
+        "caddieContextSeeds": [],
+        "weatherSnapshot": {
+            "schema": "ai-caddie-weather-snapshot-v1",
+            "state": "missing",
+            "source": "missing",
+            "confidence": "low",
+            "missingData": [],
+        },
+        "clubProfiles": [],
+        "caddieDecisionEndpoint": "/api/v2/caddie/decision",
+        "offlinePackageStatus": {
+            "state": "ready",
+            "preparedAt": "2026-05-25T00:00:00Z",
+            "expiresAt": "2026-05-26T00:00:00Z",
+            "cachePolicy": {"staleAfterHours": 6, "expiresAfterHours": 24},
+        },
+        "eventCursor": {"serverSequence": 0, "pendingEventCount": 0},
+        "recentHistory": {"course": {}, "holes": []},
+        "cachedCaddieRules": {"decisionContract": "ai-caddie-decision-v2", "offlineCapable": True},
+        "generatedAt": "2026-05-25T00:00:00Z",
+    }
+
+
+def _reconciliation_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-mobile-reconciliation-v1",
+        "roundId": "live-round-1",
+        "summary": {
+            "eventCount": 0,
+            "matchedCount": 0,
+            "localOnlyCount": 0,
+            "garminOnlyCount": 0,
+            "conflictCount": 0,
+            "candidateDecisionAuditCount": 0,
+            "annotationSuggestionCount": 0,
+        },
+        "matched": [],
+        "localOnly": [],
+        "garminOnly": [],
+        "conflicts": [],
+        "candidateDecisionAudits": [],
+        "annotationSuggestions": [],
+    }
+
+
 def _weather_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-weather-snapshot-v1",
@@ -261,6 +314,25 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         round_report_handler.assert_not_called()
         trend_report_handler.assert_not_called()
 
+    def test_admin_token_required_for_mobile_package_and_reconciliation_reads_when_configured(self) -> None:
+        client = TestClient(app)
+        package_handler = Mock(return_value=_mobile_package_response())
+        reconciliation_handler = Mock(return_value=_reconciliation_response())
+
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_mobile_round_package_response", package_handler),
+            patch("server_v2.main.reconcile_mobile_round_response", reconciliation_handler),
+        ):
+            package = client.get("/api/v2/mobile/rounds/live-round-1/package")
+            reconciliation = client.get("/api/v2/mobile/rounds/live-round-1/reconciliation")
+
+        self.assertEqual(package.status_code, 401)
+        self.assertEqual(reconciliation.status_code, 401)
+        package_handler.assert_not_called()
+        reconciliation_handler.assert_not_called()
+        self.assertNotIn("admin-secret", package.text + reconciliation.text)
+
     def test_protected_routes_accept_valid_admin_token_when_configured(self) -> None:
         client = TestClient(app)
 
@@ -271,6 +343,8 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
             patch("server_v2.main.create_annotation_response", return_value=_annotation_response()),
             patch("server_v2.main.create_media_response", return_value=_media_response()),
             patch("server_v2.main.analyze_media_response", return_value=_vision_response()),
+            patch("server_v2.main.build_mobile_round_package_response", return_value=_mobile_package_response()),
+            patch("server_v2.main.reconcile_mobile_round_response", return_value=_reconciliation_response()),
             patch("server_v2.main.append_mobile_events_response", return_value={"accepted": 1, "duplicate": False}),
             patch("server_v2.main.apply_mobile_round_reconciliation_response", return_value=_reconciliation_apply_response()),
             patch("server_v2.main.load_weather_snapshot_response", return_value=_weather_response()),
@@ -312,6 +386,8 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
                     headers={**ADMIN_HEADER, "Idempotency-Key": "batch-1"},
                     json=_event_batch(),
                 ),
+                client.get("/api/v2/mobile/rounds/live-round-1/package", headers=ADMIN_HEADER),
+                client.get("/api/v2/mobile/rounds/live-round-1/reconciliation", headers=ADMIN_HEADER),
                 client.post(
                     "/api/v2/mobile/rounds/live-round-1/reconciliation/apply",
                     headers=ADMIN_HEADER,

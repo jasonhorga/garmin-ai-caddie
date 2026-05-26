@@ -116,7 +116,11 @@ def _truthy_query_flag(value: str | None) -> bool:
 def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> bool:
     normalized_method = method.upper()
     if normalized_method == "GET":
-        return path == "/api/v2/weather/snapshot" and _truthy_query_flag(query_params.get("persist"))
+        return (
+            (path == "/api/v2/weather/snapshot" and _truthy_query_flag(query_params.get("persist")))
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
+        )
     if normalized_method != "POST":
         return False
     exact_paths = {
