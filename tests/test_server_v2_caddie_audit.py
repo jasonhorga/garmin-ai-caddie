@@ -105,6 +105,37 @@ class ServerV2CaddieAuditTests(unittest.TestCase):
         self.assertNotIn("shot-secret", response.text)
         self.assertNotIn("/home/ubuntu", response.text)
 
+    def test_decision_audit_latest_sanitizes_private_id_and_finds_record(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.caddie.DECISION_AUDIT_ROOT", root):
+                create_response = client.post(
+                    "/api/v2/caddie/decisions/token=abc123/audit",
+                    json={
+                        "decision": {
+                            "decisionId": "token=abc123",
+                            "sourceRef": "fixture-round:4",
+                            "phase": "Approach",
+                            "selectedOptionId": "stock",
+                            "selectedOption": {"id": "stock"},
+                            "evidenceRefs": ["fixture-round:4"],
+                            "confidence": {"level": "medium"},
+                        },
+                        "actualShot": None,
+                    },
+                )
+                latest_response = client.get("/api/v2/caddie/decisions/token=abc123/audit/latest")
+
+        self.assertEqual(create_response.status_code, 200)
+        self.assertEqual(latest_response.status_code, 200)
+        payload = latest_response.json()
+        self.assertEqual(payload["decisionId"], "redacted-decision")
+        self.assertIsNotNone(payload["record"])
+        self.assertEqual(payload["record"]["decisionId"], "redacted-decision")
+        self.assertNotIn("abc123", latest_response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -38,6 +39,10 @@ VISION_HAZARD_TYPES = {
 SOURCE_REF_KEYS = {"sourceRef", "sourceRefs", "refs", "roundRef", "roundRefs", "holeRef", "holeRefs", "shotRef", "shotRefs"}
 AUDIT_REF_KEYS = SOURCE_REF_KEYS | {"decisionSourceRef", "evidenceRefs", "actualShotRefs"}
 UNSAFE_REF_MARKERS = ("cookie", "csrf", "password", "secret", "token", "/home/", "\\", "\n", "\r")
+PRIVATE_PATH_PATTERNS = (
+    re.compile(r"/(?:home|Users|tmp|var|private)/[^\s,;)]+"),
+    re.compile(r"[A-Za-z]:\\[^\s,;)]+"),
+)
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -170,11 +175,14 @@ def _sanitize_audit_value(value: Any, *, key: str | None = None) -> Any:
     if isinstance(value, list):
         return [_sanitize_audit_value(item) for item in value]
     if isinstance(value, str):
-        return redact_secret_text(value)
+        redacted = redact_secret_text(value)
+        for pattern in PRIVATE_PATH_PATTERNS:
+            redacted = pattern.sub("[REDACTED_PATH]", redacted)
+        return redacted
     return value
 
 
-def _sanitize_decision_id(value: Any) -> str:
+def normalize_decision_audit_id(value: Any) -> str:
     return _safe_ref(value) or "redacted-decision"
 
 
@@ -193,7 +201,7 @@ def store_decision_audit(
     record = {
         "id": uuid4().hex,
         "storedAt": _stored_at(),
-        "decisionId": _sanitize_decision_id(decision_id),
+        "decisionId": normalize_decision_audit_id(decision_id),
         "sourceRef": safe_audit.get("decisionSourceRef"),
         "selectedOptionId": safe_audit.get("selectedOptionId") or safe_audit.get("plannedOptionId"),
         "plannedOptionId": safe_audit.get("plannedOptionId"),
@@ -222,7 +230,8 @@ def list_decision_audits(*, root: Path | str | None = None) -> list[dict[str, An
 
 
 def latest_decision_audit(decision_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
-    matches = [row for row in list_decision_audits(root=root) if str(row.get("decisionId")) == str(decision_id)]
+    normalized_id = normalize_decision_audit_id(decision_id)
+    matches = [row for row in list_decision_audits(root=root) if str(row.get("decisionId")) == normalized_id]
     if not matches:
         return None
     return sorted(matches, key=lambda row: str(row.get("storedAt") or ""))[-1]

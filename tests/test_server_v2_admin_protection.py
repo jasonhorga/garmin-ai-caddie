@@ -333,6 +333,24 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         reconciliation_handler.assert_not_called()
         self.assertNotIn("admin-secret", package.text + reconciliation.text)
 
+    def test_mobile_package_and_reconciliation_reads_remain_public_without_admin_token(self) -> None:
+        client = TestClient(app)
+        package_handler = Mock(return_value=_mobile_package_response())
+        reconciliation_handler = Mock(return_value=_reconciliation_response())
+
+        with (
+            patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": ""}),
+            patch("server_v2.main.build_mobile_round_package_response", package_handler),
+            patch("server_v2.main.reconcile_mobile_round_response", reconciliation_handler),
+        ):
+            package = client.get("/api/v2/mobile/rounds/live-round-1/package")
+            reconciliation = client.get("/api/v2/mobile/rounds/live-round-1/reconciliation")
+
+        self.assertEqual(package.status_code, 200)
+        self.assertEqual(reconciliation.status_code, 200)
+        package_handler.assert_called_once_with("live-round-1")
+        reconciliation_handler.assert_called_once_with("live-round-1")
+
     def test_protected_routes_accept_valid_admin_token_when_configured(self) -> None:
         client = TestClient(app)
 

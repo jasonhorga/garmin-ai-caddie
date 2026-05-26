@@ -494,6 +494,32 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertNotIn("shot-secret", raw)
         self.assertNotIn("/home/ubuntu", raw)
 
+    def test_decision_audit_redacts_nested_private_paths_before_storage(self) -> None:
+        audit = {
+            "schema": "ai-caddie-decision-audit-v1",
+            "decisionId": "decision-1",
+            "decisionSourceRef": "900001:4",
+            "plannedOptionId": "stock",
+            "evidenceRefs": ["900001:4"],
+            "actualShotRefs": [],
+            "classification": "info_gap",
+            "result": {
+                "note": "tmp=/tmp/private-media/lie.jpg windows=C:\\Users\\player\\secret.txt private=/private/var/token.txt",
+            },
+        }
+
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_decision_audit(audit, decision_id="decision-1", root=root)
+            raw = (root / "data" / "decision_audits" / "decision_audits.jsonl").read_text(encoding="utf-8")
+
+        self.assertNotIn("/tmp/private-media", raw)
+        self.assertNotIn("C:\\Users\\player", raw)
+        self.assertNotIn("/private/var", raw)
+
     def test_hole_summary_exposes_decision_audit(self) -> None:
         shot = {
             "shotOrder": 1,

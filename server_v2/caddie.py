@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ai_caddie.caddie_context import build_caddie_context
-from ai_caddie.decision import audit_decision, latest_decision_audit, store_decision_audit
+from ai_caddie.decision import audit_decision, latest_decision_audit, normalize_decision_audit_id, store_decision_audit
 from ai_caddie.decision_api import build_decision_from_request
 
 from .annotations import ANNOTATION_ROOT
@@ -65,6 +65,6 @@ def latest_decision_audit_response(decision_id: str) -> CaddieDecisionAuditLates
     record = latest_decision_audit(decision_id, root=DECISION_AUDIT_ROOT)
     return CaddieDecisionAuditLatestResponse(
         schema="ai-caddie-decision-audit-latest-v1",
-        decisionId=decision_id,
+        decisionId=normalize_decision_audit_id(decision_id),
         record=_audit_record(record),
     )
