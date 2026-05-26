@@ -31,6 +31,31 @@ def improvement_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=[])
 
 
+def issue_detection_history_data() -> HistoryData:
+    round_row = {
+        "id": "issues-1",
+        "date": "2026-05-25",
+        "course": "Issue Course",
+        "courseKey": "issue_course",
+        "holesCompleted": 3,
+        "strokes": 16,
+        "par": 12,
+        "holePars": "444",
+        "holes": [
+            {"number": 1, "strokes": 4, "par": 4, "putts": 3, "fairway": "left"},
+            {"number": 2, "strokes": 5, "par": 4, "putts": None, "fairway": "right"},
+            {"number": 3, "strokes": 7, "par": 4, "putts": 2, "fairway": "hit"},
+        ],
+        "hasShots": True,
+    }
+    shots = [
+        {"roundId": "issues-1", "hole": 1, "club": "6I", "distance": 150, "surface": "fairway"},
+        {"roundId": "issues-1", "hole": 2, "club": "6I", "distance": 152, "surface": "fairway"},
+        {"roundId": "issues-1", "hole": 3, "club": "LW", "distance": 40, "surface": "green"},
+    ]
+    return HistoryData(raw_rounds=[{"id": "issues-1", "hasShots": True}], rounds=[round_row], shots=shots)
+
+
 class HistoryStatsCoreTests(unittest.TestCase):
     def test_stats_cover_required_dimensions(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
@@ -143,6 +168,20 @@ class HistoryStatsCoreTests(unittest.TestCase):
         manual_issue = next(row for row in hole["repeatedIssues"] if row["issue"] == "approach_short")
         self.assertEqual(manual_issue["source"], "manual")
         self.assertEqual(manual_issue["refs"], ["900001:7"])
+
+    def test_deterministic_issue_detection_covers_putting_tee_geometry_and_club_confidence(self) -> None:
+        stats = build_history_stats(issue_detection_history_data(), data_mode="fixture")
+
+        issues = {row["issue"]: row for row in stats["issues"]}
+        self.assertEqual(issues["three_putt"]["refs"], ["issues-1:1"])
+        self.assertEqual(issues["missing_putt_data"]["refs"], ["issues-1:2"])
+        self.assertEqual(issues["fairway_missed_left"]["refs"], ["issues-1:1"])
+        self.assertEqual(issues["fairway_missed_right"]["refs"], ["issues-1:2"])
+        self.assertEqual(issues["missing_geometry"]["refs"], ["issues-1:1", "issues-1:2", "issues-1:3"])
+        self.assertEqual(issues["low_confidence_club"]["refs"], ["issues-1:3:2"])
+        self.assertEqual(issues["weak_sample_size"]["refs"], ["issues-1:1:0", "issues-1:2:1"])
+        self.assertEqual(issues["three_putt"]["phase"], "Putting")
+        self.assertEqual(issues["low_confidence_club"]["phase"], "Club Confidence")
 
     def test_manual_issue_tags_appear_in_stats_and_data_quality(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -810,19 +810,60 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
 
 def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     refs: dict[str, list[str]] = defaultdict(list)
+
+    def add_ref(issue: str, ref: str) -> None:
+        if ref and ref not in refs[issue]:
+            refs[issue].append(ref)
+
     for row in data.rounds:
         if not row.get("hasShots"):
-            refs["missing_shots"].append(_round_id(row))
+            add_ref("missing_shots", _round_id(row))
+        has_geometry_identity = _global_id(row) is not None or row.get("courseId") is not None
         hole_pars = str(row.get("holePars") or "")
         for hole in row.get("holes") or []:
             number = int(hole.get("number") or 0)
+            hole_ref = f"{_round_id(row)}:{number}" if number else ""
             par = _hole_to_par(hole, _par_from_string(hole_pars, number))
             score = hole.get("strokes")
             if number and par is not None and score is not None and int(score) - int(par) >= 2:
-                refs["double_or_worse"].append(f"{_round_id(row)}:{number}")
-    for shot in _effective_shots(data, annotations):
+                add_ref("double_or_worse", hole_ref)
+            if not number:
+                continue
+            try:
+                putts = int(hole.get("putts"))
+                if putts >= 3:
+                    add_ref("three_putt", hole_ref)
+            except (TypeError, ValueError):
+                if score is not None:
+                    add_ref("missing_putt_data", hole_ref)
+            fairway = str(hole.get("fairway") or "").strip().lower()
+            if fairway in {"left", "miss_left", "missed_left", "fairway_left"}:
+                add_ref("fairway_missed_left", hole_ref)
+            elif fairway in {"right", "miss_right", "missed_right", "fairway_right"}:
+                add_ref("fairway_missed_right", hole_ref)
+            if not has_geometry_identity:
+                add_ref("missing_geometry", hole_ref)
+
+    effective_shots = _effective_shots(data, annotations)
+    for shot in effective_shots:
         if str(shot.get("surface") or "").lower() in {"water", "bunker", "rough"}:
-            refs["hazard_result"].append(f"{shot.get('roundId')}:{shot.get('hole')}")
+            add_ref("hazard_result", f"{shot.get('roundId')}:{shot.get('hole')}")
+
+    shots_by_club: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for shot in effective_shots:
+        if shot.get("distance") is None:
+            continue
+        club = str(shot.get("club") or shot.get("clubName") or "Unknown")
+        shots_by_club[club].append(shot)
+    for shots in shots_by_club.values():
+        shot_refs = sorted(str(shot.get("_ref")) for shot in shots if shot.get("_ref") is not None)
+        if len(shots) < 2:
+            for ref in shot_refs:
+                add_ref("low_confidence_club", ref)
+        elif len(shots) < 10:
+            for ref in shot_refs:
+                add_ref("weak_sample_size", ref)
+
     rows = [issue_record(issue, items, source="deterministic") for issue, items in sorted(refs.items())]
     manual_refs: dict[str, list[str]] = defaultdict(list)
     for record in annotations or []:
