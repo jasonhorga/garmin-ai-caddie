@@ -104,7 +104,17 @@ extension WatchSyncClient: WCSessionDelegate {
         _ session: WCSession,
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
-    ) {}
+    ) {
+        if activationState == .activated, session.isReachable {
+            try? flushQueue()
+        }
+    }
+
+    public func sessionReachabilityDidChange(_ session: WCSession) {
+        if session.isReachable {
+            try? flushQueue()
+        }
+    }
 
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         guard let state = message["state"] as? [String: Any],
