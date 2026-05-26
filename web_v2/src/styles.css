@@ -1025,6 +1025,25 @@ p {
   gap: 10px;
 }
 
+.diagnosis-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.compact-head {
+  min-height: auto;
+  padding-block: 4px;
+}
+
+.compact-head h2 {
+  font-size: 18px;
+}
+
+.diagnosis-item {
+  background: #f8faf7;
+}
+
 .stats-item {
   min-width: 0;
   display: grid;

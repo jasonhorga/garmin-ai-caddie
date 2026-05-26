@@ -459,6 +459,137 @@ def _improvement_stats(data: HistoryData) -> dict[str, Any]:
     }
 
 
+ISSUE_STROKE_WEIGHTS: dict[str, float] = {
+    "double_or_worse": 1.5,
+    "hazard_result": 1.2,
+    "water": 1.2,
+    "ob": 2.0,
+    "three_putt": 1.0,
+    "approach_short": 0.8,
+    "approach_long": 0.8,
+    "approach_left": 0.8,
+    "approach_right": 0.8,
+    "bunker": 0.7,
+    "rough": 0.4,
+    "fairway_missed_left": 0.3,
+    "fairway_missed_right": 0.3,
+    "tee_miss": 0.5,
+    "wrong_club": 0.8,
+    "blocked_view": 0.6,
+    "recovery_failed": 1.0,
+}
+
+
+def _issue_weight(issue: str) -> float:
+    return ISSUE_STROKE_WEIGHTS.get(issue, 0.5)
+
+
+def _ref_round_id(ref: Any) -> str:
+    return str(ref).split(":", 1)[0]
+
+
+def _round_refs_by_date(data: HistoryData) -> list[str]:
+    rows = sorted(data.rounds, key=lambda row: (str(row.get("date") or ""), _round_id(row)))
+    return [_round_id(row) for row in rows]
+
+
+def _diagnosis_direction(baseline_count: int, recent_count: int) -> str:
+    delta = recent_count - baseline_count
+    if baseline_count == 0 and recent_count > 0:
+        return "new"
+    if delta > 0:
+        return "worsening"
+    if delta < 0:
+        return "improving"
+    return "flat"
+
+
+def _diagnosis(data: HistoryData, issue_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    round_refs = _round_refs_by_date(data)
+    window_size = min(5, max(2, len(round_refs) // 2)) if len(round_refs) >= 2 else len(round_refs)
+    baseline_round_refs = round_refs[:window_size]
+    recent_round_refs = round_refs[-window_size:] if window_size else []
+    baseline_set = set(baseline_round_refs)
+    recent_set = set(recent_round_refs)
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in issue_rows:
+        issue = str(row.get("issue") or "").strip().lower()
+        if not issue:
+            continue
+        target = grouped.setdefault(
+            issue,
+            {
+                "issue": issue,
+                "phase": row.get("phase"),
+                "reason": row.get("reason"),
+                "confidence": row.get("confidence"),
+                "sources": set(),
+                "refs": [],
+            },
+        )
+        source = str(row.get("source") or "").strip()
+        if source:
+            target["sources"].add(source)
+        for ref in row.get("sourceRefs") or row.get("refs") or []:
+            ref_text = str(ref)
+            if ref_text and ref_text not in target["refs"]:
+                target["refs"].append(ref_text)
+
+    trends: list[dict[str, Any]] = []
+    for issue, row in grouped.items():
+        refs = _source_refs(row["refs"])
+        baseline_refs = [ref for ref in refs if _ref_round_id(ref) in baseline_set]
+        recent_refs = [ref for ref in refs if _ref_round_id(ref) in recent_set]
+        if not baseline_refs and not recent_refs:
+            continue
+        baseline_count = len(baseline_refs)
+        recent_count = len(recent_refs)
+        delta_count = recent_count - baseline_count
+        weight = _issue_weight(issue)
+        estimated_impact = round(delta_count * weight, 1)
+        sources = sorted(row["sources"])
+        trends.append(
+            {
+                "issue": issue,
+                "phase": row.get("phase"),
+                "reason": row.get("reason"),
+                "source": sources[0] if len(sources) == 1 else "mixed",
+                "sources": sources,
+                "confidence": _confidence(len(refs)),
+                "baselineCount": baseline_count,
+                "recentCount": recent_count,
+                "deltaCount": delta_count,
+                "baselineRatePerRound": round(baseline_count / window_size, 2) if window_size else 0.0,
+                "recentRatePerRound": round(recent_count / window_size, 2) if window_size else 0.0,
+                "deltaRatePerRound": round(delta_count / window_size, 2) if window_size else 0.0,
+                "strokeWeight": weight,
+                "estimatedStrokesImpact": estimated_impact,
+                "estimatedStrokesLost": round(max(0.0, estimated_impact), 1),
+                "direction": _diagnosis_direction(baseline_count, recent_count),
+                "baselineRefs": baseline_refs,
+                "recentRefs": recent_refs,
+                "sourceRefs": refs,
+            }
+        )
+
+    trends.sort(
+        key=lambda row: (
+            -float(row["estimatedStrokesLost"]),
+            -abs(float(row["deltaRatePerRound"])),
+            -int(row["recentCount"]),
+            str(row["issue"]),
+        )
+    )
+    return {
+        "windowSize": window_size,
+        "baselineRoundRefs": baseline_round_refs,
+        "recentRoundRefs": recent_round_refs,
+        "issueTrends": trends,
+        "topIssue": trends[0] if trends else None,
+    }
+
+
 def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     bands: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
@@ -1338,6 +1469,7 @@ def build_history_stats(
     report_records = list_report_records(root=reports_root)
     scored_data = _effective_score_data(data, annotations)
     hole_rows = _holes(scored_data, annotations)
+    issue_rows = _issues(data, annotations)
     return {
         "schema": "ai-caddie-history-stats-v1",
         "dataMode": data_mode,
@@ -1349,7 +1481,8 @@ def build_history_stats(
         "courses": _courses(scored_data),
         "holes": hole_rows,
         "clubs": _clubs(data, annotations),
-        "issues": _issues(data, annotations),
+        "issues": issue_rows,
+        "diagnosis": _diagnosis(scored_data, issue_rows),
         "dataQuality": _data_quality(data, annotations, weather_snapshots, hole_rows, report_records),
         "drillDown": build_drilldown_index(data),
     }

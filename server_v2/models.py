@@ -240,6 +240,7 @@ class HistoryStatsResponse(BaseModel):
     holes: list[dict[str, Any]]
     clubs: list[dict[str, Any]]
     issues: list[dict[str, Any]]
+    diagnosis: dict[str, Any]
     dataQuality: list[dict[str, Any]]
     drillDown: dict[str, Any]
 

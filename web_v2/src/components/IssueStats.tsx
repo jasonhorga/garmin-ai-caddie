@@ -1,6 +1,6 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
-import { asString, formatNumber, semanticClass } from './statsValues'
+import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface IssueStatsProps {
   data: HistoryStatsResponse
@@ -8,6 +8,8 @@ interface IssueStatsProps {
 }
 
 export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
+  const issueTrends = asRows(data.diagnosis?.issueTrends)
+
   return (
     <section className="stats-page" aria-label="Issue statistics">
       <div className="section-head stats-head">
@@ -17,6 +19,42 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
           <p>Detected issue counts with drill-down references.</p>
         </div>
       </div>
+      {issueTrends.length > 0 ? (
+        <div className="diagnosis-panel" aria-label="Issue trend diagnosis">
+          <div className="section-head compact-head">
+            <div>
+              <p className="eyebrow">Trend Diagnosis</p>
+              <h2>Recent Cost Drivers</h2>
+            </div>
+          </div>
+          <div className="stats-list">
+            {issueTrends.slice(0, 5).map((trend) => {
+              const issue = asString(trend.issue) ?? 'unknown_issue'
+              const estimated = asNumber(trend.estimatedStrokesLost)
+              return (
+                <article key={issue} className="stats-item diagnosis-item">
+                  <div className="stats-item-main">
+                    <h2>{issue}</h2>
+                    <p>
+                      <SourceRefs refs={trend.recentRefs ?? trend.sourceRefs} onSelectRef={onSelectRef} />
+                    </p>
+                  </div>
+                  <div className="stats-item-facts">
+                    {asString(trend.phase) ? <span>{asString(trend.phase)}</span> : null}
+                    {asString(trend.direction) ? (
+                      <span className={`semantic-chip ${semanticClass('trend', trend.direction)}`}>
+                        {asString(trend.direction)}
+                      </span>
+                    ) : null}
+                    <span>{estimated === null ? '- est. strokes' : `${estimated.toFixed(1)} est. strokes`}</span>
+                  </div>
+                  <strong className="stats-count">{formatSigned(trend.deltaCount)}</strong>
+                </article>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
       <div className="stats-list">
         {data.issues.length === 0 ? (
           <article className="stats-empty">

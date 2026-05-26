@@ -363,6 +363,7 @@ export interface HistoryStatsResponse {
   holes: Array<Record<string, unknown>>
   clubs: Array<Record<string, unknown>>
   issues: Array<Record<string, unknown>>
+  diagnosis?: Record<string, unknown>
   dataQuality: Array<Record<string, unknown>>
   drillDown: Record<string, unknown>
 }

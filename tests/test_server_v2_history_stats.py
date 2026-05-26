@@ -38,6 +38,8 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertEqual(black_knight["roundRefs"], ["900001", "900002"])
         self.assertEqual(payload["records"]["best18"]["roundRef"], "900001")
         self.assertEqual(payload["records"]["longestShots"][0]["shotRef"], "900001:1:0")
+        self.assertIn("diagnosis", payload)
+        self.assertIn("issueTrends", payload["diagnosis"])
         quality_labels = {row["label"] for row in payload["dataQuality"]}
         self.assertGreaterEqual(quality_labels, {"geometry", "reports"})
         self.assertIn("drillDown", payload)

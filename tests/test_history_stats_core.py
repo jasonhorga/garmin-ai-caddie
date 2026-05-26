@@ -121,6 +121,36 @@ def missing_shot_rows_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=shots)
 
 
+def issue_trend_history_data() -> HistoryData:
+    rounds = []
+    for index in range(6):
+        round_id = f"trend-issue-{index + 1}"
+        recent = index >= 3
+        rounds.append(
+            {
+                "id": round_id,
+                "date": f"2026-05-{index + 1:02d}",
+                "course": "Issue Trend Course",
+                "courseKey": "issue_trend_course",
+                "holesCompleted": 18,
+                "strokes": 84 + index,
+                "par": 72,
+                "holePars": "444444444444444444",
+                "holes": [
+                    {
+                        "number": 7,
+                        "strokes": 5,
+                        "par": 4,
+                        "putts": 3 if recent else 2,
+                        "fairway": "hit",
+                    }
+                ],
+                "hasShots": True,
+            }
+        )
+    return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=[])
+
+
 class HistoryStatsCoreTests(unittest.TestCase):
     def test_stats_cover_required_dimensions(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
@@ -134,6 +164,7 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertIn("holes", stats)
         self.assertIn("clubs", stats)
         self.assertIn("issues", stats)
+        self.assertIn("diagnosis", stats)
         self.assertIn("records", stats)
         self.assertIn("dataQuality", stats)
         self.assertIn("drillDown", stats)
@@ -656,6 +687,45 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(improvement["strokesPerRoundTrend"], -3.03)
         self.assertEqual(improvement["baselineRoundRefs"], ["improve-1", "improve-2", "improve-3"])
         self.assertEqual(improvement["recentRoundRefs"], ["improve-4", "improve-5", "improve-6"])
+
+    def test_diagnosis_ranks_recent_issue_trends_by_estimated_strokes_lost(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation("hole", "trend-issue-5:7", "issue_tag", {"tag": "approach_short"}, root=root)
+            add_annotation("hole", "trend-issue-6:7", "issue_tag", {"tag": "approach_short"}, root=root)
+
+            stats = build_history_stats(issue_trend_history_data(), data_mode="fixture", annotations_root=root)
+
+        diagnosis = stats["diagnosis"]
+        self.assertEqual(diagnosis["windowSize"], 3)
+        self.assertEqual(diagnosis["baselineRoundRefs"], ["trend-issue-1", "trend-issue-2", "trend-issue-3"])
+        self.assertEqual(diagnosis["recentRoundRefs"], ["trend-issue-4", "trend-issue-5", "trend-issue-6"])
+
+        trends = diagnosis["issueTrends"]
+        self.assertGreaterEqual(len(trends), 2)
+        self.assertEqual([row["issue"] for row in trends[:2]], ["three_putt", "approach_short"])
+
+        putting = trends[0]
+        self.assertEqual(putting["phase"], "Putting")
+        self.assertEqual(putting["baselineCount"], 0)
+        self.assertEqual(putting["recentCount"], 3)
+        self.assertEqual(putting["deltaCount"], 3)
+        self.assertEqual(putting["estimatedStrokesLost"], 3.0)
+        self.assertEqual(putting["baselineRefs"], [])
+        self.assertEqual(
+            putting["recentRefs"],
+            ["trend-issue-4:7", "trend-issue-5:7", "trend-issue-6:7"],
+        )
+        self.assertEqual(putting["sourceRefs"], putting["recentRefs"])
+        self.assertEqual(putting["direction"], "new")
+
+        approach = trends[1]
+        self.assertEqual(approach["phase"], "Approach")
+        self.assertEqual(approach["source"], "manual")
+        self.assertEqual(approach["recentCount"], 2)
+        self.assertEqual(approach["deltaCount"], 2)
+        self.assertEqual(approach["estimatedStrokesLost"], 1.6)
+        self.assertEqual(approach["recentRefs"], ["trend-issue-5:7", "trend-issue-6:7"])
 
     def test_record_book_exposes_drilldown_ready_personal_bests(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
