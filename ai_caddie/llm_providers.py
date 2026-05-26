@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -18,11 +19,32 @@ class LLMMessage:
     content: str
 
 
+@dataclass(frozen=True)
+class LLMMediaPart:
+    media_type: Literal["image", "video"]
+    mime_type: str
+    data: bytes
+
+
 @runtime_checkable
 class TextProvider(Protocol):
     model: str
 
     def chat(self, messages: Iterable[LLMMessage], max_tokens: int | None = None) -> str: ...
+
+
+@runtime_checkable
+class MultimodalProvider(Protocol):
+    model: str
+
+    def chat(self, messages: Iterable[LLMMessage], max_tokens: int | None = None) -> str: ...
+
+    def chat_multimodal(
+        self,
+        messages: Iterable[LLMMessage],
+        media_parts: Iterable[LLMMediaPart],
+        max_tokens: int | None = None,
+    ) -> str: ...
 
 
 def redact_secret_text(text: object) -> str:
@@ -55,6 +77,16 @@ class StaticProvider:
 
     def chat(self, messages: Iterable[LLMMessage], max_tokens: int | None = None) -> str:
         list(messages)
+        return self.reply
+
+    def chat_multimodal(
+        self,
+        messages: Iterable[LLMMessage],
+        media_parts: Iterable[LLMMediaPart],
+        max_tokens: int | None = None,
+    ) -> str:
+        list(messages)
+        list(media_parts)
         return self.reply
 
 
@@ -108,17 +140,49 @@ class GeminiApiKeyProvider:
         self.base_url = base_url.rstrip("/")
         self.model = model
 
-    def chat(self, messages: Iterable[LLMMessage], max_tokens: int | None = None) -> str:
+    @staticmethod
+    def _inline_data_part(media_part: LLMMediaPart) -> dict[str, object]:
+        return {
+            "inline_data": {
+                "mime_type": media_part.mime_type,
+                "data": base64.b64encode(media_part.data).decode("ascii"),
+            }
+        }
+
+    def _contents_from_messages(
+        self,
+        messages: Iterable[LLMMessage],
+        media_parts: Iterable[LLMMediaPart] = (),
+    ) -> tuple[str, list[dict[str, object]]]:
         message_list = list(messages)
         system_text = "\n\n".join(item.content for item in message_list if item.role == "system")
-        contents = [
-            {
-                "role": "model" if item.role == "assistant" else "user",
-                "parts": [{"text": item.content}],
-            }
-            for item in message_list
-            if item.role != "system"
-        ]
+        inline_parts = [self._inline_data_part(item) for item in media_parts]
+        media_attached = not inline_parts
+        contents: list[dict[str, object]] = []
+        for item in message_list:
+            if item.role == "system":
+                continue
+            parts: list[dict[str, object]] = [{"text": item.content}]
+            if item.role == "user" and not media_attached:
+                parts.extend(inline_parts)
+                media_attached = True
+            contents.append(
+                {
+                    "role": "model" if item.role == "assistant" else "user",
+                    "parts": parts,
+                }
+            )
+        if not media_attached:
+            contents.append({"role": "user", "parts": inline_parts})
+        return system_text, contents
+
+    def _generate_content(
+        self,
+        messages: Iterable[LLMMessage],
+        max_tokens: int | None = None,
+        media_parts: Iterable[LLMMediaPart] = (),
+    ) -> str:
+        system_text, contents = self._contents_from_messages(messages, media_parts)
         payload: dict[str, object] = {
             "contents": contents,
             "generationConfig": {"maxOutputTokens": max_tokens or 1800},
@@ -144,6 +208,17 @@ class GeminiApiKeyProvider:
             return str(body["candidates"][0]["content"]["parts"][0]["text"])
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderRuntimeError("Gemini response did not include candidates[0].content.parts[0].text") from exc
+
+    def chat(self, messages: Iterable[LLMMessage], max_tokens: int | None = None) -> str:
+        return self._generate_content(messages, max_tokens=max_tokens)
+
+    def chat_multimodal(
+        self,
+        messages: Iterable[LLMMessage],
+        media_parts: Iterable[LLMMediaPart],
+        max_tokens: int | None = None,
+    ) -> str:
+        return self._generate_content(messages, max_tokens=max_tokens, media_parts=media_parts)
 
 
 class AnthropicProvider:

@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from ai_caddie.llm_providers import LLMMessage
+from ai_caddie.llm_providers import LLMMediaPart, LLMMessage
 from ai_caddie.llm_providers import StaticProvider
 from ai_caddie.vision_context import (
     ALLOWED_FINDING_TYPES,
@@ -21,9 +21,14 @@ class RecordingVisionProvider:
 
     def __init__(self) -> None:
         self.messages: list[LLMMessage] = []
+        self.media_parts: list[LLMMediaPart] = []
 
     def chat(self, messages, max_tokens=None):
+        raise AssertionError("vision analysis must use the multimodal provider path")
+
+    def chat_multimodal(self, messages, media_parts, max_tokens=None):
         self.messages = list(messages)
+        self.media_parts = list(media_parts)
         return json.dumps(
             [
                 {
@@ -79,7 +84,7 @@ class VisionContextTests(unittest.TestCase):
         self.assertEqual(result["findings"][0]["confidence"], "low")
         self.assertIn("provider response", result["findings"][0]["missingInfo"][0])
 
-    def test_media_bytes_are_included_in_provider_payload(self) -> None:
+    def test_media_bytes_are_sent_as_structured_multimodal_parts(self) -> None:
         provider = RecordingVisionProvider()
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -100,7 +105,43 @@ class VisionContextTests(unittest.TestCase):
 
         prompt = provider.messages[-1].content
         self.assertEqual(result["findings"][0]["findingType"], "visible_water")
-        self.assertIn("mediaBytesBase64=aW1hZ2UtYnl0ZXM=", prompt)
+        self.assertEqual(len(provider.media_parts), 1)
+        self.assertEqual(provider.media_parts[0].media_type, "image")
+        self.assertEqual(provider.media_parts[0].mime_type, "image/jpeg")
+        self.assertEqual(provider.media_parts[0].data, b"image-bytes")
+        self.assertNotIn("mediaBytesBase64", prompt)
+        self.assertNotIn("aW1hZ2UtYnl0ZXM=", prompt)
+        self.assertNotIn("image-bytes", prompt)
+        self.assertIn("byteLength=11", prompt)
+
+    def test_video_bytes_are_sent_as_structured_multimodal_parts(self) -> None:
+        provider = RecordingVisionProvider()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = root / "uploads" / "swing.mp4"
+            video.parent.mkdir()
+            video.write_bytes(b"video-bytes")
+            result = analyze_media_context(
+                {
+                    "id": "media-4",
+                    "targetType": "shot",
+                    "targetId": "round-1:7:2",
+                    "mediaKind": "video",
+                    "localPath": "uploads/swing.mp4",
+                },
+                provider,
+                root=root,
+            )
+
+        prompt = provider.messages[-1].content
+        self.assertEqual(result["findings"][0]["findingType"], "visible_water")
+        self.assertEqual(len(provider.media_parts), 1)
+        self.assertEqual(provider.media_parts[0].media_type, "video")
+        self.assertEqual(provider.media_parts[0].mime_type, "video/mp4")
+        self.assertEqual(provider.media_parts[0].data, b"video-bytes")
+        self.assertNotIn("mediaBytesBase64", prompt)
+        self.assertNotIn("dmlkZW8tYnl0ZXM=", prompt)
+        self.assertNotIn("video-bytes", prompt)
         self.assertIn("byteLength=11", prompt)
 
     def test_store_and_list_findings_for_target_without_secret_fields(self) -> None:

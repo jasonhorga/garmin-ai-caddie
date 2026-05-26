@@ -10,6 +10,7 @@ from ai_caddie.config import get_settings
 from ai_caddie.llm import maybe_call_anthropic, maybe_call_llm
 from ai_caddie.llm_providers import (
     GeminiApiKeyProvider,
+    LLMMediaPart,
     LLMMessage,
     ProviderConfigurationError,
     StaticProvider,
@@ -93,6 +94,88 @@ class LLMProviderTests(unittest.TestCase):
         self.assertEqual(payload["systemInstruction"]["parts"][0]["text"], "facts only")
         self.assertEqual(payload["contents"][0]["parts"][0]["text"], "round facts")
         self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 321)
+
+    def test_gemini_api_key_provider_serializes_multimodal_parts_as_inline_data(self) -> None:
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    {
+                        "candidates": [
+                            {"content": {"parts": [{"text": "vision review"}]}}
+                        ]
+                    }
+                ).encode("utf-8")
+
+        def fake_urlopen(request, timeout):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        provider = GeminiApiKeyProvider(
+            api_key="gemini-secret-key",
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            model="models/gemini-2.5-flash",
+        )
+        with patch("ai_caddie.llm_providers.urllib.request.urlopen", fake_urlopen):
+            reply = provider.chat_multimodal(
+                [
+                    LLMMessage(role="system", content="facts only"),
+                    LLMMessage(role="user", content="inspect the shot photo"),
+                ],
+                [
+                    LLMMediaPart(
+                        media_type="image",
+                        mime_type="image/jpeg",
+                        data=b"image-bytes",
+                    ),
+                    LLMMediaPart(
+                        media_type="video",
+                        mime_type="video/mp4",
+                        data=b"video-bytes",
+                    ),
+                ],
+                max_tokens=222,
+            )
+
+        self.assertEqual(reply, "vision review")
+        self.assertEqual(captured["timeout"], 60)
+        request = captured["request"]
+        payload = json.loads(request.data.decode("utf-8"))
+        parts = payload["contents"][0]["parts"]
+        self.assertEqual(parts[0], {"text": "inspect the shot photo"})
+        self.assertEqual(
+            parts[1],
+            {
+                "inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": "aW1hZ2UtYnl0ZXM=",
+                }
+            },
+        )
+        self.assertEqual(
+            parts[2],
+            {
+                "inline_data": {
+                    "mime_type": "video/mp4",
+                    "data": "dmlkZW8tYnl0ZXM=",
+                }
+            },
+        )
+        self.assertEqual(payload["systemInstruction"]["parts"][0]["text"], "facts only")
+        self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 222)
+        self.assertNotIn("mediaBytesBase64", parts[0]["text"])
+        self.assertNotIn("aW1hZ2UtYnl0ZXM=", parts[0]["text"])
+        self.assertNotIn("dmlkZW8tYnl0ZXM=", parts[0]["text"])
+        self.assertNotIn("image-bytes", request.data.decode("utf-8"))
+        self.assertNotIn("video-bytes", request.data.decode("utf-8"))
 
     def test_missing_gemini_key_raises_secret_free_error(self) -> None:
         settings = SimpleNamespace(

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import base64
 from datetime import UTC, datetime
 import json
+import mimetypes
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
-from ai_caddie.llm_providers import LLMMessage, TextProvider, redact_secret_text
+from ai_caddie.llm_providers import LLMMediaPart, LLMMessage, MultimodalProvider, TextProvider, redact_secret_text
 from ai_caddie.media import VALID_MEDIA_TARGET_TYPES
 
 
@@ -113,21 +113,41 @@ def _parse_findings(reply: str) -> list[dict[str, Any]]:
     return [row for row in findings if row]
 
 
-def _media_payload_text(media: dict[str, Any], root: Path | str | None = None) -> str:
+def _media_type_for(media_kind: object, mime_type: str) -> str:
+    if str(media_kind) == "video" or mime_type.startswith("video/"):
+        return "video"
+    return "image"
+
+
+def _mime_type_for(path: Path, media_kind: object) -> str:
+    guessed = mimetypes.guess_type(path.name)[0]
+    if guessed:
+        return guessed
+    if str(media_kind) == "video":
+        return "video/mp4"
+    return "image/jpeg"
+
+
+def _media_payload(media: dict[str, Any], root: Path | str | None = None) -> tuple[list[LLMMediaPart], str]:
     local_path = media.get("localPath")
     if not local_path:
-        return "mediaBytesBase64=; byteLength=0; contentAvailable=false"
+        return [], "byteLength=0; contentAvailable=false"
     path = Path(str(local_path))
     if not path.is_absolute():
         path = Path(root or ".") / path
     try:
-        content = path.read_bytes()
+        byte_length = path.stat().st_size
+        with path.open("rb") as handle:
+            content = handle.read(MAX_PROMPT_MEDIA_BYTES)
     except OSError:
-        return "mediaBytesBase64=; byteLength=0; contentAvailable=false"
-    payload = base64.b64encode(content[:MAX_PROMPT_MEDIA_BYTES]).decode("ascii")
+        return [], "byteLength=0; contentAvailable=false"
+    mime_type = _mime_type_for(path, media.get("mediaKind"))
+    media_type = _media_type_for(media.get("mediaKind"), mime_type)
+    media_part = LLMMediaPart(media_type=media_type, mime_type=mime_type, data=content)
     return (
-        f"mediaBytesBase64={payload}; byteLength={len(content)}; "
-        f"contentAvailable=true; contentTruncated={len(content) > MAX_PROMPT_MEDIA_BYTES}"
+        [media_part],
+        f"byteLength={byte_length}; contentAvailable=true; "
+        f"contentTruncated={byte_length > len(content)}; mediaMimeType={mime_type}; mediaType={media_type}",
     )
 
 
@@ -212,20 +232,31 @@ def analyze_media_context(
     *,
     root: Path | str | None = None,
 ) -> dict[str, Any]:
+    media_parts, media_status = _media_payload(media, root=root)
+    chat_multimodal = getattr(provider, "chat_multimodal", None)
+    uses_multimodal = callable(chat_multimodal)
+    provider_media_status = (
+        f"{media_status}; mediaPartCount={len(media_parts)}; multimodalProvider=true"
+        if uses_multimodal
+        else f"{media_status}; mediaPartCount=0; mediaContentSent=false; multimodalProvider=false"
+    )
     prompt = (
         "Analyze golf media as uncertain evidence only. Return JSON findings using only "
         f"{sorted(ALLOWED_FINDING_TYPES)} with confidence low/medium/high. "
+        "Do not treat image or video observations as automatic truth. "
+        "If media content is unavailable or was not supplied as a structured image/video part, return uncertainty. "
         f"Media kind={media.get('mediaKind')} path={redact_secret_text(media.get('localPath'))}. "
-        f"{_media_payload_text(media, root=root)}"
+        f"{provider_media_status}"
     )
+    messages = [
+        LLMMessage(role="system", content="You produce bounded golf vision evidence, not automatic truth."),
+        LLMMessage(role="user", content=prompt),
+    ]
     try:
-        reply = provider.chat(
-            [
-                LLMMessage(role="system", content="You produce bounded golf vision evidence, not automatic truth."),
-                LLMMessage(role="user", content=prompt),
-            ],
-            max_tokens=800,
-        )
+        if uses_multimodal:
+            reply = cast(MultimodalProvider, provider).chat_multimodal(messages, media_parts, max_tokens=800)
+        else:
+            reply = provider.chat(messages, max_tokens=800)
         findings = _parse_findings(reply)
     except Exception:
         return _uncertainty(media, provider, "provider response could not be parsed as bounded JSON findings")
