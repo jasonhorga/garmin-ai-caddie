@@ -233,6 +233,19 @@ def _surface_priority(kind: str) -> int:
     return len(SURFACE_PRIORITY)
 
 
+def _surface_id(row: dict[str, Any], fallback: str, kind: str) -> str:
+    raw_id = row.get("id")
+    if raw_id is None:
+        return fallback
+    raw_text = str(raw_id).strip()
+    if not raw_text:
+        return fallback
+    normalized = _normalize_surface_kind(raw_text)
+    if normalized == kind and ".drc" in raw_text.lower():
+        return kind
+    return raw_text
+
+
 def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: str) -> dict[str, Any] | None:
     matches = []
     for index, row in enumerate(rows):
@@ -248,7 +261,7 @@ def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: st
                     "surface": {
                         "kind": kind,
                         "source": source,
-                        "id": str(row.get("id") or f"{source}-{index + 1}"),
+                        "id": _surface_id(row, f"{source}-{index + 1}", kind),
                     },
                 }
             )

@@ -216,10 +216,10 @@ class GeometryEvidenceTests(unittest.TestCase):
                 """
                 {
                   "surfaces": [
-                    {"id": "bounds", "kind": "PlayableBounds.drc", "polygon": [[0, 0], [120, 0], [120, 120], [0, 120], [0, 0]]},
-                    {"id": "fairway", "type": "Fairway.drc", "polygon": [[10, 10], [40, 10], [40, 40], [10, 40], [10, 10]]},
-                    {"id": "rough", "surface": "Rough.drc", "polygon": [[50, 10], [90, 10], [90, 40], [50, 40], [50, 10]]},
-                    {"id": "tee", "name": "Teebox.drc", "polygon": [[10, 50], [30, 50], [30, 70], [10, 70], [10, 50]]}
+                    {"id": "PlayableBounds.drc", "kind": "PlayableBounds.drc", "polygon": [[0, 0], [120, 0], [120, 120], [0, 120], [0, 0]]},
+                    {"id": "Fairway.drc", "type": "Fairway.drc", "polygon": [[10, 10], [40, 10], [40, 40], [10, 40], [10, 10]]},
+                    {"id": "Rough.drc", "surface": "Rough.drc", "polygon": [[50, 10], [90, 10], [90, 40], [50, 40], [50, 10]]},
+                    {"id": "Teebox.drc", "name": "Teebox.drc", "polygon": [[10, 50], [30, 50], [30, 70], [10, 70], [10, 50]]}
                   ]
                 }
                 """,
@@ -238,6 +238,10 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(rough["surface"]["kind"], "rough")
         self.assertEqual(tee["surface"]["kind"], "teebox")
         self.assertEqual(bounds["surface"]["kind"], "playable_bounds")
+        self.assertEqual(fairway["surface"]["id"], "fairway")
+        self.assertEqual(rough["surface"]["id"], "rough")
+        self.assertEqual(tee["surface"]["id"], "teebox")
+        self.assertEqual(bounds["surface"]["id"], "playable_bounds")
         self.assertNotIn(".drc", str([fairway["surface"], rough["surface"], tee["surface"], bounds["surface"]]))
 
     def test_route_evidence_computes_hazard_carry_clearance_and_landing_window(self) -> None:
