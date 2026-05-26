@@ -440,12 +440,15 @@ def _round_shot_facts(history_data: HistoryData | None, round_id: str) -> list[d
     requested = str(round_id)
     rows: list[dict[str, Any]] = []
     for index, shot in enumerate(history_data.shots):
-        if str(shot.get("roundId")) != requested:
+        shot_round_id = shot.get("roundId")
+        if shot_round_id is None:
+            shot_round_id = shot.get("scorecardId")
+        if str(shot_round_id) != requested:
             continue
         rows.append(
             _with_row_provenance(
                 {
-                    "shotRef": f"{shot.get('roundId')}:{shot.get('hole')}:{index}",
+                    "shotRef": f"{shot_round_id}:{shot.get('hole')}:{index}",
                     "hole": shot.get("hole"),
                     "club": shot.get("club") or shot.get("clubName"),
                     "distance": shot.get("distance") or shot.get("meters"),

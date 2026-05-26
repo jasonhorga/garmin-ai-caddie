@@ -372,6 +372,51 @@ class FactBoundReportTests(unittest.TestCase):
             ["garmin_cn_web_session:snap_report:shot:910001:shot-report-1"],
         )
 
+    def test_round_report_facts_include_scorecard_id_shot_rows(self) -> None:
+        data = HistoryData(
+            raw_rounds=[{"id": "700001", "hasShots": True}],
+            rounds=[
+                {
+                    "id": "700001",
+                    "ids": ["700001"],
+                    "course": "Raw Shape Links",
+                    "courseKey": "raw_shape_links",
+                    "holesCompleted": 1,
+                    "strokes": 4,
+                    "par": 4,
+                    "holes": [{"number": 1, "strokes": 4, "par": 4, "putts": 2}],
+                }
+            ],
+            shots=[
+                {
+                    "scorecardId": 700001,
+                    "hole": 1,
+                    "clubName": "8I",
+                    "meters": 141.8,
+                    "endLie": "green",
+                }
+            ],
+        )
+
+        facts = build_round_report_facts(
+            {
+                "schema": "ai-caddie-history-stats-v1",
+                "summary": {"totalRounds": 1, "average18": None, "bestScore": None},
+                "scoring": {},
+                "dataQuality": [],
+                "drillDown": {"roundIds": ["700001"]},
+            },
+            "700001",
+            history_data=data,
+        )
+
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertIn("round_shots", by_label)
+        self.assertEqual(
+            by_label["round_shots"]["value"],
+            [{"shotRef": "700001:1:0", "hole": 1, "club": "8I", "distance": 141.8, "surface": "green"}],
+        )
+
     def test_trend_report_facts_bind_period_trends_issues_and_drilldown_refs(self) -> None:
         facts = build_trend_report_facts(
             {
