@@ -21,9 +21,17 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertIn(payload["status"], {"ready", "degraded"})
         labels = {check["label"] for check in payload["checks"]}
         self.assertGreaterEqual(labels, {"service", "history", "sync", "mobile", "secret_handling"})
+        self.assertGreaterEqual(labels, {"mobile_package", "mobile_events", "media_context", "reports", "operations"})
         self.assertNotIn("cookie", str(payload).lower())
         self.assertNotIn("csrf", str(payload).lower())
         self.assertNotIn("token", str(payload).lower())
+        checks = {check["label"]: check for check in payload["checks"]}
+        self.assertEqual(checks["mobile_package"]["state"], "ready")
+        self.assertEqual(checks["mobile_events"]["state"], "ready")
+        self.assertEqual(checks["media_context"]["state"], "ready")
+        self.assertEqual(checks["reports"]["state"], "ready")
+        self.assertEqual(checks["operations"]["state"], "ready")
+        self.assertIn("ops/smoke_private_trial.sh", checks["operations"]["evidence"]["scripts"])
 
     def test_service_index_and_smoke_script_advertise_readiness(self) -> None:
         client = TestClient(app)
