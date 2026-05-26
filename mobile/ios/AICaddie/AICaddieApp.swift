@@ -16,6 +16,7 @@ public struct AICaddieApp: App {
                         pendingEventCount: model.pendingEventCount,
                         syncStatus: model.syncStatus,
                         apiBaseURL: model.apiBaseURL,
+                        watchBridge: model.watchBridge,
                         onEvent: model.handleEvent,
                         onSync: {
                             Task {
@@ -40,6 +41,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var pendingEventCount: Int = 0
     @Published public private(set) var syncStatus: String = "Offline ready"
     @Published public private(set) var apiBaseURL: URL?
+    public let watchBridge: WatchEventBridge?
 
     private let offlineStore: OfflineStore
     private let syncClient: SyncClient?
@@ -47,11 +49,13 @@ public final class LiveRoundAppModel: ObservableObject {
     public init(
         offlineStore: OfflineStore = OfflineStore(),
         apiBaseURL: URL? = nil,
+        watchBridge: WatchEventBridge? = WatchEventBridge(),
         syncClient: SyncClient? = nil
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         self.offlineStore = offlineStore
         self.apiBaseURL = resolvedAPIBaseURL
+        self.watchBridge = watchBridge
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0) }
     }
 

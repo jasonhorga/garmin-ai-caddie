@@ -281,11 +281,28 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let apiBaseURL: URL?", round_home)
         self.assertIn("apiBaseURL: URL? = nil", round_home)
         self.assertIn("caddieBaseURL: apiBaseURL", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, watchBridge: watchBridge, onEvent: onEvent)", round_home)
 
         self.assertIn("caddieBaseURL: URL? = nil", current_hole)
         self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
         self.assertIn("MediaUploadClient(baseURL:", current_hole)
+
+    def test_ios_app_activates_watch_bridge_for_live_round(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+
+        self.assertIn("public let watchBridge: WatchEventBridge?", app_swift)
+        self.assertIn("watchBridge: WatchEventBridge? = WatchEventBridge()", app_swift)
+        self.assertIn("self.watchBridge = watchBridge", app_swift)
+        self.assertIn("watchBridge: model.watchBridge", app_swift)
+
+        self.assertIn("public let watchBridge: WatchEventBridge?", round_home)
+        self.assertIn("watchBridge: WatchEventBridge? = nil", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+
+        self.assertIn("watchBridge: WatchEventBridge? = nil", current_hole)
+        self.assertIn("sendWatchState(decision:", current_hole)
 
     def test_ios_event_builder_supports_location_media_and_scoring_inputs(self) -> None:
         builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
@@ -416,7 +433,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundHomeView: View", round_home)
         self.assertIn("public let onEvent", round_home)
         self.assertIn("syncStatus", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, watchBridge: watchBridge, onEvent: onEvent)", round_home)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)
