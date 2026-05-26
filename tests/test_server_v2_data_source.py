@@ -32,11 +32,27 @@ class ServerV2DataSourceTests(unittest.TestCase):
         with patch(
             "server_v2.data_source.load_history_data",
             return_value=HistoryData(raw_rounds=[], rounds=[], shots=[]),
-        ):
+        ), patch("server_v2.data_source.load_latest_snapshot_history", return_value=None):
             data, mode = load_history_data_for_mode("local_or_fixture")
 
         self.assertEqual(mode, "fixture")
         self.assertGreaterEqual(len(data.rounds), 3)
+
+    def test_local_or_fixture_uses_latest_snapshot_before_fixture_when_local_empty(self) -> None:
+        snapshot = HistoryData(
+            raw_rounds=[{"id": "snap-round"}],
+            rounds=[{"id": "snap-round", "course": "Snapshot Links"}],
+            shots=[{"roundId": "snap-round", "club": "8I"}],
+        )
+        with (
+            patch("server_v2.data_source.load_history_data", return_value=HistoryData(raw_rounds=[], rounds=[], shots=[])),
+            patch("server_v2.data_source.load_latest_snapshot_history", return_value=snapshot),
+        ):
+            data, mode = load_history_data_for_mode("local_or_fixture")
+
+        self.assertEqual(mode, "local")
+        self.assertEqual(data.rounds[0]["id"], "snap-round")
+        self.assertEqual(data.shots[0]["club"], "8I")
 
     def test_local_or_fixture_keeps_local_when_rounds_exist(self) -> None:
         local = HistoryData(raw_rounds=[{"id": 1}], rounds=[{"id": 1}], shots=[])

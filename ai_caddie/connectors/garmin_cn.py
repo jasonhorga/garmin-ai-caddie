@@ -8,7 +8,7 @@ from ai_caddie.data import ROOT
 from fetch import fetch_details, fetch_summary, make_session
 
 from .base import ConnectorRunResult
-from .snapshot import build_snapshot_manifest, write_connector_status, write_snapshot_manifest
+from .snapshot import build_snapshot_manifest, write_connector_status, write_durable_snapshot, write_snapshot_manifest
 
 SECRET_PATTERNS = [
     re.compile(r"cookie[^\s]*\s*[^,;\n]*", re.IGNORECASE),
@@ -42,6 +42,7 @@ class GarminCnWebSessionConnector:
             snapshot_id = _snapshot_id()
             manifest = build_snapshot_manifest(root=self.root, snapshot_id=snapshot_id)
             write_snapshot_manifest(root=self.root, manifest=manifest)
+            write_durable_snapshot(root=self.root, manifest=manifest)
             state = "ready" if manifest.scorecard_count else "no_data"
             detail = (
                 f"Synced {manifest.scorecard_count} scorecards and {manifest.shot_file_count} shot files."

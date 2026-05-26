@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from ai_caddie.config import DataMode, get_settings
+from ai_caddie.connectors.snapshot import load_latest_snapshot_history
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history import HistoryData, load_history_data
 
@@ -19,4 +20,7 @@ def load_history_data_for_mode(mode: DataMode | None = None) -> tuple[HistoryDat
         return local_data, "local"
     if local_data.rounds:
         return local_data, "local"
+    snapshot_data = load_latest_snapshot_history()
+    if snapshot_data and snapshot_data.rounds:
+        return snapshot_data, "local"
     return fixture_history_data(), "fixture"
