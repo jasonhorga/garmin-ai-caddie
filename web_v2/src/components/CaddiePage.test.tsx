@@ -387,4 +387,39 @@ describe('CaddiePage', () => {
       }),
     )
   })
+
+  it('passes route local coordinates when loading tee context', async () => {
+    const onLoadCaddieContext = vi.fn()
+
+    render(
+      <CaddiePage
+        decisionState={{ status: 'idle' }}
+        contextState={{ status: 'idle' }}
+        onRequestDecision={vi.fn()}
+        onLoadCaddieContext={onLoadCaddieContext}
+      />,
+    )
+
+    await userEvent.selectOptions(screen.getByLabelText('Shot type'), 'tee')
+    await userEvent.clear(screen.getByLabelText('Route start X'))
+    await userEvent.type(screen.getByLabelText('Route start X'), '0')
+    await userEvent.clear(screen.getByLabelText('Route start Y'))
+    await userEvent.type(screen.getByLabelText('Route start Y'), '0')
+    await userEvent.clear(screen.getByLabelText('Route target X'))
+    await userEvent.type(screen.getByLabelText('Route target X'), '0')
+    await userEvent.clear(screen.getByLabelText('Route target Y'))
+    await userEvent.type(screen.getByLabelText('Route target Y'), '182')
+    await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
+
+    expect(onLoadCaddieContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shotType: 'tee',
+        startX: 0,
+        startY: 0,
+        targetX: 0,
+        targetY: 182,
+        landingRadiusM: 18,
+      }),
+    )
+  })
 })

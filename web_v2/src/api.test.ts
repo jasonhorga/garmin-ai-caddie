@@ -430,6 +430,38 @@ describe('fetchCaddieContext', () => {
     expect(payload.context.source).toBe('history_drilldown')
     expect(payload.context.geometry).toEqual(expect.objectContaining({ coverage: 'partial' }))
   })
+
+  it('passes route local coordinates for geometry-bound tee context', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-context-v1',
+        sourceRef: '900001:7',
+        shotType: 'tee',
+        context: {
+          source: 'history_drilldown',
+          sourceRef: '900001:7',
+          routeEvidence: { routeLength_m: 182 },
+        },
+        evidence: [{ label: 'route_geometry', value: 'route length 182m' }],
+        missingData: [],
+      }),
+    })))
+
+    await fetchCaddieContext({
+      sourceRef: '900001:7',
+      shotType: 'tee',
+      startX: 0,
+      startY: 0,
+      targetX: 0,
+      targetY: 182,
+      landingRadiusM: 18,
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v2/caddie/context?source_ref=900001%3A7&shot_type=tee&start_x=0&start_y=0&target_x=0&target_y=182&landing_radius_m=18',
+    )
+  })
 })
 
 describe('caddie audit API helpers', () => {

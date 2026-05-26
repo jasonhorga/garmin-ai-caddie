@@ -98,6 +98,11 @@ export function fetchCaddieContext(params: CaddieContextParams): Promise<CaddieC
   appendParam(query, 'target_latitude', params.targetLatitude)
   appendParam(query, 'target_longitude', params.targetLongitude)
   appendParam(query, 'strategy_mode', params.strategyMode)
+  appendParam(query, 'start_x', params.startX)
+  appendParam(query, 'start_y', params.startY)
+  appendParam(query, 'target_x', params.targetX)
+  appendParam(query, 'target_y', params.targetY)
+  appendParam(query, 'landing_radius_m', params.landingRadiusM)
   return getJson<CaddieContextResponse>(`/api/v2/caddie/context?${query.toString()}`)
 }
 

@@ -145,6 +145,11 @@ export interface CaddieContextParams {
   targetLatitude?: number
   targetLongitude?: number
   strategyMode?: string
+  startX?: number
+  startY?: number
+  targetX?: number
+  targetY?: number
+  landingRadiusM?: number
 }
 
 export interface CaddieContextResponse {

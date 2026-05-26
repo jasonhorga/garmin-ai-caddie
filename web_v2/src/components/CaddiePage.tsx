@@ -89,6 +89,11 @@ export function CaddiePage({
   const [targetLatitude, setTargetLatitude] = useState('')
   const [targetLongitude, setTargetLongitude] = useState('')
   const [strategyMode, setStrategyMode] = useState('')
+  const [routeStartX, setRouteStartX] = useState('')
+  const [routeStartY, setRouteStartY] = useState('')
+  const [routeTargetX, setRouteTargetX] = useState('')
+  const [routeTargetY, setRouteTargetY] = useState('')
+  const [landingRadius, setLandingRadius] = useState('18')
   const weatherSnapshot = weatherState.status === 'ready' ? weatherState.data : null
   const visionFindings = mediaState.status === 'ready' ? mediaState.findings : []
   const hasSourceContext = contextStateMatchesSourceRef(contextState, contextSourceRef)
@@ -144,6 +149,11 @@ export function CaddiePage({
         targetLatitude={targetLatitude}
         targetLongitude={targetLongitude}
         strategyMode={strategyMode}
+        routeStartX={routeStartX}
+        routeStartY={routeStartY}
+        routeTargetX={routeTargetX}
+        routeTargetY={routeTargetY}
+        landingRadius={landingRadius}
         shotType={shotType}
         onSourceRefChange={setContextSourceRef}
         onDistanceChange={setContextDistance}
@@ -153,6 +163,11 @@ export function CaddiePage({
         onTargetLatitudeChange={setTargetLatitude}
         onTargetLongitudeChange={setTargetLongitude}
         onStrategyModeChange={setStrategyMode}
+        onRouteStartXChange={setRouteStartX}
+        onRouteStartYChange={setRouteStartY}
+        onRouteTargetXChange={setRouteTargetX}
+        onRouteTargetYChange={setRouteTargetY}
+        onLandingRadiusChange={setLandingRadius}
         onLoadCaddieContext={onLoadCaddieContext}
       />
       <MediaContextPanel
@@ -176,6 +191,11 @@ function CaddieContextPanel({
   targetLatitude,
   targetLongitude,
   strategyMode,
+  routeStartX,
+  routeStartY,
+  routeTargetX,
+  routeTargetY,
+  landingRadius,
   shotType,
   onSourceRefChange,
   onDistanceChange,
@@ -185,6 +205,11 @@ function CaddieContextPanel({
   onTargetLatitudeChange,
   onTargetLongitudeChange,
   onStrategyModeChange,
+  onRouteStartXChange,
+  onRouteStartYChange,
+  onRouteTargetXChange,
+  onRouteTargetYChange,
+  onLandingRadiusChange,
   onLoadCaddieContext,
 }: {
   state: CaddieContextLoadState
@@ -196,6 +221,11 @@ function CaddieContextPanel({
   targetLatitude: string
   targetLongitude: string
   strategyMode: string
+  routeStartX: string
+  routeStartY: string
+  routeTargetX: string
+  routeTargetY: string
+  landingRadius: string
   shotType: CaddieShotType
   onSourceRefChange: (value: string) => void
   onDistanceChange: (value: string) => void
@@ -205,6 +235,11 @@ function CaddieContextPanel({
   onTargetLatitudeChange: (value: string) => void
   onTargetLongitudeChange: (value: string) => void
   onStrategyModeChange: (value: string) => void
+  onRouteStartXChange: (value: string) => void
+  onRouteStartYChange: (value: string) => void
+  onRouteTargetXChange: (value: string) => void
+  onRouteTargetYChange: (value: string) => void
+  onLandingRadiusChange: (value: string) => void
   onLoadCaddieContext?: (params: CaddieContextParams) => void
 }) {
   const loadedContext = state.status === 'ready' ? state.data.context : null
@@ -264,20 +299,60 @@ function CaddieContextPanel({
           <option value="protect_score">Protect score</option>
           <option value="attack">Attack</option>
         </select>
+        <label htmlFor="caddie-route-start-x">Route start X</label>
+        <input
+          id="caddie-route-start-x"
+          inputMode="decimal"
+          value={routeStartX}
+          onChange={(event) => onRouteStartXChange(event.target.value)}
+        />
+        <label htmlFor="caddie-route-start-y">Route start Y</label>
+        <input
+          id="caddie-route-start-y"
+          inputMode="decimal"
+          value={routeStartY}
+          onChange={(event) => onRouteStartYChange(event.target.value)}
+        />
+        <label htmlFor="caddie-route-target-x">Route target X</label>
+        <input
+          id="caddie-route-target-x"
+          inputMode="decimal"
+          value={routeTargetX}
+          onChange={(event) => onRouteTargetXChange(event.target.value)}
+        />
+        <label htmlFor="caddie-route-target-y">Route target Y</label>
+        <input
+          id="caddie-route-target-y"
+          inputMode="decimal"
+          value={routeTargetY}
+          onChange={(event) => onRouteTargetYChange(event.target.value)}
+        />
+        <label htmlFor="caddie-landing-radius">Landing radius</label>
+        <input
+          id="caddie-landing-radius"
+          inputMode="decimal"
+          value={landingRadius}
+          onChange={(event) => onLandingRadiusChange(event.target.value)}
+        />
         <button
           type="button"
           onClick={() =>
-            onLoadCaddieContext?.({
+            onLoadCaddieContext?.(buildContextLoadParams({
               sourceRef,
               shotType,
-              distanceToPinM: numericInput(distance),
+              distance,
               lie,
-              currentLatitude: numericInput(currentLatitude),
-              currentLongitude: numericInput(currentLongitude),
-              targetLatitude: numericInput(targetLatitude),
-              targetLongitude: numericInput(targetLongitude),
-              strategyMode: strategyMode || undefined,
-            })
+              currentLatitude,
+              currentLongitude,
+              targetLatitude,
+              targetLongitude,
+              strategyMode,
+              routeStartX,
+              routeStartY,
+              routeTargetX,
+              routeTargetY,
+              landingRadius,
+            }))
           }
         >
           Load caddie context
@@ -309,6 +384,65 @@ function CaddieContextPanel({
       ) : null}
     </section>
   )
+}
+
+function buildContextLoadParams({
+  sourceRef,
+  shotType,
+  distance,
+  lie,
+  currentLatitude,
+  currentLongitude,
+  targetLatitude,
+  targetLongitude,
+  strategyMode,
+  routeStartX,
+  routeStartY,
+  routeTargetX,
+  routeTargetY,
+  landingRadius,
+}: {
+  sourceRef: string
+  shotType: CaddieShotType
+  distance: string
+  lie: string
+  currentLatitude: string
+  currentLongitude: string
+  targetLatitude: string
+  targetLongitude: string
+  strategyMode: string
+  routeStartX: string
+  routeStartY: string
+  routeTargetX: string
+  routeTargetY: string
+  landingRadius: string
+}): CaddieContextParams {
+  const params: CaddieContextParams = { sourceRef, shotType }
+  const distanceToPinM = numericInput(distance)
+  const liveCurrentLatitude = numericInput(currentLatitude)
+  const liveCurrentLongitude = numericInput(currentLongitude)
+  const liveTargetLatitude = numericInput(targetLatitude)
+  const liveTargetLongitude = numericInput(targetLongitude)
+  const startX = numericInput(routeStartX)
+  const startY = numericInput(routeStartY)
+  const targetX = numericInput(routeTargetX)
+  const targetY = numericInput(routeTargetY)
+  const landingRadiusM = numericInput(landingRadius)
+  if (distanceToPinM !== undefined) params.distanceToPinM = distanceToPinM
+  if (lie.trim()) params.lie = lie
+  if (liveCurrentLatitude !== undefined) params.currentLatitude = liveCurrentLatitude
+  if (liveCurrentLongitude !== undefined) params.currentLongitude = liveCurrentLongitude
+  if (liveTargetLatitude !== undefined) params.targetLatitude = liveTargetLatitude
+  if (liveTargetLongitude !== undefined) params.targetLongitude = liveTargetLongitude
+  if (strategyMode.trim()) params.strategyMode = strategyMode
+  if (startX !== undefined && startY !== undefined && targetX !== undefined && targetY !== undefined) {
+    params.startX = startX
+    params.startY = startY
+    params.targetX = targetX
+    params.targetY = targetY
+    if (landingRadiusM !== undefined) params.landingRadiusM = landingRadiusM
+  }
+  return params
 }
 
 function WeatherContextPanel({ state }: { state: WeatherLoadState }) {
