@@ -51,6 +51,10 @@ function refsPreview(row: Record<string, unknown>, limit = 4) {
   return Array.isArray(refs) ? refs.slice(0, limit) : refs
 }
 
+function refsValuePreview(refs: unknown, limit = 4) {
+  return Array.isArray(refs) ? refs.slice(0, limit) : refs
+}
+
 function recordScore(row: Record<string, unknown>) {
   const score = displayNumber(row.score)
   const toPar = displaySigned(row.toPar)
@@ -108,6 +112,8 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const playFrequency = asRecord(data.time.playFrequency)
   const improvement = asRecord(data.time.improvement)
   const phaseStats = asRows(data.scoring.phaseStats)
+  const teeDirection = asRecord(data.scoring.teeDirection)
+  const dominantTeeMiss = asString(teeDirection.dominantMiss)
   const scoringOutcomes = asRecord(data.scoring.outcomes)
   const scoreOutcomeRows = asRows(data.scoring.outcomeRows)
   const outcomeRows = scoreOutcomeRows.length
@@ -389,6 +395,30 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
             ))}
           </div>
         </section>
+
+        {Object.keys(teeDirection).length ? (
+          <section className="panel compact-panel" aria-label="Tee direction">
+            <div className="section-head">
+              <div>
+                <h2>Tee Direction</h2>
+                <p>Fairway hit rate and dominant tee miss, with source hole refs.</p>
+              </div>
+              {dominantTeeMiss ? <span className={`semantic-chip tee-${dominantTeeMiss}`}>dominant {dominantTeeMiss}</span> : null}
+            </div>
+            <div className="stat-list">
+              <div className="stat-row">
+                <span>FIR {displayNumber(teeDirection.hitPct)}%</span>
+                <b>{displayNumber(teeDirection.hit)} hit</b>
+                <SourceRefs refs={refsValuePreview(teeDirection.hitRefs)} onSelectRef={onSelectRef} />
+              </div>
+              <div className="stat-row">
+                <span>miss {displayNumber(teeDirection.missPct)}%</span>
+                <b>{displayNumber(teeDirection.miss)} misses</b>
+                <SourceRefs refs={refsValuePreview(teeDirection[`${dominantTeeMiss ?? 'miss'}Refs`] ?? teeDirection.sourceRefs)} onSelectRef={onSelectRef} />
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="panel compact-panel" aria-label="Course mix">
           <div className="section-head">

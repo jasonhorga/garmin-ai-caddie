@@ -65,6 +65,21 @@ const statsFixture: HistoryStatsResponse = {
       { key: 'bogey', label: 'Bogey', className: 'bogey', count: 16, pct: 35.6, holeRefs: ['900004:4'] },
       { key: 'doubleOrWorse', label: 'Double+', className: 'double', count: 4, pct: 8.9, holeRefs: ['900005:5'] },
     ],
+    teeDirection: {
+      recorded: 4,
+      total: 5,
+      hit: 1,
+      left: 1,
+      right: 2,
+      miss: 3,
+      hitPct: 25,
+      rightPct: 50,
+      missPct: 75,
+      dominantMiss: 'right',
+      sourceRefs: ['900001:1', '900001:2', '900001:3', '900001:4'],
+      hitRefs: ['900001:1'],
+      rightRefs: ['900001:3', '900001:4'],
+    },
     phaseStats: [
       { phase: 'Approach', girPct: 42.2, missedGir: 26, holeRefs: ['900001:1'] },
       { phase: 'Putting', averagePutts: 2.1, threePutts: 5, holeRefs: ['900002:5'] },
@@ -160,6 +175,11 @@ describe('StatsOverview', () => {
     expect(screen.getByText('GIR 42.2%')).toBeInTheDocument()
     expect(screen.getByText('Putting')).toBeInTheDocument()
     expect(screen.getByText('avg putts 2.1')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Tee Direction' })).toBeInTheDocument()
+    expect(screen.getByText('FIR 25%')).toBeInTheDocument()
+    expect(screen.getByText('miss 75%')).toBeInTheDocument()
+    expect(screen.getByText('dominant right')).toHaveClass('tee-right')
+    expect(within(screen.getByLabelText('Tee direction')).getByRole('button', { name: 'Open source 900001:3' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Course Mix' })).toBeInTheDocument()
     expect(screen.getAllByText('Black Knight B/C').length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: 'Course Distribution Map' })).toBeInTheDocument()

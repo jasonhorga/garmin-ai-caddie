@@ -137,6 +137,27 @@ def one_shot_club_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "club-one-shot-1", "hasShots": True}], rounds=[round_row], shots=[shot])
 
 
+def tee_direction_history_data() -> HistoryData:
+    round_row = {
+        "id": "tee-direction-1",
+        "date": "2026-05-25",
+        "course": "Direction Course",
+        "courseKey": "direction_course",
+        "holesCompleted": 5,
+        "strokes": 23,
+        "par": 20,
+        "holes": [
+            {"number": 1, "strokes": 4, "par": 4, "fairway": "hit"},
+            {"number": 2, "strokes": 5, "par": 4, "fairway": "left"},
+            {"number": 3, "strokes": 5, "par": 4, "fairway": "right"},
+            {"number": 4, "strokes": 5, "par": 4, "fairway": "right"},
+            {"number": 5, "strokes": 4, "par": 4, "fairway": None},
+        ],
+        "hasShots": False,
+    }
+    return HistoryData(raw_rounds=[{"id": "tee-direction-1", "hasShots": False}], rounds=[round_row], shots=[])
+
+
 def missing_shot_rows_history_data() -> HistoryData:
     rounds = [
         {
@@ -408,6 +429,30 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(wedge["consistency"], "unknown")
         self.assertEqual(wedge["distanceTrend"]["direction"], "insufficient_data")
         self.assertEqual(wedge["distanceTrend"]["confidence"], "low")
+
+    def test_tee_direction_distribution_is_drilldown_ready_overall_and_by_course(self) -> None:
+        stats = build_history_stats(tee_direction_history_data(), data_mode="fixture")
+
+        tee_direction = stats["scoring"]["teeDirection"]
+
+        self.assertEqual(tee_direction["recorded"], 4)
+        self.assertEqual(tee_direction["hit"], 1)
+        self.assertEqual(tee_direction["left"], 1)
+        self.assertEqual(tee_direction["right"], 2)
+        self.assertEqual(tee_direction["miss"], 3)
+        self.assertEqual(tee_direction["hitPct"], 25.0)
+        self.assertEqual(tee_direction["leftPct"], 25.0)
+        self.assertEqual(tee_direction["rightPct"], 50.0)
+        self.assertEqual(tee_direction["missPct"], 75.0)
+        self.assertEqual(tee_direction["dominantMiss"], "right")
+        self.assertEqual(tee_direction["holeRefs"], ["tee-direction-1:1", "tee-direction-1:2", "tee-direction-1:3", "tee-direction-1:4"])
+        self.assertEqual(tee_direction["rightRefs"], ["tee-direction-1:3", "tee-direction-1:4"])
+        self.assertEqual(tee_direction["coverage"], {"ready": 4, "total": 5, "pct": 80.0})
+        self.assertEqual(tee_direction["confidence"], "medium")
+
+        course = next(row for row in stats["courses"] if row["courseKey"] == "direction_course")
+        self.assertEqual(course["teeDirection"]["dominantMiss"], "right")
+        self.assertEqual(course["teeDirection"]["sourceRefs"], tee_direction["sourceRefs"])
 
     def test_hole_stats_include_score_distribution_and_repeated_issues(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

@@ -767,6 +767,84 @@ def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str,
     }
 
 
+def _fairway_direction(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if text in {"hit", "center", "centre", "fairway", "yes", "true"}:
+        return "hit"
+    if text in {"left", "miss_left", "missed_left", "left_rough"}:
+        return "left"
+    if text in {"right", "miss_right", "missed_right", "right_rough"}:
+        return "right"
+    if text in {"miss", "missed", "rough"}:
+        return "other"
+    return None
+
+
+def _direction_pct(count: int, recorded: int) -> float | None:
+    return round(count / recorded * 100, 1) if recorded else None
+
+
+def _dominant_tee_miss(left: int, right: int, other: int, recorded: int) -> str:
+    if not recorded:
+        return "unknown"
+    if left + right + other == 0:
+        return "none"
+    counts = {"left": left, "right": right, "other": other}
+    max_count = max(counts.values())
+    leaders = [key for key, value in counts.items() if value == max_count and value > 0]
+    return leaders[0] if len(leaders) == 1 else "mixed"
+
+
+def _tee_direction_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    refs: dict[str, list[str]] = defaultdict(list)
+    total_holes = 0
+    for row in rows:
+        for hole in row.get("holes") or []:
+            total_holes += 1
+            number = int(hole.get("number") or 0)
+            ref = _hole_ref(row, number) if number else ""
+            direction = _fairway_direction(hole.get("fairway"))
+            if direction is None:
+                continue
+            refs["recorded"].append(ref)
+            refs[direction].append(ref)
+
+    recorded = len(refs["recorded"])
+    hit = len(refs["hit"])
+    left = len(refs["left"])
+    right = len(refs["right"])
+    other = len(refs["other"])
+    miss = left + right + other
+    return _with_aggregate_contract(
+        {
+            "recorded": recorded,
+            "total": total_holes,
+            "hit": hit,
+            "left": left,
+            "right": right,
+            "other": other,
+            "miss": miss,
+            "hitPct": _direction_pct(hit, recorded),
+            "leftPct": _direction_pct(left, recorded),
+            "rightPct": _direction_pct(right, recorded),
+            "otherPct": _direction_pct(other, recorded),
+            "missPct": _direction_pct(miss, recorded),
+            "dominantMiss": _dominant_tee_miss(left, right, other, recorded),
+            "holeRefs": refs["recorded"],
+            "hitRefs": refs["hit"],
+            "leftRefs": refs["left"],
+            "rightRefs": refs["right"],
+            "otherRefs": refs["other"],
+        },
+        refs["recorded"],
+        ready=recorded,
+        total=total_holes,
+        confidence_count=recorded,
+    )
+
+
 def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     bands: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
@@ -803,7 +881,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                     corrected_putt_refs.append(ref)
             if ref in score_corrections:
                 corrected_score_refs.append(ref)
-            fairway = str(hole.get("fairway") or "").lower()
+            fairway = _fairway_direction(hole.get("fairway"))
             if fairway:
                 fairways["recorded"] += 1
                 tee_refs.append(ref)
@@ -879,6 +957,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             "bogeyOrWorse": outcomes["bogey"] + outcomes["doubleOrWorse"],
         },
         "outcomeRows": outcome_rows,
+        "teeDirection": _tee_direction_stats(data.rounds),
         "putting": {
             "totalPutts": sum(putts),
             "holesWithPutts": len(putts),
@@ -973,6 +1052,7 @@ def _courses(data: HistoryData) -> list[dict[str, Any]]:
                     "roundIds": round_ids,
                     "roundRefs": round_ids,
                     "recentForm": _course_recent_form(rows),
+                    "teeDirection": _tee_direction_stats(rows),
                     "geometryCoverage": _course_geometry_coverage(rows),
                 },
                 round_ids,
