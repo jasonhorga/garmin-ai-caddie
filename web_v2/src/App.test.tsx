@@ -836,12 +836,26 @@ describe('App navigation', () => {
     expect(decisionBody.context.sourceRef).toBe('900001:7')
     expect(decisionBody.context.visionFindings[0].findingType).toBe('visible_bunker')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Audit with fixture outcome' }))
+    expect(screen.queryByRole('button', { name: 'Audit with fixture outcome' })).not.toBeInTheDocument()
+    await userEvent.clear(screen.getByLabelText('Actual club'))
+    await userEvent.type(screen.getByLabelText('Actual club'), '9I')
+    await userEvent.clear(screen.getByLabelText('Actual carry (m)'))
+    await userEvent.type(screen.getByLabelText('Actual carry (m)'), '137')
+    await userEvent.selectOptions(screen.getByLabelText('Result lie'), 'fringe')
+    await userEvent.click(screen.getByRole('button', { name: 'Audit outcome' }))
 
     expect(await screen.findByText('execution')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v2/caddie/decisions/fixture-links-4-approach/audit',
       expect.objectContaining({ method: 'POST' }),
     )
+    const auditPost = fetchMock.mock.calls.find(([path]) => path === '/api/v2/caddie/decisions/fixture-links-4-approach/audit')?.[1] as RequestInit
+    const auditBody = JSON.parse(String(auditPost.body))
+    expect(auditBody.actualShot).toEqual({
+      shotOrder: 1,
+      clubName: '9I',
+      meters: 137,
+      end: { lie: 'fringe', feature: { surface: { kind: 'fringe' }, nearRisks: [] } },
+    })
   })
 })

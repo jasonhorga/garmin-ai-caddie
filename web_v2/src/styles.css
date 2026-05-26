@@ -1888,14 +1888,48 @@ p {
   align-items: flex-start;
 }
 
-.decision-outcome-audit button {
+.decision-audit-controls {
+  display: grid;
+  grid-template-columns: 82px minmax(90px, 120px) 112px minmax(84px, 110px) 72px minmax(100px, 130px) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.decision-audit-controls label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.decision-audit-controls input,
+.decision-audit-controls select,
+.decision-audit-controls button {
+  min-height: 36px;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
+.decision-audit-controls button {
   border: 1px solid var(--green);
   border-radius: 8px;
   background: #ffffff;
   color: var(--green);
   padding: 8px 10px;
-  font-size: 12px;
   font-weight: 850;
+  white-space: nowrap;
+}
+
+.decision-audit-controls button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
 }
 
 .audit-classification {
@@ -1978,6 +2012,7 @@ p {
   .content-grid,
   .corrections-grid,
   .caddie-context-controls,
+  .decision-audit-controls,
   .decision-options,
   .decision-sequence-grid,
   .media-context-controls,

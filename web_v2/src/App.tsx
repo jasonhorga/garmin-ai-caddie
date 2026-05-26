@@ -314,12 +314,12 @@ export default function App() {
     }
   }
 
-  async function handleCreateDecisionAudit(decision: CaddieDecisionResponse) {
+  async function handleCreateDecisionAudit(decision: CaddieDecisionResponse, actualShot: Record<string, unknown>) {
     setDecisionAuditState({ status: 'loading' })
     try {
       const response = await createCaddieDecisionAudit(decisionIdFromDecision(decision), {
         decision,
-        actualShot: buildFixtureActualShot(decision),
+        actualShot,
       })
       setDecisionAuditState({ status: 'ready', data: response.record })
     } catch (error: unknown) {
@@ -518,7 +518,7 @@ export default function App() {
             contextState={caddieContextState}
             mediaState={mediaState}
             onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
-            onCreateAudit={(decision) => void handleCreateDecisionAudit(decision)}
+            onCreateAudit={(decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot)}
             onLoadWeather={() => void handleLoadWeather()}
             onLoadCaddieContext={(params) => void handleLoadCaddieContext(params)}
             onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
@@ -591,18 +591,6 @@ function decisionIdFromDecision(decision: CaddieDecisionResponse): string {
   const courseName = typeof context.courseName === 'string' ? context.courseName : 'fixture'
   const hole = typeof context.hole === 'number' || typeof context.hole === 'string' ? String(context.hole) : 'unknown'
   return [slug(courseName), hole, decision.shotType].join('-')
-}
-
-function buildFixtureActualShot(decision: CaddieDecisionResponse): Record<string, unknown> {
-  const selected = decision.selectedOption ?? decision.selected ?? {}
-  const clubName = String(selected.recommendedClub ?? selected.club ?? '-')
-  const carry = selected.carry_m ?? selected.carryM ?? decision.context.distanceToPin_m ?? 0
-  return {
-    shotOrder: 1,
-    clubName,
-    meters: carry,
-    end: { lie: 'Green', feature: { surface: { kind: 'green' }, nearRisks: [] } },
-  }
 }
 
 function holeGeometryTargetFromDrilldown(

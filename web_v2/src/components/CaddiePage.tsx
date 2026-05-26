@@ -51,7 +51,7 @@ interface CaddiePageProps {
   contextState?: CaddieContextLoadState
   mediaState?: MediaContextState
   onRequestDecision: (request: CaddieDecisionRequest) => void
-  onCreateAudit?: (decision: CaddieDecisionResponse) => void
+  onCreateAudit?: (decision: CaddieDecisionResponse, actualShot: Record<string, unknown>) => void
   onLoadWeather?: () => void
   onLoadCaddieContext?: (params: CaddieContextParams) => void
   onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
@@ -272,7 +272,7 @@ function DecisionDetail({
 }: {
   state: CaddiePageProps['decisionState']
   auditState: AuditState
-  onCreateAudit?: (decision: CaddieDecisionResponse) => void
+  onCreateAudit?: (decision: CaddieDecisionResponse, actualShot: Record<string, unknown>) => void
 }) {
   if (state.status === 'loading') {
     return (
@@ -336,7 +336,13 @@ function DecisionDetail({
         <EvidenceList title="Avoid Zones" rows={decision.avoidZones} />
         <EvidenceList title="Audit" rows={decision.auditCriteria} />
       </div>
-      {onCreateAudit ? <DecisionAuditPanel state={auditState} onCreateAudit={() => onCreateAudit(decision)} /> : null}
+      {onCreateAudit ? (
+        <DecisionAuditPanel
+          decision={decision}
+          state={auditState}
+          onCreateAudit={(actualShot) => onCreateAudit(decision, actualShot)}
+        />
+      ) : null}
     </section>
   )
 }
@@ -377,7 +383,45 @@ function DecisionSequences({
   )
 }
 
-function DecisionAuditPanel({ state, onCreateAudit }: { state: AuditState; onCreateAudit: () => void }) {
+function DecisionAuditPanel({
+  decision,
+  state,
+  onCreateAudit,
+}: {
+  decision: CaddieDecisionResponse
+  state: AuditState
+  onCreateAudit: (actualShot: Record<string, unknown>) => void
+}) {
+  const selected = decision.selectedOption ?? decision.selected ?? {}
+  const defaultClub = String(selected.recommendedClub ?? selected.club ?? '')
+  const defaultCarry = selected.carry_m ?? selected.carryM ?? decision.context.distanceToPin_m ?? ''
+  const [actualClub, setActualClub] = useState(defaultClub)
+  const [actualCarry, setActualCarry] = useState(String(defaultCarry))
+  const [resultLie, setResultLie] = useState('green')
+  const actualCarryMeters = numericInput(actualCarry)
+  const canAudit = actualClub.trim().length > 0 && actualCarryMeters !== undefined
+  const auditControls = (
+    <div className="decision-audit-controls">
+      <label htmlFor="actual-club">Actual club</label>
+      <input id="actual-club" value={actualClub} onChange={(event) => setActualClub(event.target.value)} />
+      <label htmlFor="actual-carry">Actual carry (m)</label>
+      <input id="actual-carry" inputMode="decimal" value={actualCarry} onChange={(event) => setActualCarry(event.target.value)} />
+      <label htmlFor="result-lie">Result lie</label>
+      <select id="result-lie" value={resultLie} onChange={(event) => setResultLie(event.target.value)}>
+        <option value="green">Green</option>
+        <option value="fringe">Fringe</option>
+        <option value="fairway">Fairway</option>
+        <option value="rough">Rough</option>
+        <option value="bunker">Bunker</option>
+        <option value="water">Water</option>
+        <option value="penalty">Penalty</option>
+      </select>
+      <button type="button" disabled={!canAudit} onClick={() => onCreateAudit(buildActualShot(actualClub, actualCarryMeters ?? 0, resultLie))}>
+        Audit outcome
+      </button>
+    </div>
+  )
+
   if (state.status === 'loading') {
     return (
       <section className="decision-outcome-audit" aria-label="Decision outcome audit">
@@ -400,10 +444,8 @@ function DecisionAuditPanel({ state, onCreateAudit }: { state: AuditState; onCre
             <h3>Audit unavailable</h3>
             <p>{state.message}</p>
           </div>
-          <button type="button" onClick={onCreateAudit}>
-            Audit with fixture outcome
-          </button>
         </div>
+        {auditControls}
       </section>
     )
   }
@@ -421,13 +463,20 @@ function DecisionAuditPanel({ state, onCreateAudit }: { state: AuditState; onCre
           <h3>{audit ? 'Latest decision audit' : 'No outcome audit yet'}</h3>
           <p>{audit ? `planned ${planned} -> actual ${actual}` : 'Compare the selected plan with the first actual shot.'}</p>
         </div>
-        <button type="button" onClick={onCreateAudit}>
-          Audit with fixture outcome
-        </button>
       </div>
+      {auditControls}
       {classification ? <span className={`audit-classification audit-${classification}`}>{classification}</span> : null}
     </section>
   )
+}
+
+function buildActualShot(clubName: string, meters: number, resultLie: string): Record<string, unknown> {
+  return {
+    shotOrder: 1,
+    clubName: clubName.trim(),
+    meters,
+    end: { lie: resultLie, feature: { surface: { kind: resultLie }, nearRisks: [] } },
+  }
 }
 
 function EvidenceList({ title, rows }: { title: string; rows: Array<Record<string, unknown>> }) {

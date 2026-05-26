@@ -217,7 +217,13 @@ describe('CaddiePage', () => {
     await userEvent.upload(screen.getByLabelText('Media file'), new File(['lie-bytes'], 'lie.jpg', { type: 'image/jpeg' }))
     await userEvent.click(screen.getByRole('button', { name: 'Attach media' }))
     await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Audit with fixture outcome' }))
+    expect(screen.queryByRole('button', { name: 'Audit with fixture outcome' })).not.toBeInTheDocument()
+    await userEvent.clear(screen.getByLabelText('Actual club'))
+    await userEvent.type(screen.getByLabelText('Actual club'), '9I')
+    await userEvent.clear(screen.getByLabelText('Actual carry (m)'))
+    await userEvent.type(screen.getByLabelText('Actual carry (m)'), '137')
+    await userEvent.selectOptions(screen.getByLabelText('Result lie'), 'fringe')
+    await userEvent.click(screen.getByRole('button', { name: 'Audit outcome' }))
 
     expect(onLoadWeather).toHaveBeenCalledTimes(1)
     expect(onLoadCaddieContext).toHaveBeenCalledWith({
@@ -251,6 +257,11 @@ describe('CaddiePage', () => {
         visionFindings: [visionFinding],
       }),
     })
-    expect(onCreateAudit).toHaveBeenCalledWith(decision)
+    expect(onCreateAudit).toHaveBeenCalledWith(decision, {
+      shotOrder: 1,
+      clubName: '9I',
+      meters: 137,
+      end: { lie: 'fringe', feature: { surface: { kind: 'fringe' }, nearRisks: [] } },
+    })
   })
 })
