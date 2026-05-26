@@ -70,6 +70,23 @@ class MobileContractTests(unittest.TestCase):
             },
             "clubProfiles": [{"clubName": "8I", "sampleSize": 24, "median_m": 144.0, "p10_m": 132.0, "p90_m": 153.0}],
             "caddieDecisionEndpoint": "/api/v2/caddie/decision",
+            "offlinePackageStatus": {
+                "state": "ready",
+                "preparedAt": "2026-05-25T00:00:00Z",
+                "expiresAt": "2026-05-26T00:00:00Z",
+                "cachePolicy": {"staleAfterHours": 6, "expiresAfterHours": 24},
+            },
+            "eventCursor": {"serverSequence": 0, "pendingEventCount": 0},
+            "recentHistory": {
+                "course": {"courseKey": "fixture-links", "roundCount": 3, "averageScore": 82.7, "recentScores": [81, 84, 83]},
+                "holes": [{"number": 1, "averageToPar": 0.2, "repeatedIssues": [{"label": "approach short", "count": 2}]}],
+            },
+            "cachedCaddieRules": {
+                "decisionContract": "ai-caddie-decision-v2",
+                "offlineCapable": True,
+                "requiredInputs": ["currentLocation", "hole", "clubProfiles"],
+                "degradeWhenMissing": ["geometry", "weather", "recentHistory"],
+            },
             "generatedAt": "2026-05-25T00:00:00Z",
         }
 
@@ -108,6 +125,10 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("struct LiveRoundPackage: Codable", package_swift)
         self.assertIn("let weatherSnapshot: WeatherSnapshot", package_swift)
+        self.assertIn("let offlinePackageStatus: OfflinePackageStatus", package_swift)
+        self.assertIn("let eventCursor: EventCursor", package_swift)
+        self.assertIn("let recentHistory: RecentHistory", package_swift)
+        self.assertIn("let cachedCaddieRules: CachedCaddieRules", package_swift)
         self.assertIn("struct LiveRoundEvent: Codable", event_swift)
         self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
         self.assertIn('case syncMarker = "sync_marker"', event_swift)

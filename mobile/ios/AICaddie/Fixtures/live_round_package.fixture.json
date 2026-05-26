@@ -46,5 +46,48 @@
     }
   ],
   "caddieDecisionEndpoint": "/api/v2/caddie/decision",
+  "offlinePackageStatus": {
+    "state": "ready",
+    "preparedAt": "2026-05-25T00:00:00Z",
+    "expiresAt": "2026-05-26T00:00:00Z",
+    "cachePolicy": {
+      "staleAfterHours": 6,
+      "expiresAfterHours": 24
+    }
+  },
+  "eventCursor": {
+    "serverSequence": 0,
+    "pendingEventCount": 0
+  },
+  "recentHistory": {
+    "course": {
+      "courseKey": "fixture-links",
+      "roundCount": 3,
+      "averageScore": 82.7,
+      "bestScore": 79,
+      "worstScore": 86,
+      "recentScores": [81, 84, 83],
+      "roundIds": ["round-a", "round-b", "round-c"]
+    },
+    "holes": [
+      {
+        "number": 1,
+        "sampleCount": 3,
+        "averageToPar": 0.2,
+        "repeatedIssues": [
+          {
+            "label": "approach short",
+            "count": 2
+          }
+        ]
+      }
+    ]
+  },
+  "cachedCaddieRules": {
+    "decisionContract": "ai-caddie-decision-v2",
+    "offlineCapable": true,
+    "requiredInputs": ["currentLocation", "hole", "clubProfiles"],
+    "degradeWhenMissing": ["geometry", "weather", "recentHistory"]
+  },
   "generatedAt": "2026-05-25T00:00:00Z"
 }

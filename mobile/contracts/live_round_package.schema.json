@@ -13,6 +13,10 @@
     "weatherSnapshot",
     "clubProfiles",
     "caddieDecisionEndpoint",
+    "offlinePackageStatus",
+    "eventCursor",
+    "recentHistory",
+    "cachedCaddieRules",
     "generatedAt"
   ],
   "properties": {
@@ -150,6 +154,87 @@
     "caddieDecisionEndpoint": {
       "type": "string",
       "const": "/api/v2/caddie/decision"
+    },
+    "offlinePackageStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "preparedAt", "expiresAt", "cachePolicy"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["ready", "degraded", "expired"]
+        },
+        "preparedAt": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "cachePolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["staleAfterHours", "expiresAfterHours"],
+          "properties": {
+            "staleAfterHours": {
+              "type": "integer"
+            },
+            "expiresAfterHours": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "eventCursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverSequence", "pendingEventCount"],
+      "properties": {
+        "serverSequence": {
+          "type": "integer"
+        },
+        "pendingEventCount": {
+          "type": "integer"
+        }
+      }
+    },
+    "recentHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["course", "holes"],
+      "properties": {
+        "course": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "holes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cachedCaddieRules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decisionContract", "offlineCapable", "requiredInputs", "degradeWhenMissing"],
+      "properties": {
+        "decisionContract": {
+          "type": "string",
+          "const": "ai-caddie-decision-v2"
+        },
+        "offlineCapable": {
+          "type": "boolean"
+        },
+        "requiredInputs": {
+          "type": "array"
+        },
+        "degradeWhenMissing": {
+          "type": "array"
+        }
+      }
     },
     "generatedAt": {
       "type": "string"

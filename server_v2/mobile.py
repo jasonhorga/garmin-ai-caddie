@@ -16,7 +16,7 @@ MOBILE_ROOT = Path(".")
 
 def build_mobile_round_package_response(round_id: str) -> LiveRoundPackageResponse:
     data, _mode = load_history_data_for_mode()
-    return LiveRoundPackageResponse(**build_live_round_package(round_id, data=data))
+    return LiveRoundPackageResponse(**build_live_round_package(round_id, data=data, root=MOBILE_ROOT))
 
 
 def append_mobile_events_response(
@@ -27,12 +27,15 @@ def append_mobile_events_response(
 ) -> LiveRoundEventBatchResponse:
     if request.roundId != round_id:
         raise HTTPException(status_code=422, detail="roundId does not match path")
-    result = append_event_batch(
-        round_id,
-        [event.model_dump() for event in request.events],
-        idempotency_key=idempotency_key,
-        root=MOBILE_ROOT,
-    )
+    try:
+        result = append_event_batch(
+            round_id,
+            [event.model_dump() for event in request.events],
+            idempotency_key=idempotency_key,
+            root=MOBILE_ROOT,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return LiveRoundEventBatchResponse(**result)
 
 

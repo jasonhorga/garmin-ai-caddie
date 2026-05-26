@@ -16,6 +16,10 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let weatherSnapshot: WeatherSnapshot
     public let clubProfiles: [ClubProfile]
     public let caddieDecisionEndpoint: String
+    public let offlinePackageStatus: OfflinePackageStatus
+    public let eventCursor: EventCursor
+    public let recentHistory: RecentHistory
+    public let cachedCaddieRules: CachedCaddieRules
     public let generatedAt: String
 
     public init(
@@ -28,6 +32,10 @@ public struct LiveRoundPackage: Codable, Equatable {
         weatherSnapshot: WeatherSnapshot,
         clubProfiles: [ClubProfile],
         caddieDecisionEndpoint: String,
+        offlinePackageStatus: OfflinePackageStatus,
+        eventCursor: EventCursor,
+        recentHistory: RecentHistory,
+        cachedCaddieRules: CachedCaddieRules,
         generatedAt: String
     ) {
         self.schema = schema
@@ -39,6 +47,10 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.weatherSnapshot = weatherSnapshot
         self.clubProfiles = clubProfiles
         self.caddieDecisionEndpoint = caddieDecisionEndpoint
+        self.offlinePackageStatus = offlinePackageStatus
+        self.eventCursor = eventCursor
+        self.recentHistory = recentHistory
+        self.cachedCaddieRules = cachedCaddieRules
         self.generatedAt = generatedAt
     }
 }
@@ -99,4 +111,57 @@ public struct ClubProfile: Codable, Equatable, Identifiable {
         case p10M = "p10_m"
         case p90M = "p90_m"
     }
+}
+
+public struct OfflinePackageStatus: Codable, Equatable {
+    public let state: String
+    public let preparedAt: String
+    public let expiresAt: String
+    public let cachePolicy: CachePolicy
+}
+
+public struct CachePolicy: Codable, Equatable {
+    public let staleAfterHours: Int
+    public let expiresAfterHours: Int
+}
+
+public struct EventCursor: Codable, Equatable {
+    public let serverSequence: Int
+    public let pendingEventCount: Int
+}
+
+public struct RecentHistory: Codable, Equatable {
+    public let course: CourseRecentHistory
+    public let holes: [HoleRecentHistory]
+}
+
+public struct CourseRecentHistory: Codable, Equatable {
+    public let courseKey: String
+    public let roundCount: Int
+    public let averageScore: Double?
+    public let bestScore: Int?
+    public let worstScore: Int?
+    public let recentScores: [Int]
+    public let roundIds: [String]
+}
+
+public struct HoleRecentHistory: Codable, Equatable, Identifiable {
+    public var id: Int { number }
+
+    public let number: Int
+    public let sampleCount: Int
+    public let averageToPar: Double?
+    public let repeatedIssues: [RepeatedIssue]
+}
+
+public struct RepeatedIssue: Codable, Equatable {
+    public let label: String
+    public let count: Int
+}
+
+public struct CachedCaddieRules: Codable, Equatable {
+    public let decisionContract: String
+    public let offlineCapable: Bool
+    public let requiredInputs: [String]
+    public let degradeWhenMissing: [String]
 }

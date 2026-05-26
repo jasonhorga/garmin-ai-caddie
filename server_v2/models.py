@@ -457,6 +457,10 @@ class LiveRoundPackageResponse(BaseModel):
     weatherSnapshot: dict[str, Any]
     clubProfiles: list[dict[str, Any]]
     caddieDecisionEndpoint: str
+    offlinePackageStatus: dict[str, Any]
+    eventCursor: dict[str, Any]
+    recentHistory: dict[str, Any]
+    cachedCaddieRules: dict[str, Any]
     generatedAt: str
 
 
