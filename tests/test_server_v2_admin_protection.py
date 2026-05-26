@@ -146,6 +146,8 @@ def _report_response(kind: str = "round") -> dict[str, object]:
     return {
         "schema": "ai-caddie-review-report-v1",
         "kind": kind,
+        "subjectId": "recent_10" if kind == "trend" else "900001",
+        "sourceRefs": ["900001"],
         "provider": "static",
         "model": "static",
         "factsUsed": [],

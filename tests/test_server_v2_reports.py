@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.config import get_settings
 from ai_caddie.llm_providers import StaticProvider
+from ai_caddie.reports import store_report
 from server_v2.main import app
 
 
@@ -74,7 +75,38 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(post_response.status_code, 200)
         self.assertEqual(get_response.status_code, 200)
         self.assertEqual(get_response.json()["narrative"], "persisted review")
+        self.assertEqual(get_response.json()["subjectId"], "900001")
+        self.assertIn("900001", get_response.json()["sourceRefs"])
         self.assertIn('"subjectId": "900001"', raw)
+
+    def test_stored_report_response_backfills_subject_and_source_refs(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_report(
+                {
+                    "schema": "ai-caddie-review-report-v1",
+                    "kind": "round",
+                    "provider": "StaticProvider",
+                    "model": "static",
+                    "factsUsed": [{"label": "round", "source": "test", "sourceRefs": ["900001"], "value": {"holeRef": "900001:7"}}],
+                    "missingData": [{"label": "weather", "sourceRefs": ["900002"]}],
+                    "narrative": "old stored review",
+                    "confidence": "medium",
+                },
+                kind="round",
+                subject_id="900001",
+                root=root,
+            )
+            with patch("server_v2.reports.REPORT_ROOT", root):
+                response = client.get("/api/v2/reports/round/900001")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["subjectId"], "900001")
+        self.assertEqual(payload["sourceRefs"], ["900001", "900001:7", "900002"])
+        self.assertEqual(payload["narrative"], "old stored review")
 
     def test_get_trend_report_returns_stub_fact_bound_report(self) -> None:
         client = TestClient(app)

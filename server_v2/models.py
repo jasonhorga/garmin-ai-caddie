@@ -338,6 +338,8 @@ class ReviewReportResponse(BaseModel):
 
     schema_: Literal["ai-caddie-review-report-v1"] = Field(alias="schema")
     kind: Literal["round", "trend"]
+    subjectId: str
+    sourceRefs: list[str] = Field(default_factory=list)
     provider: str
     model: str
     factsUsed: list[dict[str, Any]]

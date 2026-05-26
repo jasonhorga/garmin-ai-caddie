@@ -6,7 +6,7 @@ import unittest
 
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history import HistoryData
-from ai_caddie.llm_providers import LLMMessage
+from ai_caddie.llm_providers import LLMMessage, StaticProvider
 from ai_caddie.history_stats import build_history_stats
 from ai_caddie.reports import (
     build_round_report_facts,
@@ -290,6 +290,23 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertNotIn("abc123", prompt)
         self.assertNotIn("/home/ubuntu/private/file", prompt)
         self.assertIn("[REDACTED]", prompt)
+
+    def test_generated_report_exposes_subject_and_deduped_source_refs(self) -> None:
+        facts = {
+            "schema": "ai-caddie-report-facts-v1",
+            "kind": "trend",
+            "subjectId": "recent_10",
+            "factsUsed": [
+                {"label": "summary", "source": "summary", "value": 1, "sourceRefs": ["900001", "900002"]},
+                {"label": "hole", "source": "holes", "value": {"holeRef": "900001:7", "sourceRefs": ["900001", "900001:7"]}},
+            ],
+            "missingData": [{"label": "weather", "sourceRefs": ["900002"]}],
+        }
+        report = generate_report(facts, StaticProvider("identity review"))
+
+        self.assertEqual(report["subjectId"], "recent_10")
+        self.assertEqual(report["sourceRefs"], ["900001", "900002", "900001:7"])
+        self.assertEqual(report["narrative"], "identity review")
 
     def test_redact_private_text_is_public_helper(self) -> None:
         redacted = redact_private_text("api_key=my-key /Users/me/Library/token")

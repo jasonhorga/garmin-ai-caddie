@@ -1823,6 +1823,14 @@ p {
   background: var(--double-soft);
 }
 
+.report-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+}
+
 .report-narrative {
   color: var(--text);
   font-size: 1rem;

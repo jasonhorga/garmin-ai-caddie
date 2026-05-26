@@ -127,6 +127,13 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
         </div>
         <span className={`confidence-pill ${report.confidence}`}>{report.confidence} confidence</span>
       </div>
+      <section className="report-identity" aria-label="Report identity">
+        <span className="fact-chip muted">subject</span>
+        <span className="fact-chip">{report.subjectId}</span>
+        <span className="fact-chip muted">model</span>
+        <span className="fact-chip">{report.model}</span>
+        <SourceRefs refs={report.sourceRefs} onSelectRef={onSelectRef} />
+      </section>
       <p className="report-narrative">{report.narrative}</p>
 
       <div className="report-evidence-grid">

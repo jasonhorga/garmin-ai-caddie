@@ -56,6 +56,8 @@ def _unique_strings(values: list[Any]) -> list[str]:
     seen: set[str] = set()
     unique: list[str] = []
     for value in values:
+        if value is None:
+            continue
         text = str(value)
         if not text or text in seen:
             continue
@@ -119,6 +121,52 @@ def _metadata_source_refs(value: Any) -> list[str]:
             ]
         )
     return []
+
+
+_SOURCE_REF_KEYS = {
+    "sourceRef",
+    "sourceRefs",
+    "refs",
+    "roundRef",
+    "roundRefs",
+    "roundIds",
+    "holeRef",
+    "holeRefs",
+    "shotRef",
+    "shotRefs",
+}
+
+
+def report_source_refs(value: Any) -> list[str]:
+    refs: list[Any] = []
+
+    def walk(current: Any, key_hint: str = "") -> None:
+        if isinstance(current, list):
+            if key_hint in _SOURCE_REF_KEYS:
+                refs.extend(current)
+                return
+            for item in current:
+                walk(item)
+            return
+
+        if isinstance(current, str) and key_hint in _SOURCE_REF_KEYS:
+            refs.append(current)
+            return
+
+        if not isinstance(current, dict):
+            return
+
+        for key, item in current.items():
+            if key in _SOURCE_REF_KEYS:
+                if isinstance(item, list):
+                    refs.extend(item)
+                else:
+                    refs.append(item)
+            else:
+                walk(item, key)
+
+    walk(value)
+    return _unique_strings(refs)
 
 
 def _metadata_coverage(value: Any) -> dict[str, Any] | None:
@@ -595,6 +643,8 @@ def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, 
     facts_used = safe_facts.get("factsUsed", []) if isinstance(safe_facts.get("factsUsed"), list) else []
     missing_data = safe_facts.get("missingData", []) if isinstance(safe_facts.get("missingData"), list) else []
     kind = str(safe_facts.get("kind", "round"))
+    subject_id = redact_private_text(safe_facts.get("subjectId", ""))
+    source_refs = report_source_refs({"factsUsed": facts_used, "missingData": missing_data})
 
     prompt = (
         "Write an evidence-bound golf review. Use only factsUsed. "
@@ -612,6 +662,8 @@ def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, 
     return {
         "schema": "ai-caddie-review-report-v1",
         "kind": kind,
+        "subjectId": subject_id,
+        "sourceRefs": source_refs,
         "provider": provider.__class__.__name__,
         "model": provider.model,
         "factsUsed": facts_used,

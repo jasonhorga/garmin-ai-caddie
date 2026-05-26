@@ -393,6 +393,8 @@ export type ReportConfidence = 'low' | 'medium' | 'high'
 export interface ReviewReportResponse {
   schema: 'ai-caddie-review-report-v1'
   kind: ReportKind
+  subjectId: string
+  sourceRefs: string[]
   provider: string
   model: string
   factsUsed: Array<Record<string, unknown>>

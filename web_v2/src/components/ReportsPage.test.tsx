@@ -26,6 +26,8 @@ const stats: HistoryStatsResponse = {
 const report: ReviewReportResponse = {
   schema: 'ai-caddie-review-report-v1',
   kind: 'trend',
+  subjectId: 'recent_10',
+  sourceRefs: ['900001', '900002'],
   provider: 'StaticProvider',
   model: 'static',
   factsUsed: [
@@ -101,6 +103,8 @@ describe('ReportsPage', () => {
     expect(screen.getByRole('option', { name: 'Year 2026' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '900001' })).toBeInTheDocument()
     expect(screen.getByText('Recent scoring improved, but weather coverage is partial.')).toBeInTheDocument()
+    expect(screen.getByText('recent_10')).toBeInTheDocument()
+    expect(screen.getByText('static')).toBeInTheDocument()
     expect(screen.getByText('summary_trend')).toBeInTheDocument()
     expect(screen.getByText('Black Knight B/C')).toBeInTheDocument()
     expect(screen.getByText('score 77')).toBeInTheDocument()
@@ -117,6 +121,7 @@ describe('ReportsPage', () => {
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Report identity')).getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Open source 900002' })[0])
     await userEvent.click(screen.getByRole('button', { name: 'Load trend report' }))
