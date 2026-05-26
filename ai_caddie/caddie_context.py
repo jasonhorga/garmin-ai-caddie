@@ -13,6 +13,7 @@ from ai_caddie.history import HistoryData
 from ai_caddie.history_drilldown import resolve_history_ref
 from ai_caddie.history_stats import DataModeName, build_history_stats
 from ai_caddie.vision_context import list_findings_for_target
+from ai_caddie.weather_context import latest_weather_snapshot
 
 
 def build_caddie_context(
@@ -25,6 +26,10 @@ def build_caddie_context(
     data_mode: DataModeName = "local",
     annotations_root: Path | str | None = None,
     vision_root: Path | str | None = None,
+    weather_root: Path | str | None = None,
+    current_location: dict[str, Any] | None = None,
+    target_location: dict[str, Any] | None = None,
+    strategy_mode: str | None = None,
 ) -> dict[str, Any]:
     normalized_shot_type = validate_shot_type(shot_type)
     drilldown = resolve_history_ref(data, source_ref)
@@ -66,7 +71,8 @@ def build_caddie_context(
     effective_distance = _as_float(distance_to_pin_m)
     if effective_distance is None and shot_row.get("distance") is not None:
         effective_distance = _as_float(shot_row.get("distance"))
-    if effective_distance is None and normalized_shot_type != "tee":
+    has_live_target = isinstance(current_location, dict) and isinstance(target_location, dict)
+    if effective_distance is None and normalized_shot_type != "tee" and not has_live_target:
         missing_data.append({"label": "distance_to_pin", "reason": "current distance must be provided for approach/recovery"})
 
     effective_lie = str(lie or shot_row.get("surface") or "").strip() or None
@@ -101,6 +107,27 @@ def build_caddie_context(
                 "refs": _finding_refs(vision_findings),
             }
         )
+    weather_snapshot = _weather_snapshot_for_context(
+        round_id=str(round_row.get("id") or source_ref.split(":")[0]),
+        local_hole=local_hole,
+        weather_root=weather_root,
+    )
+    if weather_snapshot:
+        evidence_rows.append(
+            {
+                "label": "weather_snapshot",
+                "value": _weather_evidence_value(weather_snapshot),
+                "refs": _weather_refs(weather_snapshot),
+            }
+        )
+    if current_location or target_location:
+        evidence_rows.append(
+            {
+                "label": "live_location",
+                "value": "current and target coordinates provided" if has_live_target else "partial live coordinates provided",
+                "refs": [source_ref],
+            }
+        )
 
     context = {
         "roundId": str(round_row.get("id") or source_ref.split(":")[0]),
@@ -127,6 +154,14 @@ def build_caddie_context(
         context["lie"] = effective_lie
     if vision_findings:
         context["visionFindings"] = vision_findings
+    if weather_snapshot:
+        context["weatherSnapshot"] = weather_snapshot
+    if current_location:
+        context["currentLocation"] = current_location
+    if target_location:
+        context["targetLocation"] = target_location
+    if strategy_mode and strategy_mode.strip():
+        context["strategyMode"] = strategy_mode.strip()
 
     return {
         "schema": "ai-caddie-context-v1",
@@ -278,6 +313,35 @@ def _finding_refs(findings: list[dict[str, Any]]) -> list[str]:
             refs.append(target_id)
         if media_id:
             refs.append(f"media:{media_id}")
+    return refs
+
+
+def _weather_snapshot_for_context(
+    *,
+    round_id: str,
+    local_hole: int | None,
+    weather_root: Path | str | None,
+) -> dict[str, Any] | None:
+    if not round_id:
+        return None
+    return latest_weather_snapshot(round_id, local_hole, root=weather_root) or latest_weather_snapshot(round_id, root=weather_root)
+
+
+def _weather_evidence_value(snapshot: dict[str, Any]) -> str:
+    source = str(snapshot.get("source") or "weather")
+    captured_at = str(snapshot.get("capturedAt") or "").strip()
+    state = str(snapshot.get("state") or "unknown")
+    return " ".join(part for part in [source, state, captured_at] if part)
+
+
+def _weather_refs(snapshot: dict[str, Any]) -> list[str]:
+    round_id = str(snapshot.get("roundId") or "").strip()
+    hole = snapshot.get("hole")
+    refs = []
+    if round_id:
+        refs.append(round_id)
+    if round_id and hole is not None:
+        refs.append(f"{round_id}:{hole}")
     return refs
 
 

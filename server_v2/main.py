@@ -285,12 +285,22 @@ def caddie_context(
     shot_type: Literal["tee", "approach", "recovery"] = "approach",
     distance_to_pin_m: float | None = None,
     lie: str | None = None,
+    current_latitude: float | None = None,
+    current_longitude: float | None = None,
+    target_latitude: float | None = None,
+    target_longitude: float | None = None,
+    strategy_mode: str | None = None,
 ) -> CaddieContextResponse:
     return build_caddie_context_response(
         source_ref=source_ref,
         shot_type=shot_type,
         distance_to_pin_m=distance_to_pin_m,
         lie=lie,
+        current_latitude=current_latitude,
+        current_longitude=current_longitude,
+        target_latitude=target_latitude,
+        target_longitude=target_longitude,
+        strategy_mode=strategy_mode,
     )
 
 

@@ -416,10 +416,15 @@ describe('fetchCaddieContext', () => {
       shotType: 'approach',
       distanceToPinM: 142,
       lie: 'fairway',
+      currentLatitude: 22.279,
+      currentLongitude: 114.162,
+      targetLatitude: 22.2799,
+      targetLongitude: 114.162,
+      strategyMode: 'protect_score',
     })
 
     expect(fetch).toHaveBeenCalledWith(
-      '/api/v2/caddie/context?source_ref=900001%3A7&shot_type=approach&distance_to_pin_m=142&lie=fairway',
+      '/api/v2/caddie/context?source_ref=900001%3A7&shot_type=approach&distance_to_pin_m=142&lie=fairway&current_latitude=22.279&current_longitude=114.162&target_latitude=22.2799&target_longitude=114.162&strategy_mode=protect_score',
     )
     expect(payload.schema).toBe('ai-caddie-context-v1')
     expect(payload.context.source).toBe('history_drilldown')

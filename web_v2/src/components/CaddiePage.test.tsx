@@ -285,4 +285,38 @@ describe('CaddiePage', () => {
       end: { lie: 'fringe', feature: { surface: { kind: 'fringe' }, nearRisks: [] } },
     })
   })
+
+  it('passes live coordinates and strategy mode when loading source-bound context', async () => {
+    const onLoadCaddieContext = vi.fn()
+
+    render(
+      <CaddiePage
+        decisionState={{ status: 'idle' }}
+        contextState={{ status: 'idle' }}
+        onRequestDecision={vi.fn()}
+        onLoadCaddieContext={onLoadCaddieContext}
+      />,
+    )
+
+    await userEvent.clear(screen.getByLabelText('Current latitude'))
+    await userEvent.type(screen.getByLabelText('Current latitude'), '22.279')
+    await userEvent.clear(screen.getByLabelText('Current longitude'))
+    await userEvent.type(screen.getByLabelText('Current longitude'), '114.162')
+    await userEvent.clear(screen.getByLabelText('Target latitude'))
+    await userEvent.type(screen.getByLabelText('Target latitude'), '22.2799')
+    await userEvent.clear(screen.getByLabelText('Target longitude'))
+    await userEvent.type(screen.getByLabelText('Target longitude'), '114.162')
+    await userEvent.selectOptions(screen.getByLabelText('Strategy mode'), 'protect_score')
+    await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
+
+    expect(onLoadCaddieContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentLatitude: 22.279,
+        currentLongitude: 114.162,
+        targetLatitude: 22.2799,
+        targetLongitude: 114.162,
+        strategyMode: 'protect_score',
+      }),
+    )
+  })
 })

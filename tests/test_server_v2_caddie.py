@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from ai_caddie.annotations import add_annotation
 from ai_caddie.decision_api import build_decision_request_from_fixture
 from ai_caddie.vision_context import store_vision_findings
+from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 
 
@@ -263,6 +264,61 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertEqual(decision["selectedOptionId"], "safe")
         self.assertTrue(any(row["kind"] == "vision" and "blocked_view" in row["text"] for row in decision["evidence"]))
         self.assertIn("bunker", {zone["kind"] for zone in decision["avoidZones"]})
+
+    def test_context_endpoint_binds_live_coordinates_strategy_and_stored_weather(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_weather_snapshot(
+                build_weather_snapshot(
+                    round_id="900001",
+                    hole=7,
+                    captured_at="2026-05-25T08:00:00Z",
+                    latitude=22.279,
+                    longitude=114.162,
+                    source="manual",
+                    observed={"windSpeedMps": 8.0, "windDirectionDeg": 0, "temperatureC": 28.5},
+                ),
+                root=root,
+            )
+
+            with patch("server_v2.caddie.WEATHER_ROOT", root, create=True):
+                context_response = client.get(
+                    "/api/v2/caddie/context",
+                    params={
+                        "source_ref": "900001:7",
+                        "shot_type": "approach",
+                        "lie": "fairway",
+                        "current_latitude": 22.279,
+                        "current_longitude": 114.162,
+                        "target_latitude": 22.2799,
+                        "target_longitude": 114.162,
+                        "strategy_mode": "protect_score",
+                    },
+                )
+
+        self.assertEqual(context_response.status_code, 200)
+        payload = context_response.json()
+        context = payload["context"]
+        self.assertEqual(context["currentLocation"]["source"], "live_input")
+        self.assertEqual(context["targetLocation"]["source"], "live_input")
+        self.assertEqual(context["strategyMode"], "protect_score")
+        self.assertEqual(context["weatherSnapshot"]["windSpeedMps"], 8.0)
+        self.assertNotIn("distance_to_pin", {row["label"] for row in payload["missingData"]})
+        self.assertTrue(any(row["label"] == "weather_snapshot" for row in payload["evidence"]))
+        self.assertTrue(any(row["label"] == "live_location" for row in payload["evidence"]))
+
+        decision_response = client.post("/api/v2/caddie/decision", json={"shotType": "approach", "context": context})
+
+        self.assertEqual(decision_response.status_code, 200)
+        decision = decision_response.json()
+        self.assertAlmostEqual(decision["context"]["distanceToPin_m"], 100.1, places=1)
+        self.assertAlmostEqual(decision["context"]["shotBearingDeg"], 0.0, places=1)
+        self.assertEqual(decision["context"]["strategyMode"], "protect_score")
+        self.assertEqual(decision["selectedOptionId"], "safe")
+        self.assertTrue(any(row["kind"] == "live_location" for row in decision["evidence"]))
+        self.assertTrue(any(row["kind"] == "weather" for row in decision["evidence"]))
 
 
 if __name__ == "__main__":

@@ -80,6 +80,11 @@ export function CaddiePage({
   const [contextSourceRef, setContextSourceRef] = useState('900001:7')
   const [contextDistance, setContextDistance] = useState('142')
   const [contextLie, setContextLie] = useState('fairway')
+  const [currentLatitude, setCurrentLatitude] = useState('')
+  const [currentLongitude, setCurrentLongitude] = useState('')
+  const [targetLatitude, setTargetLatitude] = useState('')
+  const [targetLongitude, setTargetLongitude] = useState('')
+  const [strategyMode, setStrategyMode] = useState('')
   const weatherSnapshot = weatherState.status === 'ready' ? weatherState.data : null
   const visionFindings = mediaState.status === 'ready' ? mediaState.findings : []
   const hasSourceContext = contextState.status === 'ready'
@@ -122,10 +127,20 @@ export function CaddiePage({
         sourceRef={contextSourceRef}
         distance={contextDistance}
         lie={contextLie}
+        currentLatitude={currentLatitude}
+        currentLongitude={currentLongitude}
+        targetLatitude={targetLatitude}
+        targetLongitude={targetLongitude}
+        strategyMode={strategyMode}
         shotType={shotType}
         onSourceRefChange={setContextSourceRef}
         onDistanceChange={setContextDistance}
         onLieChange={setContextLie}
+        onCurrentLatitudeChange={setCurrentLatitude}
+        onCurrentLongitudeChange={setCurrentLongitude}
+        onTargetLatitudeChange={setTargetLatitude}
+        onTargetLongitudeChange={setTargetLongitude}
+        onStrategyModeChange={setStrategyMode}
         onLoadCaddieContext={onLoadCaddieContext}
       />
       <MediaContextPanel
@@ -144,20 +159,40 @@ function CaddieContextPanel({
   sourceRef,
   distance,
   lie,
+  currentLatitude,
+  currentLongitude,
+  targetLatitude,
+  targetLongitude,
+  strategyMode,
   shotType,
   onSourceRefChange,
   onDistanceChange,
   onLieChange,
+  onCurrentLatitudeChange,
+  onCurrentLongitudeChange,
+  onTargetLatitudeChange,
+  onTargetLongitudeChange,
+  onStrategyModeChange,
   onLoadCaddieContext,
 }: {
   state: CaddieContextLoadState
   sourceRef: string
   distance: string
   lie: string
+  currentLatitude: string
+  currentLongitude: string
+  targetLatitude: string
+  targetLongitude: string
+  strategyMode: string
   shotType: CaddieShotType
   onSourceRefChange: (value: string) => void
   onDistanceChange: (value: string) => void
   onLieChange: (value: string) => void
+  onCurrentLatitudeChange: (value: string) => void
+  onCurrentLongitudeChange: (value: string) => void
+  onTargetLatitudeChange: (value: string) => void
+  onTargetLongitudeChange: (value: string) => void
+  onStrategyModeChange: (value: string) => void
   onLoadCaddieContext?: (params: CaddieContextParams) => void
 }) {
   const loadedContext = state.status === 'ready' ? state.data.context : null
@@ -183,6 +218,40 @@ function CaddieContextPanel({
         <input id="caddie-distance" inputMode="decimal" value={distance} onChange={(event) => onDistanceChange(event.target.value)} />
         <label htmlFor="caddie-lie">Lie</label>
         <input id="caddie-lie" value={lie} onChange={(event) => onLieChange(event.target.value)} />
+        <label htmlFor="caddie-current-latitude">Current latitude</label>
+        <input
+          id="caddie-current-latitude"
+          inputMode="decimal"
+          value={currentLatitude}
+          onChange={(event) => onCurrentLatitudeChange(event.target.value)}
+        />
+        <label htmlFor="caddie-current-longitude">Current longitude</label>
+        <input
+          id="caddie-current-longitude"
+          inputMode="decimal"
+          value={currentLongitude}
+          onChange={(event) => onCurrentLongitudeChange(event.target.value)}
+        />
+        <label htmlFor="caddie-target-latitude">Target latitude</label>
+        <input
+          id="caddie-target-latitude"
+          inputMode="decimal"
+          value={targetLatitude}
+          onChange={(event) => onTargetLatitudeChange(event.target.value)}
+        />
+        <label htmlFor="caddie-target-longitude">Target longitude</label>
+        <input
+          id="caddie-target-longitude"
+          inputMode="decimal"
+          value={targetLongitude}
+          onChange={(event) => onTargetLongitudeChange(event.target.value)}
+        />
+        <label htmlFor="caddie-strategy-mode">Strategy mode</label>
+        <select id="caddie-strategy-mode" value={strategyMode} onChange={(event) => onStrategyModeChange(event.target.value)}>
+          <option value="">Stock mode</option>
+          <option value="protect_score">Protect score</option>
+          <option value="attack">Attack</option>
+        </select>
         <button
           type="button"
           onClick={() =>
@@ -191,6 +260,11 @@ function CaddieContextPanel({
               shotType,
               distanceToPinM: numericInput(distance),
               lie,
+              currentLatitude: numericInput(currentLatitude),
+              currentLongitude: numericInput(currentLongitude),
+              targetLatitude: numericInput(targetLatitude),
+              targetLongitude: numericInput(targetLongitude),
+              strategyMode: strategyMode || undefined,
             })
           }
         >
@@ -757,6 +831,7 @@ function formatSequenceMeta(sequence: Record<string, unknown>): string {
 }
 
 function numericInput(value: string): number | undefined {
+  if (!value.trim()) return undefined
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : undefined
 }

@@ -140,6 +140,11 @@ export interface CaddieContextParams {
   shotType: CaddieShotType
   distanceToPinM?: number
   lie?: string
+  currentLatitude?: number
+  currentLongitude?: number
+  targetLatitude?: number
+  targetLongitude?: number
+  strategyMode?: string
 }
 
 export interface CaddieContextResponse {

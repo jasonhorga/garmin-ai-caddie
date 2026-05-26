@@ -21,6 +21,7 @@ from .models import (
 
 DECISION_AUDIT_ROOT = Path(".")
 VISION_ROOT = Path(".")
+WEATHER_ROOT = Path(".")
 
 
 def build_caddie_decision_response(request: CaddieDecisionRequest) -> CaddieDecisionResponse:
@@ -34,6 +35,11 @@ def build_caddie_context_response(
     shot_type: str,
     distance_to_pin_m: float | None = None,
     lie: str | None = None,
+    current_latitude: float | None = None,
+    current_longitude: float | None = None,
+    target_latitude: float | None = None,
+    target_longitude: float | None = None,
+    strategy_mode: str | None = None,
 ) -> CaddieContextResponse:
     data, mode = load_history_data_for_mode()
     return CaddieContextResponse(
@@ -46,8 +52,18 @@ def build_caddie_context_response(
             data_mode=mode,
             annotations_root=ANNOTATION_ROOT,
             vision_root=VISION_ROOT,
+            weather_root=WEATHER_ROOT,
+            current_location=_location(current_latitude, current_longitude),
+            target_location=_location(target_latitude, target_longitude),
+            strategy_mode=strategy_mode,
         )
     )
+
+
+def _location(latitude: float | None, longitude: float | None) -> dict[str, float | str] | None:
+    if latitude is None or longitude is None:
+        return None
+    return {"latitude": float(latitude), "longitude": float(longitude), "source": "live_input"}
 
 
 def _audit_record(row: dict[str, object] | None) -> CaddieDecisionAuditRecord | None:

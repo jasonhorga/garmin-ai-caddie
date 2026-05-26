@@ -93,6 +93,11 @@ export function fetchCaddieContext(params: CaddieContextParams): Promise<CaddieC
   })
   appendParam(query, 'distance_to_pin_m', params.distanceToPinM)
   appendParam(query, 'lie', params.lie)
+  appendParam(query, 'current_latitude', params.currentLatitude)
+  appendParam(query, 'current_longitude', params.currentLongitude)
+  appendParam(query, 'target_latitude', params.targetLatitude)
+  appendParam(query, 'target_longitude', params.targetLongitude)
+  appendParam(query, 'strategy_mode', params.strategyMode)
   return getJson<CaddieContextResponse>(`/api/v2/caddie/context?${query.toString()}`)
 }
 
