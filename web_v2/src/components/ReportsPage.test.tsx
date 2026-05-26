@@ -13,6 +13,7 @@ const stats: HistoryStatsResponse = {
     byYear: [{ key: '2026', roundCount: 3, average18: 86 }],
   },
   scoring: {},
+  courseDistribution: [],
   courses: [],
   holes: [],
   clubs: [],

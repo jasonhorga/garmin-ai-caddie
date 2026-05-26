@@ -10,6 +10,7 @@ const statsFixture: HistoryStatsResponse = {
   summary: {},
   time: {},
   scoring: {},
+  courseDistribution: [{ courseKey: 'black_knight', roundCount: 2, pct: 100, roundRefs: ['900001', '900002'] }],
   courses: [
     {
       courseKey: 'black_knight',

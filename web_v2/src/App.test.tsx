@@ -69,6 +69,7 @@ function statsPayload() {
     summary: { totalRounds: 3, average18: 82, bestScore: 77, shotCount: 6 },
     time: { byMonth: [{ key: '2026-05', roundCount: 1, average18: 77, bestScore: 77 }] },
     scoring: { scoreBands: [{ label: '70s', count: 1, roundIds: ['900001'] }] },
+    courseDistribution: [{ courseKey: 'black_knight', roundCount: 2, pct: 66.7, roundRefs: ['900001', '900002'] }],
     courses: [
       {
         courseKey: 'black_knight',

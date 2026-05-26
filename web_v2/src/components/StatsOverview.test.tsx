@@ -50,6 +50,7 @@ const statsFixture: HistoryStatsResponse = {
       { phase: 'Putting', averagePutts: 2.1, threePutts: 5, holeRefs: ['900002:5'] },
     ],
   },
+  courseDistribution: [{ courseKey: 'black_knight', roundCount: 2, pct: 66.7, roundRefs: ['900001', '900002'] }],
   courses: [
     {
       courseKey: 'black_knight',

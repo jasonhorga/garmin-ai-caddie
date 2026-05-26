@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -7,11 +8,15 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.config import get_settings
 from ai_caddie.llm_providers import StaticProvider
 from server_v2.main import app
 
 
 class ServerV2ReportsTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        get_settings.cache_clear()
+
     def test_get_round_report_returns_stub_fact_bound_report(self) -> None:
         client = TestClient(app)
 
@@ -23,6 +28,19 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(payload["kind"], "round")
         self.assertIn("factsUsed", payload)
         self.assertIn("missingData", payload)
+
+    def test_report_facts_include_course_distribution_from_history_stats_api_model(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
+                get_settings.cache_clear()
+                with patch("server_v2.reports.REPORT_ROOT", Path(tmp)):
+                    response = client.get("/api/v2/reports/trend/quarter:2026-Q2")
+
+        self.assertEqual(response.status_code, 200)
+        labels = {row["label"] for row in response.json()["factsUsed"]}
+        self.assertIn("course_distribution", labels)
 
     def test_post_generate_round_report_uses_patched_provider(self) -> None:
         client = TestClient(app)

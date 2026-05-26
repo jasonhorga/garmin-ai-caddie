@@ -127,6 +127,7 @@ describe('fetchHistoryStats', () => {
         summary: { totalRounds: 3, average18: 82 },
         time: { byMonth: [] },
         scoring: { scoreBands: [] },
+        courseDistribution: [],
         courses: [],
         holes: [],
         clubs: [],

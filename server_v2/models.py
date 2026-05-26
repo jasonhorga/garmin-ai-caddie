@@ -138,6 +138,7 @@ class HistoryStatsResponse(BaseModel):
     summary: dict[str, Any]
     time: dict[str, Any]
     scoring: dict[str, Any]
+    courseDistribution: list[dict[str, Any]]
     courses: list[dict[str, Any]]
     holes: list[dict[str, Any]]
     clubs: list[dict[str, Any]]

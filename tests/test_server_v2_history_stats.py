@@ -32,6 +32,10 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertEqual(hole["scoreDistribution"][4]["key"], "doubleOrWorse")
         self.assertEqual(hole["repeatedIssues"][0]["issue"], "double_or_worse")
         self.assertIn("900002:7", hole["repeatedIssues"][0]["refs"])
+        self.assertIn("courseDistribution", payload)
+        black_knight = next(row for row in payload["courseDistribution"] if row["courseKey"] == "black_knight")
+        self.assertEqual(black_knight["roundCount"], 2)
+        self.assertEqual(black_knight["roundRefs"], ["900001", "900002"])
         self.assertIn("drillDown", payload)
 
     def test_history_stats_endpoint_uses_public_schema_alias(self) -> None:
