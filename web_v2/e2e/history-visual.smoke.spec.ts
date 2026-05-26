@@ -256,6 +256,33 @@ const readinessPayload = {
   ],
 }
 
+const reportIndexPayload = {
+  schema: 'ai-caddie-review-report-index-v1',
+  total: 2,
+  reports: [
+    {
+      id: 'trend-recent-10',
+      storedAt: '2026-05-25T10:30:00Z',
+      kind: 'trend',
+      subjectId: 'recent_10',
+      confidence: 'medium',
+      provider: 'StaticProvider',
+      model: 'static',
+      sourceRefs: ['900001', '900002'],
+    },
+    {
+      id: 'round-900001',
+      storedAt: '2026-05-25T09:30:00Z',
+      kind: 'round',
+      subjectId: '900001',
+      confidence: 'high',
+      provider: 'StaticProvider',
+      model: 'static',
+      sourceRefs: ['900001'],
+    },
+  ],
+}
+
 test('major product screens render with stable Garmin Pro layout', async ({ page }, testInfo) => {
   const browserErrors: string[] = []
   page.on('pageerror', (error) => browserErrors.push(error.message))
@@ -303,6 +330,7 @@ async function mockApi(page: Page) {
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload })
     if (path === '/api/v2/sync/status') return route.fulfill({ json: syncStatusPayload })
     if (path === '/api/v2/readiness') return route.fulfill({ json: readinessPayload })
+    if (path === '/api/v2/reports') return route.fulfill({ json: reportIndexPayload })
     return route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } })
   })
 }
