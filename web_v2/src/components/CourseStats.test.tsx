@@ -58,6 +58,19 @@ const statsFixture: HistoryStatsResponse = {
         dominantMiss: 'right',
         sourceRefs: ['900001:1', '900001:2', '900001:3', '900001:4'],
       },
+      approachMiss: {
+        recorded: 4,
+        total: 5,
+        gir: 1,
+        missed: 3,
+        short: 2,
+        left: 1,
+        girPct: 25,
+        missPct: 75,
+        shortPct: 50,
+        dominantMiss: 'short',
+        sourceRefs: ['900001:1', '900001:2', '900001:3', '900001:4'],
+      },
       geometryCoverage: 'missing',
       roundIds: ['900001', '900002'],
     },
@@ -83,6 +96,8 @@ describe('CourseStats', () => {
     expect(screen.getByText('recent 77')).toBeInTheDocument()
     expect(screen.getByText('FIR 25%')).toBeInTheDocument()
     expect(screen.getByText('tee right 50%')).toHaveClass('tee-right')
+    expect(screen.getByText('GIR 25%')).toBeInTheDocument()
+    expect(screen.getByText('approach short 50%')).toHaveClass('approach-short')
     expect(screen.getByText('improving -10')).toHaveClass('trend-improving')
     expect(screen.getByText('geometry missing 0/2')).toHaveClass('quality-missing')
     expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')

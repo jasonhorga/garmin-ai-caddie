@@ -1155,6 +1155,7 @@ p {
 .stats-item-facts .consistency-tight,
 .stats-item-facts .tee-hit,
 .stats-item-facts .tee-none,
+.stats-item-facts .approach-none,
 .stats-item-facts .confidence-high {
   background: #e4f2e8;
   color: var(--green);
@@ -1169,6 +1170,8 @@ p {
 .stats-item-facts .consistency-unknown,
 .stats-item-facts .tee-mixed,
 .stats-item-facts .tee-other,
+.stats-item-facts .approach-mixed,
+.stats-item-facts .approach-other,
 .stats-item-facts .confidence-medium {
   background: #edf5f8;
   color: #2f6f95;
@@ -1187,6 +1190,10 @@ p {
 .stats-item-facts .consistency-volatile,
 .stats-item-facts .tee-left,
 .stats-item-facts .tee-right,
+.stats-item-facts .approach-short,
+.stats-item-facts .approach-long,
+.stats-item-facts .approach-left,
+.stats-item-facts .approach-right,
 .stats-item-facts .confidence-low {
   background: #f7e2dd;
   color: var(--double);

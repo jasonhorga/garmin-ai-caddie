@@ -112,6 +112,21 @@ const statsFixture: HistoryStatsResponse = {
       hitRefs: ['900001:1'],
       rightRefs: ['900001:3', '900001:4'],
     },
+    approachMiss: {
+      recorded: 4,
+      total: 5,
+      gir: 1,
+      missed: 3,
+      short: 2,
+      left: 1,
+      girPct: 25,
+      missPct: 75,
+      shortPct: 50,
+      dominantMiss: 'short',
+      sourceRefs: ['900001:1', '900001:2', '900001:3', '900001:4'],
+      girRefs: ['900001:1'],
+      shortRefs: ['900001:2', '900001:4'],
+    },
     phaseStats: [
       { phase: 'Approach', girPct: 42.2, missedGir: 26, holeRefs: ['900001:1'] },
       { phase: 'Putting', averagePutts: 2.1, threePutts: 5, holeRefs: ['900002:5'] },
@@ -218,6 +233,10 @@ describe('StatsOverview', () => {
     expect(screen.getByText('miss 75%')).toBeInTheDocument()
     expect(screen.getByText('dominant right')).toHaveClass('tee-right')
     expect(within(screen.getByLabelText('Tee direction')).getByRole('button', { name: 'Open source 900001:3' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Approach Miss' })).toBeInTheDocument()
+    expect(screen.getAllByText('GIR 25%').length).toBeGreaterThan(0)
+    expect(screen.getByText('dominant short')).toHaveClass('approach-short')
+    expect(within(screen.getByLabelText('Approach miss')).getByRole('button', { name: 'Open source 900001:2' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Course Mix' })).toBeInTheDocument()
     expect(screen.getAllByText('Black Knight B/C').length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: 'Course Distribution Map' })).toBeInTheDocument()

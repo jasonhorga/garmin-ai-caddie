@@ -114,6 +114,8 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const phaseStats = asRows(data.scoring.phaseStats)
   const teeDirection = asRecord(data.scoring.teeDirection)
   const dominantTeeMiss = asString(teeDirection.dominantMiss)
+  const approachMiss = asRecord(data.scoring.approachMiss)
+  const dominantApproachMiss = asString(approachMiss.dominantMiss)
   const parScoring = asRows(data.scoring.byPar)
   const scoringOutcomes = asRecord(data.scoring.outcomes)
   const scoreOutcomeRows = asRows(data.scoring.outcomeRows)
@@ -441,6 +443,30 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
                 <span>miss {displayNumber(teeDirection.missPct)}%</span>
                 <b>{displayNumber(teeDirection.miss)} misses</b>
                 <SourceRefs refs={refsValuePreview(teeDirection[`${dominantTeeMiss ?? 'miss'}Refs`] ?? teeDirection.sourceRefs)} onSelectRef={onSelectRef} />
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {Object.keys(approachMiss).length ? (
+          <section className="panel compact-panel" aria-label="Approach miss">
+            <div className="section-head">
+              <div>
+                <h2>Approach Miss</h2>
+                <p>GIR rate and dominant green miss direction, with source hole refs.</p>
+              </div>
+              {dominantApproachMiss ? <span className={`semantic-chip approach-${dominantApproachMiss}`}>dominant {dominantApproachMiss}</span> : null}
+            </div>
+            <div className="stat-list">
+              <div className="stat-row">
+                <span>GIR {displayNumber(approachMiss.girPct)}%</span>
+                <b>{displayNumber(approachMiss.gir)} hit</b>
+                <SourceRefs refs={refsValuePreview(approachMiss.girRefs)} onSelectRef={onSelectRef} />
+              </div>
+              <div className="stat-row">
+                <span>green miss {displayNumber(approachMiss.missPct)}%</span>
+                <b>{displayNumber(approachMiss.missed)} misses</b>
+                <SourceRefs refs={refsValuePreview(approachMiss[`${dominantApproachMiss ?? 'missed'}Refs`] ?? approachMiss.missedRefs)} onSelectRef={onSelectRef} />
               </div>
             </div>
           </section>

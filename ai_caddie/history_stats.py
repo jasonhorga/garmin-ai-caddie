@@ -923,6 +923,102 @@ def _par_type_scoring(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _approach_miss_direction(hole: dict[str, Any]) -> str | None:
+    value = (
+        hole.get("approachMiss")
+        if hole.get("approachMiss") is not None
+        else hole.get("greenMiss")
+        if hole.get("greenMiss") is not None
+        else hole.get("girMiss")
+        if hole.get("girMiss") is not None
+        else hole.get("missDirection")
+    )
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not text:
+        return None
+    if text in {"short", "miss_short", "short_left", "short_right", "front"}:
+        return "short"
+    if text in {"long", "miss_long", "back", "over"}:
+        return "long"
+    if text in {"left", "miss_left", "left_rough", "pin_high_left"}:
+        return "left"
+    if text in {"right", "miss_right", "right_rough", "pin_high_right"}:
+        return "right"
+    if text in {"miss", "missed", "other"}:
+        return "other"
+    return None
+
+
+def _dominant_approach_miss(counts: dict[str, int], recorded: int) -> str:
+    if not recorded:
+        return "unknown"
+    miss_counts = {key: counts.get(key, 0) for key in ("short", "long", "left", "right", "other")}
+    if sum(miss_counts.values()) == 0:
+        return "none"
+    max_count = max(miss_counts.values())
+    leaders = [key for key, value in miss_counts.items() if value == max_count and value > 0]
+    return leaders[0] if len(leaders) == 1 else "mixed"
+
+
+def _approach_miss_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    refs: dict[str, list[str]] = defaultdict(list)
+    counts = Counter({"recorded": 0, "gir": 0, "missed": 0, "short": 0, "long": 0, "left": 0, "right": 0, "other": 0})
+    total_holes = 0
+    for row in rows:
+        for hole in row.get("holes") or []:
+            total_holes += 1
+            number = int(hole.get("number") or 0)
+            ref = _hole_ref(row, number) if number else ""
+            if hole.get("gir") is None:
+                continue
+            counts["recorded"] += 1
+            refs["recorded"].append(ref)
+            if bool(hole.get("gir")):
+                counts["gir"] += 1
+                refs["gir"].append(ref)
+                continue
+            counts["missed"] += 1
+            refs["missed"].append(ref)
+            direction = _approach_miss_direction(hole) or "other"
+            counts[direction] += 1
+            refs[direction].append(ref)
+
+    recorded = counts["recorded"]
+    return _with_aggregate_contract(
+        {
+            "recorded": recorded,
+            "total": total_holes,
+            "gir": counts["gir"],
+            "missed": counts["missed"],
+            "short": counts["short"],
+            "long": counts["long"],
+            "left": counts["left"],
+            "right": counts["right"],
+            "other": counts["other"],
+            "girPct": _direction_pct(counts["gir"], recorded),
+            "missPct": _direction_pct(counts["missed"], recorded),
+            "shortPct": _direction_pct(counts["short"], recorded),
+            "longPct": _direction_pct(counts["long"], recorded),
+            "leftPct": _direction_pct(counts["left"], recorded),
+            "rightPct": _direction_pct(counts["right"], recorded),
+            "otherPct": _direction_pct(counts["other"], recorded),
+            "dominantMiss": _dominant_approach_miss(counts, recorded),
+            "holeRefs": refs["recorded"],
+            "girRefs": refs["gir"],
+            "missedRefs": refs["missed"],
+            "shortRefs": refs["short"],
+            "longRefs": refs["long"],
+            "leftRefs": refs["left"],
+            "rightRefs": refs["right"],
+            "otherRefs": refs["other"],
+        },
+        refs["recorded"],
+        ready=recorded,
+        total=total_holes,
+        confidence_count=recorded,
+    )
+
+
 def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     bands: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
@@ -1037,6 +1133,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
         "outcomeRows": outcome_rows,
         "byPar": _par_type_scoring(data.rounds),
         "teeDirection": _tee_direction_stats(data.rounds),
+        "approachMiss": _approach_miss_stats(data.rounds),
         "putting": {
             "totalPutts": sum(putts),
             "holesWithPutts": len(putts),
@@ -1133,6 +1230,7 @@ def _courses(data: HistoryData) -> list[dict[str, Any]]:
                     "recentForm": _course_recent_form(rows),
                     "teeDirection": _tee_direction_stats(rows),
                     "parScoring": _par_type_scoring(rows),
+                    "approachMiss": _approach_miss_stats(rows),
                     "geometryCoverage": _course_geometry_coverage(rows),
                 },
                 round_ids,
@@ -1616,6 +1714,10 @@ def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) 
                 add_ref("fairway_missed_left", hole_ref)
             elif fairway in {"right", "miss_right", "missed_right", "fairway_right"}:
                 add_ref("fairway_missed_right", hole_ref)
+            if hole.get("gir") is not None and not bool(hole.get("gir")):
+                approach_miss = _approach_miss_direction(hole)
+                if approach_miss in {"short", "long", "left", "right"}:
+                    add_ref(f"approach_{approach_miss}", hole_ref)
             if not has_geometry_identity:
                 add_ref("missing_geometry", hole_ref)
 

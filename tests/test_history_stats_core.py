@@ -179,6 +179,27 @@ def par_type_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "par-type-1", "hasShots": False}], rounds=[round_row], shots=[])
 
 
+def approach_miss_history_data() -> HistoryData:
+    round_row = {
+        "id": "approach-miss-1",
+        "date": "2026-05-25",
+        "course": "Approach Course",
+        "courseKey": "approach_course",
+        "holesCompleted": 5,
+        "strokes": 23,
+        "par": 20,
+        "holes": [
+            {"number": 1, "strokes": 4, "par": 4, "gir": True},
+            {"number": 2, "strokes": 5, "par": 4, "gir": False, "approachMiss": "short"},
+            {"number": 3, "strokes": 5, "par": 4, "gir": False, "approachMiss": "left"},
+            {"number": 4, "strokes": 5, "par": 4, "gir": False, "greenMiss": "short"},
+            {"number": 5, "strokes": 4, "par": 4, "gir": None},
+        ],
+        "hasShots": False,
+    }
+    return HistoryData(raw_rounds=[{"id": "approach-miss-1", "hasShots": False}], rounds=[round_row], shots=[])
+
+
 def missing_shot_rows_history_data() -> HistoryData:
     rounds = [
         {
@@ -503,6 +524,34 @@ class HistoryStatsCoreTests(unittest.TestCase):
         course = next(row for row in stats["courses"] if row["courseKey"] == "par_type_course")
         self.assertEqual(course["parScoring"][0]["key"], "par3")
         self.assertEqual(course["parScoring"][2]["key"], "par5")
+
+    def test_approach_miss_distribution_is_drilldown_ready_and_feeds_issues(self) -> None:
+        stats = build_history_stats(approach_miss_history_data(), data_mode="fixture")
+
+        approach = stats["scoring"]["approachMiss"]
+
+        self.assertEqual(approach["recorded"], 4)
+        self.assertEqual(approach["gir"], 1)
+        self.assertEqual(approach["missed"], 3)
+        self.assertEqual(approach["short"], 2)
+        self.assertEqual(approach["left"], 1)
+        self.assertEqual(approach["right"], 0)
+        self.assertEqual(approach["long"], 0)
+        self.assertEqual(approach["girPct"], 25.0)
+        self.assertEqual(approach["missPct"], 75.0)
+        self.assertEqual(approach["shortPct"], 50.0)
+        self.assertEqual(approach["dominantMiss"], "short")
+        self.assertEqual(approach["holeRefs"], ["approach-miss-1:1", "approach-miss-1:2", "approach-miss-1:3", "approach-miss-1:4"])
+        self.assertEqual(approach["shortRefs"], ["approach-miss-1:2", "approach-miss-1:4"])
+        self.assertEqual(approach["coverage"], {"ready": 4, "total": 5, "pct": 80.0})
+        self.assertEqual(approach["confidence"], "medium")
+
+        course = next(row for row in stats["courses"] if row["courseKey"] == "approach_course")
+        self.assertEqual(course["approachMiss"]["dominantMiss"], "short")
+
+        issues = {(row["issue"], row["source"]): row for row in stats["issues"]}
+        self.assertEqual(issues[("approach_short", "deterministic")]["refs"], ["approach-miss-1:2", "approach-miss-1:4"])
+        self.assertEqual(issues[("approach_left", "deterministic")]["refs"], ["approach-miss-1:3"])
 
     def test_hole_stats_include_score_distribution_and_repeated_issues(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

@@ -64,8 +64,10 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
         {courses.map((course) => {
           const recentForm = asRecord(course.recentForm)
           const teeDirection = asRecord(course.teeDirection)
+          const approachMiss = asRecord(course.approachMiss)
           const direction = asString(recentForm.direction)
           const dominantMiss = asString(teeDirection.dominantMiss)
+          const dominantApproachMiss = asString(approachMiss.dominantMiss)
           return (
             <article key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="stats-item">
               <div className="stats-item-main">
@@ -82,6 +84,12 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
                 {dominantMiss && dominantMiss !== 'unknown' ? (
                   <span className={`semantic-chip ${semanticClass('tee', dominantMiss)}`}>
                     tee {dominantMiss} {formatNumber(teeDirection[`${dominantMiss}Pct`])}%
+                  </span>
+                ) : null}
+                {approachMiss.girPct !== undefined ? <span>GIR {formatNumber(approachMiss.girPct)}%</span> : null}
+                {dominantApproachMiss && dominantApproachMiss !== 'unknown' ? (
+                  <span className={`semantic-chip ${semanticClass('approach', dominantApproachMiss)}`}>
+                    approach {dominantApproachMiss} {formatNumber(approachMiss[`${dominantApproachMiss}Pct`])}%
                   </span>
                 ) : null}
                 {direction ? (
