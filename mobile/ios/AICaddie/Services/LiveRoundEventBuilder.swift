@@ -83,10 +83,26 @@ public final class LiveRoundEventBuilder {
     public func makeClubEvent(
         hole: Int,
         clubName: String,
+        shotType: String? = nil,
+        strategyMode: String? = nil,
+        lie: String? = nil,
+        distanceToPinM: Double? = nil,
+        offlineOptionId: String? = nil,
         decision: CaddieDecisionResponse? = nil,
         actualShot: [String: JSONValue]? = nil
     ) -> LiveRoundEvent {
         var payload: [String: JSONValue] = ["clubName": .string(clubName)]
+        if let shotType {
+            payload["shotType"] = .string(shotType)
+        }
+        if let strategyMode {
+            payload["strategyMode"] = .string(strategyMode)
+        }
+        if let lie {
+            payload["lie"] = .string(lie)
+        }
+        payload["distanceToPinM"] = jsonNumberOrNull(distanceToPinM)
+        payload["offlineOptionId"] = jsonStringOrNull(offlineOptionId)
         if let decision {
             if let decisionId = decision.decisionId {
                 payload["decisionId"] = .string(decisionId)

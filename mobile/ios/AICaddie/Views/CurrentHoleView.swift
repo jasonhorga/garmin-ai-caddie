@@ -275,12 +275,26 @@ public struct CurrentHoleView: View {
     }
 
     private func clubEventPayload() -> [String: JSONValue] {
-        var payload: [String: JSONValue] = ["clubName": .string(selectedClub)]
+        var payload: [String: JSONValue] = [
+            "clubName": .string(selectedClub),
+            "shotType": .string(selectedShotType),
+            "strategyMode": .string(selectedStrategyMode),
+            "lie": .string(selectedLie),
+        ]
+        if let distanceToPin = Double(distanceToPinText) {
+            payload["distanceToPinM"] = .number(distanceToPin)
+        }
+        if let selectedOfflineOptionId = selectedOfflineOption?.optionId ?? caddieContextSeed?.selectedOfflineOptionId {
+            payload["offlineOptionId"] = .string(selectedOfflineOptionId)
+        }
         if let decision = caddieDecision {
             if let decisionId = decision.decisionId {
                 payload["decisionId"] = .string(decisionId)
             }
             payload["decision"] = .object(decision.auditPayload)
+            payload["actualShot"] = .object(actualShotPayload())
+        }
+        if caddieDecision == nil {
             payload["actualShot"] = .object(actualShotPayload())
         }
         return payload

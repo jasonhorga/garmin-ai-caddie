@@ -39,7 +39,20 @@ LiveRoundEventKind = Literal["score", "club", "putt", "penalty", "note", "locati
 
 _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
     "score": ({"strokes"}, {"source"}),
-    "club": ({"clubName"}, {"source", "decisionId", "decision", "actualShot"}),
+    "club": (
+        {"clubName"},
+        {
+            "source",
+            "shotType",
+            "strategyMode",
+            "lie",
+            "distanceToPinM",
+            "offlineOptionId",
+            "decisionId",
+            "decision",
+            "actualShot",
+        },
+    ),
     "putt": ({"putts"}, {"source"}),
     "penalty": ({"penalties"}, {"source"}),
     "note": ({"note"}, {"source"}),
@@ -51,7 +64,18 @@ _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
 
 _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
     "score": {"strokes": "number", "source": "string"},
-    "club": {"clubName": "string", "source": "string", "decisionId": "string", "decision": "object", "actualShot": "object"},
+    "club": {
+        "clubName": "string",
+        "source": "string",
+        "shotType": "string",
+        "strategyMode": "string",
+        "lie": "string",
+        "distanceToPinM": "nullable_number",
+        "offlineOptionId": "nullable_string",
+        "decisionId": "string",
+        "decision": "object",
+        "actualShot": "object",
+    },
     "putt": {"putts": "number", "source": "string"},
     "penalty": {"penalties": "number", "source": "string"},
     "note": {"note": "string", "source": "string"},

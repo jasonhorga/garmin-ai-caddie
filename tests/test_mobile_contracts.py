@@ -365,6 +365,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("text", payload_rules["note"]["properties"])
         self.assertEqual(payload_rules["club"]["properties"]["decision"]["type"], "object")
         self.assertEqual(payload_rules["club"]["properties"]["actualShot"]["type"], "object")
+        self.assertEqual(payload_rules["club"]["properties"]["shotType"]["enum"], ["tee", "approach", "recovery"])
+        self.assertEqual(
+            payload_rules["club"]["properties"]["strategyMode"]["enum"],
+            ["protect_score", "stock", "attack"],
+        )
+        self.assertEqual(payload_rules["club"]["properties"]["lie"]["type"], "string")
+        self.assertEqual(payload_rules["club"]["properties"]["distanceToPinM"]["type"], ["number", "null"])
+        self.assertEqual(payload_rules["club"]["properties"]["offlineOptionId"]["type"], ["string", "null"])
         self.assertEqual(payload_rules["photo"]["properties"]["mediaType"]["const"], "photo")
         self.assertEqual(payload_rules["video"]["properties"]["mediaType"]["const"], "video")
         for kind in kinds:
@@ -808,6 +816,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("makeClubEvent(", builder)
         self.assertIn("decision: CaddieDecisionResponse? = nil", builder)
         self.assertIn("actualShot: [String: JSONValue]? = nil", builder)
+        self.assertIn("shotType: String? = nil", builder)
+        self.assertIn("strategyMode: String? = nil", builder)
+        self.assertIn("lie: String? = nil", builder)
+        self.assertIn("distanceToPinM: Double? = nil", builder)
+        self.assertIn("offlineOptionId: String? = nil", builder)
+        self.assertIn('payload["shotType"] = .string(shotType)', builder)
+        self.assertIn('payload["strategyMode"] = .string(strategyMode)', builder)
+        self.assertIn('payload["lie"] = .string(lie)', builder)
+        self.assertIn('payload["distanceToPinM"] = jsonNumberOrNull(distanceToPinM)', builder)
+        self.assertIn('payload["offlineOptionId"] = jsonStringOrNull(offlineOptionId)', builder)
         self.assertIn('payload["decisionId"] = .string(decisionId)', builder)
         self.assertIn('payload["decision"] = .object(decision.auditPayload)', builder)
         self.assertIn('payload["actualShot"] = .object(actualShot)', builder)
@@ -815,9 +833,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("private func clubEventPayload() -> [String: JSONValue]", current_hole)
         self.assertIn("private func actualShotPayload() -> [String: JSONValue]", current_hole)
         self.assertIn("caddieDecision", current_hole)
+        self.assertIn('"shotType": .string(selectedShotType)', current_hole)
+        self.assertIn('"strategyMode": .string(selectedStrategyMode)', current_hole)
+        self.assertIn('"lie": .string(selectedLie)', current_hole)
+        self.assertIn('payload["distanceToPinM"] = .number(distanceToPin)', current_hole)
+        self.assertIn('payload["offlineOptionId"] = .string(selectedOfflineOptionId)', current_hole)
         self.assertIn('payload["decisionId"] = .string(decisionId)', current_hole)
         self.assertIn('payload["decision"] = .object(decision.auditPayload)', current_hole)
         self.assertIn('payload["actualShot"] = .object(actualShotPayload())', current_hole)
+        self.assertIn("if caddieDecision == nil", current_hole)
         self.assertIn("emit(kind: .club, timestamp: timestamp, payload: clubEventPayload())", current_hole)
 
     def test_ios_caddie_request_builder_uses_offline_context_seed_and_live_inputs(self) -> None:

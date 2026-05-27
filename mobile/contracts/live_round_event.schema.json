@@ -78,6 +78,11 @@
             "properties": {
               "clubName": { "type": "string" },
               "source": { "type": "string" },
+              "shotType": { "type": "string", "enum": ["tee", "approach", "recovery"] },
+              "strategyMode": { "type": "string", "enum": ["protect_score", "stock", "attack"] },
+              "lie": { "type": "string" },
+              "distanceToPinM": { "type": ["number", "null"] },
+              "offlineOptionId": { "type": ["string", "null"] },
               "decisionId": { "type": "string" },
               "decision": { "type": "object", "additionalProperties": true },
               "actualShot": { "type": "object", "additionalProperties": true }

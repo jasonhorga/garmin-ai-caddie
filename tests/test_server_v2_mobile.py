@@ -313,6 +313,43 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(log_text.count("event-1"), 1)
         self.assertEqual(log_text.count("event-2"), 1)
 
+    def test_mobile_event_batch_accepts_caddie_audit_context_on_club_events(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "club-audit-context",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "club",
+            "payload": {
+                "clubName": "8I",
+                "shotType": "approach",
+                "strategyMode": "stock",
+                "lie": "fairway",
+                "distanceToPinM": 144.0,
+                "offlineOptionId": "stock",
+                "actualShot": {"clubName": "8I", "end": {"lie": "fairway"}},
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                response = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "club-audit-context"},
+                    json={"roundId": "live-round-1", "events": [event]},
+                )
+                log_text = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["acceptedEventIds"], ["club-audit-context"])
+        record = json.loads(log_text.splitlines()[0])["event"]
+        self.assertEqual(record["payload"]["strategyMode"], "stock")
+        self.assertEqual(record["payload"]["shotType"], "approach")
+        self.assertEqual(record["payload"]["offlineOptionId"], "stock")
+
     def test_mobile_event_idempotency_is_scoped_by_round(self) -> None:
         client = TestClient(app)
         event = {
