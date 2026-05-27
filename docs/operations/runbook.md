@@ -40,6 +40,18 @@ uv run python fetch.py --refresh-auth
 
 If auth is expired, API sync status should report `reauth_required`.
 
+## Configure Gemini CLI OAuth
+
+For local/dev AI provider testing, set:
+
+```bash
+export AI_CADDIE_LLM_PROVIDER=gemini_cli_oauth
+export GEMINI_OAUTH_CREDENTIALS_FILE=/path/to/oauth.json
+export GOOGLE_CLOUD_PROJECT=<project-id>
+```
+
+Use `GEMINI_OAUTH_CREDENTIALS_JSON` or `GEMINI_OAUTH_CREDENTIALS_B64` instead of a file path only when a deployment secret manager requires inline values.
+
 ## Run Tests
 
 Backend:
