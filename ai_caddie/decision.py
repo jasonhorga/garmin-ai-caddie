@@ -10,7 +10,7 @@ import re
 from typing import Any
 from uuid import uuid4
 
-from ai_caddie.llm_providers import redact_secret_text
+from ai_caddie.llm_providers import LLMMessage, TextProvider, build_text_provider, redact_secret_text
 
 
 ROUTE_TO_OPTION = {
@@ -190,6 +190,160 @@ def normalize_decision_audit_id(value: Any) -> str:
 def _sanitize_audit_payload(audit: dict[str, Any]) -> dict[str, Any]:
     cleaned = _sanitize_audit_value(audit)
     return cleaned if isinstance(cleaned, dict) else {}
+
+
+def _redact_decision_text(value: Any) -> str:
+    redacted = redact_secret_text(value)
+    redacted = re.sub(
+        r"(?i)(authorization|cookie|connect-csrf-token|csrf|token|api[_-]?key|password|secret)\s*=\[REDACTED\]",
+        "[REDACTED_SECRET]",
+        redacted,
+    )
+    for pattern in PRIVATE_PATH_PATTERNS:
+        redacted = pattern.sub("[REDACTED_PATH]", redacted)
+    return redacted
+
+
+def _redact_decision_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _redact_decision_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_decision_value(item) for item in value]
+    if isinstance(value, str):
+        return _redact_decision_text(value)
+    return value
+
+
+def _explanation_source_refs(decision: dict[str, Any]) -> list[str]:
+    refs = []
+    refs.extend(_sanitize_ref_list(decision.get("evidenceRefs")))
+    source_ref = _safe_ref(decision.get("sourceRef"))
+    if source_ref:
+        refs.append(source_ref)
+    for row in decision.get("factsUsed") or []:
+        if isinstance(row, dict):
+            refs.extend(_sanitize_ref_list(row.get("sourceRefs")))
+    return _dedupe(refs)
+
+
+def _decision_explanation_facts(decision: dict[str, Any]) -> dict[str, Any]:
+    selected = decision.get("selectedOption") or decision.get("selected") or {}
+    if not isinstance(selected, dict):
+        selected = {}
+    selected_sequence = decision.get("selectedSequence") if isinstance(decision.get("selectedSequence"), dict) else None
+    confidence = decision.get("confidence") if isinstance(decision.get("confidence"), dict) else {}
+    missing_data = decision.get("missingData") if isinstance(decision.get("missingData"), list) else []
+    evidence = decision.get("evidence") if isinstance(decision.get("evidence"), list) else []
+    source_refs = _explanation_source_refs(decision)
+    facts_used: list[dict[str, Any]] = [
+        {
+            "label": "selected_option",
+            "value": {
+                "id": selected.get("id"),
+                "label": selected.get("label"),
+                "carry_m": selected.get("carry_m"),
+                "riskScore": selected.get("riskScore"),
+                "clubRecommendation": selected.get("clubRecommendation"),
+            },
+            "sourceRefs": source_refs,
+        },
+        {
+            "label": "acceptable_miss",
+            "value": decision.get("acceptableMiss"),
+            "sourceRefs": source_refs,
+        },
+        {
+            "label": "confidence",
+            "value": confidence,
+            "sourceRefs": source_refs,
+        },
+        {
+            "label": "evidence",
+            "value": evidence[:8],
+            "sourceRefs": source_refs,
+        },
+    ]
+    if selected_sequence:
+        facts_used.append(
+            {
+                "label": "selected_sequence",
+                "value": selected_sequence,
+                "sourceRefs": source_refs,
+            }
+        )
+    avoid_zones = decision.get("avoidZones") if isinstance(decision.get("avoidZones"), list) else []
+    if avoid_zones:
+        facts_used.append(
+            {
+                "label": "avoid_zones",
+                "value": avoid_zones[:8],
+                "sourceRefs": source_refs,
+            }
+        )
+    return {
+        "decisionId": normalize_decision_audit_id(decision.get("decisionId")),
+        "sourceRef": _safe_ref(decision.get("sourceRef")),
+        "shotType": str(decision.get("shotType") or "unknown"),
+        "factsUsed": _redact_decision_value(facts_used),
+        "missingData": _redact_decision_value(missing_data),
+        "sourceRefs": source_refs,
+    }
+
+
+def _deterministic_decision_narrative(facts: dict[str, Any]) -> str:
+    selected = next((row for row in facts.get("factsUsed", []) if row.get("label") == "selected_option"), {})
+    value = selected.get("value") if isinstance(selected.get("value"), dict) else {}
+    option_label = value.get("label") or value.get("id") or "selected option"
+    risk = value.get("riskScore")
+    missing_count = len(facts.get("missingData") or [])
+    missing_text = f" Missing data items: {missing_count}." if missing_count else ""
+    return _redact_decision_text(f"Use {option_label}; structured risk score is {risk}.{missing_text}")
+
+
+def generate_decision_explanation(decision: dict[str, Any], provider: TextProvider | None = None) -> dict[str, Any]:
+    facts = _decision_explanation_facts(decision)
+    prompt = (
+        "Write a concise golf caddie explanation from factsUsed only. "
+        "Do not add unsupported club, weather, lie, hazard, score, or private-account claims. "
+        "Mention missingData when it limits confidence.\n\n"
+        f"{json.dumps(facts, ensure_ascii=False, sort_keys=True)}"
+    )
+    missing_data = list(facts["missingData"])
+    try:
+        resolved_provider = provider or build_text_provider()
+        narrative = resolved_provider.chat(
+            [
+                LLMMessage(role="system", content="Facts are authoritative. Explain the decision without inventing new facts."),
+                LLMMessage(role="user", content=prompt),
+            ],
+            max_tokens=500,
+        )
+        provider_name = resolved_provider.__class__.__name__
+        model = resolved_provider.model
+        confidence = str((decision.get("confidence") or {}).get("level") or "low")
+    except Exception as exc:  # pragma: no cover - exercised by API degradation tests elsewhere
+        provider_name = "UnavailableTextProvider"
+        model = "unavailable"
+        narrative = _deterministic_decision_narrative(facts)
+        confidence = "low"
+        missing_data.append({"label": "explanation_provider", "reason": _redact_decision_text(exc)})
+    return {
+        "schema": "ai-caddie-decision-explanation-v1",
+        "decisionId": facts["decisionId"],
+        "sourceRef": facts["sourceRef"],
+        "shotType": facts["shotType"],
+        "provider": provider_name,
+        "model": model,
+        "factsUsed": facts["factsUsed"],
+        "missingData": missing_data,
+        "sourceRefs": facts["sourceRefs"],
+        "factBinding": {
+            "state": "bound",
+            "rule": "narrative generated from factsUsed; deterministic decision fields remain authoritative",
+        },
+        "narrative": _redact_decision_text(narrative),
+        "confidence": confidence,
+    }
 
 
 def store_decision_audit(
@@ -1492,7 +1646,7 @@ def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
         "lie": analysis.get("lie"),
         "blockedView": analysis.get("blockedView"),
         "visionFindings": analysis.get("visionFindings"),
-        "manualNotes": analysis.get("manualNotes"),
+        "manualNotes": _safe_manual_notes(analysis),
     }
 
 
@@ -1587,8 +1741,27 @@ def _manual_note_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]]:
         prefix = f"{kind}"
         if target:
             prefix = f"{prefix} {target}"
-        rows.append({"kind": "manual_note", "text": f"{prefix}: {text[:180]}"})
+        rows.append({"kind": "manual_note", "text": _redact_decision_text(f"{prefix}: {text[:180]}")})
     return rows[:3]
+
+
+def _safe_manual_notes(analysis: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for note in analysis.get("manualNotes") or []:
+        if not isinstance(note, dict):
+            continue
+        text = str(note.get("note") or note.get("text") or "").strip()
+        if not text:
+            continue
+        safe_note = {
+            "kind": _redact_decision_text(note.get("kind") or "manual_note"),
+            "note": _redact_decision_text(text),
+        }
+        target = _safe_ref(note.get("targetId"))
+        if target:
+            safe_note["targetId"] = target
+        rows.append(safe_note)
+    return rows[:5]
 
 
 def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list[dict[str, Any]]) -> dict[str, Any]:

@@ -18,7 +18,12 @@ class ServerV2CaddieTests(unittest.TestCase):
     def test_decision_endpoint_returns_approach_contract(self) -> None:
         client = TestClient(app)
 
-        response = client.post("/api/v2/caddie/decision", json=build_decision_request_from_fixture("approach"))
+        request = build_decision_request_from_fixture("approach")
+        request["context"]["manualNotes"] = [
+            {"kind": "strategy_note", "note": "stock line only; cookie=abc token=secret /home/ubuntu/private/raw.json"}
+        ]
+
+        response = client.post("/api/v2/caddie/decision", json=request)
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -29,6 +34,15 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertEqual(payload["selected"]["id"], "stock")
         self.assertEqual([row["id"] for row in payload["options"]], ["safe", "stock", "attack"])
         self.assertIn("fixture-round:4", payload["evidenceRefs"])
+        self.assertEqual(payload["explanation"]["schema"], "ai-caddie-decision-explanation-v1")
+        self.assertEqual(payload["explanation"]["decisionId"], payload["decisionId"])
+        self.assertEqual(payload["explanation"]["provider"], "StaticProvider")
+        self.assertEqual(payload["explanation"]["model"], "static")
+        self.assertIn("selected_option", {row["label"] for row in payload["explanation"]["factsUsed"]})
+        self.assertIn("fixture-round:4", payload["explanation"]["sourceRefs"])
+        self.assertNotIn("cookie", response.text.lower())
+        self.assertNotIn("token", response.text.lower())
+        self.assertNotIn("/home/ubuntu", response.text)
 
     def test_decision_endpoint_returns_recovery_contract(self) -> None:
         client = TestClient(app)

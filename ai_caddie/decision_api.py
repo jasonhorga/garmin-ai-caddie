@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from ai_caddie.decision import build_decision_plan, recommend_approach, recommend_recovery
+from ai_caddie.decision import build_decision_plan, generate_decision_explanation, recommend_approach, recommend_recovery
 
 
 ShotType = Literal["tee", "approach", "recovery"]
@@ -32,10 +32,14 @@ def build_decision_from_request(payload: dict[str, Any]) -> dict[str, Any]:
     shot_type = request["shotType"]
     context = request["context"]
     if shot_type == "tee":
-        return build_decision_plan(context)
-    if shot_type == "approach":
-        return recommend_approach(context)
-    return recommend_recovery(context)
+        decision = build_decision_plan(context)
+    elif shot_type == "approach":
+        decision = recommend_approach(context)
+    else:
+        decision = recommend_recovery(context)
+    if payload.get("includeExplanation", True) is not False and context.get("includeExplanation", True) is not False:
+        decision["explanation"] = generate_decision_explanation(decision)
+    return decision
 
 
 def build_decision_request_from_fixture(shot_type: ShotType = "approach") -> dict[str, Any]:

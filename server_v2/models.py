@@ -456,6 +456,7 @@ class HoleMapResponse(BaseModel):
 class CaddieDecisionRequest(BaseModel):
     shotType: CaddieShotType
     context: dict[str, Any] = Field(default_factory=dict)
+    includeExplanation: bool = True
 
 
 class CaddieDecisionResponse(BaseModel):
@@ -481,6 +482,7 @@ class CaddieDecisionResponse(BaseModel):
     confidence: dict[str, Any]
     missingData: list[dict[str, Any]]
     auditCriteria: list[dict[str, Any]]
+    explanation: dict[str, Any] | None = None
 
 
 class CaddieContextResponse(BaseModel):

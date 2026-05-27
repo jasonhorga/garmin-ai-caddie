@@ -110,6 +110,7 @@ export interface HistoryOverviewResponse {
 export interface CaddieDecisionRequest {
   shotType: CaddieShotType
   context: Record<string, unknown>
+  includeExplanation?: boolean
 }
 
 export interface CaddieDecisionResponse {
@@ -133,6 +134,7 @@ export interface CaddieDecisionResponse {
   confidence: Record<string, unknown>
   missingData: Array<Record<string, unknown>>
   auditCriteria: Array<Record<string, unknown>>
+  explanation?: Record<string, unknown> | null
 }
 
 export interface CaddieContextParams {

@@ -7,6 +7,7 @@ from ai_caddie.analysis import _hole_summary, llm_brief
 from ai_caddie.decision import (
     audit_decision,
     build_decision_plan,
+    generate_decision_explanation,
     judge_decision_outcome,
     latest_decision_audit,
     recommend_approach,
@@ -15,6 +16,18 @@ from ai_caddie.decision import (
 )
 from ai_caddie.weather_context import build_weather_snapshot
 from ai_caddie_web import INDEX_HTML
+
+
+class RecordingProvider:
+    model = "recording-model"
+
+    def __init__(self) -> None:
+        self.messages = []
+
+    def chat(self, messages, max_tokens=None):
+        self.messages = list(messages)
+        self.max_tokens = max_tokens
+        return "Play the stock line because it has manageable risk and matching club evidence."
 
 
 def analysis_fixture(*, stock_risk=1, first_shot=None):
@@ -145,6 +158,41 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("auditCriteria", plan)
         self.assertIn("round-1:1", plan["evidenceRefs"])
         self.assertGreaterEqual(len(plan["auditCriteria"]), 1)
+
+    def test_provider_decision_explanation_is_fact_bound_and_secret_free(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["manualNotes"] = [
+            {
+                "kind": "strategy_note",
+                "targetId": "round-1:1",
+                "note": "Favor stock. cookie:abc token=secret /home/ubuntu/private/raw.json",
+            }
+        ]
+        plan = build_decision_plan(context)
+        provider = RecordingProvider()
+
+        explanation = generate_decision_explanation(plan, provider=provider)
+
+        self.assertEqual(explanation["schema"], "ai-caddie-decision-explanation-v1")
+        self.assertEqual(explanation["decisionId"], plan["decisionId"])
+        self.assertEqual(explanation["provider"], "RecordingProvider")
+        self.assertEqual(explanation["model"], "recording-model")
+        self.assertEqual(explanation["narrative"], "Play the stock line because it has manageable risk and matching club evidence.")
+        self.assertEqual(explanation["confidence"], plan["confidence"]["level"])
+        self.assertIn("round-1:1", explanation["sourceRefs"])
+        labels = {row["label"] for row in explanation["factsUsed"]}
+        self.assertIn("selected_option", labels)
+        self.assertIn("confidence", labels)
+        self.assertIn("evidence", labels)
+        prompt_text = "\n".join(message.content for message in provider.messages)
+        self.assertIn("factsUsed", prompt_text)
+        self.assertIn("missingData", prompt_text)
+        self.assertNotIn("cookie", prompt_text.lower())
+        self.assertNotIn("token", prompt_text.lower())
+        self.assertNotIn("/home/ubuntu", prompt_text)
+        self.assertNotIn("cookie", str(explanation).lower())
+        self.assertNotIn("token", str(explanation).lower())
+        self.assertNotIn("/home/ubuntu", str(explanation))
 
     def test_decision_identity_uses_explicit_source_refs_and_stays_secret_free(self) -> None:
         context = approach_fixture()
