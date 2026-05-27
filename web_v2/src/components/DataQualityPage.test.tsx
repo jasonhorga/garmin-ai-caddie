@@ -16,7 +16,16 @@ const statsFixture: HistoryStatsResponse = {
   clubs: [],
   issues: [],
   dataQuality: [
-    { label: 'shots', state: 'partial', ready: 1, total: 3, refs: ['900003'] },
+    {
+      label: 'shots',
+      state: 'partial',
+      ready: 1,
+      total: 3,
+      refs: ['900003'],
+      coverage: { ready: 1, total: 3, pct: 33.3 },
+      confidence: 'low',
+      reason: '1 of 3 scorecards have shot data',
+    },
     { label: 'geometry', state: 'missing', ready: 0, total: 45, refs: ['900001:1'] },
     { label: 'reports', state: 'partial', ready: 1, total: 3, refs: ['900002', '900003'] },
   ],
@@ -31,6 +40,9 @@ describe('DataQualityPage', () => {
     expect(screen.getByText('shots')).toBeInTheDocument()
     expect(screen.getAllByText('partial')[0]).toHaveClass('quality-partial')
     expect(screen.getAllByText('1/3').length).toBeGreaterThan(0)
+    expect(screen.getByText('coverage 1/3 33.3%')).toBeInTheDocument()
+    expect(screen.getByText('low confidence')).toBeInTheDocument()
+    expect(screen.getByText('1 of 3 scorecards have shot data')).toBeInTheDocument()
     expect(screen.getByText('geometry')).toBeInTheDocument()
     expect(screen.getByText('missing')).toHaveClass('quality-missing')
     expect(screen.getByText('0/45')).toBeInTheDocument()

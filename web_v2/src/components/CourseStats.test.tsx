@@ -73,6 +73,8 @@ const statsFixture: HistoryStatsResponse = {
       },
       geometryCoverage: 'missing',
       roundIds: ['900001', '900002'],
+      coverage: { ready: 2, total: 3, pct: 66.7 },
+      confidence: 'medium',
     },
   ],
   holes: [],
@@ -101,6 +103,8 @@ describe('CourseStats', () => {
     expect(screen.getByText('improving -10')).toHaveClass('trend-improving')
     expect(screen.getByText('geometry missing 0/2')).toHaveClass('quality-missing')
     expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
+    expect(screen.getByText('coverage 2/3 66.7%')).toBeInTheDocument()
+    expect(screen.getByText('medium confidence')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
   })

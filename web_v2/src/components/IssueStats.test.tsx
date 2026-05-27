@@ -22,6 +22,7 @@ const statsFixture: HistoryStatsResponse = {
       phase: 'Data Quality',
       source: 'deterministic',
       confidence: 'high',
+      coverage: { ready: 2, total: 3, pct: 66.7 },
     },
   ],
   diagnosis: {
@@ -75,6 +76,7 @@ describe('IssueStats', () => {
     expect(screen.getByText('Data Quality')).toBeInTheDocument()
     expect(screen.getByText('deterministic')).toBeInTheDocument()
     expect(screen.getByText('high confidence')).toHaveClass('confidence-high')
+    expect(screen.getByText('coverage 2/3 66.7%')).toBeInTheDocument()
     expect(screen.getByText('Trend Diagnosis')).toBeInTheDocument()
     expect(screen.getByText('three_putt')).toBeInTheDocument()
     expect(screen.getByText('+3')).toBeInTheDocument()

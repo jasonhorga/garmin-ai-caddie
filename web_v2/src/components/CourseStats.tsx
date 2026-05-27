@@ -1,4 +1,5 @@
 import type { HistoryStatsResponse } from '../types'
+import { AggregateEvidence } from './AggregateEvidence'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
 import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
@@ -100,6 +101,7 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
                 {asString(course.geometryCoverage) ? (
                   <span className={`semantic-chip ${semanticClass('quality', course.geometryCoverage)}`}>geometry {asString(course.geometryCoverage)}</span>
                 ) : null}
+                <AggregateEvidence row={course} />
               </div>
               <p className="stats-refs">
                 <SourceRefs refs={course.roundRefs ?? course.roundIds} onSelectRef={onSelectRef} />

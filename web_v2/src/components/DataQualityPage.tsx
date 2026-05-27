@@ -1,4 +1,5 @@
 import type { HistoryStatsResponse } from '../types'
+import { AggregateEvidence } from './AggregateEvidence'
 import { SourceRefs } from './SourceRefs'
 import { asString, formatNumber, semanticClass } from './statsValues'
 
@@ -37,6 +38,7 @@ export function DataQualityPage({ data, onSelectRef }: DataQualityPageProps) {
               <span>
                 {formatNumber(finding.ready)}/{formatNumber(finding.total)}
               </span>
+              <AggregateEvidence row={finding} />
             </div>
           </article>
         ))}

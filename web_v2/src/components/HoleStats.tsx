@@ -1,4 +1,5 @@
 import type { HistoryStatsResponse } from '../types'
+import { AggregateEvidence } from './AggregateEvidence'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
 import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
@@ -6,31 +7,6 @@ import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass }
 interface HoleStatsProps {
   data: HistoryStatsResponse
   onSelectRef?: (sourceRef: string) => void
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
-}
-
-function metadataCoverage(value: unknown): string | null {
-  const row = asRecord(value)
-  const ready = asNumber(row.ready)
-  const total = asNumber(row.total)
-  const pct = asNumber(row.pct)
-  if (ready === null || total === null) return null
-  return `coverage ${ready}/${total}${pct === null ? '' : ` ${pct}%`}`
-}
-
-function AggregateMeta({ row }: { row: Record<string, unknown> }) {
-  const coverage = metadataCoverage(row.coverage)
-  const confidence = asString(row.confidence)
-  if (!coverage && !confidence) return null
-  return (
-    <span className="aggregate-meta">
-      {coverage ? <span className="fact-chip muted">{coverage}</span> : null}
-      {confidence ? <span className="fact-chip muted">{confidence} confidence</span> : null}
-    </span>
-  )
 }
 
 export function HoleStats({ data, onSelectRef }: HoleStatsProps) {
@@ -80,7 +56,7 @@ export function HoleStats({ data, onSelectRef }: HoleStatsProps) {
                           <strong>{asString(row.label) ?? 'Outcome'}</strong>
                           <b>{formatNumber(row.count)}</b>
                           <em>{formatNumber(row.pct)}%</em>
-                          <AggregateMeta row={row} />
+                          <AggregateEvidence row={row} />
                           <SourceRefs refs={row.holeRefs ?? row.refs ?? row.sourceRefs} onSelectRef={onSelectRef} />
                         </span>
                       ))}

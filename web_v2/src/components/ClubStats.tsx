@@ -1,4 +1,5 @@
 import type { HistoryStatsResponse } from '../types'
+import { AggregateEvidence } from './AggregateEvidence'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
 import { asNumber, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
@@ -79,6 +80,7 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
                 <span className={`semantic-chip ${semanticClass('confidence', club.confidence)}`}>
                   {asString(club.confidence) ?? 'unknown'} confidence
                 </span>
+                <AggregateEvidence row={club} showConfidence={false} />
               </div>
               <p className="stats-refs">
                 <SourceRefs refs={club.validShotRefs ?? club.shotRefs ?? club.roundRefs ?? club.roundIds} onSelectRef={onSelectRef} />

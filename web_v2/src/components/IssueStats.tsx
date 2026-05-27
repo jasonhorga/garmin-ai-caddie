@@ -1,4 +1,5 @@
 import type { HistoryStatsResponse } from '../types'
+import { AggregateEvidence } from './AggregateEvidence'
 import { SourceRefs } from './SourceRefs'
 import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
@@ -136,6 +137,7 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
               <span className={`semantic-chip ${semanticClass('confidence', issue.confidence)}`}>
                 {asString(issue.confidence) ?? 'unknown'} confidence
               </span>
+              <AggregateEvidence row={issue} showConfidence={false} />
             </div>
             <strong className="stats-count">{formatNumber(issue.count)}</strong>
           </article>
