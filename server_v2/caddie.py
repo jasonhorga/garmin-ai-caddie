@@ -2,8 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from fastapi import HTTPException
+
 from ai_caddie.caddie_context import build_caddie_context
-from ai_caddie.decision import audit_decision, latest_decision_audit, normalize_decision_audit_id, store_decision_audit
+from ai_caddie.decision import (
+    audit_decision,
+    latest_decision_audit,
+    latest_decision_record,
+    normalize_decision_audit_id,
+    store_decision,
+    store_decision_audit,
+)
 from ai_caddie.decision_api import build_decision_from_request
 
 from .annotations import ANNOTATION_ROOT
@@ -20,12 +29,14 @@ from .models import (
 
 
 DECISION_AUDIT_ROOT = Path(".")
+DECISION_LEDGER_ROOT = Path(".")
 VISION_ROOT = Path(".")
 WEATHER_ROOT = Path(".")
 
 
 def build_caddie_decision_response(request: CaddieDecisionRequest) -> CaddieDecisionResponse:
     decision = build_decision_from_request(request.model_dump())
+    store_decision(decision, root=DECISION_LEDGER_ROOT)
     return CaddieDecisionResponse(**decision)
 
 
@@ -101,8 +112,17 @@ def _actual_audit_input(request: CaddieDecisionAuditRequest) -> dict[str, object
     return payload
 
 
+def _decision_for_audit(decision_id: str, request: CaddieDecisionAuditRequest) -> dict[str, object]:
+    if request.decision is not None:
+        return request.decision
+    record = latest_decision_record(decision_id, root=DECISION_LEDGER_ROOT)
+    if not record or not isinstance(record.get("decision"), dict):
+        raise HTTPException(status_code=404, detail="stored decision not found")
+    return record["decision"]
+
+
 def create_decision_audit_response(decision_id: str, request: CaddieDecisionAuditRequest) -> CaddieDecisionAuditStoreResponse:
-    audit = audit_decision(request.decision, _actual_audit_input(request))
+    audit = audit_decision(_decision_for_audit(decision_id, request), _actual_audit_input(request))
     record = store_decision_audit(audit, decision_id=decision_id, root=DECISION_AUDIT_ROOT)
     return CaddieDecisionAuditStoreResponse(
         schema="ai-caddie-decision-audit-store-v1",

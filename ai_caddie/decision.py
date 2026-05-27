@@ -196,6 +196,10 @@ def decision_audit_file(root: Path | str | None = None) -> Path:
     return Path(root or ".") / "data" / "decision_audits" / "decision_audits.jsonl"
 
 
+def decision_ledger_file(root: Path | str | None = None) -> Path:
+    return Path(root or ".") / "data" / "decisions" / "decisions.jsonl"
+
+
 def _sanitize_ref_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -227,6 +231,11 @@ def normalize_decision_audit_id(value: Any) -> str:
 
 def _sanitize_audit_payload(audit: dict[str, Any]) -> dict[str, Any]:
     cleaned = _sanitize_audit_value(audit)
+    return cleaned if isinstance(cleaned, dict) else {}
+
+
+def _sanitize_decision_payload(decision: dict[str, Any]) -> dict[str, Any]:
+    cleaned = _sanitize_audit_value(_redact_decision_value(decision))
     return cleaned if isinstance(cleaned, dict) else {}
 
 
@@ -454,6 +463,30 @@ def store_decision_audit(
     return record
 
 
+def store_decision(
+    decision: dict[str, Any],
+    *,
+    root: Path | str | None = None,
+) -> dict[str, Any]:
+    safe_decision = _sanitize_decision_payload(decision)
+    decision_id = normalize_decision_audit_id(safe_decision.get("decisionId"))
+    record = {
+        "id": uuid4().hex,
+        "storedAt": _stored_at(),
+        "decisionId": decision_id,
+        "sourceRef": _safe_ref(safe_decision.get("sourceRef")),
+        "shotType": safe_decision.get("shotType"),
+        "selectedOptionId": _safe_ref(safe_decision.get("selectedOptionId")),
+        "evidenceRefs": _sanitize_ref_list(safe_decision.get("evidenceRefs")),
+        "decision": safe_decision,
+    }
+    path = decision_ledger_file(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
+    return record
+
+
 def list_decision_audits(*, root: Path | str | None = None) -> list[dict[str, Any]]:
     path = decision_audit_file(root)
     if not path.exists():
@@ -463,6 +496,25 @@ def list_decision_audits(*, root: Path | str | None = None) -> list[dict[str, An
         if line.strip():
             rows.append(json.loads(line))
     return rows
+
+
+def list_decision_records(*, root: Path | str | None = None) -> list[dict[str, Any]]:
+    path = decision_ledger_file(root)
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
+def latest_decision_record(decision_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
+    normalized_id = normalize_decision_audit_id(decision_id)
+    matches = [row for row in list_decision_records(root=root) if str(row.get("decisionId")) == normalized_id]
+    if not matches:
+        return None
+    return sorted(matches, key=lambda row: str(row.get("storedAt") or ""))[-1]
 
 
 def latest_decision_audit(decision_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:

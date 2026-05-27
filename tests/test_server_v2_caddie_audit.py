@@ -12,6 +12,57 @@ from server_v2.main import app
 
 
 class ServerV2CaddieAuditTests(unittest.TestCase):
+    def test_decision_endpoint_stores_ledger_and_audit_can_resolve_decision_by_id(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.caddie.DECISION_LEDGER_ROOT", root),
+                patch("server_v2.caddie.DECISION_AUDIT_ROOT", root),
+            ):
+                decision_response = client.post("/api/v2/caddie/decision", json=build_decision_request_from_fixture("approach"))
+                decision = decision_response.json()
+                audit_response = client.post(
+                    f"/api/v2/caddie/decisions/{decision['decisionId']}/audit",
+                    json={
+                        "actualShot": {
+                            "shotOrder": 2,
+                            "clubName": "8I",
+                            "meters": 143.0,
+                            "end": {"lie": "Green", "feature": {"surface": {"kind": "green"}, "nearRisks": []}},
+                        }
+                    },
+                )
+                ledger_raw = (root / "data" / "decisions" / "decisions.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(decision_response.status_code, 200)
+        self.assertEqual(audit_response.status_code, 200)
+        created = audit_response.json()
+        self.assertEqual(created["record"]["decisionId"], "fixture-round:4:approach")
+        self.assertEqual(created["record"]["sourceRef"], "fixture-round:4")
+        self.assertEqual(created["record"]["selectedOptionId"], "stock")
+        self.assertEqual(created["record"]["actualShotRefs"], ["fixture-round:4:2"])
+        self.assertIn("fixture-round:4:approach", ledger_raw)
+        self.assertNotIn("/home/ubuntu", ledger_raw)
+
+    def test_decision_audit_without_payload_returns_404_when_decision_is_not_in_ledger(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.caddie.DECISION_LEDGER_ROOT", root),
+                patch("server_v2.caddie.DECISION_AUDIT_ROOT", root),
+            ):
+                response = client.post(
+                    "/api/v2/caddie/decisions/missing-decision/audit",
+                    json={"actualShot": {"shotOrder": 1, "clubName": "8I", "meters": 143.0}},
+                )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "stored decision not found")
+
     def test_decision_audit_create_and_latest_use_temp_root(self) -> None:
         client = TestClient(app)
         decision = client.post("/api/v2/caddie/decision", json=build_decision_request_from_fixture("approach")).json()
