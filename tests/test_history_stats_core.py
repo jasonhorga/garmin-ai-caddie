@@ -33,6 +33,62 @@ def improvement_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=[])
 
 
+def difficulty_adjusted_history_data() -> HistoryData:
+    rounds = [
+        {
+            "id": "diff-1",
+            "date": "2026-01-01",
+            "course": "Difficulty Course",
+            "courseKey": "difficulty_course",
+            "holesCompleted": 18,
+            "strokes": 88,
+            "par": 72,
+            "rating": 70.0,
+            "slope": 100,
+            "holes": [],
+            "hasShots": True,
+        },
+        {
+            "id": "diff-2",
+            "date": "2026-02-01",
+            "course": "Difficulty Course",
+            "courseKey": "difficulty_course",
+            "holesCompleted": 18,
+            "strokes": 84,
+            "par": 72,
+            "rating": 72.0,
+            "slope": 120,
+            "holes": [],
+            "hasShots": True,
+        },
+        {
+            "id": "diff-3",
+            "date": "2026-03-01",
+            "course": "Difficulty Course",
+            "courseKey": "difficulty_course",
+            "holesCompleted": 18,
+            "strokes": 82,
+            "par": 72,
+            "holes": [],
+            "hasShots": True,
+        },
+        {
+            "id": "diff-4",
+            "date": "2026-04-01",
+            "course": "Difficulty Course",
+            "courseKey": "difficulty_course",
+            "holesCompleted": 18,
+            "strokes": 80,
+            "par": 72,
+            "rating": 74.0,
+            "slope": 140,
+            "holes": [],
+            "hasShots": True,
+        },
+    ]
+    return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=[])
+
+
 def period_distribution_history_data() -> HistoryData:
     rounds = [
         {
@@ -1290,6 +1346,36 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(improvement["strokesPerRoundTrend"], -3.03)
         self.assertEqual(improvement["baselineRoundRefs"], ["improve-1", "improve-2", "improve-3"])
         self.assertEqual(improvement["recentRoundRefs"], ["improve-4", "improve-5", "improve-6"])
+
+    def test_difficulty_adjusted_differential_tracks_course_rating_and_slope(self) -> None:
+        stats = build_history_stats(difficulty_adjusted_history_data(), data_mode="fixture")
+
+        summary = stats["summary"]["difficultyAdjusted"]
+        self.assertEqual(summary["eligibleRoundCount"], 4)
+        self.assertEqual(summary["ratedRoundCount"], 3)
+        self.assertEqual(summary["averageDifferential"], 12.1)
+        self.assertEqual(summary["bestDifferential"], 4.8)
+        self.assertEqual(summary["missingRoundRefs"], ["diff-3"])
+        self.assertEqual(summary["coverage"], {"ready": 3, "total": 4, "pct": 75.0})
+
+        improvement = stats["time"]["improvement"]
+        self.assertEqual(improvement["baselineAverageDifferential"], 15.8)
+        self.assertEqual(improvement["recentAverageDifferential"], 8.1)
+        self.assertEqual(improvement["deltaAverageDifferential"], -7.7)
+        self.assertEqual(improvement["differentialPerRoundTrend"], -7.75)
+        self.assertEqual(improvement["differentialDirection"], "improving")
+        self.assertEqual(improvement["differentialRoundRefs"], ["diff-1", "diff-2", "diff-4"])
+        self.assertEqual(improvement["difficultyAdjustedCoverage"], {"ready": 3, "total": 4, "pct": 75.0})
+
+        course = stats["courses"][0]
+        self.assertEqual(course["averageDifferential"], 12.1)
+        self.assertEqual(course["difficultyAdjusted"]["ratedRoundCount"], 3)
+        self.assertEqual(course["recentForm"]["deltaAverageDifferential"], -7.7)
+
+        quality = {row["label"]: row for row in stats["dataQuality"]}
+        self.assertEqual(quality["rating_slope"]["state"], "partial")
+        self.assertEqual(quality["rating_slope"]["coverage"], {"ready": 3, "total": 4, "pct": 75.0})
+        self.assertEqual(quality["rating_slope"]["missingRefs"], ["diff-3"])
 
     def test_period_rows_expose_distribution_outcomes_and_source_quality(self) -> None:
         stats = build_history_stats(period_distribution_history_data(), data_mode="fixture")

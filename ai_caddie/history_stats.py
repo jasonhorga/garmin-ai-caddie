@@ -201,6 +201,105 @@ def _to_par18(row: dict[str, Any]) -> int | None:
         return None
 
 
+def _float_field(row: dict[str, Any], key: str) -> float | None:
+    try:
+        value = row.get(key)
+        if value is None:
+            return None
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _round_differential(row: dict[str, Any]) -> float | None:
+    score = _score18(row)
+    rating = _float_field(row, "rating")
+    slope = _float_field(row, "slope")
+    if score is None or rating is None or slope is None or slope <= 0:
+        return None
+    return round((float(score) - rating) * 113.0 / slope, 1)
+
+
+def _difficulty_eligible_rounds(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in sorted(rows, key=lambda item: (str(item.get("date") or ""), _round_id(item)))
+        if _score18(row) is not None
+    ]
+
+
+def _difficulty_entries(rows: list[dict[str, Any]]) -> list[tuple[float, str]]:
+    entries: list[tuple[float, str]] = []
+    for row in _difficulty_eligible_rounds(rows):
+        differential = _round_differential(row)
+        if differential is not None:
+            entries.append((differential, _round_id(row)))
+    return entries
+
+
+def _difficulty_adjusted_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    eligible_rows = _difficulty_eligible_rounds(rows)
+    eligible_refs = [_round_id(row) for row in eligible_rows]
+    entries = _difficulty_entries(rows)
+    values = [value for value, _ref in entries]
+    rated_refs = [ref for _value, ref in entries]
+    missing_refs = [ref for ref in eligible_refs if ref not in set(rated_refs)]
+    return {
+        "eligibleRoundCount": len(eligible_rows),
+        "ratedRoundCount": len(entries),
+        "averageDifferential": average(values),
+        "medianDifferential": round(float(median(values)), 1) if values else None,
+        "bestDifferential": min(values) if values else None,
+        "worstDifferential": max(values) if values else None,
+        "recent5AverageDifferential": average(values[-5:]),
+        "recent10AverageDifferential": average(values[-10:]),
+        "roundRefs": rated_refs,
+        "sourceRefs": rated_refs,
+        "missingRoundRefs": missing_refs,
+        "coverage": _coverage(len(entries), len(eligible_rows)),
+        "confidence": _confidence(len(entries)),
+    }
+
+
+def _difficulty_improvement_fields(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    eligible_rows = _difficulty_eligible_rounds(rows)
+    entries = _difficulty_entries(rows)
+    values = [value for value, _ref in entries]
+    refs = [ref for _value, ref in entries]
+    base = {
+        "baselineAverageDifferential": average(values),
+        "recentAverageDifferential": average(values),
+        "deltaAverageDifferential": None,
+        "differentialPerRoundTrend": None,
+        "differentialDirection": "insufficient_data",
+        "differentialRoundRefs": refs,
+        "baselineDifferentialRoundRefs": refs,
+        "recentDifferentialRoundRefs": refs,
+        "difficultyAdjustedCoverage": _coverage(len(entries), len(eligible_rows)),
+    }
+    if len(values) < 2:
+        return base
+
+    window_size = min(5, max(2, len(values) // 2))
+    baseline_values = values[:window_size]
+    recent_values = values[-window_size:]
+    baseline_average = average(baseline_values)
+    recent_average = average(recent_values)
+    delta_average = round(float(recent_average) - float(baseline_average), 1) if baseline_average is not None and recent_average is not None else None
+    slope = _linear_slope(values)
+    return {
+        **base,
+        "baselineAverageDifferential": baseline_average,
+        "recentAverageDifferential": recent_average,
+        "deltaAverageDifferential": delta_average,
+        "differentialPerRoundTrend": slope,
+        "differentialDirection": _improvement_direction(delta_average, slope),
+        "baselineDifferentialRoundRefs": refs[:window_size],
+        "recentDifferentialRoundRefs": refs[-window_size:],
+    }
+
+
 def _hole_score_bucket(delta: int) -> tuple[str, str, str]:
     if delta <= -2:
         return ("eagleOrBetter", "Eagle+", "eagle")
@@ -348,6 +447,7 @@ def _summary(data: HistoryData) -> dict[str, Any]:
         if (score := _score18(row)) is not None
     ]
     refs = [_round_id(row) for row in data.rounds]
+    difficulty = _difficulty_adjusted_stats(data.rounds)
     return _with_aggregate_contract(
         {
             "totalRounds": len(data.rounds),
@@ -363,6 +463,10 @@ def _summary(data: HistoryData) -> dict[str, Any]:
             "recent20Average": average(recent_scores18[:20]),
             "bestScore": min(scores18) if scores18 else None,
             "worstScore": max(scores18) if scores18 else None,
+            "averageDifferential": difficulty["averageDifferential"],
+            "bestDifferential": difficulty["bestDifferential"],
+            "recent10AverageDifferential": difficulty["recent10AverageDifferential"],
+            "difficultyAdjusted": difficulty,
         },
         refs,
     )
@@ -474,6 +578,7 @@ def _period_pack(key: str, rows: list[dict[str, Any]], *, total_rounds: int) -> 
     dates = [str(row.get("date")) for row in date_sorted_rows if row.get("date")]
     best_round = min((row for row in rows if _score18(row) is not None), key=lambda row: _score18(row) or 10_000, default=None)
     worst_round = max((row for row in rows if _score18(row) is not None), key=lambda row: _score18(row) or -1, default=None)
+    difficulty = _difficulty_adjusted_stats(rows)
     return _with_aggregate_contract(
         {
             "key": key,
@@ -486,6 +591,9 @@ def _period_pack(key: str, rows: list[dict[str, Any]], *, total_rounds: int) -> 
             "bestScore": min(scores18) if scores18 else None,
             "worstScore": max(scores18) if scores18 else None,
             "averageToPar18": average(to_par18),
+            "averageDifferential": difficulty["averageDifferential"],
+            "bestDifferential": difficulty["bestDifferential"],
+            "difficultyAdjusted": difficulty,
             "bestRoundRef": _round_id(best_round) if best_round is not None else None,
             "worstRoundRef": _round_id(worst_round) if worst_round is not None else None,
             "firstDate": dates[0] if dates else None,
@@ -583,6 +691,7 @@ def _improvement_stats(data: HistoryData) -> dict[str, Any]:
     rounds18 = _score_rounds18(data)
     scores = [float(row["strokes"]) for row in rounds18]
     round_refs = [_round_id(row) for row in rounds18]
+    difficulty_fields = _difficulty_improvement_fields(rounds18)
     if len(scores) < 2:
         return {
             "roundCount": len(scores),
@@ -596,6 +705,7 @@ def _improvement_stats(data: HistoryData) -> dict[str, Any]:
             "roundRefs": round_refs,
             "baselineRoundRefs": round_refs,
             "recentRoundRefs": round_refs,
+            **difficulty_fields,
         }
 
     window_size = min(5, max(2, len(scores) // 2))
@@ -617,6 +727,7 @@ def _improvement_stats(data: HistoryData) -> dict[str, Any]:
         "roundRefs": round_refs,
         "baselineRoundRefs": round_refs[:window_size],
         "recentRoundRefs": round_refs[-window_size:],
+        **difficulty_fields,
     }
 
 
@@ -1353,6 +1464,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             "parOrBetter": outcomes["eagleOrBetter"] + outcomes["birdie"] + outcomes["par"],
             "bogeyOrWorse": outcomes["bogey"] + outcomes["doubleOrWorse"],
         },
+        "difficultyAdjusted": _difficulty_adjusted_stats(data.rounds),
         "outcomeRows": outcome_rows,
         "byPar": _par_type_scoring(data.rounds),
         "teeDirection": _tee_direction_stats(data.rounds),
@@ -1627,6 +1739,7 @@ def _courses(
             if row.get("holesCompleted") == 18 and row.get("strokes") is not None
         ]
         issue_profile = _course_issue_profile(rows, effective_shots, annotations, report_records)
+        difficulty = _difficulty_adjusted_stats(rows)
         out.append(
             _with_aggregate_contract(
                 {
@@ -1636,6 +1749,9 @@ def _courses(
                     "average18": average(scores18),
                     "bestScore": min(scores18) if scores18 else None,
                     "worstScore": max(scores18) if scores18 else None,
+                    "averageDifferential": difficulty["averageDifferential"],
+                    "bestDifferential": difficulty["bestDifferential"],
+                    "difficultyAdjusted": difficulty,
                     "recentRoundId": _round_id(rows_sorted[0]),
                     "roundIds": round_ids,
                     "roundRefs": round_ids,
@@ -1662,6 +1778,7 @@ def _course_recent_form(rows: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     scores = [float(row["strokes"]) for row in rounds18]
     refs = [_round_id(row) for row in rounds18]
+    difficulty_fields = _difficulty_improvement_fields(rounds18)
     if not scores:
         return {
             "roundCount": 0,
@@ -1674,6 +1791,7 @@ def _course_recent_form(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "roundRefs": [],
             "baselineRoundRefs": [],
             "recentRoundRefs": [],
+            **difficulty_fields,
         }
 
     window_size = min(5, max(1, len(scores) // 2))
@@ -1694,6 +1812,7 @@ def _course_recent_form(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "roundRefs": refs,
         "baselineRoundRefs": refs[:window_size],
         "recentRoundRefs": refs[-window_size:],
+        **difficulty_fields,
     }
 
 
@@ -2599,6 +2718,25 @@ def _putt_quality(data: HistoryData) -> dict[str, Any]:
     )
 
 
+def _rating_slope_quality(data: HistoryData) -> dict[str, Any]:
+    eligible_rows = _difficulty_eligible_rounds(data.rounds)
+    ready_refs = [_round_id(row) for row in eligible_rows if _round_differential(row) is not None]
+    missing_refs = [_round_id(row) for row in eligible_rows if _round_differential(row) is None]
+    total = len(eligible_rows)
+    ready = len(ready_refs)
+    return _with_quality_contract(
+        {
+            "label": "rating_slope",
+            "state": "good" if total and ready == total else "partial" if ready else "missing",
+            "ready": ready,
+            "total": total,
+            "refs": missing_refs,
+            "readyRefs": ready_refs,
+            "missingRefs": missing_refs,
+        }
+    )
+
+
 def _club_sample_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     shots_by_club: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for shot in _effective_shots(data, annotations):
@@ -2670,6 +2808,7 @@ def _data_quality(
         ),
         _shot_row_quality(data),
         _putt_quality(data),
+        _rating_slope_quality(data),
         _club_sample_quality(data, annotations),
         _geometry_quality(hole_rows or []),
         _with_quality_contract(
