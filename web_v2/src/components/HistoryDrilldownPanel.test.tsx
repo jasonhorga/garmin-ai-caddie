@@ -89,4 +89,64 @@ describe('HistoryDrilldownPanel', () => {
     expect(screen.getByRole('heading', { name: 'Source Unavailable' })).toBeInTheDocument()
     expect(screen.getByText('900404:9 was not found in loaded history data')).toBeInTheDocument()
   })
+
+  it('renders manual annotations and corrections attached to the source', () => {
+    render(
+      <HistoryDrilldownPanel
+        state={{
+          status: 'ready',
+          data: {
+            schema: 'ai-caddie-history-drilldown-v1',
+            ref: '900001:1:1',
+            refType: 'shot',
+            found: true,
+            title: '8I on H1',
+            round: { id: '900001', score: 77 },
+            hole: { number: 1, par: 4, strokes: 4 },
+            shot: { club: '8I', distance: 142, surface: 'green' },
+            relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:1'], shotRefs: ['900001:1:1'] },
+            sourceFields: { clubName: '8I', meters: 142 },
+            missingData: [],
+            annotations: [
+              {
+                id: 'ann-note',
+                createdAt: '2026-05-25T10:40:00Z',
+                targetType: 'shot',
+                targetId: '900001:1:1',
+                kind: 'shot_note',
+                payload: { text: 'ball was above feet' },
+                source: 'manual',
+              },
+              {
+                id: 'ann-club',
+                createdAt: '2026-05-25T10:41:00Z',
+                targetType: 'shot',
+                targetId: '900001:1:1',
+                kind: 'club_correction',
+                payload: { from: '8I', to: '7I' },
+                source: 'manual',
+              },
+            ],
+            corrections: [
+              {
+                id: 'ann-club',
+                createdAt: '2026-05-25T10:41:00Z',
+                targetType: 'shot',
+                targetId: '900001:1:1',
+                kind: 'club_correction',
+                payload: { from: '8I', to: '7I' },
+                source: 'manual',
+              },
+            ],
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Manual Annotations' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Applied Corrections' })).toBeInTheDocument()
+    expect(screen.getByText('ball was above feet')).toBeInTheDocument()
+    expect(screen.getAllByText('club_correction')).toHaveLength(2)
+    expect(screen.getAllByText('8I -> 7I')).toHaveLength(2)
+  })
 })

@@ -424,6 +424,8 @@ export interface HistoryDrilldownResponse {
   }
   sourceFields: Record<string, unknown>
   missingData: Array<Record<string, unknown>>
+  annotations?: AnnotationRecord[]
+  corrections?: AnnotationRecord[]
 }
 
 export type ReportKind = 'round' | 'trend'

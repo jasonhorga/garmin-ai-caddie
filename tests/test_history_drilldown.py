@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
+from ai_caddie.annotations import add_annotation
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history import HistoryData
 from ai_caddie.history_drilldown import build_drilldown_index, resolve_history_ref
@@ -129,6 +132,31 @@ class HistoryDrilldownTests(unittest.TestCase):
         self.assertEqual(detail["shot"]["distance"], 142)
         self.assertEqual(detail["shot"]["surface"], "green")
         self.assertEqual(detail["sourceFields"]["globalShotIndex"], 1)
+
+    def test_resolved_ref_includes_manual_annotations_and_corrections(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            note = add_annotation(
+                "shot",
+                "900001:1:1",
+                "shot_note",
+                {"text": "ball was above feet"},
+                root=root,
+            )
+            correction = add_annotation(
+                "shot",
+                "900001:1:1",
+                "club_correction",
+                {"from": "8I", "to": "7I", "note": "watch picked wrong club"},
+                root=root,
+            )
+
+            detail = resolve_history_ref(fixture_history_data(), "900001:1:1", annotations_root=root)
+
+        self.assertEqual([row["id"] for row in detail["annotations"]], [note["id"], correction["id"]])
+        self.assertEqual([row["id"] for row in detail["corrections"]], [correction["id"]])
+        self.assertEqual(detail["annotations"][0]["payload"]["text"], "ball was above feet")
+        self.assertEqual(detail["corrections"][0]["payload"]["to"], "7I")
 
     def test_resolves_local_raw_garmin_shot_shape(self) -> None:
         data = raw_garmin_drilldown_data()

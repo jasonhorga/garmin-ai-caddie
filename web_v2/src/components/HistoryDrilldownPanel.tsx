@@ -1,4 +1,4 @@
-import type { HistoryDrilldownResponse } from '../types'
+import type { AnnotationRecord, HistoryDrilldownResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
 
 export type HistoryDrilldownPanelState =
@@ -22,6 +22,35 @@ function valueText(value: unknown): string {
 function entries(record: Record<string, unknown> | null): Array<[string, unknown]> {
   if (!record) return []
   return Object.entries(record).filter(([, value]) => value !== null && value !== undefined)
+}
+
+function compactPayloadValue(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() ? value : null
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return null
+}
+
+function annotationSummary(record: AnnotationRecord): string {
+  const { payload } = record
+  const from = compactPayloadValue(payload.from)
+  const to = compactPayloadValue(payload.to)
+  if (from && to) return `${from} -> ${to}`
+
+  const tag = compactPayloadValue(payload.tag)
+  if (tag) return tag
+
+  const text = compactPayloadValue(payload.text) ?? compactPayloadValue(payload.note)
+  if (text) return text
+
+  const reason = compactPayloadValue(payload.reason)
+  const strokes = compactPayloadValue(payload.strokes)
+  if (reason && strokes) return `${strokes}: ${reason}`
+  if (reason) return reason
+
+  const rating = compactPayloadValue(payload.rating)
+  if (rating) return rating
+
+  return valueText(payload)
 }
 
 function DetailRows({ title, record }: { title: string; record: Record<string, unknown> | null }) {
@@ -54,6 +83,24 @@ function MissingDataRows({ rows }: { rows: Array<Record<string, unknown>> }) {
           <div key={`${valueText(row.label)}-${index}`} className="drilldown-row">
             <span>{valueText(row.label)}</span>
             <b>{valueText(row.state ?? row.reason ?? row.value)}</b>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function AnnotationRows({ title, rows }: { title: string; rows: AnnotationRecord[] }) {
+  if (rows.length === 0) return null
+
+  return (
+    <section className="drilldown-block" aria-label={title}>
+      <h3>{title}</h3>
+      <div className="drilldown-rows">
+        {rows.map((row) => (
+          <div key={row.id} className="drilldown-row">
+            <span>{row.kind}</span>
+            <b>{annotationSummary(row)}</b>
           </div>
         ))}
       </div>
@@ -138,6 +185,8 @@ export function HistoryDrilldownPanel({ state, onSelectRef }: HistoryDrilldownPa
       </div>
 
       <RelatedRefs relatedRefs={data.relatedRefs} onSelectRef={onSelectRef} />
+      <AnnotationRows title="Manual Annotations" rows={data.annotations ?? []} />
+      <AnnotationRows title="Applied Corrections" rows={data.corrections ?? []} />
       <MissingDataRows rows={data.missingData} />
     </section>
   )

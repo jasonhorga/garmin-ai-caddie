@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
+from ai_caddie.annotations import list_annotations
 from ai_caddie.history import HistoryData
 
 
 RefType = Literal["round", "hole", "shot", "unknown"]
+CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction", "score_correction"}
 
 
 def _round_id(row: dict[str, Any]) -> str:
@@ -110,39 +113,44 @@ def build_drilldown_index(data: HistoryData) -> dict[str, list[str]]:
     }
 
 
-def resolve_history_ref(data: HistoryData, source_ref: str) -> dict[str, Any]:
+def resolve_history_ref(
+    data: HistoryData,
+    source_ref: str,
+    *,
+    annotations_root: Path | str | None = None,
+) -> dict[str, Any]:
     ref = str(source_ref)
     ref_type, parts = _parse_ref(ref)
     rounds_by_id = _round_aliases(data)
     shots_by_ref = _shot_aliases(data)
 
     if ref in rounds_by_id:
-        return _round_detail(data, rounds_by_id[ref], ref)
+        return _attach_annotations(_round_detail(data, rounds_by_id[ref], ref), annotations_root)
     if ref in shots_by_ref:
         index, shot = shots_by_ref[ref]
         row = rounds_by_id.get(_shot_round_id(shot))
         hole = _find_hole(row, str(shot.get("hole") or "")) if row else None
         if row:
-            return _shot_detail(row, hole, shot, index, ref)
+            return _attach_annotations(_shot_detail(row, hole, shot, index, ref), annotations_root)
 
     if ref_type == "round" and parts:
         row = rounds_by_id.get(parts[0])
         if row:
-            return _round_detail(data, row, ref)
+            return _attach_annotations(_round_detail(data, row, ref), annotations_root)
     elif ref_type == "hole" and len(parts) == 2:
         row = rounds_by_id.get(parts[0])
         hole = _find_hole(row, parts[1]) if row else None
         if row and hole:
-            return _hole_detail(data, row, hole, ref)
+            return _attach_annotations(_hole_detail(data, row, hole, ref), annotations_root)
     elif ref_type == "shot" and len(parts) == 3:
         item = shots_by_ref.get(ref)
         row = rounds_by_id.get(parts[0])
         hole = _find_hole(row, parts[1]) if row else None
         if item and row:
             index, shot = item
-            return _shot_detail(row, hole, shot, index, ref)
+            return _attach_annotations(_shot_detail(row, hole, shot, index, ref), annotations_root)
 
-    return _missing_detail(ref, ref_type)
+    return _attach_annotations(_missing_detail(ref, ref_type), annotations_root)
 
 
 def _round_summary(row: dict[str, Any]) -> dict[str, Any]:
@@ -311,7 +319,57 @@ def _base_detail(
         "relatedRefs": related_refs,
         "sourceFields": source_fields,
         "missingData": missing_data or [],
+        "annotations": [],
+        "corrections": [],
     }
+
+
+def _annotation_target_candidates(detail: dict[str, Any]) -> tuple[str | None, list[str]]:
+    ref_type = detail.get("refType")
+    candidates: list[str] = []
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip()
+        if text and text not in candidates:
+            candidates.append(text)
+
+    add(detail.get("ref"))
+    if ref_type == "round":
+        row = detail.get("round") if isinstance(detail.get("round"), dict) else {}
+        add(row.get("id"))
+        return "round", candidates
+    if ref_type == "hole":
+        related = detail.get("relatedRefs") if isinstance(detail.get("relatedRefs"), dict) else {}
+        for ref in related.get("holeRefs") or []:
+            add(ref)
+        row = detail.get("round") if isinstance(detail.get("round"), dict) else {}
+        hole = detail.get("hole") if isinstance(detail.get("hole"), dict) else {}
+        if row.get("id") and hole.get("number"):
+            add(f"{row.get('id')}:{hole.get('number')}")
+        return "hole", candidates
+    if ref_type == "shot":
+        shot = detail.get("shot") if isinstance(detail.get("shot"), dict) else {}
+        add(shot.get("ref"))
+        related = detail.get("relatedRefs") if isinstance(detail.get("relatedRefs"), dict) else {}
+        for ref in related.get("shotRefs") or []:
+            add(ref)
+        return "shot", candidates
+    return None, candidates
+
+
+def _attach_annotations(detail: dict[str, Any], annotations_root: Path | str | None) -> dict[str, Any]:
+    target_type, target_ids = _annotation_target_candidates(detail)
+    if not target_type or not target_ids:
+        return detail
+    target_set = set(target_ids)
+    annotations = [
+        record
+        for record in list_annotations(root=annotations_root)
+        if record.get("targetType") == target_type and str(record.get("targetId") or "") in target_set
+    ]
+    detail["annotations"] = annotations
+    detail["corrections"] = [record for record in annotations if record.get("kind") in CORRECTION_KINDS]
+    return detail
 
 
 def _find_hole(row: dict[str, Any] | None, hole_number: str) -> dict[str, Any] | None:

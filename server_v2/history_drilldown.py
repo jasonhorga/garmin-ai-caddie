@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ai_caddie.history_drilldown import resolve_history_ref
 
 from .data_source import load_history_data_for_mode
 from .models import HistoryDrilldownResponse
 
 
+ANNOTATION_ROOT = Path(".")
+
+
 def load_history_drilldown_response(source_ref: str) -> HistoryDrilldownResponse:
     data, _mode = load_history_data_for_mode()
-    return HistoryDrilldownResponse(**resolve_history_ref(data, source_ref))
+    return HistoryDrilldownResponse(**resolve_history_ref(data, source_ref, annotations_root=ANNOTATION_ROOT))

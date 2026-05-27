@@ -288,6 +288,8 @@ class HistoryDrilldownResponse(BaseModel):
     relatedRefs: dict[str, list[str]]
     sourceFields: dict[str, Any]
     missingData: list[dict[str, Any]]
+    annotations: list[dict[str, Any]] = Field(default_factory=list)
+    corrections: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ConnectorStatus(BaseModel):
