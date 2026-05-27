@@ -79,6 +79,27 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(payload["confidence"], "low")
         self.assertIn("weather", {row["category"] for row in payload["unsupportedClaims"]})
 
+    def test_generate_round_report_degrades_when_provider_is_unavailable_without_secret_leak(self) -> None:
+        client = TestClient(app)
+
+        with patch(
+            "server_v2.reports.build_text_provider",
+            side_effect=RuntimeError("provider failed token=abc123 /home/ubuntu/private/key.txt"),
+        ):
+            response = client.post("/api/v2/reports/round/900001/generate")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-review-report-v1")
+        self.assertEqual(payload["provider"], "DeterministicReportProvider")
+        self.assertEqual(payload["model"], "deterministic-facts-v1")
+        self.assertEqual(payload["confidence"], "low")
+        provider_missing = next(row for row in payload["missingData"] if row["label"] == "report_provider")
+        self.assertIn("[REDACTED]", provider_missing["reason"])
+        self.assertIn("[REDACTED_PATH]", provider_missing["reason"])
+        self.assertNotIn("abc123", response.text)
+        self.assertNotIn("/home/ubuntu/private", response.text)
+
     def test_generated_round_report_is_stored_and_returned_by_get(self) -> None:
         client = TestClient(app)
 

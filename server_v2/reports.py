@@ -101,6 +101,30 @@ def _report_index_item(record: dict[str, object], sequence: int) -> dict[str, ob
     }
 
 
+def _facts_with_provider_failure(facts: dict[str, object], exc: Exception) -> dict[str, object]:
+    payload = dict(facts)
+    missing_data = payload.get("missingData")
+    rows = [row for row in missing_data if isinstance(row, dict)] if isinstance(missing_data, list) else []
+    rows.append(
+        {
+            "label": "report_provider",
+            "state": "missing",
+            "reason": redact_private_text(exc),
+        }
+    )
+    payload["missingData"] = rows
+    return payload
+
+
+def _generate_provider_report_or_fallback(facts: dict[str, object]) -> dict[str, object]:
+    try:
+        return generate_report(facts, build_text_provider())
+    except Exception as exc:
+        report = generate_deterministic_report(_facts_with_provider_failure(facts, exc))
+        report["confidence"] = "low"
+        return report
+
+
 def load_report_index_response() -> ReviewReportIndexResponse:
     items = [
         _report_index_item(record, sequence)
@@ -128,7 +152,7 @@ def load_round_report_response(round_id: str) -> ReviewReportResponse:
 
 def generate_round_report_response(round_id: str) -> ReviewReportResponse:
     facts = build_round_report_facts(_history_stats_dict(), round_id, history_data=_history_data())
-    report = generate_report(facts, build_text_provider())
+    report = _generate_provider_report_or_fallback(facts)
     store_report(report, kind="round", subject_id=round_id, root=REPORT_ROOT)
     return _report_response(report, kind="round", subject_id=round_id)
 
@@ -144,6 +168,6 @@ def load_trend_report_response(period: str) -> ReviewReportResponse:
 
 def generate_trend_report_response(period: str) -> ReviewReportResponse:
     facts = build_trend_report_facts(_history_stats_dict(), period)
-    report = generate_report(facts, build_text_provider())
+    report = _generate_provider_report_or_fallback(facts)
     store_report(report, kind="trend", subject_id=period, root=REPORT_ROOT)
     return _report_response(report, kind="trend", subject_id=period)
