@@ -89,6 +89,7 @@ export function HoleEvidencePanel({ state }: HoleEvidencePanelProps) {
 function RouteEvidence({ route }: { route: Record<string, unknown> | null }) {
   if (!route) return null
   const clearances = asRecordArray(route.hazardClearances)
+  const landingRisks = asRecordArray(route.landingWindowRisks)
   const avoidZones = asRecordArray(route.avoidZones)
   const landingWindow = asRecord(route.landingWindowLocal)
   return (
@@ -110,6 +111,16 @@ function RouteEvidence({ route }: { route: Record<string, unknown> | null }) {
           <span>{riskClearanceLabel(row)}</span>
         </div>
       ))}
+      {landingRisks.length ? <h4>Landing Risks</h4> : null}
+      {landingRisks.slice(0, 5).map((row, index) => {
+        const id = asString(row.hazardId) ?? asString(row.id) ?? `landing-risk-${index + 1}`
+        return (
+          <div className="report-row" key={`landing-risk-${id}-${index}`}>
+            <strong>{id} landing</strong>
+            <span>{landingRiskLabel(row)}</span>
+          </div>
+        )
+      })}
       {avoidZones.slice(0, 5).map((row, index) => (
         <div className="report-row" key={`avoid-${asString(row.id) ?? index}`}>
           <strong>{asString(row.id) ?? `avoid-${index + 1}`}</strong>
@@ -195,6 +206,18 @@ function riskClearanceLabel(row: Record<string, unknown>): string {
     return `${kind} landing ${formatMeters(row.distanceToCenter_m)} from center`
   }
   return `${kind} clear ${formatMeters(row.carryToClear_m)}`
+}
+
+function landingRiskLabel(row: Record<string, unknown>): string {
+  const kind = asString(row.kind) ?? 'risk'
+  const parts = [`${kind} landing ${formatMeters(row.distanceToCenter_m)} from center`]
+  if (Number.isFinite(Number(row.overlap_m))) {
+    parts.push(`overlap ${formatMeters(row.overlap_m)}`)
+  }
+  if (Number.isFinite(Number(row.landingRadius_m))) {
+    parts.push(`r=${formatMeters(row.landingRadius_m)}`)
+  }
+  return parts.join(', ')
 }
 
 function formatMeters(value: unknown): string {

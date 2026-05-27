@@ -23,6 +23,7 @@ const readyState: HoleEvidenceState = {
         { hazardId: 'fairway_bunker', kind: 'bunker', carryToFront_m: 136, carryToClear_m: 150 },
       ],
       landingWindowRisks: [
+        { hazardId: 'fairway_bunker', kind: 'bunker', distanceToCenter_m: 16, landingRadius_m: 18, overlap_m: 2 },
         { hazardId: 'right_bunker', kind: 'bunker', distanceToCenter_m: 12, landingRadius_m: 18, overlap_m: 6 },
       ],
       avoidZones: [
@@ -95,6 +96,9 @@ describe('HoleEvidencePanel', () => {
     expect(screen.getByText('water clear 110m')).toBeInTheDocument()
     expect(screen.getAllByText('fairway_bunker').length).toBeGreaterThan(0)
     expect(screen.getAllByText('bunker clear 150m').length).toBeGreaterThan(0)
+    expect(screen.getByText('Landing Risks')).toBeInTheDocument()
+    expect(screen.getByText('fairway_bunker landing')).toBeInTheDocument()
+    expect(screen.getByText('bunker landing 16m from center, overlap 2m, r=18m')).toBeInTheDocument()
     expect(screen.getByText('right_bunker')).toBeInTheDocument()
     expect(screen.getByText('bunker landing 12m from center')).toBeInTheDocument()
     expect(screen.getByText('hazards')).toBeInTheDocument()
