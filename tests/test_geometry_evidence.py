@@ -220,7 +220,8 @@ class GeometryEvidenceTests(unittest.TestCase):
                     {"id": "Fairway.drc", "type": "Fairway.drc", "polygon": [[10, 10], [40, 10], [40, 40], [10, 40], [10, 10]]},
                     {"id": "Rough.drc", "surface": "Rough.drc", "polygon": [[50, 10], [90, 10], [90, 40], [50, 40], [50, 10]]},
                     {"id": "Teebox.drc", "name": "Teebox.drc", "polygon": [[10, 50], [30, 50], [30, 70], [10, 70], [10, 50]]},
-                    {"id": "Green.drc", "polygon": [[50, 60], [80, 60], [80, 90], [50, 90], [50, 60]]}
+                    {"id": "Green.drc", "polygon": [[50, 60], [80, 60], [80, 90], [50, 90], [50, 60]]},
+                    {"id": "Bunker.drc", "source": "mesh", "polygon": [[90, 60], [115, 60], [115, 90], [90, 90], [90, 60]]}
                   ]
                 }
                 """,
@@ -235,18 +236,24 @@ class GeometryEvidenceTests(unittest.TestCase):
                 tee = classify_shot_surface(31795, 5, {"ref": "shot-tee", "end": {"x": 20, "y": 60}})
                 bounds = classify_shot_surface(31795, 5, {"ref": "shot-bounds", "end": {"x": 100, "y": 100}})
                 id_only = classify_shot_surface(31795, 5, {"ref": "shot-id-only", "end": {"x": 60, "y": 70}})
+                source_masked = classify_shot_surface(31795, 5, {"ref": "shot-source-masked", "end": {"x": 100, "y": 70}})
 
         self.assertEqual(fairway["surface"]["kind"], "fairway")
         self.assertEqual(rough["surface"]["kind"], "rough")
         self.assertEqual(tee["surface"]["kind"], "teebox")
         self.assertEqual(bounds["surface"]["kind"], "playable_bounds")
         self.assertEqual(id_only["surface"]["kind"], "green")
+        self.assertEqual(source_masked["surface"]["kind"], "bunker")
         self.assertEqual(fairway["surface"]["id"], "fairway")
         self.assertEqual(rough["surface"]["id"], "rough")
         self.assertEqual(tee["surface"]["id"], "teebox")
         self.assertEqual(bounds["surface"]["id"], "playable_bounds")
         self.assertEqual(id_only["surface"]["id"], "green")
-        self.assertNotIn(".drc", str([fairway["surface"], rough["surface"], tee["surface"], bounds["surface"], id_only["surface"]]))
+        self.assertEqual(source_masked["surface"]["id"], "bunker")
+        self.assertNotIn(
+            ".drc",
+            str([fairway["surface"], rough["surface"], tee["surface"], bounds["surface"], id_only["surface"], source_masked["surface"]]),
+        )
 
     def test_route_evidence_computes_hazard_carry_clearance_and_landing_window(self) -> None:
         with TemporaryDirectory() as tmp:

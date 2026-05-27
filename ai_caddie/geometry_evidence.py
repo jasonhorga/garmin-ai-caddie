@@ -56,6 +56,7 @@ SURFACE_KIND_ALIASES = {
     "bounds": "playable_bounds",
 }
 SURFACE_PRIORITY = ["water", "bunker", "green", "fairway", "rough", "tree_area", "teebox", "playable_bounds"]
+GENERIC_SURFACE_KINDS = {"mesh", "hazard", "surface", "feature"}
 
 
 def _display_path(path: Path) -> str:
@@ -230,13 +231,26 @@ def _known_surface_kind(value: Any) -> str | None:
 
 
 def _surface_kind(row: dict[str, Any], fallback: str) -> str:
+    deferred: list[str] = []
     for value in _surface_kind_values(row):
+        known_kind = _known_surface_kind(value)
+        if known_kind:
+            return known_kind
         kind = _normalize_surface_kind(value)
         if kind:
-            return kind
-    id_kind = _known_surface_kind(row.get("id"))
+            deferred.append(kind)
+    raw_id = row.get("id")
+    id_kind = _known_surface_kind(raw_id)
     if id_kind:
         return id_kind
+    id_kind = _normalize_surface_kind(raw_id)
+    if id_kind and ".drc" in str(raw_id).lower():
+        return id_kind
+    for kind in deferred:
+        if kind != fallback and kind not in GENERIC_SURFACE_KINDS:
+            return kind
+    if deferred:
+        return deferred[0]
     return fallback
 
 
