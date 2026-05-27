@@ -532,6 +532,16 @@ class FactBoundReportTests(unittest.TestCase):
             "dataQuality": [],
             "drillDown": {"roundIds": ["900001", "900002"]},
             "diagnosis": {
+                "issueTrends": [
+                    {
+                        "issue": "water",
+                        "phase": "Penalty",
+                        "actualToParImpact": 1.5,
+                        "actualStrokesLost": 1.2,
+                        "sourceRefs": ["900001:7"],
+                        "recentRefs": ["900001:7"],
+                    }
+                ],
                 "decisionAuditTrends": {
                     "totalAudits": 2,
                     "auditedRoundRefs": ["900001", "900002"],
@@ -574,6 +584,8 @@ class FactBoundReportTests(unittest.TestCase):
         trend_facts = build_trend_report_facts(stats, "year:2026")
 
         round_by_label = {row["label"]: row for row in round_facts["factsUsed"]}
+        self.assertEqual(round_by_label["round_diagnosis_issue_trends"]["value"][0]["issue"], "water")
+        self.assertEqual(round_by_label["round_diagnosis_issue_trends"]["sourceRefs"], ["900001:7"])
         self.assertEqual(round_by_label["round_decision_audits"]["sourceRefs"], ["900001:7", "900001:7:1"])
         self.assertEqual(round_by_label["round_decision_audits"]["value"][0]["classification"], "execution")
         self.assertEqual(round_by_label["round_decision_audits"]["value"][0]["decisionIds"], ["900001:7:tee"])
@@ -582,6 +594,84 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["totalAudits"], 2)
         self.assertEqual(trend_by_label["decision_audit_trends"]["sourceRefs"], ["900001", "900002", "900001:7", "900002:7", "900001:7:1", "900002:7:1"])
         self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["recentCostDrivers"][0]["classification"], "execution")
+
+    def test_trend_report_facts_include_diagnosis_course_and_club_risk_models(self) -> None:
+        stats = {
+            "schema": "ai-caddie-history-stats-v1",
+            "summary": {"totalRounds": 5, "average18": 86.0, "recent10Average": 84.0, "bestScore": 77},
+            "time": {},
+            "scoring": {},
+            "issues": [],
+            "dataQuality": [],
+            "drillDown": {"roundRefs": ["900001", "900002"], "holeRefs": ["900001:7"], "shotRefs": ["900001:7:2"]},
+            "diagnosis": {
+                "issueTrends": [
+                    {
+                        "issue": "water",
+                        "phase": "Penalty",
+                        "direction": "worse",
+                        "recentCount": 2,
+                        "baselineCount": 0,
+                        "estimatedStrokesLost": 1.6,
+                        "actualStrokesLost": 2.0,
+                        "actualToParImpact": 2.5,
+                        "actualImpactCoverage": {"ready": 2, "total": 2, "pct": 100.0},
+                        "sourceRefs": ["900001:7", "900002:7"],
+                        "recentRefs": ["900002:7"],
+                        "confidence": "medium",
+                    }
+                ]
+            },
+            "courses": [
+                {
+                    "courseKey": "black_knight",
+                    "courseName": "Black Knight",
+                    "roundCount": 3,
+                    "average18": 83.7,
+                    "issueProfile": [
+                        {"issue": "water", "count": 2, "sourceRefs": ["900001:7", "900002:7"]},
+                        {"issue": "three_putt", "count": 1, "sourceRefs": ["900003:9"]},
+                    ],
+                    "toughestHoles": [{"hole": 7, "averageToPar": 1.3, "sourceRefs": ["900001:7"]}],
+                    "sourceRefs": ["900001", "900002", "900003"],
+                    "coverage": {"ready": 3, "total": 3, "pct": 100.0},
+                    "confidence": "medium",
+                }
+            ],
+            "clubs": [
+                {
+                    "club": "8I",
+                    "sampleCount": 12,
+                    "median": 144.0,
+                    "p10": 132.0,
+                    "p90": 153.0,
+                    "hazardRate": 16.7,
+                    "riskRate": 33.3,
+                    "usableRate": 66.7,
+                    "topSurface": "green",
+                    "surfaceDistribution": [{"surface": "green", "count": 8, "pct": 66.7}],
+                    "riskShotRefs": ["900001:7:2"],
+                    "usableShotRefs": ["900002:4:2"],
+                    "sourceRefs": ["900001:7:2", "900002:4:2"],
+                    "coverage": {"ready": 12, "total": 12, "pct": 100.0},
+                    "confidence": "medium",
+                }
+            ],
+        }
+
+        facts = build_trend_report_facts(stats, "recent_10")
+        report = generate_report(facts, StaticProvider("Trend review from structured facts."))
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+
+        self.assertEqual(by_label["diagnosis_issue_trends"]["value"][0]["actualToParImpact"], 2.5)
+        self.assertEqual(by_label["diagnosis_issue_trends"]["sourceRefs"], ["900001:7", "900002:7"])
+        self.assertEqual(by_label["course_issue_profiles"]["value"][0]["issueProfile"][0]["issue"], "water")
+        self.assertEqual(by_label["course_issue_profiles"]["sourceRefs"], ["900001", "900002", "900003", "900001:7", "900002:7", "900003:9"])
+        self.assertEqual(by_label["club_risk_profiles"]["value"][0]["club"], "8I")
+        self.assertEqual(by_label["club_risk_profiles"]["value"][0]["riskRate"], 33.3)
+        self.assertEqual(by_label["club_risk_profiles"]["sourceRefs"], ["900001:7:2", "900002:4:2"])
+        self.assertTrue(any(row["factLabels"] == ["diagnosis_issue_trends"] and "water" in row["claim"] for row in report["inferencesMade"]))
+        self.assertTrue(any(row["factLabels"] == ["club_risk_profiles"] and "8I" in row["claim"] for row in report["inferencesMade"]))
 
     def test_report_facts_preserve_stat_source_refs_coverage_and_confidence(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

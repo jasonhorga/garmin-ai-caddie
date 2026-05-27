@@ -378,6 +378,17 @@ def build_round_report_facts(
         if round_issues:
             facts_used.append(_fact("round_issues", round_issues, "issues"))
 
+    round_issue_trends = _round_diagnosis_issue_trends(history_stats, round_id)
+    if round_issue_trends:
+        facts_used.append(
+            _fact(
+                "round_diagnosis_issue_trends",
+                round_issue_trends,
+                "diagnosis.issueTrends",
+                source_refs=report_source_refs(round_issue_trends),
+            )
+        )
+
     round_decision_audits = _round_decision_audit_facts(history_stats, round_id)
     if round_decision_audits:
         facts_used.append(
@@ -636,6 +647,113 @@ def _round_decision_audit_facts(history_stats: dict[str, Any], round_id: str) ->
     return rows[:8]
 
 
+def _compact_issue_trend_row(row: dict[str, Any]) -> dict[str, Any]:
+    keys = [
+        "issue",
+        "phase",
+        "direction",
+        "baselineCount",
+        "recentCount",
+        "deltaCount",
+        "estimatedStrokesLost",
+        "actualStrokesLost",
+        "actualToParImpact",
+        "actualImpactCoverage",
+        "sourceRefs",
+        "baselineRefs",
+        "recentRefs",
+        "confidence",
+        "coverage",
+    ]
+    return {key: row[key] for key in keys if key in row}
+
+
+def _diagnosis_issue_trends_fact(history_stats: dict[str, Any]) -> list[dict[str, Any]]:
+    diagnosis = history_stats.get("diagnosis") if isinstance(history_stats.get("diagnosis"), dict) else {}
+    trends = diagnosis.get("issueTrends") if isinstance(diagnosis.get("issueTrends"), list) else []
+    rows = [_compact_issue_trend_row(row) for row in trends if isinstance(row, dict)]
+    return rows[:8]
+
+
+def _round_diagnosis_issue_trends(history_stats: dict[str, Any], round_id: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in _diagnosis_issue_trends_fact(history_stats):
+        refs = _row_refs_match_round(row, round_id)
+        if refs:
+            compact = dict(row)
+            compact["refs"] = refs
+            rows.append(compact)
+    return rows[:8]
+
+
+def _course_issue_profiles_fact(history_stats: dict[str, Any]) -> list[dict[str, Any]]:
+    courses = history_stats.get("courses") if isinstance(history_stats.get("courses"), list) else []
+    rows: list[dict[str, Any]] = []
+    for course in courses:
+        if not isinstance(course, dict):
+            continue
+        issue_profile = [row for row in course.get("issueProfile", []) if isinstance(row, dict)]
+        toughest_holes = [row for row in course.get("toughestHoles", []) if isinstance(row, dict)]
+        if not issue_profile and not toughest_holes:
+            continue
+        rows.append(
+            {
+                "courseKey": course.get("courseKey"),
+                "courseName": course.get("courseName"),
+                "roundCount": course.get("roundCount"),
+                "average18": course.get("average18"),
+                "sourceRefs": _as_string_list(course.get("sourceRefs") or course.get("roundRefs") or course.get("roundIds")),
+                "issueProfile": issue_profile[:5],
+                "toughestHoles": toughest_holes[:5],
+                "coverage": course.get("coverage"),
+                "confidence": course.get("confidence"),
+            }
+        )
+    return sorted(rows, key=lambda row: -sum(int(issue.get("count") or 0) for issue in row.get("issueProfile", [])))[:6]
+
+
+def _club_risk_profiles_fact(history_stats: dict[str, Any]) -> list[dict[str, Any]]:
+    clubs = history_stats.get("clubs") if isinstance(history_stats.get("clubs"), list) else []
+    rows: list[dict[str, Any]] = []
+    for club in clubs:
+        if not isinstance(club, dict):
+            continue
+        if club.get("riskRate") is None and club.get("hazardRate") is None and not club.get("surfaceDistribution"):
+            continue
+        surface_distribution = [
+            row for row in club.get("surfaceDistribution", [])
+            if isinstance(row, dict)
+        ]
+        rows.append(
+            {
+                "club": club.get("club"),
+                "sampleCount": club.get("sampleCount"),
+                "median": club.get("median"),
+                "p10": club.get("p10"),
+                "p90": club.get("p90"),
+                "dispersionRange": club.get("dispersionRange"),
+                "topSurface": club.get("topSurface"),
+                "hazardRate": club.get("hazardRate"),
+                "riskRate": club.get("riskRate"),
+                "usableRate": club.get("usableRate"),
+                "surfaceDistribution": surface_distribution[:5],
+                "riskShotRefs": _as_string_list(club.get("riskShotRefs")),
+                "usableShotRefs": _as_string_list(club.get("usableShotRefs")),
+                "sourceRefs": _as_string_list(club.get("sourceRefs") or club.get("shotRefs")),
+                "coverage": club.get("coverage"),
+                "confidence": club.get("confidence"),
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            -float(row.get("riskRate") or row.get("hazardRate") or 0),
+            -int(row.get("sampleCount") or 0),
+            str(row.get("club") or ""),
+        ),
+    )[:8]
+
+
 def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict[str, Any]:
     summary = history_stats.get("summary") if isinstance(history_stats.get("summary"), dict) else {}
     time_stats = history_stats.get("time") if isinstance(history_stats.get("time"), dict) else {}
@@ -702,6 +820,39 @@ def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict
             reverse=True,
         )[:5]
         facts_used.append(_fact("top_issues", top_issues, "issues"))
+
+    diagnosis_issue_trends = _diagnosis_issue_trends_fact(history_stats)
+    if diagnosis_issue_trends:
+        facts_used.append(
+            _fact(
+                "diagnosis_issue_trends",
+                diagnosis_issue_trends,
+                "diagnosis.issueTrends",
+                source_refs=report_source_refs(diagnosis_issue_trends),
+            )
+        )
+
+    course_issue_profiles = _course_issue_profiles_fact(history_stats)
+    if course_issue_profiles:
+        facts_used.append(
+            _fact(
+                "course_issue_profiles",
+                course_issue_profiles,
+                "courses.issueProfile",
+                source_refs=report_source_refs(course_issue_profiles),
+            )
+        )
+
+    club_risk_profiles = _club_risk_profiles_fact(history_stats)
+    if club_risk_profiles:
+        facts_used.append(
+            _fact(
+                "club_risk_profiles",
+                club_risk_profiles,
+                "clubs.surfaceRisk",
+                source_refs=report_source_refs(club_risk_profiles),
+            )
+        )
 
     decision_audits = _decision_audit_trends_fact(history_stats)
     if decision_audits and int(decision_audits.get("totalAudits") or 0):
@@ -931,6 +1082,33 @@ def _first_audit_classification(value: Any) -> str | None:
     return None
 
 
+def _first_risky_club(value: Any) -> tuple[str, float | None] | None:
+    rows = value if isinstance(value, list) else []
+    for item in rows:
+        if not isinstance(item, dict) or item.get("club") is None:
+            continue
+        rate = item.get("riskRate")
+        try:
+            numeric_rate = float(rate) if rate is not None else None
+        except (TypeError, ValueError):
+            numeric_rate = None
+        return str(item["club"]), numeric_rate
+    return None
+
+
+def _first_course_issue(value: Any) -> tuple[str, str] | None:
+    rows = value if isinstance(value, list) else []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        course = str(item.get("courseName") or item.get("courseKey") or "").strip()
+        issues = item.get("issueProfile") if isinstance(item.get("issueProfile"), list) else []
+        for issue in issues:
+            if isinstance(issue, dict) and issue.get("issue") is not None and course:
+                return course, str(issue["issue"])
+    return None
+
+
 def _summary_round_count(value: Any) -> int | None:
     if isinstance(value, dict):
         count = value.get("totalRounds") or value.get("roundCount")
@@ -963,10 +1141,23 @@ def build_report_inferences(
                 claim = f"Recent review is based on {round_count} rounds." if label == "summary_trend" else f"Report is based on {round_count} rounds."
                 _append_inference(rows, _inference(claim, fact, default_confidence=confidence, missing_data=missing_data))
                 continue
-        if label in {"top_issue", "top_issues", "round_issues"}:
+        if label in {"top_issue", "top_issues", "round_issues", "diagnosis_issue_trends", "round_diagnosis_issue_trends"}:
             issue = _first_issue(value)
             if issue:
                 _append_inference(rows, _inference(f"Primary scoring-loss signal is {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
+                continue
+        if label == "club_risk_profiles":
+            club_risk = _first_risky_club(value)
+            if club_risk:
+                club, risk_rate = club_risk
+                rate_text = f" at {risk_rate:g}% risk rate" if risk_rate is not None else ""
+                _append_inference(rows, _inference(f"Club risk model flags {club}{rate_text}.", fact, default_confidence=confidence, missing_data=missing_data))
+                continue
+        if label == "course_issue_profiles":
+            course_issue = _first_course_issue(value)
+            if course_issue:
+                course, issue = course_issue
+                _append_inference(rows, _inference(f"Course profile for {course} highlights {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label in {"decision_audit_trends", "round_decision_audits"}:
             classification = _first_audit_classification(value)
