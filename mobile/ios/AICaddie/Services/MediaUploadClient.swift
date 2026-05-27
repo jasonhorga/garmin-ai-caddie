@@ -56,6 +56,8 @@ public struct VisionFinding: Codable, Equatable {
     public let evidenceText: String
     public let confidence: String
     public let confirmationState: String
+    public let confirmedAt: String?
+    public let confirmedBy: String?
     public let missingInfo: [String]
     public let provider: String?
     public let model: String?
@@ -88,6 +90,12 @@ public struct VisionFinding: Codable, Equatable {
         if let mediaKind {
             payload["mediaKind"] = .string(mediaKind)
         }
+        if let confirmedAt {
+            payload["confirmedAt"] = .string(confirmedAt)
+        }
+        if let confirmedBy {
+            payload["confirmedBy"] = .string(confirmedBy)
+        }
         if let provider {
             payload["provider"] = .string(provider)
         }
@@ -114,6 +122,21 @@ public struct VisionFindingsListResponse: Codable, Equatable {
     public let total: Int
     public let findings: [VisionFinding]
     public let target: [String: String]
+}
+
+public struct VisionFindingConfirmationRequest: Codable, Equatable {
+    public let confirmationState: String
+    public let confirmedBy: String?
+
+    public init(confirmationState: String, confirmedBy: String? = "ios") {
+        self.confirmationState = confirmationState
+        self.confirmedBy = confirmedBy
+    }
+}
+
+public struct VisionFindingConfirmationResponse: Codable, Equatable {
+    public let schema: String
+    public let finding: VisionFinding
 }
 
 public final class MediaUploadClient {
@@ -165,6 +188,20 @@ public final class MediaUploadClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response)
         return try decoder.decode(VisionFindingsListResponse.self, from: data)
+    }
+
+    public func confirmVisionFinding(findingId: String, requestBody: VisionFindingConfirmationRequest) async throws -> VisionFindingConfirmationResponse {
+        let url = baseURL.appendingPathComponent("/api/v2/media/findings/" + findingId + "/confirmation")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        request.httpBody = try encoder.encode(requestBody)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response)
+        return try decoder.decode(VisionFindingConfirmationResponse.self, from: data)
     }
 
     private func validate(response: URLResponse) throws {
