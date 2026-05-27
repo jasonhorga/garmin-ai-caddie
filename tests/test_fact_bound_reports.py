@@ -526,6 +526,91 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("drilldown_refs", labels)
         self.assertEqual(facts["missingData"][0]["label"], "weather")
 
+    def test_trend_report_facts_include_multi_dimension_change_drivers(self) -> None:
+        facts = build_trend_report_facts(
+            {
+                "schema": "ai-caddie-history-stats-v1",
+                "summary": {"totalRounds": 6, "average18": 86.0, "recent10Average": 84.0, "bestScore": 77},
+                "time": {
+                    "improvement": {
+                        "baselineAverage18": 92.0,
+                        "recentAverage18": 82.0,
+                        "deltaAverage18": -10.0,
+                        "direction": "improving",
+                        "baselineRoundRefs": ["trend-1", "trend-2", "trend-3"],
+                        "recentRoundRefs": ["trend-4", "trend-5", "trend-6"],
+                        "confidence": "high",
+                    }
+                },
+                "scoring": {},
+                "courses": [
+                    {
+                        "courseKey": "black_knight",
+                        "courseName": "Black Knight B",
+                        "recentForm": {
+                            "baselineAverage18": 87.0,
+                            "recentAverage18": 77.0,
+                            "deltaAverage18": -10.0,
+                            "direction": "improving",
+                            "baselineRoundRefs": ["trend-2"],
+                            "recentRoundRefs": ["trend-5"],
+                        },
+                    }
+                ],
+                "clubs": [
+                    {
+                        "club": "7I",
+                        "distanceTrend": {
+                            "baselineMedian": 151.0,
+                            "recentMedian": 135.0,
+                            "deltaMedian": -16.0,
+                            "direction": "shorter",
+                            "baselineShotRefs": ["trend-1:7:0"],
+                            "recentShotRefs": ["trend-6:7:0"],
+                            "sourceRefs": ["trend-1:7:0", "trend-6:7:0"],
+                            "confidence": "medium",
+                        },
+                    }
+                ],
+                "diagnosis": {
+                    "issueTrends": [
+                        {
+                            "issue": "approach_short",
+                            "phase": "Approach",
+                            "baselineCount": 0,
+                            "recentCount": 2,
+                            "deltaCount": 2,
+                            "direction": "new_problem",
+                            "estimatedStrokesLost": 1.8,
+                            "actualToParImpact": 4.0,
+                            "baselineRefs": [],
+                            "recentRefs": ["trend-5:7", "trend-6:7"],
+                            "sourceRefs": ["trend-5:7", "trend-6:7"],
+                            "confidence": "medium",
+                        }
+                    ]
+                },
+                "dataQuality": [],
+                "drillDown": {"roundRefs": ["trend-1", "trend-2", "trend-3", "trend-4", "trend-5", "trend-6"]},
+            },
+            "recent_10",
+        )
+
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertIn("trend_changes", by_label)
+        changes = by_label["trend_changes"]["value"]
+        by_dimension = {(row["dimension"], row.get("key")): row for row in changes}
+        self.assertEqual(by_dimension[("overall", "scoring")]["delta"], -10.0)
+        self.assertEqual(by_dimension[("course", "black_knight")]["direction"], "improving")
+        self.assertEqual(by_dimension[("club", "7I")]["metric"], "median_distance")
+        self.assertEqual(by_dimension[("club", "7I")]["delta"], -16.0)
+        self.assertEqual(by_dimension[("issue", "approach_short")]["actualToParImpact"], 4.0)
+        self.assertIn("trend-6:7:0", by_label["trend_changes"]["sourceRefs"])
+
+        report = generate_report(facts, StaticProvider("Trend review constrained to the provided facts."))
+        claims = [row["claim"] for row in report["inferencesMade"]]
+        self.assertTrue(any("Largest trend change" in claim and "approach_short" in claim for claim in claims))
+
     def test_hole_report_facts_bind_hole_issues_geometry_shots_and_confirmed_vision(self) -> None:
         data = fixture_history_data()
         stats = build_history_stats(data, data_mode="fixture")

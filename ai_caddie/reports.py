@@ -687,6 +687,195 @@ def _round_diagnosis_issue_trends(history_stats: dict[str, Any], round_id: str) 
     return rows[:8]
 
 
+def _number_or_none(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric
+
+
+def _has_change(value: Any) -> bool:
+    numeric = _number_or_none(value)
+    return numeric is not None and abs(numeric) > 0
+
+
+def _baseline_recent_refs(row: dict[str, Any], baseline_key: str, recent_key: str) -> tuple[list[str], list[str], list[str]]:
+    baseline_refs = _as_string_list(row.get(baseline_key))
+    recent_refs = _as_string_list(row.get(recent_key))
+    source_refs = _unique_strings([*baseline_refs, *recent_refs, *report_source_refs(row)])
+    return baseline_refs, recent_refs, source_refs
+
+
+def _with_optional_change_metadata(change: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    for key in ("confidence", "coverage"):
+        if key in source:
+            change[key] = source[key]
+    return change
+
+
+def _trend_changes_fact(history_stats: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    time_stats = history_stats.get("time") if isinstance(history_stats.get("time"), dict) else {}
+    improvement = time_stats.get("improvement") if isinstance(time_stats.get("improvement"), dict) else {}
+    if improvement and _has_change(improvement.get("deltaAverage18")):
+        baseline_refs, recent_refs, source_refs = _baseline_recent_refs(improvement, "baselineRoundRefs", "recentRoundRefs")
+        rows.append(
+            _with_optional_change_metadata(
+                {
+                    "dimension": "overall",
+                    "key": "scoring",
+                    "metric": "average18",
+                    "baseline": improvement.get("baselineAverage18"),
+                    "recent": improvement.get("recentAverage18"),
+                    "delta": improvement.get("deltaAverage18"),
+                    "direction": improvement.get("direction"),
+                    "baselineRefs": baseline_refs,
+                    "recentRefs": recent_refs,
+                    "sourceRefs": source_refs,
+                },
+                improvement,
+            )
+        )
+    if improvement and _has_change(improvement.get("deltaAverageDifferential")):
+        baseline_refs, recent_refs, source_refs = _baseline_recent_refs(
+            improvement,
+            "baselineDifferentialRoundRefs",
+            "recentDifferentialRoundRefs",
+        )
+        if not source_refs:
+            baseline_refs, recent_refs, source_refs = _baseline_recent_refs(improvement, "baselineRoundRefs", "recentRoundRefs")
+        rows.append(
+            _with_optional_change_metadata(
+                {
+                    "dimension": "overall",
+                    "key": "difficulty_adjusted",
+                    "metric": "differential",
+                    "baseline": improvement.get("baselineAverageDifferential"),
+                    "recent": improvement.get("recentAverageDifferential"),
+                    "delta": improvement.get("deltaAverageDifferential"),
+                    "direction": improvement.get("differentialDirection"),
+                    "baselineRefs": baseline_refs,
+                    "recentRefs": recent_refs,
+                    "sourceRefs": source_refs,
+                    "coverage": improvement.get("difficultyAdjustedCoverage"),
+                },
+                improvement,
+            )
+        )
+
+    for course in history_stats.get("courses", []) if isinstance(history_stats.get("courses"), list) else []:
+        if not isinstance(course, dict):
+            continue
+        recent_form = course.get("recentForm") if isinstance(course.get("recentForm"), dict) else {}
+        if recent_form and _has_change(recent_form.get("deltaAverage18")):
+            baseline_refs, recent_refs, source_refs = _baseline_recent_refs(recent_form, "baselineRoundRefs", "recentRoundRefs")
+            rows.append(
+                _with_optional_change_metadata(
+                    {
+                        "dimension": "course",
+                        "key": course.get("courseKey"),
+                        "label": course.get("courseName") or course.get("courseKey"),
+                        "metric": "average18",
+                        "baseline": recent_form.get("baselineAverage18"),
+                        "recent": recent_form.get("recentAverage18"),
+                        "delta": recent_form.get("deltaAverage18"),
+                        "direction": recent_form.get("direction"),
+                        "baselineRefs": baseline_refs,
+                        "recentRefs": recent_refs,
+                        "sourceRefs": source_refs,
+                    },
+                    recent_form,
+                )
+            )
+        if recent_form and _has_change(recent_form.get("deltaAverageDifferential")):
+            baseline_refs, recent_refs, source_refs = _baseline_recent_refs(recent_form, "baselineRoundRefs", "recentRoundRefs")
+            rows.append(
+                _with_optional_change_metadata(
+                    {
+                        "dimension": "course",
+                        "key": course.get("courseKey"),
+                        "label": course.get("courseName") or course.get("courseKey"),
+                        "metric": "differential",
+                        "baseline": recent_form.get("baselineAverageDifferential"),
+                        "recent": recent_form.get("recentAverageDifferential"),
+                        "delta": recent_form.get("deltaAverageDifferential"),
+                        "direction": recent_form.get("differentialDirection") or recent_form.get("direction"),
+                        "baselineRefs": baseline_refs,
+                        "recentRefs": recent_refs,
+                        "sourceRefs": source_refs,
+                    },
+                    recent_form,
+                )
+            )
+
+    for club in history_stats.get("clubs", []) if isinstance(history_stats.get("clubs"), list) else []:
+        if not isinstance(club, dict):
+            continue
+        trend = club.get("distanceTrend") if isinstance(club.get("distanceTrend"), dict) else {}
+        if not trend or not _has_change(trend.get("deltaMedian")):
+            continue
+        baseline_refs, recent_refs, source_refs = _baseline_recent_refs(trend, "baselineShotRefs", "recentShotRefs")
+        rows.append(
+            _with_optional_change_metadata(
+                {
+                    "dimension": "club",
+                    "key": club.get("club"),
+                    "metric": "median_distance",
+                    "baseline": trend.get("baselineMedian"),
+                    "recent": trend.get("recentMedian"),
+                    "delta": trend.get("deltaMedian"),
+                    "direction": trend.get("direction"),
+                    "baselineRefs": baseline_refs,
+                    "recentRefs": recent_refs,
+                    "sourceRefs": source_refs,
+                },
+                trend,
+            )
+        )
+
+    diagnosis = history_stats.get("diagnosis") if isinstance(history_stats.get("diagnosis"), dict) else {}
+    for issue in diagnosis.get("issueTrends", []) if isinstance(diagnosis.get("issueTrends"), list) else []:
+        if not isinstance(issue, dict):
+            continue
+        if not (_has_change(issue.get("deltaCount")) or _has_change(issue.get("actualToParImpact"))):
+            continue
+        baseline_refs, recent_refs, source_refs = _baseline_recent_refs(issue, "baselineRefs", "recentRefs")
+        rows.append(
+            _with_optional_change_metadata(
+                {
+                    "dimension": "issue",
+                    "key": issue.get("issue"),
+                    "phase": issue.get("phase"),
+                    "metric": "occurrences",
+                    "baseline": issue.get("baselineCount"),
+                    "recent": issue.get("recentCount"),
+                    "delta": issue.get("deltaCount"),
+                    "direction": issue.get("direction"),
+                    "estimatedStrokesLost": issue.get("estimatedStrokesLost"),
+                    "actualToParImpact": issue.get("actualToParImpact"),
+                    "baselineRefs": baseline_refs,
+                    "recentRefs": recent_refs,
+                    "sourceRefs": source_refs,
+                },
+                issue,
+            )
+        )
+
+    rows = [row for row in rows if row.get("sourceRefs")]
+    rows.sort(key=_trend_change_sort_key)
+    return rows[:12]
+
+
+def _trend_change_sort_key(row: dict[str, Any]) -> tuple[float, float, float, str]:
+    impact = abs(_number_or_none(row.get("actualToParImpact")) or 0.0)
+    estimated = abs(_number_or_none(row.get("estimatedStrokesLost")) or 0.0)
+    delta = abs(_number_or_none(row.get("delta")) or 0.0)
+    return (-impact, -estimated, -delta, str(row.get("dimension") or ""))
+
+
 def _find_hole_stat(history_stats: dict[str, Any], course_key: str, local_hole: int) -> dict[str, Any] | None:
     holes = history_stats.get("holes") if isinstance(history_stats.get("holes"), list) else []
     for row in holes:
@@ -1417,6 +1606,17 @@ def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict
             )
         )
 
+    trend_changes = _trend_changes_fact(history_stats)
+    if trend_changes:
+        facts_used.append(
+            _fact(
+                "trend_changes",
+                trend_changes,
+                "time.improvement|courses.recentForm|clubs.distanceTrend|diagnosis.issueTrends",
+                source_refs=report_source_refs(trend_changes),
+            )
+        )
+
     decision_audits = _decision_audit_trends_fact(history_stats)
     if decision_audits and int(decision_audits.get("totalAudits") or 0):
         facts_used.append(
@@ -1672,6 +1872,21 @@ def _first_course_issue(value: Any) -> tuple[str, str] | None:
     return None
 
 
+def _top_trend_change_summary(value: Any) -> tuple[str, str, Any, str | None] | None:
+    rows = value if isinstance(value, list) else []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        dimension = str(item.get("dimension") or "trend")
+        key = str(item.get("label") or item.get("key") or "").strip()
+        metric = str(item.get("metric") or "change")
+        if not key:
+            key = dimension
+        direction = str(item.get("direction")) if item.get("direction") is not None else None
+        return dimension, key, item.get("delta"), direction or metric
+    return None
+
+
 def _hole_history_summary(value: Any) -> tuple[int | None, Any, Any] | None:
     if not isinstance(value, dict):
         return None
@@ -1841,6 +2056,21 @@ def build_report_inferences(
                 club, risk_rate = club_risk
                 rate_text = f" at {risk_rate:g}% risk rate" if risk_rate is not None else ""
                 _append_inference(rows, _inference(f"Club risk model flags {club}{rate_text}.", fact, default_confidence=confidence, missing_data=missing_data))
+                continue
+        if label == "trend_changes":
+            summary = _top_trend_change_summary(value)
+            if summary:
+                dimension, key, delta, direction = summary
+                delta_text = f" by {delta}" if delta is not None else ""
+                _append_inference(
+                    rows,
+                    _inference(
+                        f"Largest trend change is {dimension} {key} {direction}{delta_text}.",
+                        fact,
+                        default_confidence=confidence,
+                        missing_data=missing_data,
+                    ),
+                )
                 continue
         if label == "course_issue_profiles":
             course_issue = _first_course_issue(value)
