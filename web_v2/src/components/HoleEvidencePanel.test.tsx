@@ -22,7 +22,13 @@ const readyState: HoleEvidenceState = {
         { hazardId: 'water_crossing', kind: 'water', carryToFront_m: 90, carryToClear_m: 110 },
         { hazardId: 'fairway_bunker', kind: 'bunker', carryToFront_m: 136, carryToClear_m: 150 },
       ],
-      avoidZones: [{ id: 'fairway_bunker', kind: 'bunker', carryToClear_m: 150 }],
+      landingWindowRisks: [
+        { hazardId: 'right_bunker', kind: 'bunker', distanceToCenter_m: 12, landingRadius_m: 18, overlap_m: 6 },
+      ],
+      avoidZones: [
+        { id: 'fairway_bunker', kind: 'bunker', carryToClear_m: 150 },
+        { id: 'right_bunker', kind: 'bunker', distanceToCenter_m: 12, source: 'landing_window' },
+      ],
     },
     evidence: [{ label: 'hazards', ref: 'output/prodgeometry_hazards/gid31795_h07_hazards.json' }],
     missingData: [],
@@ -89,6 +95,8 @@ describe('HoleEvidencePanel', () => {
     expect(screen.getByText('water clear 110m')).toBeInTheDocument()
     expect(screen.getAllByText('fairway_bunker').length).toBeGreaterThan(0)
     expect(screen.getAllByText('bunker clear 150m').length).toBeGreaterThan(0)
+    expect(screen.getByText('right_bunker')).toBeInTheDocument()
+    expect(screen.getByText('bunker landing 12m from center')).toBeInTheDocument()
     expect(screen.getByText('hazards')).toBeInTheDocument()
     expect(screen.getByText('output/prodgeometry_hazards/gid31795_h07_hazards.json')).toBeInTheDocument()
     expect(screen.getByText('shot_routes')).toBeInTheDocument()

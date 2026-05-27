@@ -325,6 +325,7 @@ export interface RouteGeometryEvidence {
   landingWindowLocal?: Record<string, unknown>
   lineIntersections?: Array<Record<string, unknown>>
   hazardClearances?: Array<Record<string, unknown>>
+  landingWindowRisks?: Array<Record<string, unknown>>
   avoidZones?: Array<Record<string, unknown>>
   missingData?: Array<Record<string, unknown>>
   sourceRefs?: string[]

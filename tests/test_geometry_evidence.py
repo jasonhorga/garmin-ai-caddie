@@ -297,6 +297,56 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(route["hazardClearances"][0]["carryToClear_m"], 110.0)
         self.assertEqual(route["avoidZones"], [{"id": "water_crossing", "kind": "water", "carryToClear_m": 110.0}])
 
+    def test_route_evidence_flags_hazards_overlapping_landing_window_without_line_intersection(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h08_hazards.json"
+            hazard.write_text(
+                """
+                {
+                  "refLat": 22.279,
+                  "refLon": 114.162,
+                  "hazards": [
+                    {
+                      "id": "right_bunker",
+                      "kind": "bunker",
+                      "polygon": [[190, 12], [210, 12], [210, 26], [190, 26], [190, 12]]
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
+            ):
+                route = build_route_geometry_evidence(
+                    31795,
+                    8,
+                    start={"x": 0, "y": 0},
+                    target={"x": 200, "y": 0},
+                    landing_radius_m=18,
+                )
+
+        self.assertEqual(route["lineIntersections"], [])
+        self.assertEqual(
+            route["landingWindowRisks"],
+            [
+                {
+                    "hazardId": "right_bunker",
+                    "kind": "bunker",
+                    "distanceToCenter_m": 12.0,
+                    "landingRadius_m": 18.0,
+                    "overlap_m": 6.0,
+                }
+            ],
+        )
+        self.assertEqual(
+            route["avoidZones"],
+            [{"id": "right_bunker", "kind": "bunker", "distanceToCenter_m": 12.0, "source": "landing_window"}],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

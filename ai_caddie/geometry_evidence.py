@@ -379,6 +379,7 @@ def build_route_geometry_evidence(
 
     line_intersections: list[dict[str, Any]] = []
     hazard_clearances: list[dict[str, Any]] = []
+    landing_window_risks: list[dict[str, Any]] = []
     avoid_zones: list[dict[str, Any]] = []
     route_length = _point_distance(start_local, target_local) if start_local and target_local else None
 
@@ -386,31 +387,49 @@ def build_route_geometry_evidence(
         for index, hazard in enumerate(hazards.get("hazards") or []):
             if not isinstance(hazard, dict):
                 continue
+            fallback_id = f"hazard-{index + 1}"
             route_rows = _route_intersections_for_hazard(
                 start_local,
                 target_local,
                 hazard,
-                fallback_id=f"hazard-{index + 1}",
+                fallback_id=fallback_id,
             )
-            if not route_rows:
-                continue
-            line_intersections.extend(route_rows)
-            distances = [float(row["distanceFromStart_m"]) for row in route_rows]
+            landing_risk = _landing_window_risk_for_hazard(
+                target_local,
+                float(landing_radius_m),
+                hazard,
+                fallback_id=fallback_id,
+            )
             hazard_id = str(hazard.get("id") or f"hazard-{index + 1}")
             kind = str(hazard.get("kind") or hazard.get("type") or "hazard")
-            clear = {
-                "hazardId": hazard_id,
-                "kind": kind,
-                "carryToFront_m": round(min(distances), 1),
-                "carryToClear_m": round(max(distances), 1),
-                "intersectionCount": len(route_rows),
-            }
-            hazard_clearances.append(clear)
-            avoid_zones.append({"id": hazard_id, "kind": kind, "carryToClear_m": clear["carryToClear_m"]})
+            if route_rows:
+                line_intersections.extend(route_rows)
+                distances = [float(row["distanceFromStart_m"]) for row in route_rows]
+                clear = {
+                    "hazardId": hazard_id,
+                    "kind": kind,
+                    "carryToFront_m": round(min(distances), 1),
+                    "carryToClear_m": round(max(distances), 1),
+                    "intersectionCount": len(route_rows),
+                }
+                hazard_clearances.append(clear)
+                avoid_zones.append({"id": hazard_id, "kind": kind, "carryToClear_m": clear["carryToClear_m"]})
+            if landing_risk:
+                landing_window_risks.append(landing_risk)
+                if not any(row.get("id") == hazard_id for row in avoid_zones):
+                    avoid_zones.append(
+                        {
+                            "id": hazard_id,
+                            "kind": kind,
+                            "distanceToCenter_m": landing_risk["distanceToCenter_m"],
+                            "source": "landing_window",
+                        }
+                    )
 
     line_intersections.sort(key=lambda row: (float(row.get("distanceFromStart_m") or 0), str(row.get("hazardId") or "")))
     hazard_clearances.sort(key=lambda row: (float(row.get("carryToFront_m") or 0), str(row.get("hazardId") or "")))
-    avoid_zones.sort(key=lambda row: (float(row.get("carryToClear_m") or 0), str(row.get("id") or "")))
+    landing_window_risks.sort(key=lambda row: (float(row.get("distanceToCenter_m") or 0), str(row.get("hazardId") or "")))
+    avoid_zones.sort(key=lambda row: (float(row.get("carryToClear_m") or row.get("distanceToCenter_m") or 0), str(row.get("id") or "")))
 
     return {
         "schema": "ai-caddie-route-geometry-evidence-v1",
@@ -428,6 +447,7 @@ def build_route_geometry_evidence(
         else None,
         "lineIntersections": line_intersections,
         "hazardClearances": hazard_clearances,
+        "landingWindowRisks": landing_window_risks,
         "avoidZones": avoid_zones,
         "missingData": missing_data,
     }
@@ -443,6 +463,61 @@ def _point_distance(start: list[float] | None, end: list[float] | None) -> float
     if start is None or end is None:
         return None
     return math.hypot(float(end[0]) - float(start[0]), float(end[1]) - float(start[1]))
+
+
+def _landing_window_risk_for_hazard(
+    center: list[float],
+    radius_m: float,
+    hazard: dict[str, Any],
+    *,
+    fallback_id: str,
+) -> dict[str, Any] | None:
+    ring = hazard.get("polygon") or hazard.get("points") or hazard.get("path")
+    if not isinstance(ring, list) or len(ring) < 3:
+        return None
+    distance = _point_to_polygon_distance(center, ring)
+    if distance is None or distance > radius_m:
+        return None
+    return {
+        "hazardId": str(hazard.get("id") or fallback_id),
+        "kind": str(hazard.get("kind") or hazard.get("type") or "hazard"),
+        "distanceToCenter_m": round(distance, 1),
+        "landingRadius_m": round(float(radius_m), 1),
+        "overlap_m": round(max(0.0, float(radius_m) - distance), 1),
+    }
+
+
+def _point_to_polygon_distance(point: list[float], ring: list[Any]) -> float | None:
+    if _point_in_ring(point, ring):
+        return 0.0
+    points = ring if ring[0] == ring[-1] else [*ring, ring[0]]
+    distances = []
+    for first, second in zip(points, points[1:]):
+        if not isinstance(first, (list, tuple)) or not isinstance(second, (list, tuple)) or len(first) < 2 or len(second) < 2:
+            continue
+        distances.append(
+            _point_to_segment_distance(
+                (float(point[0]), float(point[1])),
+                (float(first[0]), float(first[1])),
+                (float(second[0]), float(second[1])),
+            )
+        )
+    return min(distances) if distances else None
+
+
+def _point_to_segment_distance(point: tuple[float, float], start: tuple[float, float], end: tuple[float, float]) -> float:
+    px, py = point
+    sx, sy = start
+    ex, ey = end
+    dx = ex - sx
+    dy = ey - sy
+    length_sq = dx * dx + dy * dy
+    if length_sq <= 1e-12:
+        return math.hypot(px - sx, py - sy)
+    t = max(0.0, min(1.0, ((px - sx) * dx + (py - sy) * dy) / length_sq))
+    nearest_x = sx + t * dx
+    nearest_y = sy + t * dy
+    return math.hypot(px - nearest_x, py - nearest_y)
 
 
 def _route_intersections_for_hazard(

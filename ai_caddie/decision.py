@@ -517,7 +517,12 @@ def _route_evidence_zones(route_evidence: dict[str, Any]) -> list[dict[str, Any]
             continue
         by_id[hazard_id] = row
     seen: set[tuple[str, str]] = set()
-    for row in [*(route_evidence.get("avoidZones") or []), *(route_evidence.get("hazardClearances") or [])]:
+    route_rows = [
+        *(route_evidence.get("avoidZones") or []),
+        *(route_evidence.get("hazardClearances") or []),
+        *(route_evidence.get("landingWindowRisks") or []),
+    ]
+    for row in route_rows:
         if not isinstance(row, dict):
             continue
         hazard_id = str(row.get("id") or row.get("hazardId") or "").strip()
@@ -529,14 +534,18 @@ def _route_evidence_zones(route_evidence: dict[str, Any]) -> list[dict[str, Any]
             continue
         seen.add(key)
         clearance = by_id.get(hazard_id, row)
+        source = str(row.get("source") or ("landing_window" if row.get("distanceToCenter_m") is not None else "route_geometry"))
         zones.append(
             {
                 "kind": kind,
-                "source": "route_geometry",
+                "source": source,
                 "id": hazard_id,
                 "carryToFront_m": clearance.get("carryToFront_m"),
                 "carryToClear_m": clearance.get("carryToClear_m") if clearance.get("carryToClear_m") is not None else row.get("carryToClear_m"),
-                "reason": "route geometry intersects known risk",
+                "distanceToCenter_m": row.get("distanceToCenter_m"),
+                "landingRadius_m": row.get("landingRadius_m"),
+                "overlap_m": row.get("overlap_m"),
+                "reason": "landing window overlaps known risk" if source == "landing_window" else "route geometry intersects known risk",
             }
         )
     return zones
@@ -585,6 +594,7 @@ def _route_evidence_risk_score(option_id: str, carry_m: float, zones: list[dict[
         base += 3.0
     elif minimum is not None and _float(minimum) < 16.0:
         base += 1.0
+    base += _landing_window_risk_penalty(zones)
     return base
 
 
@@ -1109,6 +1119,22 @@ def _hazard_clearance(carry_m: float, zones: list[dict[str, Any]]) -> dict[str, 
     }
 
 
+def _landing_window_risk_penalty(zones: list[dict[str, Any]]) -> float:
+    penalty = 0.0
+    for zone in zones:
+        if zone.get("source") != "landing_window" and zone.get("distanceToCenter_m") is None:
+            continue
+        distance = _float(zone.get("distanceToCenter_m"), 99.0)
+        overlap = _float(zone.get("overlap_m"), 0.0)
+        if distance <= 6.0 or overlap >= 12.0:
+            penalty = max(penalty, 4.0)
+        elif distance <= 12.0 or overlap >= 6.0:
+            penalty = max(penalty, 2.5)
+        else:
+            penalty = max(penalty, 1.0)
+    return penalty
+
+
 def _dispersion_from_recommendation(recommendation: dict[str, Any]) -> dict[str, Any]:
     clubs = recommendation.get("clubs") or []
     if not clubs:
@@ -1160,13 +1186,13 @@ def _shot_option(
     wind_adjustment = _wind_adjustment_m(context)
     adjusted_carry_m = max(1.0, carry_m + _float(wind_adjustment.get("meters"), 0.0))
     history_adjustment = _history_risk_adjustment(context, option_id)
-    adjusted_risk_score = risk_score + _float(history_adjustment.get("riskScoreDelta"), 0.0)
     route = {
         "id": f"{shot_type}_{option_id}",
         "label": label,
         "carry_m": adjusted_carry_m,
     }
     avoid_zones = _hazard_avoid_zones(context)
+    adjusted_risk_score = risk_score + _float(history_adjustment.get("riskScoreDelta"), 0.0) + _landing_window_risk_penalty(avoid_zones)
     club_recommendation = _club_recommendation(route, context)
     target_window = _target_window(adjusted_carry_m, shot_type=shot_type, option_id=option_id)
     hazard_clearance = _hazard_clearance(adjusted_carry_m, avoid_zones)

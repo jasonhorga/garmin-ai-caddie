@@ -298,6 +298,40 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertTrue(any(row["kind"] == "route_geometry" for row in plan["evidence"]))
         self.assertIn("geometry:31795:4:route", plan["evidenceRefs"])
 
+    def test_approach_landing_window_route_risks_affect_avoid_zones_and_score(self) -> None:
+        context = approach_fixture()
+        context["hazards"] = []
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["routeEvidence"] = {
+            "schema": "ai-caddie-route-geometry-evidence-v1",
+            "routeStartLocal": [0.0, 0.0],
+            "routeTargetLocal": [0.0, 142.0],
+            "routeLength_m": 142.0,
+            "landingWindowLocal": {"center": [0.0, 142.0], "radius_m": 18.0},
+            "lineIntersections": [],
+            "hazardClearances": [],
+            "landingWindowRisks": [
+                {
+                    "hazardId": "right_bunker",
+                    "kind": "bunker",
+                    "distanceToCenter_m": 12.0,
+                    "landingRadius_m": 18.0,
+                    "overlap_m": 6.0,
+                }
+            ],
+            "avoidZones": [{"id": "right_bunker", "kind": "bunker", "distanceToCenter_m": 12.0, "source": "landing_window"}],
+        }
+
+        plan = recommend_approach(context)
+
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        bunker_zone = next(zone for zone in stock["avoidZones"] if zone["id"] == "right_bunker")
+        self.assertEqual(bunker_zone["source"], "landing_window")
+        self.assertEqual(bunker_zone["distanceToCenter_m"], 12.0)
+        self.assertGreater(stock["riskScore"], 2.0)
+        self.assertGreater(stock["scoreImpact"]["expectedStrokesDelta"], 0.1)
+        self.assertIn("right_bunker", {zone["id"] for zone in plan["avoidZones"]})
+
     def test_recommend_recovery_from_rough_or_blocked_view_prefers_safe(self) -> None:
         plan = recommend_recovery(recovery_fixture())
 

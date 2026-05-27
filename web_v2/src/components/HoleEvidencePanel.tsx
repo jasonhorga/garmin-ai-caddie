@@ -191,6 +191,9 @@ function landingWindowLabel(row: Record<string, unknown>): string {
 
 function riskClearanceLabel(row: Record<string, unknown>): string {
   const kind = asString(row.kind) ?? 'risk'
+  if (Number.isFinite(Number(row.distanceToCenter_m))) {
+    return `${kind} landing ${formatMeters(row.distanceToCenter_m)} from center`
+  }
   return `${kind} clear ${formatMeters(row.carryToClear_m)}`
 }
 
