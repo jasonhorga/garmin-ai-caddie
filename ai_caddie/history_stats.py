@@ -17,6 +17,7 @@ from ai_caddie.weather_context import list_weather_snapshots
 
 DataModeName = Literal["local", "fixture"]
 CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction", "score_correction"}
+HAZARD_SURFACES = {"water", "bunker", "rough"}
 
 
 def _round_id(row: dict[str, Any]) -> str:
@@ -1902,11 +1903,19 @@ def _holes(
             number = int(hole.get("number") or 0)
             if number:
                 grouped[(course_key, number)].append((row, hole))
-    hazard_hole_refs = {
-        f"{_shot_round_id(shot)}:{shot.get('hole')}"
-        for shot in _effective_shots(data, annotations)
-        if str(_shot_surface(shot) or "").lower() in {"water", "bunker", "rough"}
-    }
+    shot_refs_by_hole: dict[str, list[str]] = defaultdict(list)
+    hazard_shots_by_hole: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for shot in _effective_shots(data, annotations):
+        round_id = _shot_round_id(shot)
+        hole_number = shot.get("hole")
+        shot_ref = str(shot.get("_ref") or "")
+        if not shot_ref or round_id == "None" or hole_number is None:
+            continue
+        hole_ref = f"{round_id}:{hole_number}"
+        shot_refs_by_hole[hole_ref].append(shot_ref)
+        surface = str(_shot_surface(shot) or "").strip().lower()
+        if surface in HAZARD_SURFACES:
+            hazard_shots_by_hole[hole_ref].append((surface, shot_ref))
     manual_tags = _active_manual_issue_tags_by_target(annotations)
     ai_tags = _ai_suggested_issue_tags_by_target(report_records)
     out = []
@@ -1915,10 +1924,12 @@ def _holes(
         distribution_refs: dict[str, list[str]] = defaultdict(list)
         issue_refs: dict[tuple[str, str], list[str]] = defaultdict(list)
         refs: list[str] = []
+        shot_refs: list[str] = []
         for row, hole in pairs:
             par = _hole_to_par(hole, _par_from_string(str(row.get("holePars") or ""), number))
             score = hole.get("strokes")
             ref = f"{_round_id(row)}:{number}"
+            shot_refs.extend(shot_refs_by_hole.get(ref, []))
             if par is not None and score is not None:
                 delta = int(score) - int(par)
                 bucket_key, _bucket_label, _class_name = _hole_score_bucket(delta)
@@ -1926,8 +1937,10 @@ def _holes(
                 distribution_refs[bucket_key].append(ref)
                 if delta >= 2:
                     issue_refs[("double_or_worse", "deterministic")].append(ref)
-            if ref in hazard_hole_refs:
+            if hazard_shots_by_hole.get(ref):
                 issue_refs[("hazard_result", "deterministic")].append(ref)
+                for surface, shot_ref in hazard_shots_by_hole[ref]:
+                    issue_refs[(surface, "deterministic")].append(shot_ref)
             for tag in manual_tags.get(ref, []):
                 issue_refs[(tag, "manual")].append(ref)
             for tag in ai_tags.get(ref, []):
@@ -1945,6 +1958,7 @@ def _holes(
                     "repeatedIssues": _hole_repeated_issue_records(issue_refs),
                     "refs": refs,
                     "holeRefs": refs,
+                    "shotRefs": _source_refs(shot_refs),
                     "geometryCoverage": _hole_geometry_coverage(pairs, number),
                 },
                 refs,
@@ -2065,8 +2079,12 @@ def _issues(
 
     effective_shots = _effective_shots(data, annotations)
     for shot in effective_shots:
-        if str(_shot_surface(shot) or "").lower() in {"water", "bunker", "rough"}:
+        surface = str(_shot_surface(shot) or "").strip().lower()
+        if surface in HAZARD_SURFACES:
             add_ref("hazard_result", f"{_shot_round_id(shot)}:{shot.get('hole')}")
+            shot_ref = str(shot.get("_ref") or "")
+            if shot_ref:
+                add_ref(surface, shot_ref)
 
     shots_by_club: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for shot in effective_shots:

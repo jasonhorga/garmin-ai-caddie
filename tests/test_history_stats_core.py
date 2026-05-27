@@ -541,6 +541,31 @@ class HistoryStatsCoreTests(unittest.TestCase):
             self.assertIn("source", issue)
             self.assertIn("confidence", issue)
 
+    def test_hole_hazard_diagnosis_links_specific_shots_and_surface_issues(self) -> None:
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+
+        hole = next(row for row in stats["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
+
+        self.assertEqual(hole["shotRefs"], ["900002:7:5"])
+        repeated = {(row["issue"], row["source"]): row for row in hole["repeatedIssues"]}
+        self.assertEqual(repeated[("hazard_result", "deterministic")]["refs"], ["900002:7"])
+        self.assertEqual(repeated[("water", "deterministic")]["refs"], ["900002:7:5"])
+        self.assertEqual(repeated[("water", "deterministic")]["sourceRefs"], ["900002:7:5"])
+
+    def test_hazard_surface_issues_are_not_collapsed_into_generic_hazard_result(self) -> None:
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+
+        deterministic = {
+            row["issue"]: row
+            for row in stats["issues"]
+            if row["source"] == "deterministic"
+        }
+
+        self.assertEqual(deterministic["hazard_result"]["refs"], ["900002:5", "900002:7"])
+        self.assertEqual(deterministic["rough"]["refs"], ["900002:5:4"])
+        self.assertEqual(deterministic["water"]["refs"], ["900002:7:5"])
+        self.assertEqual(deterministic["water"]["sourceRefs"], ["900002:7:5"])
+
     def test_local_raw_garmin_shot_fields_feed_club_records_and_refs(self) -> None:
         stats = build_history_stats(raw_garmin_shot_history_data(), data_mode="local")
 
