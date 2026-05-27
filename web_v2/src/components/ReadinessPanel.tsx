@@ -12,9 +12,45 @@ const checkStateLabel: Record<ReadinessState, string> = {
 }
 
 function evidenceItems(check: ReadinessCheck): string[] {
-  return Object.entries(check.evidence ?? {})
-    .filter(([, value]) => value !== null && value !== undefined && typeof value !== 'object')
-    .map(([key, value]) => `${key}: ${String(value)}`)
+  return Object.entries(check.evidence ?? {}).flatMap(([key, value]) => evidenceValueItems(key, value))
+}
+
+function evidenceValueItems(key: string, value: unknown): string[] {
+  if (value === null || value === undefined) return []
+  if (Array.isArray(value)) {
+    const values = value.map(formatEvidenceScalar).filter((item): item is string => Boolean(item))
+    return values.length ? [`${key}: ${values.join(', ')}`] : []
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).flatMap(([childKey, childValue]) => evidenceValueItems(`${key}.${childKey}`, childValue))
+  }
+  const formatted = formatEvidenceScalar(value)
+  return formatted ? [`${key}: ${formatted}`] : []
+}
+
+function formatEvidenceScalar(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    return redactedEvidenceText(trimmed)
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return null
+}
+
+function redactedEvidenceText(value: string): string {
+  const lower = value.toLowerCase()
+  const looksPrivate =
+    value.startsWith('/') ||
+    value.includes('\\') ||
+    lower.includes('/users/') ||
+    lower.includes('/home/') ||
+    lower.includes('file://') ||
+    lower.includes('cookie') ||
+    lower.includes('csrf') ||
+    lower.includes('token') ||
+    lower.includes('secret')
+  return looksPrivate ? '[redacted]' : value
 }
 
 export function ReadinessPanel({ readiness, error }: ReadinessPanelProps) {

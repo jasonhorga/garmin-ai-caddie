@@ -26,6 +26,19 @@ const readinessFixture: ReadinessResponse = {
       detail: 'Garmin connector status is available.',
       evidence: { connectorState: 'reauth_required', scorecardCount: 12 },
     },
+    {
+      label: 'operations',
+      state: 'ready',
+      detail: 'Private trial run, smoke, backup, restore, deployment, and security docs are present.',
+      evidence: {
+        smokeCovers: ['readiness', 'reports'],
+        lastBackup: {
+          createdAt: '20260527T170000Z',
+          sizeBytes: 2048,
+          snapshot: '/Users/private/backups/ai-caddie-snapshot.tar.gz',
+        },
+      },
+    },
   ],
 }
 
@@ -39,6 +52,10 @@ describe('ReadinessPanel', () => {
     expect(screen.getByText('history')).toBeInTheDocument()
     expect(screen.getByText('dataMode: fixture')).toBeInTheDocument()
     expect(screen.getByText('scorecardCount: 12')).toBeInTheDocument()
+    expect(screen.getByText('smokeCovers: readiness, reports')).toBeInTheDocument()
+    expect(screen.getByText('lastBackup.createdAt: 20260527T170000Z')).toBeInTheDocument()
+    expect(screen.getByText('lastBackup.sizeBytes: 2048')).toBeInTheDocument()
+    expect(screen.queryByText(/Users\/private/)).not.toBeInTheDocument()
   })
 
   it('renders a compact unavailable state when readiness cannot load', () => {
