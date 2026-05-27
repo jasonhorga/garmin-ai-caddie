@@ -141,6 +141,36 @@ describe('fetchHistoryOverview', () => {
 
     await expect(fetchHistoryOverview()).rejects.toThrow('GET /api/v2/history/overview failed: 500 Internal Server Error')
   })
+
+  it('can attach admin tokens to protected history reads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-overview-v2',
+        metrics: {
+          totalRounds: 0,
+          eighteenHoleRounds: 0,
+          nineHoleRounds: 0,
+          courseCount: 0,
+          shotCount: 0,
+          average18: null,
+          recent10Average: null,
+          bestScore: null,
+        },
+        recentRounds: [],
+        distribution: { total: 0, average: null, best: null, worst: null, families: [], histogram: [] },
+        dataQuality: [],
+        emptyState: null,
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryOverview('admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
 })
 
 describe('fetchHistoryRounds', () => {
@@ -169,6 +199,20 @@ describe('fetchHistoryRounds', () => {
     expect(payload.schema).toBe('ai-caddie-history-rounds-v2')
     expect(payload.total).toBe(0)
     expect(fetch).toHaveBeenCalledWith('/api/v2/history/rounds')
+  })
+
+  it('can attach admin tokens to protected history round reads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ schema: 'ai-caddie-history-rounds-v2', total: 0, groups: [], emptyState: null }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryRounds('admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
   })
 })
 
@@ -204,6 +248,34 @@ describe('fetchHistoryStats', () => {
     expect(payload.summary.totalRounds).toBe(3)
     expect(fetch).toHaveBeenCalledWith('/api/v2/history/stats')
   })
+
+  it('can attach admin tokens to protected history stats reads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-stats-v1',
+        dataMode: 'fixture',
+        summary: { totalRounds: 0 },
+        time: {},
+        scoring: {},
+        courseDistribution: [],
+        records: {},
+        courses: [],
+        holes: [],
+        clubs: [],
+        issues: [],
+        dataQuality: [],
+        drillDown: {},
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryStats('admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
 })
 
 describe('fetchHistoryDrilldown', () => {
@@ -236,6 +308,32 @@ describe('fetchHistoryDrilldown', () => {
     expect(payload.refType).toBe('shot')
     expect(payload.shot?.club).toBe('8I')
     expect(fetch).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A1')
+  })
+
+  it('can attach admin tokens to protected history drilldown reads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-drilldown-v1',
+        ref: '900001',
+        refType: 'round',
+        found: true,
+        title: 'Round',
+        round: {},
+        hole: null,
+        shot: null,
+        relatedRefs: {},
+        sourceFields: {},
+        missingData: [],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryDrilldown('900001', 'admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
   })
 })
 

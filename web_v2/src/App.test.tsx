@@ -803,6 +803,40 @@ describe('App navigation', () => {
     await waitFor(() => expect(screen.queryByText('History API unavailable')).not.toBeInTheDocument())
   })
 
+  it('can recover protected history overview after entering an admin token', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/v2/sync/status') {
+        return {
+          ok: true,
+          json: async () => syncStatusPayload(),
+        }
+      }
+      if (path === '/api/v2/history/overview' && init?.headers && (init.headers as Record<string, string>)['X-AI-Caddie-Admin-Token'] === 'admin-secret') {
+        return {
+          ok: true,
+          json: async () => overviewPayload(),
+        }
+      }
+      return {
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+    await userEvent.type(await screen.findByLabelText('Admin token'), 'admin-secret')
+    await userEvent.click(screen.getByRole('button', { name: 'Retry history' }))
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
   it('loads history stats once and navigates between stats-backed pages', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
@@ -844,6 +878,38 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
     expect(screen.getByText('missing_shots')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
+  })
+
+  it('renders loading and error states for deferred history stats', async () => {
+    let rejectStats: (error: Error) => void = () => {}
+    const statsPromise = new Promise<never>((_, reject) => {
+      rejectStats = reject
+    })
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/v2/history/stats') return statsPromise
+      return Promise.resolve({
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayload()
+        },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'History' }))
+
+    expect(await screen.findByRole('heading', { name: 'Loading history stats' })).toBeInTheDocument()
+
+    await act(async () => {
+      rejectStats(new Error('GET /api/v2/history/stats failed: 500 Internal Server Error'))
+    })
+
+    expect(await screen.findByRole('heading', { name: 'History stats unavailable' })).toBeInTheDocument()
+    expect(screen.getByText('GET /api/v2/history/stats failed: 500 Internal Server Error')).toBeInTheDocument()
   })
 
   it('opens source detail directly from overview and rounds cards', async () => {

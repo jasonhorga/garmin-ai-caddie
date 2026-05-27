@@ -66,7 +66,7 @@ export function SyncStatusPanel({
     webSessionHeader.trim().length > 0 &&
     antiForgeryValue.trim().length > 0
 
-  function handleSessionSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSessionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!canSaveSession || !onSaveSession) return
     const request = {
@@ -75,10 +75,12 @@ export function SyncStatusPanel({
     }
     const token = normalizedAdminToken()
     if (token) {
-      void onSaveSession(request, token)
+      await onSaveSession(request, token)
     } else {
-      void onSaveSession(request)
+      await onSaveSession(request)
     }
+    setWebSessionHeader('')
+    setAntiForgeryValue('')
   }
 
   function handleSyncClick() {

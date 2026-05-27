@@ -535,7 +535,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
                 <div key={asString(finding.label) ?? 'quality'} className="stat-row">
                   <span>{asString(finding.label) ?? 'quality'}</span>
                   <b>{asString(finding.state) ?? 'unknown'}</b>
-                  <SourceRefs refs={finding.refs} maxVisible={4} onSelectRef={onSelectRef} />
+                  <SourceRefs refs={finding.sourceRefs ?? finding.refs} maxVisible={4} onSelectRef={onSelectRef} />
                 </div>
               ))}
           </div>

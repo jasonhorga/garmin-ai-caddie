@@ -96,8 +96,8 @@ function appendParam(query: URLSearchParams, key: string, value: string | number
   if (value !== undefined) query.append(key, String(value))
 }
 
-export function fetchHistoryOverview(): Promise<HistoryOverviewResponse> {
-  return getJson<HistoryOverviewResponse>('/api/v2/history/overview')
+export function fetchHistoryOverview(adminToken?: string): Promise<HistoryOverviewResponse> {
+  return getJson<HistoryOverviewResponse>('/api/v2/history/overview', adminToken)
 }
 
 export function fetchCaddieDecision(request: CaddieDecisionRequest, adminToken?: string): Promise<CaddieDecisionResponse> {
@@ -203,16 +203,16 @@ export function confirmVisionFinding(
   )
 }
 
-export function fetchHistoryRounds(): Promise<HistoryRoundsResponse> {
-  return getJson<HistoryRoundsResponse>('/api/v2/history/rounds')
+export function fetchHistoryRounds(adminToken?: string): Promise<HistoryRoundsResponse> {
+  return getJson<HistoryRoundsResponse>('/api/v2/history/rounds', adminToken)
 }
 
-export function fetchHistoryStats(): Promise<HistoryStatsResponse> {
-  return getJson<HistoryStatsResponse>('/api/v2/history/stats')
+export function fetchHistoryStats(adminToken?: string): Promise<HistoryStatsResponse> {
+  return getJson<HistoryStatsResponse>('/api/v2/history/stats', adminToken)
 }
 
-export function fetchHistoryDrilldown(sourceRef: string): Promise<HistoryDrilldownResponse> {
-  return getJson<HistoryDrilldownResponse>(`/api/v2/history/drilldown/${encodeURIComponent(sourceRef)}`)
+export function fetchHistoryDrilldown(sourceRef: string, adminToken?: string): Promise<HistoryDrilldownResponse> {
+  return getJson<HistoryDrilldownResponse>(`/api/v2/history/drilldown/${encodeURIComponent(sourceRef)}`, adminToken)
 }
 
 export function fetchCourseGeometryCoverage(

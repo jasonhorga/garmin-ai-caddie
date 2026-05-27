@@ -172,7 +172,8 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
     normalized_method = method.upper()
     if normalized_method == "GET":
         return (
-            (path == "/api/v2/weather/snapshot" and _truthy_query_flag(query_params.get("persist")))
+            path.startswith("/api/v2/history/")
+            or (path == "/api/v2/weather/snapshot" and _truthy_query_flag(query_params.get("persist")))
             or path == "/api/v2/caddie/context"
             or (path.startswith("/api/v2/caddie/decisions/") and path.endswith("/audit/latest"))
             or path == "/api/v2/annotations"

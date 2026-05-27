@@ -222,4 +222,21 @@ describe('SyncStatusPanel', () => {
       'admin-secret',
     )
   })
+
+  it('clears pasted Garmin session material after a successful save', async () => {
+    const user = userEvent.setup()
+    const onSaveSession = vi.fn()
+    const { rerender } = render(<SyncStatusPanel status={baseStatus} onSaveSession={onSaveSession} sessionSaveState="idle" />)
+
+    await user.type(screen.getByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
+    await user.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
+    await user.click(screen.getByRole('button', { name: 'Save session' }))
+
+    expect(onSaveSession).toHaveBeenCalledTimes(1)
+
+    rerender(<SyncStatusPanel status={baseStatus} onSaveSession={onSaveSession} sessionSaveState="saved" />)
+
+    expect(screen.getByLabelText('Web session header')).toHaveValue('')
+    expect(screen.getByLabelText('Anti-forgery value')).toHaveValue('')
+  })
 })

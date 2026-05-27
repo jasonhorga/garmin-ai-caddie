@@ -164,47 +164,47 @@ export default function App() {
     return error instanceof Error ? error.message : 'Unknown error'
   }
 
-  async function refreshOverviewState() {
+  async function refreshOverviewState(adminTokenOverride: string | undefined = currentAdminToken()) {
     try {
-      const data = await fetchHistoryOverview()
+      const data = await fetchHistoryOverview(adminTokenOverride)
       setOverviewState({ status: 'ready', data })
     } catch (error: unknown) {
       setOverviewState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
 
-  async function loadRoundsState() {
+  async function loadRoundsState(adminTokenOverride: string | undefined = currentAdminToken()) {
     setRoundsState({ status: 'loading' })
     try {
-      const data = await fetchHistoryRounds()
+      const data = await fetchHistoryRounds(adminTokenOverride)
       setRoundsState({ status: 'ready', data })
     } catch (error: unknown) {
       setRoundsState({ status: 'error', message: errorMessage(error) })
     }
   }
 
-  async function refreshRoundsState() {
+  async function refreshRoundsState(adminTokenOverride: string | undefined = currentAdminToken()) {
     try {
-      const data = await fetchHistoryRounds()
+      const data = await fetchHistoryRounds(adminTokenOverride)
       setRoundsState({ status: 'ready', data })
     } catch (error: unknown) {
       setRoundsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
 
-  async function loadStatsState() {
+  async function loadStatsState(adminTokenOverride: string | undefined = currentAdminToken()) {
     setStatsState({ status: 'loading' })
     try {
-      const data = await fetchHistoryStats()
+      const data = await fetchHistoryStats(adminTokenOverride)
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
       setStatsState({ status: 'error', message: errorMessage(error) })
     }
   }
 
-  async function refreshStatsState() {
+  async function refreshStatsState(adminTokenOverride: string | undefined = currentAdminToken()) {
     try {
-      const data = await fetchHistoryStats()
+      const data = await fetchHistoryStats(adminTokenOverride)
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
       setStatsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
@@ -240,12 +240,16 @@ export default function App() {
     }
   }
 
-  function refreshLoadedHistorySurfaces() {
-    void refreshOverviewState()
-    if (roundsState.status !== 'idle') void refreshRoundsState()
-    if (statsState.status !== 'idle') void refreshStatsState()
+  function refreshLoadedHistorySurfaces(adminTokenOverride: string | undefined = currentAdminToken()) {
+    void refreshOverviewState(adminTokenOverride)
+    if (roundsState.status !== 'idle') void refreshRoundsState(adminTokenOverride)
+    if (statsState.status !== 'idle') void refreshStatsState(adminTokenOverride)
     if (readinessState.status !== 'idle') void refreshReadinessState()
     if (reportIndexState.status !== 'idle') loadReportIndex()
+  }
+
+  function handleAdminTokenChange(value: string) {
+    setAdminToken(value)
   }
 
   function navigate(page: ProductPage) {
@@ -317,7 +321,7 @@ export default function App() {
     setGeometryEnsureState('idle')
     activeHoleGeometryTarget.current = null
     try {
-      const data = await fetchHistoryDrilldown(sourceRef)
+      const data = await fetchHistoryDrilldown(sourceRef, currentAdminToken())
       setDrilldownState({ status: 'ready', data })
       void loadHoleEvidenceForDrilldown(sourceRef, data)
       return data
@@ -420,7 +424,7 @@ export default function App() {
           sessionSaveState={sessionSaveState}
           sessionSaveError={sessionSaveError}
           adminTokenValue={adminToken}
-          onAdminTokenChange={setAdminToken}
+          onAdminTokenChange={handleAdminTokenChange}
         />
       </div>
     ) : null
@@ -789,12 +793,18 @@ export default function App() {
 
   if (overviewState.status === 'error') {
     return (
-      <main className="app-shell">
-        <section className="panel empty-state">
-          <h1>History API unavailable</h1>
-          <p>{overviewState.message}</p>
-        </section>
-      </main>
+      <>
+        {renderSyncPanel()}
+        <main className="app-shell">
+          <section className="panel empty-state">
+            <h1>History API unavailable</h1>
+            <p>{overviewState.message}</p>
+            <button type="button" onClick={() => void refreshOverviewState()}>
+              Retry history
+            </button>
+          </section>
+        </main>
+      </>
     )
   }
 
@@ -811,12 +821,18 @@ export default function App() {
 
     if (roundsState.status === 'error') {
       return (
-        <main className="app-shell">
-          <section className="panel empty-state">
-            <h1>Rounds unavailable</h1>
-            <p>{roundsState.message}</p>
-          </section>
-        </main>
+        <>
+          {renderSyncPanel()}
+          <main className="app-shell">
+            <section className="panel empty-state">
+              <h1>Rounds unavailable</h1>
+              <p>{roundsState.message}</p>
+              <button type="button" onClick={() => void loadRoundsState()}>
+                Retry rounds
+              </button>
+            </section>
+          </main>
+        </>
       )
     }
 
@@ -856,13 +872,19 @@ export default function App() {
 
     if (statsState.status === 'error') {
       return (
-        <main className="app-shell">
-          <ProductNav activePage={activePage} onNavigate={navigate} />
-          <section className="panel empty-state">
-            <h1>History stats unavailable</h1>
-            <p>{statsState.message}</p>
-          </section>
-        </main>
+        <>
+          {renderSyncPanel()}
+          <main className="app-shell">
+            <ProductNav activePage={activePage} onNavigate={navigate} />
+            <section className="panel empty-state">
+              <h1>History stats unavailable</h1>
+              <p>{statsState.message}</p>
+              <button type="button" onClick={() => void loadStatsState()}>
+                Retry history stats
+              </button>
+            </section>
+          </main>
+        </>
       )
     }
 
