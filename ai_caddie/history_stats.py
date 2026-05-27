@@ -2184,7 +2184,7 @@ def build_history_stats(
     decision_audits = list_decision_audits(root=decision_audit_root)
     scored_data = _effective_score_data(data, annotations)
     hole_rows = _holes(scored_data, annotations)
-    issue_rows = _issues(data, annotations)
+    issue_rows = _issues(scored_data, annotations)
     diagnosis = _diagnosis(scored_data, issue_rows)
     diagnosis["decisionAuditTrends"] = _decision_audit_diagnosis(scored_data, decision_audits)
     return {

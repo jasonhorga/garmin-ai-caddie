@@ -127,6 +127,25 @@ def issue_detection_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "issues-1", "hasShots": True}], rounds=[round_row], shots=shots)
 
 
+def score_correction_issue_history_data() -> HistoryData:
+    round_row = {
+        "id": "score-correction-1",
+        "date": "2026-05-25",
+        "course": "Score Correction Course",
+        "courseKey": "score_correction_course",
+        "holesCompleted": 2,
+        "strokes": 10,
+        "par": 8,
+        "holePars": "44",
+        "holes": [
+            {"number": 1, "strokes": 4, "par": 4, "putts": 2},
+            {"number": 2, "strokes": 6, "par": 4, "putts": 2},
+        ],
+        "hasShots": True,
+    }
+    return HistoryData(raw_rounds=[{"id": "score-correction-1", "hasShots": True}], rounds=[round_row], shots=[])
+
+
 def raw_garmin_shot_history_data() -> HistoryData:
     round_row = {
         "id": "700001",
@@ -806,6 +825,37 @@ class HistoryStatsCoreTests(unittest.TestCase):
         correction_quality = next(row for row in stats["dataQuality"] if row["label"] == "corrections")
         self.assertEqual(correction_quality["state"], "good")
         self.assertEqual(correction_quality["ready"], 5)
+
+    def test_score_corrections_feed_deterministic_issue_diagnosis(self) -> None:
+        data = score_correction_issue_history_data()
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation(
+                "hole",
+                "score-correction-1:1",
+                "score_correction",
+                {"from": 4, "to": 6},
+                root=root,
+            )
+            add_annotation(
+                "hole",
+                "score-correction-1:2",
+                "score_correction",
+                {"from": 6, "to": 4},
+                root=root,
+            )
+
+            stats = build_history_stats(data, data_mode="fixture", annotations_root=root)
+
+        double_issue = next(row for row in stats["issues"] if row["issue"] == "double_or_worse" and row["source"] == "deterministic")
+        self.assertEqual(double_issue["refs"], ["score-correction-1:1"])
+        self.assertEqual(double_issue["sourceRefs"], ["score-correction-1:1"])
+
+        hole1 = next(row for row in stats["holes"] if row["hole"] == 1)
+        hole2 = next(row for row in stats["holes"] if row["hole"] == 2)
+        self.assertIn("double_or_worse", [row["issue"] for row in hole1["repeatedIssues"]])
+        self.assertNotIn("double_or_worse", [row["issue"] for row in hole2["repeatedIssues"]])
 
     def test_weather_coverage_is_reported_from_persisted_snapshots(self) -> None:
         with TemporaryDirectory() as tmp:
