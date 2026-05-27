@@ -14,7 +14,7 @@ const reconciliation: MobileReconciliationResponse = {
     garminOnlyCount: 1,
     conflictCount: 1,
     candidateDecisionAuditCount: 1,
-    annotationSuggestionCount: 3,
+    annotationSuggestionCount: 4,
   },
   matched: [{ eventId: 'club-match', kind: 'club', hole: 1, ref: '900001:1:1' }],
   localOnly: [
@@ -50,6 +50,20 @@ const reconciliation: MobileReconciliationResponse = {
       kind: 'caddie_feedback',
       payload: { decisionId: 'decision-1', sourceEventId: 'audit-1' },
       reason: 'Offline live event includes an actual shot that can audit this caddie decision.',
+      confidence: 'medium',
+    },
+    {
+      id: 'photo-lie:media-context',
+      targetType: 'hole',
+      targetId: '900001:7',
+      kind: 'hole_note',
+      payload: {
+        mediaType: 'photo',
+        mediaId: 'media-photo-1',
+        text: 'Ball sitting down in rough.',
+        sourceEventId: 'photo-lie',
+      },
+      reason: 'Offline photo context can be preserved as auditable media evidence for this hole.',
       confidence: 'medium',
     },
   ],
@@ -105,18 +119,19 @@ describe('MobileReconciliationPanel', () => {
     expect(screen.getByRole('heading', { name: 'Mobile Reconciliation' })).toBeInTheDocument()
     expect(screen.getByText('5 events')).toBeInTheDocument()
     expect(screen.getByText('1 conflict')).toBeInTheDocument()
-    expect(screen.getByText('3 suggestions')).toBeInTheDocument()
+    expect(screen.getByText('4 suggestions')).toBeInTheDocument()
     expect(screen.getAllByText('score_correction').length).toBeGreaterThan(0)
     expect(screen.getAllByText('hole_note').length).toBeGreaterThan(0)
     expect(screen.getAllByText('900001:1').length).toBeGreaterThan(0)
     expect(screen.getByText('4 -> 5')).toBeInTheDocument()
+    expect(screen.getByText('photo media-photo-1: Ball sitting down in rough.')).toBeInTheDocument()
     expect(screen.getAllByText('Wind hurting; favor center green.').length).toBeGreaterThan(0)
     expect(screen.getByText('Offline live event includes an actual shot that can audit this caddie decision.')).toBeInTheDocument()
 
     await userEvent.click(screen.getByLabelText('Select suggestion audit-1:caddie-feedback'))
     await userEvent.click(screen.getByRole('button', { name: 'Apply selected suggestions' }))
 
-    expect(onApply).toHaveBeenCalledWith('900001', ['score-conflict:score-correction', 'note-local:hole-note'])
+    expect(onApply).toHaveBeenCalledWith('900001', ['score-conflict:score-correction', 'note-local:hole-note', 'photo-lie:media-context'])
     expect(screen.getByText('Applied 1 suggestions, stored 1 audit')).toBeInTheDocument()
     expect(within(screen.getByLabelText('Applied annotations')).getByText('score_correction')).toBeInTheDocument()
     expect(within(screen.getByLabelText('Stored decision audits')).getByText('execution')).toBeInTheDocument()

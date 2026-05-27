@@ -814,6 +814,73 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["annotationSuggestions"][0]["kind"], "hole_note")
         self.assertEqual(payload["annotationSuggestions"][0]["payload"]["text"], "Ball above feet; aim right center.")
 
+    def test_mobile_reconciliation_endpoint_returns_media_context_suggestion_without_local_path(self) -> None:
+        client = TestClient(app)
+        local_file_url = "file:///private/var/mobile/Containers/Data/Application/app-id/tmp/lie.jpg"
+        uploaded_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "photo-lie",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 7,
+            "kind": "photo",
+            "payload": {
+                "assetLocalId": "900001-7-photo.bin",
+                "mediaType": "photo",
+                "source": "ios_camera",
+                "fileURL": local_file_url,
+                "mediaId": "media-photo-1",
+                "note": "Ball sitting down in rough.",
+            },
+        }
+        blank_media_id_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "photo-blank-media-id",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 8,
+            "kind": "photo",
+            "payload": {
+                "assetLocalId": "900001-8-photo.bin",
+                "mediaType": "photo",
+                "source": "ios_camera",
+                "fileURL": "file:///private/var/mobile/tmp/blank.jpg",
+                "mediaId": "   ",
+                "note": "Blank media id should not be durable.",
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                client.post(
+                    "/api/v2/mobile/rounds/900001/events",
+                    headers={"Idempotency-Key": "media-context"},
+                    json={"roundId": "900001", "events": [uploaded_event, blank_media_id_event]},
+                )
+                response = client.get("/api/v2/mobile/rounds/900001/reconciliation")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        response_text = response.text
+        self.assertEqual(payload["schema"], "ai-caddie-mobile-reconciliation-v1")
+        self.assertEqual(payload["localOnly"][0]["eventId"], "photo-lie")
+        self.assertEqual(payload["localOnly"][0]["localValue"], "media-photo-1")
+        blank_media_row = next(row for row in payload["localOnly"] if row["eventId"] == "photo-blank-media-id")
+        self.assertEqual(blank_media_row["localValue"], "photo")
+        self.assertEqual(blank_media_row["mediaState"], "missing_media_id")
+        suggestions = {row["id"]: row for row in payload["annotationSuggestions"]}
+        self.assertEqual(suggestions["photo-lie:media-context"]["kind"], "hole_note")
+        self.assertEqual(suggestions["photo-lie:media-context"]["payload"]["mediaType"], "photo")
+        self.assertEqual(suggestions["photo-lie:media-context"]["payload"]["mediaId"], "media-photo-1")
+        self.assertEqual(suggestions["photo-lie:media-context"]["payload"]["text"], "Ball sitting down in rough.")
+        self.assertNotIn("photo-blank-media-id:media-context", suggestions)
+        for private_fragment in ["assetLocalId", "900001-7-photo.bin", "900001-8-photo.bin", "fileURL", "file://", "/private/var", "lie.jpg", "blank.jpg", local_file_url]:
+            self.assertNotIn(private_fragment, response_text)
+
     def test_mobile_reconciliation_apply_endpoint_creates_selected_annotations(self) -> None:
         client = TestClient(app)
         event = {

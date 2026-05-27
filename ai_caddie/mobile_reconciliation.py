@@ -98,6 +98,38 @@ def _payload_value(payload: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _non_empty_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _media_context_row(event: dict[str, Any], payload: dict[str, Any], *, kind: str, hole: int) -> dict[str, Any]:
+    media_type = str(payload.get("mediaType") or kind)
+    media_id = _non_empty_text(payload.get("mediaId"))
+    note = _payload_value(payload, "note", "text")
+    local_value = media_id or media_type
+    row: dict[str, Any] = {
+        "eventId": event.get("eventId"),
+        "roundId": event.get("roundId"),
+        "kind": kind,
+        "hole": hole,
+        "localValue": str(local_value),
+        "mediaType": media_type,
+    }
+    if media_id:
+        row["mediaId"] = media_id
+    else:
+        row["mediaState"] = "missing_media_id"
+    if note:
+        row["note"] = str(note).strip()
+    duration_s = payload.get("durationS")
+    if duration_s is not None:
+        row["durationS"] = duration_s
+    return row
+
+
 def _suggestion(
     suggestion_id: str,
     *,
@@ -218,6 +250,33 @@ def _annotation_suggestions(
                         reason="Local mobile note can be preserved as an auditable hole note.",
                     )
                 )
+        elif kind in {"photo", "video"}:
+            media_type = str(row.get("mediaType") or kind)
+            media_id = _non_empty_text(row.get("mediaId"))
+            if not media_id:
+                continue
+            suggestion_id = f"{event_id}:media-context"
+            payload: dict[str, Any] = {
+                "mediaType": media_type,
+                "sourceEventId": event_id,
+            }
+            payload["mediaId"] = media_id
+            note = str(row.get("note") or "").strip()
+            if note:
+                payload["text"] = note
+            if row.get("durationS") is not None:
+                payload["durationS"] = row["durationS"]
+            suggestions.append(
+                _suggestion(
+                    suggestion_id,
+                    target_type="hole",
+                    target_id=f"{row.get('roundId') or ''}:{hole}",
+                    kind="hole_note",
+                    payload=payload,
+                    reason=f"Offline {media_type} context can be preserved as auditable media evidence for this hole.",
+                    confidence="medium",
+                )
+            )
 
     for audit in candidate_audits:
         event_id = str(audit.get("eventId") or "")
@@ -371,8 +430,12 @@ def reconcile_mobile_round_events(
                         "kind": kind,
                         "hole": hole,
                         "localValue": club_name,
-                    }
-                )
+                }
+            )
+            continue
+
+        if kind in {"photo", "video"}:
+            local_only.append(_media_context_row(event, payload, kind=kind, hole=hole))
             continue
 
         local_only.append(

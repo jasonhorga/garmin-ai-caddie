@@ -194,6 +194,173 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(suggestions["wind-note:hole-note"]["payload"]["text"], "Wind hurting; favor center green.")
         self.assertEqual(suggestions["wind-note:hole-note"]["payload"]["sourceEventId"], "wind-note")
 
+    def test_reconciliation_suggests_media_context_annotations_from_photo_video_events(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001",
+                [
+                    {
+                        "eventId": "photo-lie",
+                        "roundId": "900001",
+                        "hole": 7,
+                        "kind": "photo",
+                        "payload": {
+                            "assetLocalId": "900001-7-photo.bin",
+                            "mediaType": "photo",
+                            "source": "ios_camera",
+                            "fileURL": "file:///private/var/mobile/tmp/lie.jpg",
+                            "mediaId": "media-photo-1",
+                            "note": "Ball sitting down in rough.",
+                        },
+                    },
+                    {
+                        "eventId": "video-slope",
+                        "roundId": "900001",
+                        "hole": 7,
+                        "kind": "video",
+                        "payload": {
+                            "assetLocalId": "900001-7-video.bin",
+                            "mediaType": "video",
+                            "source": "ios_camera",
+                            "fileURL": "file:///private/var/mobile/tmp/slope.mov",
+                            "mediaId": "media-video-1",
+                            "durationS": 8,
+                            "note": "Green slopes hard left.",
+                        },
+                    },
+                    {
+                        "eventId": "photo-not-uploaded",
+                        "roundId": "900001",
+                        "hole": 8,
+                        "kind": "photo",
+                        "payload": {
+                            "assetLocalId": "900001-8-photo.bin",
+                            "mediaType": "photo",
+                            "source": "ios_camera",
+                            "fileURL": "file:///private/var/mobile/tmp/not-uploaded.jpg",
+                            "note": "Offline capture not uploaded yet.",
+                        },
+                    },
+                    {
+                        "eventId": "photo-blank-media-id",
+                        "roundId": "900001",
+                        "hole": 8,
+                        "kind": "photo",
+                        "payload": {
+                            "assetLocalId": "900001-8-blank-photo.bin",
+                            "mediaType": "photo",
+                            "source": "ios_camera",
+                            "fileURL": "file:///private/var/mobile/tmp/blank.jpg",
+                            "mediaId": "   ",
+                            "note": "Blank media id should not be durable.",
+                        },
+                    },
+                ],
+                idempotency_key="media-context",
+                root=root,
+            )
+
+            result = reconcile_mobile_round_events("900001", fixture_history_data(), root=root)
+
+        local_only = {row["eventId"]: row for row in result["localOnly"]}
+        suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
+        response_text = str(result)
+
+        self.assertEqual(local_only["photo-lie"]["kind"], "photo")
+        self.assertEqual(local_only["photo-lie"]["localValue"], "media-photo-1")
+        self.assertEqual(local_only["photo-lie"]["mediaType"], "photo")
+        self.assertEqual(local_only["photo-not-uploaded"]["localValue"], "photo")
+        self.assertEqual(local_only["photo-not-uploaded"]["mediaState"], "missing_media_id")
+        self.assertEqual(local_only["photo-blank-media-id"]["localValue"], "photo")
+        self.assertEqual(local_only["photo-blank-media-id"]["mediaState"], "missing_media_id")
+        self.assertNotIn("mediaId", local_only["photo-blank-media-id"])
+        self.assertNotIn("fileURL", response_text)
+        self.assertNotIn("file://", response_text)
+        self.assertNotIn("/private/var", response_text)
+        self.assertNotIn("lie.jpg", response_text)
+        self.assertNotIn("slope.mov", response_text)
+        self.assertNotIn("not-uploaded.jpg", response_text)
+        self.assertNotIn("blank.jpg", response_text)
+        self.assertNotIn("900001-7-photo.bin", response_text)
+        self.assertNotIn("900001-7-video.bin", response_text)
+        self.assertNotIn("900001-8-photo.bin", response_text)
+        self.assertNotIn("900001-8-blank-photo.bin", response_text)
+
+        self.assertEqual(result["summary"]["annotationSuggestionCount"], 2)
+        self.assertNotIn("photo-not-uploaded:media-context", suggestions)
+        self.assertNotIn("photo-blank-media-id:media-context", suggestions)
+        self.assertEqual(suggestions["photo-lie:media-context"]["targetType"], "hole")
+        self.assertEqual(suggestions["photo-lie:media-context"]["targetId"], "900001:7")
+        self.assertEqual(suggestions["photo-lie:media-context"]["kind"], "hole_note")
+        self.assertEqual(suggestions["photo-lie:media-context"]["confidence"], "medium")
+        self.assertEqual(
+            suggestions["photo-lie:media-context"]["payload"],
+            {
+                "mediaType": "photo",
+                "mediaId": "media-photo-1",
+                "text": "Ball sitting down in rough.",
+                "sourceEventId": "photo-lie",
+                "source": "mobile_reconciliation",
+                "sourceSuggestionId": "photo-lie:media-context",
+            },
+        )
+        self.assertEqual(suggestions["video-slope:media-context"]["payload"]["durationS"], 8)
+
+    def test_apply_reconciliation_writes_media_context_as_hole_note_idempotently(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001",
+                [
+                    {
+                        "eventId": "photo-lie",
+                        "roundId": "900001",
+                        "hole": 7,
+                        "kind": "photo",
+                        "payload": {
+                            "assetLocalId": "900001-7-photo.bin",
+                            "mediaType": "photo",
+                            "source": "ios_camera",
+                            "fileURL": "file:///private/var/mobile/tmp/lie.jpg",
+                            "mediaId": "media-photo-1",
+                            "note": "Ball sitting down in rough.",
+                        },
+                    },
+                ],
+                idempotency_key="media-context-apply",
+                root=root,
+            )
+
+            first = apply_mobile_reconciliation_suggestions(
+                "900001",
+                fixture_history_data(),
+                suggestion_ids=["photo-lie:media-context"],
+                root=root,
+                annotations_root=root,
+            )
+            second = apply_mobile_reconciliation_suggestions(
+                "900001",
+                fixture_history_data(),
+                suggestion_ids=["photo-lie:media-context"],
+                root=root,
+                annotations_root=root,
+            )
+            annotations = list_annotations(root=root)
+
+        self.assertEqual(first["appliedCount"], 1)
+        self.assertEqual(second["appliedCount"], 0)
+        self.assertEqual(second["skippedSuggestionIds"], ["photo-lie:media-context"])
+        self.assertEqual(annotations[0]["targetType"], "hole")
+        self.assertEqual(annotations[0]["targetId"], "900001:7")
+        self.assertEqual(annotations[0]["kind"], "hole_note")
+        self.assertEqual(annotations[0]["payload"]["mediaType"], "photo")
+        self.assertEqual(annotations[0]["payload"]["mediaId"], "media-photo-1")
+        self.assertEqual(annotations[0]["payload"]["text"], "Ball sitting down in rough.")
+        self.assertNotIn("fileURL", str(annotations[0]["payload"]))
+        self.assertNotIn("assetLocalId", str(annotations[0]["payload"]))
+        self.assertNotIn("900001-7-photo.bin", str(annotations[0]["payload"]))
+
     def test_applies_selected_reconciliation_suggestions_as_annotations_idempotently(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

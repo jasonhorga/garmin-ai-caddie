@@ -53,6 +53,9 @@ function suggestionSummary(suggestion: MobileReconciliationSuggestion) {
   const to = compactValue(suggestion.payload.to)
   if (from && to) return `${from} -> ${to}`
   const text = compactValue(suggestion.payload.text) ?? compactValue(suggestion.payload.note)
+  const mediaType = compactValue(suggestion.payload.mediaType)
+  const mediaId = compactValue(suggestion.payload.mediaId)
+  if (mediaType && mediaId) return text ? `${mediaType} ${mediaId}: ${text}` : `${mediaType} ${mediaId}`
   if (text) return text
   const strokes = compactValue(suggestion.payload.strokes)
   if (strokes) return `${strokes} penalty`
