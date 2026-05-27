@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 from jsonschema import Draft202012Validator
@@ -103,6 +104,24 @@ class MobileContractTests(unittest.TestCase):
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
             "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
             "geometryCoverage": {"state": "partial", "readyHoles": 12, "totalHoles": 18},
+            "readinessChecks": [
+                {
+                    "label": "source",
+                    "state": "ready",
+                    "ready": 1,
+                    "total": 1,
+                    "reason": "round source is available for offline package preparation",
+                    "sourceRefs": ["live-round-1"],
+                },
+                {
+                    "label": "geometry",
+                    "state": "degraded",
+                    "ready": 12,
+                    "total": 18,
+                    "reason": "12/18 holes have ready geometry for offline caddie evidence",
+                    "sourceRefs": [],
+                },
+            ],
             "caddieContextSeeds": [
                 {
                     "hole": 1,
@@ -196,6 +215,80 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(package["offlinePackageStatus"]["state"], "degraded")
         self.assertIn("geometry", {row["label"] for row in package["missingData"]})
         self.assertIn("weather", {row["label"] for row in package["missingData"]})
+
+    def test_live_round_package_can_report_ready_dependency_checks(self) -> None:
+        schema = _load_schema("live_round_package.schema.json")
+
+        def ready_coverage(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": global_id,
+                "localHole": local_hole,
+                "coverage": "ready",
+                "hasHazards": True,
+                "hasMeshes": True,
+                "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}],
+                "missingData": [],
+            }
+
+        def ready_map(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-hole-map-v1",
+                "globalId": global_id,
+                "localHole": local_hole,
+                "provider": {"coordinateSystem": "local"},
+                "coverage": "ready",
+                "layers": ["hazard"],
+                "featureCollection": {"type": "FeatureCollection", "features": []},
+                "missingData": [],
+            }
+
+        def ready_route(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-route-geometry-evidence-v1",
+                "globalId": global_id,
+                "localHole": local_hole,
+                "coverage": "ready",
+                "routeLength_m": 180.0,
+                "avoidZones": [],
+                "missingData": [],
+            }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_weather_snapshot(
+                build_weather_snapshot(
+                    round_id="900001",
+                    captured_at="2026-05-25T09:00:00Z",
+                    latitude=22.279,
+                    longitude=114.162,
+                    source="manual",
+                    observed={"windSpeedMps": 5.4},
+                ),
+                root=root,
+            )
+            with (
+                patch("ai_caddie.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
+                patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
+                patch("ai_caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
+                patch("ai_caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
+            ):
+                package = build_live_round_package(
+                    "900001",
+                    data=fixture_history_data(),
+                    data_mode="fixture",
+                    root=root,
+                    captured_at="2026-05-25T09:00:00Z",
+                )
+
+        _assert_schema_accepts(self, schema, package)
+        self.assertEqual(package["offlinePackageStatus"]["state"], "ready")
+        self.assertEqual(package["missingData"], [])
+        checks = {row["label"]: row for row in package["readinessChecks"]}
+        self.assertEqual(set(checks), {"source", "geometry", "weather", "club_profiles", "recent_history", "caddie_seeds"})
+        self.assertTrue(all(row["state"] == "ready" for row in checks.values()))
+        self.assertEqual(checks["geometry"]["ready"], 18)
+        self.assertEqual(checks["weather"]["sourceRefs"], ["900001"])
 
     def test_live_round_package_exposes_source_coverage_and_degrades_missing_round(self) -> None:
         package = build_live_round_package("missing-round", data=fixture_history_data(), data_mode="fixture")

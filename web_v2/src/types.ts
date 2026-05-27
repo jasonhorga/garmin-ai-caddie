@@ -745,6 +745,7 @@ export interface LiveRoundPackageResponse {
     readyHoles: number
     totalHoles: number
   }
+  readinessChecks?: Array<Record<string, unknown>>
   caddieContextSeeds: Array<Record<string, unknown>>
   weatherSnapshot: LiveRoundWeatherSnapshot
   clubProfiles: Array<Record<string, unknown>>

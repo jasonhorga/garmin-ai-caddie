@@ -742,6 +742,7 @@ class LiveRoundPackageResponse(BaseModel):
     course: dict[str, Any]
     holes: list[dict[str, Any]]
     geometryCoverage: dict[str, Any]
+    readinessChecks: list[dict[str, Any]] = Field(default_factory=list)
     caddieContextSeeds: list[dict[str, Any]]
     weatherSnapshot: dict[str, Any]
     clubProfiles: list[dict[str, Any]]

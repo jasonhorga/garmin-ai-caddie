@@ -141,7 +141,7 @@
             "type": "integer"
           },
           "yards": {
-            "type": "integer"
+            "type": ["integer", "null"]
           },
           "geometryCoverage": {
             "type": "string",
@@ -164,6 +164,39 @@
         },
         "totalHoles": {
           "type": "integer"
+        }
+      }
+    },
+    "readinessChecks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "state", "ready", "total", "reason", "sourceRefs"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "enum": ["source", "geometry", "weather", "club_profiles", "recent_history", "caddie_seeds"]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["ready", "degraded", "missing"]
+          },
+          "ready": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "sourceRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },

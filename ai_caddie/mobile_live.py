@@ -555,6 +555,114 @@ def _dedupe_missing(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _readiness_check(
+    label: str,
+    state: str,
+    ready: int,
+    total: int,
+    reason: str,
+    *,
+    source_refs: list[Any] | None = None,
+) -> dict[str, Any]:
+    refs = []
+    for ref in source_refs or []:
+        text = str(ref).strip()
+        if text and text not in refs:
+            refs.append(text)
+    return {
+        "label": label,
+        "state": state,
+        "ready": ready,
+        "total": total,
+        "reason": reason,
+        "sourceRefs": refs,
+    }
+
+
+def _package_readiness_checks(
+    *,
+    source_coverage: dict[str, Any],
+    geometry_coverage: dict[str, Any],
+    weather_snapshot: dict[str, Any],
+    club_profiles: list[dict[str, Any]],
+    recent_history: dict[str, Any],
+    caddie_context_seeds: list[dict[str, Any]],
+    holes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    selected_round_id = source_coverage.get("selectedRoundId") or source_coverage.get("requestedRoundId")
+    geometry_ready = int(geometry_coverage.get("readyHoles") or 0)
+    geometry_total = int(geometry_coverage.get("totalHoles") or 0)
+    sampled_clubs = sum(1 for row in club_profiles if int(row.get("sampleSize") or 0) > 0)
+    recent_course = recent_history.get("course") if isinstance(recent_history.get("course"), dict) else {}
+    recent_scores = recent_course.get("recentScores") if isinstance(recent_course.get("recentScores"), list) else []
+    seed_ready = sum(
+        1
+        for seed in caddie_context_seeds
+        if isinstance(seed, dict)
+        and seed.get("offlineOptions")
+        and isinstance(seed.get("context"), dict)
+        and (seed.get("context") or {}).get("clubProfiles")
+    )
+    seed_total = len(holes)
+    weather_ready = weather_snapshot.get("state") == "ready"
+    return [
+        _readiness_check(
+            "source",
+            "ready" if source_coverage.get("state") == "ready" else "degraded",
+            1 if source_coverage.get("state") == "ready" else 0,
+            1,
+            "round source is available for offline package preparation"
+            if source_coverage.get("state") == "ready"
+            else "round source is missing or degraded for offline package preparation",
+            source_refs=[selected_round_id] if selected_round_id else [],
+        ),
+        _readiness_check(
+            "geometry",
+            "ready" if geometry_coverage.get("state") == "ready" else "degraded" if geometry_ready else "missing",
+            geometry_ready,
+            geometry_total,
+            f"{geometry_ready}/{geometry_total} holes have ready geometry for offline caddie evidence",
+        ),
+        _readiness_check(
+            "weather",
+            "ready" if weather_ready else "missing",
+            1 if weather_ready else 0,
+            1,
+            "weather snapshot is cached for the prepared round time"
+            if weather_ready
+            else "weather snapshot is missing for the prepared round time",
+            source_refs=[weather_snapshot.get("roundId")] if weather_ready else [],
+        ),
+        _readiness_check(
+            "club_profiles",
+            "ready" if sampled_clubs else "missing",
+            sampled_clubs,
+            len(club_profiles),
+            "sampled club distances are available for offline caddie options"
+            if sampled_clubs
+            else "club profile distances are fallback values without shot samples",
+        ),
+        _readiness_check(
+            "recent_history",
+            "ready" if recent_scores else "missing",
+            len(recent_scores),
+            1,
+            "same-course scored history is available for offline review"
+            if recent_scores
+            else "no scored same-course history is available for the prepared package",
+            source_refs=recent_course.get("roundIds") if isinstance(recent_course.get("roundIds"), list) else [],
+        ),
+        _readiness_check(
+            "caddie_seeds",
+            "ready" if seed_total and seed_ready == seed_total else "degraded" if seed_ready else "missing",
+            seed_ready,
+            seed_total,
+            f"{seed_ready}/{seed_total} holes have cached caddie context seeds and offline options",
+            source_refs=[seed.get("sourceRef") for seed in caddie_context_seeds if isinstance(seed, dict)],
+        ),
+    ]
+
+
 def _package_readiness_missing_data(
     rows: list[dict[str, Any]],
     *,
@@ -701,7 +809,6 @@ def build_live_round_package(
     )
     prepared_at = datetime.now(UTC).replace(microsecond=0)
     source_state = "ready" if round_found else "degraded"
-    package_state = "ready" if not package_missing_data else "degraded"
     selected_round_id = str(round_row.get("id") or "").strip() or None
     source_coverage = {
         "state": source_state,
@@ -721,6 +828,37 @@ def build_live_round_package(
                 "courseFound": round_found,
             }
         )
+    caddie_context_seeds = _caddie_context_seeds(
+        round_id=round_id,
+        round_row=round_row,
+        stats=stats,
+        holes=holes,
+        course_key=course_key,
+        club_profiles=club_profiles,
+        weather_snapshot=weather_snapshot,
+        annotations_root=annotations_root,
+    )
+    readiness_checks = _package_readiness_checks(
+        source_coverage=source_coverage,
+        geometry_coverage=geometry_coverage,
+        weather_snapshot=weather_snapshot,
+        club_profiles=club_profiles,
+        recent_history=recent_history,
+        caddie_context_seeds=caddie_context_seeds,
+        holes=holes,
+    )
+    caddie_seed_check = next((row for row in readiness_checks if row["label"] == "caddie_seeds"), None)
+    if caddie_seed_check and caddie_seed_check["state"] != "ready":
+        package_missing_data = _dedupe_missing(
+            [
+                *package_missing_data,
+                {
+                    "label": "caddie_seeds",
+                    "reason": str(caddie_seed_check["reason"]),
+                },
+            ]
+        )
+    package_state = "ready" if not package_missing_data and all(row["state"] == "ready" for row in readiness_checks) else "degraded"
     return {
         "schema": "ai-caddie-live-round-package-v1",
         "roundId": round_id,
@@ -735,16 +873,8 @@ def build_live_round_package(
         },
         "holes": holes,
         "geometryCoverage": geometry_coverage,
-        "caddieContextSeeds": _caddie_context_seeds(
-            round_id=round_id,
-            round_row=round_row,
-            stats=stats,
-            holes=holes,
-            course_key=course_key,
-            club_profiles=club_profiles,
-            weather_snapshot=weather_snapshot,
-            annotations_root=annotations_root,
-        ),
+        "readinessChecks": readiness_checks,
+        "caddieContextSeeds": caddie_context_seeds,
         "weatherSnapshot": weather_snapshot,
         "clubProfiles": club_profiles,
         "caddieDecisionEndpoint": "/api/v2/caddie/decision",

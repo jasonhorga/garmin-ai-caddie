@@ -175,6 +175,7 @@ def build_readiness_response() -> dict[str, Any]:
                     "caddieDecisionEndpoint": package.caddieDecisionEndpoint,
                     "offlinePackageStatus": package.offlinePackageStatus,
                     "sourceCoverage": package.sourceCoverage,
+                    "readinessChecks": package.readinessChecks,
                     "caddieSeedCount": len(package.caddieContextSeeds),
                     "cachedCaddieRules": package.cachedCaddieRules,
                     "missingDataCount": len(package.missingData),
