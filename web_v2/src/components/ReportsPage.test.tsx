@@ -47,6 +47,9 @@ const report: ReviewReportResponse = {
         course: 'Black Knight B/C',
         score: 77,
         toPar: 5,
+        rating: 72.0,
+        slope: 120.0,
+        differential: 4.7,
       },
     },
     {
@@ -212,6 +215,9 @@ describe('ReportsPage', () => {
     expect(screen.getAllByText('Black Knight B/C').length).toBeGreaterThan(0)
     expect(screen.getByText('score 77')).toBeInTheDocument()
     expect(screen.getByText('toPar +5')).toBeInTheDocument()
+    expect(screen.getByText('rating 72')).toBeInTheDocument()
+    expect(screen.getByText('slope 120')).toBeInTheDocument()
+    expect(screen.getByText('differential 4.7')).toBeInTheDocument()
     expect(screen.getByText('holeRef 900001:2')).toBeInTheDocument()
     expect(screen.getByText('toPar -1')).toBeInTheDocument()
     expect(screen.getByText('club 1D')).toBeInTheDocument()
