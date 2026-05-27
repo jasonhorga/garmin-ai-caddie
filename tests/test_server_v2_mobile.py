@@ -473,6 +473,8 @@ class ServerV2MobileTests(unittest.TestCase):
         client = TestClient(app)
         invalid_events = [
             ("club-actual-shot", "club", {"clubName": "8I", "actualShot": "not-an-object"}),
+            ("club-shot-type", "club", {"clubName": "8I", "shotType": "punch"}),
+            ("club-strategy-mode", "club", {"clubName": "8I", "strategyMode": "reckless"}),
             ("sync-ids", "sync_marker", {"status": "synced", "acceptedEventIds": "event-1"}),
             ("null-source", "score", {"strokes": 4, "source": None}),
         ]

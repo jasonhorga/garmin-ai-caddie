@@ -112,6 +112,11 @@ _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
     },
 }
 
+_LIVE_EVENT_PAYLOAD_ENUMS: dict[tuple[str, str], set[str]] = {
+    ("club", "shotType"): {"tee", "approach", "recovery"},
+    ("club", "strategyMode"): {"protect_score", "stock", "attack"},
+}
+
 
 def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
@@ -161,6 +166,11 @@ def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
             not isinstance(value, list) or any(not isinstance(item, str) for item in value)
         ):
             raise ValueError(f"{kind} payload field {field} must be a string array")
+        allowed_values = _LIVE_EVENT_PAYLOAD_ENUMS.get((kind, field))
+        if allowed_values is not None and value not in allowed_values:
+            raise ValueError(
+                f"{kind} payload field {field} must be one of {', '.join(sorted(allowed_values))}"
+            )
     media_type = payload.get("mediaType")
     if kind in {"photo", "video"} and media_type != kind:
         raise ValueError(f"{kind} payload mediaType must be {kind}")
