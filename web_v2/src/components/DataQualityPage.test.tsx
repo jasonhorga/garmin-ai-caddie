@@ -25,9 +25,18 @@ const statsFixture: HistoryStatsResponse = {
       coverage: { ready: 1, total: 3, pct: 33.3 },
       confidence: 'low',
       reason: '1 of 3 scorecards have shot data',
+      rowCount: 6,
     },
     { label: 'geometry', state: 'missing', ready: 0, total: 45, refs: ['900001:1'] },
-    { label: 'reports', state: 'partial', ready: 1, total: 3, refs: ['900002', '900003'] },
+    {
+      label: 'reports',
+      state: 'partial',
+      ready: 1,
+      total: 7,
+      refs: ['900002', '900003'],
+      roundReports: { ready: 1, total: 3, missingRefs: ['900002', '900003'] },
+      trendReports: { ready: 0, total: 4, missingRefs: ['trend:recent_10', 'trend:year:2026'] },
+    },
   ],
   drillDown: {},
 }
@@ -43,11 +52,15 @@ describe('DataQualityPage', () => {
     expect(screen.getByText('coverage 1/3 33.3%')).toBeInTheDocument()
     expect(screen.getByText('low confidence')).toBeInTheDocument()
     expect(screen.getByText('1 of 3 scorecards have shot data')).toBeInTheDocument()
+    expect(screen.getByText('rows 6')).toBeInTheDocument()
     expect(screen.getByText('geometry')).toBeInTheDocument()
     expect(screen.getByText('missing')).toHaveClass('quality-missing')
     expect(screen.getByText('0/45')).toBeInTheDocument()
     expect(screen.getByText('reports')).toBeInTheDocument()
+    expect(screen.getByText('round reports 1/3')).toBeInTheDocument()
+    expect(screen.getByText('trend reports 0/4')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900003' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Open source trend:recent_10' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900001:1' })).toBeInTheDocument()
   })
 
