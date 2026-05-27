@@ -1180,6 +1180,10 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(weather_quality["ready"], 1)
         self.assertEqual(weather_quality["total"], 45)
         self.assertEqual(weather_quality["refs"], ["900001:7"])
+        self.assertEqual(weather_quality["readyRefs"], ["900001:7"])
+        self.assertEqual(len(weather_quality["missingRefs"]), 44)
+        self.assertIn("900001:1", weather_quality["missingRefs"])
+        self.assertNotIn("900001:7", weather_quality["missingRefs"])
         self.assertEqual(weather_quality["coverage"], {"ready": 1, "total": 45, "pct": 2.2})
 
     def test_geometry_and_report_coverage_are_reported_in_data_quality(self) -> None:
@@ -1213,15 +1217,18 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(geometry_quality["ready"], 0)
         self.assertEqual(geometry_quality["total"], 45)
         self.assertIn("900001:1", geometry_quality["refs"])
+        self.assertIn("900001:1", geometry_quality["missingRefs"])
 
         report_quality = next(row for row in stats["dataQuality"] if row["label"] == "reports")
         self.assertEqual(report_quality["state"], "partial")
         self.assertEqual(report_quality["ready"], 1)
         self.assertEqual(report_quality["total"], 7)
+        self.assertEqual(report_quality["readyRefs"], ["900001"])
         self.assertEqual(report_quality["roundReports"], {"ready": 1, "total": 3, "missingRefs": ["900002", "900003"]})
         self.assertEqual(report_quality["trendReports"]["ready"], 0)
         self.assertIn("trend:recent_10", report_quality["refs"])
         self.assertIn("trend:year:2026", report_quality["refs"])
+        self.assertIn("trend:recent_10", report_quality["missingRefs"])
 
     def test_geometry_coverage_accepts_course_id_and_split_nine_global_ids(self) -> None:
         with (
@@ -1605,6 +1612,11 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(audit_quality["ready"], 2)
         self.assertEqual(audit_quality["total"], 6)
         self.assertEqual(audit_quality["sourceRefs"], ["trend-issue-5", "trend-issue-6"])
+        self.assertEqual(audit_quality["readyRefs"], ["trend-issue-5", "trend-issue-6"])
+        self.assertEqual(
+            audit_quality["missingRefs"],
+            ["trend-issue-1", "trend-issue-2", "trend-issue-3", "trend-issue-4"],
+        )
 
     def test_player_profile_summarizes_strengths_weaknesses_and_caddie_biases(self) -> None:
         stats = build_history_stats(player_profile_history_data(), data_mode="fixture")

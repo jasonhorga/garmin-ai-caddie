@@ -90,6 +90,8 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         audit_quality = next(row for row in payload["dataQuality"] if row["label"] == "decision_audits")
         self.assertEqual(audit_quality["ready"], 1)
         self.assertEqual(audit_quality["sourceRefs"], ["900001"])
+        self.assertEqual(audit_quality["readyRefs"], ["900001"])
+        self.assertIn("900002", audit_quality["missingRefs"])
 
 
 if __name__ == "__main__":

@@ -12,6 +12,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
+function asRefList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : []
+}
+
 function QualityDetailRows({
   finding,
   onSelectRef,
@@ -28,8 +32,9 @@ function QualityDetailRows({
     ['round reports', asRecord(finding.roundReports)],
     ['trend reports', asRecord(finding.trendReports)],
   ].filter((entry): entry is [string, Record<string, unknown>] => entry[1] !== null)
+  const missingRefs = asRefList(finding.missingRefs)
 
-  if (scalarFacts.length === 0 && nestedFacts.length === 0) return null
+  if (scalarFacts.length === 0 && nestedFacts.length === 0 && missingRefs.length === 0) return null
 
   return (
     <div className="quality-detail-list">
@@ -38,6 +43,12 @@ function QualityDetailRows({
           {label} {formatNumber(value)}
         </span>
       ))}
+      {missingRefs.length ? (
+        <div className="quality-detail-row">
+          <span className="quality-detail-chip">missing refs {formatNumber(missingRefs.length)}</span>
+          <SourceRefs refs={missingRefs} onSelectRef={onSelectRef} />
+        </div>
+      ) : null}
       {nestedFacts.map(([label, row]) => (
         <div key={label} className="quality-detail-row">
           <span className="quality-detail-chip">

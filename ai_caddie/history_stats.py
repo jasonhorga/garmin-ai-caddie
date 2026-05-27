@@ -2954,12 +2954,12 @@ def _issues(
 
 
 def _weather_quality(data: HistoryData, weather_snapshots: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    loaded_hole_refs = {
+    loaded_hole_refs = sorted({
         _hole_ref(row, int(hole.get("number") or 0))
         for row in data.rounds
         for hole in (row.get("holes") or [])
         if isinstance(hole, dict) and int(hole.get("number") or 0)
-    }
+    })
     total_holes = len(loaded_hole_refs)
     ready_refs = sorted(
         {
@@ -2971,6 +2971,7 @@ def _weather_quality(data: HistoryData, weather_snapshots: list[dict[str, Any]] 
             and f"{row.get('roundId')}:{row.get('hole')}" in loaded_hole_refs
         }
     )
+    missing_refs = [ref for ref in loaded_hole_refs if ref not in set(ready_refs)]
     return _with_quality_contract(
         {
             "label": "weather",
@@ -2978,6 +2979,8 @@ def _weather_quality(data: HistoryData, weather_snapshots: list[dict[str, Any]] 
             "ready": len(ready_refs),
             "total": total_holes,
             "refs": ready_refs,
+            "readyRefs": ready_refs,
+            "missingRefs": missing_refs,
         }
     )
 
@@ -2986,7 +2989,13 @@ def _geometry_quality(hole_rows: list[dict[str, Any]]) -> dict[str, Any]:
     total = sum(int(row.get("sampleCount") or 0) for row in hole_rows)
     ready = sum(int(row.get("sampleCount") or 0) for row in hole_rows if row.get("geometryCoverage") == "ready")
     partial = sum(int(row.get("sampleCount") or 0) for row in hole_rows if row.get("geometryCoverage") == "partial")
-    refs = [
+    ready_refs = [
+        str(ref)
+        for row in hole_rows
+        if row.get("geometryCoverage") == "ready"
+        for ref in (row.get("holeRefs") or row.get("refs") or [])
+    ]
+    missing_refs = [
         str(ref)
         for row in hole_rows
         if row.get("geometryCoverage") != "ready"
@@ -2999,7 +3008,9 @@ def _geometry_quality(hole_rows: list[dict[str, Any]]) -> dict[str, Any]:
             "ready": ready,
             "partial": partial,
             "total": total,
-            "refs": refs,
+            "refs": missing_refs,
+            "readyRefs": _source_refs(ready_refs),
+            "missingRefs": _source_refs(missing_refs),
         }
     )
 
@@ -3023,13 +3034,20 @@ def _report_quality(data: HistoryData, report_records: list[dict[str, Any]] | No
     ready_trends = len(trend_subjects) - len(missing_trend_refs)
     ready = ready_rounds + ready_trends
     total = len(round_refs) + len(trend_subjects)
+    ready_refs = [
+        *[ref for ref in round_refs if ref in reported_rounds],
+        *(f"trend:{ref}" for ref in trend_subjects if ref in reported_trends),
+    ]
+    missing_refs_public = [*missing_refs, *(f"trend:{ref}" for ref in missing_trend_refs)]
     return _with_quality_contract(
         {
             "label": "reports",
             "state": "good" if total and ready == total else "partial" if ready else "missing",
             "ready": ready,
             "total": total,
-            "refs": [*missing_refs, *(f"trend:{ref}" for ref in missing_trend_refs)],
+            "refs": missing_refs_public,
+            "readyRefs": ready_refs,
+            "missingRefs": missing_refs_public,
             "roundReports": {
                 "ready": ready_rounds,
                 "total": len(round_refs),
@@ -3069,6 +3087,7 @@ def _shot_row_quality(data: HistoryData) -> dict[str, Any]:
     if not expected_ids:
         expected_ids = sorted(actual_ids)
     missing_refs = [round_id for round_id in expected_ids if round_id not in actual_ids]
+    ready_refs = [round_id for round_id in expected_ids if round_id in actual_ids]
     ready = len(expected_ids) - len(missing_refs)
     total = len(expected_ids)
     return _with_quality_contract(
@@ -3078,6 +3097,8 @@ def _shot_row_quality(data: HistoryData) -> dict[str, Any]:
             "ready": ready,
             "total": total,
             "refs": missing_refs,
+            "readyRefs": ready_refs,
+            "missingRefs": missing_refs,
             "rowCount": len(data.shots),
         }
     )
@@ -3106,6 +3127,8 @@ def _putt_quality(data: HistoryData) -> dict[str, Any]:
             "ready": len(ready_refs),
             "total": total,
             "refs": missing_refs,
+            "readyRefs": ready_refs,
+            "missingRefs": missing_refs,
         }
     )
 
@@ -3134,11 +3157,13 @@ def _club_sample_quality(data: HistoryData, annotations: list[dict[str, Any]] | 
     for shot in _effective_shots(data, annotations):
         shots_by_club[_shot_club(shot)].append(shot)
     problem_refs: list[str] = []
+    ready_refs: list[str] = []
     ready = 0
     for shots in shots_by_club.values():
         quality = _club_sample_quality_rows(shots)
         if int(quality["validSampleCount"]) >= 2:
             ready += 1
+            ready_refs.extend(quality["validShotRefs"])
         else:
             problem_refs.extend(quality["validShotRefs"])
         problem_refs.extend(quality["problemRefs"])
@@ -3150,6 +3175,8 @@ def _club_sample_quality(data: HistoryData, annotations: list[dict[str, Any]] | 
             "ready": ready,
             "total": total,
             "refs": _source_refs(problem_refs),
+            "readyRefs": _source_refs(ready_refs),
+            "missingRefs": _source_refs(problem_refs),
         }
     )
 
@@ -3162,6 +3189,7 @@ def _decision_audit_quality(data: HistoryData, decision_audits: list[dict[str, A
         for ref in _audit_all_refs(record)
     }
     ready_refs = [ref for ref in round_refs if ref in audited_rounds]
+    missing_refs = [ref for ref in round_refs if ref not in audited_rounds]
     total = len(round_refs)
     ready = len(ready_refs)
     return _with_quality_contract(
@@ -3171,6 +3199,8 @@ def _decision_audit_quality(data: HistoryData, decision_audits: list[dict[str, A
             "ready": ready,
             "total": total,
             "refs": ready_refs,
+            "readyRefs": ready_refs,
+            "missingRefs": missing_refs,
             "auditCount": len(_loaded_audit_records(data, decision_audits)),
         }
     )
@@ -3186,6 +3216,8 @@ def _data_quality(
 ) -> list[dict[str, Any]]:
     total = len(data.raw_rounds)
     shots_ready = sum(1 for row in data.raw_rounds if row.get("hasShots"))
+    shot_ready_refs = _source_refs([row.get("id") for row in data.raw_rounds if row.get("hasShots")])
+    shot_missing_refs = _source_refs([row.get("id") for row in data.raw_rounds if not row.get("hasShots")])
     annotation_count = len(annotations or [])
     corrections = [row for row in annotations or [] if row.get("kind") in CORRECTION_KINDS]
     return [
@@ -3195,7 +3227,9 @@ def _data_quality(
                 "state": "good" if total and shots_ready == total else "partial" if shots_ready else "missing",
                 "ready": shots_ready,
                 "total": total,
-                "refs": [str(row.get("id")) for row in data.raw_rounds if not row.get("hasShots")],
+                "refs": shot_missing_refs,
+                "readyRefs": shot_ready_refs,
+                "missingRefs": shot_missing_refs,
             }
         ),
         _shot_row_quality(data),
@@ -3210,6 +3244,8 @@ def _data_quality(
                 "ready": annotation_count,
                 "total": annotation_count,
                 "refs": [str(row.get("id")) for row in annotations or []],
+                "readyRefs": [str(row.get("id")) for row in annotations or []],
+                "missingRefs": [],
             }
         ),
         _with_quality_contract(
@@ -3219,6 +3255,8 @@ def _data_quality(
                 "ready": len(corrections),
                 "total": annotation_count,
                 "refs": [str(row.get("id")) for row in corrections],
+                "readyRefs": [str(row.get("id")) for row in corrections],
+                "missingRefs": [],
             }
         ),
         _decision_audit_quality(data, decision_audits),
