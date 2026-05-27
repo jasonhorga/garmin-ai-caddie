@@ -416,6 +416,44 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(plan["confidence"]["level"], "high")
         self.assertTrue(any(row["kind"] == "strategy" for row in plan["evidence"]))
 
+    def test_manual_strategy_note_blocks_attack_even_in_attack_mode(self) -> None:
+        context = approach_fixture()
+        context["strategyMode"] = "attack"
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["manualNotes"] = [
+            {
+                "kind": "strategy_note",
+                "targetId": "round-1:4",
+                "note": "Do not attack the right bunker line today.",
+            }
+        ]
+
+        plan = recommend_approach(context)
+
+        self.assertNotEqual(plan["selectedOptionId"], "attack")
+        self.assertIn("attack", plan["context"]["strategyConstraints"]["blockedOptionIds"])
+        self.assertEqual(plan["context"]["strategyConstraints"]["sourceRefs"], ["round-1:4"])
+        self.assertTrue(any(row["kind"] == "strategy_constraint" and "blocked attack" in row["text"] for row in plan["evidence"]))
+
+    def test_structured_manual_strategy_note_prefers_stock_option(self) -> None:
+        context = approach_fixture()
+        context["manualNotes"] = [
+            {
+                "kind": "strategy_note",
+                "targetId": "round-1:4",
+                "preferredOptionId": "stock",
+                "blockedOptionIds": ["attack"],
+                "note": "Stock only while protecting the front hazard.",
+            }
+        ]
+
+        plan = recommend_approach(context)
+
+        self.assertEqual(plan["selectedOptionId"], "stock")
+        self.assertEqual(plan["context"]["strategyConstraints"]["preferredOptionId"], "stock")
+        self.assertIn("attack", plan["context"]["strategyConstraints"]["blockedOptionIds"])
+        self.assertIn("round-1:4", plan["evidenceRefs"])
+
     def test_absent_weather_is_reported_as_missing_decision_context(self) -> None:
         plan = recommend_approach(approach_fixture())
 

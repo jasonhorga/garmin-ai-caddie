@@ -37,7 +37,20 @@ VISION_HAZARD_TYPES = {
     "visible_water": "water",
     "visible_bunker": "bunker",
 }
-SOURCE_REF_KEYS = {"sourceRef", "sourceRefs", "refs", "roundRef", "roundRefs", "holeRef", "holeRefs", "shotRef", "shotRefs"}
+SOURCE_REF_KEYS = {
+    "sourceRef",
+    "sourceRefs",
+    "refs",
+    "roundRef",
+    "roundRefs",
+    "holeRef",
+    "holeRefs",
+    "shotRef",
+    "shotRefs",
+    "targetId",
+    "targetRef",
+    "targetRefs",
+}
 AUDIT_REF_KEYS = SOURCE_REF_KEYS | {"decisionSourceRef", "evidenceRefs", "actualShotRefs"}
 UNSAFE_REF_MARKERS = ("cookie", "csrf", "password", "secret", "token", "/home/", "\\", "\n", "\r")
 PRIVATE_PATH_PATTERNS = (
@@ -968,6 +981,116 @@ def _strategy_mode(context: dict[str, Any]) -> str:
     return str(context.get("strategyMode") or context.get("strategy") or "stock").strip().lower()
 
 
+def _normalize_option_id(value: Any) -> str | None:
+    option_id = str(value or "").strip().lower().replace("-", "_")
+    aliases = {
+        "conservative": "safe",
+        "protect_score": "safe",
+        "layup": "safe",
+        "normal": "stock",
+        "standard": "stock",
+        "aggressive": "attack",
+    }
+    option_id = aliases.get(option_id, option_id)
+    return option_id if option_id in OPTION_ORDER else None
+
+
+def _ordered_option_ids(values: set[str]) -> list[str]:
+    return sorted(values, key=lambda option_id: OPTION_ORDER.get(option_id, 9))
+
+
+def _option_ids_from_value(value: Any) -> set[str]:
+    if isinstance(value, str):
+        option_id = _normalize_option_id(value)
+        return {option_id} if option_id else set()
+    if isinstance(value, list):
+        rows: set[str] = set()
+        for item in value:
+            option_id = _normalize_option_id(item)
+            if option_id:
+                rows.add(option_id)
+        return rows
+    return set()
+
+
+def _note_source_refs(note: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    _collect_refs_from_value(note, refs)
+    target = _safe_ref(note.get("targetId") or note.get("targetRef"))
+    if target:
+        refs.append(target)
+    return _dedupe(refs)
+
+
+def _strategy_note_rows(context: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for note in context.get("manualNotes") or []:
+        if not isinstance(note, dict):
+            continue
+        kind = str(note.get("kind") or "").strip().lower()
+        if kind == "strategy_note":
+            rows.append(note)
+    return rows
+
+
+def _strategy_constraints(context: dict[str, Any]) -> dict[str, Any]:
+    preferred = _normalize_option_id(context.get("preferredOptionId") or context.get("preferredOption"))
+    blocked = _option_ids_from_value(context.get("blockedOptionIds") or context.get("avoidOptionIds"))
+    reasons: list[str] = []
+    source_refs: list[str] = []
+
+    for note in _strategy_note_rows(context):
+        source_refs.extend(_note_source_refs(note))
+        explicit_preferred = _normalize_option_id(note.get("preferredOptionId") or note.get("preferredOption"))
+        if explicit_preferred:
+            preferred = explicit_preferred
+            reasons.append(f"manual note prefers {explicit_preferred}")
+        explicit_blocked = _option_ids_from_value(note.get("blockedOptionIds") or note.get("avoidOptionIds"))
+        if explicit_blocked:
+            blocked.update(explicit_blocked)
+            reasons.append(f"manual note blocks {', '.join(_ordered_option_ids(explicit_blocked))}")
+
+        text = str(note.get("note") or note.get("text") or "").strip().lower()
+        if not text:
+            continue
+        if any(phrase in text for phrase in ("do not attack", "don't attack", "no attack", "avoid attack", "not attack", "avoid aggressive", "no aggressive")):
+            blocked.add("attack")
+            reasons.append("manual note blocks attack")
+        if "stock only" in text or "stock line only" in text:
+            preferred = preferred or "stock"
+            blocked.update({"safe", "attack"})
+            reasons.append("manual note limits play to stock")
+        elif any(phrase in text for phrase in ("favor stock", "prefer stock", "play stock", "stock line")) and preferred is None:
+            preferred = "stock"
+            reasons.append("manual note prefers stock")
+        if any(phrase in text for phrase in ("safe only", "layup only", "conservative only")):
+            preferred = preferred or "safe"
+            blocked.update({"stock", "attack"})
+            reasons.append("manual note limits play to safe")
+        elif any(phrase in text for phrase in ("favor safe", "prefer safe", "play safe", "lay up", "layup", "protect score")) and preferred is None:
+            preferred = "safe"
+            reasons.append("manual note prefers safe")
+        if any(phrase in text for phrase in ("attack only", "aggressive only")):
+            preferred = preferred or "attack"
+            blocked.update({"safe", "stock"})
+            reasons.append("manual note limits play to attack")
+        elif any(phrase in text for phrase in ("favor attack", "prefer attack", "attack line")) and preferred is None:
+            preferred = "attack"
+            reasons.append("manual note prefers attack")
+
+    blocked.discard(preferred or "")
+    return {
+        "preferredOptionId": preferred,
+        "blockedOptionIds": _ordered_option_ids(blocked),
+        "sourceRefs": _dedupe(source_refs),
+        "reasons": _dedupe(reasons),
+    }
+
+
+def _strategy_constraints_active(constraints: dict[str, Any]) -> bool:
+    return bool(constraints.get("preferredOptionId") or constraints.get("blockedOptionIds"))
+
+
 def _attack_option_is_playable(
     attack: dict[str, Any],
     *,
@@ -1002,11 +1125,23 @@ def _select_option(
 ) -> dict[str, Any] | None:
     if not options:
         return None
-    safest = min(options, key=lambda row: (row["riskScore"], row["carry_m"]))
+    constraints = _strategy_constraints(context or {})
+    blocked_ids = set(constraints.get("blockedOptionIds") or [])
+    constrained_options = [option for option in options if option.get("id") not in blocked_ids]
+    if not constrained_options:
+        constrained_options = options
+    safest = min(constrained_options, key=lambda row: (row["riskScore"], row["carry_m"]))
     if strategy_mode in {"protect_score", "conservative", "safe"}:
         return safest
-    stock = next((row for row in options if row["id"] == "stock"), None)
-    attack = next((row for row in options if row["id"] == "attack"), None)
+    stock = next((row for row in constrained_options if row["id"] == "stock"), None)
+    attack = next((row for row in constrained_options if row["id"] == "attack"), None)
+    preferred_id = constraints.get("preferredOptionId")
+    preferred = next((row for row in constrained_options if row["id"] == preferred_id), None)
+    if preferred and (
+        preferred.get("id") != "attack"
+        or _attack_option_is_playable(preferred, safest=safest, stock=stock, context=context)
+    ):
+        return preferred
     if strategy_mode in {"attack", "aggressive"} and attack and _attack_option_is_playable(
         attack,
         safest=safest,
@@ -1091,6 +1226,24 @@ def _history_evidence(analysis: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _strategy_constraint_evidence(analysis: dict[str, Any]) -> dict[str, Any] | None:
+    constraints = _strategy_constraints(analysis)
+    if not _strategy_constraints_active(constraints):
+        return None
+    parts = []
+    preferred = constraints.get("preferredOptionId")
+    blocked = constraints.get("blockedOptionIds") or []
+    if preferred:
+        parts.append(f"preferred {preferred}")
+    if blocked:
+        parts.append(f"blocked {', '.join(blocked)}")
+    return {
+        "kind": "strategy_constraint",
+        "text": "strategy constraints: " + "; ".join(parts),
+        "sourceRefs": constraints.get("sourceRefs", []),
+    }
+
+
 def _evidence(
     analysis: dict[str, Any],
     selected: dict[str, Any] | None,
@@ -1130,6 +1283,9 @@ def _evidence(
     if weather:
         rows.append({"kind": "weather", "text": _weather_text(weather)})
     rows.extend(_manual_note_evidence(analysis))
+    strategy_constraint_evidence = _strategy_constraint_evidence(analysis)
+    if strategy_constraint_evidence:
+        rows.append(strategy_constraint_evidence)
     history_evidence = _history_evidence(analysis)
     if history_evidence:
         rows.append(history_evidence)
@@ -2010,7 +2166,7 @@ def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
     source_ref = _source_ref(analysis, shot_type)
-    return {
+    context = {
         "roundId": analysis.get("roundId"),
         "source": analysis.get("source"),
         "sourceRef": source_ref,
@@ -2029,6 +2185,10 @@ def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
         "visionFindings": analysis.get("visionFindings"),
         "manualNotes": _safe_manual_notes(analysis),
     }
+    constraints = _strategy_constraints(analysis)
+    if _strategy_constraints_active(constraints):
+        context["strategyConstraints"] = constraints
+    return context
 
 
 def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -2089,6 +2249,9 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
     if weather:
         rows.append({"kind": "weather", "text": _weather_text(weather)})
     rows.extend(_manual_note_evidence(analysis))
+    strategy_constraint_evidence = _strategy_constraint_evidence(analysis)
+    if strategy_constraint_evidence:
+        rows.append(strategy_constraint_evidence)
     history_evidence = _history_evidence(analysis)
     if history_evidence:
         rows.append(history_evidence)
@@ -2203,6 +2366,20 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
         evidence.append(sequence_evidence)
     acceptable_miss = _acceptable_miss(selected)
     source_ref = _source_ref(analysis, "tee")
+    decision_context = {
+        "roundId": analysis.get("roundId"),
+        "source": analysis.get("source"),
+        "sourceRef": source_ref,
+        "courseName": analysis.get("courseName"),
+        "hole": analysis.get("hole"),
+        "globalId": analysis.get("globalId"),
+        "localHole": analysis.get("localHole"),
+        "teeBox": analysis.get("teeBox"),
+        "manualNotes": _safe_manual_notes(analysis),
+    }
+    constraints = _strategy_constraints(analysis)
+    if _strategy_constraints_active(constraints):
+        decision_context["strategyConstraints"] = constraints
     return {
         "schema": "ai-caddie-decision-v2",
         "decisionId": _decision_id(analysis, "tee", source_ref),
@@ -2210,16 +2387,7 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
         "evidenceRefs": _evidence_refs(analysis, source_ref),
         "shotType": "tee",
         "phase": "tee_shot",
-        "context": {
-            "roundId": analysis.get("roundId"),
-            "source": analysis.get("source"),
-            "sourceRef": source_ref,
-            "courseName": analysis.get("courseName"),
-            "hole": analysis.get("hole"),
-            "globalId": analysis.get("globalId"),
-            "localHole": analysis.get("localHole"),
-            "teeBox": analysis.get("teeBox"),
-        },
+        "context": decision_context,
         "options": options,
         "selected": selected,
         "selectedOptionId": selected.get("id") if selected else None,
