@@ -46,7 +46,7 @@ function QualityDetailRows({
       {missingRefs.length ? (
         <div className="quality-detail-row">
           <span className="quality-detail-chip">missing refs {formatNumber(missingRefs.length)}</span>
-          <SourceRefs refs={missingRefs} onSelectRef={onSelectRef} />
+          <SourceRefs refs={missingRefs} maxVisible={8} onSelectRef={onSelectRef} />
         </div>
       ) : null}
       {nestedFacts.map(([label, row]) => (
@@ -54,7 +54,7 @@ function QualityDetailRows({
           <span className="quality-detail-chip">
             {label} {formatNumber(row.ready)}/{formatNumber(row.total)}
           </span>
-          <SourceRefs refs={row.missingRefs} onSelectRef={onSelectRef} />
+          <SourceRefs refs={row.missingRefs} maxVisible={8} onSelectRef={onSelectRef} />
         </div>
       ))}
     </div>
@@ -83,7 +83,7 @@ export function DataQualityPage({ data, onSelectRef }: DataQualityPageProps) {
             <div className="stats-item-main">
               <h2>{asString(finding.label) ?? 'Unknown source'}</h2>
               <p>
-                <SourceRefs refs={finding.sourceRefs ?? finding.refs} onSelectRef={onSelectRef} />
+                <SourceRefs refs={finding.sourceRefs ?? finding.refs} maxVisible={8} onSelectRef={onSelectRef} />
               </p>
             </div>
             <div className="stats-item-facts">
