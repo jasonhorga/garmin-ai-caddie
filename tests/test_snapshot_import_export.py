@@ -54,6 +54,7 @@ class SnapshotImportExportTests(unittest.TestCase):
             (source / ".env").write_text("SECRET=1", encoding="utf-8")
             (source / ".garmin_tokens").mkdir()
             (source / ".garmin_tokens" / "web_cookie.txt").write_text("cookie", encoding="utf-8")
+            (source / "data" / "scorecards" / "secret-link.json").symlink_to(source / ".env")
             (source / "clubs.json").write_text('{"secret":"club"}', encoding="utf-8")
 
             tarball = Path(tmp) / "snapshot.tar.gz"
@@ -79,6 +80,7 @@ class SnapshotImportExportTests(unittest.TestCase):
             self.assertNotIn("output/prodgeometry_overlay/debug.png", names)
             self.assertNotIn(".env", names)
             self.assertNotIn(".garmin_tokens/web_cookie.txt", names)
+            self.assertNotIn("data/scorecards/secret-link.json", names)
             self.assertNotIn("clubs.json", names)
             self.assertEqual((target / "data" / "summary.json").read_text(encoding="utf-8"), "[]")
             self.assertEqual((target / "data" / "annotations" / "annotations.jsonl").read_text(encoding="utf-8"), '{"kind":"issue_tag"}\n')
