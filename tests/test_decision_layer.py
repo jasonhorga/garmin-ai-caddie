@@ -874,6 +874,65 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("diagnosis:900002:4", plan["evidenceRefs"])
         self.assertIn("diagnostic issue water", history_evidence["text"])
 
+    def test_decision_audit_trends_adjust_future_caddie_risk_with_source_refs(self) -> None:
+        clean_context = approach_fixture()
+        clean_context["strategyMode"] = "attack"
+        clean_context["weatherSnapshot"] = ready_weather_snapshot()
+        clean_plan = recommend_approach(clean_context)
+        clean_attack = next(option for option in clean_plan["options"] if option["id"] == "attack")
+        self.assertEqual(clean_plan["selectedOptionId"], "attack")
+
+        context = approach_fixture()
+        context["strategyMode"] = "attack"
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["diagnosticContext"] = {
+            "decisionAuditTrends": {
+                "totalAudits": 4,
+                "criteriaBreakdown": [
+                    {
+                        "label": "avoid_zones",
+                        "status": "fail",
+                        "count": 3,
+                        "pct": 75.0,
+                        "sourceRefs": ["audit:900002:4"],
+                        "actualShotRefs": ["audit:900002:4:1"],
+                    },
+                    {
+                        "label": "carry_window",
+                        "status": "review",
+                        "count": 1,
+                        "pct": 25.0,
+                        "sourceRefs": ["audit:900003:4"],
+                    },
+                ],
+                "optionOutcomes": [
+                    {
+                        "selectedOptionId": "safe",
+                        "actualOptionId": "attack",
+                        "classification": "strategy",
+                        "count": 2,
+                        "pct": 50.0,
+                        "sourceRefs": ["audit:900004:4"],
+                    }
+                ],
+            }
+        }
+
+        plan = recommend_approach(context)
+        attack = next(option for option in plan["options"] if option["id"] == "attack")
+        factor_labels = {row["label"] for row in attack["historyAdjustment"]["factors"]}
+        history_evidence = next(row for row in plan["evidence"] if row["kind"] == "history")
+
+        self.assertGreater(attack["riskScore"], clean_attack["riskScore"])
+        self.assertNotEqual(plan["selectedOptionId"], "attack")
+        self.assertIn("decision_audit_trends", factor_labels)
+        self.assertIn("avoid_zones:fail", attack["historyAdjustment"]["decisionAuditSignals"])
+        self.assertIn("safe->attack:strategy", attack["historyAdjustment"]["decisionAuditSignals"])
+        self.assertIn("audit:900002:4", attack["historyAdjustment"]["sourceRefs"])
+        self.assertIn("audit:900002:4:1", attack["scoreImpact"]["historyAdjustment"]["sourceRefs"])
+        self.assertGreater(attack["scoreImpact"]["historyAdjustment"]["expectedStrokesDelta"], 0)
+        self.assertIn("decision audit avoid_zones:fail", history_evidence["text"])
+
     def test_player_profile_weaknesses_adjust_caddie_risk_with_source_refs(self) -> None:
         clean_context = approach_fixture()
         clean_context["weatherSnapshot"] = ready_weather_snapshot()

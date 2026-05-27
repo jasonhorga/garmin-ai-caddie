@@ -1284,7 +1284,8 @@ def _history_evidence(analysis: dict[str, Any]) -> dict[str, Any] | None:
     issues = analysis.get("historicalHoleIssues") or analysis.get("holeIssues") or []
     diagnostic_rows = _diagnostic_issue_rows(analysis)
     profile_rows = _player_profile_rows(analysis)
-    if not historical_hole and not course_form and not issues and not diagnostic_rows and not profile_rows:
+    audit_rows = _decision_audit_relevant_rows(analysis, "attack")
+    if not historical_hole and not course_form and not issues and not diagnostic_rows and not profile_rows and not audit_rows:
         return None
 
     adjustment = _history_risk_adjustment(analysis, "attack")
@@ -1320,6 +1321,12 @@ def _history_evidence(analysis: dict[str, Any]) -> dict[str, Any] | None:
         parts.append(f"player profile {player_profile_signals[0]}")
         if player_profile_impact:
             parts.append(f"profile impact +{player_profile_impact}")
+    decision_audit_signals = adjustment.get("decisionAuditSignals") if isinstance(adjustment.get("decisionAuditSignals"), list) else []
+    decision_audit_impact = adjustment.get("decisionAuditImpact")
+    if decision_audit_signals:
+        parts.append(f"decision audit {decision_audit_signals[0]}")
+        if decision_audit_impact:
+            parts.append(f"audit impact +{decision_audit_impact}")
     if not parts:
         parts.append("historical hole and course context considered")
     return {
@@ -1712,6 +1719,94 @@ def _profile_signal_names(rows: list[dict[str, Any]]) -> list[str]:
     return _dedupe(names)
 
 
+def _decision_audit_groups(context: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    diagnostic = context.get("diagnosticContext") if isinstance(context.get("diagnosticContext"), dict) else {}
+    audit = diagnostic.get("decisionAuditTrends") if isinstance(diagnostic.get("decisionAuditTrends"), dict) else {}
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for key in ("criteriaBreakdown", "optionOutcomes", "recentCostDrivers", "classificationCounts"):
+        value = audit.get(key)
+        groups[key] = [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+    return groups
+
+
+def _audit_row_status(row: dict[str, Any]) -> str:
+    return str(row.get("status") or "").strip().lower()
+
+
+def _audit_row_classification(row: dict[str, Any]) -> str:
+    return str(row.get("classification") or "").strip().lower()
+
+
+def _decision_audit_relevant_rows(context: dict[str, Any], option_id: str) -> list[dict[str, Any]]:
+    groups = _decision_audit_groups(context)
+    rows: list[dict[str, Any]] = []
+    for row in groups["criteriaBreakdown"]:
+        status = _audit_row_status(row)
+        if status in {"fail", "review", "missing"}:
+            rows.append({"kind": "criterion", **row})
+    for row in groups["optionOutcomes"]:
+        classification = _audit_row_classification(row)
+        selected = str(row.get("selectedOptionId") or "").strip().lower()
+        actual = str(row.get("actualOptionId") or "").strip().lower()
+        if classification not in {"strategy", "execution", "info_gap"}:
+            continue
+        if option_id in {selected, actual} or not selected or not actual:
+            rows.append({"kind": "option_outcome", **row})
+    for key, kind in (("recentCostDrivers", "cost_driver"), ("classificationCounts", "classification")):
+        for row in groups[key]:
+            classification = _audit_row_classification(row)
+            if classification in {"strategy", "execution", "info_gap"}:
+                rows.append({"kind": kind, **row})
+    return rows
+
+
+def _decision_audit_row_impact(row: dict[str, Any]) -> float:
+    count = max(1, _int_count(row.get("count") or row.get("recentCount") or row.get("deltaCount")))
+    pct = max(0.0, min(100.0, _float(row.get("pct"), 0.0)))
+    estimated = max(0.0, _float(row.get("estimatedStrokesLost"), 0.0))
+    kind = str(row.get("kind") or "")
+    if kind == "criterion":
+        status_weight = {"fail": 0.65, "review": 0.35, "missing": 0.25}.get(_audit_row_status(row), 0.15)
+        return min(2.0, count * status_weight + pct * 0.01)
+    if kind == "option_outcome":
+        class_weight = {"strategy": 0.8, "execution": 0.55, "info_gap": 0.25}.get(_audit_row_classification(row), 0.2)
+        return min(2.5, count * class_weight + pct * 0.008)
+    if estimated > 0:
+        return min(2.5, estimated)
+    class_weight = {"strategy": 0.55, "execution": 0.4, "info_gap": 0.2}.get(_audit_row_classification(row), 0.15)
+    return min(1.5, count * class_weight + pct * 0.005)
+
+
+def _decision_audit_refs(rows: list[dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    for row in rows:
+        _collect_refs_from_value(row, refs)
+        refs.extend(_sanitize_ref_list(row.get("actualShotRefs")))
+        refs.extend(_sanitize_ref_list(row.get("evidenceRefs")))
+    return _dedupe(refs)
+
+
+def _decision_audit_signal_names(rows: list[dict[str, Any]]) -> list[str]:
+    names: list[str] = []
+    for row in rows:
+        kind = str(row.get("kind") or "")
+        if kind == "criterion":
+            label = str(row.get("label") or "criterion").strip()
+            status = _audit_row_status(row)
+            if label:
+                names.append(f"{label}:{status or 'unknown'}")
+        elif kind == "option_outcome":
+            selected = str(row.get("selectedOptionId") or "unknown").strip()
+            actual = str(row.get("actualOptionId") or "unknown").strip()
+            classification = _audit_row_classification(row) or "unknown"
+            names.append(f"{selected}->{actual}:{classification}")
+        else:
+            classification = _audit_row_classification(row)
+            if classification:
+                names.append(classification)
+    return _dedupe(names)
+
+
 def _issue_signal_rows(context: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for row in (context.get("historicalHoleIssues") or context.get("holeIssues") or []):
@@ -1963,6 +2058,23 @@ def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[st
             )
         )
 
+    audit_rows = _decision_audit_relevant_rows(context, option_id)
+    audit_impact = min(4.0, sum(_decision_audit_row_impact(row) for row in audit_rows))
+    if audit_impact > 0:
+        audit_weight = {"safe": 0.04, "stock": 0.3, "attack": 0.75}.get(option_id, 0.3)
+        factors.append(
+            _history_factor(
+                "decision_audit_trends",
+                audit_impact,
+                audit_impact * audit_weight,
+                _decision_audit_refs(audit_rows),
+                {
+                    "signals": _decision_audit_signal_names(audit_rows),
+                    "decisionAuditImpact": round(audit_impact, 1),
+                },
+            )
+        )
+
     risk_delta = sum(_float(factor.get("riskScoreDelta")) for factor in factors)
     risk_delta = min({"safe": 1.0, "stock": 4.0, "attack": 8.0}.get(option_id, 4.0), risk_delta)
     return {
@@ -1979,6 +2091,8 @@ def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[st
         "diagnosticIssues": _diagnostic_issue_names(diagnostic_rows),
         "playerProfileImpact": round(profile_impact, 1),
         "playerProfileSignals": _profile_signal_names(profile_rows),
+        "decisionAuditImpact": round(audit_impact, 1),
+        "decisionAuditSignals": _decision_audit_signal_names(audit_rows),
         "factors": factors,
         "sourceRefs": source_refs,
     }
@@ -2366,6 +2480,7 @@ HISTORY_EXPECTED_STROKES_MULTIPLIERS = {
     "course_recent_form": 0.08,
     "diagnosis_issue_trends": 0.09,
     "player_profile": 0.06,
+    "decision_audit_trends": 0.08,
 }
 
 
@@ -2401,6 +2516,9 @@ def _observed_history_expected_delta(factor: dict[str, Any]) -> float:
     if label == "player_profile":
         observed = max(0.0, _float(value.get("playerProfileImpact"), 0.0)) * 0.04
         return _weighted_observed_history_delta(factor, min(0.25, observed))
+    if label == "decision_audit_trends":
+        observed = max(0.0, _float(value.get("decisionAuditImpact"), 0.0)) * 0.06
+        return _weighted_observed_history_delta(factor, min(0.35, observed))
     return 0.0
 
 
