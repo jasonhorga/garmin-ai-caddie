@@ -634,6 +634,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("Cached package stale", app_swift)
         self.assertIn("case .ready:", app_swift)
 
+    def test_ios_expired_cached_package_can_continue_active_round_offline(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+
+        self.assertIn("private func canContinueExpiredPackage(_ cachedPackage: LiveRoundPackage) throws -> Bool", app_swift)
+        self.assertIn("offlineStore.loadPendingEvents(roundId: cachedPackage.roundId).isEmpty == false", app_swift)
+        self.assertIn("if try canContinueExpiredPackage(cached)", app_swift)
+        self.assertIn("if try canContinueExpiredPackage(cachedPackage)", app_swift)
+        self.assertIn('try activatePackage(cached, status: "Cached package expired; continuing active round offline")', app_swift)
+        self.assertIn(
+            'try activatePackage(cachedPackage, status: "Cached package expired; continuing active round offline")',
+            app_swift,
+        )
+
     def test_ios_api_base_url_feeds_live_caddie_and_media_upload(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")

@@ -102,6 +102,10 @@ public final class LiveRoundAppModel: ObservableObject {
             if let cached = try offlineStore.loadCurrentRoundPackage() {
                 switch cached.cacheState() {
                 case .expired:
+                    if try canContinueExpiredPackage(cached) {
+                        try activatePackage(cached, status: "Cached package expired; continuing active round offline")
+                        return
+                    }
                     syncStatus = "Cached package expired; using fallback"
                 case .stale:
                     try activatePackage(cached, status: "Cached package stale")
@@ -144,6 +148,10 @@ public final class LiveRoundAppModel: ObservableObject {
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
                 switch cachedPackage.cacheState() {
                 case .expired:
+                    if try canContinueExpiredPackage(cachedPackage) {
+                        try activatePackage(cachedPackage, status: "Cached package expired; continuing active round offline")
+                        return
+                    }
                     syncStatus = "Cached package expired"
                 case .stale:
                     try activatePackage(cachedPackage, status: "Cached package stale")
@@ -283,6 +291,10 @@ public final class LiveRoundAppModel: ObservableObject {
         package = nextPackage
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
         syncStatus = status
+    }
+
+    private func canContinueExpiredPackage(_ cachedPackage: LiveRoundPackage) throws -> Bool {
+        try offlineStore.loadPendingEvents(roundId: cachedPackage.roundId).isEmpty == false
     }
 
     private func idempotencyKey(roundId: String, events: [LiveRoundEvent]) -> String {
