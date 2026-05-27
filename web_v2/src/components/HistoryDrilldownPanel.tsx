@@ -142,8 +142,21 @@ function RelatedRefs({
 
 function correctionTargetForDrilldown(data: HistoryDrilldownResponse): { targetType: AnnotationTargetType; targetId: string } | null {
   if (!data.found || !data.ref.trim()) return null
-  if (data.refType === 'round' || data.refType === 'hole' || data.refType === 'shot') {
-    return { targetType: data.refType, targetId: data.ref }
+  if (data.refType === 'round') {
+    const targetId = compactPayloadValue(data.round?.id) ?? data.ref
+    return { targetType: 'round', targetId }
+  }
+  if (data.refType === 'hole') {
+    const roundId = compactPayloadValue(data.round?.id)
+    const holeNumber = compactPayloadValue(data.hole?.number)
+    const canonicalHoleRef =
+      data.relatedRefs.holeRefs[0] ??
+      (roundId && holeNumber ? `${roundId}:${holeNumber}` : null)
+    return { targetType: 'hole', targetId: canonicalHoleRef ?? data.ref }
+  }
+  if (data.refType === 'shot') {
+    const shotRef = typeof data.shot?.ref === 'string' && data.shot.ref.trim() ? data.shot.ref.trim() : null
+    return { targetType: 'shot', targetId: shotRef ?? data.relatedRefs.shotRefs[0] ?? data.ref }
   }
   return null
 }

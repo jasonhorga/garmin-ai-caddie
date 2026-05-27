@@ -162,4 +162,24 @@ describe('CorrectionsPage', () => {
     expect(screen.getByLabelText('Target type')).toHaveValue('hole')
     expect(screen.getByLabelText('Target ID')).toHaveValue('900001:7')
   })
+
+  it('restores the source-bound target type when saving after local target edits', async () => {
+    const onCreateAnnotation = renderPage(undefined, { targetType: 'hole', targetId: '900001:7' })
+
+    await userEvent.selectOptions(screen.getByLabelText('Target type'), 'shot')
+    await userEvent.clear(screen.getByLabelText('Target ID'))
+    await userEvent.type(screen.getByLabelText('Target ID'), '900001:7:1')
+    await userEvent.selectOptions(screen.getByLabelText('Correction type'), 'note')
+    await userEvent.type(screen.getByLabelText('Note'), 'Pin was back right')
+    await userEvent.click(screen.getByRole('button', { name: 'Save annotation' }))
+
+    expect(onCreateAnnotation).toHaveBeenCalledWith({
+      targetType: 'shot',
+      targetId: '900001:7:1',
+      kind: 'shot_note',
+      payload: { text: 'Pin was back right' },
+    })
+    expect(screen.getByLabelText('Target type')).toHaveValue('hole')
+    expect(screen.getByLabelText('Target ID')).toHaveValue('900001:7')
+  })
 })

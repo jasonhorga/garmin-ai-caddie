@@ -69,6 +69,43 @@ describe('HistoryDrilldownPanel', () => {
     expect(onCreateAnnotationForSource).toHaveBeenCalledWith({ targetType: 'shot', targetId: '900001:1:0' })
   })
 
+  it('creates corrections against canonical source targets when a drilldown ref is an alias', async () => {
+    const onCreateAnnotationForSource = vi.fn()
+
+    render(
+      <HistoryDrilldownPanel
+        onCreateAnnotationForSource={onCreateAnnotationForSource}
+        state={{
+          status: 'ready',
+          data: {
+            schema: 'ai-caddie-history-drilldown-v1',
+            ref: 'garmin:shots:710001:hole10:shot0',
+            refType: 'shot',
+            found: true,
+            title: '3W on H10',
+            round: { id: 'merged_710001_710002', score: 82 },
+            hole: { number: 10, par: 5, strokes: 5 },
+            shot: { ref: 'merged_710001_710002:10:0', club: '3W', distance: 218, surface: 'fairway' },
+            relatedRefs: {
+              roundRefs: ['merged_710001_710002'],
+              holeRefs: ['merged_710001_710002:10'],
+              shotRefs: ['merged_710001_710002:10:0'],
+            },
+            sourceFields: { clubName: '3W', meters: 218 },
+            missingData: [],
+          },
+        }}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add correction for source garmin:shots:710001:hole10:shot0' }))
+
+    expect(onCreateAnnotationForSource).toHaveBeenCalledWith({
+      targetType: 'shot',
+      targetId: 'merged_710001_710002:10:0',
+    })
+  })
+
   it('surfaces missing source reasons for unresolved refs', () => {
     render(
       <HistoryDrilldownPanel

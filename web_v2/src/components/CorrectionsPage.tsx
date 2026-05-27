@@ -241,6 +241,7 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
     try {
       const response = await onCreateAnnotation(buildRequest())
       setMessage(`Saved ${labelKind(response.annotation.kind)}`)
+      setTargetType(initialTarget?.targetType ?? targetType)
       setTargetId(initialTarget?.targetId ?? '')
       setRecordedClub('')
       setCorrectedClub('')
