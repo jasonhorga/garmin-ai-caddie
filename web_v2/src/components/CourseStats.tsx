@@ -43,12 +43,16 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
           const recentForm = asRecord(course.recentForm)
           const teeDirection = asRecord(course.teeDirection)
           const approachMiss = asRecord(course.approachMiss)
+          const difficultyAdjusted = asRecord(course.difficultyAdjusted)
+          const difficultyCoverage = asRecord(difficultyAdjusted.coverage ?? recentForm.difficultyAdjustedCoverage)
           const issueProfile = asRows(course.issueProfile).slice(0, 4)
           const toughestHoles = asRows(course.toughestHoles).slice(0, 4)
           const direction = asString(recentForm.direction)
+          const differentialDirection = asString(recentForm.differentialDirection)
           const dominantMiss = asString(teeDirection.dominantMiss)
           const dominantApproachMiss = asString(approachMiss.dominantMiss)
           const courseName = asString(course.courseName) ?? 'course'
+          const hasDifficultyAdjusted = Object.keys(difficultyAdjusted).length > 0
           return (
             <article key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="stats-item">
               <div className="stats-item-main">
@@ -60,6 +64,8 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
                 <span>avg {formatNumber(course.average18)}</span>
                 <span>best {formatNumber(course.bestScore)}</span>
                 <span>worst {formatNumber(course.worstScore)}</span>
+                {course.averageDifferential !== undefined ? <span>avg diff {formatNumber(course.averageDifferential)}</span> : null}
+                {course.bestDifferential !== undefined ? <span>best diff {formatNumber(course.bestDifferential)}</span> : null}
                 {recentForm.recentAverage18 !== undefined ? <span>recent {formatNumber(recentForm.recentAverage18)}</span> : null}
                 {teeDirection.hitPct !== undefined ? <span>FIR {formatNumber(teeDirection.hitPct)}%</span> : null}
                 {dominantMiss && dominantMiss !== 'unknown' ? (
@@ -78,6 +84,11 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
                     {direction} {formatSigned(recentForm.deltaAverage18)}
                   </span>
                 ) : null}
+                {differentialDirection ? (
+                  <span className={`semantic-chip ${semanticClass('trend', differentialDirection)}`}>
+                    diff {differentialDirection} {formatSigned(recentForm.deltaAverageDifferential)}
+                  </span>
+                ) : null}
                 {asString(course.geometryCoverage) ? (
                   <span className={`semantic-chip ${semanticClass('quality', course.geometryCoverage)}`}>geometry {asString(course.geometryCoverage)}</span>
                 ) : null}
@@ -86,8 +97,40 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
               <p className="stats-refs">
                 <SourceRefs refs={course.roundRefs ?? course.roundIds} onSelectRef={onSelectRef} />
               </p>
-              {issueProfile.length || toughestHoles.length ? (
+              {issueProfile.length || toughestHoles.length || hasDifficultyAdjusted ? (
                 <div className="course-breakdown">
+                  {hasDifficultyAdjusted ? (
+                    <section aria-label={`${courseName} difficulty adjusted`}>
+                      <h3>Difficulty Adjusted</h3>
+                      <div className="course-insight-list">
+                        <div className="course-insight-row">
+                          <span>
+                            <strong>Rating / slope coverage</strong>
+                            <b>
+                              {formatNumber(difficultyAdjusted.ratedRoundCount)} / {formatNumber(difficultyAdjusted.eligibleRoundCount)} rounds
+                            </b>
+                            <em>avg diff {formatNumber(difficultyAdjusted.averageDifferential)}</em>
+                            <em>best {formatNumber(difficultyAdjusted.bestDifferential)}</em>
+                            {difficultyCoverage.ready !== undefined ? (
+                              <em>
+                                coverage {formatNumber(difficultyCoverage.ready)}/{formatNumber(difficultyCoverage.total)} {formatNumber(difficultyCoverage.pct)}%
+                              </em>
+                            ) : null}
+                          </span>
+                          <SourceRefs refs={difficultyAdjusted.roundRefs ?? difficultyAdjusted.sourceRefs} onSelectRef={onSelectRef} />
+                        </div>
+                        {Array.isArray(difficultyAdjusted.missingRoundRefs) && difficultyAdjusted.missingRoundRefs.length > 0 ? (
+                          <div className="course-insight-row">
+                            <span>
+                              <strong>Missing rating / slope</strong>
+                              <b>{formatNumber(difficultyAdjusted.missingRoundRefs.length)} rounds</b>
+                            </span>
+                            <SourceRefs refs={difficultyAdjusted.missingRoundRefs} onSelectRef={onSelectRef} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
                   {issueProfile.length ? (
                     <section aria-label={`${courseName} issue profile`}>
                       <h3>Course Issue Profile</h3>

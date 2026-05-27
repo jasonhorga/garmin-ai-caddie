@@ -45,11 +45,33 @@ const statsFixture: HistoryStatsResponse = {
       average18: 82,
       bestScore: 77,
       worstScore: 87,
+      averageDifferential: 9.8,
+      bestDifferential: 6.1,
+      difficultyAdjusted: {
+        eligibleRoundCount: 3,
+        ratedRoundCount: 2,
+        averageDifferential: 9.8,
+        medianDifferential: 9.8,
+        bestDifferential: 6.1,
+        worstDifferential: 13.5,
+        recent5AverageDifferential: 8.2,
+        recent10AverageDifferential: 9.8,
+        roundRefs: ['900001', '900002'],
+        missingRoundRefs: ['900003'],
+        coverage: { ready: 2, total: 3, pct: 66.7 },
+        confidence: 'medium',
+      },
       recentForm: {
         baselineAverage18: 87,
         recentAverage18: 77,
         deltaAverage18: -10,
         direction: 'improving',
+        baselineAverageDifferential: 13.5,
+        recentAverageDifferential: 8.2,
+        deltaAverageDifferential: -5.3,
+        differentialPerRoundTrend: -1.7,
+        differentialDirection: 'improving',
+        difficultyAdjustedCoverage: { ready: 2, total: 3, pct: 66.7 },
         baselineRoundRefs: ['900002'],
         recentRoundRefs: ['900001'],
       },
@@ -132,20 +154,32 @@ describe('CourseStats', () => {
 
     expect(screen.getByRole('heading', { name: 'Course Stats' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Black Knight B' })).toBeInTheDocument()
+    const facts = screen.getByLabelText('Black Knight B facts')
     expect(screen.getAllByText('2 rounds').length).toBeGreaterThan(0)
     expect(screen.getByText('avg 82')).toBeInTheDocument()
     expect(screen.getByText('best 77')).toBeInTheDocument()
     expect(screen.getByText('worst 87')).toBeInTheDocument()
+    expect(within(facts).getByText('avg diff 9.8')).toBeInTheDocument()
+    expect(within(facts).getByText('best diff 6.1')).toBeInTheDocument()
     expect(screen.getByText('recent 77')).toBeInTheDocument()
     expect(screen.getByText('FIR 25%')).toBeInTheDocument()
     expect(screen.getByText('tee right 50%')).toHaveClass('tee-right')
     expect(screen.getByText('GIR 25%')).toBeInTheDocument()
     expect(screen.getByText('approach short 50%')).toHaveClass('approach-short')
     expect(screen.getByText('improving -10')).toHaveClass('trend-improving')
+    expect(screen.getByText('diff improving -5.3')).toHaveClass('trend-improving')
     expect(screen.getByText('geometry missing 0/2')).toHaveClass('quality-missing')
     expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
-    expect(screen.getByText('coverage 2/3 66.7%')).toBeInTheDocument()
+    expect(screen.getAllByText('coverage 2/3 66.7%').length).toBeGreaterThan(0)
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(screen.getByText('Difficulty Adjusted')).toBeInTheDocument()
+    const difficultyAdjusted = screen.getByLabelText('Black Knight B difficulty adjusted')
+    expect(within(difficultyAdjusted).getByText('Rating / slope coverage')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('2 / 3 rounds')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('coverage 2/3 66.7%')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('Missing rating / slope')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('1 rounds')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
     expect(screen.getByText('Course Issue Profile')).toBeInTheDocument()
     expect(screen.getByText('double_or_worse')).toBeInTheDocument()
     expect(screen.getByText('5 holes')).toBeInTheDocument()
