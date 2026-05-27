@@ -140,38 +140,101 @@ export default function App() {
     return trimmed.length ? trimmed : undefined
   }
 
+  function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown error'
+  }
+
+  async function refreshOverviewState() {
+    try {
+      const data = await fetchHistoryOverview()
+      setOverviewState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setOverviewState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
+    }
+  }
+
+  async function loadRoundsState() {
+    setRoundsState({ status: 'loading' })
+    try {
+      const data = await fetchHistoryRounds()
+      setRoundsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setRoundsState({ status: 'error', message: errorMessage(error) })
+    }
+  }
+
+  async function refreshRoundsState() {
+    try {
+      const data = await fetchHistoryRounds()
+      setRoundsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setRoundsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
+    }
+  }
+
+  async function loadStatsState() {
+    setStatsState({ status: 'loading' })
+    try {
+      const data = await fetchHistoryStats()
+      setStatsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setStatsState({ status: 'error', message: errorMessage(error) })
+    }
+  }
+
+  async function refreshStatsState() {
+    try {
+      const data = await fetchHistoryStats()
+      setStatsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setStatsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
+    }
+  }
+
+  async function loadReadinessState() {
+    setReadinessState({ status: 'loading' })
+    try {
+      const data = await fetchReadiness()
+      setReadinessState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setReadinessState({ status: 'error', message: errorMessage(error) })
+    }
+  }
+
+  async function refreshReadinessState() {
+    try {
+      const data = await fetchReadiness()
+      setReadinessState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setReadinessState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
+    }
+  }
+
+  function refreshLoadedHistorySurfaces() {
+    void refreshOverviewState()
+    if (roundsState.status !== 'idle') void refreshRoundsState()
+    if (statsState.status !== 'idle') void refreshStatsState()
+    if (readinessState.status !== 'idle') void refreshReadinessState()
+    if (reportIndexState.status !== 'idle') loadReportIndex()
+  }
+
   function navigate(page: ProductPage) {
     setActivePage(page)
     if (page === 'rounds' && roundsState.status === 'idle') {
-      setRoundsState({ status: 'loading' })
-      fetchHistoryRounds()
-        .then((data) => setRoundsState({ status: 'ready', data }))
-        .catch((error: unknown) =>
-          setRoundsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
-        )
+      void loadRoundsState()
     }
     if (statsPages.includes(page) && statsState.status === 'idle') {
-      setStatsState({ status: 'loading' })
-      fetchHistoryStats()
-        .then((data) => setStatsState({ status: 'ready', data }))
-        .catch((error: unknown) =>
-          setStatsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
-        )
+      void loadStatsState()
     }
     if (page === 'sync-quality' && readinessState.status === 'idle') {
-      setReadinessState({ status: 'loading' })
-      fetchReadiness()
-        .then((data) => setReadinessState({ status: 'ready', data }))
-        .catch((error: unknown) =>
-          setReadinessState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
-        )
+      void loadReadinessState()
     }
     if (page === 'corrections' && annotationsState.status === 'idle') {
       setAnnotationsState({ status: 'loading' })
       fetchAnnotations(currentAdminToken())
         .then((data) => setAnnotationsState({ status: 'ready', data }))
         .catch((error: unknown) =>
-          setAnnotationsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
+          setAnnotationsState({ status: 'error', message: errorMessage(error) }),
         )
     }
     if (page === 'reports' && reportIndexState.status === 'idle') {
@@ -201,6 +264,7 @@ export default function App() {
         },
       }
     })
+    refreshLoadedHistorySurfaces()
     return response
   }
 
@@ -253,6 +317,7 @@ export default function App() {
       await runGarminSync({ withShots: true, forceRefreshAuth: false, adminToken: adminToken ?? currentAdminToken() })
       const status = await fetchSyncStatus()
       setSyncStatus(status)
+      refreshLoadedHistorySurfaces()
       setSyncRunState('idle')
     } catch {
       const status = await fetchSyncStatus().catch(() => null)
@@ -268,6 +333,7 @@ export default function App() {
       await saveGarminSession(request, adminToken ?? currentAdminToken())
       const status = await fetchSyncStatus()
       setSyncStatus(status)
+      refreshLoadedHistorySurfaces()
       setSessionSaveState('saved')
     } catch (error: unknown) {
       setSessionSaveError(error instanceof Error ? error.message : 'Unknown error')
@@ -410,6 +476,7 @@ export default function App() {
     try {
       const data = await applyMobileReconciliationSuggestions(roundId, suggestionIds, currentAdminToken())
       setMobileReconciliationApplyState({ status: 'ready', data })
+      refreshLoadedHistorySurfaces()
       return data
     } catch (error: unknown) {
       setMobileReconciliationApplyState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })

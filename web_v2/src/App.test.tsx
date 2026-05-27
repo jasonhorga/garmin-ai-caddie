@@ -151,6 +151,32 @@ function syncStatusPayload() {
   }
 }
 
+function syncStatusCanSyncPayload() {
+  const payload = syncStatusPayload()
+  return {
+    ...payload,
+    connector: { ...payload.connector, canSync: true },
+  }
+}
+
+function syncRunPayload() {
+  return {
+    schema: 'ai-caddie-sync-run-v2',
+    connector: 'garmin_cn_web_session',
+    state: 'ready',
+    detail: 'Sync completed.',
+    reauthRequired: false,
+    errorCode: null,
+    snapshot: {
+      snapshotId: 'snap-test',
+      scorecardCount: 3,
+      shotFileCount: 2,
+      summaryPresent: true,
+      files: [],
+    },
+  }
+}
+
 function readinessPayload() {
   return {
     schema: 'ai-caddie-readiness-v1',
@@ -802,6 +828,41 @@ describe('App navigation', () => {
     expect(screen.getByText('Trackman confirmed the club')).toBeInTheDocument()
   })
 
+  it('refreshes loaded history stats after creating a correction', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/annotations' && init?.method === 'POST') return createdAnnotationPayload()
+        if (path === '/api/v2/annotations') return annotationsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'History' }))
+    expect(await screen.findByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open corrections' }))
+    expect(await screen.findByRole('heading', { name: 'Corrections' })).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByLabelText('Target type'), 'shot')
+    await userEvent.clear(screen.getByLabelText('Target ID'))
+    await userEvent.type(screen.getByLabelText('Target ID'), 'round-1:8:shot-1')
+    await userEvent.selectOptions(screen.getByLabelText('Correction type'), 'club_correction')
+    await userEvent.type(screen.getByLabelText('Recorded club'), '7I')
+    await userEvent.type(screen.getByLabelText('Corrected club'), '8I')
+    await userEvent.click(screen.getByRole('button', { name: 'Save annotation' }))
+
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
+  })
+
   it('opens the reports workspace and loads a trend report', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
@@ -894,13 +955,38 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Apply selected suggestions' }))
     expect(await screen.findByText('Applied 1 suggestions')).toBeInTheDocument()
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation')
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v2/mobile/rounds/900001/reconciliation/apply',
       expect.objectContaining({ method: 'POST' }),
     )
+  })
+
+  it('refreshes loaded history stats after Garmin sync completes', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusCanSyncPayload()
+        if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') return syncRunPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'History' }))
+    expect(await screen.findByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=true&force_refresh_auth=false', { method: 'POST' })
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
   })
 
   it('loads hole geometry evidence after selecting a hole source ref', async () => {
