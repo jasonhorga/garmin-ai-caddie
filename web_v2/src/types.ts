@@ -628,6 +628,19 @@ export interface ReadinessResponse {
   checks: ReadinessCheck[]
 }
 
+export interface ProductSettingsResponse {
+  schema: 'ai-caddie-product-settings-v1'
+  dataSources: Array<Record<string, unknown>>
+  aiProviders: {
+    activeProvider: string
+    factBindingRequired: boolean
+    providers: Array<Record<string, unknown>>
+  }
+  liveApps: Record<string, unknown>
+  privacy: Record<string, unknown>
+  endpoints: Record<string, string>
+}
+
 export interface AnnotationRecord {
   id: string
   createdAt: string

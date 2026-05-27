@@ -27,6 +27,7 @@ import {
   fetchVisionFindingsForTarget,
   fetchSyncStatus,
   fetchMobileReconciliation,
+  fetchProductSettings,
   applyMobileReconciliationSuggestions,
   redactMedia,
   runGarminSync,
@@ -77,6 +78,25 @@ describe('fetchHistoryOverview', () => {
     expect(payload.schema).toBe('ai-caddie-history-overview-v2')
     expect(payload.metrics.totalRounds).toBe(0)
     expect(fetch).toHaveBeenCalledWith('/api/v2/history/overview')
+  })
+
+  it('loads product settings from the settings endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-product-settings-v1',
+        dataSources: [],
+        aiProviders: { activeProvider: 'static', factBindingRequired: true, providers: [] },
+        liveApps: {},
+        privacy: {},
+        endpoints: {},
+      }),
+    })))
+
+    const settings = await fetchProductSettings()
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/settings/product')
+    expect(settings.schema).toBe('ai-caddie-product-settings-v1')
   })
 
   it('throws a useful error when the API request fails', async () => {

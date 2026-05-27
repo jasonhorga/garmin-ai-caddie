@@ -92,6 +92,7 @@ from .reports import (
     load_trend_report_response,
 )
 from .readiness import build_readiness_response
+from .product_settings import build_product_settings_response
 from .session import save_garmin_session_response
 from .sync_status import load_sync_status_response
 
@@ -210,6 +211,7 @@ def service_index() -> dict[str, object]:
         "endpoints": {
             "health": "/api/v2/health",
             "readiness": "/api/v2/readiness",
+            "productSettings": "/api/v2/settings/product",
             "historyOverview": "/api/v2/history/overview",
             "historyRounds": "/api/v2/history/rounds",
             "historyStats": "/api/v2/history/stats",
@@ -258,6 +260,11 @@ def health() -> dict[str, str]:
 @app.get("/api/v2/readiness")
 def readiness() -> dict[str, object]:
     return build_readiness_response()
+
+
+@app.get("/api/v2/settings/product")
+def product_settings() -> dict[str, object]:
+    return build_product_settings_response()
 
 
 @app.get("/api/v2/history/overview", response_model=HistoryOverviewResponse)

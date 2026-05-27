@@ -27,6 +27,7 @@ import type {
   MediaTargetType,
   MobileReconciliationApplyResponse,
   MobileReconciliationResponse,
+  ProductSettingsResponse,
   ReadinessResponse,
   ReviewReportIndexResponse,
   ReviewReportResponse,
@@ -257,6 +258,10 @@ export function fetchSyncStatus(): Promise<SyncStatusResponse> {
 
 export function fetchReadiness(): Promise<ReadinessResponse> {
   return getJson<ReadinessResponse>('/api/v2/readiness')
+}
+
+export function fetchProductSettings(): Promise<ProductSettingsResponse> {
+  return getJson<ProductSettingsResponse>('/api/v2/settings/product')
 }
 
 export function fetchMobileReconciliation(roundId: string): Promise<MobileReconciliationResponse> {

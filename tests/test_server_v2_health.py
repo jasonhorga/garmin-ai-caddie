@@ -17,6 +17,7 @@ class ServerV2HealthTests(unittest.TestCase):
         self.assertEqual(response.json()["schema"], "ai-caddie-service-index-v2")
         self.assertEqual(response.json()["service"], "server_v2")
         self.assertEqual(response.json()["endpoints"]["health"], "/api/v2/health")
+        self.assertEqual(response.json()["endpoints"]["productSettings"], "/api/v2/settings/product")
         self.assertEqual(response.json()["endpoints"]["historyOverview"], "/api/v2/history/overview")
         self.assertEqual(response.json()["endpoints"]["historyStats"], "/api/v2/history/stats")
         self.assertEqual(response.json()["endpoints"]["geometryCourseCoverage"], "/api/v2/geometry/course/{global_id}/coverage")
