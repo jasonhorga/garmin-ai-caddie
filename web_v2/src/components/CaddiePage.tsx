@@ -557,6 +557,7 @@ function DecisionDetail({
       </div>
 
       <DecisionSequences sequences={decision.sequences ?? []} selectedSequence={decision.selectedSequence ?? null} />
+      <DecisionExplanation explanation={decision.explanation} onSelectRef={onSelectRef} />
 
       <div className="report-evidence-grid">
         <EvidenceList title="Evidence" rows={decision.evidence} />
@@ -572,6 +573,80 @@ function DecisionDetail({
           onSelectRef={onSelectRef}
         />
       ) : null}
+    </section>
+  )
+}
+
+function DecisionExplanation({
+  explanation,
+  onSelectRef,
+}: {
+  explanation: unknown
+  onSelectRef: (sourceRef: string) => void
+}) {
+  const row = recordFrom(explanation)
+  if (!Object.keys(row).length) return null
+
+  const provider = [stringValue(row.provider), stringValue(row.model)].filter(Boolean).join(' / ') || 'unknown provider'
+  const confidence = stringValue(row.confidence) || 'unknown'
+  const factBinding = recordFrom(row.factBinding)
+  const bindingState = stringValue(factBinding.state) || 'bound'
+  const facts = recordRows(row.factsUsed)
+  const missingData = recordRows(row.missingData)
+  const unsupportedClaims = recordRows(row.unsupportedClaims)
+  const sourceRefs = explanationSourceRefs(row)
+  const narrative = stringValue(row.narrative)
+
+  return (
+    <section className="decision-explanation" aria-label="Decision explanation">
+      <div className="report-title-row">
+        <div>
+          <p className="eyebrow">Fact-bound AI</p>
+          <h3>Decision Explanation</h3>
+        </div>
+        <span className={`confidence-pill ${confidence}`}>{confidence} explanation confidence</span>
+      </div>
+      <div className="decision-explanation-identity">
+        <span className="fact-chip muted">provider</span>
+        <span className="fact-chip">{provider}</span>
+        <span className="fact-chip muted">{`${bindingState} binding`}</span>
+        <SourceRefs refs={sourceRefs} onSelectRef={onSelectRef} />
+      </div>
+      <div className="decision-explanation-grid">
+        <ExplanationRows title="Facts" rows={facts} onSelectRef={onSelectRef} />
+        <ExplanationRows title="Missing Data" rows={missingData} onSelectRef={onSelectRef} />
+        <ExplanationRows title="Unsupported Claims" rows={unsupportedClaims} onSelectRef={onSelectRef} />
+      </div>
+      {narrative ? <p className="decision-explanation-narrative">{narrative}</p> : null}
+    </section>
+  )
+}
+
+function ExplanationRows({
+  title,
+  rows,
+  onSelectRef,
+}: {
+  title: string
+  rows: Array<Record<string, unknown>>
+  onSelectRef: (sourceRef: string) => void
+}) {
+  return (
+    <section aria-label={`Decision explanation ${title.toLowerCase()}`}>
+      <h4>{title}</h4>
+      {rows.length ? (
+        rows.map((row, index) => (
+          <div className="report-row" key={`${String(row.label ?? row.category ?? title)}-${index}`}>
+            <div className="report-row-main">
+              <strong>{String(row.label ?? row.category ?? 'item')}</strong>
+              <span>{explanationRowText(row)}</span>
+            </div>
+            <SourceRefs refs={rowSourceRefs(row)} onSelectRef={onSelectRef} />
+          </div>
+        ))
+      ) : (
+        <p>None</p>
+      )}
     </section>
   )
 }
@@ -800,6 +875,55 @@ function recordFrom(value: unknown): Record<string, unknown> {
 
 function stringRows(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : []
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function explanationSourceRefs(row: Record<string, unknown>): string[] {
+  const refs = new Set<string>(rowSourceRefs(row))
+  for (const item of [...recordRows(row.factsUsed), ...recordRows(row.missingData), ...recordRows(row.unsupportedClaims)]) {
+    for (const ref of rowSourceRefs(item)) refs.add(ref)
+  }
+  return Array.from(refs)
+}
+
+function rowSourceRefs(row: Record<string, unknown>): string[] {
+  return [
+    ...stringRows(row.sourceRefs),
+    ...stringRows(row.refs),
+    ...stringRows(row.evidenceRefs),
+    ...stringRows(row.missingDataRefs),
+  ].filter((ref, index, refs) => refs.indexOf(ref) === index)
+}
+
+function explanationRowText(row: Record<string, unknown>): string {
+  for (const key of ['claim', 'reason', 'value', 'state']) {
+    const value = row[key]
+    const formatted = formatExplanationValue(value)
+    if (formatted) return formatted
+  }
+  return '-'
+}
+
+function formatExplanationValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    return value.map(formatExplanationValue).filter(Boolean).join(', ')
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => {
+        const formatted = formatExplanationValue(item)
+        return formatted ? `${key} ${formatted}` : ''
+      })
+      .filter(Boolean)
+      .join(', ')
+  }
+  return String(value)
 }
 
 function booleanLabel(value: unknown): string {

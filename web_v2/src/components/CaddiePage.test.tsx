@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CaddiePage } from './CaddiePage'
@@ -47,6 +47,33 @@ const decision: CaddieDecisionResponse = {
   confidence: { level: 'medium', reason: 'fixture data' },
   missingData: [{ label: 'wind', reason: 'not cached' }],
   auditCriteria: [{ label: 'first shot avoids water' }],
+  explanation: {
+    schema: 'ai-caddie-decision-explanation-v1',
+    decisionId: 'fixture-links-4-approach',
+    sourceRef: 'fixture-links:4',
+    shotType: 'approach',
+    provider: 'StaticProvider',
+    model: 'static',
+    factsUsed: [
+      {
+        label: 'selected_option',
+        value: { id: 'stock', label: 'Stock', carry_m: 144, riskScore: 1, clubRecommendation: '8I' },
+        sourceRefs: ['fixture-links:4'],
+      },
+      { label: 'avoid_zones', value: [{ id: 'water_front', kind: 'water', carryToClear_m: 126 }], refs: ['fixture-links:4:hazard'] },
+      { label: 'confidence', value: { level: 'medium', reason: 'fixture data' }, sourceRefs: ['fixture-links:4'] },
+    ],
+    missingData: [{ label: 'wind', reason: 'not cached', missingDataRefs: ['fixture-links:4:weather'] }],
+    unsupportedClaims: [{ category: 'scoring', claim: 'score outcome claim is not present in decision facts', sourceRefs: ['fixture-links:4'] }],
+    sourceRefs: ['fixture-links:4'],
+    factBinding: {
+      state: 'needs_review',
+      unsupportedClaimCount: 1,
+      rule: 'narrative generated from factsUsed; deterministic decision fields remain authoritative',
+    },
+    narrative: 'Use Stock because the water carry and missing wind are visible in the structured facts.',
+    confidence: 'medium',
+  },
 }
 
 const auditRecord: CaddieDecisionAuditRecord = {
@@ -275,7 +302,7 @@ describe('CaddiePage', () => {
     expect(screen.getAllByText('selected').length).toBeGreaterThan(0)
     expect(screen.getByText('144m - risk 1 - 1.1 exp - 16m clear')).toBeInTheDocument()
     expect(screen.getAllByText('water_front').length).toBeGreaterThan(0)
-    expect(screen.getByText('wind')).toBeInTheDocument()
+    expect(screen.getAllByText('wind').length).toBeGreaterThan(0)
     expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)
     expect(screen.getByText('execution')).toHaveClass('audit-execution')
     expect(screen.getByText('planned stock -> actual stock')).toBeInTheDocument()
@@ -285,6 +312,24 @@ describe('CaddiePage', () => {
     expect(screen.getByText('distance -1m')).toBeInTheDocument()
     expect(screen.getByText('risk no')).toBeInTheDocument()
     expect(screen.getByText('Keep the strategic option, but track whether this miss pattern repeats.')).toBeInTheDocument()
+    const explanationPanel = screen.getByLabelText('Decision explanation')
+    expect(within(explanationPanel).getByRole('heading', { name: 'Decision Explanation' })).toBeInTheDocument()
+    expect(within(explanationPanel).getByText('Use Stock because the water carry and missing wind are visible in the structured facts.')).toBeInTheDocument()
+    expect(within(explanationPanel).getByText('StaticProvider / static')).toBeInTheDocument()
+    expect(within(explanationPanel).getByText('needs_review binding')).toBeInTheDocument()
+    expect(within(explanationPanel).getByText('selected_option')).toBeInTheDocument()
+    expect(within(explanationPanel).getByText(/carry_m 144/)).toBeInTheDocument()
+    expect(within(explanationPanel).getByText(/riskScore 1/)).toBeInTheDocument()
+    expect(within(explanationPanel).getByText(/clubRecommendation 8I/)).toBeInTheDocument()
+    expect(within(explanationPanel).getByText('avoid_zones')).toBeInTheDocument()
+    expect(within(explanationPanel).getByText(/carryToClear_m 126/)).toBeInTheDocument()
+    expect(within(explanationPanel).getByText('score outcome claim is not present in decision facts')).toBeInTheDocument()
+    expect(within(explanationPanel).getAllByRole('button', { name: 'Open source fixture-links:4' }).length).toBeGreaterThan(0)
+    expect(within(explanationPanel).getAllByRole('button', { name: 'Open source fixture-links:4:hazard' }).length).toBeGreaterThan(0)
+    expect(within(explanationPanel).getAllByRole('button', { name: 'Open source fixture-links:4:weather' }).length).toBeGreaterThan(0)
+    const factsHeading = within(explanationPanel).getByRole('heading', { name: 'Facts' })
+    const narrative = within(explanationPanel).getByText('Use Stock because the water carry and missing wind are visible in the structured facts.')
+    expect(Boolean(factsHeading.compareDocumentPosition(narrative) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
     expect(screen.getByText('5.4 m/s')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Media Context' })).toBeInTheDocument()
     expect(screen.getByText('data/media/uploads/lie.jpg')).toBeInTheDocument()

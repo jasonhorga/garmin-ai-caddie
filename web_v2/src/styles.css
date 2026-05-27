@@ -2676,6 +2676,48 @@ p {
   font-weight: 800;
 }
 
+.decision-explanation {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.decision-explanation .report-title-row {
+  align-items: flex-start;
+}
+
+.decision-explanation-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.decision-explanation-narrative {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.decision-explanation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.decision-explanation-grid h4 {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
 .decision-outcome-audit {
   display: grid;
   gap: 10px;
@@ -2853,6 +2895,7 @@ p {
   .caddie-context-controls,
   .decision-audit-controls,
   .decision-options,
+  .decision-explanation-grid,
   .decision-sequence-grid,
   .media-context-controls,
   .reports-layout,
