@@ -1366,6 +1366,11 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(putting["recentCount"], 3)
         self.assertEqual(putting["deltaCount"], 3)
         self.assertEqual(putting["estimatedStrokesLost"], 3.0)
+        self.assertEqual(putting["baselineActualToPar"], 0.0)
+        self.assertEqual(putting["recentActualToPar"], 3.0)
+        self.assertEqual(putting["actualToParImpact"], 3.0)
+        self.assertEqual(putting["actualStrokesLost"], 3.0)
+        self.assertEqual(putting["actualImpactCoverage"], {"ready": 3, "total": 3, "pct": 100.0})
         self.assertEqual(putting["baselineRefs"], [])
         self.assertEqual(
             putting["recentRefs"],
@@ -1382,6 +1387,9 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(approach["recentCount"], 2)
         self.assertEqual(approach["deltaCount"], 2)
         self.assertEqual(approach["estimatedStrokesLost"], 1.6)
+        self.assertEqual(approach["actualToParImpact"], 2.0)
+        self.assertEqual(approach["actualStrokesLost"], 2.0)
+        self.assertEqual(approach["recentAffectedHoleRefs"], ["trend-issue-5:7", "trend-issue-6:7"])
         self.assertEqual(approach["recentRefs"], ["trend-issue-5:7", "trend-issue-6:7"])
         self.assertEqual(approach["coverage"], {"ready": 2, "total": 2, "pct": 100.0})
 

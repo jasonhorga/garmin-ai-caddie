@@ -37,6 +37,10 @@ const statsFixture: HistoryStatsResponse = {
         baselineRatePerRound: 0,
         recentRatePerRound: 1,
         estimatedStrokesLost: 3,
+        actualToParImpact: 3,
+        actualStrokesLost: 3,
+        actualImpactCoverage: { ready: 3, total: 3, pct: 100 },
+        recentAffectedHoleRefs: ['900004:7', '900005:7', '900006:7'],
         recentRefs: ['900004:7', '900005:7', '900006:7'],
         sourceRefs: ['900004:7', '900005:7', '900006:7'],
         coverage: { ready: 3, total: 3, pct: 100 },
@@ -96,6 +100,8 @@ describe('IssueStats', () => {
     expect(screen.getByText('coverage 3/3 100%')).toBeInTheDocument()
     expect(screen.getByText('+3')).toBeInTheDocument()
     expect(screen.getByText('3.0 est. strokes')).toBeInTheDocument()
+    expect(screen.getByText('+3 actual to-par')).toBeInTheDocument()
+    expect(screen.getByText('actual 3/3')).toBeInTheDocument()
     expect(screen.getByText('Caddie Audit')).toBeInTheDocument()
     expect(screen.getByText('execution')).toBeInTheDocument()
     expect(screen.getByText('66.7%')).toBeInTheDocument()

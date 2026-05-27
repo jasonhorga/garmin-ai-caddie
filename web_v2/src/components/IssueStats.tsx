@@ -13,6 +13,10 @@ function TrendContextFacts({ row }: { row: Record<string, unknown> }) {
   const recentCount = asNumber(row.recentCount)
   const baselineRate = asNumber(row.baselineRatePerRound)
   const recentRate = asNumber(row.recentRatePerRound)
+  const actualImpact = asNumber(row.actualToParImpact)
+  const actualCoverage = asRecord(row.actualImpactCoverage)
+  const actualReady = asNumber(actualCoverage.ready)
+  const actualTotal = asNumber(actualCoverage.total)
 
   return (
     <>
@@ -23,6 +27,8 @@ function TrendContextFacts({ row }: { row: Record<string, unknown> }) {
           rate {formatNumber(baselineRate)} -&gt; {formatNumber(recentRate)}/round
         </span>
       ) : null}
+      {actualImpact !== null ? <span>{formatSigned(actualImpact)} actual to-par</span> : null}
+      {actualReady !== null && actualTotal !== null ? <span>actual {formatNumber(actualReady)}/{formatNumber(actualTotal)}</span> : null}
       <AggregateEvidence row={row} showReason={false} />
     </>
   )

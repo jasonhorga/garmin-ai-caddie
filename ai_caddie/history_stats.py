@@ -655,6 +655,62 @@ def _ref_round_id(ref: Any) -> str:
     return str(ref).split(":", 1)[0]
 
 
+def _ref_hole_ref(ref: Any) -> str | None:
+    parts = str(ref).split(":")
+    if len(parts) < 2:
+        return None
+    return f"{parts[0]}:{parts[1]}"
+
+
+def _hole_to_par_by_ref(data: HistoryData) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for row in data.rounds:
+        hole_pars = str(row.get("holePars") or "")
+        for hole in row.get("holes") or []:
+            number = int(hole.get("number") or 0)
+            if not number:
+                continue
+            par = _hole_to_par(hole, _par_from_string(hole_pars, number))
+            score = hole.get("strokes")
+            if par is None or score is None:
+                continue
+            values[_hole_ref(row, number)] = float(int(score) - int(par))
+    return values
+
+
+def _affected_hole_refs(refs: list[str], to_par_by_hole: dict[str, float]) -> list[str]:
+    return _source_refs(
+        [
+            hole_ref
+            for ref in refs
+            if (hole_ref := _ref_hole_ref(ref)) is not None and hole_ref in to_par_by_hole
+        ]
+    )
+
+
+def _actual_to_par_impact(
+    baseline_refs: list[str],
+    recent_refs: list[str],
+    to_par_by_hole: dict[str, float],
+) -> dict[str, Any]:
+    baseline_holes = _affected_hole_refs(baseline_refs, to_par_by_hole)
+    recent_holes = _affected_hole_refs(recent_refs, to_par_by_hole)
+    baseline_actual = round(sum(to_par_by_hole[ref] for ref in baseline_holes), 1)
+    recent_actual = round(sum(to_par_by_hole[ref] for ref in recent_holes), 1)
+    impact = round(recent_actual - baseline_actual, 1)
+    ready = len(baseline_holes) + len(recent_holes)
+    total = len(baseline_refs) + len(recent_refs)
+    return {
+        "baselineAffectedHoleRefs": baseline_holes,
+        "recentAffectedHoleRefs": recent_holes,
+        "baselineActualToPar": baseline_actual,
+        "recentActualToPar": recent_actual,
+        "actualToParImpact": impact,
+        "actualStrokesLost": round(max(0.0, impact), 1),
+        "actualImpactCoverage": _coverage(ready, total),
+    }
+
+
 def _round_refs_by_date(data: HistoryData) -> list[str]:
     rows = sorted(data.rounds, key=lambda row: (str(row.get("date") or ""), _round_id(row)))
     return [_round_id(row) for row in rows]
@@ -678,6 +734,7 @@ def _diagnosis(data: HistoryData, issue_rows: list[dict[str, Any]]) -> dict[str,
     recent_round_refs = round_refs[-window_size:] if window_size else []
     baseline_set = set(baseline_round_refs)
     recent_set = set(recent_round_refs)
+    to_par_by_hole = _hole_to_par_by_ref(data)
 
     grouped: dict[str, dict[str, Any]] = {}
     for row in issue_rows:
@@ -715,6 +772,7 @@ def _diagnosis(data: HistoryData, issue_rows: list[dict[str, Any]]) -> dict[str,
         delta_count = recent_count - baseline_count
         weight = _issue_weight(issue)
         estimated_impact = round(delta_count * weight, 1)
+        actual_impact = _actual_to_par_impact(baseline_refs, recent_refs, to_par_by_hole)
         sources = sorted(row["sources"])
         trends.append(
             _with_aggregate_contract(
@@ -736,6 +794,7 @@ def _diagnosis(data: HistoryData, issue_rows: list[dict[str, Any]]) -> dict[str,
                     "direction": _diagnosis_direction(baseline_count, recent_count),
                     "baselineRefs": baseline_refs,
                     "recentRefs": recent_refs,
+                    **actual_impact,
                 },
                 refs,
                 ready=len(refs),
