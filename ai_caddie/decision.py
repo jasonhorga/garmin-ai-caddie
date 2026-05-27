@@ -1230,7 +1230,8 @@ def _history_evidence(analysis: dict[str, Any]) -> dict[str, Any] | None:
     historical_hole = analysis.get("historicalHole") if isinstance(analysis.get("historicalHole"), dict) else {}
     course_form = analysis.get("courseForm") if isinstance(analysis.get("courseForm"), dict) else {}
     issues = analysis.get("historicalHoleIssues") or analysis.get("holeIssues") or []
-    if not historical_hole and not course_form and not issues:
+    diagnostic_rows = _diagnostic_issue_rows(analysis)
+    if not historical_hole and not course_form and not issues and not diagnostic_rows:
         return None
 
     adjustment = _history_risk_adjustment(analysis, "attack")
@@ -1253,6 +1254,13 @@ def _history_evidence(analysis: dict[str, Any]) -> dict[str, Any] | None:
             parts.append(f"course recent form {direction}")
         if delta is not None:
             parts.append(f"18-hole delta {delta}")
+    diagnostic_issues = adjustment.get("diagnosticIssues") if isinstance(adjustment.get("diagnosticIssues"), list) else []
+    diagnostic_impact = adjustment.get("diagnosticIssueImpact")
+    if diagnostic_issues:
+        first_issue = str(diagnostic_issues[0])
+        parts.append(f"diagnostic issue {first_issue}")
+        if diagnostic_impact:
+            parts.append(f"diagnostic impact +{diagnostic_impact}")
     if not parts:
         parts.append("historical hole and course context considered")
     return {
@@ -1457,7 +1465,7 @@ def _int_count(value: Any) -> int:
 
 def _refs_from_history_context(context: dict[str, Any]) -> list[str]:
     refs: list[str] = []
-    for key in ("historicalHole", "historicalHoleIssues", "holeIssues", "courseForm"):
+    for key in ("historicalHole", "historicalHoleIssues", "holeIssues", "courseForm", "diagnosticContext"):
         _collect_refs_from_value(context.get(key), refs)
     return _dedupe(refs)
 
@@ -1500,6 +1508,72 @@ def _history_factor(label: str, raw_delta: float, weighted_delta: float, refs: l
         "riskScoreDelta": round(max(0.0, weighted_delta), 2),
         "sourceRefs": refs,
     }
+
+
+def _diagnostic_issue_rows(context: dict[str, Any], option_id: str | None = None) -> list[dict[str, Any]]:
+    diagnostic = context.get("diagnosticContext") if isinstance(context.get("diagnosticContext"), dict) else {}
+    rows: list[dict[str, Any]] = []
+    for row in diagnostic.get("relevantIssueTrends") or []:
+        if isinstance(row, dict) and _diagnostic_issue_relevant_to_shot(row, context, option_id):
+            rows.append(row)
+    top_issue = diagnostic.get("topIssue")
+    if isinstance(top_issue, dict) and not rows and _diagnostic_issue_relevant_to_shot(top_issue, context, option_id):
+        rows.append(top_issue)
+    return rows
+
+
+def _diagnostic_issue_relevant_to_shot(
+    row: dict[str, Any],
+    context: dict[str, Any],
+    option_id: str | None,
+) -> bool:
+    issue = str(row.get("issue") or "").strip().lower()
+    phase = str(row.get("phase") or "").strip().lower()
+    if not issue and not phase:
+        return False
+    if issue == "low_confidence_club" or phase == "club confidence":
+        return False
+    if issue == "three_putt" or phase == "putting":
+        return False
+
+    shot_type = str(context.get("shotType") or context.get("shot_type") or "").strip().lower()
+    if phase == "penalty" or issue in {"water", "ob", "hazard_result"}:
+        return True
+    if phase == "course management" or issue == "double_or_worse":
+        return option_id in {None, "stock", "attack"}
+    if not shot_type:
+        return True
+    if shot_type == "tee":
+        return phase == "tee" or issue.startswith("fairway_")
+    if shot_type == "approach":
+        return phase == "approach" or issue.startswith("approach_") or issue.startswith("green_")
+    if shot_type == "recovery":
+        return phase == "recovery" or issue in {"blocked_view", "punch_out", "tree_trouble", "unplayable_lie"}
+    return True
+
+
+def _diagnostic_issue_impact(row: dict[str, Any]) -> float:
+    for key in ("actualStrokesLost", "actualToParImpact", "estimatedStrokesLost"):
+        value = _float_or_none(row.get(key))
+        if value is not None and value > 0:
+            return value
+    return min(2.0, _int_count(row.get("recentCount")) * 0.45)
+
+
+def _diagnostic_issue_refs(rows: list[dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    for row in rows:
+        _collect_refs_from_value(row, refs)
+    return _dedupe(refs)
+
+
+def _diagnostic_issue_names(rows: list[dict[str, Any]]) -> list[str]:
+    names = []
+    for row in rows:
+        issue = str(row.get("issue") or "").strip()
+        if issue:
+            names.append(issue)
+    return _dedupe(names)
 
 
 def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[str, Any]:
@@ -1586,6 +1660,23 @@ def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[st
             )
         )
 
+    diagnostic_rows = _diagnostic_issue_rows(context, option_id)
+    diagnostic_impact = min(4.0, sum(_diagnostic_issue_impact(row) for row in diagnostic_rows))
+    if diagnostic_impact > 0:
+        diagnostic_weight = {"safe": 0.05, "stock": 0.4, "attack": 0.9}.get(option_id, 0.4)
+        factors.append(
+            _history_factor(
+                "diagnosis_issue_trends",
+                diagnostic_impact,
+                diagnostic_impact * diagnostic_weight,
+                _diagnostic_issue_refs(diagnostic_rows),
+                {
+                    "issues": _diagnostic_issue_names(diagnostic_rows),
+                    "diagnosticIssueImpact": round(diagnostic_impact, 1),
+                },
+            )
+        )
+
     risk_delta = sum(_float(factor.get("riskScoreDelta")) for factor in factors)
     risk_delta = min({"safe": 1.0, "stock": 4.0, "attack": 8.0}.get(option_id, 4.0), risk_delta)
     return {
@@ -1598,6 +1689,8 @@ def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[st
         "averageToPar": average_to_par,
         "worstToPar": worst_to_par,
         "courseWorseningStrokes18": round(course_worsening_strokes, 1),
+        "diagnosticIssueImpact": round(diagnostic_impact, 1),
+        "diagnosticIssues": _diagnostic_issue_names(diagnostic_rows),
         "factors": factors,
         "sourceRefs": source_refs,
     }

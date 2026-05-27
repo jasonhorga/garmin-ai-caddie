@@ -840,6 +840,40 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertGreaterEqual(attack["riskScore"], 7)
         self.assertTrue(any(row["kind"] == "history" for row in plan["evidence"]))
 
+    def test_diagnostic_issue_trends_adjust_caddie_risk_with_source_refs(self) -> None:
+        clean_context = approach_fixture()
+        clean_context["weatherSnapshot"] = ready_weather_snapshot()
+        clean_plan = recommend_approach(clean_context)
+        clean_attack = next(option for option in clean_plan["options"] if option["id"] == "attack")
+
+        context = approach_fixture()
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["diagnosticContext"] = {
+            "relevantIssueTrends": [
+                {
+                    "issue": "water",
+                    "phase": "Penalty",
+                    "direction": "worse",
+                    "recentCount": 2,
+                    "actualStrokesLost": 2.0,
+                    "actualToParImpact": 2.5,
+                    "sourceRefs": ["diagnosis:900002:4"],
+                }
+            ]
+        }
+
+        plan = recommend_approach(context)
+        attack = next(option for option in plan["options"] if option["id"] == "attack")
+        factor_labels = {row["label"] for row in attack["historyAdjustment"]["factors"]}
+        history_evidence = next(row for row in plan["evidence"] if row["kind"] == "history")
+
+        self.assertGreater(attack["riskScore"], clean_attack["riskScore"])
+        self.assertGreater(attack["historyAdjustment"]["riskScoreDelta"], 0)
+        self.assertIn("diagnosis_issue_trends", factor_labels)
+        self.assertIn("diagnosis:900002:4", attack["historyAdjustment"]["sourceRefs"])
+        self.assertIn("diagnosis:900002:4", plan["evidenceRefs"])
+        self.assertIn("diagnostic issue water", history_evidence["text"])
+
     def test_historical_hole_scoring_and_course_form_shift_attack_to_safer_plan(self) -> None:
         clean_context = approach_fixture()
         clean_context["strategyMode"] = "attack"
