@@ -45,6 +45,19 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("/api/v2/media/target/round/900001", text)
         self.assertNotIn('"POST",\n    "/api/v2/media"', text)
 
+    def test_private_trial_smoke_uses_admin_token_for_protected_history_reads(self) -> None:
+        script = Path("ops/smoke_private_trial.sh")
+        text = script.read_text(encoding="utf-8")
+
+        self.assertIn('("/api/v2/history/overview", True)', text)
+
+    def test_private_trial_smoke_rejects_private_paths_and_assignment_secrets(self) -> None:
+        script = Path("ops/smoke_private_trial.sh")
+        text = script.read_text(encoding="utf-8")
+
+        for forbidden_probe in ['"password="', '"secret="', '"/home/"', '"/users/"', '".garmin_tokens"']:
+            self.assertIn(forbidden_probe, text)
+
     def test_backup_script_records_latest_manifest(self) -> None:
         script = Path("ops/backup_data.sh")
         text = script.read_text(encoding="utf-8")

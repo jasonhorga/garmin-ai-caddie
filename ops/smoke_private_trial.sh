@@ -23,7 +23,19 @@ def call_json(method: str, path: str, *, payload: dict[str, object] | None = Non
     with urlopen(request, timeout=10) as response:
         payload = json.loads(response.read().decode("utf-8"))
     text = json.dumps(payload).lower()
-    for forbidden in ("cookie", "csrf", "connect-csrf-token", "access_token", "refresh_token"):
+    for forbidden in (
+        "cookie",
+        "csrf",
+        "connect-csrf-token",
+        "access_token",
+        "refresh_token",
+        "password=",
+        "secret=",
+        "/home/",
+        "/users/",
+        ".garmin_tokens",
+        ".env",
+    ):
         if forbidden in text:
             raise SystemExit(f"secret-like term leaked from {path}: {forbidden}")
     schema = payload.get("schema") if isinstance(payload, dict) else None
@@ -36,7 +48,7 @@ for path, protected in [
     ("/api/v2/health", False),
     ("/api/v2/readiness", False),
     ("/api/v2/sync/status", False),
-    ("/api/v2/history/overview", False),
+    ("/api/v2/history/overview", True),
     ("/api/v2/mobile/rounds/900001/package", True),
     ("/api/v2/reports/trend/recent_10", True),
     ("/api/v2/media/target/round/900001", True),
