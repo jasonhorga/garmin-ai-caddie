@@ -6,7 +6,11 @@ from pathlib import Path
 from ai_caddie.config import DataMode, get_settings
 from ai_caddie.connectors.garmin_oauth import build_oauth_feasibility_status
 from ai_caddie.connectors.redaction import sanitize_secret_text
-from ai_caddie.connectors.snapshot import discover_geometry_dependencies, read_connector_status
+from ai_caddie.connectors.snapshot import (
+    discover_geometry_dependencies,
+    read_connector_status,
+    read_latest_snapshot_manifest,
+)
 from ai_caddie.data import ROOT
 
 from .models import ConnectorStatus, SnapshotStatus, SyncLastRunStatus, SyncStatusResponse
@@ -36,6 +40,33 @@ def _last_sync_at(paths: list[Path]) -> str | None:
     )
 
 
+def _iso_z(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (
+        parsed.astimezone(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _snapshot_int(manifest: dict[str, object] | None, key: str) -> int:
+    if not manifest:
+        return 0
+    try:
+        return int(manifest.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _next_action(state: str) -> str | None:
     return {
         "no_data": "connect_garmin",
@@ -53,9 +84,31 @@ def build_sync_status_response(
     scorecard_dir = data_dir / "scorecards"
     shot_dir = data_dir / "shots"
     summary = data_dir / "summary.json"
-    scorecard_count = _count_json_files(scorecard_dir)
-    shot_file_count = _count_json_files(shot_dir)
-    geometry_dependencies = discover_geometry_dependencies(root=root)
+    latest_snapshot = read_latest_snapshot_manifest(root=root)
+    has_snapshot_manifest = isinstance(latest_snapshot, dict)
+    current_scorecard_count = _count_json_files(scorecard_dir)
+    current_shot_file_count = _count_json_files(shot_dir)
+    scorecard_count = _snapshot_int(latest_snapshot, "scorecardCount") if has_snapshot_manifest else current_scorecard_count
+    shot_file_count = _snapshot_int(latest_snapshot, "shotFileCount") if has_snapshot_manifest else current_shot_file_count
+    live_geometry_dependencies = discover_geometry_dependencies(root=root)
+    manifest_geometry_dependencies = (
+        latest_snapshot.get("geometryDependencies")
+        if has_snapshot_manifest and isinstance(latest_snapshot.get("geometryDependencies"), list)
+        else []
+    )
+    geometry_dependencies = manifest_geometry_dependencies if has_snapshot_manifest else live_geometry_dependencies
+    if has_snapshot_manifest:
+        geometry_dependency_count = len(manifest_geometry_dependencies) or _snapshot_int(latest_snapshot, "geometryDependencyCount")
+        geometry_ready_count = sum(1 for row in manifest_geometry_dependencies if row.get("status") == "ready") or _snapshot_int(
+            latest_snapshot, "geometryReadyCount"
+        )
+        geometry_missing_count = sum(1 for row in manifest_geometry_dependencies if row.get("status") == "missing") or _snapshot_int(
+            latest_snapshot, "geometryMissingCount"
+        )
+    else:
+        geometry_dependency_count = len(live_geometry_dependencies)
+        geometry_ready_count = sum(1 for row in live_geometry_dependencies if row.get("status") == "ready")
+        geometry_missing_count = sum(1 for row in live_geometry_dependencies if row.get("status") == "missing")
     has_data = scorecard_count > 0
     persisted = read_connector_status(root=root)
     persisted_state = persisted.get("state") if persisted else None
@@ -69,6 +122,18 @@ def build_sync_status_response(
             if has_data
             else "No local Garmin snapshots are loaded. Connect Garmin or use fixture mode."
         )
+    snapshot_id = (
+        str(latest_snapshot.get("snapshotId"))
+        if has_snapshot_manifest and latest_snapshot.get("snapshotId") is not None
+        else None
+    )
+    last_successful_sync_at = (
+        _iso_z(latest_snapshot.get("createdAt"))
+        if has_snapshot_manifest
+        else None
+    )
+    if not has_snapshot_manifest and last_successful_sync_at is None:
+        last_successful_sync_at = _last_sync_at([summary, scorecard_dir, shot_dir])
     resolved_mode = (
         "fixture"
         if selected_mode == "fixture"
@@ -101,11 +166,12 @@ def build_sync_status_response(
             dataMode=resolved_mode,
             scorecardCount=scorecard_count,
             shotFileCount=shot_file_count,
-            summaryPresent=summary.exists(),
-            lastSuccessfulSyncAt=_last_sync_at([summary, scorecard_dir, shot_dir]),
-            geometryDependencyCount=len(geometry_dependencies),
-            geometryReadyCount=sum(1 for row in geometry_dependencies if row.get("status") == "ready"),
-            geometryMissingCount=sum(1 for row in geometry_dependencies if row.get("status") == "missing"),
+            summaryPresent=bool(latest_snapshot.get("summaryPresent")) if has_snapshot_manifest else summary.exists(),
+            lastSuccessfulSnapshotId=snapshot_id,
+            lastSuccessfulSyncAt=last_successful_sync_at,
+            geometryDependencyCount=geometry_dependency_count,
+            geometryReadyCount=geometry_ready_count,
+            geometryMissingCount=geometry_missing_count,
             geometryDependencies=geometry_dependencies,
         ),
         lastRun=last_run,

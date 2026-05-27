@@ -344,6 +344,7 @@ class SnapshotStatus(BaseModel):
     scorecardCount: int
     shotFileCount: int
     summaryPresent: bool
+    lastSuccessfulSnapshotId: str | None = None
     lastSuccessfulSyncAt: str | None
     geometryDependencyCount: int = 0
     geometryReadyCount: int = 0

@@ -628,6 +628,35 @@ def write_snapshot_manifest(*, root: Path = ROOT, manifest: SnapshotManifest) ->
     return path
 
 
+def _snapshot_manifest_sort_key(path: Path) -> tuple[float, str]:
+    try:
+        payload = _read_json(path)
+        created_at = payload.get("createdAt") if isinstance(payload, dict) else None
+        if created_at:
+            parsed = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+            return (parsed.timestamp(), path.name)
+    except Exception:
+        pass
+    try:
+        return (path.stat().st_mtime, path.name)
+    except OSError:
+        return (0.0, path.name)
+
+
+def read_latest_snapshot_manifest(*, root: Path = ROOT) -> dict[str, Any] | None:
+    snapshot_root = root / SNAPSHOT_DIR
+    if not snapshot_root.exists():
+        return None
+    for path in sorted(_json_files(snapshot_root), key=_snapshot_manifest_sort_key, reverse=True):
+        try:
+            payload = _read_json(path)
+        except Exception:
+            continue
+        if isinstance(payload, dict) and payload.get("schema") == "ai-caddie-raw-snapshot-v1":
+            return payload
+    return None
+
+
 def build_normalized_snapshot_payload(*, root: Path = ROOT, manifest: SnapshotManifest) -> dict[str, Any]:
     created_at = _utc_now()
     scorecard_paths = [root / file_name for file_name in manifest.files if file_name.startswith("data/scorecards/")]

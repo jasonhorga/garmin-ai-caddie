@@ -128,6 +128,79 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["lastRun"]["errorCode"], "auth_failed")
         self.assertIsNotNone(payload["lastRun"]["updatedAt"])
 
+    def test_reauth_required_status_preserves_last_successful_snapshot_metadata(self) -> None:
+        from ai_caddie.connectors.snapshot import write_connector_status
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshot_dir = root / "data" / "snapshots"
+            snapshot_dir.mkdir(parents=True)
+            (root / "data" / "scorecards").mkdir(parents=True)
+            (root / "data" / "scorecards" / "partial.json").write_text("{}", encoding="utf-8")
+            (snapshot_dir / "snap_ok.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-raw-snapshot-v1",
+                        "snapshotId": "snap_ok",
+                        "createdAt": "2026-05-25T12:00:00+00:00",
+                        "scorecardCount": 2,
+                        "shotFileCount": 1,
+                        "summaryPresent": True,
+                        "files": ["data/scorecards/1.json", "data/shots/1.json"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            write_connector_status(
+                root=root,
+                state="reauth_required",
+                detail="Garmin session expired.",
+                snapshot_id=None,
+                error_code="auth_failed",
+            )
+
+            payload = build_sync_status_response(root=root, data_mode="local_or_fixture").model_dump()
+
+        self.assertEqual(payload["connector"]["state"], "reauth_required")
+        self.assertEqual(payload["snapshot"]["dataMode"], "local")
+        self.assertEqual(payload["snapshot"]["scorecardCount"], 2)
+        self.assertEqual(payload["snapshot"]["shotFileCount"], 1)
+        self.assertTrue(payload["snapshot"]["summaryPresent"])
+        self.assertEqual(payload["snapshot"]["lastSuccessfulSnapshotId"], "snap_ok")
+        self.assertEqual(payload["snapshot"]["lastSuccessfulSyncAt"], "2026-05-25T12:00:00Z")
+        self.assertEqual(payload["lastRun"]["state"], "reauth_required")
+        self.assertIsNone(payload["lastRun"]["snapshotId"])
+
+    def test_invalid_snapshot_created_at_is_not_echoed_in_status(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshot_dir = root / "data" / "snapshots"
+            snapshot_dir.mkdir(parents=True)
+            (root / "data" / "scorecards").mkdir(parents=True)
+            (root / "data" / "scorecards" / "partial.json").write_text("{}", encoding="utf-8")
+            (snapshot_dir / "snap_dirty.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-raw-snapshot-v1",
+                        "snapshotId": "snap_dirty",
+                        "createdAt": "bad cookie abc csrf def token ghi",
+                        "scorecardCount": 1,
+                        "shotFileCount": 0,
+                        "summaryPresent": False,
+                        "files": ["data/scorecards/1.json"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_sync_status_response(root=root, data_mode="local").model_dump()
+
+        self.assertIsNone(payload["snapshot"]["lastSuccessfulSyncAt"])
+        text = json.dumps(payload, ensure_ascii=False).lower()
+        self.assertNotIn("cookie", text)
+        self.assertNotIn("csrf", text)
+        self.assertNotIn("token", text)
+
     def test_build_sync_status_reports_last_successful_run_metadata(self) -> None:
         from ai_caddie.connectors.snapshot import write_connector_status
 
