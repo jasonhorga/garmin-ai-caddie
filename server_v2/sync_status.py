@@ -6,7 +6,7 @@ from pathlib import Path
 from ai_caddie.config import DataMode, get_settings
 from ai_caddie.connectors.garmin_oauth import build_oauth_feasibility_status
 from ai_caddie.connectors.redaction import sanitize_secret_text
-from ai_caddie.connectors.snapshot import read_connector_status
+from ai_caddie.connectors.snapshot import discover_geometry_dependencies, read_connector_status
 from ai_caddie.data import ROOT
 
 from .models import ConnectorStatus, SnapshotStatus, SyncLastRunStatus, SyncStatusResponse
@@ -55,6 +55,7 @@ def build_sync_status_response(
     summary = data_dir / "summary.json"
     scorecard_count = _count_json_files(scorecard_dir)
     shot_file_count = _count_json_files(shot_dir)
+    geometry_dependencies = discover_geometry_dependencies(root=root)
     has_data = scorecard_count > 0
     persisted = read_connector_status(root=root)
     persisted_state = persisted.get("state") if persisted else None
@@ -102,6 +103,10 @@ def build_sync_status_response(
             shotFileCount=shot_file_count,
             summaryPresent=summary.exists(),
             lastSuccessfulSyncAt=_last_sync_at([summary, scorecard_dir, shot_dir]),
+            geometryDependencyCount=len(geometry_dependencies),
+            geometryReadyCount=sum(1 for row in geometry_dependencies if row.get("status") == "ready"),
+            geometryMissingCount=sum(1 for row in geometry_dependencies if row.get("status") == "missing"),
+            geometryDependencies=geometry_dependencies,
         ),
         lastRun=last_run,
     )

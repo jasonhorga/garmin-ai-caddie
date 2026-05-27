@@ -54,6 +54,45 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["snapshot"]["shotFileCount"], 1)
         self.assertRegex(payload["snapshot"]["lastSuccessfulSyncAt"], r"^\d{4}-\d{2}-\d{2}T")
 
+    def test_build_sync_status_reports_geometry_dependency_counts(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scorecard_dir = root / "data" / "scorecards"
+            scorecard_dir.mkdir(parents=True)
+            (scorecard_dir / "1.json").write_text(
+                json.dumps(
+                    {
+                        "scorecardDetails": [
+                            {
+                                "scorecard": {
+                                    "id": 1,
+                                    "courseGlobalId": 31795,
+                                    "frontNineGlobalCourseId": 31795,
+                                    "holesCompleted": 2,
+                                    "holes": [
+                                        {"number": 1, "strokes": 4, "par": 4},
+                                        {"number": 2, "strokes": 5, "par": 4},
+                                    ],
+                                }
+                            }
+                        ],
+                        "courseSnapshots": [{"name": "Fixture Links", "holePars": "444444444444444444"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "output" / "prodgeometry_hazards").mkdir(parents=True)
+            (root / "output" / "prodgeometry").mkdir(parents=True)
+            (root / "output" / "prodgeometry_hazards" / "gid31795_h01_hazards.json").write_text("{}", encoding="utf-8")
+            (root / "output" / "prodgeometry" / "gid31795_h01_meshes.json").write_text("{}", encoding="utf-8")
+
+            payload = build_sync_status_response(root=root, data_mode="local").model_dump()
+
+        self.assertEqual(payload["snapshot"]["geometryDependencyCount"], 2)
+        self.assertEqual(payload["snapshot"]["geometryReadyCount"], 1)
+        self.assertEqual(payload["snapshot"]["geometryMissingCount"], 1)
+        self.assertEqual(payload["snapshot"]["geometryDependencies"][0]["status"], "ready")
+
     def test_build_sync_status_reports_fixture_mode_when_local_or_fixture_has_no_data(
         self,
     ) -> None:

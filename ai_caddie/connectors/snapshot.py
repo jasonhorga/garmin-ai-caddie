@@ -26,6 +26,8 @@ GEOMETRY_ASSET_DIRS = (
     Path("output") / "prodgeometry_hazards",
     Path("output") / "prodgeometry",
 )
+GEOMETRY_HAZARD_DIR = Path("output") / "prodgeometry_hazards"
+GEOMETRY_MESH_DIR = Path("output") / "prodgeometry"
 SOURCE_CONNECTOR = "garmin_cn_web_session"
 
 
@@ -280,6 +282,143 @@ def _shot_hole_ref(round_row: dict[str, Any], hole: int) -> tuple[Any, int]:
     return round_row.get("globalId") or round_row.get("courseId"), hole
 
 
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _geometry_hazard_path(root: Path, global_id: int, local_hole: int) -> Path:
+    return root / GEOMETRY_HAZARD_DIR / f"gid{global_id}_h{local_hole:02d}_hazards.json"
+
+
+def _geometry_mesh_path(root: Path, global_id: int, local_hole: int) -> Path:
+    return root / GEOMETRY_MESH_DIR / f"gid{global_id}_h{local_hole:02d}_meshes.json"
+
+
+def _geometry_status(root: Path, global_id: int, local_hole: int) -> tuple[str, bool, bool, str | None, str | None]:
+    hazard = _geometry_hazard_path(root, global_id, local_hole)
+    mesh = _geometry_mesh_path(root, global_id, local_hole)
+    has_hazards = hazard.exists()
+    has_meshes = mesh.exists()
+    if has_hazards and has_meshes:
+        status = "ready"
+    elif has_hazards or has_meshes:
+        status = "partial"
+    else:
+        status = "missing"
+    return (
+        status,
+        has_hazards,
+        has_meshes,
+        _relative(hazard, root) if has_hazards else None,
+        _relative(mesh, root) if has_meshes else None,
+    )
+
+
+def _scorecard_hole_numbers(scorecard: dict[str, Any], hole_pars: str) -> list[int]:
+    holes = scorecard.get("holes") if isinstance(scorecard.get("holes"), list) else []
+    numbers: list[int] = []
+    for index, hole in enumerate(holes, start=1):
+        if not isinstance(hole, dict):
+            continue
+        number = _safe_int(hole.get("number")) or index
+        if hole.get("strokes") is not None or hole.get("par") is not None or hole.get("number") is not None:
+            numbers.append(number)
+    if numbers:
+        return sorted(set(numbers))
+    completed = _safe_int(scorecard.get("holesCompleted"))
+    if completed:
+        return list(range(1, completed + 1))
+    if hole_pars:
+        return list(range(1, len(hole_pars) + 1))
+    return []
+
+
+def _scorecard_geometry_ref(scorecard: dict[str, Any], hole_number: int) -> tuple[int | None, int | None]:
+    course_global_id = _safe_int(scorecard.get("courseGlobalId") or scorecard.get("globalId") or scorecard.get("courseId"))
+    if hole_number <= 9:
+        return _safe_int(scorecard.get("frontNineGlobalCourseId")) or course_global_id, hole_number
+    back_global_id = _safe_int(scorecard.get("backNineGlobalCourseId"))
+    if back_global_id is not None:
+        return back_global_id, hole_number - 9
+    return course_global_id, hole_number
+
+
+def _dependency_record(
+    *,
+    root: Path,
+    global_id: int,
+    local_hole: int,
+    source_ref: str,
+    profile_id_available: bool,
+) -> dict[str, Any]:
+    status, has_hazards, has_meshes, hazard_ref, mesh_ref = _geometry_status(root, global_id, local_hole)
+    row: dict[str, Any] = {
+        "globalId": global_id,
+        "localHole": local_hole,
+        "status": status,
+        "hasHazards": has_hazards,
+        "hasMeshes": has_meshes,
+        "sourceRefs": [source_ref],
+        "profileIdAvailable": profile_id_available,
+    }
+    if hazard_ref:
+        row["hazards"] = hazard_ref
+    if mesh_ref:
+        row["meshes"] = mesh_ref
+    return row
+
+
+def discover_geometry_dependencies(*, root: Path = ROOT) -> list[dict[str, Any]]:
+    dependencies: dict[tuple[int, int], dict[str, Any]] = {}
+    for path in _json_files(root / "data" / "scorecards"):
+        try:
+            raw = _read_json(path)
+            detail = raw["scorecardDetails"][0]
+            scorecard = detail["scorecard"]
+        except Exception:
+            continue
+        snapshot = (raw.get("courseSnapshots") or [{}])[0] or {}
+        hole_pars = snapshot.get("holePars") or ""
+        if isinstance(hole_pars, list):
+            hole_pars = "".join(str(item) for item in hole_pars)
+        source_ref = _relative(path, root)
+        profile_id_available = bool(scorecard.get("playerProfileId"))
+        for hole_number in _scorecard_hole_numbers(scorecard, str(hole_pars)):
+            global_id, local_hole = _scorecard_geometry_ref(scorecard, hole_number)
+            if global_id is None or local_hole is None:
+                continue
+            key = (global_id, local_hole)
+            if key not in dependencies:
+                dependencies[key] = _dependency_record(
+                    root=root,
+                    global_id=global_id,
+                    local_hole=local_hole,
+                    source_ref=source_ref,
+                    profile_id_available=profile_id_available,
+                )
+                continue
+            row = dependencies[key]
+            if source_ref not in row["sourceRefs"]:
+                row["sourceRefs"].append(source_ref)
+            row["profileIdAvailable"] = bool(row.get("profileIdAvailable") or profile_id_available)
+    return [dependencies[key] for key in sorted(dependencies)]
+
+
+def geometry_player_profile_id(*, root: Path = ROOT) -> str | None:
+    for path in _json_files(root / "data" / "scorecards"):
+        try:
+            raw = _read_json(path)
+            value = raw["scorecardDetails"][0]["scorecard"].get("playerProfileId")
+        except Exception:
+            continue
+        if value:
+            return str(value)
+    return None
+
+
 def _normalize_shot_file(
     path: Path,
     *,
@@ -447,6 +586,7 @@ def build_snapshot_manifest(*, root: Path = ROOT, snapshot_id: str) -> SnapshotM
     summary = data_dir / "summary.json"
     scorecards = _json_files(data_dir / "scorecards")
     shots = _json_files(data_dir / "shots")
+    geometry_dependencies = discover_geometry_dependencies(root=root)
     files: list[str] = []
     if summary.exists():
         files.append(_relative(summary, root))
@@ -460,6 +600,10 @@ def build_snapshot_manifest(*, root: Path = ROOT, snapshot_id: str) -> SnapshotM
         shot_file_count=len(shots),
         summary_present=summary.exists(),
         files=files,
+        geometry_dependencies=geometry_dependencies,
+        geometry_dependency_count=len(geometry_dependencies),
+        geometry_ready_count=sum(1 for row in geometry_dependencies if row.get("status") == "ready"),
+        geometry_missing_count=sum(1 for row in geometry_dependencies if row.get("status") == "missing"),
     )
 
 
@@ -475,6 +619,10 @@ def write_snapshot_manifest(*, root: Path = ROOT, manifest: SnapshotManifest) ->
         "shotFileCount": manifest.shot_file_count,
         "summaryPresent": manifest.summary_present,
         "files": manifest.files,
+        "geometryDependencyCount": manifest.geometry_dependency_count,
+        "geometryReadyCount": manifest.geometry_ready_count,
+        "geometryMissingCount": manifest.geometry_missing_count,
+        "geometryDependencies": manifest.geometry_dependencies,
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     return path
@@ -630,4 +778,8 @@ def snapshot_to_payload(manifest: SnapshotManifest) -> dict[str, Any]:
         "shotFileCount": data["shot_file_count"],
         "summaryPresent": data["summary_present"],
         "files": data["files"],
+        "geometryDependencyCount": data["geometry_dependency_count"],
+        "geometryReadyCount": data["geometry_ready_count"],
+        "geometryMissingCount": data["geometry_missing_count"],
+        "geometryDependencies": data["geometry_dependencies"],
     }

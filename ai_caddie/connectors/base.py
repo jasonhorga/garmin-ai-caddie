@@ -14,6 +14,10 @@ class SnapshotManifest:
     shot_file_count: int
     summary_present: bool
     files: list[str]
+    geometry_dependencies: list[dict[str, Any]] = field(default_factory=list)
+    geometry_dependency_count: int = 0
+    geometry_ready_count: int = 0
+    geometry_missing_count: int = 0
 
 
 @dataclass(frozen=True)

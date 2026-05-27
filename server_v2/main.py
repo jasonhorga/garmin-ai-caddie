@@ -588,12 +588,14 @@ def sync_garmin(
     response: Response,
     with_shots: bool = True,
     force_refresh_auth: bool = False,
+    ensure_geometry: bool = False,
     x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> SyncRunResponse:
     require_admin_token(x_ai_caddie_admin_token)
     result = GarminCnWebSessionConnector().sync(
         with_shots=with_shots,
         force_refresh_auth=force_refresh_auth,
+        ensure_geometry=ensure_geometry,
     )
     if result.state == "reauth_required":
         response.status_code = 409

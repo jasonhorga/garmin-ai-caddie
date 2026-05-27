@@ -13,6 +13,33 @@ from fetch import GarminAuthExpired, fetch_details
 SECRET_TERMS = ("cookie", "csrf", "token", "secret", "authorization")
 
 
+def _write_geometry_scorecard(root: Path, scorecard_id: int = 1) -> None:
+    (root / "data" / "scorecards").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "scorecards" / f"{scorecard_id}.json").write_text(
+        json.dumps(
+            {
+                "scorecardDetails": [
+                    {
+                        "scorecard": {
+                            "id": scorecard_id,
+                            "playerProfileId": "player-1",
+                            "formattedStartTime": "2026-05-25",
+                            "courseGlobalId": 31795,
+                            "frontNineGlobalCourseId": 31795,
+                            "holesCompleted": 1,
+                            "strokes": 4,
+                            "holes": [{"number": 1, "strokes": 4, "par": 4}],
+                        },
+                        "scorecardStats": {"round": {}},
+                    }
+                ],
+                "courseSnapshots": [{"name": "Fixture Links", "holePars": "444444444444444444"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def assert_secret_free(test_case: unittest.TestCase, payload: object) -> None:
     text = json.dumps(payload, ensure_ascii=False, default=str).lower()
     for term in SECRET_TERMS:
@@ -132,6 +159,28 @@ class GarminCnConnectorTests(unittest.TestCase):
             self.assertEqual(result.snapshot.scorecard_count, 0)
             status = json.loads((root / "data" / "sync" / "garmin_cn_status.json").read_text())
             self.assertEqual(status["state"], "no_data")
+
+    def test_sync_can_ensure_missing_geometry_dependencies_when_requested(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_geometry_scorecard(root)
+            connector = GarminCnWebSessionConnector(root=root)
+
+            with (
+                patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
+                patch("ai_caddie.connectors.garmin_cn.fetch_summary", return_value=[{"id": 1}]),
+                patch("ai_caddie.connectors.garmin_cn.fetch_details"),
+                patch(
+                    "ai_caddie.connectors.garmin_cn.ensure_prodgeometry",
+                    return_value={"status": "downloaded", "ok": True, "globalId": 31795, "localHole": 1},
+                ) as ensure,
+            ):
+                result = connector.sync(with_shots=False, force_refresh_auth=False, ensure_geometry=True)
+
+        self.assertEqual(result.state, "ready")
+        self.assertEqual(result.safe_meta["geometryEnsure"]["attempted"], 1)
+        self.assertEqual(result.safe_meta["geometryEnsure"]["downloaded"], 1)
+        ensure.assert_called_once_with(31795, 1, profile_id="player-1", force=False)
 
     def test_non_auth_failure_returns_error_without_secret_leak(self) -> None:
         with TemporaryDirectory() as tmp:

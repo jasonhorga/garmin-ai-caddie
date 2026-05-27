@@ -136,6 +136,38 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertTrue(hazard_copied)
         self.assertTrue(mesh_copied)
 
+    def test_snapshot_manifest_discovers_geometry_dependencies_from_scorecards(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                1,
+                date="2026-05-25",
+                course="Fixture Links",
+                hole_numbers=[1, 2, 10],
+                hole_pars="444444444444444444",
+                strokes=12,
+                course_global_id=31795,
+                front_global_id=31795,
+                back_global_id=31800,
+            )
+            (root / "output" / "prodgeometry_hazards").mkdir(parents=True)
+            (root / "output" / "prodgeometry").mkdir(parents=True)
+            (root / "output" / "prodgeometry_hazards" / "gid31795_h01_hazards.json").write_text("{}", encoding="utf-8")
+            (root / "output" / "prodgeometry" / "gid31795_h01_meshes.json").write_text("{}", encoding="utf-8")
+            (root / "output" / "prodgeometry_hazards" / "gid31795_h02_hazards.json").write_text("{}", encoding="utf-8")
+
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_geometry_deps")
+
+        by_key = {(row["globalId"], row["localHole"]): row for row in manifest.geometry_dependencies}
+        self.assertEqual(by_key[(31795, 1)]["status"], "ready")
+        self.assertEqual(by_key[(31795, 2)]["status"], "partial")
+        self.assertEqual(by_key[(31800, 1)]["status"], "missing")
+        self.assertEqual(manifest.geometry_dependency_count, 3)
+        self.assertEqual(manifest.geometry_ready_count, 1)
+        self.assertEqual(manifest.geometry_missing_count, 1)
+        self.assertNotIn(tmp, json.dumps(manifest.geometry_dependencies, ensure_ascii=False))
+
     def test_write_snapshot_manifest_persists_json(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

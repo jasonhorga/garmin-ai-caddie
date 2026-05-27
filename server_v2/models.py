@@ -345,6 +345,10 @@ class SnapshotStatus(BaseModel):
     shotFileCount: int
     summaryPresent: bool
     lastSuccessfulSyncAt: str | None
+    geometryDependencyCount: int = 0
+    geometryReadyCount: int = 0
+    geometryMissingCount: int = 0
+    geometryDependencies: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SyncLastRunStatus(BaseModel):
@@ -371,6 +375,10 @@ class SyncSnapshotPayload(BaseModel):
     shotFileCount: int
     summaryPresent: bool
     files: list[str]
+    geometryDependencyCount: int = 0
+    geometryReadyCount: int = 0
+    geometryMissingCount: int = 0
+    geometryDependencies: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SyncRunResponse(BaseModel):
