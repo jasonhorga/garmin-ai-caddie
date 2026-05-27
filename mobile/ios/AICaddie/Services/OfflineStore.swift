@@ -2,9 +2,11 @@ import Foundation
 
 public struct PendingMediaAttachment: Codable, Equatable, Identifiable {
     public let id: String
+    public let eventId: String
     public let roundId: String
     public let hole: Int
     public let targetId: String
+    public let assetLocalId: String
     public let mediaKind: String
     public let fileName: String
     public let fileURL: URL
@@ -124,9 +126,11 @@ public final class OfflineStore {
 
     public func savePendingMedia(
         data: Data,
+        eventId: String,
         roundId: String,
         hole: Int,
         targetId: String,
+        assetLocalId: String,
         mediaKind: String,
         fileName: String,
         capturedAt: String
@@ -139,9 +143,11 @@ public final class OfflineStore {
         try data.write(to: fileURL, options: [.atomic])
         let attachment = PendingMediaAttachment(
             id: UUID().uuidString,
+            eventId: eventId,
             roundId: roundId,
             hole: hole,
             targetId: targetId,
+            assetLocalId: assetLocalId,
             mediaKind: mediaKind,
             fileName: fileURL.lastPathComponent,
             fileURL: fileURL,
@@ -149,6 +155,31 @@ public final class OfflineStore {
         )
         try appendPendingMedia(attachment)
         return attachment
+    }
+
+    public func attachUploadedMediaId(eventId: String, mediaId: String) throws {
+        let events = try loadEvents()
+        var changed = false
+        let updatedEvents = events.map { event -> LiveRoundEvent in
+            guard event.eventId == eventId, event.kind == .photo || event.kind == .video else {
+                return event
+            }
+            var payload = event.payload
+            payload["mediaId"] = .string(mediaId)
+            changed = true
+            return LiveRoundEvent(
+                schema: event.schema,
+                eventId: event.eventId,
+                roundId: event.roundId,
+                timestamp: event.timestamp,
+                hole: event.hole,
+                kind: event.kind,
+                payload: payload
+            )
+        }
+        if changed {
+            try rewriteEvents(updatedEvents)
+        }
     }
 
     public func loadPendingMedia(roundId: String? = nil) throws -> [PendingMediaAttachment] {
@@ -212,6 +243,19 @@ public final class OfflineStore {
             data.append(Data([0x0A]))
             try data.write(to: pendingMediaIndexURL, options: [.atomic])
         }
+    }
+
+    private func rewriteEvents(_ events: [LiveRoundEvent]) throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let lines = try events.map { event in
+            String(data: try encoder.encode(event), encoding: .utf8) ?? "{}"
+        }
+        .joined(separator: "\n")
+        var data = Data(lines.utf8)
+        if !events.isEmpty {
+            data.append(Data([0x0A]))
+        }
+        try data.write(to: logURL, options: [.atomic])
     }
 
     private func safePathComponent(_ value: String) -> String {

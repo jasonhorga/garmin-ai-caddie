@@ -72,13 +72,16 @@ public struct MediaCaptureView: View {
             }
             let capturedAt = formatter.string(from: Date())
             let fileName = "\(targetId.replacingOccurrences(of: ":", with: "-"))-\(mediaKind).bin"
+            let mediaEventId = UUID().uuidString
             let savedMedia: PendingMediaAttachment?
             if let offlineStore {
                 savedMedia = try offlineStore.savePendingMedia(
                     data: data,
+                    eventId: mediaEventId,
                     roundId: roundId,
                     hole: hole,
                     targetId: targetId,
+                    assetLocalId: fileName,
                     mediaKind: mediaKind,
                     fileName: fileName,
                     capturedAt: capturedAt
@@ -111,10 +114,11 @@ public struct MediaCaptureView: View {
             }
             emitMediaEvent(
                 mediaKind: mediaKind,
-                fileName: savedMedia?.fileName ?? fileName,
+                fileName: savedMedia?.assetLocalId ?? fileName,
                 fileURL: savedMedia?.fileURL,
                 capturedAt: capturedAt,
-                mediaId: uploadedMediaId
+                mediaId: uploadedMediaId,
+                eventId: mediaEventId
             )
             statusText = analyzedFindings.isEmpty ? "\(mediaKind.capitalized) attached" : "\(mediaKind.capitalized) analyzed"
         } catch {
@@ -122,10 +126,10 @@ public struct MediaCaptureView: View {
         }
     }
 
-    private func emitMediaEvent(mediaKind: String, fileName: String, fileURL: URL?, capturedAt: String, mediaId: String?) {
+    private func emitMediaEvent(mediaKind: String, fileName: String, fileURL: URL?, capturedAt: String, mediaId: String?, eventId: String) {
         let builder = LiveRoundEventBuilder(
             roundId: roundId,
-            idFactory: { UUID().uuidString },
+            idFactory: { eventId },
             now: { ISO8601DateFormatter().date(from: capturedAt) ?? Date() }
         )
         if mediaKind == "photo" {

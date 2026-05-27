@@ -222,7 +222,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 contentBase64: mediaData.base64EncodedString(),
                 capturedAt: media.capturedAt
             )
-            _ = try await mediaUploadClient.uploadMedia(request)
+            let uploadResponse = try await mediaUploadClient.uploadMedia(request)
+            try? await mediaUploadClient.analyzeMedia(mediaId: uploadResponse.media.id)
+            try offlineStore.attachUploadedMediaId(eventId: media.eventId, mediaId: uploadResponse.media.id)
             uploadedIds.insert(media.id)
         }
         try offlineStore.removePendingMedia(ids: uploadedIds)
