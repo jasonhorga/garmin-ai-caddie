@@ -3,10 +3,12 @@ import Foundation
 public struct GarminSessionImportRequest: Codable, Equatable {
     public let webSessionHeader: String
     public let antiForgeryValue: String
+    public let source: String?
 
-    public init(webSessionHeader: String, antiForgeryValue: String) {
+    public init(webSessionHeader: String, antiForgeryValue: String, source: String? = nil) {
         self.webSessionHeader = webSessionHeader
         self.antiForgeryValue = antiForgeryValue
+        self.source = source
     }
 }
 
@@ -18,6 +20,7 @@ public struct GarminSessionImportResponse: Codable, Equatable {
     public let sessionFieldCount: Int
     public let antiForgeryPresent: Bool
     public let source: String
+    public let acceptedSources: [String]?
 }
 
 public final class GarminSessionClient {

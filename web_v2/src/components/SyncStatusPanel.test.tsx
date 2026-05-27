@@ -200,6 +200,7 @@ describe('SyncStatusPanel', () => {
     expect(onSaveSession).toHaveBeenCalledWith({
       webSessionHeader: 'Cookie: JWT_WEB=abc123',
       antiForgeryValue: 'connect-csrf-token: csrf-secret-value',
+      source: 'web_secure_paste',
     })
   })
 
@@ -218,6 +219,7 @@ describe('SyncStatusPanel', () => {
       {
         webSessionHeader: 'Cookie: JWT_WEB=abc123',
         antiForgeryValue: 'connect-csrf-token: csrf-secret-value',
+        source: 'web_secure_paste',
       },
       'admin-secret',
     )

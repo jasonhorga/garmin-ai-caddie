@@ -72,6 +72,7 @@ export function SyncStatusPanel({
     const request = {
       webSessionHeader,
       antiForgeryValue,
+      source: 'web_secure_paste' as const,
     }
     const token = normalizedAdminToken()
     try {

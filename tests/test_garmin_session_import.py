@@ -32,6 +32,8 @@ class GarminSessionImportTests(unittest.TestCase):
             self.assertEqual(result["state"], "stored")
             self.assertEqual(result["sessionFieldCount"], 2)
             self.assertTrue(result["antiForgeryPresent"])
+            self.assertEqual(result["source"], "manual_paste")
+            self.assertIn("ios_web_login", result["acceptedSources"])
             self.assertEqual(web_session_file.read_text(encoding="utf-8").strip(), "JWT_WEB=abc123; GARMIN=two")
             self.assertEqual(anti_forgery_file.read_text(encoding="utf-8").strip(), "csrf-secret-value")
             self.assertEqual(stat.S_IMODE(session_dir.stat().st_mode), 0o700)
@@ -41,6 +43,24 @@ class GarminSessionImportTests(unittest.TestCase):
             response_text = json.dumps(result, ensure_ascii=False)
             for value in SECRET_VALUES:
                 self.assertNotIn(value, response_text)
+
+    def test_accepts_replaceable_ios_session_material_source_without_changing_secret_storage(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            result = save_garmin_cn_web_session(
+                web_session_header="Cookie: JWT_WEB=abc123",
+                anti_forgery_value="connect-csrf-token: csrf-secret-value",
+                source="ios_keychain_replay",
+                root=root,
+            )
+
+        self.assertEqual(result["source"], "ios_keychain_replay")
+        self.assertEqual(result["sessionFieldCount"], 1)
+        self.assertTrue(result["antiForgeryPresent"])
+        response_text = json.dumps(result, ensure_ascii=False)
+        for value in SECRET_VALUES:
+            self.assertNotIn(value, response_text)
 
     def test_rejects_empty_or_multiline_session_values(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -56,6 +76,13 @@ class GarminSessionImportTests(unittest.TestCase):
                 save_garmin_cn_web_session(
                     web_session_header="JWT_WEB=abc123\nOther=value",
                     anti_forgery_value="csrf-secret-value",
+                    root=root,
+                )
+            with self.assertRaises(ValueError):
+                save_garmin_cn_web_session(
+                    web_session_header="JWT_WEB=abc123",
+                    anti_forgery_value="csrf-secret-value",
+                    source="username_password",
                     root=root,
                 )
 

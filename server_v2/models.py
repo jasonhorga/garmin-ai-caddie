@@ -16,6 +16,7 @@ ReportConfidence = Literal["low", "medium", "high"]
 GeometryCoverageState = Literal["ready", "partial", "missing"]
 GeometryEnsureStatus = Literal["cached", "downloaded", "failed"]
 CaddieShotType = Literal["tee", "approach", "recovery"]
+GarminSessionSource = Literal["manual_paste", "web_secure_paste", "ios_secure_input", "ios_keychain_replay", "ios_web_login"]
 AnnotationTargetType = Literal["round", "hole", "shot", "decision"]
 AnnotationKind = Literal[
     "round_note",
@@ -416,6 +417,7 @@ class SyncRunResponse(BaseModel):
 class GarminSessionImportRequest(BaseModel):
     webSessionHeader: str = Field(min_length=1)
     antiForgeryValue: str = Field(min_length=1)
+    source: GarminSessionSource = "manual_paste"
 
 
 class GarminSessionImportResponse(BaseModel):
@@ -427,7 +429,8 @@ class GarminSessionImportResponse(BaseModel):
     detail: str
     sessionFieldCount: int
     antiForgeryPresent: bool
-    source: Literal["manual_paste"]
+    source: GarminSessionSource
+    acceptedSources: list[GarminSessionSource] = Field(default_factory=list)
 
 
 class ReviewReportResponse(BaseModel):

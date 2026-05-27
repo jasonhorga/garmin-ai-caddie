@@ -18,6 +18,7 @@ def save_garmin_session_response(request: GarminSessionImportRequest) -> GarminS
         payload = save_garmin_cn_web_session(
             web_session_header=request.webSessionHeader,
             anti_forgery_value=request.antiForgeryValue,
+            source=request.source,
             root=SESSION_ROOT,
         )
     except ValueError as exc:

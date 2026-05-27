@@ -86,7 +86,11 @@ public struct GarminSessionView: View {
         let client = GarminSessionClient(baseURL: apiBaseURL, adminToken: adminToken)
         do {
             let response = try await client.importSession(
-                GarminSessionImportRequest(webSessionHeader: sessionHeader, antiForgeryValue: csrfToken)
+                GarminSessionImportRequest(
+                    webSessionHeader: sessionHeader,
+                    antiForgeryValue: csrfToken,
+                    source: "ios_secure_input"
+                )
             )
             try sessionStore?.saveSession(
                 GarminSessionMaterial(
@@ -126,7 +130,8 @@ public struct GarminSessionView: View {
             let response = try await client.importSession(
                 GarminSessionImportRequest(
                     webSessionHeader: material.webSessionHeader,
-                    antiForgeryValue: material.antiForgeryValue
+                    antiForgeryValue: material.antiForgeryValue,
+                    source: "ios_keychain_replay"
                 )
             )
             statusText = response.detail

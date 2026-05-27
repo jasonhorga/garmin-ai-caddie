@@ -86,6 +86,28 @@ class ServerV2SyncSessionTests(unittest.TestCase):
         self.assertNotIn("csrf-secret-value", response.text)
         self.assertNotIn(".garmin_tokens", response.text)
 
+    def test_sync_session_endpoint_accepts_replaceable_session_sources(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.session.SESSION_ROOT", root):
+                response = client.post(
+                    "/api/v2/sync/garmin/session",
+                    json={
+                        "webSessionHeader": "Cookie: JWT_WEB=abc123",
+                        "antiForgeryValue": "connect-csrf-token: csrf-secret-value",
+                        "source": "ios_web_login",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["source"], "ios_web_login")
+        self.assertIn("ios_keychain_replay", payload["acceptedSources"])
+        self.assertNotIn("abc123", response.text)
+        self.assertNotIn("csrf-secret-value", response.text)
+
     def test_sync_session_endpoint_rejects_invalid_material_without_writing(self) -> None:
         client = TestClient(app)
 

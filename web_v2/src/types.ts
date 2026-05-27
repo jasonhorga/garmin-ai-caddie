@@ -627,6 +627,7 @@ export interface SyncRunResponse {
 export interface GarminSessionImportRequest {
   webSessionHeader: string
   antiForgeryValue: string
+  source?: 'manual_paste' | 'web_secure_paste' | 'ios_secure_input' | 'ios_keychain_replay' | 'ios_web_login'
 }
 
 export interface GarminSessionImportResponse {
@@ -636,7 +637,8 @@ export interface GarminSessionImportResponse {
   detail: string
   sessionFieldCount: number
   antiForgeryPresent: boolean
-  source: 'manual_paste'
+  source: 'manual_paste' | 'web_secure_paste' | 'ios_secure_input' | 'ios_keychain_replay' | 'ios_web_login'
+  acceptedSources?: Array<'manual_paste' | 'web_secure_paste' | 'ios_secure_input' | 'ios_keychain_replay' | 'ios_web_login'>
 }
 
 export interface MobileReconciliationSummary {
