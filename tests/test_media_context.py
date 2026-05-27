@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from ai_caddie.media import attach_media, list_media, media_for_target, media_index_file, redact_media
+from ai_caddie.media import attach_media, list_media, media_for_target, media_index_file, redact_media, resolve_media_content_path
 
 
 class MediaContextTests(unittest.TestCase):
@@ -114,6 +114,27 @@ class MediaContextTests(unittest.TestCase):
         combined = f"{rows} {target_rows}"
         self.assertEqual(rows[0]["localPath"], "data/media/uploads/legacy.jpg")
         self.assertNotIn(tmp, combined)
+
+    def test_media_content_resolution_stays_inside_upload_root(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upload = root / "data" / "media" / "uploads" / "shot.jpg"
+            upload.parent.mkdir(parents=True, exist_ok=True)
+            upload.write_bytes(b"safe-media")
+            secret = root / "secret.txt"
+            secret.write_text("must not be read", encoding="utf-8")
+            outside = root.parent / "outside-secret.txt"
+            outside.write_text("must not be read", encoding="utf-8")
+
+            allowed = resolve_media_content_path("data/media/uploads/shot.jpg", root=root)
+            traversal = resolve_media_content_path("data/media/uploads/../../secret.txt", root=root)
+            sibling = resolve_media_content_path("secret.txt", root=root)
+            absolute_outside = resolve_media_content_path(outside, root=root)
+
+        self.assertEqual(allowed, upload.resolve())
+        self.assertIsNone(traversal)
+        self.assertIsNone(sibling)
+        self.assertIsNone(absolute_outside)
 
 
 if __name__ == "__main__":

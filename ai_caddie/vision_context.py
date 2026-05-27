@@ -11,7 +11,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 from ai_caddie.llm_providers import LLMMediaPart, LLMMessage, MultimodalProvider, TextProvider, redact_secret_text
-from ai_caddie.media import VALID_MEDIA_TARGET_TYPES
+from ai_caddie.media import VALID_MEDIA_TARGET_TYPES, resolve_media_content_path
 
 
 ALLOWED_FINDING_TYPES = {
@@ -142,9 +142,9 @@ def _media_payload(media: dict[str, Any], root: Path | str | None = None) -> tup
     local_path = media.get("localPath")
     if not local_path:
         return [], "byteLength=0; contentAvailable=false"
-    path = Path(str(local_path))
-    if not path.is_absolute():
-        path = Path(root or ".") / path
+    path = resolve_media_content_path(str(local_path), root=root)
+    if path is None:
+        return [], "byteLength=0; contentAvailable=false; reason=outside media upload storage"
     try:
         byte_length = path.stat().st_size
         with path.open("rb") as handle:
@@ -256,7 +256,7 @@ def analyze_media_context(
         return _uncertainty(
             media,
             provider,
-            "media content is unavailable; no structured image/video media parts were sent",
+            f"media content is unavailable; no structured image/video media parts were sent; {media_status}",
         )
     if not uses_multimodal:
         return _uncertainty(

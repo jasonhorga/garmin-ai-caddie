@@ -5,7 +5,14 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from ai_caddie.llm_providers import TextProvider, build_text_provider, redact_secret_text
-from ai_caddie.media import attach_media, find_media, media_for_target, redact_media, store_media_content
+from ai_caddie.media import (
+    attach_media,
+    find_media,
+    media_for_target,
+    redact_media,
+    resolve_media_content_path,
+    store_media_content,
+)
 from ai_caddie.vision_context import analyze_media_context, list_findings_for_target, store_vision_findings
 
 from .models import (
@@ -68,6 +75,9 @@ def create_media_response(request: MediaCreateRequest) -> MediaCreateResponse:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     elif request.localPath:
+        resolved = resolve_media_content_path(request.localPath, root=MEDIA_ROOT)
+        if resolved is None:
+            raise HTTPException(status_code=422, detail="localPath must be inside data/media/uploads")
         local_path = request.localPath
     else:
         raise HTTPException(status_code=422, detail="localPath or contentBase64 is required")

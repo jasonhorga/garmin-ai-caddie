@@ -36,6 +36,20 @@ def _relative_local_path(local_path: Path | str, root: Path | str | None = None)
         return path.name
 
 
+def resolve_media_content_path(local_path: Path | str, root: Path | str | None = None) -> Path | None:
+    root_path = Path(root or ".").resolve()
+    upload_root = (root_path / UPLOAD_DIR).resolve()
+    candidate = Path(local_path)
+    if not candidate.is_absolute():
+        candidate = root_path / candidate
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(upload_root)
+    except (OSError, ValueError):
+        return None
+    return resolved
+
+
 def validate_media_metadata(target_type: str, media_kind: str, privacy_state: str) -> None:
     if target_type not in VALID_MEDIA_TARGET_TYPES:
         raise ValueError(f"unsupported media targetType: {target_type}")

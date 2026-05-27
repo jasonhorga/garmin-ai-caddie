@@ -78,8 +78,8 @@ class VisionContextTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            image = root / "uploads" / "shot.jpg"
-            image.parent.mkdir()
+            image = root / "data" / "media" / "uploads" / "shot.jpg"
+            image.parent.mkdir(parents=True, exist_ok=True)
             image.write_bytes(b"image-bytes")
             result = analyze_media_context(
                 {
@@ -87,7 +87,7 @@ class VisionContextTests(unittest.TestCase):
                     "targetType": "shot",
                     "targetId": "round-1:7:2",
                     "mediaKind": "photo",
-                    "localPath": "uploads/shot.jpg",
+                    "localPath": "data/media/uploads/shot.jpg",
                 },
                 provider,
                 root=root,
@@ -105,11 +105,11 @@ class VisionContextTests(unittest.TestCase):
     def test_invalid_or_unparseable_provider_reply_degrades_to_uncertainty(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            video = root / "uploads" / "swing.mp4"
-            video.parent.mkdir()
+            video = root / "data" / "media" / "uploads" / "swing.mp4"
+            video.parent.mkdir(parents=True, exist_ok=True)
             video.write_bytes(b"video-bytes")
             result = analyze_media_context(
-                {"id": "media-2", "mediaKind": "video", "localPath": "uploads/swing.mp4"},
+                {"id": "media-2", "mediaKind": "video", "localPath": "data/media/uploads/swing.mp4"},
                 StaticProvider("not json"),
                 root=root,
             )
@@ -122,8 +122,8 @@ class VisionContextTests(unittest.TestCase):
         provider = TextOnlyVisionProvider()
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            image = root / "uploads" / "shot.jpg"
-            image.parent.mkdir()
+            image = root / "data" / "media" / "uploads" / "shot.jpg"
+            image.parent.mkdir(parents=True, exist_ok=True)
             image.write_bytes(b"image-bytes")
             result = analyze_media_context(
                 {
@@ -131,7 +131,7 @@ class VisionContextTests(unittest.TestCase):
                     "targetType": "shot",
                     "targetId": "round-1:7:2",
                     "mediaKind": "photo",
-                    "localPath": "uploads/shot.jpg",
+                    "localPath": "data/media/uploads/shot.jpg",
                 },
                 provider,
                 root=root,
@@ -159,7 +159,7 @@ class VisionContextTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             image = root / "uploads" / "redacted.jpg"
-            image.parent.mkdir()
+            image.parent.mkdir(parents=True, exist_ok=True)
             image.write_bytes(b"redacted-image-bytes")
             result = analyze_media_context(
                 {
@@ -184,8 +184,8 @@ class VisionContextTests(unittest.TestCase):
         provider = RecordingVisionProvider()
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            image = root / "uploads" / "shot.jpg"
-            image.parent.mkdir()
+            image = root / "data" / "media" / "uploads" / "shot.jpg"
+            image.parent.mkdir(parents=True, exist_ok=True)
             image.write_bytes(b"image-bytes")
             result = analyze_media_context(
                 {
@@ -193,7 +193,7 @@ class VisionContextTests(unittest.TestCase):
                     "targetType": "shot",
                     "targetId": "round-1:7:2",
                     "mediaKind": "photo",
-                    "localPath": "uploads/shot.jpg",
+                    "localPath": "data/media/uploads/shot.jpg",
                 },
                 provider,
                 root=root,
@@ -210,12 +210,35 @@ class VisionContextTests(unittest.TestCase):
         self.assertNotIn("image-bytes", prompt)
         self.assertIn("byteLength=11", prompt)
 
+    def test_media_path_escape_degrades_without_sending_bytes(self) -> None:
+        provider = RecordingVisionProvider()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            secret = root / "secret.txt"
+            secret.write_text("do-not-send", encoding="utf-8")
+            result = analyze_media_context(
+                {
+                    "id": "media-escape",
+                    "targetType": "shot",
+                    "targetId": "round-1:7:2",
+                    "mediaKind": "photo",
+                    "localPath": "data/media/uploads/../../secret.txt",
+                },
+                provider,
+                root=root,
+            )
+
+        self.assertEqual(provider.messages, [])
+        self.assertEqual(provider.media_parts, [])
+        self.assertEqual(result["findings"][0]["findingType"], "uncertainty")
+        self.assertIn("outside media upload storage", result["findings"][0]["missingInfo"][0])
+
     def test_multimodal_prompt_redacts_absolute_private_media_path(self) -> None:
         provider = RecordingVisionProvider()
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            image = root / "private-media" / "shot.jpg"
-            image.parent.mkdir()
+            image = root / "data" / "media" / "uploads" / "shot.jpg"
+            image.parent.mkdir(parents=True, exist_ok=True)
             image.write_bytes(b"image-bytes")
             result = analyze_media_context(
                 {
@@ -237,8 +260,8 @@ class VisionContextTests(unittest.TestCase):
         provider = RecordingVisionProvider()
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            video = root / "uploads" / "swing.mp4"
-            video.parent.mkdir()
+            video = root / "data" / "media" / "uploads" / "swing.mp4"
+            video.parent.mkdir(parents=True, exist_ok=True)
             video.write_bytes(b"video-bytes")
             result = analyze_media_context(
                 {
@@ -246,7 +269,7 @@ class VisionContextTests(unittest.TestCase):
                     "targetType": "shot",
                     "targetId": "round-1:7:2",
                     "mediaKind": "video",
-                    "localPath": "uploads/swing.mp4",
+                    "localPath": "data/media/uploads/swing.mp4",
                 },
                 provider,
                 root=root,

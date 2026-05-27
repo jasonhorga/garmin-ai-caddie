@@ -22,8 +22,8 @@ class ServerV2MediaTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            image = root / "uploads" / "shot.jpg"
-            image.parent.mkdir()
+            image = root / "data" / "media" / "uploads" / "shot.jpg"
+            image.parent.mkdir(parents=True, exist_ok=True)
             image.write_bytes(b"fake image bytes")
             with patch("server_v2.media.MEDIA_ROOT", root):
                 create_response = client.post(
@@ -50,7 +50,7 @@ class ServerV2MediaTests(unittest.TestCase):
 
         self.assertEqual(create_response.status_code, 200)
         self.assertEqual(create_response.json()["schema"], "ai-caddie-media-create-v1")
-        self.assertEqual(create_response.json()["media"]["localPath"], "uploads/shot.jpg")
+        self.assertEqual(create_response.json()["media"]["localPath"], "data/media/uploads/shot.jpg")
         self.assertNotIn(tmp, create_response.text)
 
         self.assertEqual(list_response.status_code, 200)
@@ -92,6 +92,40 @@ class ServerV2MediaTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 422)
+
+    def test_media_create_rejects_local_path_escape_before_analysis(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            secret = root / "secret.txt"
+            secret.write_text("must not be read", encoding="utf-8")
+            with patch("server_v2.media.MEDIA_ROOT", root):
+                traversal = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "localPath": "data/media/uploads/../../secret.txt",
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                absolute = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "localPath": str(secret),
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                index_path = root / "data" / "media" / "media_index.jsonl"
+
+        self.assertEqual(traversal.status_code, 422)
+        self.assertEqual(absolute.status_code, 422)
+        self.assertFalse(index_path.exists())
 
     def test_media_create_can_store_uploaded_content_without_jsonl_bytes(self) -> None:
         client = TestClient(app)
