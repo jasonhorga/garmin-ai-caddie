@@ -561,6 +561,7 @@ function DecisionDetail({
         })}
       </div>
 
+      <DecisionScoreImpact decision={decision} onSelectRef={onSelectRef} />
       <DecisionAcceptableMiss decision={decision} onSelectRef={onSelectRef} />
       <DecisionSequences sequences={decision.sequences ?? []} selectedSequence={decision.selectedSequence ?? null} onSelectRef={onSelectRef} />
       <DecisionExplanation explanation={decision.explanation} onSelectRef={onSelectRef} />
@@ -579,6 +580,85 @@ function DecisionDetail({
           onSelectRef={onSelectRef}
         />
       ) : null}
+    </section>
+  )
+}
+
+function DecisionScoreImpact({
+  decision,
+  onSelectRef,
+}: {
+  decision: CaddieDecisionResponse
+  onSelectRef: (sourceRef: string) => void
+}) {
+  const selected = selectedDecisionOption(decision)
+  const scoreImpact = recordFrom(selected.scoreImpact)
+  if (!Object.keys(scoreImpact).length) return null
+
+  const model = stringValue(scoreImpact.model)
+  const expectedStrokes = numberValue(scoreImpact.expectedStrokes)
+  const expectedDelta = numberValue(scoreImpact.expectedStrokesDelta)
+  const components = recordFrom(scoreImpact.components)
+  const componentRows = Object.entries(components)
+    .map(([key, value]) => ({ key, value: numberValue(value) }))
+    .filter((row): row is { key: string; value: number } => row.value !== null)
+  const historyAdjustment = recordFrom(scoreImpact.historyAdjustment)
+  const historyFactors = recordRows(historyAdjustment.factors)
+  const clubConfidence = recordFrom(scoreImpact.clubConfidence)
+  const clubConfidenceReason = stringValue(clubConfidence.reason)
+  const refs = uniqueStrings([
+    ...rowSourceRefs(historyAdjustment),
+    ...historyFactors.flatMap(rowSourceRefs),
+    ...rowSourceRefs(recordFrom(scoreImpact.clubSurfaceRisk)),
+  ])
+
+  return (
+    <section className="decision-score-impact" aria-label="Decision score impact">
+      <div className="report-title-row">
+        <div>
+          <p className="eyebrow">Expected outcome</p>
+          <h3>Score Impact</h3>
+        </div>
+        {model ? <span className="fact-chip muted">{model}</span> : null}
+      </div>
+      <div className="decision-score-summary">
+        {expectedStrokes !== null ? (
+          <div>
+            <strong>{formatStrokes(expectedStrokes)}</strong>
+            <span>expected strokes</span>
+          </div>
+        ) : null}
+        {expectedDelta !== null ? (
+          <div>
+            <strong>{formatSignedStrokes(expectedDelta)}</strong>
+            <span>vs baseline</span>
+          </div>
+        ) : null}
+        <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
+      </div>
+      {componentRows.length ? (
+        <div className="decision-score-components" aria-label="Score impact components">
+          {componentRows.map((row) => (
+            <span className="fact-chip muted" key={row.key}>
+              {formatMissDirection(row.key)} {formatSignedStrokes(row.value)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {historyFactors.length ? (
+        <div className="decision-score-factors" aria-label="Score impact history factors">
+          {historyFactors.map((factor, index) => (
+            <div className="report-row" key={`${String(factor.label ?? 'history')}-${index}`}>
+              <div className="report-row-main">
+                <strong>{String(factor.label ?? 'history')}</strong>
+                <span>{formatSignedStrokes(numberValue(factor.expectedStrokesDelta) ?? 0)}</span>
+              </div>
+              <SourceRefs refs={rowSourceRefs(factor)} maxVisible={2} onSelectRef={onSelectRef} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {clubConfidenceReason ? <p className="decision-score-note">{clubConfidenceReason}</p> : null}
     </section>
   )
 }
@@ -771,6 +851,8 @@ function DecisionAcceptableMiss({
   const direction = stringValue(miss.direction) || stringValue(miss.side) || 'unknown'
   const selectedOptionId = stringValue(miss.selectedOptionId) || stringValue(decision.selectedOptionId) || 'unknown option'
   const avoidRiskKinds = stringRows(miss.avoidRiskKinds)
+  const avoidPatterns = stringRows(miss.avoidPatterns)
+  const preferredMiss = recordFrom(miss.preferredMiss)
   const rationale = stringValue(miss.rationale) || stringValue(miss.reason)
   const refs = uniqueStrings([...rowSourceRefs(miss), ...stringRows(decision.evidenceRefs), ...(decision.sourceRef ? [decision.sourceRef] : [])])
 
@@ -789,6 +871,9 @@ function DecisionAcceptableMiss({
       </div>
       <div className="decision-option-chips">
         {avoidRiskKinds.length ? <span className="fact-chip muted">avoid {avoidRiskKinds.join(', ')}</span> : null}
+        {stringValue(preferredMiss.side) ? <span className="fact-chip muted">prefer side {stringValue(preferredMiss.side)}</span> : null}
+        {stringValue(preferredMiss.depth) ? <span className="fact-chip muted">prefer depth {stringValue(preferredMiss.depth)}</span> : null}
+        {avoidPatterns.length ? <span className="fact-chip muted">avoid pattern {avoidPatterns.join(', ')}</span> : null}
         <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
       </div>
     </section>
@@ -1054,6 +1139,12 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : ''
 }
 
+function numberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value)
+  return null
+}
+
 function explanationSourceRefs(row: Record<string, unknown>): string[] {
   const refs = new Set<string>(rowSourceRefs(row))
   for (const item of [...recordRows(row.factsUsed), ...recordRows(row.missingData), ...recordRows(row.unsupportedClaims)]) {
@@ -1077,10 +1168,28 @@ function uniqueStrings(rows: string[]): string[] {
 
 function formatMissDirection(value: string): string {
   return value
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
     .split(/[_\s-]+/)
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+function formatStrokes(value: number): string {
+  return Number.isInteger(value) ? `${value}` : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+function formatSignedStrokes(value: number): string {
+  const formatted = formatStrokes(Math.abs(value))
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  return `${sign}${formatted} strokes`
+}
+
+function selectedDecisionOption(decision: CaddieDecisionResponse): Record<string, unknown> {
+  const selectedId = stringValue(decision.selectedOptionId)
+  const fromOptions = (decision.options ?? []).find((option) => stringValue(option.id) === selectedId)
+  if (fromOptions) return fromOptions
+  return recordFrom(decision.selectedOption ?? decision.selected)
 }
 
 function explanationRowText(row: Record<string, unknown>): string {

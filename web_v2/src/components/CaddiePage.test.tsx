@@ -36,7 +36,30 @@ const decision: CaddieDecisionResponse = {
       clubRecommendation: { source: 'club_profiles', clubs: [{ clubName: '8I', sampleSize: 24, median_m: 144, p10_m: 132, p90_m: 153 }] },
       carry_m: 144,
       riskScore: 1,
-      scoreImpact: { expectedStrokes: 1.1, expectedStrokesDelta: 0.1 },
+      scoreImpact: {
+        model: 'calibrated_history_club_v2',
+        expectedStrokes: 1.24,
+        expectedStrokesDelta: 0.24,
+        components: { risk: 0.05, history: 0.12, hazardClearance: 0, dispersion: 0.02, clubSurfaceRisk: 0.03, clubConfidence: 0.02 },
+        historyAdjustment: {
+          expectedStrokesDelta: 0.12,
+          sourceRefs: ['fixture-links:4:history'],
+          factors: [
+            {
+              label: 'historical_hole_scoring',
+              expectedStrokesDelta: 0.08,
+              riskScoreDelta: 0.8,
+              sourceRefs: ['fixture-links:4:history'],
+            },
+          ],
+        },
+        clubConfidence: {
+          expectedStrokesDelta: 0.02,
+          sampleSize: 24,
+          carryWindow_m: 21,
+          reason: 'club sample and dispersion are strong enough',
+        },
+      },
       historyAdjustment: { riskScoreDelta: 0.8, sourceRefs: ['fixture-links:4:history'] },
       hazardClearance: { minimumClearance_m: 16, criticalHazardId: 'water_front' },
       coverage: { ready: 4, total: 4, pct: 100 },
@@ -392,7 +415,7 @@ describe('CaddiePage', () => {
     expect(screen.getAllByText('high option confidence').length).toBeGreaterThan(0)
     expect(screen.getByText('history +0.8 risk')).toBeInTheDocument()
     expect(screen.getAllByText('selected').length).toBeGreaterThan(0)
-    expect(screen.getByText('144m - risk 1 - 1.1 exp - 16m clear')).toBeInTheDocument()
+    expect(screen.getByText('144m - risk 1 - 1.24 exp - 16m clear')).toBeInTheDocument()
     expect(screen.getAllByText('water_front').length).toBeGreaterThan(0)
     expect(screen.getAllByText('wind').length).toBeGreaterThan(0)
     expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)
@@ -400,7 +423,7 @@ describe('CaddiePage', () => {
     expect(screen.getByText('planned stock -> actual stock')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source fixture-links:4:1' })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source fixture-links:4' }).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: 'Open source fixture-links:4:history' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Open source fixture-links:4:history' }).length).toBeGreaterThan(0)
     expect(screen.getByText('club match yes')).toBeInTheDocument()
     expect(screen.getByText('distance -1m')).toBeInTheDocument()
     expect(screen.getByText('risk no')).toBeInTheDocument()
@@ -408,6 +431,15 @@ describe('CaddiePage', () => {
     expect(screen.getByText('carry_window')).toBeInTheDocument()
     expect(screen.getAllByText('pass').length).toBeGreaterThan(0)
     expect(screen.getByText('Keep the strategic option, but track whether this miss pattern repeats.')).toBeInTheDocument()
+    const scoreImpact = screen.getByLabelText('Decision score impact')
+    expect(within(scoreImpact).getByRole('heading', { name: 'Score Impact' })).toBeInTheDocument()
+    expect(within(scoreImpact).getByText('calibrated_history_club_v2')).toBeInTheDocument()
+    expect(within(scoreImpact).getByText('1.24')).toBeInTheDocument()
+    expect(within(scoreImpact).getByText('+0.24 strokes')).toBeInTheDocument()
+    expect(within(scoreImpact).getByText('History +0.12 strokes')).toBeInTheDocument()
+    expect(within(scoreImpact).getByText('Club Confidence +0.02 strokes')).toBeInTheDocument()
+    expect(within(scoreImpact).getByText('historical_hole_scoring')).toBeInTheDocument()
+    expect(within(scoreImpact).getByText('club sample and dispersion are strong enough')).toBeInTheDocument()
     const acceptableMiss = screen.getByLabelText('Decision acceptable miss')
     expect(within(acceptableMiss).getByRole('heading', { name: 'Acceptable Miss' })).toBeInTheDocument()
     expect(within(acceptableMiss).getByText('Away From Known Risks')).toBeInTheDocument()
@@ -607,5 +639,28 @@ describe('CaddiePage', () => {
         landingRadiusM: 18,
       }),
     )
+  })
+
+  it('renders history-aware acceptable miss bias', () => {
+    const biasedDecision: CaddieDecisionResponse = {
+      ...decision,
+      acceptableMiss: {
+        direction: 'history_depth_bias',
+        selectedOptionId: 'stock',
+        avoidRiskKinds: ['water'],
+        preferredMiss: { depth: 'long' },
+        avoidPatterns: ['approach_short'],
+        sourceRefs: ['hist-approach-short'],
+        rationale: 'historical miss patterns bias the acceptable miss away from repeated scoring-loss patterns',
+      },
+    }
+
+    render(<CaddiePage decisionState={{ status: 'ready', data: biasedDecision }} contextState={{ status: 'ready', data: caddieContext }} onRequestDecision={vi.fn()} />)
+
+    const acceptableMiss = screen.getByLabelText('Decision acceptable miss')
+    expect(within(acceptableMiss).getByText('History Depth Bias')).toBeInTheDocument()
+    expect(within(acceptableMiss).getByText('prefer depth long')).toBeInTheDocument()
+    expect(within(acceptableMiss).getByText('avoid pattern approach_short')).toBeInTheDocument()
+    expect(within(acceptableMiss).getByRole('button', { name: 'Open source hist-approach-short' })).toBeInTheDocument()
   })
 })

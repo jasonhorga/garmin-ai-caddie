@@ -3343,6 +3343,50 @@ button.round-detail-cell:hover {
   margin-top: 10px;
 }
 
+.decision-score-impact {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7fbf8;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.decision-score-summary,
+.decision-score-components {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.decision-score-summary > div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+  min-width: 118px;
+}
+
+.decision-score-summary strong {
+  display: block;
+  color: var(--ink);
+  font-size: 1.1rem;
+}
+
+.decision-score-summary span,
+.decision-score-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.decision-score-factors {
+  display: grid;
+  gap: 6px;
+}
+
 .decision-acceptable-miss {
   display: grid;
   gap: 10px;
