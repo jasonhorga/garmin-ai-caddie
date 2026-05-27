@@ -120,6 +120,44 @@ class ServerV2MediaTests(unittest.TestCase):
         self.assertNotIn("uploaded-bytes", index_text)
         self.assertTrue(local_path.startswith("data/media/uploads/"))
 
+    def test_media_analyze_degrades_when_provider_is_unavailable_without_secret_leak(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.media.MEDIA_ROOT", root):
+                create_response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "fileName": "lie.jpg",
+                        "contentBase64": base64.b64encode(b"uploaded-bytes").decode("ascii"),
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                media_id = create_response.json()["media"]["id"]
+                with patch(
+                    "server_v2.media.build_media_vision_provider",
+                    side_effect=RuntimeError("vision failed api_key=abc123 /home/ubuntu/private/media.jpg"),
+                ):
+                    analyze_response = client.post(f"/api/v2/media/{media_id}/analyze")
+                findings_response = client.get("/api/v2/media/target/shot/round-1:7:2/findings")
+
+        self.assertEqual(analyze_response.status_code, 200)
+        payload = analyze_response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-vision-context-v1")
+        self.assertEqual(payload["provider"], "unavailable_vision")
+        self.assertEqual(payload["findings"][0]["findingType"], "uncertainty")
+        self.assertEqual(payload["findings"][0]["confidence"], "low")
+        self.assertIn("[REDACTED]", payload["findings"][0]["missingInfo"][0])
+        self.assertIn("[REDACTED_PATH]", payload["findings"][0]["missingInfo"][0])
+        self.assertNotIn("abc123", analyze_response.text)
+        self.assertNotIn("/home/ubuntu/private", analyze_response.text)
+        self.assertEqual(findings_response.status_code, 200)
+        self.assertEqual(findings_response.json()["findings"][0]["provider"], "unavailable_vision")
+
     def test_media_redact_requires_admin_removes_bytes_and_returns_latest_redacted_metadata(self) -> None:
         client = TestClient(app)
 

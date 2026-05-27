@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from ai_caddie.llm_providers import TextProvider, build_text_provider
+from ai_caddie.llm_providers import TextProvider, build_text_provider, redact_secret_text
 from ai_caddie.media import attach_media, find_media, media_for_target, redact_media, store_media_content
 from ai_caddie.vision_context import analyze_media_context, list_findings_for_target, store_vision_findings
 
@@ -26,6 +26,31 @@ MEDIA_ROOT = Path(".")
 
 def build_media_vision_provider() -> TextProvider:
     return build_text_provider()
+
+
+def _unavailable_vision_analysis(media: dict[str, object], exc: Exception) -> dict[str, object]:
+    reason = redact_secret_text(exc)
+    return {
+        "schema": "ai-caddie-vision-context-v1",
+        "mediaId": media.get("id"),
+        "targetType": media.get("targetType"),
+        "targetId": media.get("targetId"),
+        "mediaKind": media.get("mediaKind"),
+        "provider": "unavailable_vision",
+        "model": "unavailable",
+        "findings": [
+            {
+                "findingType": "uncertainty",
+                "evidenceText": "vision analysis provider is unavailable",
+                "confidence": "low",
+                "confirmationState": "unconfirmed",
+                "missingInfo": [reason],
+                "provider": "unavailable_vision",
+                "model": "unavailable",
+                "source": "vision_model",
+            }
+        ],
+    }
 
 
 def _record(row: dict[str, object]) -> MediaRecord:
@@ -83,7 +108,10 @@ def analyze_media_response(media_id: str) -> VisionAnalysisResponse:
     media = find_media(media_id, root=MEDIA_ROOT)
     if media is None:
         raise HTTPException(status_code=404, detail="media not found")
-    result = analyze_media_context(media, build_media_vision_provider(), root=MEDIA_ROOT)
+    try:
+        result = analyze_media_context(media, build_media_vision_provider(), root=MEDIA_ROOT)
+    except Exception as exc:
+        result = _unavailable_vision_analysis(media, exc)
     store_vision_findings(result, root=MEDIA_ROOT)
     return VisionAnalysisResponse(**result)
 
