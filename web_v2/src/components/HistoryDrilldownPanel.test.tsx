@@ -74,6 +74,27 @@ describe('HistoryDrilldownPanel', () => {
     expect(onCreateAnnotationForSource).toHaveBeenCalledWith({ targetType: 'shot', targetId: '900001:1:0' })
   })
 
+  it('renders a retry action for protected drilldown errors', async () => {
+    const onRetrySource = vi.fn()
+
+    render(
+      <HistoryDrilldownPanel
+        onRetrySource={onRetrySource}
+        state={{
+          status: 'error',
+          sourceRef: '900001:1:0',
+          message: 'GET /api/v2/history/drilldown/900001%3A1%3A0 failed: 401 Unauthorized',
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(screen.getByText('900001:1:0')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Retry source detail' }))
+
+    expect(onRetrySource).toHaveBeenCalledWith('900001:1:0')
+  })
+
   it('creates corrections against canonical source targets when a drilldown ref is an alias', async () => {
     const onCreateAnnotationForSource = vi.fn()
 

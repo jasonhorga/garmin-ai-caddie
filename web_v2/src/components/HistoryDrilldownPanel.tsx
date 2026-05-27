@@ -10,6 +10,7 @@ export type HistoryDrilldownPanelState =
 interface HistoryDrilldownPanelProps {
   state: HistoryDrilldownPanelState
   onSelectRef?: (sourceRef: string) => void
+  onRetrySource?: (sourceRef: string) => void
   onCreateAnnotationForSource?: (target: { targetType: AnnotationTargetType; targetId: string }) => void
 }
 
@@ -206,7 +207,7 @@ function correctionTargetForDrilldown(data: HistoryDrilldownResponse): { targetT
   return null
 }
 
-export function HistoryDrilldownPanel({ state, onSelectRef, onCreateAnnotationForSource }: HistoryDrilldownPanelProps) {
+export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCreateAnnotationForSource }: HistoryDrilldownPanelProps) {
   if (state.status === 'idle') return null
 
   if (state.status === 'loading') {
@@ -224,6 +225,11 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onCreateAnnotationFo
         <h2>Source Detail</h2>
         <p>{state.sourceRef}</p>
         <p>{state.message}</p>
+        {onRetrySource ? (
+          <button type="button" className="drilldown-action-button" onClick={() => onRetrySource(state.sourceRef)}>
+            Retry source detail
+          </button>
+        ) : null}
       </section>
     )
   }

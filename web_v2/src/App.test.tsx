@@ -837,6 +837,80 @@ describe('App navigation', () => {
     })
   })
 
+  it('can retry protected source detail after entering an admin token', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/v2/history/drilldown/900001%3A1%3A0') {
+        if (init?.headers && (init.headers as Record<string, string>)['X-AI-Caddie-Admin-Token'] === 'admin-secret') {
+          return {
+            ok: true,
+            json: async () => drilldownPayload(),
+          }
+        }
+        return {
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+        }
+      }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'History' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Clubs' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
+
+    expect(await screen.findByRole('button', { name: 'Retry source detail' })).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
+    await userEvent.click(screen.getByRole('button', { name: 'Retry source detail' }))
+
+    expect(await screen.findByText('1D on H1')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A0', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('keeps pasted Garmin session material when the app-level save fails', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/v2/sync/garmin/session' && init?.method === 'POST') {
+        return {
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+        }
+      }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
+    await userEvent.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
+    await userEvent.click(screen.getByRole('button', { name: 'Save session' }))
+
+    expect(await screen.findByText('POST /api/v2/sync/garmin/session failed: 401 Unauthorized')).toBeInTheDocument()
+    expect(screen.getByLabelText('Web session header')).toHaveValue('Cookie: JWT_WEB=abc123')
+    expect(screen.getByLabelText('Anti-forgery value')).toHaveValue('connect-csrf-token: csrf-secret-value')
+  })
+
   it('loads history stats once and navigates between stats-backed pages', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,

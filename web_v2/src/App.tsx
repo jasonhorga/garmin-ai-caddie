@@ -410,6 +410,7 @@ export default function App() {
     } catch (error: unknown) {
       setSessionSaveError(error instanceof Error ? error.message : 'Unknown error')
       setSessionSaveState('error')
+      throw error
     }
   }
 
@@ -437,6 +438,7 @@ export default function App() {
         <HistoryDrilldownPanel
           state={drilldownState}
           onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+          onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
           onCreateAnnotationForSource={handleCreateAnnotationForSource}
         />
         {holeEvidenceState.status === 'idle' ? null : (
@@ -856,6 +858,7 @@ export default function App() {
             <HistoryDrilldownPanel
               state={drilldownState}
               onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+              onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
               onCreateAnnotationForSource={handleCreateAnnotationForSource}
             />
             {holeEvidenceState.status === 'idle' ? null : (

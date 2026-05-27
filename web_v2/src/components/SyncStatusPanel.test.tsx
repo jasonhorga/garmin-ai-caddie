@@ -239,4 +239,19 @@ describe('SyncStatusPanel', () => {
     expect(screen.getByLabelText('Web session header')).toHaveValue('')
     expect(screen.getByLabelText('Anti-forgery value')).toHaveValue('')
   })
+
+  it('keeps pasted Garmin session material after a failed save', async () => {
+    const user = userEvent.setup()
+    const onSaveSession = vi.fn().mockRejectedValue(new Error('invalid session'))
+
+    render(<SyncStatusPanel status={baseStatus} onSaveSession={onSaveSession} sessionSaveState="idle" />)
+
+    await user.type(screen.getByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
+    await user.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
+    await user.click(screen.getByRole('button', { name: 'Save session' }))
+
+    expect(onSaveSession).toHaveBeenCalledTimes(1)
+    expect(screen.getByLabelText('Web session header')).toHaveValue('Cookie: JWT_WEB=abc123')
+    expect(screen.getByLabelText('Anti-forgery value')).toHaveValue('connect-csrf-token: csrf-secret-value')
+  })
 })

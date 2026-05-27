@@ -74,13 +74,17 @@ export function SyncStatusPanel({
       antiForgeryValue,
     }
     const token = normalizedAdminToken()
-    if (token) {
-      await onSaveSession(request, token)
-    } else {
-      await onSaveSession(request)
+    try {
+      if (token) {
+        await onSaveSession(request, token)
+      } else {
+        await onSaveSession(request)
+      }
+      setWebSessionHeader('')
+      setAntiForgeryValue('')
+    } catch {
+      // Parent state owns the visible failure; keep pasted credentials available for correction.
     }
-    setWebSessionHeader('')
-    setAntiForgeryValue('')
   }
 
   function handleSyncClick() {
