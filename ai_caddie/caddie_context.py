@@ -440,7 +440,22 @@ def _club_profiles(data: HistoryData, *, stats: dict[str, Any] | None = None) ->
                 "confidence": row.get("confidence"),
                 "sampleQuality": row.get("sampleQuality"),
             }
-            for key in ("rawSampleCount", "validSampleCount", "invalidSampleCount", "outlierCount", "invalidShotRefs", "outlierShotRefs", "correctedRefs"):
+            for key in (
+                "rawSampleCount",
+                "validSampleCount",
+                "invalidSampleCount",
+                "outlierCount",
+                "invalidShotRefs",
+                "outlierShotRefs",
+                "correctedRefs",
+                "surfaceDistribution",
+                "topSurface",
+                "hazardRate",
+                "riskRate",
+                "usableRate",
+                "riskShotRefs",
+                "usableShotRefs",
+            ):
                 if key in row:
                     profiles[club][key] = row[key]
         if profiles:

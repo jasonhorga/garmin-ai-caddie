@@ -489,6 +489,32 @@ class DecisionLayerTests(unittest.TestCase):
         attack = next(option for option in plan["options"] if option["id"] == "attack")
         self.assertGreater(attack["scoreImpact"]["expectedStrokes"], stock["scoreImpact"]["expectedStrokes"])
 
+    def test_club_surface_risk_adjusts_option_risk_with_source_refs(self) -> None:
+        context = approach_fixture()
+        context["clubProfiles"]["8I"].update(
+            {
+                "hazardRate": 50.0,
+                "riskRate": 50.0,
+                "usableRate": 50.0,
+                "riskShotRefs": ["8i-risk-1", "8i-risk-2"],
+                "surfaceDistribution": [
+                    {"surface": "green", "count": 6, "pct": 50.0},
+                    {"surface": "rough", "count": 6, "pct": 50.0},
+                ],
+            }
+        )
+
+        plan = recommend_approach(context)
+
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        club = stock["clubRecommendation"]["clubs"][0]
+        self.assertEqual(club["clubName"], "8I")
+        self.assertEqual(club["riskRate"], 50.0)
+        self.assertEqual(stock["clubSurfaceRisk"]["riskScoreDelta"], 1.0)
+        self.assertEqual(stock["clubSurfaceRisk"]["sourceRefs"], ["8i-risk-1", "8i-risk-2"])
+        self.assertGreater(stock["riskScore"], stock["baseRiskScore"])
+        self.assertEqual(stock["scoreImpact"]["clubSurfaceRisk"]["expectedStrokesDelta"], 0.05)
+
     def test_approach_consumes_route_geometry_for_clearance_and_target_local(self) -> None:
         context = approach_fixture()
         context["hazards"] = []

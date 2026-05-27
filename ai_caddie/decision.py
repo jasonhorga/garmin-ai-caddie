@@ -488,6 +488,9 @@ def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float
             "coverage": _sample_coverage(sample_size, source_refs),
             "confidence": _sample_confidence(sample_size),
         })
+        for key in ("hazardRate", "riskRate", "usableRate", "riskShotRefs", "usableShotRefs", "surfaceDistribution", "topSurface"):
+            if key in profile:
+                rows[-1][key] = profile[key]
     rows.sort(key=lambda row: (abs(row["deltaToCarry_m"]), -row["sampleSize"], row["clubName"]))
     return rows
 
@@ -954,7 +957,12 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
     hazard_clearance = _hazard_clearance(carry_m, forbidden)
     base_risk_score = _risk_score(route)
     history_adjustment = _history_risk_adjustment(analysis, option_id)
-    risk_score = base_risk_score + _float(history_adjustment.get("riskScoreDelta"), 0.0)
+    club_surface_risk = _club_surface_risk_adjustment(club_recommendation)
+    risk_score = (
+        base_risk_score
+        + _float(history_adjustment.get("riskScoreDelta"), 0.0)
+        + _float(club_surface_risk.get("riskScoreDelta"), 0.0)
+    )
     option = {
         "id": option_id,
         "routeId": route.get("id"),
@@ -967,11 +975,18 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         "riskScore": risk_score,
         "baseRiskScore": base_risk_score,
         "historyAdjustment": history_adjustment,
+        "clubSurfaceRisk": club_surface_risk,
         "forbiddenZones": forbidden,
         "avoidZones": forbidden,
         "hazardClearance": hazard_clearance,
         "dispersion": dispersion,
-        "scoreImpact": _score_impact(risk_score, hazard_clearance, dispersion, history_adjustment=history_adjustment),
+        "scoreImpact": _score_impact(
+            risk_score,
+            hazard_clearance,
+            dispersion,
+            history_adjustment=history_adjustment,
+            club_surface_risk=club_surface_risk,
+        ),
         "clubRecommendation": club_recommendation,
     }
     return _with_option_contract(option, analysis, route=route)
@@ -1914,6 +1929,31 @@ def _dispersion_from_recommendation(recommendation: dict[str, Any]) -> dict[str,
         "carryP10_m": round(p10, 1),
         "carryP90_m": round(p90, 1),
         "carryWindow_m": round(max(0.0, p90 - p10), 1),
+        "riskRate": club.get("riskRate", club.get("hazardRate")),
+        "usableRate": club.get("usableRate"),
+        "riskShotRefs": _sanitize_ref_list(club.get("riskShotRefs")),
+    }
+
+
+def _club_surface_risk_adjustment(recommendation: dict[str, Any]) -> dict[str, Any]:
+    clubs = recommendation.get("clubs") or []
+    if not clubs:
+        return {
+            "riskScoreDelta": 0.0,
+            "expectedStrokesDelta": 0.0,
+            "sourceRefs": [],
+        }
+    club = clubs[0]
+    risk_rate = _float(club.get("riskRate", club.get("hazardRate")), 0.0)
+    delta = min(2.0, max(0.0, risk_rate) * 0.02)
+    source_refs = _sanitize_ref_list(club.get("riskShotRefs"))
+    return {
+        "clubName": club.get("clubName"),
+        "riskRate": round(risk_rate, 1),
+        "usableRate": club.get("usableRate"),
+        "riskScoreDelta": round(delta, 2),
+        "expectedStrokesDelta": round(delta * 0.05, 2),
+        "sourceRefs": source_refs,
     }
 
 
@@ -1923,6 +1963,7 @@ def _score_impact(
     dispersion: dict[str, Any],
     *,
     history_adjustment: dict[str, Any] | None = None,
+    club_surface_risk: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     clearance = hazard_clearance.get("minimumClearance_m")
     clearance_penalty = max(0.0, 8.0 - _float(clearance, 8.0)) * 0.02 if clearance is not None else 0.0
@@ -1944,6 +1985,11 @@ def _score_impact(
             "riskScoreDelta": round(history_risk_delta, 2),
             "expectedStrokesDelta": history_expected_delta,
             "sourceRefs": _sanitize_ref_list((history_adjustment or {}).get("sourceRefs")),
+        },
+        "clubSurfaceRisk": {
+            "riskScoreDelta": round(_float((club_surface_risk or {}).get("riskScoreDelta"), 0.0), 2),
+            "expectedStrokesDelta": round(_float((club_surface_risk or {}).get("expectedStrokesDelta"), 0.0), 2),
+            "sourceRefs": _sanitize_ref_list((club_surface_risk or {}).get("sourceRefs")),
         },
     }
 
@@ -2047,12 +2093,14 @@ def _shot_option(
         route_evidence=route_evidence,
         target_local=target_local,
     )
+    club_recommendation = _club_recommendation(route, context)
+    club_surface_risk = _club_surface_risk_adjustment(club_recommendation)
     adjusted_risk_score = (
         risk_score
         + _float(history_adjustment.get("riskScoreDelta"), 0.0)
+        + _float(club_surface_risk.get("riskScoreDelta"), 0.0)
         + _landing_window_risk_penalty(avoid_zones, route_evidence=route_evidence, target_local=target_local)
     )
-    club_recommendation = _club_recommendation(route, context)
     target_window = _target_window(adjusted_carry_m, shot_type=shot_type, option_id=option_id)
     hazard_clearance = _hazard_clearance(adjusted_carry_m, avoid_zones)
     dispersion = _dispersion_from_recommendation(club_recommendation)
@@ -2071,6 +2119,7 @@ def _shot_option(
         "baseRiskScore": risk_score,
         "weatherAdjustment": wind_adjustment,
         "historyAdjustment": history_adjustment,
+        "clubSurfaceRisk": club_surface_risk,
         "intent": intent,
         "forbiddenZones": avoid_zones,
         "avoidZones": avoid_zones,
@@ -2081,6 +2130,7 @@ def _shot_option(
             hazard_clearance,
             dispersion,
             history_adjustment=history_adjustment,
+            club_surface_risk=club_surface_risk,
         ),
         "clubRecommendation": club_recommendation,
     }
