@@ -12,6 +12,10 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
   const providers = Array.isArray(settings?.aiProviders?.providers) ? settings.aiProviders.providers : []
   const cnSession = dataSources.find((source) => asString(source.id) === 'garmin_cn_web_session')
   const oauth = dataSources.find((source) => asString(source.id) === 'garmin_oauth')
+  const oauthProbe = asRecord(oauth?.probe)
+  const oauthMissing = asStringList(oauthProbe.missing)
+  const oauthCapabilities = asRecords(oauth?.capabilityMatrix).slice(0, 3)
+  const oauthSteps = asStringList(oauthProbe.manualSteps).slice(0, 2)
   const activeProvider = providers.find((provider) => asString(provider.id) === settings?.aiProviders?.activeProvider)
   const ios = asRecord(settings?.liveApps?.ios)
   const watch = asRecord(settings?.liveApps?.watch)
@@ -51,6 +55,31 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
               <span>Credential policy</span>
               <b>No Garmin password storage</b>
             </div>
+            {oauthProbe.schema ? (
+              <div className="settings-oauth-probe" aria-label="OAuth feasibility probe">
+                <div>
+                  <span>OAuth probe</span>
+                  <b>{asString(oauthProbe.state) === 'ready_for_manual_consent' ? 'ready for manual consent' : 'not configured'}</b>
+                </div>
+                {oauthMissing.length ? <p>Missing {oauthMissing.join(', ')}</p> : <p>Consent request uses redacted configured parameters.</p>}
+                {oauthCapabilities.length ? (
+                  <div className="settings-oauth-capabilities" aria-label="OAuth capability matrix">
+                    {oauthCapabilities.map((capability) => (
+                      <span key={asString(capability.key) ?? asString(capability.label) ?? 'capability'}>
+                        {asString(capability.label) ?? 'Capability'}: {asString(capability.state) ?? 'unknown'}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {oauthSteps.length ? (
+                  <ol>
+                    {oauthSteps.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <button type="button" onClick={() => onNavigate('sync-quality')}>
             Review privacy controls
@@ -176,6 +205,14 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
+}
+
+function asStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(asString).filter((item): item is string => Boolean(item)) : []
+}
+
+function asRecords(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object' && !Array.isArray(item)) : []
 }
 
 function asBoolean(value: unknown, fallback: boolean): boolean {

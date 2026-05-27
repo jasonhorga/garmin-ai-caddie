@@ -2383,6 +2383,57 @@ button.round-detail-cell:hover {
   font-weight: 850;
 }
 
+.settings-oauth-probe {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 10px;
+}
+
+.settings-oauth-probe > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-oauth-probe span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.settings-oauth-probe b {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.settings-oauth-probe p,
+.settings-oauth-probe ol {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-oauth-probe ol {
+  padding-left: 18px;
+}
+
+.settings-oauth-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-oauth-capabilities span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f4f7f3;
+  padding: 4px 8px;
+}
+
 .setting-check-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

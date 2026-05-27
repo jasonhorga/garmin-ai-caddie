@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ai_caddie.config import get_settings
+from ai_caddie.connectors.garmin_oauth import build_oauth_feasibility_status
 
 
 def _provider_state(provider_id: str, configured: bool | None = None) -> str:
@@ -15,6 +16,7 @@ def _provider_state(provider_id: str, configured: bool | None = None) -> str:
 
 def build_product_settings_response() -> dict[str, Any]:
     settings = get_settings()
+    oauth = build_oauth_feasibility_status()
     providers = [
         {
             "id": "static",
@@ -70,6 +72,9 @@ def build_product_settings_response() -> dict[str, Any]:
                 "state": "not_syncable",
                 "credentialPolicy": "pkce_only_if_golf_data_is_proven",
                 "capabilities": ["identity_feasibility", "future_connector_replacement"],
+                "feasibilityQuestions": oauth["feasibilityQuestions"],
+                "capabilityMatrix": oauth["capabilities"],
+                "probe": oauth["probe"],
                 "actions": [],
             },
         ],

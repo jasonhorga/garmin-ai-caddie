@@ -22,6 +22,50 @@ const productSettings: ProductSettingsResponse = {
       state: 'not_syncable',
       credentialPolicy: 'pkce_only_if_golf_data_is_proven',
       capabilities: ['identity_feasibility'],
+      capabilityMatrix: [
+        {
+          key: 'scorecards',
+          label: 'Golf scorecards',
+          state: 'unproven',
+          evidence: 'OAuth scorecard access is not proven.',
+          nextStep: 'Verify scorecard access.',
+          canReplaceCnConnector: false,
+          migrationValue: true,
+        },
+        {
+          key: 'identity',
+          label: 'Identity',
+          state: 'possible',
+          evidence: 'OAuth identity may be useful later.',
+          nextStep: 'Keep connector interface replaceable.',
+          canReplaceCnConnector: false,
+          migrationValue: true,
+        },
+      ],
+      probe: {
+        schema: 'ai-caddie-garmin-oauth-probe-v1',
+        state: 'not_configured',
+        liveProbeAllowed: false,
+        configured: {
+          clientId: false,
+          clientCredential: false,
+          redirectUri: false,
+          consentEndpoint: false,
+          exchangeEndpoint: false,
+          scopes: false,
+        },
+        missing: ['client_id', 'redirect_uri'],
+        consentRequest: {
+          method: 'GET',
+          endpointConfigured: false,
+          parameterKeys: ['response_type', 'client_id', 'redirect_uri', 'scope', 'state'],
+          redactedPreview: null,
+        },
+        manualSteps: [
+          'Register a Garmin OAuth client and redirect URI through the official developer path.',
+          'Run a manual consent probe with a private test account.',
+        ],
+      },
     },
   ],
   aiProviders: {
@@ -102,6 +146,12 @@ describe('SettingsPage', () => {
     const dataSources = screen.getByLabelText('Data source settings')
     expect(within(dataSources).getByText('available')).toHaveClass('setting-primary')
     expect(within(dataSources).getByText('not_syncable')).toHaveClass('setting-secondary')
+    const oauthProbe = screen.getByLabelText('OAuth feasibility probe')
+    expect(within(oauthProbe).getByText('not configured')).toBeInTheDocument()
+    expect(within(oauthProbe).getByText('Missing client_id, redirect_uri')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('OAuth capability matrix')).getByText('Golf scorecards: unproven')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('OAuth capability matrix')).getByText('Identity: possible')).toBeInTheDocument()
+    expect(within(oauthProbe).getByText('Register a Garmin OAuth client and redirect URI through the official developer path.')).toBeInTheDocument()
 
     const aiProviders = screen.getByLabelText('AI provider settings')
     expect(within(aiProviders).getByText('active: Gemini API')).toHaveClass('setting-primary')
