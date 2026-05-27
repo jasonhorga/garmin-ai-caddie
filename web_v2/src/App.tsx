@@ -22,12 +22,18 @@ import {
   fetchMobileReconciliation,
   fetchMobileRoundPackage,
   fetchProductSettings,
+  fetchCourseReport,
   fetchReportIndex,
   fetchRoundReport,
+  fetchHoleReport,
+  fetchClubReport,
   fetchTrendReport,
   fetchVisionFindingsForTarget,
   fetchWeatherSnapshot,
+  generateCourseReport,
   generateRoundReport,
+  generateHoleReport,
+  generateClubReport,
   generateTrendReport,
   applyMobileReconciliationSuggestions,
   fetchSyncStatus,
@@ -503,6 +509,12 @@ export default function App() {
           onGenerateTrend={handleGenerateTrendReport}
           onLoadRound={handleLoadRoundReport}
           onGenerateRound={handleGenerateRoundReport}
+          onLoadCourse={handleLoadCourseReport}
+          onGenerateCourse={handleGenerateCourseReport}
+          onLoadHole={handleLoadHoleReport}
+          onGenerateHole={handleGenerateHoleReport}
+          onLoadClub={handleLoadClubReport}
+          onGenerateClub={handleGenerateClubReport}
           onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
         />
       )
@@ -577,6 +589,30 @@ export default function App() {
 
   function handleGenerateRoundReport(roundId: string) {
     void loadReport(() => generateRoundReport(roundId, currentAdminToken()), true)
+  }
+
+  function handleLoadCourseReport(courseKey: string) {
+    void loadReport(() => fetchCourseReport(courseKey, currentAdminToken()))
+  }
+
+  function handleGenerateCourseReport(courseKey: string) {
+    void loadReport(() => generateCourseReport(courseKey, currentAdminToken()), true)
+  }
+
+  function handleLoadHoleReport(courseKey: string, hole: number) {
+    void loadReport(() => fetchHoleReport(courseKey, hole, currentAdminToken()))
+  }
+
+  function handleGenerateHoleReport(courseKey: string, hole: number) {
+    void loadReport(() => generateHoleReport(courseKey, hole, currentAdminToken()), true)
+  }
+
+  function handleLoadClubReport(clubName: string) {
+    void loadReport(() => fetchClubReport(clubName, currentAdminToken()))
+  }
+
+  function handleGenerateClubReport(clubName: string) {
+    void loadReport(() => generateClubReport(clubName, currentAdminToken()), true)
   }
 
   async function handlePrepareMobileRoundPackage(

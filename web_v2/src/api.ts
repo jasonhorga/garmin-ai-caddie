@@ -292,6 +292,36 @@ export function generateRoundReport(roundId: string, adminToken?: string): Promi
   return postEmpty<ReviewReportResponse>(`/api/v2/reports/round/${encodeURIComponent(roundId)}/generate`, adminToken)
 }
 
+export function fetchCourseReport(courseKey: string, adminToken?: string): Promise<ReviewReportResponse> {
+  return getJson<ReviewReportResponse>(`/api/v2/reports/course/${encodeURIComponent(courseKey)}`, adminToken)
+}
+
+export function generateCourseReport(courseKey: string, adminToken?: string): Promise<ReviewReportResponse> {
+  return postEmpty<ReviewReportResponse>(`/api/v2/reports/course/${encodeURIComponent(courseKey)}/generate`, adminToken)
+}
+
+export function fetchHoleReport(courseKey: string, hole: number, adminToken?: string): Promise<ReviewReportResponse> {
+  return getJson<ReviewReportResponse>(
+    `/api/v2/reports/hole/${encodeURIComponent(courseKey)}/${encodeURIComponent(String(hole))}`,
+    adminToken,
+  )
+}
+
+export function generateHoleReport(courseKey: string, hole: number, adminToken?: string): Promise<ReviewReportResponse> {
+  return postEmpty<ReviewReportResponse>(
+    `/api/v2/reports/hole/${encodeURIComponent(courseKey)}/${encodeURIComponent(String(hole))}/generate`,
+    adminToken,
+  )
+}
+
+export function fetchClubReport(clubName: string, adminToken?: string): Promise<ReviewReportResponse> {
+  return getJson<ReviewReportResponse>(`/api/v2/reports/club/${encodeURIComponent(clubName)}`, adminToken)
+}
+
+export function generateClubReport(clubName: string, adminToken?: string): Promise<ReviewReportResponse> {
+  return postEmpty<ReviewReportResponse>(`/api/v2/reports/club/${encodeURIComponent(clubName)}/generate`, adminToken)
+}
+
 export function fetchTrendReport(period: string, adminToken?: string): Promise<ReviewReportResponse> {
   return getJson<ReviewReportResponse>(`/api/v2/reports/trend/${encodeURIComponent(period)}`, adminToken)
 }

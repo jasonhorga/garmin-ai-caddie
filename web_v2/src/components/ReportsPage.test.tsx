@@ -13,11 +13,11 @@ const stats: HistoryStatsResponse = {
     byYear: [{ key: '2026', roundCount: 3, average18: 86 }],
   },
   scoring: {},
-  courseDistribution: [],
+  courseDistribution: [{ courseKey: 'black_knight', courseName: 'Black Knight B/C', roundCount: 2 }],
   records: {},
-  courses: [],
-  holes: [],
-  clubs: [],
+  courses: [{ courseKey: 'black_knight', courseName: 'Black Knight B/C', roundCount: 2 }],
+  holes: [{ courseKey: 'black_knight', hole: 7, sampleCount: 2, averageToPar: 1.5 }],
+  clubs: [{ club: '1D', sampleCount: 2, median: 240 }],
   issues: [],
   dataQuality: [{ label: 'reports', state: 'partial', ready: 1, total: 3, refs: ['900002', '900003'] }],
   drillDown: { roundRefs: ['900001', '900002'] },
@@ -98,7 +98,7 @@ const report: ReviewReportResponse = {
 
 const reportIndex: ReviewReportIndexResponse = {
   schema: 'ai-caddie-review-report-index-v1',
-  total: 2,
+  total: 5,
   reports: [
     {
       id: 'trend-report',
@@ -120,6 +120,36 @@ const reportIndex: ReviewReportIndexResponse = {
       model: 'static',
       sourceRefs: ['900001'],
     },
+    {
+      id: 'course-report',
+      storedAt: '2026-05-24T00:00:00Z',
+      kind: 'course',
+      subjectId: 'black_knight',
+      confidence: 'medium',
+      provider: 'StaticProvider',
+      model: 'static',
+      sourceRefs: ['900001', '900002'],
+    },
+    {
+      id: 'hole-report',
+      storedAt: '2026-05-23T00:00:00Z',
+      kind: 'hole',
+      subjectId: 'black_knight:7',
+      confidence: 'medium',
+      provider: 'StaticProvider',
+      model: 'static',
+      sourceRefs: ['900001:7', '900002:7'],
+    },
+    {
+      id: 'club-report',
+      storedAt: '2026-05-22T00:00:00Z',
+      kind: 'club',
+      subjectId: '1D',
+      confidence: 'low',
+      provider: 'StaticProvider',
+      model: 'static',
+      sourceRefs: ['900001:1:0'],
+    },
   ],
 }
 
@@ -129,6 +159,12 @@ describe('ReportsPage', () => {
     const onGenerateTrend = vi.fn()
     const onLoadRound = vi.fn()
     const onGenerateRound = vi.fn()
+    const onLoadCourse = vi.fn()
+    const onGenerateCourse = vi.fn()
+    const onLoadHole = vi.fn()
+    const onGenerateHole = vi.fn()
+    const onLoadClub = vi.fn()
+    const onGenerateClub = vi.fn()
     const onSelectRef = vi.fn()
 
     render(
@@ -140,6 +176,12 @@ describe('ReportsPage', () => {
         onGenerateTrend={onGenerateTrend}
         onLoadRound={onLoadRound}
         onGenerateRound={onGenerateRound}
+        onLoadCourse={onLoadCourse}
+        onGenerateCourse={onGenerateCourse}
+        onLoadHole={onLoadHole}
+        onGenerateHole={onGenerateHole}
+        onLoadClub={onLoadClub}
+        onGenerateClub={onGenerateClub}
         onSelectRef={onSelectRef}
       />,
     )
@@ -147,9 +189,12 @@ describe('ReportsPage', () => {
     expect(screen.getByRole('heading', { name: 'Reports' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Report inventory' })).toBeInTheDocument()
     const inventory = screen.getByLabelText('Report inventory')
-    expect(within(inventory).getByText('2 stored')).toBeInTheDocument()
+    expect(within(inventory).getByText('5 stored')).toBeInTheDocument()
     expect(within(inventory).getByText('trend')).toBeInTheDocument()
     expect(within(inventory).getByText('round')).toBeInTheDocument()
+    expect(within(inventory).getByText('course')).toBeInTheDocument()
+    expect(within(inventory).getByText('hole')).toBeInTheDocument()
+    expect(within(inventory).getByText('club')).toBeInTheDocument()
     expect(within(inventory).getByText('recent_10')).toBeInTheDocument()
     expect(within(inventory).getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getByText('reports partial 1/3')).toHaveClass('quality-partial')
@@ -157,11 +202,14 @@ describe('ReportsPage', () => {
     expect(screen.getByRole('option', { name: 'Q 2026-Q2' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Year 2026' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '900001' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Black Knight B/C' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Black Knight B/C H7' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '1D' })).toBeInTheDocument()
     expect(screen.getByText('Recent scoring improved, but weather coverage is partial.')).toBeInTheDocument()
     expect(screen.getAllByText('recent_10').length).toBeGreaterThan(0)
     expect(screen.getAllByText('static').length).toBeGreaterThan(0)
     expect(screen.getByText('summary_trend')).toBeInTheDocument()
-    expect(screen.getByText('Black Knight B/C')).toBeInTheDocument()
+    expect(screen.getAllByText('Black Knight B/C').length).toBeGreaterThan(0)
     expect(screen.getByText('score 77')).toBeInTheDocument()
     expect(screen.getByText('toPar +5')).toBeInTheDocument()
     expect(screen.getByText('holeRef 900001:2')).toBeInTheDocument()
@@ -199,14 +247,29 @@ describe('ReportsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Generate trend report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Load round report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Generate round report' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Load course report' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Generate course report' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Load hole report' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Generate hole report' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Load club report' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Generate club report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open stored trend recent_10' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open stored round 900001' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open stored course black_knight' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open stored hole black_knight:7' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open stored club 1D' }))
 
     expect(onLoadTrend).toHaveBeenCalledWith('recent_10')
     expect(onGenerateTrend).toHaveBeenCalledWith('recent_10')
     expect(onSelectRef).toHaveBeenCalledWith('900002')
     expect(onLoadRound).toHaveBeenCalledWith('900001')
     expect(onGenerateRound).toHaveBeenCalledWith('900001')
+    expect(onLoadCourse).toHaveBeenCalledWith('black_knight')
+    expect(onGenerateCourse).toHaveBeenCalledWith('black_knight')
+    expect(onLoadHole).toHaveBeenCalledWith('black_knight', 7)
+    expect(onGenerateHole).toHaveBeenCalledWith('black_knight', 7)
+    expect(onLoadClub).toHaveBeenCalledWith('1D')
+    expect(onGenerateClub).toHaveBeenCalledWith('1D')
     expect(onLoadTrend).toHaveBeenCalledWith('recent_10')
     expect(onLoadRound).toHaveBeenCalledWith('900001')
 

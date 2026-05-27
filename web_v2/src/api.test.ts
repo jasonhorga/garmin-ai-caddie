@@ -9,6 +9,7 @@ import {
   fetchAnnotations,
   fetchAnnotationsForTarget,
   fetchCourseGeometryCoverage,
+  fetchCourseReport,
   ensureHoleGeometry,
   fetchHistoryOverview,
   fetchHistoryDrilldown,
@@ -23,9 +24,14 @@ import {
   fetchWeatherSnapshot,
   fetchReportIndex,
   fetchRoundReport,
+  fetchHoleReport,
+  fetchClubReport,
   fetchTrendReport,
   analyzeMedia,
+  generateCourseReport,
   generateRoundReport,
+  generateHoleReport,
+  generateClubReport,
   generateTrendReport,
   fetchVisionFindingsForTarget,
   fetchSyncStatus,
@@ -428,6 +434,38 @@ describe('report API helpers', () => {
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/trend/quarter%3A2026-Q2/generate', { method: 'POST' })
   })
 
+  it('loads and generates course, hole, and club reports with encoded subjects', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-review-report-v1',
+        kind: 'course',
+        subjectId: 'black knight/c',
+        provider: 'StaticProvider',
+        model: 'static',
+        factsUsed: [],
+        missingData: [],
+        inferencesMade: [],
+        narrative: 'course review',
+        confidence: 'medium',
+      }),
+    })))
+
+    await fetchCourseReport('black knight/c')
+    await generateCourseReport('black knight/c')
+    await fetchHoleReport('black knight/c', 7)
+    await generateHoleReport('black knight/c', 7)
+    await fetchClubReport('58 wedge')
+    await generateClubReport('58 wedge')
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/reports/course/black%20knight%2Fc')
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/course/black%20knight%2Fc/generate', { method: 'POST' })
+    expect(fetch).toHaveBeenNthCalledWith(3, '/api/v2/reports/hole/black%20knight%2Fc/7')
+    expect(fetch).toHaveBeenNthCalledWith(4, '/api/v2/reports/hole/black%20knight%2Fc/7/generate', { method: 'POST' })
+    expect(fetch).toHaveBeenNthCalledWith(5, '/api/v2/reports/club/58%20wedge')
+    expect(fetch).toHaveBeenNthCalledWith(6, '/api/v2/reports/club/58%20wedge/generate', { method: 'POST' })
+  })
+
   it('loads the report inventory index', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
@@ -473,12 +511,27 @@ describe('report API helpers', () => {
 
     await generateRoundReport('900001', 'admin-secret')
     await generateTrendReport('quarter:2026-Q2', 'admin-secret')
+    await generateCourseReport('black_knight', 'admin-secret')
+    await generateHoleReport('black_knight', 7, 'admin-secret')
+    await generateClubReport('1D', 'admin-secret')
 
     expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/reports/round/900001/generate', {
       method: 'POST',
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/reports/trend/quarter%3A2026-Q2/generate', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(3, '/api/v2/reports/course/black_knight/generate', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(4, '/api/v2/reports/hole/black_knight/7/generate', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(5, '/api/v2/reports/club/1D/generate', {
       method: 'POST',
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
@@ -502,6 +555,9 @@ describe('report API helpers', () => {
     await fetchReportIndex('admin-secret')
     await fetchRoundReport('900001', 'admin-secret')
     await fetchTrendReport('quarter:2026-Q2', 'admin-secret')
+    await fetchCourseReport('black_knight', 'admin-secret')
+    await fetchHoleReport('black_knight', 7, 'admin-secret')
+    await fetchClubReport('1D', 'admin-secret')
 
     expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/reports', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
@@ -510,6 +566,15 @@ describe('report API helpers', () => {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
     expect(fetch).toHaveBeenNthCalledWith(3, '/api/v2/reports/trend/quarter%3A2026-Q2', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(4, '/api/v2/reports/course/black_knight', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(5, '/api/v2/reports/hole/black_knight/7', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetch).toHaveBeenNthCalledWith(6, '/api/v2/reports/club/1D', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })

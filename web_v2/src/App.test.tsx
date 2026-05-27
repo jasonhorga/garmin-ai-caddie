@@ -412,10 +412,58 @@ function roundReportPayload(roundId = '1') {
   }
 }
 
+function courseReportPayload(courseKey = 'black_knight') {
+  return {
+    schema: 'ai-caddie-review-report-v1',
+    kind: 'course',
+    subjectId: courseKey,
+    sourceRefs: ['900001', '900002'],
+    provider: 'StaticProvider',
+    model: 'static',
+    factsUsed: [{ label: 'course_profile', source: 'history.courses', value: { roundCount: 2 } }],
+    missingData: [],
+    inferencesMade: [],
+    narrative: 'Course review from stored facts.',
+    confidence: 'medium',
+  }
+}
+
+function holeReportPayload(courseKey = 'black_knight', hole = 7) {
+  return {
+    schema: 'ai-caddie-review-report-v1',
+    kind: 'hole',
+    subjectId: `${courseKey}:${hole}`,
+    sourceRefs: ['900001:7', '900002:7'],
+    provider: 'StaticProvider',
+    model: 'static',
+    factsUsed: [{ label: 'hole_pattern', source: 'history.holes', value: { sampleCount: 2 } }],
+    missingData: [],
+    inferencesMade: [],
+    narrative: 'Hole review from stored facts.',
+    confidence: 'medium',
+  }
+}
+
+function clubReportPayload(clubName = '1D') {
+  return {
+    schema: 'ai-caddie-review-report-v1',
+    kind: 'club',
+    subjectId: clubName,
+    sourceRefs: ['900001:1:0'],
+    provider: 'StaticProvider',
+    model: 'static',
+    factsUsed: [{ label: 'club_profile', source: 'history.clubs', value: { median: 240 } }],
+    missingData: [],
+    inferencesMade: [],
+    narrative: 'Club review from stored facts.',
+    confidence: 'medium',
+  }
+}
+
 function reportIndexPayload() {
   return {
     schema: 'ai-caddie-review-report-index-v1',
-    total: 2,
+    total: 5,
     reports: [
       {
         id: 'trend-report',
@@ -436,6 +484,36 @@ function reportIndexPayload() {
         provider: 'StaticProvider',
         model: 'static',
         sourceRefs: ['900001'],
+      },
+      {
+        id: 'course-report',
+        storedAt: '2026-05-24T00:00:00Z',
+        kind: 'course',
+        subjectId: 'black_knight',
+        confidence: 'medium',
+        provider: 'StaticProvider',
+        model: 'static',
+        sourceRefs: ['900001', '900002'],
+      },
+      {
+        id: 'hole-report',
+        storedAt: '2026-05-23T00:00:00Z',
+        kind: 'hole',
+        subjectId: 'black_knight:7',
+        confidence: 'medium',
+        provider: 'StaticProvider',
+        model: 'static',
+        sourceRefs: ['900001:7', '900002:7'],
+      },
+      {
+        id: 'club-report',
+        storedAt: '2026-05-22T00:00:00Z',
+        kind: 'club',
+        subjectId: '1D',
+        confidence: 'medium',
+        provider: 'StaticProvider',
+        model: 'static',
+        sourceRefs: ['900001:1:0'],
       },
     ],
   }
@@ -1245,6 +1323,9 @@ describe('App navigation', () => {
         if (path === '/api/v2/history/stats') return statsPayload()
         if (path === '/api/v2/reports') return reportIndexPayload()
         if (path === '/api/v2/reports/trend/recent_10') return trendReportPayload()
+        if (path === '/api/v2/reports/course/black_knight') return courseReportPayload()
+        if (path === '/api/v2/reports/hole/black_knight/7') return holeReportPayload()
+        if (path === '/api/v2/reports/club/1D') return clubReportPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayload()
       },
@@ -1259,13 +1340,26 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Reports' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Report inventory' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open stored trend recent_10' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open stored course black_knight' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Black Knight B' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Black Knight B H7' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '1D' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Load trend report' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open stored trend recent_10' }))
-
     expect(await screen.findByText('Trend review from stored facts.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Load course report' }))
+    expect(await screen.findByText('Course review from stored facts.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Load hole report' }))
+    expect(await screen.findByText('Hole review from stored facts.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Load club report' }))
+
+    expect(await screen.findByText('Club review from stored facts.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/trend/recent_10')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/course/black_knight')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/hole/black_knight/7')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/club/1D')
   })
 
   it('drills from a loaded report source ref to source detail', async () => {

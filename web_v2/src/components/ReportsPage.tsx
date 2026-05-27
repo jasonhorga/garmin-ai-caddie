@@ -17,12 +17,23 @@ interface ReportsPageProps {
   onGenerateTrend: (period: string) => void
   onLoadRound: (roundId: string) => void
   onGenerateRound: (roundId: string) => void
+  onLoadCourse: (courseKey: string) => void
+  onGenerateCourse: (courseKey: string) => void
+  onLoadHole: (courseKey: string, hole: number) => void
+  onGenerateHole: (courseKey: string, hole: number) => void
+  onLoadClub: (clubName: string) => void
+  onGenerateClub: (clubName: string) => void
   onSelectRef?: (sourceRef: string) => void
 }
 
 interface Option {
   id: string
   label: string
+}
+
+interface HoleOption extends Option {
+  courseKey: string
+  hole: number
 }
 
 export function ReportsPage({
@@ -33,12 +44,25 @@ export function ReportsPage({
   onGenerateTrend,
   onLoadRound,
   onGenerateRound,
+  onLoadCourse,
+  onGenerateCourse,
+  onLoadHole,
+  onGenerateHole,
+  onLoadClub,
+  onGenerateClub,
   onSelectRef,
 }: ReportsPageProps) {
   const trendOptions = useMemo(() => buildTrendOptions(stats), [stats])
   const roundOptions = useMemo(() => buildRoundOptions(stats), [stats])
+  const courseOptions = useMemo(() => buildCourseOptions(stats), [stats])
+  const holeOptions = useMemo(() => buildHoleOptions(stats), [stats])
+  const clubOptions = useMemo(() => buildClubOptions(stats), [stats])
   const [trendPeriod, setTrendPeriod] = useState(trendOptions[0]?.id ?? 'recent_10')
   const [roundId, setRoundId] = useState(roundOptions[0]?.id ?? '')
+  const [courseKey, setCourseKey] = useState(courseOptions[0]?.id ?? '')
+  const [holeId, setHoleId] = useState(holeOptions[0]?.id ?? '')
+  const [clubName, setClubName] = useState(clubOptions[0]?.id ?? '')
+  const selectedHole = holeOptions.find((option) => option.id === holeId)
 
   return (
     <section className="reports-workspace">
@@ -91,10 +115,78 @@ export function ReportsPage({
             </button>
           </div>
 
+          <div className="field-row">
+            <label htmlFor="course-key">Course</label>
+            <select id="course-key" value={courseKey} onChange={(event) => setCourseKey(event.target.value)}>
+              {courseOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="button-row">
+            <button type="button" disabled={!courseKey} onClick={() => onLoadCourse(courseKey)}>
+              Load course report
+            </button>
+            <button type="button" disabled={!courseKey} onClick={() => onGenerateCourse(courseKey)}>
+              Generate course report
+            </button>
+          </div>
+
+          <div className="field-row">
+            <label htmlFor="hole-key">Hole</label>
+            <select id="hole-key" value={holeId} onChange={(event) => setHoleId(event.target.value)}>
+              {holeOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="button-row">
+            <button
+              type="button"
+              disabled={!selectedHole}
+              onClick={() => selectedHole && onLoadHole(selectedHole.courseKey, selectedHole.hole)}
+            >
+              Load hole report
+            </button>
+            <button
+              type="button"
+              disabled={!selectedHole}
+              onClick={() => selectedHole && onGenerateHole(selectedHole.courseKey, selectedHole.hole)}
+            >
+              Generate hole report
+            </button>
+          </div>
+
+          <div className="field-row">
+            <label htmlFor="club-name">Club</label>
+            <select id="club-name" value={clubName} onChange={(event) => setClubName(event.target.value)}>
+              {clubOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="button-row">
+            <button type="button" disabled={!clubName} onClick={() => onLoadClub(clubName)}>
+              Load club report
+            </button>
+            <button type="button" disabled={!clubName} onClick={() => onGenerateClub(clubName)}>
+              Generate club report
+            </button>
+          </div>
+
           <ReportInventory
             state={reportIndexState}
             onLoadTrend={onLoadTrend}
             onLoadRound={onLoadRound}
+            onLoadCourse={onLoadCourse}
+            onLoadHole={onLoadHole}
+            onLoadClub={onLoadClub}
             onSelectRef={onSelectRef}
           />
         </section>
@@ -109,11 +201,17 @@ function ReportInventory({
   state,
   onLoadTrend,
   onLoadRound,
+  onLoadCourse,
+  onLoadHole,
+  onLoadClub,
   onSelectRef,
 }: {
   state: ReportIndexState
   onLoadTrend: (period: string) => void
   onLoadRound: (roundId: string) => void
+  onLoadCourse: (courseKey: string) => void
+  onLoadHole: (courseKey: string, hole: number) => void
+  onLoadClub: (clubName: string) => void
   onSelectRef?: (sourceRef: string) => void
 }) {
   if (state.status === 'loading') {
@@ -156,6 +254,9 @@ function ReportInventory({
             report={report}
             onLoadTrend={onLoadTrend}
             onLoadRound={onLoadRound}
+            onLoadCourse={onLoadCourse}
+            onLoadHole={onLoadHole}
+            onLoadClub={onLoadClub}
             onSelectRef={onSelectRef}
           />
         ))}
@@ -168,18 +269,31 @@ function ReportInventoryRow({
   report,
   onLoadTrend,
   onLoadRound,
+  onLoadCourse,
+  onLoadHole,
+  onLoadClub,
   onSelectRef,
 }: {
   report: ReviewReportIndexItem
   onLoadTrend: (period: string) => void
   onLoadRound: (roundId: string) => void
+  onLoadCourse: (courseKey: string) => void
+  onLoadHole: (courseKey: string, hole: number) => void
+  onLoadClub: (clubName: string) => void
   onSelectRef?: (sourceRef: string) => void
 }) {
   const handleOpen = () => {
     if (report.kind === 'trend') {
       onLoadTrend(report.subjectId)
-    } else {
+    } else if (report.kind === 'round') {
       onLoadRound(report.subjectId)
+    } else if (report.kind === 'course') {
+      onLoadCourse(report.subjectId)
+    } else if (report.kind === 'club') {
+      onLoadClub(report.subjectId)
+    } else if (report.kind === 'hole') {
+      const hole = parseHoleSubject(report.subjectId)
+      if (hole) onLoadHole(hole.courseKey, hole.hole)
     }
   }
 
@@ -474,6 +588,68 @@ function buildRoundOptions(stats: HistoryStatsResponse): Option[] {
       ? drillDown.roundIds
       : []
   return refs.map((ref) => ({ id: String(ref), label: String(ref) }))
+}
+
+function buildCourseOptions(stats: HistoryStatsResponse): Option[] {
+  const labels = new Map<string, string>()
+  for (const row of [...asRecordArray(stats.courses), ...asRecordArray(stats.courseDistribution)]) {
+    const courseKey = stringField(row, 'courseKey')
+    if (!courseKey || labels.has(courseKey)) continue
+    labels.set(courseKey, stringField(row, 'courseName') || courseKey)
+  }
+  return Array.from(labels.entries()).map(([id, label]) => ({ id, label }))
+}
+
+function buildHoleOptions(stats: HistoryStatsResponse): HoleOption[] {
+  const courseLabels = new Map(buildCourseOptions(stats).map((option) => [option.id, option.label]))
+  const options: HoleOption[] = []
+  const seen = new Set<string>()
+  for (const row of asRecordArray(stats.holes)) {
+    const courseKey = stringField(row, 'courseKey')
+    const hole = numberField(row, 'hole')
+    if (!courseKey || hole === null) continue
+    const id = `${courseKey}:${hole}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    const courseLabel = courseLabels.get(courseKey) ?? courseKey
+    options.push({ id, courseKey, hole, label: `${courseLabel} H${hole}` })
+  }
+  return options
+}
+
+function buildClubOptions(stats: HistoryStatsResponse): Option[] {
+  const options: Option[] = []
+  const seen = new Set<string>()
+  for (const row of asRecordArray(stats.clubs)) {
+    const clubName = stringField(row, 'club') || stringField(row, 'clubName')
+    if (!clubName || seen.has(clubName)) continue
+    seen.add(clubName)
+    options.push({ id: clubName, label: clubName })
+  }
+  return options
+}
+
+function parseHoleSubject(subjectId: string): { courseKey: string; hole: number } | null {
+  const divider = subjectId.lastIndexOf(':')
+  if (divider <= 0 || divider === subjectId.length - 1) return null
+  const courseKey = subjectId.slice(0, divider)
+  const hole = Number(subjectId.slice(divider + 1))
+  if (!courseKey || !Number.isInteger(hole) || hole <= 0) return null
+  return { courseKey, hole }
+}
+
+function stringField(row: Record<string, unknown>, key: string): string {
+  return typeof row[key] === 'string' ? row[key].trim() : ''
+}
+
+function numberField(row: Record<string, unknown>, key: string): number | null {
+  const value = row[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
 }
 
 function asRecordArray(value: unknown): Array<Record<string, unknown>> {

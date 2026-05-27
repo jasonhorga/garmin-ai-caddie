@@ -502,7 +502,7 @@ export interface HistoryDrilldownResponse {
   corrections?: AnnotationRecord[]
 }
 
-export type ReportKind = 'round' | 'trend'
+export type ReportKind = 'round' | 'trend' | 'course' | 'hole' | 'club'
 export type ReportConfidence = 'low' | 'medium' | 'high'
 
 export interface ReviewReportResponse {
