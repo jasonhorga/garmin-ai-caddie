@@ -299,7 +299,7 @@ describe('StatsOverview', () => {
     expect(screen.getByRole('heading', { name: 'Course Distribution Map' })).toBeInTheDocument()
     const courseMap = screen.getByRole('img', { name: 'Course distribution geography' })
     expect(courseMap).toHaveAttribute('data-plotted-count', '1')
-    expect(screen.getByTestId('course-map-pin-black_knight')).toHaveAttribute('cx', '160')
+    expect(screen.getByTestId('course-map-pin-black_knight')).toHaveAttribute('cx', '241.2')
     expect(screen.getByText('66.7% / 2 rounds')).toBeInTheDocument()
     expect(screen.getByText('22.2790, 114.1620')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Data Coverage' })).toBeInTheDocument()

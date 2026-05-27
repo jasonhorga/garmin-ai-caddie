@@ -33,7 +33,7 @@ const statsFixture: HistoryStatsResponse = {
       roundCount: 1,
       pct: 33.3,
       roundRefs: ['900004'],
-      location: { latitude: 22.315, longitude: 114.21 },
+      location: { latitude: 35.315, longitude: 130.21 },
     },
   ],
   records: {},
@@ -139,6 +139,28 @@ describe('CourseStats', () => {
     expect(within(distribution).getByText('Bay Course')).toBeInTheDocument()
     expect(within(distribution).getByText('location missing')).toHaveClass('quality-missing')
     expect(within(distribution).getAllByRole('button', { name: 'Open source 900003' }).length).toBeGreaterThan(0)
+  })
+
+  it('keeps coordinate-backed pins stable when the visible course set changes', () => {
+    const { rerender } = render(<CourseStats data={statsFixture} />)
+    const fullPin = screen.getByTestId('course-map-pin-black_knight')
+    const fullPosition = {
+      cx: fullPin.getAttribute('cx'),
+      cy: fullPin.getAttribute('cy'),
+    }
+
+    rerender(
+      <CourseStats
+        data={{
+          ...statsFixture,
+          courseDistribution: [statsFixture.courseDistribution[0]],
+        }}
+      />,
+    )
+
+    const subsetPin = screen.getByTestId('course-map-pin-black_knight')
+    expect(subsetPin).toHaveAttribute('cx', fullPosition.cx)
+    expect(subsetPin).toHaveAttribute('cy', fullPosition.cy)
   })
 
   it('selects source refs for drill-down', async () => {

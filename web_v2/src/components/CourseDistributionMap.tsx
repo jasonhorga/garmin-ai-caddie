@@ -119,20 +119,7 @@ function parseLocation(value: unknown): { latitude: number; longitude: number } 
 
 function projectPoints(points: Array<{ row: Record<string, unknown>; latitude: number; longitude: number }>): CoursePoint[] {
   if (points.length === 0) return []
-  const latitudes = points.map((point) => point.latitude)
-  const longitudes = points.map((point) => point.longitude)
-  const minLatitude = Math.min(...latitudes)
-  const maxLatitude = Math.max(...latitudes)
-  const minLongitude = Math.min(...longitudes)
-  const maxLongitude = Math.max(...longitudes)
-  const latitudeSpan = maxLatitude - minLatitude
-  const longitudeSpan = maxLongitude - minLongitude
-
   return points.map((point) => {
-    const longitudeRatio = longitudeSpan === 0 ? 0.5 : (point.longitude - minLongitude) / longitudeSpan
-    const latitudeRatio = latitudeSpan === 0 ? 0.5 : (point.latitude - minLatitude) / latitudeSpan
-    const x = MAP_PADDING + longitudeRatio * (MAP_WIDTH - MAP_PADDING * 2)
-    const y = MAP_HEIGHT - MAP_PADDING - latitudeRatio * (MAP_HEIGHT - MAP_PADDING * 2)
     const key = asString(point.row.courseKey) ?? asString(point.row.courseName) ?? `${point.latitude}:${point.longitude}`
     return {
       key,
@@ -140,8 +127,8 @@ function projectPoints(points: Array<{ row: Record<string, unknown>; latitude: n
       row: point.row,
       latitude: point.latitude,
       longitude: point.longitude,
-      x,
-      y,
+      x: MAP_PADDING + ((point.longitude + 180) / 360) * (MAP_WIDTH - MAP_PADDING * 2),
+      y: MAP_PADDING + ((90 - point.latitude) / 180) * (MAP_HEIGHT - MAP_PADDING * 2),
     }
   })
 }
