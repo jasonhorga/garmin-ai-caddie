@@ -712,6 +712,15 @@ def _find_course_stat(history_stats: dict[str, Any], course_key: str) -> dict[st
     return None
 
 
+def _find_club_stat(history_stats: dict[str, Any], club_name: str) -> dict[str, Any] | None:
+    clubs = history_stats.get("clubs") if isinstance(history_stats.get("clubs"), list) else []
+    requested = str(club_name).strip().lower()
+    for row in clubs:
+        if isinstance(row, dict) and str(row.get("club") or "").strip().lower() == requested:
+            return row
+    return None
+
+
 def _hole_subject_id(course_key: str, local_hole: int) -> str:
     return f"{course_key}:{local_hole}"
 
@@ -965,6 +974,275 @@ def build_hole_report_facts(
     return {
         "schema": "ai-caddie-report-facts-v1",
         "kind": "hole",
+        "subjectId": subject_id,
+        "factsUsed": facts_used,
+        "missingData": missing_data,
+    }
+
+
+def _compact_course_history(course_stat: dict[str, Any]) -> dict[str, Any]:
+    keys = [
+        "courseKey",
+        "courseName",
+        "roundCount",
+        "average18",
+        "bestScore",
+        "worstScore",
+        "averageDifferential",
+        "bestDifferential",
+        "difficultyAdjusted",
+        "recentForm",
+        "teeDirection",
+        "parScoring",
+        "approachMiss",
+        "geometryCoverage",
+        "roundRefs",
+        "roundIds",
+        "sourceRefs",
+        "coverage",
+        "confidence",
+    ]
+    return {key: course_stat[key] for key in keys if key in course_stat}
+
+
+def _course_hole_rows(history_stats: dict[str, Any], course_key: str) -> list[dict[str, Any]]:
+    holes = history_stats.get("holes") if isinstance(history_stats.get("holes"), list) else []
+    rows = [
+        row
+        for row in holes
+        if isinstance(row, dict) and str(row.get("courseKey") or "") == str(course_key)
+    ]
+    rows.sort(key=lambda row: (-float(row.get("averageToPar") or 0), int(row.get("hole") or 0)))
+    return rows[:18]
+
+
+def _missing_rows_for_related_refs(data_quality: Any, related_refs: list[str], *, generic_labels: set[str]) -> list[dict[str, Any]]:
+    related = set(related_refs)
+    rows = []
+    for row in _missing_data_quality_rows(data_quality):
+        refs = set(report_source_refs(row))
+        if refs and not (refs & related):
+            continue
+        if not refs and row.get("label") not in generic_labels:
+            continue
+        rows.append(row)
+    return rows
+
+
+def build_course_report_facts(history_stats: dict[str, Any], course_key: str) -> dict[str, Any]:
+    subject_id = str(course_key)
+    course_stat = _find_course_stat(history_stats, course_key)
+    facts_used: list[dict[str, Any]] = []
+    related_refs: list[str] = []
+
+    if course_stat:
+        course_history = _compact_course_history(course_stat)
+        related_refs.extend(report_source_refs(course_history))
+        facts_used.append(
+            _fact(
+                "course_history",
+                course_history,
+                "courses",
+                source_refs=report_source_refs(course_history),
+            )
+        )
+        issue_profile = [row for row in course_stat.get("issueProfile", []) if isinstance(row, dict)]
+        if issue_profile:
+            facts_used.append(
+                _fact(
+                    "course_issue_profile",
+                    issue_profile[:8],
+                    "courses.issueProfile",
+                    source_refs=report_source_refs(issue_profile),
+                )
+            )
+            related_refs.extend(report_source_refs(issue_profile))
+        toughest_holes = [row for row in course_stat.get("toughestHoles", []) if isinstance(row, dict)]
+        if toughest_holes:
+            facts_used.append(
+                _fact(
+                    "course_toughest_holes",
+                    toughest_holes[:8],
+                    "courses.toughestHoles",
+                    source_refs=report_source_refs(toughest_holes),
+                )
+            )
+            related_refs.extend(report_source_refs(toughest_holes))
+        geometry_coverage = course_stat.get("geometryCoverage")
+        if geometry_coverage is not None:
+            facts_used.append(
+                _fact(
+                    "course_geometry_coverage",
+                    {
+                        "courseKey": course_key,
+                        "geometryCoverage": geometry_coverage,
+                        "sourceRefs": _as_string_list(course_stat.get("sourceRefs") or course_stat.get("roundRefs") or course_stat.get("roundIds")),
+                    },
+                    "courses.geometryCoverage",
+                )
+            )
+
+    course_holes = _course_hole_rows(history_stats, course_key)
+    if course_holes:
+        facts_used.append(
+            _fact(
+                "course_holes",
+                course_holes,
+                "holes",
+                source_refs=report_source_refs(course_holes),
+            )
+        )
+        related_refs.extend(report_source_refs(course_holes))
+
+    missing_data: list[dict[str, Any]] = []
+    if course_stat is None:
+        missing_data.append({"label": "course_reference", "reason": f"{course_key} not present in course aggregates"})
+    elif str(course_stat.get("geometryCoverage") or "").lower() != "ready":
+        missing_data.append(
+            {
+                "label": "geometry",
+                "state": str(course_stat.get("geometryCoverage") or "missing"),
+                "reason": f"Geometry coverage for {course_key} is {course_stat.get('geometryCoverage') or 'missing'}",
+                "sourceRefs": _as_string_list(course_stat.get("sourceRefs") or course_stat.get("roundRefs") or course_stat.get("roundIds")),
+            }
+        )
+    missing_data.extend(
+        _missing_rows_for_related_refs(
+            history_stats.get("dataQuality") if isinstance(history_stats.get("dataQuality"), list) else [],
+            _unique_strings(related_refs),
+            generic_labels={"reports", "weather", "geometry"},
+        )
+    )
+
+    return {
+        "schema": "ai-caddie-report-facts-v1",
+        "kind": "course",
+        "subjectId": subject_id,
+        "factsUsed": facts_used,
+        "missingData": missing_data,
+    }
+
+
+def _compact_club_profile(club_stat: dict[str, Any]) -> dict[str, Any]:
+    keys = [
+        "club",
+        "sampleCount",
+        "rawSampleCount",
+        "validSampleCount",
+        "invalidSampleCount",
+        "outlierCount",
+        "median",
+        "p10",
+        "p90",
+        "dispersionRange",
+        "consistency",
+        "max",
+        "roundIds",
+        "shotRefs",
+        "validShotRefs",
+        "invalidShotRefs",
+        "outlierShotRefs",
+        "correctedRefs",
+        "correctionCount",
+        "coverage",
+        "confidence",
+    ]
+    return {key: club_stat[key] for key in keys if key in club_stat}
+
+
+def _compact_club_surface_risk(club_stat: dict[str, Any]) -> dict[str, Any]:
+    keys = [
+        "club",
+        "topSurface",
+        "hazardRate",
+        "riskRate",
+        "usableRate",
+        "surfaceDistribution",
+        "riskShotRefs",
+        "usableShotRefs",
+        "sourceRefs",
+        "coverage",
+        "confidence",
+    ]
+    return {key: club_stat[key] for key in keys if key in club_stat}
+
+
+def build_club_report_facts(history_stats: dict[str, Any], club_name: str) -> dict[str, Any]:
+    subject_id = str(club_name)
+    club_stat = _find_club_stat(history_stats, club_name)
+    facts_used: list[dict[str, Any]] = []
+    related_refs: list[str] = []
+
+    if club_stat:
+        profile = _compact_club_profile(club_stat)
+        related_refs.extend(report_source_refs(profile))
+        facts_used.append(
+            _fact(
+                "club_profile",
+                profile,
+                "clubs",
+                source_refs=report_source_refs(profile),
+            )
+        )
+        distance_trend = club_stat.get("distanceTrend") if isinstance(club_stat.get("distanceTrend"), dict) else None
+        if distance_trend:
+            facts_used.append(
+                _fact(
+                    "club_distance_trend",
+                    {"club": club_stat.get("club"), **distance_trend},
+                    "clubs.distanceTrend",
+                    source_refs=report_source_refs(distance_trend),
+                )
+            )
+            related_refs.extend(report_source_refs(distance_trend))
+        sample_quality = club_stat.get("sampleQuality") if isinstance(club_stat.get("sampleQuality"), dict) else None
+        if sample_quality:
+            facts_used.append(
+                _fact(
+                    "club_sample_quality",
+                    {"club": club_stat.get("club"), **sample_quality},
+                    "clubs.sampleQuality",
+                    source_refs=report_source_refs(sample_quality),
+                )
+            )
+            related_refs.extend(report_source_refs(sample_quality))
+        surface_risk = _compact_club_surface_risk(club_stat)
+        if surface_risk:
+            facts_used.append(
+                _fact(
+                    "club_surface_risk",
+                    surface_risk,
+                    "clubs.surfaceRisk",
+                    source_refs=report_source_refs(surface_risk),
+                )
+            )
+            related_refs.extend(report_source_refs(surface_risk))
+
+    missing_data: list[dict[str, Any]] = []
+    if club_stat is None:
+        missing_data.append({"label": "club_reference", "reason": f"{club_name} not present in club aggregates"})
+    else:
+        sample_quality = club_stat.get("sampleQuality") if isinstance(club_stat.get("sampleQuality"), dict) else {}
+        if str(sample_quality.get("confidence") or club_stat.get("confidence") or "").lower() in {"low", "insufficient"}:
+            missing_data.append(
+                {
+                    "label": "club_samples",
+                    "state": "partial",
+                    "reason": f"Club sample confidence for {club_stat.get('club')} is {sample_quality.get('confidence') or club_stat.get('confidence')}",
+                    "sourceRefs": _as_string_list(club_stat.get("shotRefs")),
+                }
+            )
+    missing_data.extend(
+        _missing_rows_for_related_refs(
+            history_stats.get("dataQuality") if isinstance(history_stats.get("dataQuality"), list) else [],
+            _unique_strings(related_refs),
+            generic_labels={"club_samples", "shot_rows"},
+        )
+    )
+
+    return {
+        "schema": "ai-caddie-report-facts-v1",
+        "kind": "club",
         "subjectId": subject_id,
         "factsUsed": facts_used,
         "missingData": missing_data,
@@ -1413,6 +1691,33 @@ def _first_vision_finding(value: Any) -> str | None:
     return None
 
 
+def _course_history_summary(value: Any) -> tuple[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    course = str(value.get("courseName") or value.get("courseKey") or "").strip()
+    if not course:
+        return None
+    return course, value.get("roundCount")
+
+
+def _club_profile_summary(value: Any) -> tuple[str, Any, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    club = str(value.get("club") or "").strip()
+    if not club:
+        return None
+    return club, value.get("median"), value.get("sampleCount")
+
+
+def _club_surface_risk_summary(value: Any) -> tuple[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    club = str(value.get("club") or "").strip()
+    if not club:
+        return None
+    return club, value.get("riskRate") if value.get("riskRate") is not None else value.get("hazardRate")
+
+
 def _summary_round_count(value: Any) -> int | None:
     if isinstance(value, dict):
         count = value.get("totalRounds") or value.get("roundCount")
@@ -1483,6 +1788,52 @@ def build_report_inferences(
                         missing_data=missing_data,
                     ),
                 )
+                continue
+        if label == "course_history":
+            summary = _course_history_summary(value)
+            if summary:
+                course, round_count = summary
+                count_text = f" has {round_count} rounds" if round_count is not None else " is present in history"
+                _append_inference(rows, _inference(f"Course {course}{count_text}.", fact, default_confidence=confidence, missing_data=missing_data))
+                continue
+        if label == "course_issue_profile":
+            issue = _first_issue(value)
+            if issue:
+                _append_inference(rows, _inference(f"Course-specific issue profile highlights {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
+                continue
+        if label == "club_profile":
+            summary = _club_profile_summary(value)
+            if summary:
+                club, median_value, sample_count = summary
+                sample_text = f" from {sample_count} samples" if sample_count is not None else ""
+                _append_inference(
+                    rows,
+                    _inference(
+                        f"Club {club} median distance is {median_value}{sample_text}.",
+                        fact,
+                        default_confidence=confidence,
+                        missing_data=missing_data,
+                    ),
+                )
+                continue
+        if label == "club_distance_trend" and isinstance(value, dict) and value.get("direction"):
+            club = value.get("club") or "club"
+            _append_inference(
+                rows,
+                _inference(
+                    f"Club {club} distance trend is {value.get('direction')}.",
+                    fact,
+                    default_confidence=confidence,
+                    missing_data=missing_data,
+                ),
+            )
+            continue
+        if label == "club_surface_risk":
+            summary = _club_surface_risk_summary(value)
+            if summary:
+                club, risk_rate = summary
+                rate_text = f" at {risk_rate:g}% risk rate" if isinstance(risk_rate, (int, float)) else ""
+                _append_inference(rows, _inference(f"Club surface model flags {club}{rate_text}.", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "club_risk_profiles":
             club_risk = _first_risky_club(value)

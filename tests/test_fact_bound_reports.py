@@ -9,6 +9,8 @@ from ai_caddie.history import HistoryData
 from ai_caddie.llm_providers import LLMMessage, StaticProvider
 from ai_caddie.history_stats import build_history_stats
 from ai_caddie.reports import (
+    build_club_report_facts,
+    build_course_report_facts,
     build_hole_report_facts,
     build_round_report_facts,
     build_trend_report_facts,
@@ -600,6 +602,48 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertEqual(report["kind"], "hole")
         self.assertTrue(any(row["factLabels"] == ["hole_history"] and "Hole 7" in row["claim"] for row in report["inferencesMade"]))
         self.assertTrue(any(row["factLabels"] == ["confirmed_vision_findings"] and "blocked_view" in row["claim"] for row in report["inferencesMade"]))
+
+    def test_course_report_facts_bind_course_form_issues_holes_and_geometry(self) -> None:
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+
+        facts = build_course_report_facts(stats, "black_knight")
+        report = generate_report(facts, StaticProvider("Course review from structured facts."))
+
+        self.assertEqual(facts["schema"], "ai-caddie-report-facts-v1")
+        self.assertEqual(facts["kind"], "course")
+        self.assertEqual(facts["subjectId"], "black_knight")
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertEqual(by_label["course_history"]["value"]["courseKey"], "black_knight")
+        self.assertEqual(by_label["course_history"]["value"]["roundCount"], 2)
+        self.assertIn("recentForm", by_label["course_history"]["value"])
+        self.assertEqual(by_label["course_issue_profile"]["value"][0]["issue"], "double_or_worse")
+        self.assertEqual(by_label["course_toughest_holes"]["value"][0]["hole"], 7)
+        self.assertIn("course_geometry_coverage", by_label)
+        self.assertIn("course_holes", by_label)
+        self.assertTrue(all(row["courseKey"] == "black_knight" for row in by_label["course_holes"]["value"]))
+        self.assertEqual(report["kind"], "course")
+        self.assertTrue(any(row["factLabels"] == ["course_history"] and "Black Knight" in row["claim"] for row in report["inferencesMade"]))
+        self.assertTrue(any(row["factLabels"] == ["course_issue_profile"] and "double_or_worse" in row["claim"] for row in report["inferencesMade"]))
+
+    def test_club_report_facts_bind_distance_trend_sample_quality_and_surface_risk(self) -> None:
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+
+        facts = build_club_report_facts(stats, "1D")
+        report = generate_report(facts, StaticProvider("Club review from structured facts."))
+
+        self.assertEqual(facts["schema"], "ai-caddie-report-facts-v1")
+        self.assertEqual(facts["kind"], "club")
+        self.assertEqual(facts["subjectId"], "1D")
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertEqual(by_label["club_profile"]["value"]["club"], "1D")
+        self.assertEqual(by_label["club_profile"]["value"]["sampleCount"], 2)
+        self.assertIn("club_distance_trend", by_label)
+        self.assertIn("club_sample_quality", by_label)
+        self.assertEqual(by_label["club_surface_risk"]["value"]["riskRate"], 50.0)
+        self.assertEqual(by_label["club_surface_risk"]["sourceRefs"], ["900001:1:0", "900002:5:4"])
+        self.assertEqual(report["kind"], "club")
+        self.assertTrue(any(row["factLabels"] == ["club_profile"] and "1D" in row["claim"] for row in report["inferencesMade"]))
+        self.assertTrue(any(row["factLabels"] == ["club_surface_risk"] and "50" in row["claim"] for row in report["inferencesMade"]))
 
     def test_report_facts_include_decision_audit_diagnosis(self) -> None:
         stats = {

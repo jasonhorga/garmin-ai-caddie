@@ -5,6 +5,8 @@ from pathlib import Path
 from ai_caddie.llm_providers import build_text_provider
 from ai_caddie.reports import (
     audit_report_narrative,
+    build_club_report_facts,
+    build_course_report_facts,
     build_hole_report_facts,
     build_report_inferences,
     build_round_report_facts,
@@ -191,6 +193,38 @@ def generate_hole_report_response(course_key: str, hole: int) -> ReviewReportRes
     report = _generate_provider_report_or_fallback(facts)
     store_report(report, kind="hole", subject_id=subject_id, root=REPORT_ROOT)
     return _report_response(report, kind="hole", subject_id=subject_id)
+
+
+def load_course_report_response(course_key: str) -> ReviewReportResponse:
+    stored = latest_report_record("course", course_key, root=REPORT_ROOT)
+    if stored and isinstance(stored.get("report"), dict):
+        return _report_response(stored["report"], kind="course", subject_id=course_key)
+    facts = build_course_report_facts(_history_stats_dict(), course_key)
+    report = generate_deterministic_report(facts)
+    return _report_response(report, kind="course", subject_id=course_key)
+
+
+def generate_course_report_response(course_key: str) -> ReviewReportResponse:
+    facts = build_course_report_facts(_history_stats_dict(), course_key)
+    report = _generate_provider_report_or_fallback(facts)
+    store_report(report, kind="course", subject_id=course_key, root=REPORT_ROOT)
+    return _report_response(report, kind="course", subject_id=course_key)
+
+
+def load_club_report_response(club_name: str) -> ReviewReportResponse:
+    stored = latest_report_record("club", club_name, root=REPORT_ROOT)
+    if stored and isinstance(stored.get("report"), dict):
+        return _report_response(stored["report"], kind="club", subject_id=club_name)
+    facts = build_club_report_facts(_history_stats_dict(), club_name)
+    report = generate_deterministic_report(facts)
+    return _report_response(report, kind="club", subject_id=club_name)
+
+
+def generate_club_report_response(club_name: str) -> ReviewReportResponse:
+    facts = build_club_report_facts(_history_stats_dict(), club_name)
+    report = _generate_provider_report_or_fallback(facts)
+    store_report(report, kind="club", subject_id=club_name, root=REPORT_ROOT)
+    return _report_response(report, kind="club", subject_id=club_name)
 
 
 def load_trend_report_response(period: str) -> ReviewReportResponse:

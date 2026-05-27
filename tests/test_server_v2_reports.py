@@ -92,6 +92,39 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertIn("Hole review", payload["narrative"])
         self.assertEqual(payload["factBinding"]["state"], "bound")
 
+    def test_get_course_and_club_reports_return_deterministic_fact_bound_reports(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
+                get_settings.cache_clear()
+                with patch("server_v2.reports.REPORT_ROOT", root):
+                    course_response = client.get("/api/v2/reports/course/black_knight")
+                    club_response = client.get("/api/v2/reports/club/1D")
+
+        self.assertEqual(course_response.status_code, 200)
+        course_payload = course_response.json()
+        self.assertEqual(course_payload["kind"], "course")
+        self.assertEqual(course_payload["subjectId"], "black_knight")
+        course_labels = {row["label"] for row in course_payload["factsUsed"]}
+        self.assertIn("course_history", course_labels)
+        self.assertIn("course_issue_profile", course_labels)
+        self.assertIn("course_holes", course_labels)
+        self.assertIn("Course review", course_payload["narrative"])
+        self.assertEqual(course_payload["factBinding"]["state"], "bound")
+
+        self.assertEqual(club_response.status_code, 200)
+        club_payload = club_response.json()
+        self.assertEqual(club_payload["kind"], "club")
+        self.assertEqual(club_payload["subjectId"], "1D")
+        club_labels = {row["label"] for row in club_payload["factsUsed"]}
+        self.assertIn("club_profile", club_labels)
+        self.assertIn("club_distance_trend", club_labels)
+        self.assertIn("club_surface_risk", club_labels)
+        self.assertIn("Club review", club_payload["narrative"])
+        self.assertEqual(club_payload["factBinding"]["state"], "bound")
+
     def test_generated_hole_report_is_stored_and_returned_by_get(self) -> None:
         client = TestClient(app)
 
@@ -114,6 +147,32 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(get_response.json()["narrative"], "hole review")
         self.assertIn('"kind": "hole"', raw)
         self.assertIn('"subjectId": "black_knight:7"', raw)
+
+    def test_generated_course_and_club_reports_are_stored_and_returned_by_get(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
+                get_settings.cache_clear()
+                with (
+                    patch("server_v2.reports.REPORT_ROOT", root),
+                    patch("server_v2.reports.build_text_provider", return_value=StaticProvider("stored review")),
+                ):
+                    course_post = client.post("/api/v2/reports/course/black_knight/generate")
+                    course_get = client.get("/api/v2/reports/course/black_knight")
+                    club_post = client.post("/api/v2/reports/club/1D/generate")
+                    club_get = client.get("/api/v2/reports/club/1D")
+                    raw = (root / "data" / "reports" / "reports.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(course_post.status_code, 200)
+        self.assertEqual(course_post.json()["kind"], "course")
+        self.assertEqual(course_get.json()["narrative"], "stored review")
+        self.assertEqual(club_post.status_code, 200)
+        self.assertEqual(club_post.json()["kind"], "club")
+        self.assertEqual(club_get.json()["narrative"], "stored review")
+        self.assertIn('"kind": "course"', raw)
+        self.assertIn('"kind": "club"', raw)
 
     def test_generated_report_response_flags_unsupported_sensitive_claims(self) -> None:
         client = TestClient(app)
@@ -332,6 +391,8 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["endpoints"]["reportIndex"], "/api/v2/reports")
         self.assertEqual(response.json()["endpoints"]["holeReport"], "/api/v2/reports/hole/{course_key}/{hole}")
+        self.assertEqual(response.json()["endpoints"]["courseReport"], "/api/v2/reports/course/{course_key}")
+        self.assertEqual(response.json()["endpoints"]["clubReport"], "/api/v2/reports/club/{club_name}")
 
 
 if __name__ == "__main__":
