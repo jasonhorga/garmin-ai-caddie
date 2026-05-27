@@ -966,6 +966,70 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("course recent form worsening", history_evidence["text"])
         self.assertIn("hist-hole-double-1", history_evidence["sourceRefs"])
 
+    def test_score_impact_calibrates_history_and_club_confidence(self) -> None:
+        context = approach_fixture(sample_size=2)
+        context["strategyMode"] = "attack"
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["historicalHole"] = {
+            "averageToPar": 2.25,
+            "worstToPar": 5,
+            "scoreDistribution": [{"key": "doubleOrWorse", "count": 2, "holeRefs": ["hist-hole-double"]}],
+            "holeRefs": ["hist-hole-double"],
+        }
+        context["historicalHoleIssues"] = [
+            {"issue": "hazard_result", "phase": "Penalty", "count": 2, "sourceRefs": ["hist-penalty-shot"]},
+        ]
+        context["courseForm"] = {
+            "recentForm": {
+                "direction": "worsening",
+                "deltaAverage18": 8.0,
+                "recentRoundRefs": ["course-recent"],
+            }
+        }
+
+        plan = recommend_approach(context)
+        attack = next(option for option in plan["options"] if option["id"] == "attack")
+        impact = attack["scoreImpact"]
+
+        self.assertEqual(impact["model"], "calibrated_history_club_v2")
+        self.assertGreater(
+            impact["historyAdjustment"]["expectedStrokesDelta"],
+            round(attack["historyAdjustment"]["riskScoreDelta"] * 0.05, 2),
+        )
+        self.assertGreater(impact["components"]["clubConfidence"], 0)
+        self.assertIn("historical_hole_scoring", {row["label"] for row in impact["historyAdjustment"]["factors"]})
+        self.assertIn("hist-hole-double", impact["historyAdjustment"]["sourceRefs"])
+
+    def test_approach_short_history_biases_carry_and_acceptable_miss(self) -> None:
+        context = approach_fixture()
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["historicalHoleIssues"] = [
+            {"issue": "approach_short", "phase": "Approach", "count": 3, "sourceRefs": ["hist-approach-short"]},
+        ]
+
+        plan = recommend_approach(context)
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+
+        self.assertEqual(stock["historyCarryAdjustment"]["meters"], 4.0)
+        self.assertGreater(stock["carry_m"], stock["baseCarry_m"])
+        self.assertEqual(plan["acceptableMiss"]["direction"], "history_depth_bias")
+        self.assertEqual(plan["acceptableMiss"]["preferredMiss"]["depth"], "long")
+        self.assertIn("approach_short", plan["acceptableMiss"]["avoidPatterns"])
+        self.assertIn("hist-approach-short", plan["acceptableMiss"]["sourceRefs"])
+
+    def test_fairway_missed_right_history_biases_tee_acceptable_miss_left(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["historicalHoleIssues"] = [
+            {"issue": "fairway_missed_right", "phase": "Tee", "count": 4, "refs": ["tee-right-miss"]},
+        ]
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual(plan["acceptableMiss"]["direction"], "history_side_bias")
+        self.assertEqual(plan["acceptableMiss"]["preferredMiss"]["side"], "left")
+        self.assertIn("fairway_missed_right", plan["acceptableMiss"]["avoidPatterns"])
+        self.assertIn("tee-right-miss", plan["acceptableMiss"]["sourceRefs"])
+
     def test_tee_options_apply_history_risk_adjustment(self) -> None:
         clean_plan = build_decision_plan(analysis_fixture(stock_risk=1))
         clean_stock = next(option for option in clean_plan["options"] if option["id"] == "stock")

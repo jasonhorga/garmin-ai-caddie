@@ -1569,6 +1569,10 @@ def _history_factor(label: str, raw_delta: float, weighted_delta: float, refs: l
     }
 
 
+def _normalized_issue_key(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
 def _diagnostic_issue_rows(context: dict[str, Any], option_id: str | None = None) -> list[dict[str, Any]]:
     diagnostic = context.get("diagnosticContext") if isinstance(context.get("diagnosticContext"), dict) else {}
     rows: list[dict[str, Any]] = []
@@ -1706,6 +1710,139 @@ def _profile_signal_names(rows: list[dict[str, Any]]) -> list[str]:
         if name:
             names.append(name)
     return _dedupe(names)
+
+
+def _issue_signal_rows(context: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in (context.get("historicalHoleIssues") or context.get("holeIssues") or []):
+        if isinstance(row, dict):
+            rows.append(row)
+    rows.extend(_diagnostic_issue_rows(context))
+    rows.extend(_player_profile_rows(context))
+    return rows
+
+
+def _issue_signal_score(row: dict[str, Any]) -> float:
+    for key in ("count", "recentCount", "sampleCount"):
+        count = _float_or_none(row.get(key))
+        if count is not None and count > 0:
+            return min(6.0, count)
+    for key in ("actualStrokesLost", "actualToParImpact", "estimatedStrokesLost", "severityScore", "value"):
+        value = _float_or_none(row.get(key))
+        if value is not None and value > 0:
+            return min(6.0, value)
+    return 1.0
+
+
+def _issue_signal_names_for_row(row: dict[str, Any]) -> list[str]:
+    candidates = [
+        row.get("issue"),
+        row.get("key"),
+        row.get("label"),
+        row.get("reason"),
+    ]
+    names: list[str] = []
+    for candidate in candidates:
+        key = _normalized_issue_key(candidate)
+        if not key:
+            continue
+        for known in (
+            "fairway_missed_right",
+            "fairway_missed_left",
+            "approach_short",
+            "approach_long",
+            "approach_left",
+            "approach_right",
+        ):
+            if known in key:
+                names.append(known)
+    return _dedupe(names)
+
+
+def _history_miss_bias(context: dict[str, Any]) -> dict[str, Any] | None:
+    signals: dict[str, dict[str, Any]] = {}
+    for row in _issue_signal_rows(context):
+        for issue_name in _issue_signal_names_for_row(row):
+            signal = signals.setdefault(issue_name, {"issue": issue_name, "score": 0.0, "sourceRefs": []})
+            signal["score"] += _issue_signal_score(row)
+            refs: list[str] = []
+            _collect_refs_from_value(row, refs)
+            signal["sourceRefs"].extend(refs)
+
+    shot_type = str(context.get("shotType") or context.get("shot_type") or "").strip().lower()
+    side: str | None = None
+    depth: str | None = None
+    avoid_patterns: list[str] = []
+    source_refs: list[str] = []
+
+    right_score = _float((signals.get("fairway_missed_right") or signals.get("approach_right") or {}).get("score"), 0.0)
+    left_score = _float((signals.get("fairway_missed_left") or signals.get("approach_left") or {}).get("score"), 0.0)
+    short_score = _float((signals.get("approach_short") or {}).get("score"), 0.0)
+    long_score = _float((signals.get("approach_long") or {}).get("score"), 0.0)
+
+    if shot_type == "tee":
+        right_score = _float((signals.get("fairway_missed_right") or {}).get("score"), 0.0)
+        left_score = _float((signals.get("fairway_missed_left") or {}).get("score"), 0.0)
+
+    if right_score > left_score and right_score > 0:
+        side = "left"
+        if shot_type == "tee" or "fairway_missed_right" in signals and "approach_right" not in signals:
+            avoid_patterns.append("fairway_missed_right")
+        else:
+            avoid_patterns.append("approach_right")
+    elif left_score > right_score and left_score > 0:
+        side = "right"
+        if shot_type == "tee" or "fairway_missed_left" in signals and "approach_left" not in signals:
+            avoid_patterns.append("fairway_missed_left")
+        else:
+            avoid_patterns.append("approach_left")
+
+    if shot_type == "approach":
+        if short_score > long_score and short_score > 0:
+            depth = "long"
+            avoid_patterns.append("approach_short")
+        elif long_score > short_score and long_score > 0:
+            depth = "short"
+            avoid_patterns.append("approach_long")
+
+    for pattern in avoid_patterns:
+        source_refs.extend(_sanitize_ref_list((signals.get(pattern) or {}).get("sourceRefs")))
+    avoid_patterns = _dedupe(avoid_patterns)
+    source_refs = _dedupe(source_refs)
+    if not side and not depth:
+        return None
+    direction = "history_aware"
+    if side and not depth:
+        direction = "history_side_bias"
+    elif depth and not side:
+        direction = "history_depth_bias"
+    return {
+        "direction": direction,
+        "preferredMiss": {key: value for key, value in {"side": side, "depth": depth}.items() if value},
+        "avoidPatterns": avoid_patterns,
+        "sourceRefs": source_refs,
+        "rationale": "historical miss patterns bias the acceptable miss away from repeated scoring-loss patterns",
+    }
+
+
+def _issue_carry_adjustment_m(context: dict[str, Any], *, shot_type: str, option_id: str) -> dict[str, Any]:
+    if shot_type != "approach":
+        return {"meters": 0.0, "sourceRefs": [], "avoidPatterns": []}
+    bias = _history_miss_bias({**context, "shotType": shot_type})
+    if not bias:
+        return {"meters": 0.0, "sourceRefs": [], "avoidPatterns": []}
+    depth = (bias.get("preferredMiss") or {}).get("depth") if isinstance(bias.get("preferredMiss"), dict) else None
+    if depth not in {"long", "short"}:
+        return {"meters": 0.0, "sourceRefs": [], "avoidPatterns": []}
+    base = {"safe": 5.0, "stock": 4.0, "attack": 2.0}.get(option_id, 3.0)
+    meters = base if depth == "long" else -base
+    return {
+        "meters": round(meters, 1),
+        "preferredMiss": bias.get("preferredMiss"),
+        "avoidPatterns": bias.get("avoidPatterns", []),
+        "sourceRefs": bias.get("sourceRefs", []),
+        "reason": bias.get("rationale"),
+    }
 
 
 def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[str, Any]:
@@ -2222,6 +2359,105 @@ def _club_surface_risk_adjustment(recommendation: dict[str, Any]) -> dict[str, A
     }
 
 
+HISTORY_EXPECTED_STROKES_MULTIPLIERS = {
+    "repeated_hole_issues": 0.07,
+    "hole_score_distribution": 0.06,
+    "historical_hole_scoring": 0.1,
+    "course_recent_form": 0.08,
+    "diagnosis_issue_trends": 0.09,
+    "player_profile": 0.06,
+}
+
+
+def _weighted_observed_history_delta(factor: dict[str, Any], observed_delta: float) -> float:
+    raw_delta = _float(factor.get("rawRiskScoreDelta"), 0.0)
+    weighted_delta = _float(factor.get("riskScoreDelta"), 0.0)
+    if raw_delta <= 0:
+        return max(0.0, observed_delta)
+    weight_ratio = min(1.0, max(0.0, weighted_delta / raw_delta))
+    return max(0.0, observed_delta) * weight_ratio
+
+
+def _observed_history_expected_delta(factor: dict[str, Any]) -> float:
+    label = str(factor.get("label") or "")
+    value = factor.get("value") if isinstance(factor.get("value"), dict) else {}
+    if label == "repeated_hole_issues":
+        observed = min(0.35, _int_count(value.get("penaltyIssueCount")) * 0.08 + _int_count(value.get("approachIssueCount")) * 0.04)
+        return _weighted_observed_history_delta(factor, observed)
+    if label == "hole_score_distribution":
+        observed = min(0.3, _int_count(value.get("doubleOrWorseCount")) * 0.08 + _int_count(value.get("bogeyCount")) * 0.02)
+        return _weighted_observed_history_delta(factor, observed)
+    if label == "historical_hole_scoring":
+        average = _float_or_none(value.get("averageToPar"))
+        worst = _float_or_none(value.get("worstToPar"))
+        observed = max(0.0, average or 0.0) * 0.06 + max(0.0, (worst or 0.0) - 1.0) * 0.015
+        return _weighted_observed_history_delta(factor, min(0.4, observed))
+    if label == "course_recent_form":
+        observed = max(0.0, _float(value.get("worseningStrokes18"), 0.0)) * 0.02
+        return _weighted_observed_history_delta(factor, min(0.2, observed))
+    if label == "diagnosis_issue_trends":
+        observed = max(0.0, _float(value.get("diagnosticIssueImpact"), 0.0)) * 0.07
+        return _weighted_observed_history_delta(factor, min(0.35, observed))
+    if label == "player_profile":
+        observed = max(0.0, _float(value.get("playerProfileImpact"), 0.0)) * 0.04
+        return _weighted_observed_history_delta(factor, min(0.25, observed))
+    return 0.0
+
+
+def _history_expected_strokes(history_adjustment: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(history_adjustment, dict):
+        return {"expectedStrokesDelta": 0.0, "factors": [], "sourceRefs": []}
+    rows: list[dict[str, Any]] = []
+    for factor in history_adjustment.get("factors") or []:
+        if not isinstance(factor, dict):
+            continue
+        label = str(factor.get("label") or "history")
+        weighted_delta = max(0.0, _float(factor.get("riskScoreDelta"), 0.0))
+        model_delta = weighted_delta * HISTORY_EXPECTED_STROKES_MULTIPLIERS.get(label, 0.05)
+        observed_delta = _observed_history_expected_delta(factor)
+        expected_delta = round(max(model_delta, observed_delta), 2)
+        if expected_delta <= 0:
+            continue
+        rows.append(
+            {
+                "label": label,
+                "expectedStrokesDelta": expected_delta,
+                "riskScoreDelta": round(weighted_delta, 2),
+                "sourceRefs": _sanitize_ref_list(factor.get("sourceRefs")),
+            }
+        )
+    total = min(1.25, sum(_float(row.get("expectedStrokesDelta"), 0.0) for row in rows))
+    source_refs: list[str] = []
+    for row in rows:
+        source_refs.extend(_sanitize_ref_list(row.get("sourceRefs")))
+    return {
+        "expectedStrokesDelta": round(total, 2),
+        "factors": rows,
+        "sourceRefs": _dedupe(source_refs),
+    }
+
+
+def _club_confidence_expected_delta(dispersion: dict[str, Any]) -> dict[str, Any]:
+    if dispersion.get("state") != "modeled":
+        return {"expectedStrokesDelta": 0.1, "reason": "matching club dispersion is missing"}
+    sample_size = int(dispersion.get("sampleSize") or 0)
+    carry_window = _float(dispersion.get("carryWindow_m"), 0.0)
+    sample_delta = max(0.0, MIN_STRONG_CLUB_SAMPLE - sample_size) * 0.025
+    dispersion_delta = max(0.0, carry_window - 30.0) * 0.006
+    expected_delta = min(0.25, sample_delta + dispersion_delta)
+    reasons = []
+    if sample_delta > 0:
+        reasons.append("club sample below strong threshold")
+    if dispersion_delta > 0:
+        reasons.append("club carry window is wide")
+    return {
+        "expectedStrokesDelta": round(expected_delta, 2),
+        "sampleSize": sample_size,
+        "carryWindow_m": round(carry_window, 1),
+        "reason": "; ".join(reasons) if reasons else "club sample and dispersion are strong enough",
+    }
+
+
 def _score_impact(
     risk_score: float,
     hazard_clearance: dict[str, Any],
@@ -2233,29 +2469,49 @@ def _score_impact(
     clearance = hazard_clearance.get("minimumClearance_m")
     clearance_penalty = max(0.0, 8.0 - _float(clearance, 8.0)) * 0.02 if clearance is not None else 0.0
     dispersion_penalty = max(0.0, _float(dispersion.get("carryWindow_m"), 20.0) - 20.0) * 0.005
-    expected_delta = round(max(0.0, risk_score) * 0.05 + clearance_penalty + dispersion_penalty, 2)
     history_risk_delta = _float((history_adjustment or {}).get("riskScoreDelta"), 0.0)
-    history_expected_delta = round(max(0.0, history_risk_delta) * 0.05, 2)
+    club_risk_delta = _float((club_surface_risk or {}).get("riskScoreDelta"), 0.0)
+    base_risk_score = max(0.0, risk_score - history_risk_delta - club_risk_delta)
+    risk_expected_delta = round(base_risk_score * 0.05, 2)
+    history_expected = _history_expected_strokes(history_adjustment)
+    history_expected_delta = history_expected["expectedStrokesDelta"]
+    club_surface_expected_delta = round(_float((club_surface_risk or {}).get("expectedStrokesDelta"), 0.0), 2)
+    club_confidence = _club_confidence_expected_delta(dispersion)
+    club_confidence_delta = _float(club_confidence.get("expectedStrokesDelta"), 0.0)
+    expected_delta = round(
+        risk_expected_delta
+        + clearance_penalty
+        + dispersion_penalty
+        + history_expected_delta
+        + club_surface_expected_delta
+        + club_confidence_delta,
+        2,
+    )
     return {
+        "model": "calibrated_history_club_v2",
         "baselineStrokes": 1.0,
         "expectedStrokes": round(1.0 + expected_delta, 2),
         "expectedStrokesDelta": expected_delta,
         "components": {
-            "risk": round(max(0.0, risk_score) * 0.05, 2),
+            "risk": risk_expected_delta,
             "hazardClearance": round(clearance_penalty, 2),
             "dispersion": round(dispersion_penalty, 2),
             "history": history_expected_delta,
+            "clubSurfaceRisk": club_surface_expected_delta,
+            "clubConfidence": round(club_confidence_delta, 2),
         },
         "historyAdjustment": {
             "riskScoreDelta": round(history_risk_delta, 2),
             "expectedStrokesDelta": history_expected_delta,
-            "sourceRefs": _sanitize_ref_list((history_adjustment or {}).get("sourceRefs")),
+            "sourceRefs": history_expected["sourceRefs"],
+            "factors": history_expected["factors"],
         },
         "clubSurfaceRisk": {
-            "riskScoreDelta": round(_float((club_surface_risk or {}).get("riskScoreDelta"), 0.0), 2),
-            "expectedStrokesDelta": round(_float((club_surface_risk or {}).get("expectedStrokesDelta"), 0.0), 2),
+            "riskScoreDelta": round(club_risk_delta, 2),
+            "expectedStrokesDelta": club_surface_expected_delta,
             "sourceRefs": _sanitize_ref_list((club_surface_risk or {}).get("sourceRefs")),
         },
+        "clubConfidence": club_confidence,
     }
 
 
@@ -2344,7 +2600,13 @@ def _shot_option(
     target: str,
 ) -> dict[str, Any]:
     wind_adjustment = _wind_adjustment_m(context)
-    adjusted_carry_m = max(1.0, carry_m + _float(wind_adjustment.get("meters"), 0.0))
+    history_carry_adjustment = _issue_carry_adjustment_m(context, shot_type=shot_type, option_id=option_id)
+    adjusted_carry_m = max(
+        1.0,
+        carry_m
+        + _float(wind_adjustment.get("meters"), 0.0)
+        + _float(history_carry_adjustment.get("meters"), 0.0),
+    )
     history_adjustment = _history_risk_adjustment(context, option_id)
     route = {
         "id": f"{shot_type}_{option_id}",
@@ -2383,6 +2645,7 @@ def _shot_option(
         "riskScore": adjusted_risk_score,
         "baseRiskScore": risk_score,
         "weatherAdjustment": wind_adjustment,
+        "historyCarryAdjustment": history_carry_adjustment,
         "historyAdjustment": history_adjustment,
         "clubSurfaceRisk": club_surface_risk,
         "intent": intent,
@@ -2660,7 +2923,7 @@ def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list
         "selectedSequence": selected_sequence,
         "avoidZones": avoid_zones,
         "forbiddenZones": avoid_zones,
-        "acceptableMiss": _acceptable_miss(selected),
+        "acceptableMiss": _acceptable_miss(selected, analysis),
         "evidence": evidence,
         "confidence": _confidence(analysis, options, selected),
         "missingData": _missing_data(analysis, options, selected),
@@ -2695,7 +2958,7 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     sequence_evidence = _sequence_evidence(sequences, selected_sequence)
     if sequence_evidence:
         evidence.append(sequence_evidence)
-    acceptable_miss = _acceptable_miss(selected)
+    acceptable_miss = _acceptable_miss(selected, analysis)
     source_ref = _source_ref(analysis, "tee")
     decision_context = {
         "roundId": analysis.get("roundId"),
@@ -2735,7 +2998,7 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _acceptable_miss(selected: dict[str, Any] | None) -> dict[str, Any]:
+def _acceptable_miss(selected: dict[str, Any] | None, context: dict[str, Any] | None = None) -> dict[str, Any]:
     if not selected:
         return {
             "direction": "unknown",
@@ -2745,6 +3008,17 @@ def _acceptable_miss(selected: dict[str, Any] | None) -> dict[str, Any]:
         }
     zones = selected.get("avoidZones") or selected.get("forbiddenZones") or []
     risk_kinds = sorted({str(zone.get("kind")) for zone in zones if isinstance(zone, dict) and zone.get("kind")})
+    miss_bias = _history_miss_bias(context or {})
+    if miss_bias:
+        return {
+            "direction": miss_bias.get("direction"),
+            "selectedOptionId": selected.get("id"),
+            "avoidRiskKinds": risk_kinds,
+            "preferredMiss": miss_bias.get("preferredMiss", {}),
+            "avoidPatterns": miss_bias.get("avoidPatterns", []),
+            "sourceRefs": miss_bias.get("sourceRefs", []),
+            "rationale": miss_bias.get("rationale"),
+        }
     if risk_kinds:
         return {
             "direction": "away_from_known_risks",
