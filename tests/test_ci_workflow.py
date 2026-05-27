@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
+import yaml
+
 
 class CIWorkflowTests(unittest.TestCase):
     def test_ci_workflow_runs_backend_frontend_and_visual_smoke(self) -> None:
@@ -53,6 +55,37 @@ class CIWorkflowTests(unittest.TestCase):
         config = Path("web_v2/playwright.config.ts").read_text(encoding="utf-8")
 
         self.assertIn("timeout: 60_000", config)
+
+    def test_ci_workflow_runs_native_ios_and_watch_validation_on_macos(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        native = workflow["jobs"]["native-mobile"]
+
+        self.assertEqual("macos-15", native["runs-on"])
+        self.assertEqual("platform=iOS Simulator,name=iPhone 16,OS=latest", native["env"]["IOS_DESTINATION"])
+        self.assertEqual(
+            "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest",
+            native["env"]["WATCH_DESTINATION"],
+        )
+
+        steps = {step.get("name"): step for step in native["steps"]}
+        self.assertEqual("brew install xcodegen", steps["Install XcodeGen"]["run"])
+        self.assertEqual(
+            "xcodegen generate --spec mobile/ios/project.yml --project-root .",
+            steps["Generate native project"]["run"],
+        )
+        self.assertIn("xcrun simctl list devices available", steps["Show simulator inventory"]["run"])
+
+        ios_test = steps["Test iOS app target"]["run"]
+        self.assertIn("xcodebuild test", ios_test)
+        self.assertIn("-project mobile/ios/AICaddieNative.xcodeproj", ios_test)
+        self.assertIn("-scheme AICaddie", ios_test)
+        self.assertIn('-destination "$IOS_DESTINATION"', ios_test)
+
+        watch_test = steps["Test Watch app target"]["run"]
+        self.assertIn("xcodebuild test", watch_test)
+        self.assertIn("-project mobile/ios/AICaddieNative.xcodeproj", watch_test)
+        self.assertIn("-scheme AICaddieWatch", watch_test)
+        self.assertIn('-destination "$WATCH_DESTINATION"', watch_test)
 
 
 if __name__ == "__main__":
