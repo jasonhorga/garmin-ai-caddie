@@ -9,6 +9,7 @@ from jsonschema import Draft202012Validator
 
 from ai_caddie.annotations import add_annotation
 from ai_caddie.fixtures import fixture_history_data
+from ai_caddie.history import HistoryData
 from ai_caddie.mobile_live import build_live_round_package
 from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 
@@ -94,7 +95,10 @@ class MobileContractTests(unittest.TestCase):
                 "holeCount": 1,
                 "clubProfileCount": 1,
             },
-            "missingData": [],
+            "missingData": [
+                {"label": "geometry", "reason": "12/18 holes have ready geometry for offline caddie evidence"},
+                {"label": "weather", "reason": "weather snapshot is missing for the prepared round time"},
+            ],
             "playerProfile": {"playerId": "player-1", "displayName": "Test Player", "handedness": "right"},
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
             "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
@@ -156,7 +160,7 @@ class MobileContractTests(unittest.TestCase):
             "clubProfiles": [{"clubName": "8I", "sampleSize": 24, "median_m": 144.0, "p10_m": 132.0, "p90_m": 153.0}],
             "caddieDecisionEndpoint": "/api/v2/caddie/decision",
             "offlinePackageStatus": {
-                "state": "ready",
+                "state": "degraded",
                 "preparedAt": "2026-05-25T00:00:00Z",
                 "expiresAt": "2026-05-26T00:00:00Z",
                 "cachePolicy": {"staleAfterHours": 6, "expiresAfterHours": 24},
@@ -189,6 +193,9 @@ class MobileContractTests(unittest.TestCase):
 
         _assert_schema_accepts(self, schema, package)
         self.assertEqual(schema["properties"]["caddieDecisionEndpoint"]["const"], "/api/v2/caddie/decision")
+        self.assertEqual(package["offlinePackageStatus"]["state"], "degraded")
+        self.assertIn("geometry", {row["label"] for row in package["missingData"]})
+        self.assertIn("weather", {row["label"] for row in package["missingData"]})
 
     def test_live_round_package_exposes_source_coverage_and_degrades_missing_round(self) -> None:
         package = build_live_round_package("missing-round", data=fixture_history_data(), data_mode="fixture")
@@ -313,6 +320,33 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertLessEqual(len(package["recentHistory"]["rounds"]), 5)
 
+    def test_live_round_package_marks_recent_history_missing_without_same_course_scores(self) -> None:
+        holes = [{"number": index, "par": 4} for index in range(1, 19)]
+        data = HistoryData(
+            raw_rounds=[{"id": "live-unscored", "hasShots": False}],
+            rounds=[
+                {
+                    "id": "live-unscored",
+                    "ids": ["live-unscored"],
+                    "date": "2026-05-27",
+                    "course": "New Course",
+                    "courseKey": "new_course",
+                    "globalId": 12345,
+                    "holesCompleted": 18,
+                    "par": 72,
+                    "holes": holes,
+                }
+            ],
+            shots=[],
+        )
+
+        package = build_live_round_package("live-unscored", data=data, data_mode="fixture")
+
+        self.assertEqual(package["sourceCoverage"]["state"], "ready")
+        self.assertEqual(package["recentHistory"]["course"]["roundCount"], 1)
+        self.assertEqual(package["recentHistory"]["course"]["recentScores"], [])
+        self.assertIn("recent_history", {row["label"] for row in package["missingData"]})
+
     def test_live_round_package_recent_round_review_uses_score_corrections(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -435,6 +469,9 @@ class MobileContractTests(unittest.TestCase):
         _assert_schema_accepts(self, event_schema, event)
         _assert_json_schema_accepts(self, package_schema, package)
         _assert_json_schema_accepts(self, event_schema, event)
+        self.assertEqual(package["offlinePackageStatus"]["state"], "degraded")
+        self.assertIn("geometry", {row["label"] for row in package["missingData"]})
+        self.assertIn("weather", {row["label"] for row in package["missingData"]})
 
     def test_swift_models_define_codable_contract_types(self) -> None:
         package_swift = (IOS_DIR / "Models" / "LiveRoundPackage.swift").read_text(encoding="utf-8")

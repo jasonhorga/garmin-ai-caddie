@@ -554,7 +554,8 @@ def _package_readiness_missing_data(
             }
         )
     recent_course = recent_history.get("course") if isinstance(recent_history.get("course"), dict) else {}
-    if int(recent_course.get("roundCount") or 0) <= 0:
+    recent_scores = recent_course.get("recentScores") if isinstance(recent_course.get("recentScores"), list) else []
+    if not recent_scores:
         out.append(
             {
                 "label": "recent_history",

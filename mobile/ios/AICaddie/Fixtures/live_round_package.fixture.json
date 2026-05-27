@@ -12,7 +12,16 @@
     "holeCount": 1,
     "clubProfileCount": 1
   },
-  "missingData": [],
+  "missingData": [
+    {
+      "label": "geometry",
+      "reason": "12/18 holes have ready geometry for offline caddie evidence"
+    },
+    {
+      "label": "weather",
+      "reason": "weather snapshot is missing for the prepared round time"
+    }
+  ],
   "playerProfile": {
     "playerId": "player-1",
     "displayName": "Test Player",
@@ -159,7 +168,7 @@
   ],
   "caddieDecisionEndpoint": "/api/v2/caddie/decision",
   "offlinePackageStatus": {
-    "state": "ready",
+    "state": "degraded",
     "preparedAt": "2026-05-25T00:00:00Z",
     "expiresAt": "2026-05-26T00:00:00Z",
     "cachePolicy": {
