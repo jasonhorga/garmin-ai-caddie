@@ -1787,6 +1787,50 @@ button.round-detail-cell:hover {
   min-width: 0;
 }
 
+.round-ai-review {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 12px;
+}
+
+.round-ai-review .section-head {
+  padding: 0 0 8px;
+}
+
+.round-ai-review-body {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.round-ai-review-body p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.round-ai-review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.round-ai-review-meta span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #eef2ed;
+  color: var(--muted);
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 850;
+}
+
 .sync-quality-workspace,
 .settings-page {
   display: grid;

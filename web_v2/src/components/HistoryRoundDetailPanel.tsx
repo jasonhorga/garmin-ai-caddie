@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { AnnotationRecord, AnnotationTargetType, HistoryRoundDetailResponse } from '../types'
+import type { AnnotationRecord, AnnotationTargetType, HistoryRoundDetailResponse, ReviewReportResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
 
 export type HistoryRoundDetailPanelState =
@@ -10,9 +10,12 @@ export type HistoryRoundDetailPanelState =
 
 interface HistoryRoundDetailPanelProps {
   state: HistoryRoundDetailPanelState
+  reportState?: { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: ReviewReportResponse }
   onSelectRef?: (sourceRef: string) => void
   onRetryRound?: (roundRef: string) => void
   onCreateAnnotationForRound?: (target: { targetType: AnnotationTargetType; targetId: string }) => void
+  onLoadRoundReport?: (roundRef: string) => void
+  onGenerateRoundReport?: (roundRef: string) => void
 }
 
 function valueText(value: unknown): string {
@@ -224,11 +227,72 @@ function AnnotationRows({ title, rows }: { title: string; rows: AnnotationRecord
   )
 }
 
+function RoundAiReview({
+  roundRef,
+  reportState,
+  onLoadRoundReport,
+  onGenerateRoundReport,
+  onSelectRef,
+}: {
+  roundRef: string
+  reportState?: HistoryRoundDetailPanelProps['reportState']
+  onLoadRoundReport?: (roundRef: string) => void
+  onGenerateRoundReport?: (roundRef: string) => void
+  onSelectRef?: (sourceRef: string) => void
+}) {
+  if (!onLoadRoundReport && !onGenerateRoundReport && (!reportState || reportState.status === 'idle')) return null
+  const loadedReport =
+    reportState?.status === 'ready' &&
+    reportState.data.kind === 'round' &&
+    reportState.data.subjectId === roundRef
+      ? reportState.data
+      : null
+
+  return (
+    <section className="round-detail-section round-ai-review" aria-label="Round AI review">
+      <div className="section-head">
+        <div>
+          <h3>AI Review</h3>
+          <p>Fact-bound round narrative with source refs and missing-data limits.</p>
+        </div>
+        <div className="button-row">
+          {onLoadRoundReport ? (
+            <button type="button" onClick={() => onLoadRoundReport(roundRef)}>
+              Load AI Review
+            </button>
+          ) : null}
+          {onGenerateRoundReport ? (
+            <button type="button" onClick={() => onGenerateRoundReport(roundRef)}>
+              Generate AI Review
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {reportState?.status === 'loading' ? <p>Loading AI review</p> : null}
+      {reportState?.status === 'error' ? <p>{reportState.message}</p> : null}
+      {loadedReport ? (
+        <div className="round-ai-review-body">
+          <div className="round-ai-review-meta">
+            <span>{loadedReport.provider}</span>
+            <span>{loadedReport.model}</span>
+            <span>{loadedReport.confidence} confidence</span>
+          </div>
+          <p>{loadedReport.narrative}</p>
+          <SourceRefs refs={loadedReport.sourceRefs} onSelectRef={onSelectRef} />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 export function HistoryRoundDetailPanel({
   state,
+  reportState,
   onSelectRef,
   onRetryRound,
   onCreateAnnotationForRound,
+  onLoadRoundReport,
+  onGenerateRoundReport,
 }: HistoryRoundDetailPanelProps) {
   if (state.status === 'idle') return null
 
@@ -284,6 +348,15 @@ export function HistoryRoundDetailPanel({
 
       {data.found ? <RoundFacts data={data} /> : null}
       <ScorecardGrid data={data} onSelectRef={onSelectRef} />
+      {data.found ? (
+        <RoundAiReview
+          roundRef={data.roundRef}
+          reportState={reportState}
+          onLoadRoundReport={onLoadRoundReport}
+          onGenerateRoundReport={onGenerateRoundReport}
+          onSelectRef={onSelectRef}
+        />
+      ) : null}
       <PhaseSummary rows={data.phaseSummary} />
       <HoleDetails rows={data.holeDetails} onSelectRef={onSelectRef} />
       <RelatedSources data={data} onSelectRef={onSelectRef} />

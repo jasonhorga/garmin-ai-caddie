@@ -106,6 +106,8 @@ describe('HistoryRoundDetailPanel', () => {
   it('supports retry and round correction actions', async () => {
     const onRetryRound = vi.fn()
     const onCreateAnnotationForRound = vi.fn()
+    const onLoadRoundReport = vi.fn()
+    const onGenerateRoundReport = vi.fn()
 
     render(<HistoryRoundDetailPanel state={{ status: 'error', roundRef: '700001', message: '401' }} onRetryRound={onRetryRound} />)
     await userEvent.click(screen.getByRole('button', { name: 'Retry round review' }))
@@ -115,9 +117,33 @@ describe('HistoryRoundDetailPanel', () => {
       <HistoryRoundDetailPanel
         state={{ status: 'ready', data: payload }}
         onCreateAnnotationForRound={onCreateAnnotationForRound}
+        onLoadRoundReport={onLoadRoundReport}
+        onGenerateRoundReport={onGenerateRoundReport}
+        reportState={{
+          status: 'ready',
+          data: {
+            schema: 'ai-caddie-review-report-v1',
+            kind: 'round',
+            subjectId: '700001',
+            sourceRefs: ['700001', '700001:1'],
+            provider: 'StaticProvider',
+            model: 'static',
+            factsUsed: [],
+            missingData: [],
+            inferencesMade: [],
+            narrative: 'Round review from scorecard facts.',
+            confidence: 'medium',
+          },
+        }}
       />,
     )
     await userEvent.click(screen.getByRole('button', { name: 'Add correction for round 700001' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Generate AI Review' }))
     expect(onCreateAnnotationForRound).toHaveBeenCalledWith({ targetType: 'round', targetId: '700001' })
+    expect(onLoadRoundReport).toHaveBeenCalledWith('700001')
+    expect(onGenerateRoundReport).toHaveBeenCalledWith('700001')
+    expect(screen.getByText('Round review from scorecard facts.')).toBeInTheDocument()
+    expect(screen.getByText('medium confidence')).toBeInTheDocument()
   })
 })

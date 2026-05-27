@@ -396,6 +396,22 @@ function trendReportPayload() {
   }
 }
 
+function roundReportPayload(roundId = '1') {
+  return {
+    schema: 'ai-caddie-review-report-v1',
+    kind: 'round',
+    subjectId: roundId,
+    sourceRefs: [roundId, `${roundId}:1`],
+    provider: 'StaticProvider',
+    model: 'static',
+    factsUsed: [{ label: 'round_score', source: 'history.round', value: { score: 82 } }],
+    missingData: [],
+    inferencesMade: [],
+    narrative: 'Round review from scorecard facts.',
+    confidence: 'high',
+  }
+}
+
 function reportIndexPayload() {
   return {
     schema: 'ai-caddie-review-report-index-v1',
@@ -1049,6 +1065,8 @@ describe('App navigation', () => {
       json: async () => {
         if (path === '/api/v2/history/rounds') return roundsPayload()
         if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
+        if (path === '/api/v2/reports/round/1') return roundReportPayload('1')
+        if (path === '/api/v2/reports/round/1/generate') return roundReportPayload('1')
         if (path === '/api/v2/history/drilldown/1%3A1') return overviewHoleDrilldownPayload()
         if (path === '/api/v2/history/drilldown/1') return overviewRoundDrilldownPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1065,7 +1083,14 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
     expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(0)
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
-    await userEvent.click(screen.getByRole('button', { name: 'Open source 1:1' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
+
+    expect(await screen.findByText('Round review from scorecard facts.')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1')
+    await userEvent.click(screen.getByRole('button', { name: 'Generate AI Review' }))
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1/generate', { method: 'POST' })
+    await userEvent.click(screen.getAllByRole('button', { name: 'Open source 1:1' })[0])
 
     expect(await screen.findByText('Black Knight B H1')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1%3A1')

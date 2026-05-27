@@ -464,9 +464,12 @@ export default function App() {
       <div className="app-shell">
         <HistoryRoundDetailPanel
           state={roundDetailState}
+          reportState={reportState}
           onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
           onRetryRound={(roundRef) => void handleSelectRoundDetail(roundRef)}
           onCreateAnnotationForRound={handleCreateAnnotationForSource}
+          onLoadRoundReport={handleLoadRoundReport}
+          onGenerateRoundReport={handleGenerateRoundReport}
         />
         <HistoryDrilldownPanel
           state={drilldownState}
