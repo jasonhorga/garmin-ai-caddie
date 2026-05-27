@@ -286,6 +286,43 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("causal_claim", categories)
         self.assertEqual(report["factBinding"]["state"], "needs_review")
 
+    def test_report_audit_does_not_let_broad_facts_support_unrelated_advice(self) -> None:
+        facts = {
+            "schema": "ai-caddie-report-facts-v1",
+            "kind": "trend",
+            "subjectId": "recent_10",
+            "factsUsed": [
+                {
+                    "label": "top_issues",
+                    "source": "issues",
+                    "value": [{"issue": "three_putt", "phase": "Putting", "count": 4, "sourceRefs": ["900002:7"]}],
+                    "sourceRefs": ["900002:7"],
+                },
+                {
+                    "label": "decision_audit_trends",
+                    "source": "diagnosis.decisionAuditTrends",
+                    "value": {
+                        "totalAudits": 2,
+                        "recentCostDrivers": [
+                            {"classification": "execution", "estimatedStrokesLost": 1.8, "sourceRefs": ["900002:7"]}
+                        ],
+                    },
+                    "sourceRefs": ["900002:7"],
+                },
+            ],
+            "missingData": [],
+        }
+
+        report = generate_report(
+            facts,
+            StaticProvider("The main cause is poor strategy, so aim away from every flag."),
+        )
+
+        categories = {row["category"] for row in report["unsupportedClaims"]}
+        self.assertIn("strategy_advice", categories)
+        self.assertIn("causal_claim", categories)
+        self.assertEqual(report["factBinding"]["state"], "needs_review")
+
     def test_report_source_refs_include_inference_missing_data_refs(self) -> None:
         refs = report_source_refs(
             {

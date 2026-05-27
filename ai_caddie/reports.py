@@ -207,16 +207,6 @@ _PENALTY_VALUE_TOKENS = {"penalty", "penalties", "water", "ob", "hazard", "bunke
 _WEATHER_VALUE_TOKENS = {"weather", "wind", "rain", "temperature", "precipitation", "gust"}
 _CLUB_WORD_TOKENS = {"driver", "wood", "iron", "wedge", "putter", "hybrid", "club"}
 _PRACTICE_SUPPORT_TERMS = {"practice", "drill", "training", "lesson"}
-_STRATEGY_SUPPORT_TERMS = {
-    "strategy",
-    "decision",
-    "caddie",
-    "plan",
-    "route",
-    "target",
-    "option",
-    "avoid",
-}
 _STRATEGY_ACTION_TERMS = {
     "recommend",
     "aim",
@@ -234,7 +224,9 @@ _STRATEGY_ACTION_TERMS = {
     "take more",
     "target",
 }
-_CAUSAL_SUPPORT_TERMS = {"issue", "issues", "diagnosis", "audit", "cause", "strokeslost", "estimatedstrokeslost"}
+_STRATEGY_MODAL_TOKENS = {"should", "recommend", "recommended", "recommendation"}
+_CAUSAL_CUE_TOKENS = {"cause", "caused", "because", "due_to", "reason", "costing_strokes", "strokes_lost", "led_to", "leads_to"}
+_CAUSAL_CLASSIFICATION_TOKENS = {"strategy", "execution", "information_gap", "info_gap"}
 _MISSING_CALLOUT_TERMS = (
     "missing",
     "unavailable",
@@ -1149,8 +1141,12 @@ def _mentioned_support_tokens(sentence: str, category: str, rule: dict[str, tupl
         if re.search(r"\bpenalt(?:y|ies)\b", lowered):
             tokens.add("penalty")
         return tokens or {"penalty"}
-    if category in {"practice_advice", "strategy_advice", "causal_claim"}:
-        return {category}
+    if category == "practice_advice":
+        return _tokens_from_terms(lowered, _PRACTICE_SUPPORT_TERMS) or {"practice_advice"}
+    if category == "strategy_advice":
+        return _strategy_claim_tokens(lowered) or {"strategy_advice"}
+    if category == "causal_claim":
+        return _causal_claim_tokens(lowered) or {"causal_claim"}
     return set(rule["keywords"])
 
 
@@ -1179,6 +1175,33 @@ def _normalize_support_token(value: str) -> str:
     return token
 
 
+def _strategy_claim_tokens(text: str) -> set[str]:
+    tokens = _tokens_from_terms(text, _STRATEGY_ACTION_TERMS)
+    if _term_in_text("should", text):
+        tokens.add("should")
+    return tokens
+
+
+def _causal_claim_tokens(text: str) -> set[str]:
+    tokens = {token for token in _text_identity_tokens(text) if token in _CAUSAL_CLASSIFICATION_TOKENS}
+    tokens.update(re.findall(r"\b[a-z]+_[a-z0-9_]+\b", text))
+    if _term_in_text("three putt", text):
+        tokens.add("three_putt")
+    if _term_in_text("approach short", text):
+        tokens.add("approach_short")
+    if not tokens and any(_term_in_text(term.replace("_", " "), text) for term in _CAUSAL_CUE_TOKENS):
+        tokens.add("causal_claim")
+    return tokens
+
+
+def _text_identity_tokens(value: Any) -> set[str]:
+    text = str(value).lower()
+    words = [word for word in re.findall(r"[a-z0-9]+", text) if len(word) > 1]
+    tokens = set(words)
+    tokens.update(f"{left}_{right}" for left, right in zip(words, words[1:]))
+    return tokens
+
+
 def _club_tokens(value: Any) -> set[str]:
     text = str(value)
     tokens = {match.group(0).lower() for match in _CLUB_TOKEN_PATTERN.finditer(text)}
@@ -1204,6 +1227,19 @@ def _claim_supported_by_facts(category: str, mentioned: set[str], support: dict[
         if "water" in mentioned and ("water" in supported or "hazard" in supported):
             return True
         return mentioned.issubset(supported)
+    if category == "practice_advice":
+        exact_tokens = {token for token in mentioned if token != "practice_advice"}
+        return bool(exact_tokens) and exact_tokens.issubset(supported)
+    if category == "strategy_advice":
+        exact_tokens = {
+            token
+            for token in mentioned
+            if token not in _STRATEGY_MODAL_TOKENS and token != "strategy_advice"
+        }
+        return bool(exact_tokens) and exact_tokens.issubset(supported)
+    if category == "causal_claim":
+        exact_tokens = {token for token in mentioned if token not in _CAUSAL_CUE_TOKENS and token != "causal_claim"}
+        return bool(exact_tokens) and exact_tokens.issubset(supported)
     return bool(supported)
 
 
@@ -1227,13 +1263,6 @@ def _fact_support_index(facts_used: list[dict[str, Any]]) -> dict[str, set[str]]
                 support["weather"].add("weather")
             if any(_term_in_text(term, label_source) for term in _PENALTY_VALUE_TOKENS):
                 support["penalty"].add("penalty")
-            normalized_label_source = label_source.replace("_", "").replace("-", "")
-            if any(term in normalized_label_source for term in _PRACTICE_SUPPORT_TERMS):
-                support["practice_advice"].add("practice_advice")
-            if any(term in normalized_label_source for term in _STRATEGY_SUPPORT_TERMS):
-                support["strategy_advice"].add("strategy_advice")
-            if any(term in normalized_label_source for term in _CAUSAL_SUPPORT_TERMS):
-                support["causal_claim"].add("causal_claim")
         _collect_fact_support(fact_value, support)
     return support
 
@@ -1277,13 +1306,11 @@ def _add_keyed_support(key: str, value: Any, support: dict[str, set[str]]) -> No
     if normalized_key in _CLUB_FACT_KEYS:
         support["club"].update(_club_tokens(value))
     if any(term in normalized_key for term in _PRACTICE_SUPPORT_TERMS):
-        support["practice_advice"].add("practice_advice")
-    if any(term in normalized_key for term in _STRATEGY_SUPPORT_TERMS):
-        support["strategy_advice"].add("strategy_advice")
-    if any(term in normalized_key for term in _CAUSAL_SUPPORT_TERMS):
-        support["causal_claim"].add("causal_claim")
-    if _term_in_text("strategy", text) or _term_in_text("execution", text):
-        support["causal_claim"].add("causal_claim")
+        support["practice_advice"].update(_tokens_from_terms(text, _PRACTICE_SUPPORT_TERMS) or {"practice"})
+    if normalized_key in {"target", "targetnote", "strategy", "strategynote", "route", "option", "avoidzones", "forbiddenzones"}:
+        support["strategy_advice"].update(_strategy_claim_tokens(text))
+    if normalized_key in {"issue", "classification", "phase", "modelupdatesuggestion"}:
+        support["causal_claim"].update(_text_identity_tokens(value))
 
 
 def _weather_tokens_for_key(normalized_key: str) -> set[str]:
