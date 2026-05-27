@@ -194,6 +194,125 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(weather["capturedAt"], "2026-05-25T09:00:00Z")
         self.assertEqual(weather["windSpeedMps"], 6.0)
 
+    def test_mobile_round_package_prefetches_open_meteo_weather_for_course_location(self) -> None:
+        client = TestClient(app)
+        holes = [{"number": index, "par": 4} for index in range(1, 19)]
+        data = HistoryData(
+            raw_rounds=[{"id": "weather-round", "hasShots": False}],
+            rounds=[
+                {
+                    "id": "weather-round",
+                    "ids": ["weather-round"],
+                    "date": "2026-05-25",
+                    "course": "Weather Links",
+                    "courseKey": "weather_links",
+                    "globalId": 77777,
+                    "holesCompleted": 18,
+                    "strokes": 82,
+                    "par": 72,
+                    "lat": 22.279,
+                    "lon": 114.162,
+                    "holes": holes,
+                }
+            ],
+            shots=[],
+        )
+        captured_urls: list[str] = []
+
+        def fake_transport(url: str) -> dict[str, object]:
+            captured_urls.append(url)
+            return {
+                "hourly": {
+                    "time": ["2026-05-25T08:00", "2026-05-25T09:00"],
+                    "temperature_2m": [28.1, 29.2],
+                    "wind_speed_10m": [4.1, 6.2],
+                    "wind_direction_10m": [100, 125],
+                    "precipitation": [0.0, 0.7],
+                }
+            }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
+                patch("server_v2.mobile.OPEN_METEO_TRANSPORT", fake_transport, create=True),
+            ):
+                response = client.get(
+                    "/api/v2/mobile/rounds/weather-round/package",
+                    params={"captured_at": "2026-05-25T09:18:00Z"},
+                )
+                weather_log = root / "data" / "weather" / "weather_snapshots.jsonl"
+                self.assertTrue(weather_log.exists(), "expected package preparation to persist an Open-Meteo snapshot")
+                stored = weather_log.read_text(encoding="utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(captured_urls), 1)
+        self.assertIn("latitude=22.279", captured_urls[0])
+        self.assertIn("longitude=114.162", captured_urls[0])
+        self.assertEqual(payload["weatherSnapshot"]["state"], "ready")
+        self.assertEqual(payload["weatherSnapshot"]["source"], "open_meteo")
+        self.assertEqual(payload["weatherSnapshot"]["capturedAt"], "2026-05-25T09:00:00Z")
+        self.assertEqual(payload["weatherSnapshot"]["windSpeedMps"], 6.2)
+        self.assertNotIn("weather", {row["label"] for row in payload["missingData"]})
+        self.assertIn('"roundId": "weather-round"', stored)
+        self.assertIn('"source": "open_meteo"', stored)
+
+    def test_mobile_round_package_prefers_cached_weather_without_provider_call(self) -> None:
+        client = TestClient(app)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_weather_snapshot(
+                build_weather_snapshot(
+                    round_id="900001",
+                    captured_at="2026-05-25T09:00:00Z",
+                    latitude=22.279,
+                    longitude=114.162,
+                    source="manual",
+                    observed={"windSpeedMps": 7.7},
+                ),
+                root=root,
+            )
+
+            def fail_transport(_url: str) -> dict[str, object]:
+                raise AssertionError("cached weather should suppress Open-Meteo prefetch")
+
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch("server_v2.mobile.OPEN_METEO_TRANSPORT", fail_transport, create=True),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                response = client.get(
+                    "/api/v2/mobile/rounds/900001/package",
+                    params={"captured_at": "2026-05-25T09:18:00Z"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        weather = response.json()["weatherSnapshot"]
+        self.assertEqual(weather["source"], "manual")
+        self.assertEqual(weather["windSpeedMps"], 7.7)
+
+    def test_mobile_round_package_without_course_location_does_not_call_weather_provider(self) -> None:
+        client = TestClient(app)
+
+        def fail_transport(_url: str) -> dict[str, object]:
+            raise AssertionError("missing coordinates should suppress Open-Meteo prefetch")
+
+        with (
+            patch("server_v2.mobile.OPEN_METEO_TRANSPORT", fail_transport, create=True),
+            patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+        ):
+            response = client.get(
+                "/api/v2/mobile/rounds/900001/package",
+                params={"captured_at": "2026-05-25T09:18:00Z"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["weatherSnapshot"]["state"], "missing")
+        self.assertIn("weather", {row["label"] for row in payload["missingData"]})
+
     def test_mobile_round_package_tee_seed_can_drive_caddie_decision(self) -> None:
         client = TestClient(app)
 

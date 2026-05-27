@@ -12,7 +12,13 @@ from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import _effective_score_data, build_history_stats
-from ai_caddie.weather_context import build_weather_snapshot, weather_snapshot_for_time
+from ai_caddie.weather_context import (
+    WeatherTransport,
+    build_weather_snapshot,
+    fetch_open_meteo_weather_snapshot,
+    store_weather_snapshot,
+    weather_snapshot_for_time,
+)
 
 
 EVENT_LOG = Path("data") / "mobile_events" / "events.jsonl"
@@ -143,12 +149,41 @@ def _weather_snapshot_for_package(
     round_id: str,
     *,
     captured_at: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
     root: Path | str | None = None,
+    transport: WeatherTransport | None = None,
 ) -> dict[str, Any]:
-    return weather_snapshot_for_time(round_id, captured_at=captured_at, root=root) or build_weather_snapshot(
+    cached = weather_snapshot_for_time(round_id, captured_at=captured_at, root=root)
+    if cached:
+        return cached
+    if latitude is not None and longitude is not None:
+        snapshot = fetch_open_meteo_weather_snapshot(
+            round_id=round_id,
+            captured_at=captured_at,
+            latitude=latitude,
+            longitude=longitude,
+            transport=transport,
+        )
+        if snapshot.get("state") == "ready":
+            return store_weather_snapshot(snapshot, root=root)
+        return snapshot
+    return build_weather_snapshot(
         round_id=round_id,
         captured_at=captured_at,
+        latitude=latitude,
+        longitude=longitude,
     )
+
+
+def _course_location(row: dict[str, Any]) -> tuple[float | None, float | None]:
+    lat = _safe_float(row.get("lat") if row.get("lat") is not None else row.get("latitude"))
+    lon = _safe_float(row.get("lon") if row.get("lon") is not None else row.get("longitude"))
+    location = row.get("location")
+    if (lat is None or lon is None) and isinstance(location, dict):
+        lat = lat if lat is not None else _safe_float(location.get("latitude") if location.get("latitude") is not None else location.get("lat"))
+        lon = lon if lon is not None else _safe_float(location.get("longitude") if location.get("longitude") is not None else location.get("lon"))
+    return lat, lon
 
 
 def _hole_stats_row(stats: dict[str, Any], *, course_key: str, hole: int) -> dict[str, Any]:
@@ -576,6 +611,7 @@ def build_live_round_package(
     preparation_mode: str = "round",
     requested_course_global_id: int | None = None,
     tee_box: str | None = None,
+    weather_transport: WeatherTransport | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
@@ -646,7 +682,15 @@ def build_live_round_package(
         "readyHoles": ready_holes,
         "totalHoles": len(holes),
     }
-    weather_snapshot = _weather_snapshot_for_package(round_id, captured_at=captured_at, root=root)
+    course_latitude, course_longitude = _course_location(round_row)
+    weather_snapshot = _weather_snapshot_for_package(
+        round_id,
+        captured_at=captured_at,
+        latitude=course_latitude,
+        longitude=course_longitude,
+        root=root,
+        transport=weather_transport,
+    )
     recent_history = _recent_history(scored_source, stats, round_row)
     package_missing_data = _package_readiness_missing_data(
         package_missing_data,
@@ -758,6 +802,7 @@ def build_live_round_package_for_course(
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
     captured_at: str | None = None,
+    weather_transport: WeatherTransport | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     selected_round_id = None
@@ -785,6 +830,7 @@ def build_live_round_package_for_course(
         root=root,
         annotations_root=annotations_root,
         captured_at=captured_at,
+        weather_transport=weather_transport,
         template_round_id=selected_round_id or (live_round_id if template_round is not None else None),
         preparation_mode="course",
         requested_course_global_id=int(global_id),

@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from ai_caddie.mobile_live import append_event_batch, build_live_round_package, build_live_round_package_for_course
 from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
+from ai_caddie.weather_context import WeatherTransport
 
 from .data_source import load_history_data_for_mode
 from .models import (
@@ -21,6 +22,7 @@ from .models import (
 MOBILE_ROOT = Path(".")
 ANNOTATION_ROOT = Path(".")
 DECISION_AUDIT_ROOT = Path(".")
+OPEN_METEO_TRANSPORT: WeatherTransport | None = None
 
 
 def build_mobile_round_package_response(round_id: str, *, captured_at: str | None = None) -> LiveRoundPackageResponse:
@@ -33,6 +35,7 @@ def build_mobile_round_package_response(round_id: str, *, captured_at: str | Non
             root=MOBILE_ROOT,
             annotations_root=ANNOTATION_ROOT,
             captured_at=captured_at,
+            weather_transport=OPEN_METEO_TRANSPORT,
         )
     )
 
@@ -55,6 +58,7 @@ def build_mobile_course_package_response(
             root=MOBILE_ROOT,
             annotations_root=ANNOTATION_ROOT,
             captured_at=captured_at,
+            weather_transport=OPEN_METEO_TRANSPORT,
         )
     )
 
