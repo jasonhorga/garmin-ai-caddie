@@ -212,7 +212,33 @@ def _annotation_suggestions(
         local_value = row.get("localValue")
         if not event_id:
             continue
-        if kind == "club":
+        if kind == "score":
+            if local_value is None:
+                continue
+            suggestions.append(
+                _suggestion(
+                    f"{event_id}:score-correction",
+                    target_type="hole",
+                    target_id=f"{row.get('roundId') or ''}:{hole}",
+                    kind="score_correction",
+                    payload={"from": None, "to": local_value, "sourceEventId": event_id},
+                    reason="Local score input fills a hole missing from synced Garmin facts.",
+                )
+            )
+        elif kind == "putt":
+            if local_value is None:
+                continue
+            suggestions.append(
+                _suggestion(
+                    f"{event_id}:putt-correction",
+                    target_type="hole",
+                    target_id=f"{row.get('roundId') or ''}:{hole}",
+                    kind="putt_correction",
+                    payload={"from": None, "to": local_value, "sourceEventId": event_id},
+                    reason="Local putt input fills a hole missing from synced Garmin facts.",
+                )
+            )
+        elif kind == "club":
             candidates = garmin_shots_by_hole.get(hole) or []
             if candidates:
                 garmin = candidates.pop(0)

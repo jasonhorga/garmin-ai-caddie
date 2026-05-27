@@ -137,6 +137,52 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(suggestions["legacy-note:hole-note"]["payload"]["text"], "blocked by trees")
         self.assertEqual(suggestions["legacy-note:hole-note"]["payload"]["sourceEventId"], "legacy-note")
 
+    def test_reconciliation_preserves_local_score_and_putts_when_garmin_hole_is_missing(self) -> None:
+        data = HistoryData(
+            raw_rounds=[{"id": "live-local", "hasShots": False}],
+            rounds=[{"id": "live-local", "ids": ["live-local"], "holes": []}],
+            shots=[],
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "live-local",
+                [
+                    {
+                        "eventId": "offline-score",
+                        "roundId": "live-local",
+                        "hole": 4,
+                        "kind": "score",
+                        "payload": {"strokes": 5},
+                    },
+                    {
+                        "eventId": "offline-putt",
+                        "roundId": "live-local",
+                        "hole": 4,
+                        "kind": "putt",
+                        "payload": {"putts": 2},
+                    },
+                ],
+                idempotency_key="offline-score-putt",
+                root=root,
+            )
+
+            result = reconcile_mobile_round_events("live-local", data, root=root)
+            applied = apply_mobile_reconciliation_suggestions("live-local", data, root=root, annotations_root=root)
+
+        suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
+        self.assertEqual(result["summary"]["localOnlyCount"], 2)
+        self.assertEqual(result["summary"]["annotationSuggestionCount"], 2)
+        self.assertEqual(suggestions["offline-score:score-correction"]["targetId"], "live-local:4")
+        self.assertEqual(suggestions["offline-score:score-correction"]["payload"]["from"], None)
+        self.assertEqual(suggestions["offline-score:score-correction"]["payload"]["to"], 5)
+        self.assertEqual(suggestions["offline-putt:putt-correction"]["targetId"], "live-local:4")
+        self.assertEqual(suggestions["offline-putt:putt-correction"]["payload"]["to"], 2)
+        self.assertEqual(applied["appliedCount"], 2)
+        annotations = {row["kind"]: row for row in applied["annotations"]}
+        self.assertEqual(annotations["score_correction"]["targetId"], "live-local:4")
+        self.assertEqual(annotations["putt_correction"]["targetId"], "live-local:4")
+
     def test_reconciliation_matches_scorecard_id_club_name_shots(self) -> None:
         data = HistoryData(
             raw_rounds=[{"id": "700001", "hasShots": True}],
