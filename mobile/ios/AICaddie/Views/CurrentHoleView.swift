@@ -18,6 +18,7 @@ public struct CurrentHoleView: View {
     @State private var penaltyCount: Int = 0
     @State private var selectedClub: String
     @State private var selectedShotType: String
+    @State private var selectedStrategyMode: String = "stock"
     @State private var distanceToPinText: String = ""
     @State private var selectedLie: String = "fairway"
     @State private var currentCoordinate: CLLocationCoordinate2D?
@@ -90,6 +91,11 @@ public struct CurrentHoleView: View {
                         Text(shotType.capitalized).tag(shotType)
                     }
                 }
+                Picker("Strategy", selection: $selectedStrategyMode) {
+                    ForEach(strategyModeOptions, id: \.self) { mode in
+                        Text(strategyModeLabel(mode)).tag(mode)
+                    }
+                }
                 TextField("Distance m", text: $distanceToPinText)
                     .keyboardType(.decimalPad)
                 Picker("Lie", selection: $selectedLie) {
@@ -157,6 +163,21 @@ public struct CurrentHoleView: View {
         ["fairway", "rough", "bunker", "green", "tee", "recovery"]
     }
 
+    private var strategyModeOptions: [String] {
+        ["protect_score", "stock", "attack"]
+    }
+
+    private func strategyModeLabel(_ mode: String) -> String {
+        switch mode {
+        case "protect_score":
+            return "Protect"
+        case "attack":
+            return "Attack"
+        default:
+            return "Stock"
+        }
+    }
+
     private func makeCaddieDecisionRequest() -> CaddieDecisionRequest? {
         guard let caddieContextSeed else {
             return nil
@@ -169,6 +190,7 @@ public struct CurrentHoleView: View {
                 lie: selectedLie,
                 coordinate: currentCoordinate,
                 horizontalAccuracyM: currentHorizontalAccuracyM,
+                strategyMode: selectedStrategyMode,
                 visionFindings: visionFindings
             )
         )
