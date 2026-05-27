@@ -33,6 +33,10 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let caddieConfidence: String
 }
 
+public enum WatchEventBridgeError: Error {
+    case invalidNumericInput
+}
+
 public final class WatchEventBridge: NSObject {
     private let offlineStore: OfflineStore
     private let encoder = JSONEncoder()
@@ -47,14 +51,14 @@ public final class WatchEventBridge: NSObject {
         }
     }
 
-    public func mapWatchInputEvent(_ event: WatchInputEvent) -> LiveRoundEvent {
+    public func mapWatchInputEvent(_ event: WatchInputEvent) throws -> LiveRoundEvent {
         switch event.kind {
         case .score:
-            return liveEvent(event, kind: .score, payload: ["strokes": numericPayload(event.value)])
+            return liveEvent(event, kind: .score, payload: ["strokes": try numericPayload(event.value, minimum: 1)])
         case .putt:
-            return liveEvent(event, kind: .putt, payload: ["putts": numericPayload(event.value)])
+            return liveEvent(event, kind: .putt, payload: ["putts": try numericPayload(event.value, minimum: 0)])
         case .penalty:
-            return liveEvent(event, kind: .penalty, payload: ["penalties": numericPayload(event.value)])
+            return liveEvent(event, kind: .penalty, payload: ["penalties": try numericPayload(event.value, minimum: 0)])
         case .club:
             return liveEvent(event, kind: .club, payload: ["clubName": .string(event.value)])
         }
@@ -119,8 +123,11 @@ public final class WatchEventBridge: NSObject {
         )
     }
 
-    private func numericPayload(_ value: String) -> JSONValue {
-        .number(Double(value) ?? 0)
+    private func numericPayload(_ value: String, minimum: Int) throws -> JSONValue {
+        guard let parsed = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)), parsed >= minimum else {
+            throw WatchEventBridgeError.invalidNumericInput
+        }
+        return .number(Double(parsed))
     }
 
     private func selectedOption(from decision: CaddieDecisionResponse?) -> [String: JSONValue]? {
@@ -205,9 +212,11 @@ extension WatchEventBridge: WCSessionDelegate {
         }
 
         do {
-            let liveEvent = mapWatchInputEvent(event)
+            let liveEvent = try mapWatchInputEvent(event)
             try offlineStore.appendEvent(liveEvent)
             replyHandler(["accepted": true, "eventId": event.eventId])
+        } catch WatchEventBridgeError.invalidNumericInput {
+            replyHandler(["accepted": false, "eventId": event.eventId, "reason": "invalid_numeric_input"])
         } catch {
             replyHandler(["accepted": false, "eventId": event.eventId])
         }

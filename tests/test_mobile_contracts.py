@@ -5,6 +5,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from jsonschema import Draft202012Validator
+
 from ai_caddie.annotations import add_annotation
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.mobile_live import build_live_round_package
@@ -63,6 +65,16 @@ def _assert_schema_accepts(testcase: unittest.TestCase, schema: dict[str, object
                         testcase.assertIsInstance(item, int)
                     elif item_type == "number":
                         testcase.assertIsInstance(item, (int, float))
+
+
+def _assert_json_schema_accepts(testcase: unittest.TestCase, schema: dict[str, object], payload: dict[str, object]) -> None:
+    errors = sorted(Draft202012Validator(schema).iter_errors(payload), key=lambda error: list(error.path))
+    testcase.assertEqual([], [error.message for error in errors])
+
+
+def _assert_json_schema_rejects(testcase: unittest.TestCase, schema: dict[str, object], payload: dict[str, object]) -> None:
+    errors = sorted(Draft202012Validator(schema).iter_errors(payload), key=lambda error: list(error.path))
+    testcase.assertTrue(errors, "expected JSON Schema validation to reject payload")
 
 
 class MobileContractTests(unittest.TestCase):
@@ -386,6 +398,27 @@ class MobileContractTests(unittest.TestCase):
                 "payload": canonical_payloads[kind],
             }
             _assert_schema_accepts(self, schema, event)
+            _assert_json_schema_accepts(self, schema, event)
+
+    def test_live_round_event_json_schema_enforces_kind_payload_conditionals(self) -> None:
+        schema = _load_schema("live_round_event.schema.json")
+        base_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "event-1",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+        }
+
+        _assert_json_schema_accepts(self, schema, {**base_event, "kind": "score", "payload": {"strokes": 4}})
+        _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"putts": 2}})
+        _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"strokes": 0}})
+        _assert_json_schema_rejects(self, schema, {**base_event, "kind": "putt", "payload": {"putts": -1}})
+        _assert_json_schema_rejects(
+            self,
+            schema,
+            {**base_event, "kind": "club", "payload": {"clubName": "8I", "unexpected": "drop"}},
+        )
 
     def test_ios_fixture_json_matches_shared_contracts(self) -> None:
         package_schema = _load_schema("live_round_package.schema.json")
@@ -395,6 +428,8 @@ class MobileContractTests(unittest.TestCase):
 
         _assert_schema_accepts(self, package_schema, package)
         _assert_schema_accepts(self, event_schema, event)
+        _assert_json_schema_accepts(self, package_schema, package)
+        _assert_json_schema_accepts(self, event_schema, event)
 
     def test_swift_models_define_codable_contract_types(self) -> None:
         package_swift = (IOS_DIR / "Models" / "LiveRoundPackage.swift").read_text(encoding="utf-8")
@@ -913,6 +948,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("final class WatchEventBridge", bridge)
         self.assertIn("WCSessionDelegate", bridge)
         self.assertIn("func mapWatchInputEvent", bridge)
+        self.assertIn("throws -> LiveRoundEvent", bridge)
         self.assertIn("func makeWatchRoundStatePayload", bridge)
         self.assertIn("func sendStateToWatch", bridge)
         self.assertIn('sendMessage(["state": object]', bridge)
@@ -932,12 +968,16 @@ class MobileContractTests(unittest.TestCase):
             "kind: .putt",
             "kind: .penalty",
             "kind: .club",
-            '"strokes": numericPayload(event.value)',
-            '"putts": numericPayload(event.value)',
-            '"penalties": numericPayload(event.value)',
+            '"strokes": try numericPayload(event.value, minimum: 1)',
+            '"putts": try numericPayload(event.value, minimum: 0)',
+            '"penalties": try numericPayload(event.value, minimum: 0)',
             '"clubName": .string(event.value)',
         ]:
             self.assertIn(mapping, bridge)
+        self.assertIn("guard let parsed = Int", bridge)
+        self.assertIn("throw WatchEventBridgeError.invalidNumericInput", bridge)
+        self.assertIn('replyHandler(["accepted": false, "eventId": event.eventId, "reason": "invalid_numeric_input"])', bridge)
+        self.assertNotIn("Double(value) ?? 0", bridge)
 
     def test_ios_live_views_define_expected_controls(self) -> None:
         round_home = (IOS_DIR / "Views" / "RoundHomeView.swift").read_text(encoding="utf-8")

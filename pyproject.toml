@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.136.3",
     "garminconnect>=0.3.3",
     "garth>=0.8.0",
+    "jsonschema>=4.26.0",
     "keyring>=25.7.0",
     "matplotlib>=3.10.9",
     "opencv-python-headless>=4.13.0.92",
