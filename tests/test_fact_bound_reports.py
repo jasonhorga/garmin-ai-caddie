@@ -822,24 +822,81 @@ class FactBoundReportTests(unittest.TestCase):
                             "actualShotRefs": ["900001:7:1"],
                         }
                     ],
+                    "criteriaBreakdown": [
+                        {
+                            "label": "avoid_zones",
+                            "status": "fail",
+                            "count": 1,
+                            "pct": 50.0,
+                            "sourceRefs": ["900001:7"],
+                            "decisionIds": ["900001:7:tee"],
+                            "actualShotRefs": ["900001:7:1"],
+                            "evidenceRefs": ["900001:7:geom"],
+                            "confidence": "medium",
+                        },
+                        {
+                            "label": "carry_window",
+                            "status": "review",
+                            "count": 1,
+                            "pct": 50.0,
+                            "sourceRefs": ["900002:7"],
+                            "decisionIds": ["900002:7:tee"],
+                            "actualShotRefs": ["900002:7:1"],
+                            "evidenceRefs": ["900002:7:geom"],
+                            "confidence": "medium",
+                        },
+                    ],
+                    "optionOutcomes": [
+                        {
+                            "selectedOptionId": "safe",
+                            "actualOptionId": "attack",
+                            "classification": "strategy",
+                            "count": 1,
+                            "pct": 50.0,
+                            "sourceRefs": ["900002:7"],
+                            "decisionIds": ["900002:7:tee"],
+                            "actualShotRefs": ["900002:7:1"],
+                            "evidenceRefs": ["900002:7:geom"],
+                            "confidence": "low",
+                        }
+                    ],
                 }
             },
         }
 
         round_facts = build_round_report_facts(stats, "900001")
         trend_facts = build_trend_report_facts(stats, "year:2026")
+        report = generate_report(trend_facts, StaticProvider("Trend review from audit facts."))
 
         round_by_label = {row["label"]: row for row in round_facts["factsUsed"]}
         self.assertEqual(round_by_label["round_diagnosis_issue_trends"]["value"][0]["issue"], "water")
         self.assertEqual(round_by_label["round_diagnosis_issue_trends"]["sourceRefs"], ["900001:7"])
-        self.assertEqual(round_by_label["round_decision_audits"]["sourceRefs"], ["900001:7", "900001:7:1"])
+        self.assertEqual(round_by_label["round_decision_audits"]["sourceRefs"], ["900001:7", "900001:7:1", "900001:7:geom"])
         self.assertEqual(round_by_label["round_decision_audits"]["value"][0]["classification"], "execution")
         self.assertEqual(round_by_label["round_decision_audits"]["value"][0]["decisionIds"], ["900001:7:tee"])
+        self.assertTrue(
+            any(row.get("kind") == "criterion" and row.get("label") == "avoid_zones" for row in round_by_label["round_decision_audits"]["value"])
+        )
 
         trend_by_label = {row["label"]: row for row in trend_facts["factsUsed"]}
         self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["totalAudits"], 2)
-        self.assertEqual(trend_by_label["decision_audit_trends"]["sourceRefs"], ["900001", "900002", "900001:7", "900002:7", "900001:7:1", "900002:7:1"])
+        self.assertEqual(
+            trend_by_label["decision_audit_trends"]["sourceRefs"],
+            [
+                "900001",
+                "900002",
+                "900001:7",
+                "900002:7",
+                "900001:7:1",
+                "900002:7:1",
+                "900001:7:geom",
+                "900002:7:geom",
+            ],
+        )
         self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["recentCostDrivers"][0]["classification"], "execution")
+        self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["criteriaBreakdown"][0]["label"], "avoid_zones")
+        self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["optionOutcomes"][0]["selectedOptionId"], "safe")
+        self.assertTrue(any("avoid_zones fail" in row["claim"] for row in report["inferencesMade"]))
 
     def test_trend_report_facts_include_diagnosis_course_and_club_risk_models(self) -> None:
         stats = {

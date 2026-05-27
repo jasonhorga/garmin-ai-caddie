@@ -579,9 +579,14 @@ def _decision_audit_trends(history_stats: dict[str, Any]) -> dict[str, Any]:
     return trends if isinstance(trends, dict) else {}
 
 
-def _compact_decision_audit_row(row: dict[str, Any]) -> dict[str, Any]:
+def _compact_decision_audit_row(row: dict[str, Any], row_kind: str | None = None) -> dict[str, Any]:
     compact_keys = [
+        "kind",
         "classification",
+        "label",
+        "status",
+        "selectedOptionId",
+        "actualOptionId",
         "phase",
         "phases",
         "count",
@@ -601,7 +606,10 @@ def _compact_decision_audit_row(row: dict[str, Any]) -> dict[str, Any]:
         "confidence",
         "coverage",
     ]
-    return {key: row[key] for key in compact_keys if key in row}
+    compact = {key: row[key] for key in compact_keys if key in row}
+    if row_kind:
+        compact["kind"] = row_kind
+    return compact
 
 
 def _decision_audit_trends_fact(history_stats: dict[str, Any]) -> dict[str, Any] | None:
@@ -609,13 +617,23 @@ def _decision_audit_trends_fact(history_stats: dict[str, Any]) -> dict[str, Any]
     if not trends:
         return None
     classification_counts = [
-        _compact_decision_audit_row(row)
+        _compact_decision_audit_row(row, "classification")
         for row in trends.get("classificationCounts", [])
         if isinstance(row, dict)
     ]
     recent_drivers = [
-        _compact_decision_audit_row(row)
+        _compact_decision_audit_row(row, "cost_driver")
         for row in trends.get("recentCostDrivers", [])
+        if isinstance(row, dict)
+    ]
+    criteria_breakdown = [
+        _compact_decision_audit_row(row, "criterion")
+        for row in trends.get("criteriaBreakdown", [])
+        if isinstance(row, dict)
+    ]
+    option_outcomes = [
+        _compact_decision_audit_row(row, "option_outcome")
+        for row in trends.get("optionOutcomes", [])
         if isinstance(row, dict)
     ]
     return {
@@ -623,13 +641,17 @@ def _decision_audit_trends_fact(history_stats: dict[str, Any]) -> dict[str, Any]
         "auditedRoundRefs": _as_string_list(trends.get("auditedRoundRefs")),
         "classificationCounts": classification_counts[:5],
         "recentCostDrivers": recent_drivers[:5],
+        "criteriaBreakdown": criteria_breakdown[:8],
+        "optionOutcomes": option_outcomes[:8],
     }
 
 
 def _decision_audit_fact_source_refs(value: dict[str, Any]) -> list[str]:
     classification_counts = value.get("classificationCounts") if isinstance(value.get("classificationCounts"), list) else []
     recent_drivers = value.get("recentCostDrivers") if isinstance(value.get("recentCostDrivers"), list) else []
-    rows = [row for row in [*classification_counts, *recent_drivers] if isinstance(row, dict)]
+    criteria_breakdown = value.get("criteriaBreakdown") if isinstance(value.get("criteriaBreakdown"), list) else []
+    option_outcomes = value.get("optionOutcomes") if isinstance(value.get("optionOutcomes"), list) else []
+    rows = [row for row in [*classification_counts, *recent_drivers, *criteria_breakdown, *option_outcomes] if isinstance(row, dict)]
     return _unique_strings(
         [
             *_as_string_list(value.get("auditedRoundRefs")),
@@ -661,14 +683,22 @@ def _row_refs_match_round(row: dict[str, Any], round_id: str) -> list[str]:
 def _round_decision_audit_facts(history_stats: dict[str, Any], round_id: str) -> list[dict[str, Any]]:
     trends = _decision_audit_trends(history_stats)
     rows: list[dict[str, Any]] = []
-    for row in trends.get("classificationCounts", []) if isinstance(trends.get("classificationCounts"), list) else []:
-        if not isinstance(row, dict):
-            continue
-        refs = _row_refs_match_round(row, round_id)
-        if refs:
-            compact = _compact_decision_audit_row(row)
-            compact["refs"] = refs
-            rows.append(compact)
+    audit_groups = [
+        ("classificationCounts", "classification"),
+        ("recentCostDrivers", "cost_driver"),
+        ("criteriaBreakdown", "criterion"),
+        ("optionOutcomes", "option_outcome"),
+    ]
+    for key, row_kind in audit_groups:
+        group_rows = trends.get(key, []) if isinstance(trends.get(key), list) else []
+        for row in group_rows:
+            if not isinstance(row, dict):
+                continue
+            refs = _row_refs_match_round(row, round_id)
+            if refs:
+                compact = _compact_decision_audit_row(row, row_kind)
+                compact["refs"] = refs
+                rows.append(compact)
     return rows[:8]
 
 
@@ -1869,6 +1899,37 @@ def _first_audit_classification(value: Any) -> str | None:
     return None
 
 
+def _first_audit_signal(value: Any) -> str | None:
+    rows: list[Any] = []
+    if isinstance(value, dict):
+        for key in ("criteriaBreakdown", "optionOutcomes", "recentCostDrivers", "classificationCounts"):
+            group = value.get(key)
+            rows.extend(group if isinstance(group, list) else [])
+    elif isinstance(value, list):
+        rows.extend(value)
+
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        status = str(item.get("status") or "").strip()
+        if label and status and status.lower() in {"fail", "review", "missing"}:
+            return f"criterion {label} {status}"
+
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        selected = str(item.get("selectedOptionId") or "").strip()
+        actual = str(item.get("actualOptionId") or "").strip()
+        classification = str(item.get("classification") or "").strip()
+        if selected and actual and selected != actual:
+            suffix = f" classified as {classification}" if classification else ""
+            return f"option {selected}->{actual}{suffix}"
+
+    classification = _first_audit_classification(value)
+    return f"{classification} as a decision issue" if classification else None
+
+
 def _first_risky_club(value: Any) -> tuple[str, float | None] | None:
     rows = value if isinstance(value, list) else []
     for item in rows:
@@ -2103,12 +2164,12 @@ def build_report_inferences(
                 _append_inference(rows, _inference(f"Course profile for {course} highlights {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label in {"decision_audit_trends", "round_decision_audits"}:
-            classification = _first_audit_classification(value)
-            if classification:
+            signal = _first_audit_signal(value)
+            if signal:
                 _append_inference(
                     rows,
                     _inference(
-                        f"Caddie audit loop highlights {classification} as a decision issue.",
+                        f"Caddie audit loop highlights {signal}.",
                         fact,
                         default_confidence=confidence,
                         missing_data=missing_data,
