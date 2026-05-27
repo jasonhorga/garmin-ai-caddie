@@ -10,6 +10,7 @@ public struct RoundHomeView: View {
     public let offlineStore: OfflineStore?
     public let sessionStore: GarminSessionStore?
     public let watchBridge: WatchEventBridge?
+    public let liveRoundState: LiveRoundStateSnapshot?
     public let isPreparingRound: Bool
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
@@ -25,6 +26,7 @@ public struct RoundHomeView: View {
         offlineStore: OfflineStore? = nil,
         sessionStore: GarminSessionStore? = GarminSessionStore(),
         watchBridge: WatchEventBridge? = nil,
+        liveRoundState: LiveRoundStateSnapshot? = nil,
         isPreparingRound: Bool = false,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
@@ -39,6 +41,7 @@ public struct RoundHomeView: View {
         self.offlineStore = offlineStore
         self.sessionStore = sessionStore
         self.watchBridge = watchBridge
+        self.liveRoundState = liveRoundState
         self.isPreparingRound = isPreparingRound
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
@@ -97,7 +100,7 @@ public struct RoundHomeView: View {
                 Section("Holes") {
                     ForEach(package.holes) { hole in
                         NavigationLink {
-                            CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, onEvent: onEvent)
+                            CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)
                         } label: {
                             HStack {
                                 Text("\(hole.number)")

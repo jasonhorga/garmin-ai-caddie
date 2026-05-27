@@ -20,6 +20,7 @@ public struct AICaddieApp: App {
                         offlineStore: model.offlineStore,
                         sessionStore: model.garminSessionStore,
                         watchBridge: model.watchBridge,
+                        liveRoundState: model.liveRoundState,
                         isPreparingRound: model.isPreparingRound,
                         onEvent: model.handleEvent,
                         onPrepareRound: { roundId in
@@ -73,6 +74,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var apiBaseURL: URL?
     @Published public private(set) var adminToken: String?
     @Published public private(set) var isPreparingRound = false
+    @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     public let watchBridge: WatchEventBridge?
     public let offlineStore: OfflineStore
     public let garminSessionStore: GarminSessionStore?
@@ -243,6 +245,9 @@ public final class LiveRoundAppModel: ObservableObject {
     public func handleEvent(_ event: LiveRoundEvent) {
         do {
             try offlineStore.appendEvent(event)
+            if let package, package.roundId == event.roundId {
+                liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)
+            }
             pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
             syncStatus = "Offline event saved"
         } catch {
@@ -371,6 +376,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func activatePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
         package = nextPackage
+        liveRoundState = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
         syncStatus = status
     }
@@ -382,6 +388,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private func acceptWatchEvent(_ event: LiveRoundEvent) throws {
         try offlineStore.appendEvent(event)
         do {
+            if let package, package.roundId == event.roundId {
+                liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)
+            }
             pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
             syncStatus = "Watch event saved"
         } catch {

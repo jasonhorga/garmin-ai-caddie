@@ -11,6 +11,7 @@ public struct CurrentHoleView: View {
     private let mediaUploadClient: MediaUploadClient?
     private let offlineStore: OfflineStore?
     private let watchBridge: WatchEventBridge?
+    private let liveRoundState: LiveRoundStateSnapshot?
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var score: Int
@@ -28,6 +29,7 @@ public struct CurrentHoleView: View {
     @State private var isLoadingCaddieDecision = false
     @State private var caddieErrorMessage: String?
     @State private var visionFindings: [[String: JSONValue]] = []
+    @State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?
 
     public init(
         package: LiveRoundPackage,
@@ -37,6 +39,7 @@ public struct CurrentHoleView: View {
         caddieClient: CaddieDecisionClient? = nil,
         offlineStore: OfflineStore? = nil,
         watchBridge: WatchEventBridge? = nil,
+        liveRoundState: LiveRoundStateSnapshot? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
         self.package = package
@@ -46,10 +49,24 @@ public struct CurrentHoleView: View {
         self.mediaUploadClient = caddieBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
         self.offlineStore = offlineStore
         self.watchBridge = watchBridge
-        self._score = State(initialValue: hole.par)
-        self._selectedClub = State(initialValue: package.clubProfiles.first?.clubName ?? "")
+        self.liveRoundState = liveRoundState
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
-        self._selectedShotType = State(initialValue: seed?.shotTypes.first ?? "approach")
+        let restoredHoleState = liveRoundState?.holeState(for: hole.number)
+        self._score = State(initialValue: restoredHoleState?.score ?? hole.par)
+        self._puttCount = State(initialValue: restoredHoleState?.putts ?? 2)
+        self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)
+        self._selectedClub = State(initialValue: restoredHoleState?.selectedClub ?? package.clubProfiles.first?.clubName ?? "")
+        self._selectedShotType = State(initialValue: restoredHoleState?.selectedShotType ?? seed?.shotTypes.first ?? "approach")
+        self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
+        self._distanceToPinText = State(initialValue: restoredHoleState?.distanceToPinM.map(Self.distanceText) ?? "")
+        self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
+        self._currentHorizontalAccuracyM = State(initialValue: restoredHoleState?.horizontalAccuracyM)
+        self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)
+        if let latitude = restoredHoleState?.latitude, let longitude = restoredHoleState?.longitude {
+            self._currentCoordinate = State(initialValue: CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
+        } else {
+            self._currentCoordinate = State(initialValue: nil)
+        }
     }
 
     public var body: some View {
@@ -142,11 +159,17 @@ public struct CurrentHoleView: View {
             locationProvider.startUpdatingLocation()
         }
         .onReceive(locationProvider.$latestFix) { latestFix in
-            currentCoordinate = latestFix?.coordinate
-            currentHorizontalAccuracyM = latestFix?.horizontalAccuracyM
+            guard let latestFix else {
+                return
+            }
+            currentCoordinate = latestFix.coordinate
+            currentHorizontalAccuracyM = latestFix.horizontalAccuracyM
         }
         .task(id: hole.number) {
             await loadCaddieDecision()
+        }
+        .onChange(of: liveRoundState) { _, newState in
+            applyRestoredStateIfNeeded(newState)
         }
     }
 
@@ -251,6 +274,35 @@ public struct CurrentHoleView: View {
         }
     }
 
+    private func applyRestoredStateIfNeeded(_ snapshot: LiveRoundStateSnapshot?) {
+        guard let restoredHoleState = snapshot?.holeState(for: hole.number) else {
+            return
+        }
+        guard lastAppliedRestoredHoleState?.hasSameRestorableFields(as: restoredHoleState) != true else {
+            return
+        }
+        applyRestoredState(restoredHoleState)
+    }
+
+    private func applyRestoredState(_ restoredHoleState: LiveHoleStateSnapshot) {
+        score = restoredHoleState.score
+        puttCount = restoredHoleState.putts
+        penaltyCount = restoredHoleState.penaltyCount
+        selectedClub = restoredHoleState.selectedClub
+        selectedShotType = restoredHoleState.selectedShotType
+        selectedStrategyMode = restoredHoleState.selectedStrategyMode
+        selectedLie = restoredHoleState.lie
+        distanceToPinText = restoredHoleState.distanceToPinM.map(Self.distanceText) ?? ""
+        if let latitude = restoredHoleState.latitude, let longitude = restoredHoleState.longitude {
+            currentCoordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        } else {
+            currentCoordinate = nil
+        }
+        currentHorizontalAccuracyM = restoredHoleState.horizontalAccuracyM
+        lastAppliedRestoredHoleState = restoredHoleState
+        sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+    }
+
     private func submitEvents() {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         if let currentCoordinate {
@@ -281,9 +333,7 @@ public struct CurrentHoleView: View {
             "strategyMode": .string(selectedStrategyMode),
             "lie": .string(selectedLie),
         ]
-        if let distanceToPin = Double(distanceToPinText) {
-            payload["distanceToPinM"] = .number(distanceToPin)
-        }
+        payload["distanceToPinM"] = distanceToPinPayload()
         if let selectedOfflineOptionId = selectedOfflineOption?.optionId ?? caddieContextSeed?.selectedOfflineOptionId {
             payload["offlineOptionId"] = .string(selectedOfflineOptionId)
         }
@@ -298,6 +348,13 @@ public struct CurrentHoleView: View {
             payload["actualShot"] = .object(actualShotPayload())
         }
         return payload
+    }
+
+    private func distanceToPinPayload() -> JSONValue {
+        guard let distanceToPin = Double(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return .null
+        }
+        return .number(distanceToPin)
     }
 
     private func actualShotPayload() -> [String: JSONValue] {
@@ -332,5 +389,12 @@ public struct CurrentHoleView: View {
                 payload: payload
             )
         )
+    }
+
+    private static func distanceText(_ value: Double) -> String {
+        if value.rounded(.towardZero) == value {
+            return String(Int(value))
+        }
+        return String(value)
     }
 }

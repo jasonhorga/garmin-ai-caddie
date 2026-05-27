@@ -707,6 +707,70 @@ class MobileContractTests(unittest.TestCase):
             app_swift,
         )
 
+    def test_ios_restores_live_round_state_from_offline_event_log(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        offline_tests = _read_required_source(self, Path("mobile") / "ios" / "AICaddieTests" / "OfflineStoreTests.swift")
+
+        self.assertIn("struct LiveRoundStateSnapshot: Codable, Equatable", offline_store)
+        self.assertIn("struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable", offline_store)
+        self.assertIn("func hasSameRestorableFields(as other: LiveHoleStateSnapshot) -> Bool", offline_store)
+        self.assertNotIn("updatedAt == other.updatedAt", offline_store)
+        self.assertIn("func restoreLiveRoundState(roundId: String, package: LiveRoundPackage) throws -> LiveRoundStateSnapshot", offline_store)
+        self.assertIn("let events = try loadEvents()", offline_store)
+        self.assertIn("event.roundId == roundId", offline_store)
+        for event_kind in ["case .score:", "case .putt:", "case .penalty:", "case .club:", "case .location:"]:
+            self.assertIn(event_kind, offline_store)
+        for payload_key in [
+            'numberPayload("strokes", in: event.payload)',
+            'numberPayload("putts", in: event.payload)',
+            'numberPayload("penalties", in: event.payload)',
+            'stringPayload("clubName", in: event.payload)',
+            'stringPayload("shotType", in: event.payload)',
+            'stringPayload("strategyMode", in: event.payload)',
+            'stringPayload("lie", in: event.payload)',
+            'numberPayload("latitude", in: event.payload)',
+            'numberPayload("longitude", in: event.payload)',
+        ]:
+            self.assertIn(payload_key, offline_store)
+        self.assertIn('optionalNumberPayload("distanceToPinM", in: event.payload)', offline_store)
+        self.assertIn('optionalNumberPayload("horizontalAccuracyM", in: event.payload)', offline_store)
+        self.assertIn("case .null:", offline_store)
+        self.assertIn("state.distanceToPinM = nil", offline_store)
+        self.assertIn("state.horizontalAccuracyM = nil", offline_store)
+
+        self.assertIn("@Published public private(set) var liveRoundState: LiveRoundStateSnapshot?", app_swift)
+        self.assertIn("liveRoundState = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)", app_swift)
+        self.assertIn("liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)", app_swift)
+        self.assertIn("liveRoundState: model.liveRoundState", app_swift)
+
+        self.assertIn("public let liveRoundState: LiveRoundStateSnapshot?", round_home)
+        self.assertIn("liveRoundState: LiveRoundStateSnapshot? = nil", round_home)
+        self.assertIn("liveRoundState: liveRoundState", round_home)
+
+        self.assertIn("liveRoundState: LiveRoundStateSnapshot? = nil", current_hole)
+        self.assertIn("let restoredHoleState = liveRoundState?.holeState(for: hole.number)", current_hole)
+        self.assertIn("self._score = State(initialValue: restoredHoleState?.score ?? hole.par)", current_hole)
+        self.assertIn("self._puttCount = State(initialValue: restoredHoleState?.putts ?? 2)", current_hole)
+        self.assertIn("self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)", current_hole)
+        self.assertIn("self._selectedClub = State(initialValue: restoredHoleState?.selectedClub ?? package.clubProfiles.first?.clubName ?? \"\")", current_hole)
+        self.assertIn("@State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?", current_hole)
+        self.assertIn("self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)", current_hole)
+        self.assertIn("applyRestoredStateIfNeeded(newState)", current_hole)
+        self.assertIn(".onChange(of: liveRoundState)", current_hole)
+        self.assertIn("lastAppliedRestoredHoleState?.hasSameRestorableFields(as: restoredHoleState) != true", current_hole)
+        self.assertIn("lastAppliedRestoredHoleState = restoredHoleState", current_hole)
+        self.assertIn("guard let latestFix else", current_hole)
+        self.assertIn("distanceToPinText = restoredHoleState.distanceToPinM.map(Self.distanceText) ?? \"\"", current_hole)
+        self.assertIn('payload["distanceToPinM"] = distanceToPinPayload()', current_hole)
+        self.assertIn("private func distanceToPinPayload() -> JSONValue", current_hole)
+
+        self.assertIn("testRestoreLiveRoundStateReplaysScoringClubAndLocationEvents", offline_tests)
+        self.assertIn("testRestoreLiveRoundStateClearsNullableLiveFieldsInLogOrder", offline_tests)
+        self.assertIn("testLiveHoleStateRestorableComparisonIgnoresUpdatedAt", offline_tests)
+
     def test_ios_api_base_url_feeds_live_caddie_and_media_upload(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
@@ -720,7 +784,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let apiBaseURL: URL?", round_home)
         self.assertIn("apiBaseURL: URL? = nil", round_home)
         self.assertIn("caddieBaseURL: apiBaseURL", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
 
         self.assertIn("caddieBaseURL: URL? = nil", current_hole)
         self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
@@ -779,7 +843,7 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("public let watchBridge: WatchEventBridge?", round_home)
         self.assertIn("watchBridge: WatchEventBridge? = nil", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
 
         self.assertIn("watchBridge: WatchEventBridge? = nil", current_hole)
         self.assertIn("sendWatchState(decision:", current_hole)
@@ -1020,7 +1084,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"shotType": .string(selectedShotType)', current_hole)
         self.assertIn('"strategyMode": .string(selectedStrategyMode)', current_hole)
         self.assertIn('"lie": .string(selectedLie)', current_hole)
-        self.assertIn('payload["distanceToPinM"] = .number(distanceToPin)', current_hole)
+        self.assertIn('payload["distanceToPinM"] = distanceToPinPayload()', current_hole)
         self.assertIn('payload["offlineOptionId"] = .string(selectedOfflineOptionId)', current_hole)
         self.assertIn('payload["decisionId"] = .string(decisionId)', current_hole)
         self.assertIn('payload["decision"] = .object(decision.auditPayload)', current_hole)
@@ -1151,7 +1215,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundHomeView: View", round_home)
         self.assertIn("public let onEvent", round_home)
         self.assertIn("syncStatus", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
         self.assertIn("RecentRoundReviewView(package: package)", round_home)
         self.assertIn('Label("Recent Review"', round_home)
         self.assertIn("struct RecentRoundReviewView: View", recent_review)

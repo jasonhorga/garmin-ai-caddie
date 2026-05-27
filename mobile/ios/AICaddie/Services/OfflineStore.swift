@@ -13,6 +13,61 @@ public struct PendingMediaAttachment: Codable, Equatable, Identifiable {
     public let capturedAt: String
 }
 
+public struct LiveRoundStateSnapshot: Codable, Equatable {
+    public let roundId: String
+    public let activeHole: Int
+    public let holes: [LiveHoleStateSnapshot]
+
+    public func holeState(for hole: Int) -> LiveHoleStateSnapshot? {
+        holes.first { state in
+            state.hole == hole
+        }
+    }
+}
+
+public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
+    public var id: Int { hole }
+
+    public let roundId: String
+    public let hole: Int
+    public let par: Int
+    public var score: Int
+    public var putts: Int
+    public var penaltyCount: Int
+    public var selectedClub: String
+    public var selectedShotType: String
+    public var selectedStrategyMode: String
+    public var distanceToPinM: Double?
+    public var lie: String
+    public var latitude: Double?
+    public var longitude: Double?
+    public var horizontalAccuracyM: Double?
+    public var updatedAt: String?
+
+    public func hasSameRestorableFields(as other: LiveHoleStateSnapshot) -> Bool {
+        roundId == other.roundId
+            && hole == other.hole
+            && par == other.par
+            && score == other.score
+            && putts == other.putts
+            && penaltyCount == other.penaltyCount
+            && selectedClub == other.selectedClub
+            && selectedShotType == other.selectedShotType
+            && selectedStrategyMode == other.selectedStrategyMode
+            && distanceToPinM == other.distanceToPinM
+            && lie == other.lie
+            && latitude == other.latitude
+            && longitude == other.longitude
+            && horizontalAccuracyM == other.horizontalAccuracyM
+    }
+}
+
+private enum NullableNumberPayload {
+    case missing
+    case null
+    case number(Double)
+}
+
 public final class OfflineStore {
     private let directoryURL: URL
     private let logURL: URL
@@ -122,6 +177,100 @@ public final class OfflineStore {
             payload: ["status": .string("synced")]
         )
         try appendEvent(event)
+    }
+
+    public func restoreLiveRoundState(roundId: String, package: LiveRoundPackage) throws -> LiveRoundStateSnapshot {
+        let defaultClubName = package.clubProfiles.first?.clubName ?? ""
+        var activeHole = package.holes.first?.number ?? 1
+        var holeStates = Dictionary(
+            uniqueKeysWithValues: package.holes.map { hole in
+                (
+                    hole.number,
+                    defaultLiveHoleState(
+                        roundId: roundId,
+                        hole: hole.number,
+                        par: hole.par,
+                        selectedClub: defaultClubName,
+                        selectedShotType: defaultShotType(package: package, hole: hole.number)
+                    )
+                )
+            }
+        )
+
+        let events = try loadEvents()
+        for event in events where event.roundId == roundId && event.kind != .syncMarker && event.hole > 0 {
+            var state = holeStates[event.hole] ?? defaultLiveHoleState(
+                roundId: roundId,
+                hole: event.hole,
+                par: 0,
+                selectedClub: defaultClubName,
+                selectedShotType: defaultShotType(package: package, hole: event.hole)
+            )
+            activeHole = event.hole
+
+            switch event.kind {
+            case .score:
+                if let strokes = numberPayload("strokes", in: event.payload) {
+                    state.score = Int(strokes)
+                }
+            case .putt:
+                if let putts = numberPayload("putts", in: event.payload) {
+                    state.putts = Int(putts)
+                }
+            case .penalty:
+                if let penalties = numberPayload("penalties", in: event.payload) {
+                    state.penaltyCount = Int(penalties)
+                }
+            case .club:
+                if let clubName = stringPayload("clubName", in: event.payload) {
+                    state.selectedClub = clubName
+                }
+                if let shotType = stringPayload("shotType", in: event.payload) {
+                    state.selectedShotType = shotType
+                }
+                if let strategyMode = stringPayload("strategyMode", in: event.payload) {
+                    state.selectedStrategyMode = strategyMode
+                }
+                if let lie = stringPayload("lie", in: event.payload) {
+                    state.lie = lie
+                }
+                switch optionalNumberPayload("distanceToPinM", in: event.payload) {
+                case .number(let distanceToPinM):
+                    state.distanceToPinM = distanceToPinM
+                case .null:
+                    state.distanceToPinM = nil
+                case .missing:
+                    break
+                }
+            case .location:
+                if let latitude = numberPayload("latitude", in: event.payload) {
+                    state.latitude = latitude
+                }
+                if let longitude = numberPayload("longitude", in: event.payload) {
+                    state.longitude = longitude
+                }
+                switch optionalNumberPayload("horizontalAccuracyM", in: event.payload) {
+                case .number(let horizontalAccuracyM):
+                    state.horizontalAccuracyM = horizontalAccuracyM
+                case .null:
+                    state.horizontalAccuracyM = nil
+                case .missing:
+                    break
+                }
+            case .note, .photo, .video, .syncMarker:
+                break
+            }
+            state.updatedAt = event.timestamp
+            holeStates[event.hole] = state
+        }
+
+        return LiveRoundStateSnapshot(
+            roundId: roundId,
+            activeHole: activeHole,
+            holes: holeStates.values.sorted { lhs, rhs in
+                lhs.hole < rhs.hole
+            }
+        )
     }
 
     public func savePendingMedia(
@@ -256,6 +405,66 @@ public final class OfflineStore {
             data.append(Data([0x0A]))
         }
         try data.write(to: logURL, options: [.atomic])
+    }
+
+    private func defaultLiveHoleState(
+        roundId: String,
+        hole: Int,
+        par: Int,
+        selectedClub: String,
+        selectedShotType: String
+    ) -> LiveHoleStateSnapshot {
+        LiveHoleStateSnapshot(
+            roundId: roundId,
+            hole: hole,
+            par: par,
+            score: par,
+            putts: 2,
+            penaltyCount: 0,
+            selectedClub: selectedClub,
+            selectedShotType: selectedShotType,
+            selectedStrategyMode: "stock",
+            distanceToPinM: nil,
+            lie: "fairway",
+            latitude: nil,
+            longitude: nil,
+            horizontalAccuracyM: nil,
+            updatedAt: nil
+        )
+    }
+
+    private func defaultShotType(package: LiveRoundPackage, hole: Int) -> String {
+        package.caddieContextSeeds.first { seed in
+            seed.hole == hole
+        }?.shotTypes.first ?? "approach"
+    }
+
+    private func numberPayload(_ key: String, in payload: [String: JSONValue]) -> Double? {
+        guard case .number(let value) = payload[key] else {
+            return nil
+        }
+        return value
+    }
+
+    private func stringPayload(_ key: String, in payload: [String: JSONValue]) -> String? {
+        guard case .string(let value) = payload[key] else {
+            return nil
+        }
+        return value
+    }
+
+    private func optionalNumberPayload(_ key: String, in payload: [String: JSONValue]) -> NullableNumberPayload {
+        guard let value = payload[key] else {
+            return .missing
+        }
+        switch value {
+        case .number(let raw):
+            return .number(raw)
+        case .null:
+            return .null
+        default:
+            return .missing
+        }
     }
 
     private func safePathComponent(_ value: String) -> String {
