@@ -97,6 +97,8 @@ public struct RoundHomeView: View {
                     }
                 }
 
+                PackageReadinessSection(package: package)
+
                 Section("Holes") {
                     ForEach(package.holes) { hole in
                         NavigationLink {
@@ -129,6 +131,81 @@ public struct RoundHomeView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+}
+
+private struct PackageReadinessSection: View {
+    let package: LiveRoundPackage
+
+    var body: some View {
+        Section("Offline Package") {
+            HStack(alignment: .firstTextBaseline) {
+                Label(package.offlinePackageStatus.state.capitalized, systemImage: packageStatusIcon(package.offlinePackageStatus.state))
+                    .foregroundStyle(readinessColor(package.offlinePackageStatus.state))
+                Spacer()
+                Text("Expires \(package.offlinePackageStatus.expiresAt)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(package.readinessChecks) { check in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(readinessLabel(check.label))
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text(check.state.capitalized)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(readinessColor(check.state))
+                    }
+                    HStack(spacing: 10) {
+                        ProgressView(value: Double(check.ready), total: Double(max(check.total, 1)))
+                            .tint(readinessColor(check.state))
+                        Text("\(check.ready)/\(check.total)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(check.reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+            }
+
+            if !package.missingData.isEmpty {
+                Label("\(package.missingData.count) missing data items", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(AICaddieDesignTokens.bogey)
+            }
+        }
+    }
+
+    private func readinessLabel(_ label: String) -> String {
+        label.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    private func readinessColor(_ state: String) -> Color {
+        switch state.lowercased() {
+        case "ready":
+            return AICaddieDesignTokens.par
+        case "degraded", "partial", "stale":
+            return AICaddieDesignTokens.bogey
+        case "missing", "expired":
+            return AICaddieDesignTokens.doubleBogey
+        default:
+            return AICaddieDesignTokens.neutral
+        }
+    }
+
+    private func packageStatusIcon(_ state: String) -> String {
+        switch state.lowercased() {
+        case "ready":
+            return "checkmark.seal"
+        case "expired":
+            return "clock.badge.exclamationmark"
+        default:
+            return "exclamationmark.triangle"
         }
     }
 }
