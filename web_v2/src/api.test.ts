@@ -38,6 +38,7 @@ import {
 describe('fetchHistoryOverview', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     vi.restoreAllMocks()
   })
 
@@ -79,6 +80,34 @@ describe('fetchHistoryOverview', () => {
     expect(payload.schema).toBe('ai-caddie-history-overview-v2')
     expect(payload.metrics.totalRounds).toBe(0)
     expect(fetch).toHaveBeenCalledWith('/api/v2/history/overview')
+  })
+
+  it('uses the configured staging API base URL when Vercel hosts the web app separately', async () => {
+    vi.stubEnv('VITE_AI_CADDIE_API_BASE_URL', 'https://ai-caddie-api.onrender.com/')
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-overview-v2',
+        metrics: {
+          totalRounds: 0,
+          eighteenHoleRounds: 0,
+          nineHoleRounds: 0,
+          courseCount: 0,
+          shotCount: 0,
+          average18: null,
+          recent10Average: null,
+          bestScore: null,
+        },
+        recentRounds: [],
+        distribution: { total: 0, average: null, best: null, worst: null, families: [], histogram: [] },
+        dataQuality: [],
+        emptyState: null,
+      }),
+    })))
+
+    await fetchHistoryOverview()
+
+    expect(fetch).toHaveBeenCalledWith('https://ai-caddie-api.onrender.com/api/v2/history/overview')
   })
 
   it('loads product settings from the settings endpoint', async () => {

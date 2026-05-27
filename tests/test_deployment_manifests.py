@@ -38,7 +38,16 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertEqual(payload["installCommand"], "npm ci")
         self.assertEqual(payload["framework"], "vite")
         self.assertEqual(payload["env"]["NODE_VERSION"], "24")
+        self.assertIn("VITE_AI_CADDIE_API_BASE_URL", payload["env"])
         self.assertEqual(payload["rewrites"], [{"source": "/(.*)", "destination": "/index.html"}])
+
+    def test_private_trial_docs_wire_staging_web_to_staging_api(self) -> None:
+        text = Path("docs/deployment/private-trial.md").read_text(encoding="utf-8")
+
+        self.assertIn("VITE_AI_CADDIE_API_BASE_URL", text)
+        self.assertIn("AI_CADDIE_CORS_ORIGINS", text)
+        self.assertIn("Render API URL", text)
+        self.assertIn("Vercel Web URL", text)
 
 
 if __name__ == "__main__":

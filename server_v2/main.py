@@ -99,12 +99,24 @@ from .sync_status import load_sync_status_response
 
 app = FastAPI(title="AI Caddie v2", version="0.1.0")
 
+
+def cors_allowed_origins() -> list[str]:
+    defaults = ["http://127.0.0.1:5173", "http://localhost:5173"]
+    configured = [
+        origin.strip().rstrip("/")
+        for origin in os.environ.get("AI_CADDIE_CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    origins: list[str] = []
+    for origin in [*defaults, *configured]:
+        if origin not in origins:
+            origins.append(origin)
+    return origins
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-    ],
+    allow_origins=cors_allowed_origins(),
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],

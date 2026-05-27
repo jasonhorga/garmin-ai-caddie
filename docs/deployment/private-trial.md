@@ -16,6 +16,16 @@ Required API environment for private staging:
 - `AI_CADDIE_SECURITY_PROFILE=private`
 - `AI_CADDIE_ADMIN_TOKEN=<random private token>`
 - `AI_CADDIE_DATA_MODE=local_or_fixture`
+- `AI_CADDIE_CORS_ORIGINS=<Vercel Web URL>`
+
+Required Web environment for private staging:
+
+- `VITE_AI_CADDIE_API_BASE_URL=<Render API URL>`
+
+The Vercel Web URL must be allowed by the Render API through
+`AI_CADDIE_CORS_ORIGINS`; the Web build must point at the Render API URL through
+`VITE_AI_CADDIE_API_BASE_URL`. Without those paired settings, the static Web app
+will either request its own Vercel origin or be blocked by browser CORS.
 
 ## NAS Or Private Server
 

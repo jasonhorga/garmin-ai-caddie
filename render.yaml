@@ -15,3 +15,5 @@ services:
         value: local_or_fixture
       - key: AI_CADDIE_ADMIN_TOKEN
         sync: false
+      - key: AI_CADDIE_CORS_ORIGINS
+        sync: false

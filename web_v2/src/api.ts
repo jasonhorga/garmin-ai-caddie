@@ -41,13 +41,20 @@ import type {
 } from './types'
 
 async function getJson<T>(path: string, adminToken?: string): Promise<T> {
+  const url = apiUrl(path)
   const headers = adminTokenHeader(adminToken)
   const init = Object.keys(headers).length ? { headers } : undefined
-  const response = init ? await fetch(path, init) : await fetch(path)
+  const response = init ? await fetch(url, init) : await fetch(url)
   if (!response.ok) {
-    throw new Error(`GET ${path} failed: ${response.status} ${response.statusText}`)
+    throw new Error(`GET ${url} failed: ${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<T>
+}
+
+function apiUrl(path: string): string {
+  const baseUrl = String(import.meta.env.VITE_AI_CADDIE_API_BASE_URL ?? '').trim().replace(/\/+$/, '')
+  if (!baseUrl) return path
+  return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`
 }
 
 function adminTokenHeader(adminToken?: string): Record<string, string> {
@@ -56,24 +63,26 @@ function adminTokenHeader(adminToken?: string): Record<string, string> {
 }
 
 async function postJson<T>(path: string, body: unknown, adminToken?: string): Promise<T> {
-  const response = await fetch(path, {
+  const url = apiUrl(path)
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...adminTokenHeader(adminToken) },
     body: JSON.stringify(body),
   })
   if (!response.ok) {
-    throw new Error(`POST ${path} failed: ${response.status} ${response.statusText}`)
+    throw new Error(`POST ${url} failed: ${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<T>
 }
 
 async function postEmpty<T>(path: string, adminToken?: string): Promise<T> {
+  const url = apiUrl(path)
   const headers = adminTokenHeader(adminToken)
   const init: RequestInit = { method: 'POST' }
   if (Object.keys(headers).length) init.headers = headers
-  const response = await fetch(path, init)
+  const response = await fetch(url, init)
   if (!response.ok) {
-    throw new Error(`POST ${path} failed: ${response.status} ${response.statusText}`)
+    throw new Error(`POST ${url} failed: ${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<T>
 }

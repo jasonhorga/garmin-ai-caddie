@@ -5,7 +5,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "env": {
-    "NODE_VERSION": "24"
+    "NODE_VERSION": "24",
+    "VITE_AI_CADDIE_API_BASE_URL": "@ai_caddie_api_base_url"
   },
   "rewrites": [
     {
