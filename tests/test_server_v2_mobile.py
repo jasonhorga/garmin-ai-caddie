@@ -53,6 +53,47 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["cachedCaddieRules"]["decisionContract"], "ai-caddie-decision-v2")
         self.assertTrue(payload["cachedCaddieRules"]["offlineCapable"])
 
+    def test_mobile_round_package_carries_player_profile_into_offline_decision_context(self) -> None:
+        client = TestClient(app)
+
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            package_response = client.get("/api/v2/mobile/rounds/900001/package")
+
+        self.assertEqual(package_response.status_code, 200)
+        payload = package_response.json()
+        profile = payload["playerProfile"]
+        self.assertEqual(profile["playerId"], "local-player")
+        self.assertEqual(profile["schema"], "ai-caddie-player-profile-v1")
+        self.assertGreater(len(profile["weaknesses"]), 0)
+        self.assertGreater(len(profile["caddieBiases"]), 0)
+        self.assertIn("topWeakness", profile)
+        self.assertLessEqual(len(profile["sourceRefs"]), 30)
+
+        seed = next(row for row in payload["caddieContextSeeds"] if row["hole"] == 1)
+        self.assertEqual(seed["context"]["playerProfile"]["schema"], "ai-caddie-player-profile-v1")
+        self.assertEqual(seed["context"]["playerProfile"]["weaknesses"], profile["weaknesses"])
+
+        decision_context = dict(seed["context"])
+        decision_context["distanceToPin_m"] = 142.0
+        decision_context["lie"] = "fairway"
+        decision_response = client.post(
+            "/api/v2/caddie/decision",
+            json={"shotType": "approach", "context": decision_context},
+        )
+
+        self.assertEqual(decision_response.status_code, 200)
+        decision = decision_response.json()
+        profile_factors = [
+            factor
+            for option in decision["options"]
+            for factor in option.get("historyAdjustment", {}).get("factors", [])
+            if factor.get("label") == "player_profile"
+        ]
+        self.assertTrue(profile_factors)
+        self.assertTrue(
+            any("bias_against_approach_other" in factor.get("value", {}).get("signals", []) for factor in profile_factors)
+        )
+
     def test_mobile_round_package_degrades_explicitly_when_round_is_missing(self) -> None:
         client = TestClient(app)
 

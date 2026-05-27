@@ -27,6 +27,8 @@ OFFLINE_EXPIRES_AFTER_HOURS = 24
 LIVE_SHOT_TYPES = ["tee", "approach", "recovery"]
 MANUAL_NOTE_KINDS = {"strategy_note", "hole_note", "round_note", "weather_context_note"}
 REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
+PLAYER_PROFILE_SOURCE_REF_LIMIT = 30
+PLAYER_PROFILE_SIGNAL_REF_LIMIT = 12
 
 
 def _format_time(value: datetime) -> str:
@@ -389,6 +391,106 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _compact_source_refs(value: Any, *, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    refs: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text and text not in refs:
+            refs.append(text)
+        if len(refs) >= limit:
+            break
+    return refs
+
+
+def _compact_coverage(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    coverage: dict[str, Any] = {}
+    for key in ("ready", "total"):
+        if value.get(key) is not None:
+            coverage[key] = int(value.get(key) or 0)
+    if value.get("pct") is not None:
+        coverage["pct"] = round(float(value.get("pct") or 0), 1)
+    return coverage or None
+
+
+def _compact_profile_signal(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    signal: dict[str, Any] = {}
+    for key in ("key", "label", "kind", "phase", "reason", "unit", "direction", "confidence"):
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            signal[key] = str(value)
+    for key in ("severityScore", "value"):
+        value = _safe_float(row.get(key))
+        if value is not None:
+            signal[key] = round(value, 2)
+    for key in ("appliesTo", "riskOptionIds"):
+        values = _compact_source_refs(row.get(key), limit=8)
+        if values:
+            signal[key] = values
+    source_refs = _compact_source_refs(row.get("sourceRefs"), limit=PLAYER_PROFILE_SIGNAL_REF_LIMIT)
+    if source_refs:
+        signal["sourceRefs"] = source_refs
+    coverage = _compact_coverage(row.get("coverage"))
+    if coverage:
+        signal["coverage"] = coverage
+    return signal or None
+
+
+def _compact_profile_signals(rows: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        signal = _compact_profile_signal(row)
+        if not signal:
+            continue
+        out.append(signal)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _mobile_player_profile(stats: dict[str, Any]) -> dict[str, Any]:
+    profile: dict[str, Any] = {
+        "playerId": "local-player",
+        "displayName": "Local Player",
+        "handedness": "unknown",
+    }
+    history_profile = stats.get("playerProfile") if isinstance(stats.get("playerProfile"), dict) else {}
+    if not history_profile:
+        return profile
+
+    for key in ("schema", "confidence"):
+        value = history_profile.get(key)
+        if value is not None and str(value).strip():
+            profile[key] = str(value)
+    if history_profile.get("roundCount") is not None:
+        profile["roundCount"] = int(history_profile.get("roundCount") or 0)
+
+    for key, limit in (("strengths", 3), ("weaknesses", 4), ("caddieBiases", 4)):
+        signals = _compact_profile_signals(history_profile.get(key), limit=limit)
+        if signals:
+            profile[key] = signals
+
+    for key in ("topStrength", "topWeakness"):
+        signal = _compact_profile_signal(history_profile.get(key))
+        if signal:
+            profile[key] = signal
+
+    source_refs = _compact_source_refs(history_profile.get("sourceRefs"), limit=PLAYER_PROFILE_SOURCE_REF_LIMIT)
+    if source_refs:
+        profile["sourceRefs"] = source_refs
+    coverage = _compact_coverage(history_profile.get("coverage"))
+    if coverage:
+        profile["coverage"] = coverage
+    return profile
+
+
 def _hazards_from_hole_map(hole_map: dict[str, Any]) -> list[dict[str, Any]]:
     features = ((hole_map.get("featureCollection") or {}).get("features") or [])
     hazards: list[dict[str, Any]] = []
@@ -415,6 +517,7 @@ def _caddie_context_seeds(
     course_key: str,
     club_profiles: list[dict[str, Any]],
     weather_snapshot: dict[str, Any],
+    player_profile: dict[str, Any] | None = None,
     annotations_root: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     global_id = int(round_row.get("globalId") or 0)
@@ -458,6 +561,7 @@ def _caddie_context_seeds(
             "hazards": geometry.get("hazards") or [],
             "weatherSnapshot": weather_snapshot,
             "clubProfiles": decision_clubs,
+            "playerProfile": player_profile or {},
             "candidateRoutes": _tee_candidate_routes(hole, club_profiles, geometry.get("hazards") or []),
             "historicalHole": {
                 "courseKey": hole_stats.get("courseKey") or course_key,
@@ -800,6 +904,7 @@ def build_live_round_package(
         transport=weather_transport,
     )
     recent_history = _recent_history(scored_source, stats, round_row)
+    player_profile = _mobile_player_profile(stats)
     package_missing_data = _package_readiness_missing_data(
         package_missing_data,
         geometry_coverage=geometry_coverage,
@@ -836,6 +941,7 @@ def build_live_round_package(
         course_key=course_key,
         club_profiles=club_profiles,
         weather_snapshot=weather_snapshot,
+        player_profile=player_profile,
         annotations_root=annotations_root,
     )
     readiness_checks = _package_readiness_checks(
@@ -865,7 +971,7 @@ def build_live_round_package(
         "dataMode": data_mode,
         "sourceCoverage": source_coverage,
         "missingData": package_missing_data,
-        "playerProfile": {"playerId": "local-player", "displayName": "Local Player", "handedness": "unknown"},
+        "playerProfile": player_profile,
         "course": {
             "globalId": int(round_row.get("globalId") or 0),
             "name": str(round_row.get("course") or round_row.get("courseName") or "Unknown course"),

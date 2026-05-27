@@ -108,6 +108,50 @@
         "handedness": {
           "type": "string",
           "enum": ["right", "left", "unknown"]
+        },
+        "schema": {
+          "type": "string",
+          "const": "ai-caddie-player-profile-v1"
+        },
+        "roundCount": {
+          "type": "integer"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "strengths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/playerProfileSignal"
+          }
+        },
+        "weaknesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/playerProfileSignal"
+          }
+        },
+        "caddieBiases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/playerProfileSignal"
+          }
+        },
+        "topStrength": {
+          "$ref": "#/$defs/playerProfileSignal"
+        },
+        "topWeakness": {
+          "$ref": "#/$defs/playerProfileSignal"
+        },
+        "sourceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "coverage": {
+          "$ref": "#/$defs/playerProfileCoverage"
         }
       }
     },
@@ -460,6 +504,81 @@
     },
     "generatedAt": {
       "type": "string"
+    }
+  },
+  "$defs": {
+    "playerProfileCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ready": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "pct": {
+          "type": "number"
+        }
+      }
+    },
+    "playerProfileSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "severityScore": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "appliesTo": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "riskOptionIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "coverage": {
+          "$ref": "#/$defs/playerProfileCoverage"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        }
+      }
     }
   }
 }

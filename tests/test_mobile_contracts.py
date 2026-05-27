@@ -100,7 +100,68 @@ class MobileContractTests(unittest.TestCase):
                 {"label": "geometry", "reason": "12/18 holes have ready geometry for offline caddie evidence"},
                 {"label": "weather", "reason": "weather snapshot is missing for the prepared round time"},
             ],
-            "playerProfile": {"playerId": "player-1", "displayName": "Test Player", "handedness": "right"},
+            "playerProfile": {
+                "playerId": "player-1",
+                "displayName": "Test Player",
+                "handedness": "right",
+                "schema": "ai-caddie-player-profile-v1",
+                "roundCount": 12,
+                "confidence": "high",
+                "weaknesses": [
+                    {
+                        "key": "approach_short_miss",
+                        "label": "Approach short miss",
+                        "kind": "weakness",
+                        "phase": "Approach",
+                        "reason": "misses tend to finish short",
+                        "severityScore": 1.4,
+                        "value": 48.0,
+                        "unit": "pct",
+                        "direction": "short",
+                        "sourceRefs": ["round-a:4"],
+                        "coverage": {"ready": 8, "total": 10, "pct": 80.0},
+                        "confidence": "medium",
+                    }
+                ],
+                "caddieBiases": [
+                    {
+                        "key": "bias_against_approach_short",
+                        "label": "Bias against approach short",
+                        "kind": "caddie_bias",
+                        "phase": "Approach",
+                        "severityScore": 1.4,
+                        "value": 48.0,
+                        "unit": "pct",
+                        "direction": "short",
+                        "appliesTo": ["approach"],
+                        "riskOptionIds": ["stock", "attack"],
+                        "sourceRefs": ["round-a:4"],
+                    }
+                ],
+                "strengths": [
+                    {
+                        "key": "tee_fairway_control",
+                        "label": "Tee fairway control",
+                        "kind": "strength",
+                        "phase": "Tee",
+                        "severityScore": 0.7,
+                        "value": 66.0,
+                        "unit": "pct",
+                        "sourceRefs": ["round-a:1"],
+                    }
+                ],
+                "topWeakness": {
+                    "key": "approach_short_miss",
+                    "label": "Approach short miss",
+                    "kind": "weakness",
+                    "phase": "Approach",
+                    "severityScore": 1.4,
+                    "value": 48.0,
+                    "unit": "pct",
+                },
+                "sourceRefs": ["round-a:1", "round-a:4"],
+                "coverage": {"ready": 8, "total": 10, "pct": 80.0},
+            },
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
             "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
             "geometryCoverage": {"state": "partial", "readyHoles": 12, "totalHoles": 18},
@@ -134,6 +195,10 @@ class MobileContractTests(unittest.TestCase):
                         "sourceRef": "live-round-1:1",
                         "hole": 1,
                         "geometry": {"coverage": "ready", "hazardCount": 2},
+                        "playerProfile": {
+                            "schema": "ai-caddie-player-profile-v1",
+                            "weaknesses": [{"key": "approach_short_miss", "label": "Approach short miss"}],
+                        },
                     },
                     "selectedOfflineOptionId": "stock",
                     "offlineOptions": [
@@ -211,6 +276,7 @@ class MobileContractTests(unittest.TestCase):
         }
 
         _assert_schema_accepts(self, schema, package)
+        _assert_json_schema_accepts(self, schema, package)
         self.assertEqual(schema["properties"]["caddieDecisionEndpoint"]["const"], "/api/v2/caddie/decision")
         self.assertEqual(package["offlinePackageStatus"]["state"], "degraded")
         self.assertIn("geometry", {row["label"] for row in package["missingData"]})
@@ -373,6 +439,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(package["weatherSnapshot"]["state"], "missing")
         self.assertIn("geometry", {row["label"] for row in package["missingData"]})
         self.assertIn("weather", {row["label"] for row in package["missingData"]})
+        self.assertEqual(package["playerProfile"]["schema"], "ai-caddie-player-profile-v1")
+        self.assertGreater(len(package["playerProfile"]["weaknesses"]), 0)
+        self.assertGreater(len(package["playerProfile"]["caddieBiases"]), 0)
         seed = next(row for row in package["caddieContextSeeds"] if row["hole"] == 1)
         self.assertEqual(seed["sourceRef"], "900001:1")
         self.assertEqual(seed["shotTypes"], ["tee", "approach", "recovery"])
@@ -383,6 +452,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("geometry", seed["context"])
         self.assertIn("hazards", seed["context"])
         self.assertIn("historicalHole", seed["context"])
+        self.assertEqual(seed["context"]["playerProfile"]["schema"], "ai-caddie-player-profile-v1")
         self.assertGreaterEqual(len(seed["evidence"]), 1)
         self.assertIn("current_location", {row["label"] for row in seed["missingData"]})
         self.assertEqual(seed["selectedOfflineOptionId"], "stock")
@@ -582,6 +652,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let sourceCoverage: SourceCoverage", package_swift)
         self.assertIn("let missingData: [[String: JSONValue]]", package_swift)
         self.assertIn("struct SourceCoverage: Codable", package_swift)
+        self.assertIn("struct PlayerProfile: Codable", package_swift)
+        self.assertIn("let weaknesses: [PlayerProfileSignal]?", package_swift)
+        self.assertIn("let caddieBiases: [PlayerProfileSignal]?", package_swift)
+        self.assertIn("struct PlayerProfileSignal: Codable, Equatable, Identifiable", package_swift)
+        self.assertIn("let riskOptionIds: [String]?", package_swift)
+        self.assertIn("struct PlayerProfileCoverage: Codable, Equatable", package_swift)
         self.assertIn("let weatherSnapshot: WeatherSnapshot", package_swift)
         self.assertIn("let offlinePackageStatus: OfflinePackageStatus", package_swift)
         self.assertIn("let eventCursor: EventCursor", package_swift)

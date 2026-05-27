@@ -93,6 +93,41 @@ public struct PlayerProfile: Codable, Equatable {
     public let playerId: String
     public let displayName: String
     public let handedness: String
+    public let schema: String?
+    public let roundCount: Int?
+    public let confidence: String?
+    public let strengths: [PlayerProfileSignal]?
+    public let weaknesses: [PlayerProfileSignal]?
+    public let caddieBiases: [PlayerProfileSignal]?
+    public let topStrength: PlayerProfileSignal?
+    public let topWeakness: PlayerProfileSignal?
+    public let sourceRefs: [String]?
+    public let coverage: PlayerProfileCoverage?
+}
+
+public struct PlayerProfileSignal: Codable, Equatable, Identifiable {
+    public var id: String { key ?? label ?? "player-profile-signal" }
+
+    public let key: String?
+    public let label: String?
+    public let kind: String?
+    public let phase: String?
+    public let reason: String?
+    public let severityScore: Double?
+    public let value: Double?
+    public let unit: String?
+    public let direction: String?
+    public let appliesTo: [String]?
+    public let riskOptionIds: [String]?
+    public let sourceRefs: [String]?
+    public let coverage: PlayerProfileCoverage?
+    public let confidence: String?
+}
+
+public struct PlayerProfileCoverage: Codable, Equatable {
+    public let ready: Int?
+    public let total: Int?
+    public let pct: Double?
 }
 
 public struct Course: Codable, Equatable {
