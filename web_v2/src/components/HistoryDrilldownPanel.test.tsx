@@ -19,7 +19,7 @@ describe('HistoryDrilldownPanel', () => {
             hole: { number: 1, par: 4, strokes: 4 },
             shot: { club: '1D', distance: 242, surface: 'fairway' },
             relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:1'], shotRefs: ['900001:1:0'] },
-            sourceFields: { clubName: '1D', meters: 242 },
+            sourceFields: { clubName: '1D', meters: 242, provenance: { confidence: 'high' } },
             missingData: [{ label: 'geometry', state: 'partial' }],
           },
         }}
@@ -31,6 +31,11 @@ describe('HistoryDrilldownPanel', () => {
     expect(screen.getByText('shot')).toBeInTheDocument()
     expect(screen.getByText('clubName')).toBeInTheDocument()
     expect(screen.getByText('geometry')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Evidence Coverage' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Evidence coverage')).toHaveTextContent('Source fields3')
+    expect(screen.getByLabelText('Evidence coverage')).toHaveTextContent('Related refs3')
+    expect(screen.getByLabelText('Evidence coverage')).toHaveTextContent('Missing data1')
+    expect(screen.getByLabelText('Evidence coverage')).toHaveTextContent('Confidencehigh')
   })
 
   it('renders related refs as drilldown buttons', async () => {

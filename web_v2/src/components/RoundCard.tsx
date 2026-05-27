@@ -1,6 +1,7 @@
 import type { RoundCard as RoundCardType } from '../types'
 import { DataQualityChips } from './DataQualityChips'
 import { ScoreStrip } from './ScoreStrip'
+import { SourceRefs } from './SourceRefs'
 
 function formatToPar(value: number | null) {
   if (value === null) return '-'
@@ -38,6 +39,10 @@ export function RoundCard({ round, onSelectRef }: RoundCardProps) {
         </button>
       ) : null}
       <ScoreStrip cells={round.scoreStrip} />
+      <div className="round-card-source">
+        <span>Source</span>
+        <SourceRefs refs={[round.id]} maxVisible={1} onSelectRef={onSelectRef} />
+      </div>
       <DataQualityChips badges={round.badges} />
     </article>
   )

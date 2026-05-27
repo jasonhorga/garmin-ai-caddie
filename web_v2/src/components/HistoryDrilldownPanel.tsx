@@ -25,6 +25,20 @@ function entries(record: Record<string, unknown> | null): Array<[string, unknown
   return Object.entries(record).filter(([, value]) => value !== null && value !== undefined)
 }
 
+function relatedRefCount(relatedRefs: HistoryDrilldownResponse['relatedRefs']): number {
+  return relatedRefs.roundRefs.length + relatedRefs.holeRefs.length + relatedRefs.shotRefs.length
+}
+
+function provenanceConfidence(sourceFields: Record<string, unknown>): string {
+  const provenance = sourceFields.provenance
+  if (provenance && typeof provenance === 'object' && !Array.isArray(provenance)) {
+    const confidence = (provenance as Record<string, unknown>).confidence
+    if (typeof confidence === 'string' && confidence.trim()) return confidence
+  }
+  const confidence = sourceFields.confidence
+  return typeof confidence === 'string' && confidence.trim() ? confidence : 'not supplied'
+}
+
 function compactPayloadValue(value: unknown): string | null {
   if (typeof value === 'string') return value.trim() ? value : null
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
@@ -86,6 +100,37 @@ function MissingDataRows({ rows }: { rows: Array<Record<string, unknown>> }) {
             <b>{valueText(row.state ?? row.reason ?? row.value)}</b>
           </div>
         ))}
+      </div>
+    </section>
+  )
+}
+
+function EvidenceCoverage({ data }: { data: HistoryDrilldownResponse }) {
+  const sourceFieldCount = entries(data.sourceFields).length
+  const missingCount = data.missingData.length
+  const relatedCount = relatedRefCount(data.relatedRefs)
+  const confidence = provenanceConfidence(data.sourceFields)
+
+  return (
+    <section className="drilldown-block drilldown-coverage" aria-label="Evidence coverage">
+      <h3>Evidence Coverage</h3>
+      <div className="coverage-metrics">
+        <div className="coverage-metric">
+          <span>Source fields</span>
+          <b>{sourceFieldCount}</b>
+        </div>
+        <div className="coverage-metric">
+          <span>Related refs</span>
+          <b>{relatedCount}</b>
+        </div>
+        <div className="coverage-metric">
+          <span>Missing data</span>
+          <b>{missingCount}</b>
+        </div>
+        <div className="coverage-metric">
+          <span>Confidence</span>
+          <b>{confidence}</b>
+        </div>
       </div>
     </section>
   )
@@ -209,6 +254,8 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onCreateAnnotationFo
           ) : null}
         </div>
       </div>
+
+      <EvidenceCoverage data={data} />
 
       <div className="drilldown-grid">
         <DetailRows title="Round" record={data.round} />
