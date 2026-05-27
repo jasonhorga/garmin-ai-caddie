@@ -88,6 +88,36 @@
           }
         ]
       },
+      "selectedOfflineOptionId": "stock",
+      "offlineOptions": [
+        {
+          "id": "safe",
+          "label": "Safe",
+          "clubName": "9I",
+          "carryM": 132.0,
+          "riskScore": 1.0,
+          "source": "offline_package_seed",
+          "sourceRefs": ["live-round-1:1"]
+        },
+        {
+          "id": "stock",
+          "label": "Stock",
+          "clubName": "8I",
+          "carryM": 144.0,
+          "riskScore": 3.0,
+          "source": "offline_package_seed",
+          "sourceRefs": ["live-round-1:1"]
+        },
+        {
+          "id": "attack",
+          "label": "Attack",
+          "clubName": "7I",
+          "carryM": 156.0,
+          "riskScore": 5.0,
+          "source": "offline_package_seed",
+          "sourceRefs": ["live-round-1:1"]
+        }
+      ],
       "evidence": [
         {
           "label": "live_round_package",

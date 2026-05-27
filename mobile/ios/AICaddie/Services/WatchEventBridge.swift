@@ -67,21 +67,23 @@ public final class WatchEventBridge: NSObject {
         putts: Int,
         penaltyCount: Int,
         selectedClub: String?,
-        decision: CaddieDecisionResponse?
+        decision: CaddieDecisionResponse?,
+        offlineOption: OfflineCaddieOption? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
+        let offlineSelected = selectedOfflineOption(from: offlineOption)
         return WatchRoundStatePayload(
             roundId: package.roundId,
             hole: hole.number,
             par: hole.par,
-            distanceM: number(selected?["carry_m"]) ?? number(selected?["carryM"]),
-            targetNote: string(selected?["label"]) ?? string(selected?["routeLabel"]),
-            suggestedClub: clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]),
+            distanceM: number(selected?["carry_m"]) ?? number(selected?["carryM"]) ?? offlineSelected?.carryM,
+            targetNote: string(selected?["label"]) ?? string(selected?["routeLabel"]) ?? offlineSelected?.label,
+            suggestedClub: clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName,
             selectedClub: selectedClub,
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
-            caddieConfidence: confidenceLevel(from: decision)
+            caddieConfidence: confidenceLevel(from: decision, offlineOption: offlineSelected)
         )
     }
 
@@ -138,9 +140,13 @@ public final class WatchEventBridge: NSObject {
         return decision.options.first
     }
 
-    private func confidenceLevel(from decision: CaddieDecisionResponse?) -> String {
+    private func selectedOfflineOption(from offlineOption: OfflineCaddieOption?) -> OfflineCaddieOption? {
+        offlineOption
+    }
+
+    private func confidenceLevel(from decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) -> String {
         guard let decision else {
-            return "low"
+            return offlineOption == nil ? "low" : "offline"
         }
         return string(decision.confidence["level"]) ?? string(decision.confidence["confidence"]) ?? "low"
     }

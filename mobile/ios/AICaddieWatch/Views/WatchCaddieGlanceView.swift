@@ -31,6 +31,8 @@ public struct WatchCaddieGlanceView: View {
             return .green
         case "medium":
             return .yellow
+        case "offline":
+            return .orange
         default:
             return .red
         }

@@ -100,6 +100,36 @@ class MobileContractTests(unittest.TestCase):
                         "hole": 1,
                         "geometry": {"coverage": "ready", "hazardCount": 2},
                     },
+                    "selectedOfflineOptionId": "stock",
+                    "offlineOptions": [
+                        {
+                            "id": "safe",
+                            "label": "Safe",
+                            "clubName": "9I",
+                            "carryM": 132.0,
+                            "riskScore": 1.0,
+                            "source": "offline_package_seed",
+                            "sourceRefs": ["live-round-1:1"],
+                        },
+                        {
+                            "id": "stock",
+                            "label": "Stock",
+                            "clubName": "8I",
+                            "carryM": 144.0,
+                            "riskScore": 2.0,
+                            "source": "offline_package_seed",
+                            "sourceRefs": ["live-round-1:1"],
+                        },
+                        {
+                            "id": "attack",
+                            "label": "Attack",
+                            "clubName": "7I",
+                            "carryM": 156.0,
+                            "riskScore": 4.0,
+                            "source": "offline_package_seed",
+                            "sourceRefs": ["live-round-1:1"],
+                        },
+                    ],
                     "evidence": [{"label": "live_round_package", "value": "offline_seed"}],
                     "missingData": [{"label": "current_location", "reason": "live GPS fixes distance at decision time"}],
                 }
@@ -238,6 +268,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("historicalHole", seed["context"])
         self.assertGreaterEqual(len(seed["evidence"]), 1)
         self.assertIn("current_location", {row["label"] for row in seed["missingData"]})
+        self.assertEqual(seed["selectedOfflineOptionId"], "stock")
+        self.assertEqual([row["id"] for row in seed["offlineOptions"]], ["safe", "stock", "attack"])
+        self.assertTrue(all(row["clubName"] for row in seed["offlineOptions"]))
+        self.assertTrue(all(float(row["carryM"]) > 0 for row in seed["offlineOptions"]))
+        self.assertTrue(all(row["sourceRefs"] == [seed["sourceRef"]] for row in seed["offlineOptions"]))
 
     def test_live_round_package_recent_history_uses_normalized_round_fields(self) -> None:
         package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")
@@ -369,6 +404,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let cachedCaddieRules: CachedCaddieRules", package_swift)
         self.assertIn("let caddieContextSeeds: [CaddieContextSeed]", package_swift)
         self.assertIn("struct CaddieContextSeed: Codable", package_swift)
+        self.assertIn("let selectedOfflineOptionId: String?", package_swift)
+        self.assertIn("let offlineOptions: [OfflineCaddieOption]", package_swift)
+        self.assertIn("struct OfflineCaddieOption: Codable, Equatable, Identifiable", package_swift)
+        self.assertIn("decodeIfPresent([OfflineCaddieOption].self", package_swift)
+        self.assertIn("self.offlineOptions = offlineOptions ?? []", package_swift)
         self.assertIn("let rounds: [RecentRoundSummary]", package_swift)
         self.assertIn("struct RecentRoundSummary: Codable, Equatable, Identifiable", package_swift)
         self.assertIn("public var id: String { roundId }", package_swift)
@@ -851,6 +891,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func sendStateToWatch", bridge)
         self.assertIn('sendMessage(["state": object]', bridge)
         self.assertIn("selectedOption(from decision", bridge)
+        self.assertIn("offlineOption: OfflineCaddieOption?", bridge)
+        self.assertIn("selectedOfflineOption(from", bridge)
         self.assertIn("clubRecommendation", bridge)
         self.assertIn("caddieConfidence", bridge)
         self.assertIn("offlineStore.appendEvent", bridge)
@@ -919,7 +961,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("await loadCaddieDecision()", current_hole)
         self.assertIn("fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)", current_hole)
         self.assertIn("CaddiePlanView(response: caddieDecision)", current_hole)
-        self.assertIn("sendWatchState(decision: caddieDecision)", current_hole)
+        self.assertIn("CaddiePlanView(seed: caddieContextSeed)", current_hole)
+        self.assertIn("selectedOfflineOption", current_hole)
+        self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
         self.assertIn("watchBridge?.sendStateToWatch", current_hole)
         self.assertIn("kind: .location", current_hole)
         self.assertIn('"latitude"', current_hole)
@@ -927,7 +971,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"horizontalAccuracyM"', current_hole)
         self.assertIn("struct CaddiePlanView: View", caddie_plan)
         self.assertIn("init(response: CaddieDecisionResponse)", caddie_plan)
+        self.assertIn("init(seed: CaddieContextSeed?)", caddie_plan)
         self.assertIn("options(from response", caddie_plan)
+        self.assertIn("options(from seed", caddie_plan)
+        self.assertIn("OfflineCaddieOption", caddie_plan)
         self.assertIn("selectedOptionId ??", caddie_plan)
         self.assertIn("safe", caddie_plan)
         self.assertIn("stock", caddie_plan)

@@ -236,6 +236,50 @@ def _tee_candidate_routes(hole: dict[str, Any], club_profiles: list[dict[str, An
     ]
 
 
+def _offline_caddie_options(
+    club_profiles: list[dict[str, Any]],
+    *,
+    source_ref: str,
+    hazards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    valid_profiles = []
+    for profile in club_profiles:
+        median = _safe_float(profile.get("median_m"))
+        if median is not None and median > 0:
+            valid_profiles.append(profile)
+    rows = sorted(
+        valid_profiles,
+        key=lambda profile: (-float(profile.get("median_m") or 0), str(profile.get("clubName") or "")),
+    )
+    if not rows:
+        return []
+    longest = rows[0]
+    safe = next((row for row in rows[1:] if float(row.get("median_m") or 0) >= 120.0), longest)
+    risk_bump = 1.0 if hazards else 0.0
+    option_specs = [
+        ("safe", "Safe", safe, 1.0),
+        ("stock", "Stock", longest, 2.0 + risk_bump),
+        ("attack", "Attack", longest, 4.0 + risk_bump),
+    ]
+    options: list[dict[str, Any]] = []
+    for option_id, label, profile, risk_score in option_specs:
+        median = float(profile.get("median_m") or 0)
+        p90 = float(profile.get("p90_m") or median)
+        carry = max(median, p90) if option_id == "attack" else median
+        options.append(
+            {
+                "id": option_id,
+                "label": label,
+                "clubName": str(profile.get("clubName") or ""),
+                "carryM": round(carry, 1),
+                "riskScore": round(risk_score, 1),
+                "source": "offline_package_seed",
+                "sourceRefs": [source_ref],
+            }
+        )
+    return options
+
+
 def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     geometry = {
         "coverage": fallback_coverage,
@@ -396,6 +440,11 @@ def _caddie_context_seeds(
             context["routeEvidence"] = route_evidence
         if manual_notes:
             context["manualNotes"] = manual_notes
+        offline_options = _offline_caddie_options(
+            club_profiles,
+            source_ref=source_ref,
+            hazards=geometry.get("hazards") or [],
+        )
         evidence_rows = [
             {"label": "live_round_package", "value": "offline_seed"},
             {"label": "history_ref", "value": source_ref},
@@ -417,6 +466,8 @@ def _caddie_context_seeds(
                 "shotTypes": list(LIVE_SHOT_TYPES),
                 "requiredLiveInputs": ["currentLocation", "lie"],
                 "context": context,
+                "selectedOfflineOptionId": "stock" if offline_options else None,
+                "offlineOptions": offline_options,
                 "evidence": evidence_rows,
                 "missingData": _dedupe_missing(missing_data),
             }

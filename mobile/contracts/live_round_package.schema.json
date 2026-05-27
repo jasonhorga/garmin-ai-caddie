@@ -187,6 +187,44 @@
             "type": "object",
             "additionalProperties": true
           },
+          "selectedOfflineOptionId": {
+            "type": ["string", "null"]
+          },
+          "offlineOptions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "label", "clubName", "carryM", "riskScore", "source", "sourceRefs"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "enum": ["safe", "stock", "attack"]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "clubName": {
+                  "type": "string"
+                },
+                "carryM": {
+                  "type": "number"
+                },
+                "riskScore": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "sourceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
           "evidence": {
             "type": "array",
             "items": {

@@ -64,10 +64,7 @@ public struct CurrentHoleView: View {
                 if let caddieDecision {
                     CaddiePlanView(response: caddieDecision)
                 } else {
-                    CaddiePlanView(
-                        options: CaddiePlanOption.defaultOptions,
-                        selectedOptionId: "stock"
-                    )
+                    CaddiePlanView(seed: caddieContextSeed)
                 }
                 if isLoadingCaddieDecision {
                     ProgressView("Updating caddie")
@@ -181,12 +178,12 @@ public struct CurrentHoleView: View {
     private func loadCaddieDecision() async {
         guard let caddieClient else {
             caddieErrorMessage = "Offline package ready. Connect to refresh caddie decision."
-            sendWatchState(decision: nil)
+            sendWatchState(decision: nil, offlineOption: selectedOfflineOption)
             return
         }
         guard let request = makeCaddieDecisionRequest() else {
             caddieErrorMessage = "No caddie context seed for this hole."
-            sendWatchState(decision: nil)
+            sendWatchState(decision: nil, offlineOption: selectedOfflineOption)
             return
         }
 
@@ -198,14 +195,25 @@ public struct CurrentHoleView: View {
         do {
             caddieDecision = try await caddieClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
             caddieErrorMessage = nil
-            sendWatchState(decision: caddieDecision)
+            sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         } catch {
             caddieErrorMessage = "Caddie decision unavailable. Cached plan remains visible."
-            sendWatchState(decision: caddieDecision)
+            sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         }
     }
 
-    private func sendWatchState(decision: CaddieDecisionResponse?) {
+    private var selectedOfflineOption: OfflineCaddieOption? {
+        guard let seed = caddieContextSeed else {
+            return nil
+        }
+        if let selectedOfflineOptionId = seed.selectedOfflineOptionId,
+           let selected = seed.offlineOptions.first(where: { $0.id == selectedOfflineOptionId }) {
+            return selected
+        }
+        return seed.offlineOptions.first
+    }
+
+    private func sendWatchState(decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) {
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
             hole: hole,
@@ -213,7 +221,8 @@ public struct CurrentHoleView: View {
             putts: puttCount,
             penaltyCount: penaltyCount,
             selectedClub: selectedClub,
-            decision: decision
+            decision: decision,
+            offlineOption: offlineOption
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)
@@ -240,7 +249,7 @@ public struct CurrentHoleView: View {
         if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             emit(kind: .note, timestamp: timestamp, payload: ["note": .string(note)])
         }
-        sendWatchState(decision: caddieDecision)
+        sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
     }
 
     private func clubEventPayload() -> [String: JSONValue] {

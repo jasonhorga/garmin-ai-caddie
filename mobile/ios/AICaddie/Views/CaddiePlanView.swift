@@ -26,6 +26,22 @@ public struct CaddiePlanOption: Identifiable, Equatable {
         return parsed.isEmpty ? defaultOptions : parsed
     }
 
+    public static func options(from seed: CaddieContextSeed?) -> [CaddiePlanOption] {
+        guard let seed else {
+            return defaultOptions
+        }
+        let parsed: [CaddiePlanOption] = seed.offlineOptions.map { (option: OfflineCaddieOption) in
+            CaddiePlanOption(
+                id: option.id,
+                label: option.label,
+                carryM: option.carryM,
+                riskScore: option.riskScore,
+                clubName: option.clubName
+            )
+        }
+        return parsed.isEmpty ? defaultOptions : parsed
+    }
+
     private static func string(_ value: JSONValue?) -> String? {
         if case .string(let raw) = value {
             return raw
@@ -65,6 +81,12 @@ public struct CaddiePlanView: View {
         let responseOptions = CaddiePlanOption.options(from: response)
         self.options = responseOptions
         self.selectedOptionId = response.selectedOptionId ?? responseOptions.first?.id ?? "stock"
+    }
+
+    public init(seed: CaddieContextSeed?) {
+        let seedOptions = CaddiePlanOption.options(from: seed)
+        self.options = seedOptions
+        self.selectedOptionId = seed?.selectedOfflineOptionId ?? seedOptions.first?.id ?? "stock"
     }
 
     public var body: some View {

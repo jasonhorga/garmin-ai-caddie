@@ -124,8 +124,58 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
     public let shotTypes: [String]
     public let requiredLiveInputs: [String]
     public let context: [String: JSONValue]
+    public let selectedOfflineOptionId: String?
+    public let offlineOptions: [OfflineCaddieOption]
     public let evidence: [[String: JSONValue]]
     public let missingData: [[String: JSONValue]]
+
+    enum CodingKeys: String, CodingKey {
+        case hole
+        case sourceRef
+        case shotTypes
+        case requiredLiveInputs
+        case context
+        case selectedOfflineOptionId
+        case offlineOptions
+        case evidence
+        case missingData
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.hole = try container.decode(Int.self, forKey: .hole)
+        self.sourceRef = try container.decode(String.self, forKey: .sourceRef)
+        self.shotTypes = try container.decode([String].self, forKey: .shotTypes)
+        self.requiredLiveInputs = try container.decode([String].self, forKey: .requiredLiveInputs)
+        self.context = try container.decode([String: JSONValue].self, forKey: .context)
+        self.selectedOfflineOptionId = try container.decodeIfPresent(String.self, forKey: .selectedOfflineOptionId)
+        let offlineOptions = try container.decodeIfPresent([OfflineCaddieOption].self, forKey: .offlineOptions)
+        self.offlineOptions = offlineOptions ?? []
+        self.evidence = try container.decode([[String: JSONValue]].self, forKey: .evidence)
+        self.missingData = try container.decode([[String: JSONValue]].self, forKey: .missingData)
+    }
+}
+
+public struct OfflineCaddieOption: Codable, Equatable, Identifiable {
+    public var id: String { optionId }
+
+    public let optionId: String
+    public let label: String
+    public let clubName: String
+    public let carryM: Double
+    public let riskScore: Double
+    public let source: String
+    public let sourceRefs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case optionId = "id"
+        case label
+        case clubName
+        case carryM
+        case riskScore
+        case source
+        case sourceRefs
+    }
 }
 
 public struct WeatherSnapshot: Codable, Equatable {
