@@ -37,7 +37,7 @@ public final class GarminSessionClient {
     }
 
     public func importSession(_ requestBody: GarminSessionImportRequest) async throws -> GarminSessionImportResponse {
-        let url = baseURL.appendingPathComponent("/api/v2/sync/garmin/session")
+        let url = endpointURL("/api/v2/sync/garmin/session")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -48,6 +48,11 @@ public final class GarminSessionClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response)
         return try decoder.decode(GarminSessionImportResponse.self, from: data)
+    }
+
+    private func endpointURL(_ endpoint: String) -> URL {
+        let path = endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint
+        return baseURL.appendingPathComponent(path)
     }
 
     private func validate(response: URLResponse) throws {

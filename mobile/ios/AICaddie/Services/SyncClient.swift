@@ -64,7 +64,7 @@ public final class SyncClient {
 
     public func fetchRoundPackage(roundId: String, capturedAt: Date = Date()) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
-            url: baseURL.appendingPathComponent("/api/v2/mobile/rounds/\(roundId)/package"),
+            url: endpointURL("/api/v2/mobile/rounds/\(roundId)/package"),
             resolvingAgainstBaseURL: false
         ) else {
             throw URLError(.badURL)
@@ -86,7 +86,7 @@ public final class SyncClient {
 
     public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, capturedAt: Date = Date()) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
-            url: baseURL.appendingPathComponent("/api/v2/mobile/courses/\(globalId)/package"),
+            url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
         ) else {
             throw URLError(.badURL)
@@ -113,7 +113,7 @@ public final class SyncClient {
         roundId: String,
         idempotencyKey: String
     ) async throws -> SyncResult {
-        let url = baseURL.appendingPathComponent("/api/v2/mobile/rounds/\(roundId)/events")
+        let url = endpointURL("/api/v2/mobile/rounds/\(roundId)/events")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -146,6 +146,11 @@ public final class SyncClient {
             }
         }
         throw lastError ?? URLError(.cannotConnectToHost)
+    }
+
+    private func endpointURL(_ endpoint: String) -> URL {
+        let path = endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint
+        return baseURL.appendingPathComponent(path)
     }
 
     private func validate(response: URLResponse) throws {

@@ -153,7 +153,7 @@ public final class MediaUploadClient {
     }
 
     public func uploadMedia(_ requestBody: MediaCreateRequest) async throws -> MediaCreateResponse {
-        let url = baseURL.appendingPathComponent("/api/v2/media")
+        let url = endpointURL("/api/v2/media")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -167,7 +167,7 @@ public final class MediaUploadClient {
     }
 
     public func analyzeMedia(mediaId: String) async throws -> VisionAnalysisResponse {
-        let url = baseURL.appendingPathComponent("/api/v2/media/" + mediaId + "/analyze")
+        let url = endpointURL("/api/v2/media/" + mediaId + "/analyze")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         if let adminToken {
@@ -179,7 +179,7 @@ public final class MediaUploadClient {
     }
 
     public func fetchVisionFindingsForTarget(targetType: String, targetId: String) async throws -> VisionFindingsListResponse {
-        let url = baseURL.appendingPathComponent("/api/v2/media/target/" + targetType + "/" + targetId + "/findings")
+        let url = endpointURL("/api/v2/media/target/" + targetType + "/" + targetId + "/findings")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         if let adminToken {
@@ -191,7 +191,7 @@ public final class MediaUploadClient {
     }
 
     public func confirmVisionFinding(findingId: String, requestBody: VisionFindingConfirmationRequest) async throws -> VisionFindingConfirmationResponse {
-        let url = baseURL.appendingPathComponent("/api/v2/media/findings/" + findingId + "/confirmation")
+        let url = endpointURL("/api/v2/media/findings/" + findingId + "/confirmation")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -202,6 +202,11 @@ public final class MediaUploadClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response)
         return try decoder.decode(VisionFindingConfirmationResponse.self, from: data)
+    }
+
+    private func endpointURL(_ endpoint: String) -> URL {
+        let path = endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint
+        return baseURL.appendingPathComponent(path)
     }
 
     private func validate(response: URLResponse) throws {

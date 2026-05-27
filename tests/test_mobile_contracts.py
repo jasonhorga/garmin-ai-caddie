@@ -698,6 +698,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func fetchCoursePackage", sync_client)
         self.assertIn("func postEventBatch", sync_client)
         self.assertIn("Idempotency-Key", sync_client)
+        self.assertIn("private func endpointURL(_ endpoint: String) -> URL", sync_client)
+        self.assertIn('endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint', sync_client)
+        self.assertNotIn('appendingPathComponent("/api', sync_client)
 
     def test_ios_round_package_fetch_sends_prepared_time(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -708,7 +711,7 @@ class MobileContractTests(unittest.TestCase):
             sync_client,
         )
         self.assertIn("URLComponents(", sync_client)
-        self.assertIn("url: baseURL.appendingPathComponent", sync_client)
+        self.assertIn("url: endpointURL", sync_client)
         self.assertIn('URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt))', sync_client)
         self.assertIn("guard let url = components.url else", sync_client)
 
@@ -1092,6 +1095,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("final class MediaUploadClient", upload_client)
         self.assertIn("func uploadMedia", upload_client)
         self.assertIn('"/api/v2/media"', upload_client)
+        self.assertIn("private func endpointURL(_ endpoint: String) -> URL", upload_client)
+        self.assertIn('endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint', upload_client)
+        self.assertNotIn('appendingPathComponent("/api', upload_client)
         for field in ["targetType", "targetId", "mediaKind", "fileName", "contentBase64", "capturedAt", "privacyState"]:
             self.assertIn(field, upload_client)
 
@@ -1168,6 +1174,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("final class GarminSessionClient", session_client)
         self.assertIn("func importSession", session_client)
         self.assertIn('"/api/v2/sync/garmin/session"', session_client)
+        self.assertIn("private func endpointURL(_ endpoint: String) -> URL", session_client)
+        self.assertIn('endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint', session_client)
+        self.assertNotIn('appendingPathComponent("/api', session_client)
         self.assertIn('request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")', session_client)
         self.assertNotIn("password", session_client.lower())
         self.assertNotIn("username", session_client.lower())
