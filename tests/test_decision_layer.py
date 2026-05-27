@@ -261,6 +261,7 @@ class DecisionLayerTests(unittest.TestCase):
         context["historicalHoleIssues"] = [
             {"issue": "water", "phase": "Penalty", "count": 1, "refs": ["900002:4"], "sourceRefs": ["token:secret"]},
         ]
+        context["diagnosticContext"] = {"topIssue": {"issue": "water", "sourceRefs": ["diagnosis:900002:4"]}}
 
         plan = recommend_approach(context)
 
@@ -269,6 +270,7 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(plan["context"]["sourceRef"], "garmin_cn_web_session:snap-1:scorecard:round-1:hole:4")
         self.assertIn("900001:4", plan["evidenceRefs"])
         self.assertIn("900002:4", plan["evidenceRefs"])
+        self.assertIn("diagnosis:900002:4", plan["evidenceRefs"])
         self.assertNotIn("/home/ubuntu/private/raw.json", plan["evidenceRefs"])
         self.assertNotIn("token:secret", plan["evidenceRefs"])
 

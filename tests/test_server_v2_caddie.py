@@ -225,6 +225,12 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertEqual(context["historicalHole"]["scoreDistribution"][4]["key"], "doubleOrWorse")
         self.assertEqual(context["courseForm"]["courseKey"], "black_knight")
         self.assertEqual(context["courseForm"]["roundRefs"], ["900001", "900002"])
+        diagnostic = context["diagnosticContext"]
+        self.assertIn("topIssue", diagnostic)
+        relevant_trends = {row["issue"]: row for row in diagnostic["relevantIssueTrends"]}
+        self.assertIn("double_or_worse", relevant_trends)
+        self.assertIn("900002:7", relevant_trends["double_or_worse"]["sourceRefs"])
+        self.assertTrue(any(row["label"] == "geometry" for row in diagnostic["qualityGaps"]))
 
     def test_context_endpoint_includes_manual_strategy_notes_and_issue_tags(self) -> None:
         client = TestClient(app)

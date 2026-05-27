@@ -267,8 +267,112 @@ def _history_context(
         context["historicalHoleIssues"] = hole_stats.get("repeatedIssues", [])
     if course_form:
         context["courseForm"] = course_form
+    diagnostic_context = _diagnostic_context(
+        stats,
+        relevant_refs=_context_relevant_refs(
+            source_ref=source_ref,
+            round_id=round_id,
+            local_hole=local_hole,
+            hole_stats=hole_stats,
+            course_form=course_form,
+        ),
+        issue_names=[
+            str(row.get("issue") or "")
+            for row in (hole_stats or {}).get("repeatedIssues", [])
+            if isinstance(row, dict)
+        ],
+    )
+    if diagnostic_context:
+        context["diagnosticContext"] = diagnostic_context
     if notes:
         context["manualNotes"] = notes
+    return context
+
+
+def _refs_from_row(row: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for key in ("sourceRefs", "recentRefs", "baselineRefs", "holeRefs", "shotRefs", "roundRefs", "refs", "roundIds"):
+        refs.extend(_dedupe_strings(row.get(key) or []))
+    return _dedupe_strings(refs)
+
+
+def _context_relevant_refs(
+    *,
+    source_ref: str,
+    round_id: str,
+    local_hole: int,
+    hole_stats: dict[str, Any] | None,
+    course_form: dict[str, Any] | None,
+) -> list[str]:
+    refs = [source_ref, _hole_ref_for_source(source_ref, round_id, local_hole)]
+    if hole_stats:
+        refs.extend(_refs_from_row(hole_stats))
+        for issue in hole_stats.get("repeatedIssues") or []:
+            if isinstance(issue, dict):
+                refs.extend(_refs_from_row(issue))
+    if course_form:
+        refs.extend(_refs_from_row(course_form))
+    return _dedupe_strings(refs)
+
+
+def _row_matches_context(row: dict[str, Any], relevant_ref_set: set[str], issue_names: set[str]) -> bool:
+    row_refs = set(_refs_from_row(row))
+    if row_refs & relevant_ref_set:
+        return True
+    issue = str(row.get("issue") or "").strip().lower()
+    return bool(issue and issue in issue_names)
+
+
+def _compact_diagnostic_row(row: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        "issue": row.get("issue"),
+        "phase": row.get("phase"),
+        "direction": row.get("direction"),
+        "estimatedStrokesLost": row.get("estimatedStrokesLost"),
+        "actualStrokesLost": row.get("actualStrokesLost"),
+        "actualToParImpact": row.get("actualToParImpact"),
+        "sourceRefs": _refs_from_row(row),
+        "confidence": row.get("confidence"),
+    }
+    return {key: value for key, value in compact.items() if value not in (None, [], "")}
+
+
+def _diagnostic_context(
+    stats: dict[str, Any],
+    *,
+    relevant_refs: list[str],
+    issue_names: list[str],
+) -> dict[str, Any]:
+    diagnosis = stats.get("diagnosis") if isinstance(stats.get("diagnosis"), dict) else {}
+    relevant_ref_set = set(relevant_refs)
+    issue_name_set = {name.strip().lower() for name in issue_names if name.strip()}
+    trends = [
+        _compact_diagnostic_row(row)
+        for row in diagnosis.get("issueTrends") or []
+        if isinstance(row, dict) and _row_matches_context(row, relevant_ref_set, issue_name_set)
+    ]
+    top_issue = diagnosis.get("topIssue") if isinstance(diagnosis.get("topIssue"), dict) else None
+    quality_gaps = [
+        {
+            "label": row.get("label"),
+            "state": row.get("state"),
+            "ready": row.get("ready"),
+            "total": row.get("total"),
+            "sourceRefs": _refs_from_row(row),
+        }
+        for row in (stats.get("dataQuality") if isinstance(stats.get("dataQuality"), list) else [])
+        if isinstance(row, dict) and str(row.get("state") or "").lower() not in {"good", "ready"}
+    ]
+    context: dict[str, Any] = {}
+    if top_issue:
+        context["topIssue"] = _compact_diagnostic_row(top_issue)
+    if trends:
+        context["relevantIssueTrends"] = trends[:5]
+    if quality_gaps:
+        context["qualityGaps"] = quality_gaps[:5]
+    audit_trends = diagnosis.get("decisionAuditTrends") if isinstance(diagnosis.get("decisionAuditTrends"), dict) else None
+    if audit_trends and audit_trends.get("totalAudits"):
+        context["decisionAuditTrends"] = audit_trends
     return context
 
 
