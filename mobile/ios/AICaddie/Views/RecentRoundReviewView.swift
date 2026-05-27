@@ -45,7 +45,7 @@ public struct RecentRoundReviewView: View {
                                         .font(.title3.monospacedDigit().weight(.semibold))
                                     Text(toParText(round.toPar))
                                         .font(.caption.monospacedDigit())
-                                        .foregroundStyle(scoreColor(round.toPar))
+                                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: round.toPar))
                                 }
                             }
                             HStack {
@@ -112,18 +112,5 @@ public struct RecentRoundReviewView: View {
             return "E"
         }
         return toPar > 0 ? "+\(toPar)" : "\(toPar)"
-    }
-
-    private func scoreColor(_ toPar: Int?) -> Color {
-        guard let toPar else {
-            return .secondary
-        }
-        if toPar < 0 {
-            return .blue
-        }
-        if toPar == 0 {
-            return .green
-        }
-        return .orange
     }
 }

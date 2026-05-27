@@ -96,7 +96,9 @@ public struct CaddiePlanView: View {
             ForEach(options) { option in
                 HStack(spacing: 12) {
                     Image(systemName: option.id == selectedOptionId ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(option.id == selectedOptionId ? .green : .secondary)
+                        .foregroundStyle(
+                            option.id == selectedOptionId ? AICaddieDesignTokens.strategyColor(option.id) : .secondary
+                        )
                     VStack(alignment: .leading, spacing: 2) {
                         Text(option.label)
                             .font(.subheadline.weight(.semibold))
@@ -107,7 +109,7 @@ public struct CaddiePlanView: View {
                     Spacer()
                     Text("Risk \(Int(option.riskScore))")
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
                 }
                 .padding(.vertical, 6)
             }

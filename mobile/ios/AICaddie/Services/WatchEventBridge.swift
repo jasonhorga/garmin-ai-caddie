@@ -27,6 +27,7 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let targetNote: String?
     public let suggestedClub: String?
     public let selectedClub: String?
+    public let nextShotPrompt: String?
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -84,6 +85,7 @@ public final class WatchEventBridge: NSObject {
             targetNote: string(selected?["label"]) ?? string(selected?["routeLabel"]) ?? offlineSelected?.label,
             suggestedClub: clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName,
             selectedClub: selectedClub,
+            nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected),
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
@@ -156,6 +158,17 @@ public final class WatchEventBridge: NSObject {
             return offlineOption == nil ? "low" : "offline"
         }
         return string(decision.confidence["level"]) ?? string(decision.confidence["confidence"]) ?? "low"
+    }
+
+    private func nextShotPrompt(selected: [String: JSONValue]?, offlineOption: OfflineCaddieOption?) -> String? {
+        let club = clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineOption?.clubName
+        let label = string(selected?["label"]) ?? string(selected?["routeLabel"]) ?? offlineOption?.label
+        let carry = number(selected?["carry_m"]) ?? number(selected?["carryM"]) ?? offlineOption?.carryM
+        let carryText = carry.map { "\(Int($0))m" }
+        let parts = [club, label, carryText].compactMap { value in
+            value?.isEmpty == false ? value : nil
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " / ")
     }
 
     private func clubName(_ value: JSONValue?) -> String? {

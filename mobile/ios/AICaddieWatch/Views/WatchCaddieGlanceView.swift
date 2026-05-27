@@ -19,22 +19,18 @@ public struct WatchCaddieGlanceView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            if let nextShotPrompt = state.nextShotPrompt {
+                HStack(spacing: 4) {
+                    Image(systemName: "figure.golf")
+                    Text(nextShotPrompt)
+                        .lineLimit(2)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AICaddieDesignTokens.strategyColor("stock"))
+            }
             Text(state.caddieConfidence)
                 .font(.caption)
-                .foregroundStyle(confidenceColor)
-        }
-    }
-
-    private var confidenceColor: Color {
-        switch state.caddieConfidence {
-        case "high":
-            return .green
-        case "medium":
-            return .yellow
-        case "offline":
-            return .orange
-        default:
-            return .red
+                .foregroundStyle(AICaddieDesignTokens.confidenceColor(state.caddieConfidence))
         }
     }
 }

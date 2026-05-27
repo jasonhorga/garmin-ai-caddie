@@ -1082,6 +1082,24 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("didUpdateLocations", location_provider)
         self.assertIn("horizontalAccuracyM", location_provider)
 
+    def test_native_visual_tokens_share_garmin_pro_score_semantics(self) -> None:
+        ios_tokens = _read_required_source(self, IOS_DIR / "Design" / "AICaddieDesignTokens.swift")
+        watch_tokens = _read_required_source(self, WATCH_DIR / "Design" / "AICaddieDesignTokens.swift")
+        recent_review = _read_required_source(self, IOS_DIR / "Views" / "RecentRoundReviewView.swift")
+        caddie_plan = _read_required_source(self, IOS_DIR / "Views" / "CaddiePlanView.swift")
+        watch_glance = _read_required_source(self, WATCH_DIR / "Views" / "WatchCaddieGlanceView.swift")
+
+        for source in [ios_tokens, watch_tokens]:
+            self.assertIn("enum AICaddieDesignTokens", source)
+            for semantic in ["par", "birdie", "eagle", "bogey", "doubleBogey"]:
+                self.assertIn(f"static let {semantic}", source)
+            self.assertIn("static func scoreColor(toPar", source)
+            self.assertIn("static func confidenceColor(_", source)
+
+        self.assertIn("AICaddieDesignTokens.scoreColor(toPar: round.toPar)", recent_review)
+        self.assertIn("AICaddieDesignTokens.strategyColor(option.id)", caddie_plan)
+        self.assertIn("AICaddieDesignTokens.confidenceColor(state.caddieConfidence)", watch_glance)
+
     def test_watch_state_model_defines_compact_codable_state(self) -> None:
         state_swift = (WATCH_DIR / "Models" / "WatchRoundState.swift").read_text(encoding="utf-8")
 
@@ -1094,12 +1112,27 @@ class MobileContractTests(unittest.TestCase):
             "targetNote",
             "suggestedClub",
             "selectedClub",
+            "nextShotPrompt",
             "score",
             "putts",
             "penaltyCount",
             "caddieConfidence",
         ]:
             self.assertIn(field, state_swift)
+
+    def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
+        bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
+        state_swift = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundState.swift")
+        glance_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchCaddieGlanceView.swift")
+
+        self.assertIn("public let nextShotPrompt: String?", bridge)
+        self.assertIn("nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected)", bridge)
+        self.assertIn("private func nextShotPrompt(selected: [String: JSONValue]?, offlineOption: OfflineCaddieOption?) -> String?", bridge)
+        self.assertIn("public let nextShotPrompt: String?", state_swift)
+        self.assertIn("nextShotPrompt: String? = nil", state_swift)
+        self.assertIn("nextShotPrompt: nextShotPrompt", state_swift)
+        self.assertIn("if let nextShotPrompt = state.nextShotPrompt", glance_view)
+        self.assertIn('Image(systemName: "figure.golf")', glance_view)
 
     def test_watch_sync_client_defines_connectivity_and_queue(self) -> None:
         sync_swift = (WATCH_DIR / "Services" / "WatchSyncClient.swift").read_text(encoding="utf-8")
