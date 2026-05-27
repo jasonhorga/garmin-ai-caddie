@@ -1374,6 +1374,76 @@ p {
   padding-top: 10px;
 }
 
+.course-breakdown {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.course-breakdown section {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.course-breakdown h3 {
+  color: var(--ink);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.course-insight-list {
+  display: grid;
+  gap: 6px;
+}
+
+.course-insight-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.course-insight-row > span {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.course-insight-row strong,
+.course-insight-row b,
+.course-insight-row em {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #eef2ed;
+  padding: 3px 8px;
+  overflow-wrap: anywhere;
+}
+
+.course-insight-row strong {
+  color: var(--ink);
+}
+
+.course-insight-row b {
+  color: var(--green);
+}
+
+.course-insight-row em {
+  color: var(--double);
+  font-style: normal;
+}
+
 .hole-distribution {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));

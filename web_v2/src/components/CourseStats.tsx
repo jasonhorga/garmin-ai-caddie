@@ -3,7 +3,7 @@ import { AggregateEvidence } from './AggregateEvidence'
 import { CourseDistributionMap } from './CourseDistributionMap'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
-import { asString, formatNumber, formatSigned, semanticClass } from './statsValues'
+import { asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface CourseStatsProps {
   data: HistoryStatsResponse
@@ -43,9 +43,12 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
           const recentForm = asRecord(course.recentForm)
           const teeDirection = asRecord(course.teeDirection)
           const approachMiss = asRecord(course.approachMiss)
+          const issueProfile = asRows(course.issueProfile).slice(0, 4)
+          const toughestHoles = asRows(course.toughestHoles).slice(0, 4)
           const direction = asString(recentForm.direction)
           const dominantMiss = asString(teeDirection.dominantMiss)
           const dominantApproachMiss = asString(approachMiss.dominantMiss)
+          const courseName = asString(course.courseName) ?? 'course'
           return (
             <article key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="stats-item">
               <div className="stats-item-main">
@@ -83,6 +86,47 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
               <p className="stats-refs">
                 <SourceRefs refs={course.roundRefs ?? course.roundIds} onSelectRef={onSelectRef} />
               </p>
+              {issueProfile.length || toughestHoles.length ? (
+                <div className="course-breakdown">
+                  {issueProfile.length ? (
+                    <section aria-label={`${courseName} issue profile`}>
+                      <h3>Course Issue Profile</h3>
+                      <div className="course-insight-list">
+                        {issueProfile.map((issue) => (
+                          <div key={`${asString(issue.issue) ?? 'issue'}-${asString(issue.source) ?? 'source'}`} className="course-insight-row">
+                            <span>
+                              <strong>{asString(issue.issue) ?? 'Unknown issue'}</strong>
+                              {asString(issue.phase) ? <b>{asString(issue.phase)}</b> : null}
+                              <em>{formatNumber(issue.affectedHoleCount)} holes</em>
+                              <em>{formatNumber(issue.samplePct)}% sample</em>
+                              <em>risk {formatNumber(issue.estimatedStrokesRisk)}</em>
+                            </span>
+                            <SourceRefs refs={issue.sourceRefs ?? issue.refs} onSelectRef={onSelectRef} />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+                  {toughestHoles.length ? (
+                    <section aria-label={`${courseName} toughest holes`}>
+                      <h3>Toughest Holes</h3>
+                      <div className="course-insight-list">
+                        {toughestHoles.map((hole) => (
+                          <div key={`hole-${formatNumber(hole.hole)}`} className="course-insight-row">
+                            <span>
+                              <strong>Hole {formatNumber(hole.hole)}</strong>
+                              <b>{formatSigned(hole.averageToPar)} avg</b>
+                              <em>{formatSigned(hole.worstToPar)} worst</em>
+                              <em>risk {formatNumber(hole.issueScore)}</em>
+                            </span>
+                            <SourceRefs refs={hole.holeRefs ?? hole.sourceRefs} onSelectRef={onSelectRef} />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+                </div>
+              ) : null}
             </article>
           )
         })}

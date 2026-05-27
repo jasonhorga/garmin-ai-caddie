@@ -1371,12 +1371,193 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
     }
 
 
-def _courses(data: HistoryData) -> list[dict[str, Any]]:
+def _record_issue(
+    issue_refs: dict[tuple[str, str], list[str]],
+    affected_holes: dict[tuple[str, str], list[str]],
+    issue: str,
+    ref: str,
+    *,
+    hole_ref: str | None = None,
+    source: str = "deterministic",
+) -> None:
+    key = (issue, source)
+    if ref and ref not in issue_refs[key]:
+        issue_refs[key].append(ref)
+    if hole_ref:
+        affected_ref = hole_ref
+    elif ref.count(":") >= 2:
+        affected_ref = ref.rsplit(":", 1)[0]
+    else:
+        affected_ref = ref
+    if affected_ref and affected_ref not in affected_holes[key]:
+        affected_holes[key].append(affected_ref)
+
+
+def _course_issue_profile(
+    rows: list[dict[str, Any]],
+    effective_shots: list[dict[str, Any]],
+    annotations: list[dict[str, Any]] | None = None,
+    report_records: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    round_ids = {_round_id(row) for row in rows}
+    manual_tags = _active_manual_issue_tags_by_target(annotations)
+    ai_tags = _ai_suggested_issue_tags_by_target(report_records)
+    shots_by_hole: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for shot in effective_shots:
+        round_id = _shot_round_id(shot)
+        if round_id not in round_ids:
+            continue
+        hole_number = shot.get("hole")
+        if hole_number is None:
+            continue
+        shots_by_hole[f"{round_id}:{hole_number}"].append(shot)
+
+    issue_refs: dict[tuple[str, str], list[str]] = defaultdict(list)
+    affected_holes: dict[tuple[str, str], list[str]] = defaultdict(list)
+    total_holes = 0
+    for row in rows:
+        hole_pars = str(row.get("holePars") or "")
+        for hole in row.get("holes") or []:
+            number = int(hole.get("number") or 0)
+            if not number:
+                continue
+            total_holes += 1
+            hole_ref = _hole_ref(row, number)
+            par = _hole_to_par(hole, _par_from_string(hole_pars, number))
+            score = hole.get("strokes")
+            if par is not None and score is not None and int(score) - int(par) >= 2:
+                _record_issue(issue_refs, affected_holes, "double_or_worse", hole_ref)
+            try:
+                if int(hole.get("putts")) >= 3:
+                    _record_issue(issue_refs, affected_holes, "three_putt", hole_ref)
+            except (TypeError, ValueError):
+                if score is not None:
+                    _record_issue(issue_refs, affected_holes, "missing_putt_data", hole_ref)
+            fairway = str(hole.get("fairway") or "").strip().lower()
+            if fairway in {"left", "miss_left", "missed_left", "fairway_left"}:
+                _record_issue(issue_refs, affected_holes, "fairway_missed_left", hole_ref)
+            elif fairway in {"right", "miss_right", "missed_right", "fairway_right"}:
+                _record_issue(issue_refs, affected_holes, "fairway_missed_right", hole_ref)
+            if hole.get("gir") is not None and not bool(hole.get("gir")):
+                approach_miss = _approach_miss_direction(hole)
+                if approach_miss in {"short", "long", "left", "right"}:
+                    _record_issue(issue_refs, affected_holes, f"approach_{approach_miss}", hole_ref)
+            for shot in shots_by_hole.get(hole_ref, []):
+                surface = str(_shot_surface(shot) or "").strip().lower()
+                if surface in HAZARD_SURFACES:
+                    shot_ref = str(shot.get("_ref") or "")
+                    _record_issue(issue_refs, affected_holes, "hazard_result", hole_ref)
+                    if shot_ref:
+                        _record_issue(issue_refs, affected_holes, surface, shot_ref, hole_ref=hole_ref)
+            for tag in manual_tags.get(hole_ref, []):
+                _record_issue(issue_refs, affected_holes, tag, hole_ref, source="manual")
+            for tag in ai_tags.get(hole_ref, []):
+                _record_issue(issue_refs, affected_holes, tag, hole_ref, source="ai_suggested")
+
+    profile: list[dict[str, Any]] = []
+    for (issue, source), refs in issue_refs.items():
+        hole_refs = affected_holes[(issue, source)]
+        row = issue_record(issue, refs, source=source)
+        row.update(
+            {
+                "affectedHoleRefs": _source_refs(hole_refs),
+                "affectedHoleCount": len(_source_refs(hole_refs)),
+                "samplePct": round(len(_source_refs(hole_refs)) / total_holes * 100, 1) if total_holes else 0.0,
+                "strokeWeight": _issue_weight(issue),
+                "estimatedStrokesRisk": round(len(_source_refs(hole_refs)) * _issue_weight(issue), 1),
+            }
+        )
+        row["coverage"] = _coverage(len(_source_refs(hole_refs)), total_holes)
+        row["confidence"] = _confidence(len(_source_refs(hole_refs)))
+        profile.append(row)
+    return sorted(
+        profile,
+        key=lambda row: (
+            -float(row["estimatedStrokesRisk"]),
+            -int(row["affectedHoleCount"]),
+            0 if row["source"] == "deterministic" else 1,
+            str(row["issue"]),
+        ),
+    )
+
+
+def _course_toughest_holes(
+    rows: list[dict[str, Any]],
+    issue_profile: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped: dict[int, dict[str, Any]] = defaultdict(lambda: {"deltas": [], "refs": [], "issueScore": 0.0, "issues": []})
+    issue_by_hole: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for issue in issue_profile:
+        for hole_ref in issue.get("affectedHoleRefs") or []:
+            issue_by_hole[str(hole_ref)].append(issue)
+
+    for row in rows:
+        hole_pars = str(row.get("holePars") or "")
+        for hole in row.get("holes") or []:
+            number = int(hole.get("number") or 0)
+            if not number:
+                continue
+            ref = _hole_ref(row, number)
+            grouped[number]["refs"].append(ref)
+            par = _hole_to_par(hole, _par_from_string(hole_pars, number))
+            score = hole.get("strokes")
+            if par is not None and score is not None:
+                grouped[number]["deltas"].append(int(score) - int(par))
+            for issue in issue_by_hole.get(ref, []):
+                grouped[number]["issueScore"] += float(issue.get("strokeWeight") or 0.0)
+                grouped[number]["issues"].append(issue)
+
+    out: list[dict[str, Any]] = []
+    for number, values in grouped.items():
+        refs = _source_refs(values["refs"])
+        deltas = values["deltas"]
+        issue_refs: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for issue in values["issues"]:
+            issue_key = str(issue.get("issue") or "")
+            source = str(issue.get("source") or "deterministic")
+            for ref in issue.get("sourceRefs") or []:
+                ref_text = str(ref)
+                if ref_text.startswith(tuple(f"{hole_ref}:" for hole_ref in refs)) or ref_text in refs:
+                    issue_refs[(issue_key, source)].append(ref_text)
+        out.append(
+            _with_aggregate_contract(
+                {
+                    "hole": number,
+                    "sampleCount": len(refs),
+                    "averageToPar": average(deltas),
+                    "worstToPar": max(deltas) if deltas else None,
+                    "issueScore": round(float(values["issueScore"]), 1),
+                    "holeRefs": refs,
+                    "issues": _hole_repeated_issue_records(issue_refs),
+                },
+                refs,
+                ready=len(refs),
+                total=len(refs),
+                confidence_count=len(refs),
+            )
+        )
+    return sorted(
+        out,
+        key=lambda row: (
+            -(float(row["averageToPar"]) if row["averageToPar"] is not None else -999.0),
+            -float(row["issueScore"]),
+            -(float(row["worstToPar"]) if row["worstToPar"] is not None else -999.0),
+            int(row["hole"]),
+        ),
+    )
+
+
+def _courses(
+    data: HistoryData,
+    annotations: list[dict[str, Any]] | None = None,
+    report_records: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rounds:
         grouped[str(row.get("courseKey") or "unknown")].append(row)
     out = []
     total_rounds = len(data.rounds)
+    effective_shots = _effective_shots(data, annotations)
     for course_key, rows in grouped.items():
         rows_sorted = sorted(rows, key=lambda row: str(row.get("date") or ""), reverse=True)
         round_ids = [_round_id(row) for row in rows_sorted]
@@ -1385,6 +1566,7 @@ def _courses(data: HistoryData) -> list[dict[str, Any]]:
             for row in rows
             if row.get("holesCompleted") == 18 and row.get("strokes") is not None
         ]
+        issue_profile = _course_issue_profile(rows, effective_shots, annotations, report_records)
         out.append(
             _with_aggregate_contract(
                 {
@@ -1401,6 +1583,8 @@ def _courses(data: HistoryData) -> list[dict[str, Any]]:
                     "teeDirection": _tee_direction_stats(rows),
                     "parScoring": _par_type_scoring(rows),
                     "approachMiss": _approach_miss_stats(rows),
+                    "issueProfile": issue_profile,
+                    "toughestHoles": _course_toughest_holes(rows, issue_profile)[:5],
                     "geometryCoverage": _course_geometry_coverage(rows),
                 },
                 round_ids,
@@ -2432,7 +2616,7 @@ def build_history_stats(
         "scoring": _scoring(scored_data, annotations),
         "courseDistribution": _course_distribution(scored_data),
         "records": _records(scored_data, annotations),
-        "courses": _courses(scored_data),
+        "courses": _courses(scored_data, annotations, report_records),
         "holes": hole_rows,
         "clubs": _clubs(data, annotations),
         "issues": issue_rows,

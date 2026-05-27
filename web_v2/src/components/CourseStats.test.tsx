@@ -79,6 +79,39 @@ const statsFixture: HistoryStatsResponse = {
         dominantMiss: 'short',
         sourceRefs: ['900001:1', '900001:2', '900001:3', '900001:4'],
       },
+      issueProfile: [
+        {
+          issue: 'double_or_worse',
+          phase: 'Course Management',
+          count: 5,
+          affectedHoleCount: 5,
+          samplePct: 13.9,
+          estimatedStrokesRisk: 7.5,
+          sourceRefs: ['900002:5', '900002:7'],
+          confidence: 'medium',
+        },
+        {
+          issue: 'fairway_missed_right',
+          phase: 'Tee',
+          count: 12,
+          affectedHoleCount: 12,
+          samplePct: 33.3,
+          estimatedStrokesRisk: 3.6,
+          sourceRefs: ['900001:1', '900001:4'],
+          confidence: 'high',
+        },
+      ],
+      toughestHoles: [
+        {
+          hole: 7,
+          sampleCount: 2,
+          averageToPar: 1.5,
+          worstToPar: 2,
+          issueScore: 4.5,
+          holeRefs: ['900001:7', '900002:7'],
+          confidence: 'medium',
+        },
+      ],
       geometryCoverage: 'missing',
       roundIds: ['900001', '900002'],
       coverage: { ready: 2, total: 3, pct: 66.7 },
@@ -113,6 +146,15 @@ describe('CourseStats', () => {
     expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
     expect(screen.getByText('coverage 2/3 66.7%')).toBeInTheDocument()
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(screen.getByText('Course Issue Profile')).toBeInTheDocument()
+    expect(screen.getByText('double_or_worse')).toBeInTheDocument()
+    expect(screen.getByText('5 holes')).toBeInTheDocument()
+    expect(screen.getByText('risk 7.5')).toBeInTheDocument()
+    expect(screen.getByText('33.3% sample')).toBeInTheDocument()
+    expect(screen.getByText('Toughest Holes')).toBeInTheDocument()
+    expect(screen.getByText('Hole 7')).toBeInTheDocument()
+    expect(screen.getByText('+1.5 avg')).toBeInTheDocument()
+    expect(screen.getByText('risk 4.5')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
   })
