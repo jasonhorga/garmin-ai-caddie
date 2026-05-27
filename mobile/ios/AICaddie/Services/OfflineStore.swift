@@ -133,6 +133,12 @@ public final class OfflineStore {
         }
     }
 
+    public func containsEvent(eventId: String) throws -> Bool {
+        try loadEvents().contains { event in
+            event.eventId == eventId
+        }
+    }
+
     public func loadEvents() throws -> [LiveRoundEvent] {
         guard FileManager.default.fileExists(atPath: logURL.path) else {
             return []

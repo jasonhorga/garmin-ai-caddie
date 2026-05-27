@@ -90,6 +90,44 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(payload.evidenceSummary).contains("/Users/"))
     }
 
+    func testWatchInputAcknowledgementReportsAcceptedAndDuplicateEventIds() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let bridge = WatchEventBridge(offlineStore: store)
+        let event = WatchInputEvent(
+            eventId: "watch-event-1",
+            roundId: "round-1",
+            hole: 4,
+            kind: .score,
+            value: "5",
+            createdAt: "2026-05-25T00:00:00Z"
+        )
+        let message = ["event": try Self.jsonObject(from: event)]
+
+        var acceptedReply: [String: Any]?
+        bridge.handleWatchInputMessage(message) { reply in
+            acceptedReply = reply
+        }
+
+        XCTAssertEqual(acceptedReply?["accepted"] as? Bool, true)
+        XCTAssertEqual(acceptedReply?["eventId"] as? String, "watch-event-1")
+        XCTAssertEqual(acceptedReply?["acceptedEventIds"] as? [String], ["watch-event-1"])
+        XCTAssertEqual(acceptedReply?["duplicateEventIds"] as? [String], [])
+        XCTAssertEqual(try store.loadEvents().map(\.eventId), ["watch-event-1"])
+
+        var duplicateReply: [String: Any]?
+        bridge.handleWatchInputMessage(message) { reply in
+            duplicateReply = reply
+        }
+
+        XCTAssertEqual(duplicateReply?["accepted"] as? Bool, true)
+        XCTAssertEqual(duplicateReply?["eventId"] as? String, "watch-event-1")
+        XCTAssertEqual(duplicateReply?["acceptedEventIds"] as? [String], [])
+        XCTAssertEqual(duplicateReply?["duplicateEventIds"] as? [String], ["watch-event-1"])
+        XCTAssertEqual(try store.loadEvents().map(\.eventId), ["watch-event-1"])
+    }
+
     private func fixturePackage() throws -> LiveRoundPackage {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

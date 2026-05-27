@@ -67,6 +67,36 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(try client.loadQueuedEvents(), [])
     }
 
+    func testAcknowledgementDecoderSupportsAcceptedDuplicateAndLegacyReplies() throws {
+        let batch = WatchSyncAcknowledgement.decode(
+            [
+                "accepted": true,
+                "eventId": "legacy-event",
+                "acceptedEventIds": ["event-1", "event-2"],
+                "duplicateEventIds": ["event-0"],
+                "serverSequence": 42,
+            ],
+            fallbackEventId: "fallback-event"
+        )
+
+        XCTAssertEqual(batch.acceptedEventIds, ["event-1", "event-2"])
+        XCTAssertEqual(batch.duplicateEventIds, ["event-0"])
+        XCTAssertEqual(batch.acknowledgedEventIds, ["event-1", "event-2", "event-0"])
+        XCTAssertEqual(batch.serverSequence, 42)
+
+        let legacy = WatchSyncAcknowledgement.decode(["accepted": true, "eventId": "legacy-event"], fallbackEventId: "fallback-event")
+
+        XCTAssertEqual(legacy.acceptedEventIds, ["legacy-event"])
+        XCTAssertEqual(legacy.duplicateEventIds, [])
+        XCTAssertEqual(legacy.acknowledgedEventIds, ["legacy-event"])
+
+        let rejected = WatchSyncAcknowledgement.decode(["accepted": false, "eventId": "rejected-event"], fallbackEventId: "fallback-event")
+
+        XCTAssertEqual(rejected.acceptedEventIds, [])
+        XCTAssertEqual(rejected.duplicateEventIds, [])
+        XCTAssertEqual(rejected.acknowledgedEventIds, [])
+    }
+
     func testReceiveStatePersistsLastRoundStateForOfflineRelaunch() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

@@ -120,6 +120,43 @@ public final class WatchEventBridge: NSObject {
         }
     }
 
+    public func handleWatchInputMessage(_ message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        guard let object = message["event"] as? [String: Any],
+              JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let event = try? decoder.decode(WatchInputEvent.self, from: data)
+        else {
+            replyHandler(["accepted": false])
+            return
+        }
+
+        do {
+            let liveEvent = try mapWatchInputEvent(event)
+            if try offlineStore.containsEvent(eventId: liveEvent.eventId) {
+                replyHandler(acknowledgementReply(eventId: event.eventId, duplicate: true))
+                return
+            }
+
+            if let onAcceptedLiveEvent {
+                Task {
+                    do {
+                        try await onAcceptedLiveEvent(liveEvent)
+                        replyHandler(self.acknowledgementReply(eventId: event.eventId, duplicate: false))
+                    } catch {
+                        replyHandler(["accepted": false, "eventId": event.eventId])
+                    }
+                }
+            } else {
+                try offlineStore.appendEvent(liveEvent)
+                replyHandler(acknowledgementReply(eventId: event.eventId, duplicate: false))
+            }
+        } catch WatchEventBridgeError.invalidNumericInput {
+            replyHandler(["accepted": false, "eventId": event.eventId, "reason": "invalid_numeric_input"])
+        } catch {
+            replyHandler(["accepted": false, "eventId": event.eventId])
+        }
+    }
+
     private func liveEvent(
         _ watchEvent: WatchInputEvent,
         kind: LiveRoundEventKind,
@@ -135,6 +172,18 @@ public final class WatchEventBridge: NSObject {
             kind: kind,
             payload: enrichedPayload
         )
+    }
+
+    private func acknowledgementReply(eventId: String, duplicate: Bool) -> [String: Any] {
+        let acceptedEventIds: [String] = duplicate ? [] : [eventId]
+        let duplicateEventIds: [String] = duplicate ? [eventId] : []
+        return [
+            "accepted": true,
+            "eventId": eventId,
+            "acceptedEventIds": acceptedEventIds,
+            "duplicateEventIds": duplicateEventIds,
+            "source": "ios_watch_bridge",
+        ]
     }
 
     private func numericPayload(_ value: String, minimum: Int) throws -> JSONValue {
@@ -318,34 +367,6 @@ extension WatchEventBridge: WCSessionDelegate {
         didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
-        guard let object = message["event"] as? [String: Any],
-              JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object),
-              let event = try? decoder.decode(WatchInputEvent.self, from: data)
-        else {
-            replyHandler(["accepted": false])
-            return
-        }
-
-        do {
-            let liveEvent = try mapWatchInputEvent(event)
-            if let onAcceptedLiveEvent {
-                Task {
-                    do {
-                        try await onAcceptedLiveEvent(liveEvent)
-                        replyHandler(["accepted": true, "eventId": event.eventId])
-                    } catch {
-                        replyHandler(["accepted": false, "eventId": event.eventId])
-                    }
-                }
-            } else {
-                try offlineStore.appendEvent(liveEvent)
-                replyHandler(["accepted": true, "eventId": event.eventId])
-            }
-        } catch WatchEventBridgeError.invalidNumericInput {
-            replyHandler(["accepted": false, "eventId": event.eventId, "reason": "invalid_numeric_input"])
-        } catch {
-            replyHandler(["accepted": false, "eventId": event.eventId])
-        }
+        handleWatchInputMessage(message, replyHandler: replyHandler)
     }
 }

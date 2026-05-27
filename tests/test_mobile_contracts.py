@@ -1207,7 +1207,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("clubRecommendation", bridge)
         self.assertIn("caddieConfidence", bridge)
         self.assertIn("offlineStore.appendEvent", bridge)
-        self.assertIn('replyHandler(["accepted": true, "eventId": event.eventId])', bridge)
+        self.assertIn("handleWatchInputMessage", bridge)
+        self.assertIn("containsEvent(eventId:", bridge)
+        self.assertIn("acceptedEventIds", bridge)
+        self.assertIn("duplicateEventIds", bridge)
         for mapping in [
             "case .score:",
             "case .putt:",
@@ -1412,7 +1415,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public func receiveState(_ state: WatchRoundState) {\n        currentState = state\n        try? persistState(state)", sync_swift)
         self.assertIn("sessionReachabilityDidChange", sync_swift)
         self.assertIn("try? flushQueue()", sync_swift)
-        self.assertIn('reply["accepted"] as? Bool', sync_swift)
+        self.assertIn("struct WatchSyncAcknowledgement", sync_swift)
+        self.assertIn("acceptedEventIds", sync_swift)
+        self.assertIn("duplicateEventIds", sync_swift)
+        self.assertIn("acknowledgedEventIds", sync_swift)
+        self.assertIn("serverSequence", sync_swift)
+        self.assertIn("WatchSyncAcknowledgement.decode(reply", sync_swift)
         self.assertNotIn("try FileManager.default.removeItem(at: queueURL)\n    }", sync_swift)
 
     def test_watch_queued_quick_inputs_update_persisted_state(self) -> None:

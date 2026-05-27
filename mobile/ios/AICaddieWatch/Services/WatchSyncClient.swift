@@ -29,6 +29,45 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     }
 }
 
+public struct WatchSyncAcknowledgement: Equatable {
+    public let acceptedEventIds: [String]
+    public let duplicateEventIds: [String]
+    public let serverSequence: Int
+
+    public var acknowledgedEventIds: [String] {
+        acceptedEventIds + duplicateEventIds
+    }
+
+    public static func decode(_ reply: [String: Any], fallbackEventId: String) -> WatchSyncAcknowledgement {
+        let accepted = reply["accepted"] as? Bool ?? false
+        let eventId = reply["eventId"] as? String ?? fallbackEventId
+        let explicitAcceptedEventIds = stringArray(reply["acceptedEventIds"])
+        let acceptedEventIds = explicitAcceptedEventIds ?? (accepted ? [eventId] : [])
+        let duplicateEventIds = stringArray(reply["duplicateEventIds"]) ?? []
+        let serverSequence = intValue(reply["serverSequence"]) ?? 0
+
+        return WatchSyncAcknowledgement(
+            acceptedEventIds: acceptedEventIds,
+            duplicateEventIds: duplicateEventIds,
+            serverSequence: serverSequence
+        )
+    }
+
+    private static func stringArray(_ value: Any?) -> [String]? {
+        value as? [String]
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let raw = value as? Int {
+            return raw
+        }
+        if let raw = value as? Double, raw.isFinite {
+            return Int(raw)
+        }
+        return nil
+    }
+}
+
 public final class WatchSyncClient: NSObject, ObservableObject {
     @Published public private(set) var currentState: WatchRoundState?
 
@@ -155,11 +194,10 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         WCSession.default.sendMessage(
             ["event": object],
             replyHandler: { [weak self] reply in
-                let accepted = reply["accepted"] as? Bool ?? false
-                if accepted {
-                    let acknowledgedEventId = reply["eventId"] as? String ?? event.eventId
+                let acknowledgement = WatchSyncAcknowledgement.decode(reply, fallbackEventId: event.eventId)
+                if !acknowledgement.acknowledgedEventIds.isEmpty {
                     if removeFromQueueOnAck {
-                        try? self?.markEventsAcknowledged([acknowledgedEventId])
+                        try? self?.markEventsAcknowledged(acknowledgement.acknowledgedEventIds)
                     }
                 } else if queueOnFailure {
                     try? self?.queueInputEvent(event)
