@@ -42,6 +42,15 @@ const statsFixture: HistoryStatsResponse = {
       validShotRefs: ['900001:1:0', '900002:5:4'],
       invalidShotRefs: ['900003:6:5'],
       outlierShotRefs: ['900004:7:6'],
+      surfaceDistribution: [
+        { surface: 'fairway', count: 1, pct: 25, shotRefs: ['900001:1:0'] },
+        { surface: 'green', count: 1, pct: 25, shotRefs: ['900002:5:4'] },
+        { surface: 'rough', count: 1, pct: 25, shotRefs: ['900005:7:1'] },
+      ],
+      hazardRate: 25,
+      usableRate: 50,
+      riskShotRefs: ['900005:7:1'],
+      usableShotRefs: ['900001:1:0', '900002:5:4'],
       coverage: { ready: 2, total: 4, pct: 50 },
       sampleQuality: {
         rawSampleCount: 4,
@@ -82,11 +91,16 @@ describe('ClubStats', () => {
     expect(screen.getByText('sample medium')).toHaveClass('confidence-medium')
     expect(screen.getByText('volatile consistency')).toHaveClass('consistency-volatile')
     expect(screen.getByText('trend -16 shorter')).toHaveClass('trend-shorter')
+    expect(screen.getByText('risk 25%')).toBeInTheDocument()
+    expect(screen.getByText('usable 50%')).toBeInTheDocument()
+    expect(screen.getByText('fairway 1 25%')).toBeInTheDocument()
+    expect(screen.getByText('rough 1 25%')).toBeInTheDocument()
     expect(screen.getByText('low confidence')).toHaveClass('confidence-low')
     expect(screen.getByText('coverage 2/4 50%')).toBeInTheDocument()
     expect(screen.getByText('shots partial 1/2')).toHaveClass('quality-partial')
     expect(screen.getByText('shot_rows good 6/6')).toHaveClass('quality-good')
     expect(screen.getByRole('button', { name: 'Open source 900001:1:0' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900005:7:1' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900003:6:5' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900004:7:6' })).toBeInTheDocument()
   })

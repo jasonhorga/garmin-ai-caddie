@@ -540,6 +540,13 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(driver["sampleCount"], 2)
         self.assertEqual(driver["confidence"], "medium")
         self.assertEqual(driver["roundIds"], ["900001", "900002"])
+        self.assertEqual(driver["surfaceDistribution"][0]["surface"], "fairway")
+        self.assertEqual(driver["surfaceDistribution"][0]["shotRefs"], ["900001:1:0"])
+        self.assertEqual(driver["surfaceDistribution"][1]["surface"], "rough")
+        self.assertEqual(driver["hazardRate"], 50.0)
+        self.assertEqual(driver["usableRate"], 50.0)
+        self.assertEqual(driver["riskShotRefs"], ["900002:5:4"])
+        self.assertEqual(driver["usableShotRefs"], ["900001:1:0"])
 
         issue_labels = [row["issue"] for row in stats["issues"]]
         self.assertIn("missing_shots", issue_labels)

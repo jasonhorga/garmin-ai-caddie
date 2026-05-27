@@ -18,6 +18,7 @@ from ai_caddie.weather_context import list_weather_snapshots
 DataModeName = Literal["local", "fixture"]
 CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction", "score_correction"}
 HAZARD_SURFACES = {"water", "bunker", "rough"}
+USABLE_SURFACES = {"fairway", "green"}
 
 
 def _round_id(row: dict[str, Any]) -> str:
@@ -2113,6 +2114,50 @@ def _club_sample_quality_contract(quality: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _club_surface_profile(valid_shots: list[dict[str, Any]]) -> dict[str, Any]:
+    refs_by_surface: dict[str, list[str]] = defaultdict(list)
+    risk_refs: list[str] = []
+    usable_refs: list[str] = []
+    for shot in valid_shots:
+        ref = str(shot.get("_ref") or "")
+        if not ref:
+            continue
+        surface = str(_shot_surface(shot) or "unknown").strip().lower() or "unknown"
+        refs_by_surface[surface].append(ref)
+        if surface in HAZARD_SURFACES:
+            risk_refs.append(ref)
+        if surface in USABLE_SURFACES:
+            usable_refs.append(ref)
+
+    total = sum(len(refs) for refs in refs_by_surface.values())
+    distribution = [
+        _with_aggregate_contract(
+            {
+                "surface": surface,
+                "count": len(refs),
+                "pct": round(len(refs) / total * 100, 1) if total else 0.0,
+                "shotRefs": refs,
+            },
+            refs,
+            ready=len(refs),
+            total=total,
+            confidence_count=len(refs),
+        )
+        for surface, refs in refs_by_surface.items()
+    ]
+    distribution.sort(key=lambda row: (-int(row["count"]), str(row["surface"])))
+    top_surface = str(distribution[0]["surface"]) if distribution else None
+    return {
+        "surfaceDistribution": distribution,
+        "topSurface": top_surface,
+        "riskShotRefs": _source_refs(risk_refs),
+        "usableShotRefs": _source_refs(usable_refs),
+        "hazardRate": round(len(_source_refs(risk_refs)) / total * 100, 1) if total else None,
+        "riskRate": round(len(_source_refs(risk_refs)) / total * 100, 1) if total else None,
+        "usableRate": round(len(_source_refs(usable_refs)) / total * 100, 1) if total else None,
+    }
+
+
 def _sortable_int(value: Any, default: int = 999999) -> int:
     try:
         return int(value)
@@ -2253,6 +2298,7 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
             for shot in shots
             if shot.get("_clubCorrected") and shot.get("_ref") is not None
         )
+        surface_profile = _club_surface_profile(valid_shots)
         out.append(
             _with_aggregate_contract(
                 {
@@ -2274,6 +2320,7 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
                     "validShotRefs": quality["validShotRefs"],
                     "invalidShotRefs": quality["invalidShotRefs"],
                     "outlierShotRefs": quality["outlierShotRefs"],
+                    **surface_profile,
                     "sampleQuality": _club_sample_quality_contract(quality),
                     "correctedRefs": corrected_refs,
                     "correctionCount": len(corrected_refs),

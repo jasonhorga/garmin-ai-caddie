@@ -2,7 +2,7 @@ import type { HistoryStatsResponse } from '../types'
 import { AggregateEvidence } from './AggregateEvidence'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
-import { asNumber, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
+import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface ClubStatsProps {
   data: HistoryStatsResponse
@@ -36,6 +36,7 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
           const sampleQuality = asRecord(club.sampleQuality) ?? {}
           const consistency = asString(club.consistency)
           const trendDirection = asString(trend?.direction)
+          const surfaceRows = asRows(club.surfaceDistribution).slice(0, 4)
           const rawSampleCount = club.rawSampleCount ?? sampleQuality.rawSampleCount
           const validSampleCount = club.validSampleCount ?? sampleQuality.validSampleCount ?? club.sampleCount
           const invalidSampleCount = club.invalidSampleCount ?? sampleQuality.invalidSampleCount
@@ -77,6 +78,13 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
                     trend {formatSigned(trend?.deltaMedian)} {trendDirection}
                   </span>
                 ) : null}
+                {asNumber(club.hazardRate) !== null ? <span>risk {formatNumber(club.hazardRate)}%</span> : null}
+                {asNumber(club.usableRate) !== null ? <span>usable {formatNumber(club.usableRate)}%</span> : null}
+                {surfaceRows.map((surface) => (
+                  <span key={asString(surface.surface) ?? 'surface'}>
+                    {asString(surface.surface) ?? 'surface'} {formatNumber(surface.count)} {formatNumber(surface.pct)}%
+                  </span>
+                ))}
                 <span className={`semantic-chip ${semanticClass('confidence', club.confidence)}`}>
                   {asString(club.confidence) ?? 'unknown'} confidence
                 </span>
@@ -84,6 +92,7 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
               </div>
               <p className="stats-refs">
                 <SourceRefs refs={club.validShotRefs ?? club.shotRefs ?? club.roundRefs ?? club.roundIds} onSelectRef={onSelectRef} />
+                <SourceRefs refs={club.riskShotRefs} onSelectRef={onSelectRef} />
                 <SourceRefs refs={club.invalidShotRefs} onSelectRef={onSelectRef} />
                 <SourceRefs refs={club.outlierShotRefs} onSelectRef={onSelectRef} />
               </p>
