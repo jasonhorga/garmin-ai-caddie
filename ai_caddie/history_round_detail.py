@@ -215,6 +215,7 @@ def _scorecard(row: dict[str, Any], shots_by_hole: dict[int, list[tuple[int, dic
         score = _int_value(hole.get("strokes")) if hole else None
         to_par = score - par if score is not None and par is not None else None
         shot_refs = [_shot_ref(shot, index) for index, shot in shots_by_hole.get(hole_number, [])]
+        geometry_target = _hole_geometry_target(row, hole_number)
         source_refs = [_hole_ref(round_ref, hole_number), *shot_refs]
         cells.append(
             {
@@ -226,6 +227,8 @@ def _scorecard(row: dict[str, Any], shots_by_hole: dict[int, list[tuple[int, dic
                 "putts": _int_value(hole.get("putts")) if hole else None,
                 "gir": hole.get("gir") if hole else None,
                 "fairway": hole.get("fairway") if hole else None,
+                "globalId": geometry_target.get("globalId"),
+                "localHole": geometry_target.get("localHole"),
                 "holeRef": _hole_ref(round_ref, hole_number),
                 "shotRefs": shot_refs,
                 "sourceRefs": _dedupe([*source_refs, *_source_refs(hole or {})]),
@@ -245,6 +248,7 @@ def _hole_details(row: dict[str, Any], shots_by_hole: dict[int, list[tuple[int, 
         par = _par_for_hole(row, hole, hole_number)
         score = _int_value(hole.get("strokes")) if hole else None
         shot_summaries = [_shot_summary(shot, index) for index, shot in shots_by_hole.get(hole_number, [])]
+        geometry_target = _hole_geometry_target(row, hole_number)
         details.append(
             {
                 "hole": hole_number,
@@ -254,6 +258,8 @@ def _hole_details(row: dict[str, Any], shots_by_hole: dict[int, list[tuple[int, 
                 "putts": _int_value(hole.get("putts")) if hole else None,
                 "gir": hole.get("gir") if hole else None,
                 "fairway": hole.get("fairway") if hole else None,
+                "globalId": geometry_target.get("globalId"),
+                "localHole": geometry_target.get("localHole"),
                 "holeRef": _hole_ref(round_ref, hole_number),
                 "shotCount": len(shot_summaries),
                 "shotRefs": [shot["ref"] for shot in shot_summaries],
@@ -288,7 +294,9 @@ def _round_summary(row: dict[str, Any], scorecard: list[dict[str, Any]], shots: 
         "courseName": row.get("course") or row.get("courseName") or "Unknown course",
         "courseKey": row.get("courseKey"),
         "courseId": row.get("courseId"),
-        "globalId": row.get("globalId") or row.get("frontNineGlobalCourseId") or row.get("courseId"),
+        "globalId": _round_global_id(row),
+        "frontNineGlobalCourseId": row.get("frontNineGlobalCourseId"),
+        "backNineGlobalCourseId": row.get("backNineGlobalCourseId"),
         "score": score,
         "par": par,
         "toPar": score - par if score is not None and par is not None else None,
@@ -479,6 +487,31 @@ def _int_value(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _round_global_id(row: dict[str, Any]) -> int | None:
+    for key in ("globalId", "courseId", "frontNineGlobalCourseId", "backNineGlobalCourseId"):
+        value = _int_value(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _hole_geometry_target(row: dict[str, Any], hole_number: int) -> dict[str, int | None]:
+    if hole_number <= 0:
+        return {"globalId": _round_global_id(row), "localHole": None}
+    if hole_number <= 9:
+        return {
+            "globalId": _int_value(row.get("frontNineGlobalCourseId")) or _int_value(row.get("globalId")) or _int_value(row.get("courseId")),
+            "localHole": hole_number,
+        }
+    back_global_id = _int_value(row.get("backNineGlobalCourseId"))
+    if back_global_id is not None:
+        return {"globalId": back_global_id, "localHole": hole_number - 9}
+    return {
+        "globalId": _int_value(row.get("globalId")) or _int_value(row.get("courseId")) or _int_value(row.get("frontNineGlobalCourseId")),
+        "localHole": hole_number,
+    }
 
 
 def _dedupe(values: list[Any]) -> list[str]:

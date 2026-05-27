@@ -430,6 +430,8 @@ export interface HistoryRoundDetailScorecardCell {
   putts: number | null
   gir: boolean | null
   fairway: string | null
+  globalId?: number | null
+  localHole?: number | null
   holeRef: string
   shotRefs: string[]
   sourceRefs: string[]

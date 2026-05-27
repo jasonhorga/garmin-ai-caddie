@@ -68,11 +68,51 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(payload["scorecard"][1]["className"], "bogey")
         self.assertEqual(payload["scorecard"][2]["className"], "birdie")
         self.assertEqual(payload["scorecard"][3]["putts"], 3)
+        self.assertEqual(payload["scorecard"][0]["globalId"], 31795)
+        self.assertEqual(payload["scorecard"][0]["localHole"], 1)
         self.assertEqual(payload["scorecard"][1]["holeRef"], "700001:2")
         self.assertEqual(payload["scorecard"][1]["shotRefs"], ["700001:2:2", "700001:2:3"])
+        self.assertEqual(payload["holeDetails"][1]["globalId"], 31795)
+        self.assertEqual(payload["holeDetails"][1]["localHole"], 2)
         self.assertIn("700001:2", payload["relatedRefs"]["holeRefs"])
         self.assertIn("700001:4:4", payload["relatedRefs"]["shotRefs"])
         self.assertIn("garmin:scorecard:700001", payload["relatedRefs"]["sourceRefs"])
+
+    def test_round_detail_maps_back_nine_to_back_global_id_and_local_hole(self) -> None:
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {
+                    "id": "split-geometry",
+                    "date": "2026-05-26",
+                    "course": "Split Geometry Course",
+                    "courseKey": "split_geometry",
+                    "courseId": 111111,
+                    "frontNineGlobalCourseId": 111111,
+                    "backNineGlobalCourseId": 222222,
+                    "holesCompleted": 18,
+                    "strokes": 83,
+                    "par": 72,
+                    "holePars": "444444444555555555",
+                    "holes": [
+                        {"number": 1, "strokes": 4, "par": 4, "putts": 2},
+                        {"number": 10, "strokes": 5, "par": 5, "putts": 2},
+                    ],
+                    "hasShots": False,
+                }
+            ],
+            shots=[],
+        )
+
+        payload = build_history_round_detail(data, "split-geometry")
+
+        self.assertEqual(payload["round"]["globalId"], 111111)
+        self.assertEqual(payload["scorecard"][0]["globalId"], 111111)
+        self.assertEqual(payload["scorecard"][0]["localHole"], 1)
+        self.assertEqual(payload["scorecard"][9]["globalId"], 222222)
+        self.assertEqual(payload["scorecard"][9]["localHole"], 1)
+        self.assertEqual(payload["holeDetails"][1]["globalId"], 222222)
+        self.assertEqual(payload["holeDetails"][1]["localHole"], 1)
 
     def test_round_detail_summarizes_phase_coverage(self) -> None:
         payload = build_history_round_detail(round_detail_data(), "700001")

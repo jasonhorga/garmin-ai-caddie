@@ -742,10 +742,26 @@ function holeDrilldownPayload() {
     found: true,
     title: 'Black Knight B H7',
     round: { id: '900001', score: 77, globalId: 31795, courseName: 'Black Knight B' },
-    hole: { number: 7, par: 4, strokes: 5, toPar: 1 },
+    hole: { number: 7, par: 4, strokes: 5, toPar: 1, globalId: 31795, localHole: 7 },
     shot: null,
     relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:7'], shotRefs: ['900001:7:0'] },
     sourceFields: { number: 7, strokes: 5 },
+    missingData: [],
+  }
+}
+
+function backNineHoleDrilldownPayload() {
+  return {
+    schema: 'ai-caddie-history-drilldown-v1',
+    ref: '900001:10',
+    refType: 'hole',
+    found: true,
+    title: 'Black Knight B H10',
+    round: { id: '900001', score: 77, globalId: 111111, courseName: 'Black Knight B' },
+    hole: { number: 10, par: 5, strokes: 5, toPar: 0, globalId: 222222, localHole: 1 },
+    shot: null,
+    relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:10'], shotRefs: ['900001:10:0'] },
+    sourceFields: { number: 10, strokes: 5, globalId: 222222, localHole: 1 },
     missingData: [],
   }
 }
@@ -1404,6 +1420,37 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A7')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7?source_ref=900001%3A7')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7')
+  })
+
+  it('uses hole-level geometry target for split back-nine source refs', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats') {
+          return {
+            ...statsPayload(),
+            holes: [{ courseKey: 'split_geometry', hole: 10, sampleCount: 1, averageToPar: 0, worstToPar: 0, refs: ['900001:10'] }],
+          }
+        }
+        if (path === '/api/v2/history/drilldown/900001%3A10') return backNineHoleDrilldownPayload()
+        if (path === '/api/v2/geometry/hole/222222/1?source_ref=900001%3A10') return { ...holeGeometryEvidencePayload(), globalId: 222222, localHole: 1, sourceRef: '900001:10' }
+        if (path === '/api/v2/geometry/hole/222222/1/map?provider=esri_world_imagery&source_ref=900001%3A10') return { ...holeMapPayload(), globalId: 222222, localHole: 1 }
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Holes' }))
+    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:10' }))
+
+    expect(await screen.findByText('222222 H1')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/222222/1?source_ref=900001%3A10')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/222222/1/map?provider=esri_world_imagery&source_ref=900001%3A10')
   })
 
   it('ensures missing hole geometry and refreshes evidence', async () => {

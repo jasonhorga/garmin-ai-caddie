@@ -86,6 +86,28 @@ def provenance_drilldown_data() -> HistoryData:
     return HistoryData(raw_rounds=[], rounds=[round_row], shots=[shot])
 
 
+def split_nine_geometry_drilldown_data() -> HistoryData:
+    round_row = {
+        "id": "split-geometry",
+        "date": "2026-05-26",
+        "course": "Split Geometry Course",
+        "courseKey": "split_geometry",
+        "courseId": 111111,
+        "frontNineGlobalCourseId": 111111,
+        "backNineGlobalCourseId": 222222,
+        "holesCompleted": 18,
+        "strokes": 83,
+        "par": 72,
+        "holePars": "444444444555555555",
+        "holes": [
+            {"number": 1, "strokes": 4, "par": 4, "putts": 2},
+            {"number": 10, "strokes": 5, "par": 5, "putts": 2},
+        ],
+        "hasShots": True,
+    }
+    return HistoryData(raw_rounds=[], rounds=[round_row], shots=[])
+
+
 class HistoryDrilldownTests(unittest.TestCase):
     def test_drilldown_index_lists_round_hole_and_shot_refs(self) -> None:
         index = build_drilldown_index(fixture_history_data())
@@ -120,6 +142,22 @@ class HistoryDrilldownTests(unittest.TestCase):
         self.assertEqual(detail["hole"]["strokes"], 4)
         self.assertEqual(detail["hole"]["toPar"], 0)
         self.assertEqual(detail["relatedRefs"]["shotRefs"], ["900001:1:0", "900001:1:1"])
+
+    def test_hole_drilldown_exposes_front_and_back_nine_geometry_targets(self) -> None:
+        front = resolve_history_ref(split_nine_geometry_drilldown_data(), "split-geometry:1")
+        back = resolve_history_ref(split_nine_geometry_drilldown_data(), "split-geometry:10")
+
+        self.assertEqual(front["round"]["globalId"], 111111)
+        self.assertEqual(front["round"]["frontNineGlobalCourseId"], 111111)
+        self.assertEqual(front["round"]["backNineGlobalCourseId"], 222222)
+        self.assertEqual(front["hole"]["globalId"], 111111)
+        self.assertEqual(front["hole"]["localHole"], 1)
+        self.assertEqual(front["sourceFields"]["globalId"], 111111)
+        self.assertEqual(front["sourceFields"]["localHole"], 1)
+        self.assertEqual(back["hole"]["globalId"], 222222)
+        self.assertEqual(back["hole"]["localHole"], 1)
+        self.assertEqual(back["sourceFields"]["globalId"], 222222)
+        self.assertEqual(back["sourceFields"]["localHole"], 1)
 
     def test_resolves_shot_ref_with_round_and_hole_context(self) -> None:
         detail = resolve_history_ref(fixture_history_data(), "900001:1:1")

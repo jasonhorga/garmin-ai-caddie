@@ -1059,8 +1059,15 @@ function holeGeometryTargetFromDrilldown(
   sourceRef: string,
   drilldown: HistoryDrilldownResponse,
 ): { globalId: number; localHole: number } | null {
-  const globalId = numericField(drilldown.round, 'globalId')
-  const localHole = numericField(drilldown.hole, 'number') ?? holeFromSourceRef(sourceRef)
+  const globalId =
+    numericField(drilldown.hole, 'globalId') ??
+    numericField(drilldown.shot, 'globalId') ??
+    numericField(drilldown.round, 'globalId')
+  const localHole =
+    numericField(drilldown.hole, 'localHole') ??
+    numericField(drilldown.shot, 'localHole') ??
+    numericField(drilldown.hole, 'number') ??
+    holeFromSourceRef(sourceRef)
   if (globalId === null || localHole === null) return null
   return { globalId, localHole }
 }

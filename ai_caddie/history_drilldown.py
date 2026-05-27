@@ -166,15 +166,20 @@ def _round_summary(row: dict[str, Any]) -> dict[str, Any]:
         "toPar": int(score) - int(par) if score is not None and par is not None else None,
         "holesCompleted": row.get("holesCompleted"),
         "hasShots": bool(row.get("hasShots")),
-        "globalId": row.get("globalId"),
+        "globalId": _round_global_id(row),
+        "courseId": row.get("courseId"),
+        "frontNineGlobalCourseId": row.get("frontNineGlobalCourseId"),
+        "backNineGlobalCourseId": row.get("backNineGlobalCourseId"),
     }
 
 
 def _hole_summary(row: dict[str, Any], hole: dict[str, Any]) -> dict[str, Any]:
     par = hole.get("par")
     score = hole.get("strokes")
+    hole_number = int(hole.get("number") or 0)
+    geometry_target = _hole_geometry_target(row, hole_number)
     if par is None:
-        par = _par_from_string(str(row.get("holePars") or ""), int(hole.get("number") or 0))
+        par = _par_from_string(str(row.get("holePars") or ""), hole_number)
     return {
         "number": hole.get("number"),
         "par": par,
@@ -183,6 +188,8 @@ def _hole_summary(row: dict[str, Any], hole: dict[str, Any]) -> dict[str, Any]:
         "putts": hole.get("putts"),
         "gir": hole.get("gir"),
         "fairway": hole.get("fairway"),
+        "globalId": geometry_target.get("globalId"),
+        "localHole": geometry_target.get("localHole"),
     }
 
 
@@ -221,7 +228,22 @@ def _round_detail(data: HistoryData, row: dict[str, Any], ref: str) -> dict[str,
         related_refs={"roundRefs": [round_ref], "holeRefs": hole_refs, "shotRefs": shot_refs},
         source_fields=_pick(
             row,
-            ["id", "ids", "date", "course", "courseKey", "strokes", "par", "holesCompleted", "hasShots", "provenance"],
+            [
+                "id",
+                "ids",
+                "date",
+                "course",
+                "courseKey",
+                "courseId",
+                "globalId",
+                "frontNineGlobalCourseId",
+                "backNineGlobalCourseId",
+                "strokes",
+                "par",
+                "holesCompleted",
+                "hasShots",
+                "provenance",
+            ],
         ),
     )
 
@@ -243,7 +265,7 @@ def _hole_detail(data: HistoryData, row: dict[str, Any], hole: dict[str, Any], r
         hole=_hole_summary(row, hole),
         shot=None,
         related_refs={"roundRefs": [round_ref], "holeRefs": [ref], "shotRefs": shot_refs},
-        source_fields=_pick(hole, ["number", "strokes", "par", "putts", "gir", "fairway"]),
+        source_fields={**_pick(hole, ["number", "strokes", "par", "putts", "gir", "fairway"]), **_hole_geometry_target(row, hole_number)},
     )
 
 
@@ -392,6 +414,39 @@ def _par_from_string(hole_pars: str, hole_number: int) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _int_field(row: dict[str, Any], key: str) -> int | None:
+    try:
+        value = row.get(key)
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _round_global_id(row: dict[str, Any]) -> int | None:
+    for key in ("globalId", "courseId", "frontNineGlobalCourseId", "backNineGlobalCourseId"):
+        value = _int_field(row, key)
+        if value is not None:
+            return value
+    return None
+
+
+def _hole_geometry_target(row: dict[str, Any], hole_number: int) -> dict[str, int | None]:
+    if hole_number <= 0:
+        return {"globalId": _round_global_id(row), "localHole": None}
+    if hole_number <= 9:
+        global_id = _int_field(row, "frontNineGlobalCourseId") or _int_field(row, "globalId") or _int_field(row, "courseId")
+        return {"globalId": global_id, "localHole": hole_number}
+    back_global_id = _int_field(row, "backNineGlobalCourseId")
+    if back_global_id is not None:
+        return {"globalId": back_global_id, "localHole": hole_number - 9}
+    return {
+        "globalId": _int_field(row, "globalId") or _int_field(row, "courseId") or _int_field(row, "frontNineGlobalCourseId"),
+        "localHole": hole_number,
+    }
 
 
 def _pick(row: dict[str, Any], keys: list[str]) -> dict[str, Any]:
