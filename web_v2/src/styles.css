@@ -1960,6 +1960,11 @@ button.round-detail-cell:hover {
   color: #2f6f95;
 }
 
+.package-state-missing {
+  background: #f8ead8;
+  color: var(--bogey);
+}
+
 .package-state-expired {
   background: #f7e2dd;
   color: var(--double);
@@ -2108,6 +2113,7 @@ button.round-detail-cell:hover {
   font-weight: 800;
 }
 
+.package-readiness-list,
 .package-missing-list {
   display: grid;
   gap: 6px;

@@ -45,6 +45,64 @@
     "readyHoles": 12,
     "totalHoles": 18
   },
+  "readinessChecks": [
+    {
+      "label": "source",
+      "state": "ready",
+      "ready": 1,
+      "total": 1,
+      "reason": "round source is available for offline package preparation",
+      "sourceRefs": [
+        "live-round-1"
+      ]
+    },
+    {
+      "label": "geometry",
+      "state": "degraded",
+      "ready": 12,
+      "total": 18,
+      "reason": "12/18 holes have ready geometry for offline caddie evidence",
+      "sourceRefs": []
+    },
+    {
+      "label": "weather",
+      "state": "missing",
+      "ready": 0,
+      "total": 1,
+      "reason": "weather snapshot is missing for the prepared round time",
+      "sourceRefs": []
+    },
+    {
+      "label": "club_profiles",
+      "state": "ready",
+      "ready": 1,
+      "total": 1,
+      "reason": "sampled club distances are available for offline caddie options",
+      "sourceRefs": []
+    },
+    {
+      "label": "recent_history",
+      "state": "ready",
+      "ready": 3,
+      "total": 1,
+      "reason": "same-course scored history is available for offline review",
+      "sourceRefs": [
+        "round-a",
+        "round-b",
+        "round-c"
+      ]
+    },
+    {
+      "label": "caddie_seeds",
+      "state": "ready",
+      "ready": 1,
+      "total": 1,
+      "reason": "1/1 holes have cached caddie context seeds and offline options",
+      "sourceRefs": [
+        "live-round-1:1"
+      ]
+    }
+  ],
   "caddieContextSeeds": [
     {
       "hole": 1,

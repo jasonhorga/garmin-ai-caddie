@@ -71,6 +71,10 @@ function packageCoverageFacts(data: LiveRoundPackageResponse) {
   return facts
 }
 
+function readinessTitle(label: string) {
+  return label.replace(/_/g, ' ')
+}
+
 export function MobilePackagePrepPanel({
   state,
   onPrepareRound,
@@ -217,6 +221,7 @@ export function MobilePackagePrepPanel({
 
 function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
   const missingRows = data.missingData ?? []
+  const readinessChecks = data.readinessChecks ?? []
   return (
     <div className="mobile-package-body">
       <div className="package-summary-grid" aria-label="Package summary">
@@ -247,6 +252,19 @@ function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
           <span key={fact}>{fact}</span>
         ))}
       </div>
+
+      {readinessChecks.length ? (
+        <div className="package-readiness-list" aria-label="Package readiness checks">
+          {readinessChecks.map((row) => (
+            <div className="report-row" key={row.label}>
+              <strong>{readinessTitle(row.label)}</strong>
+              <span className={`semantic-chip package-state-${row.state}`}>{row.state}</span>
+              <span>{row.ready}/{row.total}</span>
+              <span>{row.reason}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="package-missing-list" aria-label="Package missing data">
         {missingRows.length ? (

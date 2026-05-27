@@ -660,6 +660,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct PlayerProfileCoverage: Codable, Equatable", package_swift)
         self.assertIn("let weatherSnapshot: WeatherSnapshot", package_swift)
         self.assertIn("let offlinePackageStatus: OfflinePackageStatus", package_swift)
+        self.assertIn("let readinessChecks: [PackageReadinessCheck]", package_swift)
+        self.assertIn("struct PackageReadinessCheck: Codable, Equatable, Identifiable", package_swift)
         self.assertIn("let eventCursor: EventCursor", package_swift)
         self.assertIn("let recentHistory: RecentHistory", package_swift)
         self.assertIn("let cachedCaddieRules: CachedCaddieRules", package_swift)

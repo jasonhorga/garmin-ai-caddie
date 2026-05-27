@@ -29,6 +29,32 @@ const packageFixture: LiveRoundPackageResponse = {
   course: { globalId: 31795, name: 'Fixture Links', teeBox: 'blue' },
   holes: [{ number: 1, par: 4, yards: 410, geometryCoverage: 'ready' }],
   geometryCoverage: { state: 'partial', readyHoles: 12, totalHoles: 18 },
+  readinessChecks: [
+    {
+      label: 'source',
+      state: 'ready',
+      ready: 1,
+      total: 1,
+      reason: 'round source is available for offline package preparation',
+      sourceRefs: ['live-black-knight'],
+    },
+    {
+      label: 'geometry',
+      state: 'degraded',
+      ready: 12,
+      total: 18,
+      reason: '12/18 holes have ready geometry for offline caddie evidence',
+      sourceRefs: [],
+    },
+    {
+      label: 'weather',
+      state: 'missing',
+      ready: 0,
+      total: 1,
+      reason: 'weather snapshot is missing for the prepared round time',
+      sourceRefs: [],
+    },
+  ],
   caddieContextSeeds: [{ hole: 1, sourceRef: 'live-black-knight:1', missingData: [{ label: 'current_location' }] }],
   weatherSnapshot: {
     schema: 'ai-caddie-weather-snapshot-v1',
@@ -116,7 +142,7 @@ describe('MobilePackagePrepPanel', () => {
 
     const panel = screen.getByLabelText('Mobile package preparation')
     expect(within(panel).getByRole('heading', { name: 'Mobile Package Prep' })).toBeInTheDocument()
-    expect(within(panel).getByText('degraded')).toHaveClass('package-state-degraded')
+    expect(within(panel).getAllByText('degraded')[0]).toHaveClass('package-state-degraded')
     expect(within(panel).getByText('Fixture Links')).toBeInTheDocument()
     expect(within(panel).getByText('12/18 holes')).toBeInTheDocument()
     expect(within(panel).getByText('weather missing')).toBeInTheDocument()
@@ -127,8 +153,12 @@ describe('MobilePackagePrepPanel', () => {
     expect(within(panel).getByText('course found')).toBeInTheDocument()
     expect(within(panel).getByText('3 available rounds')).toBeInTheDocument()
     expect(within(panel).getByText('course 31795')).toBeInTheDocument()
-    expect(within(panel).getByText('geometry')).toBeInTheDocument()
-    expect(within(panel).getByText('weather')).toBeInTheDocument()
     expect(within(panel).getByText('3 recent scores')).toBeInTheDocument()
+    const readiness = within(panel).getByLabelText('Package readiness checks')
+    expect(within(readiness).getByText('source')).toBeInTheDocument()
+    expect(within(readiness).getByText('geometry')).toBeInTheDocument()
+    expect(within(readiness).getByText('weather')).toBeInTheDocument()
+    expect(within(readiness).getByText('12/18')).toBeInTheDocument()
+    expect(within(readiness).getByText('missing')).toHaveClass('package-state-missing')
   })
 })

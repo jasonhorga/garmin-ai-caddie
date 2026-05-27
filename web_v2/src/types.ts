@@ -730,6 +730,15 @@ export interface OfflinePackageStatus {
   }
 }
 
+export interface PackageReadinessCheck {
+  label: string
+  state: 'ready' | 'degraded' | 'missing'
+  ready: number
+  total: number
+  reason: string
+  sourceRefs: string[]
+}
+
 export interface LiveRoundPackageResponse {
   schema: 'ai-caddie-live-round-package-v1'
   roundId: string
@@ -748,7 +757,7 @@ export interface LiveRoundPackageResponse {
     readyHoles: number
     totalHoles: number
   }
-  readinessChecks?: Array<Record<string, unknown>>
+  readinessChecks: PackageReadinessCheck[]
   caddieContextSeeds: Array<Record<string, unknown>>
   weatherSnapshot: LiveRoundWeatherSnapshot
   clubProfiles: Array<Record<string, unknown>>
