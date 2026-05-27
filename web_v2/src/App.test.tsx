@@ -280,6 +280,64 @@ function mobileReconciliationApplyPayload() {
   }
 }
 
+function mobilePackagePayload() {
+  return {
+    schema: 'ai-caddie-live-round-package-v1',
+    roundId: 'live-black-knight',
+    dataMode: 'fixture',
+    sourceCoverage: {
+      state: 'ready',
+      dataMode: 'fixture',
+      requestedRoundId: 'live-black-knight',
+      selectedRoundId: '900001',
+      roundFound: true,
+      availableRoundCount: 3,
+      holeCount: 18,
+      clubProfileCount: 12,
+      preparationMode: 'course',
+      requestedCourseGlobalId: 31795,
+      courseFound: true,
+    },
+    missingData: [
+      { label: 'geometry', reason: '12/18 holes have ready geometry for offline caddie evidence' },
+      { label: 'weather', reason: 'weather snapshot is missing for the prepared round time' },
+    ],
+    playerProfile: { playerId: 'player-1', displayName: 'Test Player', handedness: 'right' },
+    course: { globalId: 31795, name: 'Fixture Links', teeBox: 'blue' },
+    holes: [{ number: 1, par: 4, yards: 410, geometryCoverage: 'ready' }],
+    geometryCoverage: { state: 'partial', readyHoles: 12, totalHoles: 18 },
+    caddieContextSeeds: [{ hole: 1, sourceRef: 'live-black-knight:1', missingData: [] }],
+    weatherSnapshot: {
+      schema: 'ai-caddie-weather-snapshot-v1',
+      state: 'missing',
+      source: 'missing',
+      confidence: 'low',
+      missingData: [{ label: 'weather_values', reason: 'not cached' }],
+    },
+    clubProfiles: [{ clubName: '8I', sampleSize: 24, median_m: 144, p10_m: 132, p90_m: 153 }],
+    caddieDecisionEndpoint: '/api/v2/caddie/decision',
+    offlinePackageStatus: {
+      state: 'degraded',
+      preparedAt: '2026-05-25T08:00:00Z',
+      expiresAt: '2026-05-26T08:00:00Z',
+      cachePolicy: { staleAfterHours: 6, expiresAfterHours: 24 },
+    },
+    eventCursor: { serverSequence: 0, pendingEventCount: 0 },
+    recentHistory: {
+      course: { courseKey: 'fixture-links', roundCount: 3, recentScores: [81, 84, 83] },
+      rounds: [],
+      holes: [],
+    },
+    cachedCaddieRules: {
+      decisionContract: 'ai-caddie-decision-v2',
+      offlineCapable: true,
+      requiredInputs: ['currentLocation', 'hole', 'clubProfiles'],
+      degradeWhenMissing: ['geometry', 'weather', 'recentHistory'],
+    },
+    generatedAt: '2026-05-25T08:00:00Z',
+  }
+}
+
 function annotationsPayload() {
   return {
     schema: 'ai-caddie-annotations-v1',
@@ -1013,13 +1071,14 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001')
   })
 
-  it('opens the sync and data quality workspace and applies mobile reconciliation suggestions', async () => {
+  it('opens the sync and data quality workspace, prepares a mobile package, and applies reconciliation suggestions', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
         if (path === '/api/v2/history/stats') return statsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/readiness') return readinessPayload()
+        if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue') return mobilePackagePayload()
         if (path === '/api/v2/mobile/rounds/900001/reconciliation') return mobileReconciliationPayload()
         if (path === '/api/v2/mobile/rounds/900001/reconciliation/apply' && init?.method === 'POST') {
           return mobileReconciliationApplyPayload()
@@ -1041,7 +1100,18 @@ describe('App navigation', () => {
     expect(screen.getByText('dataMode: fixture')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Data Quality' })).toBeInTheDocument()
     expect(screen.getByText('shots')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Mobile Package Prep' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Mobile Reconciliation' })).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
+    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
+    await userEvent.clear(screen.getByLabelText('Course global ID'))
+    await userEvent.type(screen.getByLabelText('Course global ID'), '31795')
+    await userEvent.type(screen.getByLabelText('Live round ID'), 'live-black-knight')
+    await userEvent.type(screen.getByLabelText('Tee box'), 'blue')
+    await userEvent.click(screen.getByRole('button', { name: 'Prepare package' }))
+    expect(await screen.findByText('Fixture Links')).toBeInTheDocument()
+    expect(screen.getByText('12/18 holes')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Review offline events' }))
     expect(await screen.findByText('Local score input can correct the derived score for this hole.')).toBeInTheDocument()
@@ -1051,11 +1121,50 @@ describe('App navigation', () => {
 
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation')
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v2/mobile/rounds/900001/reconciliation/apply',
       expect.objectContaining({ method: 'POST' }),
     )
+  })
+
+  it('keeps mobile package admin token input available when sync status cannot load', async () => {
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/sync/status') {
+        return { ok: false, status: 503, statusText: 'Service Unavailable', json: async () => ({}) }
+      }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/readiness') return readinessPayload()
+          if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight') return mobilePackagePayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Sync & Data Quality' }))
+
+    expect(await screen.findByRole('heading', { name: 'Mobile Package Prep' })).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
+    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
+    await userEvent.clear(screen.getByLabelText('Course global ID'))
+    await userEvent.type(screen.getByLabelText('Course global ID'), '31795')
+    await userEvent.type(screen.getByLabelText('Live round ID'), 'live-black-knight')
+    await userEvent.click(screen.getByRole('button', { name: 'Prepare package' }))
+
+    expect(await screen.findByText('Fixture Links')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
   })
 
   it('refreshes loaded history stats after Garmin sync completes', async () => {

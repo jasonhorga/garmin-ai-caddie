@@ -641,6 +641,89 @@ export interface MobileReconciliationApplyResponse {
   decisionAudits: Array<Record<string, unknown>>
 }
 
+export type LiveRoundPreparationMode = 'round' | 'course'
+export type LiveRoundSourceCoverageState = 'ready' | 'degraded'
+export type OfflinePackageState = 'ready' | 'degraded' | 'expired'
+
+export interface LiveRoundSourceCoverage {
+  state: LiveRoundSourceCoverageState
+  dataMode: ResolvedDataMode
+  requestedRoundId: string
+  selectedRoundId: string | null
+  roundFound: boolean
+  availableRoundCount: number
+  holeCount: number
+  clubProfileCount: number
+  preparationMode?: LiveRoundPreparationMode
+  requestedCourseGlobalId?: number | null
+  courseFound?: boolean
+}
+
+export interface LiveRoundWeatherSnapshot {
+  schema: 'ai-caddie-weather-snapshot-v1'
+  state: WeatherState
+  source: WeatherSource
+  confidence: ReportConfidence
+  missingData: Array<Record<string, unknown>>
+  roundId?: string | null
+  hole?: number | null
+  capturedAt?: string | null
+  location?: { latitude: number; longitude: number } | null
+  windSpeedMps?: number | null
+  windDirectionDeg?: number | null
+  temperatureC?: number | null
+  precipitationMm?: number | null
+}
+
+export interface OfflinePackageStatus {
+  state: OfflinePackageState
+  preparedAt: string
+  expiresAt: string
+  cachePolicy: {
+    staleAfterHours: number
+    expiresAfterHours: number
+  }
+}
+
+export interface LiveRoundPackageResponse {
+  schema: 'ai-caddie-live-round-package-v1'
+  roundId: string
+  dataMode: ResolvedDataMode
+  sourceCoverage: LiveRoundSourceCoverage
+  missingData: Array<Record<string, unknown>>
+  playerProfile: Record<string, unknown>
+  course: {
+    globalId: number
+    name: string
+    teeBox: string
+  }
+  holes: Array<Record<string, unknown>>
+  geometryCoverage: {
+    state: GeometryCoverageState
+    readyHoles: number
+    totalHoles: number
+  }
+  caddieContextSeeds: Array<Record<string, unknown>>
+  weatherSnapshot: LiveRoundWeatherSnapshot
+  clubProfiles: Array<Record<string, unknown>>
+  caddieDecisionEndpoint: string
+  offlinePackageStatus: OfflinePackageStatus
+  eventCursor: Record<string, unknown>
+  recentHistory: Record<string, unknown>
+  cachedCaddieRules: Record<string, unknown>
+  generatedAt: string
+}
+
+export interface MobileRoundPackageParams {
+  capturedAt?: string
+}
+
+export interface MobileCoursePackageParams {
+  roundId?: string
+  teeBox?: string
+  capturedAt?: string
+}
+
 export type ReadinessState = 'ready' | 'degraded' | 'error'
 
 export interface ReadinessCheck {

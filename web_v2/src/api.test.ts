@@ -29,6 +29,8 @@ import {
   fetchVisionFindingsForTarget,
   fetchSyncStatus,
   fetchMobileReconciliation,
+  fetchMobileCoursePackage,
+  fetchMobileRoundPackage,
   fetchProductSettings,
   applyMobileReconciliationSuggestions,
   redactMedia,
@@ -1206,6 +1208,113 @@ describe('mobile reconciliation API helpers', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it('loads a protected mobile round package with captured time and admin token', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-live-round-package-v1',
+        roundId: 'round:1',
+        dataMode: 'fixture',
+        sourceCoverage: {
+          state: 'ready',
+          dataMode: 'fixture',
+          requestedRoundId: 'round:1',
+          selectedRoundId: 'round:1',
+          roundFound: true,
+          availableRoundCount: 3,
+          holeCount: 18,
+          clubProfileCount: 12,
+          preparationMode: 'round',
+          requestedCourseGlobalId: null,
+          courseFound: true,
+        },
+        missingData: [],
+        playerProfile: { playerId: 'player-1', displayName: 'Test Player', handedness: 'right' },
+        course: { globalId: 31795, name: 'Fixture Links', teeBox: 'blue' },
+        holes: [],
+        geometryCoverage: { state: 'ready', readyHoles: 18, totalHoles: 18 },
+        caddieContextSeeds: [],
+        weatherSnapshot: { schema: 'ai-caddie-weather-snapshot-v1', state: 'ready', source: 'open_meteo', confidence: 'medium', missingData: [] },
+        clubProfiles: [],
+        caddieDecisionEndpoint: '/api/v2/caddie/decision',
+        offlinePackageStatus: {
+          state: 'ready',
+          preparedAt: '2026-05-25T08:00:00Z',
+          expiresAt: '2026-05-26T08:00:00Z',
+          cachePolicy: { staleAfterHours: 6, expiresAfterHours: 24 },
+        },
+        eventCursor: { serverSequence: 0, pendingEventCount: 0 },
+        recentHistory: { course: {}, rounds: [], holes: [] },
+        cachedCaddieRules: { decisionContract: 'ai-caddie-decision-v2', offlineCapable: true, requiredInputs: [], degradeWhenMissing: [] },
+        generatedAt: '2026-05-25T08:00:00Z',
+      }),
+    }))
+
+    const data = await fetchMobileRoundPackage('round:1', { capturedAt: '2026-05-25T08:00:00Z' }, 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/mobile/rounds/round%3A1/package?captured_at=2026-05-25T08%3A00%3A00Z', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(data.schema).toBe('ai-caddie-live-round-package-v1')
+    expect(data.sourceCoverage.preparationMode).toBe('round')
+  })
+
+  it('loads a course package with optional round, tee, captured time, and admin token', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-live-round-package-v1',
+        roundId: 'live-black-knight',
+        dataMode: 'fixture',
+        sourceCoverage: {
+          state: 'ready',
+          dataMode: 'fixture',
+          requestedRoundId: 'live-black-knight',
+          selectedRoundId: '900001',
+          roundFound: true,
+          availableRoundCount: 3,
+          holeCount: 18,
+          clubProfileCount: 12,
+          preparationMode: 'course',
+          requestedCourseGlobalId: 31795,
+          courseFound: true,
+        },
+        missingData: [{ label: 'weather', reason: 'weather snapshot is missing for the prepared round time' }],
+        playerProfile: { playerId: 'player-1', displayName: 'Test Player', handedness: 'right' },
+        course: { globalId: 31795, name: 'Fixture Links', teeBox: 'blue' },
+        holes: [],
+        geometryCoverage: { state: 'partial', readyHoles: 12, totalHoles: 18 },
+        caddieContextSeeds: [],
+        weatherSnapshot: { schema: 'ai-caddie-weather-snapshot-v1', state: 'missing', source: 'missing', confidence: 'low', missingData: [] },
+        clubProfiles: [],
+        caddieDecisionEndpoint: '/api/v2/caddie/decision',
+        offlinePackageStatus: {
+          state: 'degraded',
+          preparedAt: '2026-05-25T08:00:00Z',
+          expiresAt: '2026-05-26T08:00:00Z',
+          cachePolicy: { staleAfterHours: 6, expiresAfterHours: 24 },
+        },
+        eventCursor: { serverSequence: 0, pendingEventCount: 0 },
+        recentHistory: { course: {}, rounds: [], holes: [] },
+        cachedCaddieRules: { decisionContract: 'ai-caddie-decision-v2', offlineCapable: true, requiredInputs: [], degradeWhenMissing: [] },
+        generatedAt: '2026-05-25T08:00:00Z',
+      }),
+    }))
+
+    const data = await fetchMobileCoursePackage(
+      31795,
+      { roundId: 'live-black-knight', teeBox: 'blue', capturedAt: '2026-05-25T08:00:00Z' },
+      'admin-secret',
+    )
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&captured_at=2026-05-25T08%3A00%3A00Z',
+      { headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' } },
+    )
+    expect(data.roundId).toBe('live-black-knight')
+    expect(data.sourceCoverage.requestedCourseGlobalId).toBe(31795)
   })
 
   it('loads mobile reconciliation for a round with encoded ids', async () => {

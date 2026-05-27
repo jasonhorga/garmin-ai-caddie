@@ -17,7 +17,9 @@ import {
   fetchHistoryRounds,
   fetchHistoryStats,
   fetchReadiness,
+  fetchMobileCoursePackage,
   fetchMobileReconciliation,
+  fetchMobileRoundPackage,
   fetchProductSettings,
   fetchReportIndex,
   fetchRoundReport,
@@ -48,6 +50,10 @@ import {
   type MobileReconciliationApplyState,
   type MobileReconciliationPanelState,
 } from './components/MobileReconciliationPanel'
+import {
+  MobilePackagePrepPanel,
+  type MobilePackagePrepState,
+} from './components/MobilePackagePrepPanel'
 import { ProductNav } from './components/ProductNav'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
@@ -68,6 +74,9 @@ import type {
   HistoryDrilldownResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  LiveRoundPackageResponse,
+  MobileCoursePackageParams,
+  MobileRoundPackageParams,
   MediaCreateRequest,
   MediaTargetType,
   ReadinessResponse,
@@ -102,6 +111,7 @@ export default function App() {
   const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
   const [readinessState, setReadinessState] = useState<DeferredLoadState<ReadinessResponse>>({ status: 'idle' })
   const [productSettingsState, setProductSettingsState] = useState<DeferredLoadState<ProductSettingsResponse>>({ status: 'idle' })
+  const [mobilePackagePrepState, setMobilePackagePrepState] = useState<MobilePackagePrepState>({ status: 'idle' })
   const [mobileReconciliationState, setMobileReconciliationState] = useState<MobileReconciliationPanelState>({ status: 'idle' })
   const [mobileReconciliationApplyState, setMobileReconciliationApplyState] = useState<MobileReconciliationApplyState>({ status: 'idle' })
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
@@ -477,6 +487,14 @@ export default function App() {
               onAdminTokenChange={setAdminToken}
             />
           ) : null}
+          <MobilePackagePrepPanel
+            state={mobilePackagePrepState}
+            onPrepareRound={(roundId, params) => void handlePrepareMobileRoundPackage(roundId, params)}
+            onPrepareCourse={(globalId, params) => void handlePrepareMobileCoursePackage(globalId, params)}
+            showAdminTokenInput={!syncStatus}
+            adminTokenValue={adminToken}
+            onAdminTokenChange={setAdminToken}
+          />
           <MobileReconciliationPanel
             state={mobileReconciliationState}
             applyState={mobileReconciliationApplyState}
@@ -517,6 +535,48 @@ export default function App() {
 
   function handleGenerateRoundReport(roundId: string) {
     void loadReport(() => generateRoundReport(roundId, currentAdminToken()), true)
+  }
+
+  async function handlePrepareMobileRoundPackage(
+    roundId: string,
+    params: MobileRoundPackageParams,
+  ): Promise<LiveRoundPackageResponse | null> {
+    setMobilePackagePrepState({ status: 'loading', mode: 'round', target: roundId })
+    try {
+      const data = await fetchMobileRoundPackage(roundId, params, currentAdminToken())
+      setMobilePackagePrepState({ status: 'ready', data })
+      if (readinessState.status !== 'idle') void refreshReadinessState()
+      return data
+    } catch (error: unknown) {
+      setMobilePackagePrepState({
+        status: 'error',
+        mode: 'round',
+        target: roundId,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      })
+      return null
+    }
+  }
+
+  async function handlePrepareMobileCoursePackage(
+    globalId: number,
+    params: MobileCoursePackageParams,
+  ): Promise<LiveRoundPackageResponse | null> {
+    setMobilePackagePrepState({ status: 'loading', mode: 'course', target: String(globalId) })
+    try {
+      const data = await fetchMobileCoursePackage(globalId, params, currentAdminToken())
+      setMobilePackagePrepState({ status: 'ready', data })
+      if (readinessState.status !== 'idle') void refreshReadinessState()
+      return data
+    } catch (error: unknown) {
+      setMobilePackagePrepState({
+        status: 'error',
+        mode: 'course',
+        target: String(globalId),
+        message: error instanceof Error ? error.message : 'Unknown error',
+      })
+      return null
+    }
   }
 
   async function handleLoadMobileReconciliation(roundId: string): Promise<MobileReconciliationResponse | null> {

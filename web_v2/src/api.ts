@@ -21,6 +21,7 @@ import type {
   GarminSessionImportRequest,
   GarminSessionImportResponse,
   HoleMapResponse,
+  LiveRoundPackageResponse,
   MediaCreateRequest,
   MediaCreateResponse,
   MediaListResponse,
@@ -28,6 +29,8 @@ import type {
   MediaTargetType,
   MobileReconciliationApplyResponse,
   MobileReconciliationResponse,
+  MobileCoursePackageParams,
+  MobileRoundPackageParams,
   ProductSettingsResponse,
   ReadinessResponse,
   ReviewReportIndexResponse,
@@ -306,6 +309,36 @@ export function fetchProductSettings(): Promise<ProductSettingsResponse> {
 
 export function fetchMobileReconciliation(roundId: string): Promise<MobileReconciliationResponse> {
   return getJson<MobileReconciliationResponse>(`/api/v2/mobile/rounds/${encodeURIComponent(roundId)}/reconciliation`)
+}
+
+export function fetchMobileRoundPackage(
+  roundId: string,
+  params: MobileRoundPackageParams = {},
+  adminToken?: string,
+): Promise<LiveRoundPackageResponse> {
+  const query = new URLSearchParams()
+  appendParam(query, 'captured_at', params.capturedAt)
+  const suffix = query.toString()
+  return getJson<LiveRoundPackageResponse>(
+    `/api/v2/mobile/rounds/${encodeURIComponent(roundId)}/package${suffix ? `?${suffix}` : ''}`,
+    adminToken,
+  )
+}
+
+export function fetchMobileCoursePackage(
+  globalId: number,
+  params: MobileCoursePackageParams = {},
+  adminToken?: string,
+): Promise<LiveRoundPackageResponse> {
+  const query = new URLSearchParams()
+  appendParam(query, 'round_id', params.roundId)
+  appendParam(query, 'tee_box', params.teeBox)
+  appendParam(query, 'captured_at', params.capturedAt)
+  const suffix = query.toString()
+  return getJson<LiveRoundPackageResponse>(
+    `/api/v2/mobile/courses/${encodeURIComponent(String(globalId))}/package${suffix ? `?${suffix}` : ''}`,
+    adminToken,
+  )
 }
 
 export function applyMobileReconciliationSuggestions(
