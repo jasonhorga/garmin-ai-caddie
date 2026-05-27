@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from ai_caddie.annotations import add_annotation
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.mobile_live import build_live_round_package
 from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
@@ -121,6 +122,18 @@ class MobileContractTests(unittest.TestCase):
             "eventCursor": {"serverSequence": 0, "pendingEventCount": 0},
             "recentHistory": {
                 "course": {"courseKey": "fixture-links", "roundCount": 3, "averageScore": 82.7, "recentScores": [81, 84, 83]},
+                "rounds": [
+                    {
+                        "roundId": "round-a",
+                        "date": "2026-05-20T08:00:00",
+                        "courseName": "Fixture Links",
+                        "score": 81,
+                        "par": 72,
+                        "toPar": 9,
+                        "holesCompleted": 18,
+                        "sourceRefs": ["round-a"],
+                    }
+                ],
                 "holes": [{"number": 1, "averageToPar": 0.2, "repeatedIssues": [{"label": "approach short", "count": 2}]}],
             },
             "cachedCaddieRules": {
@@ -233,6 +246,58 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(package["recentHistory"]["course"]["roundCount"], 2)
         self.assertEqual(package["recentHistory"]["course"]["recentScores"], [77, 95])
         self.assertEqual(package["recentHistory"]["course"]["roundIds"], ["900001", "900002"])
+        self.assertEqual(
+            package["recentHistory"]["rounds"][0],
+            {
+                "roundId": "900001",
+                "date": "2026-05-18",
+                "courseName": "Black Knight B/C",
+                "score": 77,
+                "par": 72,
+                "toPar": 5,
+                "holesCompleted": 18,
+                "sourceRefs": ["900001"],
+            },
+        )
+        self.assertLessEqual(len(package["recentHistory"]["rounds"]), 5)
+
+    def test_live_round_package_recent_round_review_uses_score_corrections(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation(
+                "hole",
+                "900001:1",
+                "score_correction",
+                {"from": 4, "to": 6},
+                root=root,
+            )
+
+            package = build_live_round_package(
+                "900001",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                annotations_root=root,
+            )
+
+        recent_round = package["recentHistory"]["rounds"][0]
+        self.assertEqual(recent_round["roundId"], "900001")
+        self.assertEqual(recent_round["score"], 79)
+        self.assertEqual(recent_round["toPar"], 7)
+        self.assertEqual(recent_round["sourceRefs"], ["900001", "900001:1"])
+
+    def test_live_round_package_schema_allows_legacy_v1_packages_without_recent_rounds(self) -> None:
+        schema = _load_schema("live_round_package.schema.json")
+        recent_history = schema["properties"]["recentHistory"]
+        assert isinstance(recent_history, dict)
+        self.assertNotIn("rounds", recent_history["required"])
+        rounds_schema = recent_history["properties"]["rounds"]
+        assert isinstance(rounds_schema, dict)
+        item_schema = rounds_schema["items"]
+        assert isinstance(item_schema, dict)
+        self.assertEqual(
+            item_schema["required"],
+            ["roundId", "date", "courseName", "score", "par", "toPar", "holesCompleted", "sourceRefs"],
+        )
 
     def test_live_round_event_schema_accepts_all_event_kinds(self) -> None:
         schema = _load_schema("live_round_event.schema.json")
@@ -304,6 +369,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let cachedCaddieRules: CachedCaddieRules", package_swift)
         self.assertIn("let caddieContextSeeds: [CaddieContextSeed]", package_swift)
         self.assertIn("struct CaddieContextSeed: Codable", package_swift)
+        self.assertIn("let rounds: [RecentRoundSummary]", package_swift)
+        self.assertIn("struct RecentRoundSummary: Codable, Equatable, Identifiable", package_swift)
+        self.assertIn("public var id: String { roundId }", package_swift)
+        self.assertIn("let sourceRefs: [String]", package_swift)
+        self.assertIn("decodeIfPresent([RecentRoundSummary].self", package_swift)
+        self.assertIn("self.rounds = rounds ?? []", package_swift)
         self.assertIn("struct LiveRoundEvent: Codable", event_swift)
         self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
         self.assertIn('case syncMarker = "sync_marker"', event_swift)
@@ -802,6 +873,7 @@ class MobileContractTests(unittest.TestCase):
 
     def test_ios_live_views_define_expected_controls(self) -> None:
         round_home = (IOS_DIR / "Views" / "RoundHomeView.swift").read_text(encoding="utf-8")
+        recent_review = _read_required_source(self, IOS_DIR / "Views" / "RecentRoundReviewView.swift")
         current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
         caddie_plan = (IOS_DIR / "Views" / "CaddiePlanView.swift").read_text(encoding="utf-8")
         location_provider = _read_required_source(self, IOS_DIR / "Services" / "LocationProvider.swift")
@@ -810,6 +882,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let onEvent", round_home)
         self.assertIn("syncStatus", round_home)
         self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, onEvent: onEvent)", round_home)
+        self.assertIn("RecentRoundReviewView(package: package)", round_home)
+        self.assertIn('Label("Recent Review"', round_home)
+        self.assertIn("struct RecentRoundReviewView: View", recent_review)
+        self.assertIn("package.recentHistory.rounds", recent_review)
+        self.assertIn("round.toPar", recent_review)
+        self.assertIn("round.sourceRefs", recent_review)
+        self.assertIn("package.recentHistory.course", recent_review)
+        self.assertIn("package.recentHistory.holes", recent_review)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)

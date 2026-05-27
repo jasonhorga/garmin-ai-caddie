@@ -311,6 +311,43 @@
           "type": "object",
           "additionalProperties": true
         },
+        "rounds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["roundId", "date", "courseName", "score", "par", "toPar", "holesCompleted", "sourceRefs"],
+            "properties": {
+              "roundId": {
+                "type": "string"
+              },
+              "date": {
+                "type": "string"
+              },
+              "courseName": {
+                "type": "string"
+              },
+              "score": {
+                "type": "integer"
+              },
+              "par": {
+                "type": ["integer", "null"]
+              },
+              "toPar": {
+                "type": ["integer", "null"]
+              },
+              "holesCompleted": {
+                "type": "integer"
+              },
+              "sourceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
         "holes": {
           "type": "array",
           "items": {

@@ -7,11 +7,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ai_caddie.annotations import annotations_for_target
+from ai_caddie.annotations import annotations_for_target, list_annotations
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
-from ai_caddie.history_stats import build_history_stats
+from ai_caddie.history_stats import _effective_score_data, build_history_stats
 from ai_caddie.weather_context import build_weather_snapshot, weather_snapshot_for_time
 
 
@@ -60,6 +60,36 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
         int(row.get("score") if row.get("score") is not None else row.get("strokes"))
         for row in sorted(same_course_rows, key=lambda item: str(item.get("date") or ""), reverse=True)
     ]
+    recent_rounds = []
+    for row in sorted(source.rounds, key=lambda item: str(item.get("date") or ""), reverse=True):
+        score = row.get("score") if row.get("score") is not None else row.get("strokes")
+        if score is None:
+            continue
+        par = row.get("par")
+        score_int = int(score)
+        par_int = int(par) if par is not None else None
+        round_id = str(row.get("id") or "")
+        source_refs = [str(item) for item in (row.get("ids") or []) if item is not None]
+        if round_id and round_id not in source_refs:
+            source_refs.insert(0, round_id)
+        for corrected_ref in row.get("_scoreCorrectedRefs") or []:
+            corrected_ref_text = str(corrected_ref)
+            if corrected_ref_text not in source_refs:
+                source_refs.append(corrected_ref_text)
+        recent_rounds.append(
+            {
+                "roundId": round_id,
+                "date": str(row.get("date") or ""),
+                "courseName": str(row.get("course") or row.get("courseName") or "Unknown course"),
+                "score": score_int,
+                "par": par_int,
+                "toPar": score_int - par_int if par_int is not None else None,
+                "holesCompleted": int(row.get("holesCompleted") or row.get("holesPlayed") or len(row.get("holes") or []) or 0),
+                "sourceRefs": source_refs,
+            }
+        )
+        if len(recent_rounds) >= 5:
+            break
     holes = []
     for hole in round_row.get("holes") or []:
         number = int(hole.get("number") or 0)
@@ -93,9 +123,10 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
             "averageScore": course_stats.get("average18"),
             "bestScore": course_stats.get("bestScore"),
             "worstScore": course_stats.get("worstScore"),
-            "recentScores": same_course_scores[-5:],
+            "recentScores": same_course_scores[:5],
             "roundIds": course_stats.get("roundIds") or [],
         },
+        "rounds": recent_rounds,
         "holes": holes[:18],
     }
 
@@ -449,10 +480,13 @@ def build_live_round_package(
     captured_at: str | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
+    annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
+    annotations = list_annotations(root=annotation_lookup_root)
+    scored_source = _effective_score_data(source, annotations)
     stats = build_history_stats(
         source,
         data_mode=data_mode,
-        annotations_root=annotations_root or Path("/nonexistent-ai-caddie-annotations"),
+        annotations_root=annotation_lookup_root,
     )
     requested_id = str(round_id)
     round_row = next(
@@ -561,7 +595,7 @@ def build_live_round_package(
             },
         },
         "eventCursor": _event_cursor(round_id, root=root),
-        "recentHistory": _recent_history(source, stats, round_row),
+        "recentHistory": _recent_history(scored_source, stats, round_row),
         "cachedCaddieRules": _cached_caddie_rules(),
         "generatedAt": _format_time(prepared_at),
     }

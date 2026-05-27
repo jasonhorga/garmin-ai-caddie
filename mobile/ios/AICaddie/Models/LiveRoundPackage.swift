@@ -212,7 +212,41 @@ public struct EventCursor: Codable, Equatable {
 
 public struct RecentHistory: Codable, Equatable {
     public let course: CourseRecentHistory
+    public let rounds: [RecentRoundSummary]
     public let holes: [HoleRecentHistory]
+
+    enum CodingKeys: String, CodingKey {
+        case course
+        case rounds
+        case holes
+    }
+
+    public init(course: CourseRecentHistory, rounds: [RecentRoundSummary] = [], holes: [HoleRecentHistory]) {
+        self.course = course
+        self.rounds = rounds
+        self.holes = holes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.course = try container.decode(CourseRecentHistory.self, forKey: .course)
+        let rounds = try container.decodeIfPresent([RecentRoundSummary].self, forKey: .rounds)
+        self.rounds = rounds ?? []
+        self.holes = try container.decode([HoleRecentHistory].self, forKey: .holes)
+    }
+}
+
+public struct RecentRoundSummary: Codable, Equatable, Identifiable {
+    public var id: String { roundId }
+
+    public let roundId: String
+    public let date: String
+    public let courseName: String
+    public let score: Int
+    public let par: Int?
+    public let toPar: Int?
+    public let holesCompleted: Int
+    public let sourceRefs: [String]
 }
 
 public struct CourseRecentHistory: Codable, Equatable {

@@ -151,6 +151,38 @@
       "recentScores": [81, 84, 83],
       "roundIds": ["round-a", "round-b", "round-c"]
     },
+    "rounds": [
+      {
+        "roundId": "round-a",
+        "date": "2026-05-20T08:00:00",
+        "courseName": "Fixture Links",
+        "score": 81,
+        "par": 72,
+        "toPar": 9,
+        "holesCompleted": 18,
+        "sourceRefs": ["round-a"]
+      },
+      {
+        "roundId": "round-b",
+        "date": "2026-05-05T08:00:00",
+        "courseName": "Fixture Links",
+        "score": 84,
+        "par": 72,
+        "toPar": 12,
+        "holesCompleted": 18,
+        "sourceRefs": ["round-b"]
+      },
+      {
+        "roundId": "round-c",
+        "date": "2026-04-18T08:00:00",
+        "courseName": "Fixture Links",
+        "score": 83,
+        "par": 72,
+        "toPar": 11,
+        "holesCompleted": 18,
+        "sourceRefs": ["round-c"]
+      }
+    ],
     "holes": [
       {
         "number": 1,

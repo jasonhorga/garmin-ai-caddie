@@ -78,6 +78,11 @@ public struct RoundHomeView: View {
                     } label: {
                         Label("Start Round", systemImage: "flag.checkered")
                     }
+                    NavigationLink {
+                        RecentRoundReviewView(package: package)
+                    } label: {
+                        Label("Recent Review", systemImage: "chart.line.uptrend.xyaxis")
+                    }
                 }
 
                 Section("Holes") {
