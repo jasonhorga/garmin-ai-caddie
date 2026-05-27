@@ -529,6 +529,10 @@ def build_live_round_package(
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
     captured_at: str | None = None,
+    template_round_id: str | None = None,
+    preparation_mode: str = "round",
+    requested_course_global_id: int | None = None,
+    tee_box: str | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
@@ -540,11 +544,12 @@ def build_live_round_package(
         annotations_root=annotation_lookup_root,
     )
     requested_id = str(round_id)
+    lookup_id = str(template_round_id or requested_id)
     round_row = next(
         (
             row
             for row in source.rounds
-            if requested_id in {str(row.get("id") or ""), *(str(item) for item in (row.get("ids") or []))}
+            if lookup_id in {str(row.get("id") or ""), *(str(item) for item in (row.get("ids") or []))}
         ),
         None,
     )
@@ -596,26 +601,35 @@ def build_live_round_package(
     prepared_at = datetime.now(UTC).replace(microsecond=0)
     package_state = "ready" if round_found else "degraded"
     selected_round_id = str(round_row.get("id") or "").strip() or None
+    source_coverage = {
+        "state": package_state,
+        "dataMode": data_mode,
+        "requestedRoundId": requested_id,
+        "selectedRoundId": selected_round_id,
+        "roundFound": round_found,
+        "availableRoundCount": len(source.rounds),
+        "holeCount": len(round_row.get("holes") or []),
+        "clubProfileCount": len(club_profiles),
+    }
+    if preparation_mode != "round":
+        source_coverage.update(
+            {
+                "preparationMode": preparation_mode,
+                "requestedCourseGlobalId": requested_course_global_id,
+                "courseFound": round_found,
+            }
+        )
     return {
         "schema": "ai-caddie-live-round-package-v1",
         "roundId": round_id,
         "dataMode": data_mode,
-        "sourceCoverage": {
-            "state": package_state,
-            "dataMode": data_mode,
-            "requestedRoundId": requested_id,
-            "selectedRoundId": selected_round_id,
-            "roundFound": round_found,
-            "availableRoundCount": len(source.rounds),
-            "holeCount": len(round_row.get("holes") or []),
-            "clubProfileCount": len(club_profiles),
-        },
+        "sourceCoverage": source_coverage,
         "missingData": package_missing_data,
         "playerProfile": {"playerId": "local-player", "displayName": "Local Player", "handedness": "unknown"},
         "course": {
             "globalId": int(round_row.get("globalId") or 0),
             "name": str(round_row.get("course") or round_row.get("courseName") or "Unknown course"),
-            "teeBox": str(round_row.get("teeBox") or "unknown"),
+            "teeBox": str(tee_box or round_row.get("teeBox") or "unknown"),
         },
         "holes": holes,
         "geometryCoverage": {
@@ -624,7 +638,7 @@ def build_live_round_package(
             "totalHoles": len(holes),
         },
         "caddieContextSeeds": _caddie_context_seeds(
-            round_id=str(round_row.get("id") or round_id),
+            round_id=round_id,
             round_row=round_row,
             stats=stats,
             holes=holes,
@@ -650,6 +664,40 @@ def build_live_round_package(
         "cachedCaddieRules": _cached_caddie_rules(),
         "generatedAt": _format_time(prepared_at),
     }
+
+
+def build_live_round_package_for_course(
+    global_id: int,
+    *,
+    round_id: str | None = None,
+    tee_box: str | None = None,
+    data: HistoryData | None = None,
+    data_mode: str = "fixture",
+    root: Path | str | None = None,
+    annotations_root: Path | str | None = None,
+    captured_at: str | None = None,
+) -> dict[str, Any]:
+    source = data or fixture_history_data()
+    selected_round_id = None
+    for row in source.rounds:
+        if int(row.get("globalId") or 0) == int(global_id):
+            selected_round_id = str(row.get("id") or "").strip() or None
+            break
+    live_round_id = (round_id or f"live-course-{global_id}").strip()
+    if not live_round_id:
+        live_round_id = f"live-course-{global_id}"
+    return build_live_round_package(
+        live_round_id,
+        data=source,
+        data_mode=data_mode,
+        root=root,
+        annotations_root=annotations_root,
+        captured_at=captured_at,
+        template_round_id=selected_round_id,
+        preparation_mode="course",
+        requested_course_global_id=int(global_id),
+        tee_box=tee_box,
+    )
 
 
 def mobile_event_log(root: Path | str | None = None) -> Path:

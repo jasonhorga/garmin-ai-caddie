@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from ai_caddie.mobile_live import append_event_batch, build_live_round_package
+from ai_caddie.mobile_live import append_event_batch, build_live_round_package, build_live_round_package_for_course
 from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 
 from .data_source import load_history_data_for_mode
@@ -28,6 +28,28 @@ def build_mobile_round_package_response(round_id: str, *, captured_at: str | Non
     return LiveRoundPackageResponse(
         **build_live_round_package(
             round_id,
+            data=data,
+            data_mode=mode,
+            root=MOBILE_ROOT,
+            annotations_root=ANNOTATION_ROOT,
+            captured_at=captured_at,
+        )
+    )
+
+
+def build_mobile_course_package_response(
+    global_id: int,
+    *,
+    round_id: str | None = None,
+    tee_box: str | None = None,
+    captured_at: str | None = None,
+) -> LiveRoundPackageResponse:
+    data, mode = load_history_data_for_mode()
+    return LiveRoundPackageResponse(
+        **build_live_round_package_for_course(
+            global_id,
+            round_id=round_id,
+            tee_box=tee_box,
             data=data,
             data_mode=mode,
             root=MOBILE_ROOT,

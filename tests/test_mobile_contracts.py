@@ -477,6 +477,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("current_package.json", offline_store)
         self.assertIn("final class SyncClient", sync_client)
         self.assertIn("func fetchRoundPackage", sync_client)
+        self.assertIn("func fetchCoursePackage", sync_client)
         self.assertIn("func postEventBatch", sync_client)
         self.assertIn("Idempotency-Key", sync_client)
 
@@ -498,6 +499,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchRemotePackage(roundId: requestedRoundId, capturedAt: preparedAt)", app_swift)
         self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
+        self.assertIn("fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, capturedAt: capturedAt)", app_swift)
 
     def test_ios_app_entry_bootstraps_cached_or_fixture_package(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))
@@ -575,20 +577,29 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("@Published public private(set) var isPreparingRound", app_swift)
         self.assertIn("public func prepareRound(roundId:", app_swift)
+        self.assertIn("public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String) async", app_swift)
         self.assertIn("fetchRemotePackage(roundId:", app_swift)
+        self.assertIn("fetchRemoteCoursePackage(globalId:", app_swift)
         self.assertIn("offlineStore.loadRoundPackage(roundId:", app_swift)
         self.assertIn("try activatePackage", app_swift)
         self.assertIn("StartRoundView(", app_swift)
         self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
+        self.assertIn("await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox)", app_swift)
 
         self.assertIn("struct StartRoundView: View", start_view)
         self.assertIn("public let onPrepareRound: (String) -> Void", start_view)
+        self.assertIn("public let onPrepareCourseRound: (Int, String, String) -> Void", start_view)
+        self.assertIn('TextField("Course global ID"', start_view)
+        self.assertIn('TextField("Tee box"', start_view)
         self.assertIn('TextField("Round ID"', start_view)
         self.assertIn('Label("Prepare offline package"', start_view)
+        self.assertIn('Label("Prepare course package"', start_view)
         self.assertIn("onPrepareRound(roundId)", start_view)
+        self.assertIn("onPrepareCourseRound(courseGlobalId, roundId, teeBox)", start_view)
         self.assertIn("isPreparing", start_view)
 
         self.assertIn("public let onPrepareRound: (String) -> Void", round_home)
+        self.assertIn("public let onPrepareCourseRound: (Int, String, String) -> Void", round_home)
         self.assertIn("StartRoundView(", round_home)
         self.assertIn('Label("Start Round"', round_home)
 

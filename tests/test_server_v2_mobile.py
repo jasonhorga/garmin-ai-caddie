@@ -78,6 +78,36 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["course"]["globalId"], 41825)
         self.assertEqual(len(payload["holes"]), 9)
 
+    def test_mobile_course_package_prepares_round_before_garmin_round_exists(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                response = client.get(
+                    "/api/v2/mobile/courses/31795/package",
+                    params={"round_id": "live-black-knight", "tee_box": "blue"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v1")
+        self.assertEqual(payload["roundId"], "live-black-knight")
+        self.assertEqual(payload["course"]["globalId"], 31795)
+        self.assertEqual(payload["course"]["teeBox"], "blue")
+        self.assertEqual(payload["offlinePackageStatus"]["state"], "ready")
+        self.assertEqual(payload["sourceCoverage"]["state"], "ready")
+        self.assertEqual(payload["sourceCoverage"]["preparationMode"], "course")
+        self.assertEqual(payload["sourceCoverage"]["requestedCourseGlobalId"], 31795)
+        self.assertTrue(payload["sourceCoverage"]["courseFound"])
+        self.assertEqual(payload["sourceCoverage"]["selectedRoundId"], "900001")
+        self.assertEqual(payload["caddieContextSeeds"][0]["sourceRef"], "live-black-knight:1")
+        self.assertEqual(payload["caddieContextSeeds"][0]["context"]["roundId"], "live-black-knight")
+        self.assertEqual(payload["eventCursor"], {"serverSequence": 0, "pendingEventCount": 0})
+
     def test_mobile_round_package_endpoint_selects_weather_at_prepared_time(self) -> None:
         client = TestClient(app)
 

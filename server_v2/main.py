@@ -41,6 +41,7 @@ from .media import (
 from .mobile import (
     append_mobile_events_response,
     apply_mobile_round_reconciliation_response,
+    build_mobile_course_package_response,
     build_mobile_round_package_response,
     reconcile_mobile_round_response,
 )
@@ -180,6 +181,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or path == "/api/v2/reports"
             or path.startswith("/api/v2/reports/")
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
+            or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
         )
     if normalized_method != "POST":
@@ -249,6 +251,7 @@ def service_index() -> dict[str, object]:
             "analyzeMedia": "/api/v2/media/{media_id}/analyze",
             "redactMedia": "/api/v2/media/{media_id}/redact",
             "mobileRoundPackage": "/api/v2/mobile/rounds/{round_id}/package",
+            "mobileCoursePackage": "/api/v2/mobile/courses/{global_id}/package",
             "mobileRoundEvents": "/api/v2/mobile/rounds/{round_id}/events",
             "mobileRoundReconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
             "mobileRoundReconciliationApply": "/api/v2/mobile/rounds/{round_id}/reconciliation/apply",
@@ -491,6 +494,16 @@ def confirm_vision_finding_route(
 @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
 def mobile_round_package(round_id: str, captured_at: str | None = None) -> LiveRoundPackageResponse:
     return build_mobile_round_package_response(round_id, captured_at=captured_at)
+
+
+@app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
+def mobile_course_package(
+    global_id: int,
+    round_id: str | None = None,
+    tee_box: str | None = None,
+    captured_at: str | None = None,
+) -> LiveRoundPackageResponse:
+    return build_mobile_course_package_response(global_id, round_id=round_id, tee_box=tee_box, captured_at=captured_at)
 
 
 @app.post("/api/v2/mobile/rounds/{round_id}/events", response_model=LiveRoundEventBatchResponse)

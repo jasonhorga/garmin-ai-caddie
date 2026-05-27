@@ -74,6 +74,16 @@
         },
         "clubProfileCount": {
           "type": "integer"
+        },
+        "preparationMode": {
+          "type": "string",
+          "enum": ["round", "course"]
+        },
+        "requestedCourseGlobalId": {
+          "type": ["integer", "null"]
+        },
+        "courseFound": {
+          "type": "boolean"
         }
       }
     },

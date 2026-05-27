@@ -50,6 +50,30 @@ public final class SyncClient {
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, capturedAt: Date = Date()) async throws -> LiveRoundPackage {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("/api/v2/mobile/courses/\(globalId)/package"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [
+            URLQueryItem(name: "round_id", value: roundId),
+            URLQueryItem(name: "tee_box", value: teeBox),
+            URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt)),
+        ]
+        guard let url = components.url else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response)
+        return try decoder.decode(LiveRoundPackage.self, from: data)
+    }
+
     public func postEventBatch(
         _ events: [LiveRoundEvent],
         roundId: String,

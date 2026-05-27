@@ -12,6 +12,7 @@ public struct RoundHomeView: View {
     public let isPreparingRound: Bool
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
+    public let onPrepareCourseRound: (Int, String, String) -> Void
     public let onSync: () -> Void
 
     public init(
@@ -25,6 +26,7 @@ public struct RoundHomeView: View {
         isPreparingRound: Bool = false,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
+        onPrepareCourseRound: @escaping (Int, String, String) -> Void = { _, _, _ in },
         onSync: @escaping () -> Void = {}
     ) {
         self.package = package
@@ -37,6 +39,7 @@ public struct RoundHomeView: View {
         self.isPreparingRound = isPreparingRound
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
+        self.onPrepareCourseRound = onPrepareCourseRound
         self.onSync = onSync
     }
 
@@ -71,9 +74,12 @@ public struct RoundHomeView: View {
                     NavigationLink {
                         StartRoundView(
                             defaultRoundId: package.roundId,
+                            defaultCourseGlobalId: package.course.globalId == 0 ? nil : package.course.globalId,
+                            defaultTeeBox: package.course.teeBox,
                             syncStatus: syncStatus,
                             isPreparing: isPreparingRound,
-                            onPrepareRound: onPrepareRound
+                            onPrepareRound: onPrepareRound,
+                            onPrepareCourseRound: onPrepareCourseRound
                         )
                     } label: {
                         Label("Start Round", systemImage: "flag.checkered")
