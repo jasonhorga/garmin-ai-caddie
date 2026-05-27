@@ -111,6 +111,9 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertIn("1D-3W-58", labels)
         self.assertIn("3W-5I-54", labels)
         self.assertEqual(payload["selectedSequence"]["id"], payload["selectedOptionId"])
+        self.assertIn("coverage", payload["selectedSequence"])
+        self.assertIn("confidence", payload["selectedSequence"])
+        self.assertIn("sourceRefs", payload["selectedSequence"])
 
     def test_decision_endpoint_rejects_invalid_shot_type(self) -> None:
         client = TestClient(app)
@@ -189,6 +192,10 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertEqual(context["geometry"]["hasMeshes"], False)
         self.assertEqual(context["hazards"][0]["kind"], "water")
         self.assertIn("1D", context["clubProfiles"])
+        self.assertIn("sampleRefs", context["clubProfiles"]["1D"])
+        self.assertEqual(context["clubProfiles"]["1D"]["sampleRefs"][0], "900001:1:0")
+        self.assertEqual(context["clubProfiles"]["1D"]["coverage"], {"ready": 2, "total": 2, "pct": 100.0})
+        self.assertEqual(context["clubProfiles"]["1D"]["confidence"], "medium")
         self.assertIn("meshes", {row["label"] for row in payload["missingData"]})
         self.assertNotIn("cookie", response.text.lower())
         self.assertNotIn("token", response.text.lower())

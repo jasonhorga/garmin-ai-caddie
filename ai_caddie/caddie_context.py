@@ -100,13 +100,13 @@ def build_caddie_context(
     if effective_lie is None and normalized_shot_type != "tee":
         missing_data.append({"label": "lie", "reason": "current lie was not provided"})
 
-    club_profiles = _club_profiles(data)
+    stats = build_history_stats(data, data_mode=data_mode, annotations_root=annotations_root)
+    club_profiles = _club_profiles(data, stats=stats)
     if not club_profiles:
         missing_data.append({"label": "club_profiles", "reason": "no usable historical shot distances"})
 
     history_context = _history_context(
-        data,
-        data_mode=data_mode,
+        stats,
         annotations_root=annotations_root,
         course_key=str(round_row.get("courseKey") or ""),
         local_hole=local_hole,
@@ -235,9 +235,8 @@ def _missing_context(source_ref: str, shot_type: ShotType, missing_data: list[di
 
 
 def _history_context(
-    data: HistoryData,
+    stats: dict[str, Any],
     *,
-    data_mode: DataModeName,
     annotations_root: Path | str | None,
     course_key: str,
     local_hole: int | None,
@@ -246,7 +245,6 @@ def _history_context(
 ) -> dict[str, Any]:
     if local_hole is None:
         return {}
-    stats = build_history_stats(data, data_mode=data_mode, annotations_root=annotations_root)
     hole_stats = _find_hole_stats(stats, course_key=course_key, local_hole=local_hole)
     course_form = _find_course_distribution(stats, course_key=course_key)
     notes = _manual_notes(
@@ -409,24 +407,99 @@ def _hole_ref_for_source(source_ref: str, round_id: str, local_hole: int) -> str
     return f"{round_id}:{local_hole}"
 
 
-def _club_profiles(data: HistoryData) -> dict[str, dict[str, Any]]:
+def _club_profiles(data: HistoryData, *, stats: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    if stats is not None:
+        rows = stats.get("clubs") if isinstance(stats.get("clubs"), list) else []
+        profiles: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            club = str(row.get("club") or "").strip()
+            if not club:
+                continue
+            sample_refs = _dedupe_strings(
+                row.get("validShotRefs")
+                or row.get("shotRefs")
+                or row.get("sourceRefs")
+                or row.get("roundRefs")
+                or []
+            )
+            sample_size = _as_int(row.get("sampleCount")) or len(sample_refs)
+            profiles[club] = {
+                "clubName": club,
+                "sampleSize": sample_size,
+                "median": row.get("median"),
+                "p10": row.get("p10"),
+                "p90": row.get("p90"),
+                "max": row.get("max"),
+                "dispersionRange": row.get("dispersionRange"),
+                "consistency": row.get("consistency"),
+                "sampleRefs": sample_refs,
+                "sourceRefs": sample_refs,
+                "coverage": row.get("coverage"),
+                "confidence": row.get("confidence"),
+                "sampleQuality": row.get("sampleQuality"),
+            }
+            for key in ("rawSampleCount", "validSampleCount", "invalidSampleCount", "outlierCount", "invalidShotRefs", "outlierShotRefs", "correctedRefs"):
+                if key in row:
+                    profiles[club][key] = row[key]
+        if profiles:
+            return profiles
+
     grouped: dict[str, list[float]] = {}
-    for shot in data.shots:
+    refs: dict[str, list[str]] = {}
+    for index, shot in enumerate(data.shots):
         club = str(shot.get("club") or shot.get("clubName") or "").strip()
-        distance = _as_float(shot.get("distance"))
+        distance = _as_float(shot.get("distance") if shot.get("distance") is not None else shot.get("meters"))
         if club and distance is not None:
             grouped.setdefault(club, []).append(distance)
+            refs.setdefault(club, []).append(_shot_ref(shot, index))
     profiles = {}
     for club, distances in sorted(grouped.items()):
         ordered = sorted(distances)
+        sample_refs = _dedupe_strings(refs.get(club, []))
         profiles[club] = {
             "clubName": club,
             "sampleSize": len(ordered),
             "median": round(float(median(ordered)), 1),
             "p10": _percentile(ordered, 0.1),
             "p90": _percentile(ordered, 0.9),
+            "sampleRefs": sample_refs,
+            "sourceRefs": sample_refs,
+            "coverage": _coverage(len(sample_refs), len(ordered)),
+            "confidence": _sample_confidence(len(ordered)),
         }
     return profiles
+
+
+def _shot_ref(shot: dict[str, Any], index: int) -> str:
+    return f"{shot.get('roundId') or shot.get('scorecardId')}:{shot.get('hole')}:{index}"
+
+
+def _dedupe_strings(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def _coverage(ready: int, total: int) -> dict[str, Any]:
+    return {"ready": ready, "total": total, "pct": round(ready / total * 100, 1) if total else 0.0}
+
+
+def _sample_confidence(sample_count: int) -> str:
+    if sample_count >= 10:
+        return "high"
+    if sample_count >= 2:
+        return "medium"
+    return "low"
 
 
 def _hazards_from_map(hole_map: dict[str, Any]) -> list[dict[str, Any]]:

@@ -3030,6 +3030,36 @@ p {
   font-weight: 800;
 }
 
+.decision-sequence-steps {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.decision-sequence-step {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.decision-sequence-step > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.decision-sequence-step strong {
+  font-size: 13px;
+}
+
+.decision-sequence-step span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .decision-explanation {
   display: grid;
   gap: 10px;

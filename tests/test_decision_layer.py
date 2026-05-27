@@ -143,14 +143,25 @@ def ready_weather_snapshot():
 
 
 def long_hole_fixture():
+    def club_profile(club: str, sample_size: int, median: float, p10: float, p90: float) -> dict[str, object]:
+        ref_key = club.lower().replace(" ", "-")
+        return {
+            "clubName": club,
+            "sampleSize": sample_size,
+            "median": median,
+            "p10": p10,
+            "p90": p90,
+            "sampleRefs": [f"club-sample-{ref_key}-{index}" for index in range(sample_size)],
+        }
+
     data = analysis_fixture(stock_risk=1)
     data["distanceToPin_m"] = 520.0
     data["clubProfiles"] = {
-        "1D": {"clubName": "1D", "sampleSize": 80, "median": 245.0, "p10": 215.0, "p90": 268.0},
-        "3W": {"clubName": "3W", "sampleSize": 45, "median": 218.0, "p10": 195.0, "p90": 236.0},
-        "5I": {"clubName": "5I", "sampleSize": 38, "median": 168.0, "p10": 150.0, "p90": 182.0},
-        "54": {"clubName": "54", "sampleSize": 30, "median": 94.0, "p10": 82.0, "p90": 104.0},
-        "58": {"clubName": "58", "sampleSize": 28, "median": 78.0, "p10": 66.0, "p90": 88.0},
+        "1D": club_profile("1D", 80, 245.0, 215.0, 268.0),
+        "3W": club_profile("3W", 45, 218.0, 195.0, 236.0),
+        "5I": club_profile("5I", 38, 168.0, 150.0, 182.0),
+        "54": club_profile("54", 30, 94.0, 82.0, 104.0),
+        "58": club_profile("58", 28, 78.0, 66.0, 88.0),
     }
     return data
 
@@ -285,7 +296,18 @@ class DecisionLayerTests(unittest.TestCase):
         stock_sequence = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
         self.assertEqual(stock_sequence["expectedStrokes"], 3)
         self.assertLessEqual(abs(stock_sequence["expectedRemaining_m"]), 30)
+        self.assertEqual(stock_sequence["coverage"], {"ready": 153, "total": 153, "pct": 100.0})
+        self.assertEqual(stock_sequence["confidence"], "high")
+        self.assertIn("club-sample-1d-0", stock_sequence["sourceRefs"])
+        self.assertEqual(stock_sequence["clubs"][0]["clubName"], "1D")
+        self.assertEqual(stock_sequence["clubs"][0]["targetCarry_m"], 245.0)
+        self.assertEqual(stock_sequence["clubs"][0]["sampleSize"], 80)
+        self.assertEqual(stock_sequence["clubs"][0]["confidence"], "high")
+        self.assertEqual(stock_sequence["clubs"][0]["coverage"], {"ready": 80, "total": 80, "pct": 100.0})
+        self.assertEqual(stock_sequence["clubs"][0]["sourceRefs"][0], "club-sample-1d-0")
         self.assertIn("sequence", {row["kind"] for row in plan["evidence"]})
+        sequence_evidence = next(row for row in plan["evidence"] if row["kind"] == "sequence")
+        self.assertIn("club-sample-1d-0", sequence_evidence["sourceRefs"])
 
     def test_recommend_approach_uses_green_and_hazard_evidence(self) -> None:
         context = approach_fixture()

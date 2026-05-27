@@ -456,6 +456,8 @@ def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float
         median = profile.get("median")
         if median is None:
             continue
+        source_refs = _club_profile_source_refs(profile)
+        sample_size = int(profile.get("sampleSize") or len(source_refs) or 0)
         median_m = _float(median)
         p10 = _float(profile.get("p10"), median_m)
         p90 = _float(profile.get("p90"), median_m)
@@ -464,14 +466,39 @@ def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float
             continue
         rows.append({
             "clubName": club_name,
-            "sampleSize": int(profile.get("sampleSize") or 0),
+            "sampleSize": sample_size,
             "median_m": round(median_m, 1),
             "p10_m": round(p10, 1),
             "p90_m": round(p90, 1),
             "deltaToCarry_m": round(median_m - carry_m, 1),
+            "sourceRefs": source_refs,
+            "coverage": _sample_coverage(sample_size, source_refs),
+            "confidence": _sample_confidence(sample_size),
         })
     rows.sort(key=lambda row: (abs(row["deltaToCarry_m"]), -row["sampleSize"], row["clubName"]))
     return rows
+
+
+def _club_profile_source_refs(profile: dict[str, Any]) -> list[str]:
+    for key in ("sampleRefs", "sourceRefs", "validShotRefs", "shotRefs", "refs", "roundRefs", "roundIds"):
+        refs = _sanitize_ref_list(profile.get(key))
+        if refs:
+            return refs
+    return []
+
+
+def _sample_coverage(sample_size: int, source_refs: list[str]) -> dict[str, Any]:
+    total = max(0, sample_size)
+    ready = len(source_refs) if source_refs else total
+    return {"ready": ready, "total": total, "pct": round(ready / total * 100, 1) if total else 0.0}
+
+
+def _sample_confidence(sample_size: int) -> str:
+    if sample_size >= 10:
+        return "high"
+    if sample_size >= 2:
+        return "medium"
+    return "low"
 
 
 def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -486,12 +513,17 @@ def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, An
         median_m = _float(median)
         if median_m <= 0:
             continue
+        source_refs = _club_profile_source_refs(profile)
+        sample_size = int(profile.get("sampleSize") or len(source_refs) or 0)
         rows.append({
             "clubName": club_name,
-            "sampleSize": int(profile.get("sampleSize") or 0),
+            "sampleSize": sample_size,
             "median_m": round(median_m, 1),
             "p10_m": round(_float(profile.get("p10"), median_m), 1),
             "p90_m": round(_float(profile.get("p90"), median_m), 1),
+            "sourceRefs": source_refs,
+            "coverage": _sample_coverage(sample_size, source_refs),
+            "confidence": _sample_confidence(sample_size),
         })
     return sorted(rows, key=lambda row: (-row["median_m"], -row["sampleSize"], row["clubName"]))
 
@@ -523,15 +555,39 @@ def _best_scoring_club(rows: list[dict[str, Any]], remaining_m: float, *, mode: 
 def _sequence_step(row: dict[str, Any], remaining_before_m: float, role: str) -> dict[str, Any]:
     carry_m = _float(row.get("median_m"))
     remaining_after_m = round(remaining_before_m - carry_m, 1)
+    source_refs = _sanitize_ref_list(row.get("sourceRefs"))
+    sample_size = int(row.get("sampleSize") or len(source_refs) or 0)
     return {
         "clubName": row.get("clubName"),
         "role": role,
         "targetCarry_m": round(carry_m, 1),
         "expectedRemaining_m": remaining_after_m,
-        "sampleSize": row.get("sampleSize", 0),
+        "sampleSize": sample_size,
         "p10_m": row.get("p10_m"),
         "p90_m": row.get("p90_m"),
+        "sourceRefs": source_refs,
+        "coverage": _sample_coverage(sample_size, source_refs),
+        "confidence": _sample_confidence(sample_size),
     }
+
+
+def _sequence_coverage(steps: list[dict[str, Any]]) -> dict[str, Any]:
+    ready = 0
+    total = 0
+    for step in steps:
+        coverage = step.get("coverage") if isinstance(step.get("coverage"), dict) else {}
+        ready += int(coverage.get("ready") or 0)
+        total += int(coverage.get("total") or 0)
+    return {"ready": ready, "total": total, "pct": round(ready / total * 100, 1) if total else 0.0}
+
+
+def _sequence_confidence(steps: list[dict[str, Any]]) -> str:
+    confidences = {str(step.get("confidence") or "low") for step in steps}
+    if "low" in confidences:
+        return "low"
+    if "medium" in confidences:
+        return "medium"
+    return "high"
 
 
 def _sequence_option(
@@ -554,6 +610,7 @@ def _sequence_option(
     if scoring is not None:
         steps.append(_sequence_step(scoring, remaining, "scoring"))
         remaining = steps[-1]["expectedRemaining_m"]
+    source_refs = _dedupe([ref for step in steps for ref in _sanitize_ref_list(step.get("sourceRefs"))])
     return {
         "id": option_id,
         "label": "-".join(str(step["clubName"]) for step in steps),
@@ -564,6 +621,9 @@ def _sequence_option(
         "expectedStrokes": len(steps),
         "riskScore": risk_score,
         "rationale": rationale,
+        "sourceRefs": source_refs,
+        "coverage": _sequence_coverage(steps),
+        "confidence": _sequence_confidence(steps),
     }
 
 
@@ -648,6 +708,9 @@ def _sequence_evidence(sequences: list[dict[str, Any]], selected_sequence: dict[
             f"{sequence['strategyLabel']}: {sequence['label']} "
             f"leaves {sequence['expectedRemaining_m']}m after {sequence['expectedStrokes']} shots"
         ),
+        "sourceRefs": sequence.get("sourceRefs", []),
+        "coverage": sequence.get("coverage"),
+        "confidence": sequence.get("confidence"),
     }
 
 

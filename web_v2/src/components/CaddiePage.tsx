@@ -562,7 +562,7 @@ function DecisionDetail({
       </div>
 
       <DecisionAcceptableMiss decision={decision} onSelectRef={onSelectRef} />
-      <DecisionSequences sequences={decision.sequences ?? []} selectedSequence={decision.selectedSequence ?? null} />
+      <DecisionSequences sequences={decision.sequences ?? []} selectedSequence={decision.selectedSequence ?? null} onSelectRef={onSelectRef} />
       <DecisionExplanation explanation={decision.explanation} onSelectRef={onSelectRef} />
 
       <div className="report-evidence-grid">
@@ -660,9 +660,11 @@ function ExplanationRows({
 function DecisionSequences({
   sequences,
   selectedSequence,
+  onSelectRef,
 }: {
   sequences: Array<Record<string, unknown>>
   selectedSequence: Record<string, unknown> | null
+  onSelectRef: (sourceRef: string) => void
 }) {
   if (!sequences.length) return null
   const selectedId = selectedSequence ? String(selectedSequence.id ?? '') : ''
@@ -685,11 +687,74 @@ function DecisionSequences({
                 {isSelected ? <span className="selected-pill">selected</span> : null}
               </div>
               <p>{formatSequenceMeta(sequence)}</p>
+              <SequenceQualityChips sequence={sequence} onSelectRef={onSelectRef} />
+              <SequenceStepList steps={recordRows(sequence.clubs)} onSelectRef={onSelectRef} />
             </article>
           )
         })}
       </div>
     </section>
+  )
+}
+
+function SequenceQualityChips({
+  sequence,
+  onSelectRef,
+}: {
+  sequence: Record<string, unknown>
+  onSelectRef: (sourceRef: string) => void
+}) {
+  const coverage = recordFrom(sequence.coverage)
+  const ready = coverage.ready
+  const total = coverage.total
+  const confidence = stringValue(sequence.confidence)
+  const refs = stringRows(sequence.sourceRefs)
+  if (ready === undefined && total === undefined && !confidence && refs.length === 0) return null
+
+  return (
+    <div className="decision-option-chips">
+      {ready !== undefined || total !== undefined ? (
+        <span className="fact-chip muted">
+          coverage {String(ready ?? '-')}/{String(total ?? '-')}
+        </span>
+      ) : null}
+      {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidence} sequence confidence</span> : null}
+      <SourceRefs refs={refs} maxVisible={2} onSelectRef={onSelectRef} />
+    </div>
+  )
+}
+
+function SequenceStepList({
+  steps,
+  onSelectRef,
+}: {
+  steps: Array<Record<string, unknown>>
+  onSelectRef: (sourceRef: string) => void
+}) {
+  if (!steps.length) return null
+
+  return (
+    <div className="decision-sequence-steps" aria-label="Sequence shot steps">
+      {steps.map((step, index) => {
+        const club = stringValue(step.clubName) || '-'
+        const role = stringValue(step.role) || `shot ${index + 1}`
+        const confidence = stringValue(step.confidence)
+        const refs = stringRows(step.sourceRefs)
+        return (
+          <div className="decision-sequence-step" key={`${role}-${club}-${index}`}>
+            <div>
+              <strong>{`${role} ${club}`}</strong>
+              <span>{sequenceStepLabel(step)}</span>
+            </div>
+            <div className="decision-option-chips">
+              {step.sampleSize !== undefined ? <span className="fact-chip muted">{String(step.sampleSize)} samples</span> : null}
+              {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidence}</span> : null}
+              <SourceRefs refs={refs} maxVisible={1} onSelectRef={onSelectRef} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -1232,6 +1297,17 @@ function formatSequenceMeta(sequence: Record<string, unknown>): string {
   if (remaining !== undefined) parts.push(`${String(remaining)}m remaining`)
   if (risk !== undefined) parts.push(`risk ${String(risk)}`)
   return parts.join(' - ') || '-'
+}
+
+function sequenceStepLabel(step: Record<string, unknown>): string {
+  const carry = step.targetCarry_m ?? step.carry_m
+  const remaining = step.expectedRemaining_m
+  return [
+    carry === undefined ? null : `${String(carry)}m carry`,
+    remaining === undefined ? null : `${String(remaining)}m left`,
+  ]
+    .filter(Boolean)
+    .join(' - ') || '-'
 }
 
 function numericInput(value: string): number | undefined {

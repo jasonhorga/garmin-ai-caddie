@@ -63,9 +63,56 @@ const decision: CaddieDecisionResponse = {
   },
   sequences: [
     { id: 'safe', label: '3W-5I-54', expectedStrokes: 3, expectedRemaining_m: 40, riskScore: 1 },
-    { id: 'stock', label: '1D-3W-58', expectedStrokes: 3, expectedRemaining_m: -21, riskScore: 2 },
+    {
+      id: 'stock',
+      label: '1D-3W-58',
+      expectedStrokes: 3,
+      expectedRemaining_m: -21,
+      riskScore: 2,
+      coverage: { ready: 153, total: 153, pct: 100 },
+      confidence: 'high',
+      sourceRefs: ['club-sample-1d-0', 'club-sample-3w-0', 'club-sample-58-0'],
+      clubs: [
+        {
+          clubName: '1D',
+          role: 'advance',
+          targetCarry_m: 245,
+          expectedRemaining_m: 275,
+          sampleSize: 80,
+          confidence: 'high',
+          sourceRefs: ['club-sample-1d-0'],
+        },
+        {
+          clubName: '3W',
+          role: 'position',
+          targetCarry_m: 218,
+          expectedRemaining_m: 57,
+          sampleSize: 45,
+          confidence: 'high',
+          sourceRefs: ['club-sample-3w-0'],
+        },
+        {
+          clubName: '58',
+          role: 'scoring',
+          targetCarry_m: 78,
+          expectedRemaining_m: -21,
+          sampleSize: 28,
+          confidence: 'high',
+          sourceRefs: ['club-sample-58-0'],
+        },
+      ],
+    },
   ],
-  selectedSequence: { id: 'stock', label: '1D-3W-58', expectedStrokes: 3, expectedRemaining_m: -21, riskScore: 2 },
+  selectedSequence: {
+    id: 'stock',
+    label: '1D-3W-58',
+    expectedStrokes: 3,
+    expectedRemaining_m: -21,
+    riskScore: 2,
+    coverage: { ready: 153, total: 153, pct: 100 },
+    confidence: 'high',
+    sourceRefs: ['club-sample-1d-0', 'club-sample-3w-0', 'club-sample-58-0'],
+  },
   avoidZones: [{ kind: 'water', id: 'water_front' }],
   forbiddenZones: [],
   acceptableMiss: {
@@ -382,6 +429,12 @@ describe('CaddiePage', () => {
     expect(screen.getByRole('heading', { name: 'Club Sequences' })).toBeInTheDocument()
     expect(screen.getByText('1D-3W-58')).toBeInTheDocument()
     expect(screen.getAllByText(/3 shots/).length).toBeGreaterThan(0)
+    expect(screen.getByText('coverage 153/153')).toBeInTheDocument()
+    expect(screen.getByText('high sequence confidence')).toBeInTheDocument()
+    expect(screen.getByText('advance 1D')).toBeInTheDocument()
+    expect(screen.getByText('245m carry - 275m left')).toBeInTheDocument()
+    expect(screen.getByText('80 samples')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Open source club-sample-1d-0' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: 'Caddie Context' })).toBeInTheDocument()
     expect(screen.getByText('history_drilldown')).toBeInTheDocument()
     expect(screen.getByText('31795 H7')).toBeInTheDocument()
