@@ -719,7 +719,7 @@ function SequenceQualityChips({
         </span>
       ) : null}
       {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidence} sequence confidence</span> : null}
-      <SourceRefs refs={refs} maxVisible={2} onSelectRef={onSelectRef} />
+      <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
     </div>
   )
 }
@@ -808,8 +808,17 @@ function OptionQualityChips({
   const total = coverage.total
   const confidence = stringValue(option.confidence)
   const missingCount = recordRows(option.missingData).length
-  const refs = stringRows(option.sourceRefs)
-  if (sampleSize === null && ready === undefined && !confidence && missingCount === 0 && refs.length === 0) return null
+  const historyAdjustment = recordFrom(option.historyAdjustment)
+  const historyDeltaRaw = historyAdjustment.riskScoreDelta
+  const historyDelta =
+    typeof historyDeltaRaw === 'number' && Number.isFinite(historyDeltaRaw)
+      ? historyDeltaRaw
+      : typeof historyDeltaRaw === 'string' && Number.isFinite(Number(historyDeltaRaw))
+        ? Number(historyDeltaRaw)
+        : null
+  const historyText = historyDelta && historyDelta !== 0 ? `history ${historyDelta > 0 ? '+' : ''}${historyDelta} risk` : null
+  const refs = uniqueStrings([...stringRows(option.sourceRefs), ...stringRows(historyAdjustment.sourceRefs)])
+  if (sampleSize === null && ready === undefined && !confidence && missingCount === 0 && !historyText && refs.length === 0) return null
 
   return (
     <div className="decision-option-chips">
@@ -820,8 +829,9 @@ function OptionQualityChips({
         </span>
       ) : null}
       {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidence} option confidence</span> : null}
+      {historyText ? <span className="fact-chip muted">{historyText}</span> : null}
       {missingCount ? <span className="fact-chip muted">missing {missingCount}</span> : null}
-      <SourceRefs refs={refs} maxVisible={2} onSelectRef={onSelectRef} />
+      <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
     </div>
   )
 }

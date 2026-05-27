@@ -939,7 +939,9 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
     target_window = _target_window(carry_m, shot_type="tee", option_id=option_id)
     dispersion = _dispersion_from_recommendation(club_recommendation)
     hazard_clearance = _hazard_clearance(carry_m, forbidden)
-    risk_score = _risk_score(route)
+    base_risk_score = _risk_score(route)
+    history_adjustment = _history_risk_adjustment(analysis, option_id)
+    risk_score = base_risk_score + _float(history_adjustment.get("riskScoreDelta"), 0.0)
     option = {
         "id": option_id,
         "routeId": route.get("id"),
@@ -950,11 +952,13 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         "targetWindow": target_window,
         "expectedSurface": route.get("expectedSurface"),
         "riskScore": risk_score,
+        "baseRiskScore": base_risk_score,
+        "historyAdjustment": history_adjustment,
         "forbiddenZones": forbidden,
         "avoidZones": forbidden,
         "hazardClearance": hazard_clearance,
         "dispersion": dispersion,
-        "scoreImpact": _score_impact(risk_score, hazard_clearance, dispersion),
+        "scoreImpact": _score_impact(risk_score, hazard_clearance, dispersion, history_adjustment=history_adjustment),
         "clubRecommendation": club_recommendation,
     }
     return _with_option_contract(option, analysis, route=route)
@@ -1051,6 +1055,42 @@ def _confidence(analysis: dict[str, Any], options: list[dict[str, Any]], selecte
     return {"level": level, "reasons": sorted(set(reasons))}
 
 
+def _history_evidence(analysis: dict[str, Any]) -> dict[str, Any] | None:
+    historical_hole = analysis.get("historicalHole") if isinstance(analysis.get("historicalHole"), dict) else {}
+    course_form = analysis.get("courseForm") if isinstance(analysis.get("courseForm"), dict) else {}
+    issues = analysis.get("historicalHoleIssues") or analysis.get("holeIssues") or []
+    if not historical_hole and not course_form and not issues:
+        return None
+
+    adjustment = _history_risk_adjustment(analysis, "attack")
+    parts: list[str] = []
+    average_to_par = adjustment.get("averageToPar")
+    worst_to_par = adjustment.get("worstToPar")
+    if average_to_par is not None:
+        parts.append(f"average to par +{round(_float(average_to_par), 2)}")
+    if worst_to_par is not None:
+        parts.append(f"worst to par +{round(_float(worst_to_par), 2)}")
+    if int(adjustment.get("doubleOrWorseCount") or 0):
+        parts.append(f"double+ count {adjustment['doubleOrWorseCount']}")
+    if int(adjustment.get("penaltyIssueCount") or 0):
+        parts.append(f"penalty issue count {adjustment['penaltyIssueCount']}")
+    recent_form = course_form.get("recentForm") if isinstance(course_form, dict) else None
+    if isinstance(recent_form, dict):
+        direction = str(recent_form.get("direction") or "").strip()
+        delta = recent_form.get("deltaAverage18")
+        if direction:
+            parts.append(f"course recent form {direction}")
+        if delta is not None:
+            parts.append(f"18-hole delta {delta}")
+    if not parts:
+        parts.append("historical hole and course context considered")
+    return {
+        "kind": "history",
+        "text": "; ".join(parts),
+        "sourceRefs": adjustment.get("sourceRefs", []),
+    }
+
+
 def _evidence(
     analysis: dict[str, Any],
     selected: dict[str, Any] | None,
@@ -1090,6 +1130,9 @@ def _evidence(
     if weather:
         rows.append({"kind": "weather", "text": _weather_text(weather)})
     rows.extend(_manual_note_evidence(analysis))
+    history_evidence = _history_evidence(analysis)
+    if history_evidence:
+        rows.append(history_evidence)
     return rows
 
 
@@ -1204,30 +1247,167 @@ def _wind_adjustment_m(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _int_count(value: Any) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, count)
+
+
+def _refs_from_history_context(context: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for key in ("historicalHole", "historicalHoleIssues", "holeIssues", "courseForm"):
+        _collect_refs_from_value(context.get(key), refs)
+    return _dedupe(refs)
+
+
+def _score_bucket_count(distribution: Any, *keys: str) -> int:
+    wanted = {key.replace("_", "").replace("-", "").lower() for key in keys}
+    count = 0
+    if not isinstance(distribution, list):
+        return count
+    for row in distribution:
+        if not isinstance(row, dict):
+            continue
+        raw_key = str(row.get("key") or row.get("label") or "")
+        normalized = raw_key.replace("_", "").replace("-", "").replace(" ", "").lower()
+        if normalized in wanted:
+            count += _int_count(row.get("count"))
+    return count
+
+
+def _course_form_worsening_strokes(course_form: Any) -> float:
+    if not isinstance(course_form, dict):
+        return 0.0
+    recent_form = course_form.get("recentForm")
+    if not isinstance(recent_form, dict):
+        return 0.0
+    delta = _float_or_none(recent_form.get("deltaAverage18"))
+    direction = str(recent_form.get("direction") or "").strip().lower()
+    if delta is None:
+        return 0.0
+    if direction == "worsening" or delta > 0:
+        return max(0.0, delta)
+    return 0.0
+
+
+def _history_factor(label: str, raw_delta: float, weighted_delta: float, refs: list[str], value: Any) -> dict[str, Any]:
+    return {
+        "label": label,
+        "value": value,
+        "rawRiskScoreDelta": round(max(0.0, raw_delta), 2),
+        "riskScoreDelta": round(max(0.0, weighted_delta), 2),
+        "sourceRefs": refs,
+    }
+
+
 def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[str, Any]:
     issues = context.get("historicalHoleIssues") or context.get("holeIssues") or []
     penalty_count = 0
     approach_count = 0
+    double_issue_count = 0
     for issue in issues:
         if not isinstance(issue, dict):
             continue
-        phase = str(issue.get("phase") or "")
-        issue_name = str(issue.get("issue") or "")
-        count = int(issue.get("count") or 0)
-        if phase == "Penalty" or issue_name in {"water", "ob", "hazard_result"}:
+        phase = str(issue.get("phase") or "").strip().lower()
+        issue_name = str(issue.get("issue") or "").strip().lower()
+        count = _int_count(issue.get("count"))
+        if phase == "penalty" or issue_name in {"water", "ob", "hazard_result"}:
             penalty_count += count
-        if phase == "Approach" or issue_name.startswith("approach_"):
+        if phase == "approach" or issue_name.startswith("approach_"):
             approach_count += count
-    if option_id == "attack":
-        meters = min(4, penalty_count) + min(2, approach_count)
-    elif option_id == "stock":
-        meters = min(2, penalty_count)
-    else:
-        meters = 0
+        if issue_name == "double_or_worse":
+            double_issue_count += count
+
+    historical_hole = context.get("historicalHole") if isinstance(context.get("historicalHole"), dict) else {}
+    course_form = context.get("courseForm") if isinstance(context.get("courseForm"), dict) else {}
+    score_distribution = historical_hole.get("scoreDistribution") if isinstance(historical_hole, dict) else []
+    double_or_worse_count = max(double_issue_count, _score_bucket_count(score_distribution, "doubleOrWorse", "double_or_worse", "double+"))
+    bogey_count = _score_bucket_count(score_distribution, "bogey")
+    average_to_par = _float_or_none(historical_hole.get("averageToPar")) if isinstance(historical_hole, dict) else None
+    worst_to_par = _float_or_none(historical_hole.get("worstToPar")) if isinstance(historical_hole, dict) else None
+    course_worsening_strokes = _course_form_worsening_strokes(course_form)
+    source_refs = _refs_from_history_context(context)
+
+    option_weights = {"safe": 0.08, "stock": 0.45, "attack": 1.0}
+    weight = option_weights.get(option_id, 0.5)
+    factors: list[dict[str, Any]] = []
+
+    issue_delta_raw = min(4.0, float(penalty_count)) + min(2.0, float(approach_count))
+    if issue_delta_raw > 0:
+        factors.append(
+            _history_factor(
+                "repeated_hole_issues",
+                issue_delta_raw,
+                issue_delta_raw * (0.0 if option_id == "safe" else weight),
+                source_refs,
+                {"penaltyIssueCount": penalty_count, "approachIssueCount": approach_count},
+            )
+        )
+
+    distribution_delta_raw = min(2.0, double_or_worse_count * 0.8) + min(0.6, bogey_count * 0.15)
+    if distribution_delta_raw > 0:
+        factors.append(
+            _history_factor(
+                "hole_score_distribution",
+                distribution_delta_raw,
+                distribution_delta_raw * weight,
+                source_refs,
+                {"doubleOrWorseCount": double_or_worse_count, "bogeyCount": bogey_count},
+            )
+        )
+
+    if average_to_par is not None or worst_to_par is not None:
+        average_delta = min(2.0, max(0.0, (average_to_par or 0.0) - 0.5) * 0.7)
+        worst_delta = min(1.2, max(0.0, (worst_to_par or 0.0) - 1.0) * 0.25)
+        scoring_delta_raw = average_delta + worst_delta
+        if scoring_delta_raw > 0:
+            factors.append(
+                _history_factor(
+                    "historical_hole_scoring",
+                    scoring_delta_raw,
+                    scoring_delta_raw * weight,
+                    source_refs,
+                    {"averageToPar": average_to_par, "worstToPar": worst_to_par},
+                )
+            )
+
+    if course_worsening_strokes > 0:
+        course_weight = {"safe": 0.05, "stock": 0.25, "attack": 0.55}.get(option_id, 0.25)
+        course_delta_raw = min(1.5, course_worsening_strokes * 0.08)
+        factors.append(
+            _history_factor(
+                "course_recent_form",
+                course_delta_raw,
+                course_delta_raw * course_weight,
+                source_refs,
+                {"worseningStrokes18": round(course_worsening_strokes, 1)},
+            )
+        )
+
+    risk_delta = sum(_float(factor.get("riskScoreDelta")) for factor in factors)
+    risk_delta = min({"safe": 1.0, "stock": 4.0, "attack": 8.0}.get(option_id, 4.0), risk_delta)
     return {
-        "riskScoreDelta": float(meters),
+        "riskScoreDelta": round(float(risk_delta), 2),
+        "rawRiskScoreDelta": round(sum(_float(factor.get("rawRiskScoreDelta")) for factor in factors), 2),
         "penaltyIssueCount": penalty_count,
         "approachIssueCount": approach_count,
+        "doubleOrWorseCount": double_or_worse_count,
+        "bogeyCount": bogey_count,
+        "averageToPar": average_to_par,
+        "worstToPar": worst_to_par,
+        "courseWorseningStrokes18": round(course_worsening_strokes, 1),
+        "factors": factors,
+        "sourceRefs": source_refs,
     }
 
 
@@ -1585,15 +1765,30 @@ def _score_impact(
     risk_score: float,
     hazard_clearance: dict[str, Any],
     dispersion: dict[str, Any],
+    *,
+    history_adjustment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     clearance = hazard_clearance.get("minimumClearance_m")
     clearance_penalty = max(0.0, 8.0 - _float(clearance, 8.0)) * 0.02 if clearance is not None else 0.0
     dispersion_penalty = max(0.0, _float(dispersion.get("carryWindow_m"), 20.0) - 20.0) * 0.005
     expected_delta = round(max(0.0, risk_score) * 0.05 + clearance_penalty + dispersion_penalty, 2)
+    history_risk_delta = _float((history_adjustment or {}).get("riskScoreDelta"), 0.0)
+    history_expected_delta = round(max(0.0, history_risk_delta) * 0.05, 2)
     return {
         "baselineStrokes": 1.0,
         "expectedStrokes": round(1.0 + expected_delta, 2),
         "expectedStrokesDelta": expected_delta,
+        "components": {
+            "risk": round(max(0.0, risk_score) * 0.05, 2),
+            "hazardClearance": round(clearance_penalty, 2),
+            "dispersion": round(dispersion_penalty, 2),
+            "history": history_expected_delta,
+        },
+        "historyAdjustment": {
+            "riskScoreDelta": round(history_risk_delta, 2),
+            "expectedStrokesDelta": history_expected_delta,
+            "sourceRefs": _sanitize_ref_list((history_adjustment or {}).get("sourceRefs")),
+        },
     }
 
 
@@ -1725,7 +1920,12 @@ def _shot_option(
         "avoidZones": avoid_zones,
         "hazardClearance": hazard_clearance,
         "dispersion": dispersion,
-        "scoreImpact": _score_impact(adjusted_risk_score, hazard_clearance, dispersion),
+        "scoreImpact": _score_impact(
+            adjusted_risk_score,
+            hazard_clearance,
+            dispersion,
+            history_adjustment=history_adjustment,
+        ),
         "clubRecommendation": club_recommendation,
     }
     return _with_option_contract(option, context, source="structured_context")
@@ -1889,14 +2089,9 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
     if weather:
         rows.append({"kind": "weather", "text": _weather_text(weather)})
     rows.extend(_manual_note_evidence(analysis))
-    issues = analysis.get("historicalHoleIssues") or analysis.get("holeIssues") or []
-    if issues:
-        rows.append(
-            {
-                "kind": "history",
-                "text": f"historical hole issues considered: {len(issues)} issue groups",
-            }
-        )
+    history_evidence = _history_evidence(analysis)
+    if history_evidence:
+        rows.append(history_evidence)
     if selected:
         rows.append({
             "kind": "route_risk",

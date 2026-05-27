@@ -774,6 +774,79 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertGreaterEqual(attack["riskScore"], 7)
         self.assertTrue(any(row["kind"] == "history" for row in plan["evidence"]))
 
+    def test_historical_hole_scoring_and_course_form_shift_attack_to_safer_plan(self) -> None:
+        clean_context = approach_fixture()
+        clean_context["strategyMode"] = "attack"
+        clean_context["weatherSnapshot"] = ready_weather_snapshot()
+        clean_plan = recommend_approach(clean_context)
+        clean_attack = next(option for option in clean_plan["options"] if option["id"] == "attack")
+        self.assertEqual(clean_plan["selectedOptionId"], "attack")
+
+        bad_context = approach_fixture()
+        bad_context["strategyMode"] = "attack"
+        bad_context["weatherSnapshot"] = ready_weather_snapshot()
+        bad_context["historicalHole"] = {
+            "sampleCount": 4,
+            "averageToPar": 2.25,
+            "worstToPar": 5,
+            "scoreDistribution": [
+                {"key": "bogey", "count": 1, "holeRefs": ["hist-hole-bogey"]},
+                {"key": "doubleOrWorse", "count": 2, "holeRefs": ["hist-hole-double-1", "hist-hole-double-2"]},
+            ],
+            "holeRefs": ["hist-hole-bogey", "hist-hole-double-1", "hist-hole-double-2"],
+        }
+        bad_context["historicalHoleIssues"] = [
+            {"issue": "hazard_result", "phase": "Penalty", "count": 2, "sourceRefs": ["hist-penalty-shot"]},
+        ]
+        bad_context["courseForm"] = {
+            "courseKey": "black_knight",
+            "roundRefs": ["course-baseline", "course-recent"],
+            "recentForm": {
+                "direction": "worsening",
+                "deltaAverage18": 8.0,
+                "baselineRoundRefs": ["course-baseline"],
+                "recentRoundRefs": ["course-recent"],
+            },
+        }
+
+        bad_plan = recommend_approach(bad_context)
+        bad_attack = next(option for option in bad_plan["options"] if option["id"] == "attack")
+
+        self.assertNotEqual(bad_plan["selectedOptionId"], "attack")
+        self.assertGreater(bad_attack["riskScore"], clean_attack["riskScore"])
+        self.assertGreater(bad_attack["historyAdjustment"]["riskScoreDelta"], 0)
+        self.assertGreater(bad_attack["scoreImpact"]["historyAdjustment"]["expectedStrokesDelta"], 0)
+        self.assertIn("hist-penalty-shot", bad_attack["historyAdjustment"]["sourceRefs"])
+        self.assertIn("hist-hole-double-1", bad_attack["historyAdjustment"]["sourceRefs"])
+        self.assertIn("course-recent", bad_attack["historyAdjustment"]["sourceRefs"])
+        history_evidence = next(row for row in bad_plan["evidence"] if row["kind"] == "history")
+        self.assertIn("average to par +2.25", history_evidence["text"])
+        self.assertIn("course recent form worsening", history_evidence["text"])
+        self.assertIn("hist-hole-double-1", history_evidence["sourceRefs"])
+
+    def test_tee_options_apply_history_risk_adjustment(self) -> None:
+        clean_plan = build_decision_plan(analysis_fixture(stock_risk=1))
+        clean_stock = next(option for option in clean_plan["options"] if option["id"] == "stock")
+
+        bad_context = analysis_fixture(stock_risk=1)
+        bad_context["historicalHole"] = {
+            "averageToPar": 1.75,
+            "worstToPar": 4,
+            "scoreDistribution": [{"key": "doubleOrWorse", "count": 1, "holeRefs": ["tee-hist-double"]}],
+            "holeRefs": ["tee-hist-double"],
+        }
+        bad_context["historicalHoleIssues"] = [
+            {"issue": "water", "phase": "Penalty", "count": 2, "refs": ["tee-hist-water"]},
+        ]
+
+        bad_plan = build_decision_plan(bad_context)
+        bad_stock = next(option for option in bad_plan["options"] if option["id"] == "stock")
+
+        self.assertGreater(bad_stock["riskScore"], clean_stock["riskScore"])
+        self.assertGreater(bad_stock["historyAdjustment"]["riskScoreDelta"], 0)
+        self.assertIn("tee-hist-double", bad_stock["historyAdjustment"]["sourceRefs"])
+        self.assertIn("tee-hist-water", bad_plan["evidenceRefs"])
+
     def test_manual_strategy_note_appears_in_decision_evidence(self) -> None:
         context = approach_fixture()
         context["manualNotes"] = [

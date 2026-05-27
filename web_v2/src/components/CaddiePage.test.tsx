@@ -37,6 +37,7 @@ const decision: CaddieDecisionResponse = {
       carry_m: 144,
       riskScore: 1,
       scoreImpact: { expectedStrokes: 1.1, expectedStrokesDelta: 0.1 },
+      historyAdjustment: { riskScoreDelta: 0.8, sourceRefs: ['fixture-links:4:history'] },
       hazardClearance: { minimumClearance_m: 16, criticalHazardId: 'water_front' },
       coverage: { ready: 4, total: 4, pct: 100 },
       confidence: 'high',
@@ -383,6 +384,7 @@ describe('CaddiePage', () => {
     expect(screen.getAllByText('sample 24').length).toBeGreaterThan(0)
     expect(screen.getAllByText('coverage 4/4').length).toBeGreaterThan(0)
     expect(screen.getAllByText('high option confidence').length).toBeGreaterThan(0)
+    expect(screen.getByText('history +0.8 risk')).toBeInTheDocument()
     expect(screen.getAllByText('selected').length).toBeGreaterThan(0)
     expect(screen.getByText('144m - risk 1 - 1.1 exp - 16m clear')).toBeInTheDocument()
     expect(screen.getAllByText('water_front').length).toBeGreaterThan(0)
@@ -392,6 +394,7 @@ describe('CaddiePage', () => {
     expect(screen.getByText('planned stock -> actual stock')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source fixture-links:4:1' })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source fixture-links:4' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Open source fixture-links:4:history' })).toBeInTheDocument()
     expect(screen.getByText('club match yes')).toBeInTheDocument()
     expect(screen.getByText('distance -1m')).toBeInTheDocument()
     expect(screen.getByText('risk no')).toBeInTheDocument()
