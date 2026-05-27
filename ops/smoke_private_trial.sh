@@ -6,8 +6,10 @@ BASE_URL="${1:-http://127.0.0.1:9000}"
 uv run python - "${BASE_URL}" "${AI_CADDIE_ADMIN_TOKEN:-}" <<'PY'
 from __future__ import annotations
 
+import base64
 import json
 import sys
+from uuid import uuid4
 from urllib.request import Request, urlopen
 
 base_url = sys.argv[1].rstrip("/")
@@ -77,6 +79,70 @@ call_json(
         },
     },
 )
+
+media_target_id = f"smoke-media-{uuid4().hex}"
+media_create = call_json(
+    "POST",
+    "/api/v2/media",
+    protected=True,
+    payload={
+        "targetType": "shot",
+        "targetId": media_target_id,
+        "mediaKind": "photo",
+        "fileName": "smoke-lie.jpg",
+        "contentBase64": base64.b64encode(b"ai-caddie-private-trial-smoke-media").decode("ascii"),
+        "capturedAt": "2026-05-25T00:00:00Z",
+        "privacyState": "private_local",
+    },
+)
+media = media_create.get("media") if isinstance(media_create.get("media"), dict) else {}
+media_id = str(media.get("id") or "")
+if not media_id:
+    raise SystemExit("media create did not return media.id")
+local_path = str(media.get("localPath") or "")
+if not local_path.startswith("data/media/uploads/"):
+    raise SystemExit(f"media create returned unexpected localPath: {local_path}")
+
+analysis = call_json("POST", f"/api/v2/media/{media_id}/analyze", protected=True)
+findings = analysis.get("findings") if isinstance(analysis.get("findings"), list) else []
+if not findings:
+    raise SystemExit("media analysis did not return at least one bounded finding")
+if "mediaBytesBase64" in json.dumps(analysis):
+    raise SystemExit("media analysis leaked raw media bytes")
+
+findings_list = call_json("GET", f"/api/v2/media/target/shot/{media_target_id}/findings", protected=True)
+stored_findings = findings_list.get("findings") if isinstance(findings_list.get("findings"), list) else []
+if not stored_findings:
+    raise SystemExit("stored media findings list is empty")
+findings_text = json.dumps(findings_list)
+if "localPath" in findings_text or "mediaBytesBase64" in findings_text:
+    raise SystemExit("stored media findings exposed local path or raw media bytes")
+finding = stored_findings[0] if isinstance(stored_findings[0], dict) else {}
+finding_id = str(finding.get("id") or "")
+if not finding_id:
+    raise SystemExit("stored media finding did not include id")
+
+confirmation = call_json(
+    "POST",
+    f"/api/v2/media/findings/{finding_id}/confirmation",
+    protected=True,
+    payload={"confirmationState": "manual_confirmed", "confirmedBy": "private-trial-smoke"},
+)
+confirmed = confirmation.get("finding") if isinstance(confirmation.get("finding"), dict) else {}
+if confirmed.get("confirmationState") != "manual_confirmed":
+    raise SystemExit("media finding confirmation did not persist")
+
+redaction = call_json("POST", f"/api/v2/media/{media_id}/redact", protected=True)
+redacted_media = redaction.get("media") if isinstance(redaction.get("media"), dict) else {}
+if redacted_media.get("privacyState") != "redacted" or redacted_media.get("localPath") != "[redacted]":
+    raise SystemExit("media redaction did not return redacted metadata")
+
+redacted_list = call_json("GET", f"/api/v2/media/target/shot/{media_target_id}", protected=True)
+media_rows = redacted_list.get("media") if isinstance(redacted_list.get("media"), list) else []
+if not media_rows:
+    raise SystemExit("redacted media was not listed for its target")
+if not any(isinstance(row, dict) and row.get("id") == media_id and row.get("localPath") == "[redacted]" for row in media_rows):
+    raise SystemExit("media list did not expose latest redacted metadata")
 
 print(f"private trial smoke ok: {base_url}")
 PY

@@ -38,12 +38,17 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("X-AI-Caddie-Admin-Token", text)
         self.assertIn("/api/v2/mobile/rounds/900001/package", text)
 
-    def test_private_trial_smoke_media_probe_is_non_mutating(self) -> None:
+    def test_private_trial_smoke_exercises_media_roundtrip_and_redaction(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
         text = script.read_text(encoding="utf-8")
 
         self.assertIn("/api/v2/media/target/round/900001", text)
-        self.assertNotIn('"POST",\n    "/api/v2/media"', text)
+        self.assertIn('"POST",\n    "/api/v2/media"', text)
+        self.assertIn('"contentBase64"', text)
+        self.assertIn('"/api/v2/media/{media_id}/analyze"', text)
+        self.assertIn('"/api/v2/media/findings/{finding_id}/confirmation"', text)
+        self.assertIn('"/api/v2/media/{media_id}/redact"', text)
+        self.assertIn('"privacyState") != "redacted"', text)
 
     def test_private_trial_smoke_uses_admin_token_for_protected_history_reads(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
