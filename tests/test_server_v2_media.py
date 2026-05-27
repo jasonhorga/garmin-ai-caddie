@@ -42,7 +42,8 @@ class ServerV2MediaTests(unittest.TestCase):
                 with patch(
                     "server_v2.media.build_media_vision_provider",
                     return_value=StaticProvider(
-                        '[{"findingType":"visible_bunker","evidenceText":"front bunker visible","confidence":"medium","missingInfo":[]}]'
+                        '[{"findingType":"visible_bunker","evidenceText":"front bunker visible",'
+                        '"confidence":"medium","confirmationState":"manual_confirmed","missingInfo":[]}]'
                     ),
                 ):
                     analyze_response = client.post(f"/api/v2/media/{media_id}/analyze")
@@ -61,6 +62,7 @@ class ServerV2MediaTests(unittest.TestCase):
         self.assertEqual(analyze_response.status_code, 200)
         self.assertEqual(analyze_response.json()["schema"], "ai-caddie-vision-context-v1")
         self.assertEqual(analyze_response.json()["findings"][0]["findingType"], "visible_bunker")
+        self.assertEqual(analyze_response.json()["findings"][0]["confirmationState"], "manual_confirmed")
         self.assertNotIn(tmp, analyze_response.text)
 
         self.assertEqual(findings_response.status_code, 200)
@@ -72,6 +74,7 @@ class ServerV2MediaTests(unittest.TestCase):
         self.assertEqual(finding["targetId"], "round-1:7:2")
         self.assertEqual(finding["findingType"], "visible_bunker")
         self.assertEqual(finding["confidence"], "medium")
+        self.assertEqual(finding["confirmationState"], "manual_confirmed")
         self.assertNotIn("localPath", finding)
         self.assertNotIn("mediaBytesBase64", findings_response.text)
         self.assertNotIn("fake image bytes", findings_response.text)

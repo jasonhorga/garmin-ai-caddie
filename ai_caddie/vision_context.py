@@ -84,6 +84,7 @@ def _uncertainty(media: dict[str, Any], provider: TextProvider, reason: str) -> 
                 "findingType": "uncertainty",
                 "evidenceText": "vision analysis could not produce a reliable bounded finding",
                 "confidence": "low",
+                "confirmationState": "unconfirmed",
                 "missingInfo": [reason],
                 "source": "vision_model",
             }

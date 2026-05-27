@@ -55,6 +55,7 @@ public struct VisionFinding: Codable, Equatable {
     public let findingType: String
     public let evidenceText: String
     public let confidence: String
+    public let confirmationState: String
     public let missingInfo: [String]
     public let provider: String?
     public let model: String?
@@ -65,6 +66,7 @@ public struct VisionFinding: Codable, Equatable {
             "findingType": .string(findingType),
             "evidenceText": .string(evidenceText),
             "confidence": .string(confidence),
+            "confirmationState": .string(confirmationState),
             "missingInfo": .array(missingInfo.map { .string($0) }),
             "source": .string(source),
         ]

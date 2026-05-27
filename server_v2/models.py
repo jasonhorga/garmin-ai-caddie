@@ -667,6 +667,9 @@ class VisionFindingRecord(BaseModel):
     findingType: str
     evidenceText: str
     confidence: Literal["low", "medium", "high"]
+    confirmationState: Literal["unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"] = (
+        "unconfirmed"
+    )
     missingInfo: list[str]
     provider: str
     model: str
