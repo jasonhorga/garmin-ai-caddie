@@ -1283,7 +1283,8 @@ def _history_evidence(analysis: dict[str, Any]) -> dict[str, Any] | None:
     course_form = analysis.get("courseForm") if isinstance(analysis.get("courseForm"), dict) else {}
     issues = analysis.get("historicalHoleIssues") or analysis.get("holeIssues") or []
     diagnostic_rows = _diagnostic_issue_rows(analysis)
-    if not historical_hole and not course_form and not issues and not diagnostic_rows:
+    profile_rows = _player_profile_rows(analysis)
+    if not historical_hole and not course_form and not issues and not diagnostic_rows and not profile_rows:
         return None
 
     adjustment = _history_risk_adjustment(analysis, "attack")
@@ -1313,6 +1314,12 @@ def _history_evidence(analysis: dict[str, Any]) -> dict[str, Any] | None:
         parts.append(f"diagnostic issue {first_issue}")
         if diagnostic_impact:
             parts.append(f"diagnostic impact +{diagnostic_impact}")
+    player_profile_signals = adjustment.get("playerProfileSignals") if isinstance(adjustment.get("playerProfileSignals"), list) else []
+    player_profile_impact = adjustment.get("playerProfileImpact")
+    if player_profile_signals:
+        parts.append(f"player profile {player_profile_signals[0]}")
+        if player_profile_impact:
+            parts.append(f"profile impact +{player_profile_impact}")
     if not parts:
         parts.append("historical hole and course context considered")
     return {
@@ -1517,7 +1524,7 @@ def _int_count(value: Any) -> int:
 
 def _refs_from_history_context(context: dict[str, Any]) -> list[str]:
     refs: list[str] = []
-    for key in ("historicalHole", "historicalHoleIssues", "holeIssues", "courseForm", "diagnosticContext"):
+    for key in ("historicalHole", "historicalHoleIssues", "holeIssues", "courseForm", "diagnosticContext", "playerProfile"):
         _collect_refs_from_value(context.get(key), refs)
     return _dedupe(refs)
 
@@ -1628,6 +1635,79 @@ def _diagnostic_issue_names(rows: list[dict[str, Any]]) -> list[str]:
     return _dedupe(names)
 
 
+def _player_profile_rows(context: dict[str, Any]) -> list[dict[str, Any]]:
+    profile = context.get("playerProfile") if isinstance(context.get("playerProfile"), dict) else {}
+    rows: list[dict[str, Any]] = []
+    for key in ("weaknesses", "caddieBiases"):
+        value = profile.get(key)
+        if isinstance(value, list):
+            rows.extend(row for row in value if isinstance(row, dict))
+    top = profile.get("topWeakness")
+    if isinstance(top, dict) and not rows:
+        rows.append(top)
+    return rows
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip().lower() for item in value if str(item).strip()]
+
+
+def _profile_signal_applies(row: dict[str, Any], context: dict[str, Any], option_id: str) -> bool:
+    risk_options = _string_list(row.get("riskOptionIds"))
+    if risk_options and option_id not in risk_options:
+        return False
+
+    shot_type = str(context.get("shotType") or context.get("shot_type") or "").strip().lower()
+    applies_to = _string_list(row.get("appliesTo"))
+    if applies_to:
+        return not shot_type or shot_type in applies_to
+
+    phase = str(row.get("phase") or "").strip().lower()
+    key = str(row.get("key") or "").strip().lower()
+    if phase == "putting":
+        return False
+    if phase in {"club confidence", "scoring", "penalty", "course management"}:
+        return True
+    if shot_type == "tee":
+        return phase == "tee" or key.startswith("tee_")
+    if shot_type == "approach":
+        return phase == "approach" or key.startswith("approach_")
+    if shot_type == "recovery":
+        return phase == "recovery" or "recovery" in key or key in {"blocked_view", "poor_lie"}
+    return bool(phase or key)
+
+
+def _profile_signal_impact(row: dict[str, Any]) -> float:
+    severity = _float_or_none(row.get("severityScore"))
+    if severity is not None and severity > 0:
+        return min(4.0, severity)
+    value = _float_or_none(row.get("value"))
+    if value is None:
+        return 0.0
+    unit = str(row.get("unit") or "").strip().lower()
+    if unit == "pct" or value > 10:
+        return min(3.0, max(0.0, (value - 35.0) / 25.0))
+    return min(3.0, max(0.0, value))
+
+
+def _profile_signal_refs(rows: list[dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    for row in rows:
+        _collect_refs_from_value(row, refs)
+    return _dedupe(refs)
+
+
+def _profile_signal_names(rows: list[dict[str, Any]]) -> list[str]:
+    names = []
+    for row in rows:
+        name = str(row.get("key") or row.get("label") or "").strip()
+        if name:
+            names.append(name)
+    return _dedupe(names)
+
+
 def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[str, Any]:
     issues = context.get("historicalHoleIssues") or context.get("holeIssues") or []
     penalty_count = 0
@@ -1729,6 +1809,23 @@ def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[st
             )
         )
 
+    profile_rows = [row for row in _player_profile_rows(context) if _profile_signal_applies(row, context, option_id)]
+    profile_impact = min(4.0, sum(_profile_signal_impact(row) for row in profile_rows))
+    if profile_impact > 0:
+        profile_weight = {"safe": 0.03, "stock": 0.25, "attack": 0.65}.get(option_id, 0.25)
+        factors.append(
+            _history_factor(
+                "player_profile",
+                profile_impact,
+                profile_impact * profile_weight,
+                _profile_signal_refs(profile_rows),
+                {
+                    "signals": _profile_signal_names(profile_rows),
+                    "playerProfileImpact": round(profile_impact, 1),
+                },
+            )
+        )
+
     risk_delta = sum(_float(factor.get("riskScoreDelta")) for factor in factors)
     risk_delta = min({"safe": 1.0, "stock": 4.0, "attack": 8.0}.get(option_id, 4.0), risk_delta)
     return {
@@ -1743,6 +1840,8 @@ def _history_risk_adjustment(context: dict[str, Any], option_id: str) -> dict[st
         "courseWorseningStrokes18": round(course_worsening_strokes, 1),
         "diagnosticIssueImpact": round(diagnostic_impact, 1),
         "diagnosticIssues": _diagnostic_issue_names(diagnostic_rows),
+        "playerProfileImpact": round(profile_impact, 1),
+        "playerProfileSignals": _profile_signal_names(profile_rows),
         "factors": factors,
         "sourceRefs": source_refs,
     }

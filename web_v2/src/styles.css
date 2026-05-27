@@ -933,6 +933,13 @@ p {
   gap: 14px;
 }
 
+.profile-signal-column {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
 .mini-metric-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

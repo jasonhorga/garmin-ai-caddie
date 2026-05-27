@@ -231,6 +231,9 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertIn("double_or_worse", relevant_trends)
         self.assertIn("900002:7", relevant_trends["double_or_worse"]["sourceRefs"])
         self.assertTrue(any(row["label"] == "geometry" for row in diagnostic["qualityGaps"]))
+        self.assertEqual(context["playerProfile"]["schema"], "ai-caddie-player-profile-v1")
+        self.assertGreater(len(context["playerProfile"]["weaknesses"]), 0)
+        self.assertIn("sourceRefs", context["playerProfile"])
 
     def test_context_endpoint_includes_manual_strategy_notes_and_issue_tags(self) -> None:
         client = TestClient(app)
@@ -496,6 +499,7 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertTrue(any(row["label"] == "route_geometry" for row in payload["evidence"]))
 
         context.pop("candidateRoutes", None)
+        context.pop("playerProfile", None)
         decision_response = client.post("/api/v2/caddie/decision", json={"shotType": "tee", "context": context})
 
         self.assertEqual(decision_response.status_code, 200)

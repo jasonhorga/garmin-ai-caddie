@@ -1101,6 +1101,398 @@ def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str,
     }
 
 
+def _profile_refs(row: dict[str, Any] | None) -> list[str]:
+    if not isinstance(row, dict):
+        return []
+    refs: list[Any] = []
+    for key in (
+        "sourceRefs",
+        "recentRefs",
+        "baselineRefs",
+        "holeRefs",
+        "shotRefs",
+        "roundRefs",
+        "refs",
+        "roundIds",
+        "hitRefs",
+        "rightRefs",
+        "leftRefs",
+        "shortRefs",
+        "longRefs",
+        "threePuttRefs",
+        "validShotRefs",
+        "riskShotRefs",
+    ):
+        value = row.get(key)
+        if isinstance(value, list):
+            refs.extend(value)
+    return _source_refs(refs)
+
+
+def _profile_signal(
+    *,
+    key: str,
+    label: str,
+    kind: str,
+    phase: str,
+    reason: str,
+    severity_score: float,
+    refs: list[Any],
+    value: Any = None,
+    unit: str | None = None,
+    direction: str | None = None,
+    applies_to: list[str] | None = None,
+    risk_option_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    source_refs = _source_refs(refs)
+    row: dict[str, Any] = {
+        "key": key,
+        "label": label,
+        "kind": kind,
+        "phase": phase,
+        "reason": reason,
+        "severityScore": round(max(0.0, float(severity_score)), 2),
+    }
+    if value is not None:
+        row["value"] = value
+    if unit:
+        row["unit"] = unit
+    if direction:
+        row["direction"] = direction
+    if applies_to:
+        row["appliesTo"] = applies_to
+    if risk_option_ids:
+        row["riskOptionIds"] = risk_option_ids
+    return _with_aggregate_contract(
+        row,
+        source_refs,
+        ready=len(source_refs),
+        total=len(source_refs),
+        confidence_count=len(source_refs),
+    )
+
+
+def _profile_pct_severity(pct: float | None, *, floor: float = 40.0, scale: float = 20.0, cap: float = 4.0) -> float:
+    if pct is None:
+        return 0.0
+    return min(cap, max(0.0, (float(pct) - floor) / scale))
+
+
+def _profile_value_severity(value: Any, *, cap: float = 4.0) -> float:
+    number = _float_field({"value": value}, "value")
+    if number is None:
+        return 0.0
+    return min(cap, max(0.0, float(number)))
+
+
+def _profile_sort(rows: list[dict[str, Any]], *, limit: int = 8) -> list[dict[str, Any]]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            -float(row.get("severityScore") or 0.0),
+            str(row.get("phase") or ""),
+            str(row.get("key") or ""),
+        ),
+    )[:limit]
+
+
+def _profile_refs_from_rows(*groups: list[dict[str, Any]]) -> list[str]:
+    refs: list[Any] = []
+    for rows in groups:
+        for row in rows:
+            refs.extend(_profile_refs(row))
+    return _source_refs(refs)
+
+
+def _player_profile(
+    data: HistoryData,
+    *,
+    scoring: dict[str, Any],
+    clubs: list[dict[str, Any]],
+    diagnosis: dict[str, Any],
+) -> dict[str, Any]:
+    strengths: list[dict[str, Any]] = []
+    weaknesses: list[dict[str, Any]] = []
+    caddie_biases: list[dict[str, Any]] = []
+
+    tee = scoring.get("teeDirection") if isinstance(scoring.get("teeDirection"), dict) else {}
+    tee_recorded = int(tee.get("recorded") or 0)
+    if tee_recorded >= 2:
+        hit_pct = _float_field(tee, "hitPct")
+        miss_pct = _float_field(tee, "missPct")
+        dominant = str(tee.get("dominantMiss") or "").strip().lower()
+        if hit_pct is not None and hit_pct >= 60.0:
+            strengths.append(
+                _profile_signal(
+                    key="tee_fairway_control",
+                    label="Tee fairway control",
+                    kind="strength",
+                    phase="Tee",
+                    reason=f"fairway hit rate is {hit_pct}%",
+                    value=hit_pct,
+                    unit="pct",
+                    severity_score=_profile_pct_severity(hit_pct, floor=55.0, scale=15.0),
+                    refs=_profile_refs({"sourceRefs": tee.get("hitRefs") or tee.get("sourceRefs")}),
+                )
+            )
+        if miss_pct is not None and miss_pct >= 50.0 and dominant not in {"", "none", "unknown"}:
+            miss_refs = tee.get(f"{dominant}Refs") or tee.get("sourceRefs") or []
+            weaknesses.append(
+                _profile_signal(
+                    key=f"tee_miss_{dominant}",
+                    label=f"Tee miss {dominant}",
+                    kind="weakness",
+                    phase="Tee",
+                    reason=f"dominant tee miss is {dominant} with {miss_pct}% recorded misses",
+                    value=miss_pct,
+                    unit="pct",
+                    direction=dominant,
+                    severity_score=_profile_pct_severity(miss_pct),
+                    refs=_profile_refs({"sourceRefs": miss_refs}),
+                )
+            )
+            if dominant in {"left", "right"}:
+                caddie_biases.append(
+                    _profile_signal(
+                        key=f"protect_{dominant}_tee_miss",
+                        label=f"Protect {dominant} tee miss",
+                        kind="caddie_bias",
+                        phase="Tee",
+                        reason=f"avoid plans where a {dominant} miss brings trouble into play",
+                        value=miss_pct,
+                        unit="pct",
+                        direction=dominant,
+                        applies_to=["tee"],
+                        risk_option_ids=["stock", "attack"],
+                        severity_score=_profile_pct_severity(miss_pct),
+                        refs=_profile_refs({"sourceRefs": miss_refs}),
+                    )
+                )
+
+    approach = scoring.get("approachMiss") if isinstance(scoring.get("approachMiss"), dict) else {}
+    approach_recorded = int(approach.get("recorded") or 0)
+    if approach_recorded >= 2:
+        gir_pct = _float_field(approach, "girPct")
+        miss_pct = _float_field(approach, "missPct")
+        dominant = str(approach.get("dominantMiss") or "").strip().lower()
+        if gir_pct is not None and gir_pct >= 55.0:
+            strengths.append(
+                _profile_signal(
+                    key="approach_gir_control",
+                    label="Approach GIR control",
+                    kind="strength",
+                    phase="Approach",
+                    reason=f"GIR rate is {gir_pct}%",
+                    value=gir_pct,
+                    unit="pct",
+                    severity_score=_profile_pct_severity(gir_pct, floor=50.0, scale=15.0),
+                    refs=_profile_refs({"sourceRefs": approach.get("girRefs") or approach.get("sourceRefs")}),
+                )
+            )
+        if miss_pct is not None and miss_pct >= 50.0 and dominant not in {"", "none", "unknown"}:
+            miss_refs = approach.get(f"{dominant}Refs") or approach.get("missedRefs") or approach.get("sourceRefs") or []
+            dominant_pct = _float_field(approach, f"{dominant}Pct") or miss_pct
+            weaknesses.append(
+                _profile_signal(
+                    key=f"approach_{dominant}_miss",
+                    label=f"Approach {dominant} miss",
+                    kind="weakness",
+                    phase="Approach",
+                    reason=f"dominant approach miss is {dominant} at {dominant_pct}%",
+                    value=dominant_pct,
+                    unit="pct",
+                    direction=dominant,
+                    severity_score=_profile_pct_severity(dominant_pct),
+                    refs=_profile_refs({"sourceRefs": miss_refs}),
+                )
+            )
+            caddie_biases.append(
+                _profile_signal(
+                    key=f"bias_against_approach_{dominant}",
+                    label=f"Bias against approach {dominant}",
+                    kind="caddie_bias",
+                    phase="Approach",
+                    reason=f"prefer targets and clubs that reduce the recurring {dominant} approach miss",
+                    value=dominant_pct,
+                    unit="pct",
+                    direction=dominant,
+                    applies_to=["approach"],
+                    risk_option_ids=["stock", "attack"],
+                    severity_score=_profile_pct_severity(dominant_pct),
+                    refs=_profile_refs({"sourceRefs": miss_refs}),
+                )
+            )
+
+    putting = scoring.get("putting") if isinstance(scoring.get("putting"), dict) else {}
+    putt_holes = int(putting.get("holesWithPutts") or 0)
+    if putt_holes >= 4:
+        average_putts = _float_field(putting, "averagePutts")
+        three_putts = int(putting.get("threePutts") or 0)
+        if average_putts is not None and average_putts <= 1.8:
+            strengths.append(
+                _profile_signal(
+                    key="putting_efficiency",
+                    label="Putting efficiency",
+                    kind="strength",
+                    phase="Putting",
+                    reason=f"average putts is {average_putts}",
+                    value=average_putts,
+                    unit="putts",
+                    severity_score=min(4.0, max(0.0, 2.0 - average_putts) * 4.0),
+                    refs=_profile_refs(putting),
+                )
+            )
+        if three_putts >= 2 or (average_putts is not None and average_putts >= 2.1):
+            severity = max(float(three_putts) * 0.35, max(0.0, (average_putts or 2.0) - 2.0) * 4.0)
+            weaknesses.append(
+                _profile_signal(
+                    key="three_putt_pressure",
+                    label="Three-putt pressure",
+                    kind="weakness",
+                    phase="Putting",
+                    reason=f"{three_putts} three-putt holes in recorded putting data",
+                    value=three_putts,
+                    unit="count",
+                    severity_score=severity,
+                    refs=_profile_refs({"sourceRefs": putting.get("threePuttRefs") or putting.get("sourceRefs")}),
+                )
+            )
+
+    for row in scoring.get("byPar") or []:
+        if not isinstance(row, dict) or int(row.get("holeCount") or 0) < 2:
+            continue
+        average_to_par = _float_field(row, "averageToPar")
+        if average_to_par is None:
+            continue
+        label = str(row.get("label") or row.get("key") or "Par type")
+        if average_to_par >= 0.75:
+            weaknesses.append(
+                _profile_signal(
+                    key=f"{str(row.get('key') or label).lower()}_scoring_loss",
+                    label=f"{label} scoring loss",
+                    kind="weakness",
+                    phase="Scoring",
+                    reason=f"{label} averages {average_to_par:+.1f} to par",
+                    value=average_to_par,
+                    unit="to_par",
+                    severity_score=average_to_par,
+                    refs=_profile_refs(row),
+                )
+            )
+        elif average_to_par <= 0.0:
+            strengths.append(
+                _profile_signal(
+                    key=f"{str(row.get('key') or label).lower()}_scoring_strength",
+                    label=f"{label} scoring strength",
+                    kind="strength",
+                    phase="Scoring",
+                    reason=f"{label} averages {average_to_par:+.1f} to par",
+                    value=average_to_par,
+                    unit="to_par",
+                    severity_score=abs(average_to_par) + 0.5,
+                    refs=_profile_refs(row),
+                )
+            )
+
+    top_issue = diagnosis.get("topIssue") if isinstance(diagnosis.get("topIssue"), dict) else None
+    if top_issue:
+        issue = str(top_issue.get("issue") or "").strip()
+        impact = _profile_value_severity(
+            top_issue.get("actualStrokesLost")
+            if top_issue.get("actualStrokesLost") is not None
+            else top_issue.get("estimatedStrokesLost")
+        )
+        if issue and impact > 0:
+            weaknesses.append(
+                _profile_signal(
+                    key=f"recent_{issue}",
+                    label=f"Recent {issue}",
+                    kind="weakness",
+                    phase=str(top_issue.get("phase") or "Trend"),
+                    reason=f"recent trend is {top_issue.get('direction') or 'active'}",
+                    value=top_issue.get("actualStrokesLost")
+                    if top_issue.get("actualStrokesLost") is not None
+                    else top_issue.get("estimatedStrokesLost"),
+                    unit="strokes",
+                    severity_score=impact,
+                    refs=_profile_refs(top_issue),
+                )
+            )
+
+    for club in clubs:
+        club_name = str(club.get("club") or "").strip()
+        if not club_name:
+            continue
+        sample_count = int(club.get("sampleCount") or 0)
+        risk_rate = _float_field(club, "riskRate")
+        if risk_rate is not None and sample_count >= 2 and risk_rate >= 35.0:
+            weaknesses.append(
+                _profile_signal(
+                    key=f"club_surface_risk_{club_name.lower()}",
+                    label=f"{club_name} surface risk",
+                    kind="weakness",
+                    phase="Club Confidence",
+                    reason=f"{club_name} has {risk_rate}% risk-result samples",
+                    value=risk_rate,
+                    unit="pct",
+                    severity_score=_profile_pct_severity(risk_rate, floor=25.0, scale=20.0, cap=3.0),
+                    refs=_profile_refs({"sourceRefs": club.get("riskShotRefs") or club.get("sourceRefs")}),
+                )
+            )
+        consistency = str(club.get("consistency") or "").lower()
+        if sample_count >= 4 and consistency == "tight":
+            strengths.append(
+                _profile_signal(
+                    key=f"club_consistency_{club_name.lower()}",
+                    label=f"{club_name} tight dispersion",
+                    kind="strength",
+                    phase="Club Confidence",
+                    reason=f"{club_name} distance dispersion is tight",
+                    value=club.get("dispersionRange"),
+                    unit="meters",
+                    severity_score=1.5,
+                    refs=_profile_refs({"sourceRefs": club.get("validShotRefs") or club.get("sourceRefs")}),
+                )
+            )
+        trend = club.get("distanceTrend") if isinstance(club.get("distanceTrend"), dict) else {}
+        if str(trend.get("direction") or "").lower() == "shorter":
+            delta = abs(_float_field(trend, "deltaMedian") or 0.0)
+            if delta >= 5.0:
+                weaknesses.append(
+                    _profile_signal(
+                        key=f"club_distance_shorter_{club_name.lower()}",
+                        label=f"{club_name} trending shorter",
+                        kind="weakness",
+                        phase="Club Confidence",
+                        reason=f"{club_name} recent median is {delta:.1f}m shorter",
+                        value=round(delta, 1),
+                        unit="meters",
+                        severity_score=min(3.0, delta / 8.0),
+                        refs=_profile_refs(trend),
+                    )
+                )
+
+    strengths = _profile_sort(strengths)
+    weaknesses = _profile_sort(weaknesses)
+    caddie_biases = _profile_sort(caddie_biases)
+    refs = _profile_refs_from_rows(strengths, weaknesses, caddie_biases)
+    return _with_aggregate_contract(
+        {
+            "schema": "ai-caddie-player-profile-v1",
+            "roundCount": len(data.rounds),
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "caddieBiases": caddie_biases,
+            "topWeakness": weaknesses[0] if weaknesses else None,
+            "topStrength": strengths[0] if strengths else None,
+        },
+        refs,
+        ready=len(refs),
+        total=len(refs),
+        confidence_count=len(refs),
+    )
+
+
 def _fairway_direction(value: Any) -> str | None:
     text = str(value or "").strip().lower()
     if not text:
@@ -2853,19 +3245,22 @@ def build_history_stats(
     issue_rows = _issues(scored_data, annotations, report_records)
     diagnosis = _diagnosis(scored_data, issue_rows)
     diagnosis["decisionAuditTrends"] = _decision_audit_diagnosis(scored_data, decision_audits)
+    scoring = _scoring(scored_data, annotations)
+    clubs = _clubs(data, annotations)
     return {
         "schema": "ai-caddie-history-stats-v1",
         "dataMode": data_mode,
         "summary": _summary(scored_data),
         "time": _time_stats(scored_data),
-        "scoring": _scoring(scored_data, annotations),
+        "scoring": scoring,
         "courseDistribution": _course_distribution(scored_data),
         "records": _records(scored_data, annotations),
         "courses": _courses(scored_data, annotations, report_records),
         "holes": hole_rows,
-        "clubs": _clubs(data, annotations),
+        "clubs": clubs,
         "issues": issue_rows,
         "diagnosis": diagnosis,
+        "playerProfile": _player_profile(scored_data, scoring=scoring, clubs=clubs, diagnosis=diagnosis),
         "dataQuality": _data_quality(data, annotations, weather_snapshots, hole_rows, report_records, decision_audits),
         "drillDown": build_drilldown_index(data),
     }

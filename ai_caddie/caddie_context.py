@@ -284,6 +284,9 @@ def _history_context(
     )
     if diagnostic_context:
         context["diagnosticContext"] = diagnostic_context
+    player_profile = _player_profile_context(stats)
+    if player_profile:
+        context["playerProfile"] = player_profile
     if notes:
         context["manualNotes"] = notes
     return context
@@ -374,6 +377,64 @@ def _diagnostic_context(
     if audit_trends and audit_trends.get("totalAudits"):
         context["decisionAuditTrends"] = audit_trends
     return context
+
+
+def _compact_profile_signal(row: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        "key": row.get("key"),
+        "label": row.get("label"),
+        "kind": row.get("kind"),
+        "phase": row.get("phase"),
+        "reason": row.get("reason"),
+        "severityScore": row.get("severityScore"),
+        "value": row.get("value"),
+        "unit": row.get("unit"),
+        "direction": row.get("direction"),
+        "appliesTo": row.get("appliesTo"),
+        "riskOptionIds": row.get("riskOptionIds"),
+        "sourceRefs": _refs_from_row(row),
+        "confidence": row.get("confidence"),
+    }
+    return {key: value for key, value in compact.items() if value not in (None, [], "")}
+
+
+def _player_profile_context(stats: dict[str, Any]) -> dict[str, Any] | None:
+    profile = stats.get("playerProfile") if isinstance(stats.get("playerProfile"), dict) else {}
+    if not profile:
+        return None
+    strengths = [
+        _compact_profile_signal(row)
+        for row in profile.get("strengths") or []
+        if isinstance(row, dict)
+    ][:3]
+    weaknesses = [
+        _compact_profile_signal(row)
+        for row in profile.get("weaknesses") or []
+        if isinstance(row, dict)
+    ][:5]
+    caddie_biases = [
+        _compact_profile_signal(row)
+        for row in profile.get("caddieBiases") or []
+        if isinstance(row, dict)
+    ][:5]
+    if not strengths and not weaknesses and not caddie_biases:
+        return None
+    return {
+        "schema": profile.get("schema") or "ai-caddie-player-profile-v1",
+        "roundCount": profile.get("roundCount"),
+        "strengths": strengths,
+        "weaknesses": weaknesses,
+        "caddieBiases": caddie_biases,
+        "topStrength": _compact_profile_signal(profile["topStrength"])
+        if isinstance(profile.get("topStrength"), dict)
+        else None,
+        "topWeakness": _compact_profile_signal(profile["topWeakness"])
+        if isinstance(profile.get("topWeakness"), dict)
+        else None,
+        "sourceRefs": _refs_from_row(profile),
+        "coverage": profile.get("coverage"),
+        "confidence": profile.get("confidence"),
+    }
 
 
 def _find_hole_stats(stats: dict[str, Any], *, course_key: str, local_hole: int) -> dict[str, Any] | None:

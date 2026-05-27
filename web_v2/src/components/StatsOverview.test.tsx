@@ -219,6 +219,44 @@ const statsFixture: HistoryStatsResponse = {
   holes: [],
   clubs: [],
   issues: [],
+  playerProfile: {
+    schema: 'ai-caddie-player-profile-v1',
+    roundCount: 3,
+    confidence: 'high',
+    weaknesses: [
+      {
+        key: 'approach_short_miss',
+        label: 'Approach short miss',
+        phase: 'Approach',
+        value: 50,
+        unit: 'pct',
+        severityScore: 1.5,
+        sourceRefs: ['900001:2', '900001:4'],
+      },
+    ],
+    caddieBiases: [
+      {
+        key: 'bias_against_approach_short',
+        label: 'Bias against approach short',
+        phase: 'Approach',
+        value: 50,
+        unit: 'pct',
+        severityScore: 1.5,
+        sourceRefs: ['900001:2'],
+      },
+    ],
+    strengths: [
+      {
+        key: 'par5_scoring_strength',
+        label: 'Par 5 scoring strength',
+        phase: 'Scoring',
+        value: -1,
+        unit: 'to_par',
+        severityScore: 1.5,
+        sourceRefs: ['900001:5'],
+      },
+    ],
+  },
   dataQuality: [
     { label: 'shots', state: 'partial', ready: 2, total: 3, sourceRefs: ['900003'] },
     { label: 'putts', state: 'good', ready: 45, total: 45, refs: [] },
@@ -279,6 +317,12 @@ describe('StatsOverview', () => {
     expect(screen.getByText('Recent 5')).toBeInTheDocument()
     expect(screen.getByText('Recent 10')).toBeInTheDocument()
     expect(screen.getByText('Recent 20')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Player Profile' })).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Player profile')).getByText('Approach short miss')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Player profile')).getByText('Bias against approach short')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Player profile')).getByText('Par 5 scoring strength')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Player profile')).getAllByText('severity 1.5').length).toBeGreaterThan(0)
+    expect(within(screen.getByLabelText('Player profile')).getAllByRole('button', { name: 'Open source 900001:2' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: 'Improvement Pace' })).toBeInTheDocument()
     expect(screen.getByText('improving')).toBeInTheDocument()
     expect(screen.getByText('-10 strokes')).toBeInTheDocument()
@@ -293,9 +337,9 @@ describe('StatsOverview', () => {
     expect(screen.getByRole('heading', { name: 'Play Frequency' })).toBeInTheDocument()
     expect(screen.getByText('1 rounds/mo')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Phase Stats' })).toBeInTheDocument()
-    expect(screen.getByText('Approach')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Phase stats')).getByText('Approach')).toBeInTheDocument()
     expect(screen.getByText('GIR 42.2%')).toBeInTheDocument()
-    expect(screen.getByText('Putting')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Phase stats')).getByText('Putting')).toBeInTheDocument()
     expect(screen.getByText('avg putts 2.1')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Putting Detail' })).toBeInTheDocument()
     expect(screen.getByText('94 putts')).toBeInTheDocument()

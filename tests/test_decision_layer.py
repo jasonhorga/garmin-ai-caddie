@@ -874,6 +874,48 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("diagnosis:900002:4", plan["evidenceRefs"])
         self.assertIn("diagnostic issue water", history_evidence["text"])
 
+    def test_player_profile_weaknesses_adjust_caddie_risk_with_source_refs(self) -> None:
+        clean_context = approach_fixture()
+        clean_context["weatherSnapshot"] = ready_weather_snapshot()
+        clean_plan = recommend_approach(clean_context)
+        clean_attack = next(option for option in clean_plan["options"] if option["id"] == "attack")
+
+        context = approach_fixture()
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["playerProfile"] = {
+            "schema": "ai-caddie-player-profile-v1",
+            "weaknesses": [
+                {
+                    "key": "approach_short_miss",
+                    "phase": "Approach",
+                    "severityScore": 2.5,
+                    "sourceRefs": ["profile:approach-short"],
+                }
+            ],
+            "caddieBiases": [
+                {
+                    "key": "bias_against_approach_short",
+                    "phase": "Approach",
+                    "appliesTo": ["approach"],
+                    "riskOptionIds": ["stock", "attack"],
+                    "severityScore": 1.5,
+                    "sourceRefs": ["profile:bias-short"],
+                }
+            ],
+        }
+
+        plan = recommend_approach(context)
+        attack = next(option for option in plan["options"] if option["id"] == "attack")
+        factor_labels = {row["label"] for row in attack["historyAdjustment"]["factors"]}
+        history_evidence = next(row for row in plan["evidence"] if row["kind"] == "history")
+
+        self.assertGreater(attack["riskScore"], clean_attack["riskScore"])
+        self.assertIn("player_profile", factor_labels)
+        self.assertEqual(attack["historyAdjustment"]["playerProfileSignals"], ["approach_short_miss", "bias_against_approach_short"])
+        self.assertIn("profile:approach-short", attack["historyAdjustment"]["sourceRefs"])
+        self.assertIn("profile:bias-short", plan["evidenceRefs"])
+        self.assertIn("player profile approach_short_miss", history_evidence["text"])
+
     def test_historical_hole_scoring_and_course_form_shift_attack_to_safer_plan(self) -> None:
         clean_context = approach_fixture()
         clean_context["strategyMode"] = "attack"

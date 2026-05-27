@@ -464,6 +464,35 @@ def issue_trend_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=[])
 
 
+def player_profile_history_data() -> HistoryData:
+    round_row = {
+        "id": "profile-1",
+        "date": "2026-05-25",
+        "course": "Profile Course",
+        "courseKey": "profile_course",
+        "holesCompleted": 5,
+        "strokes": 26,
+        "par": 20,
+        "holePars": "44444",
+        "holes": [
+            {"number": 1, "strokes": 4, "par": 4, "putts": 2, "fairway": "hit", "gir": True},
+            {"number": 2, "strokes": 5, "par": 4, "putts": 3, "fairway": "right", "gir": False, "approachMiss": "short"},
+            {"number": 3, "strokes": 6, "par": 4, "putts": 3, "fairway": "right", "gir": False, "approachMiss": "short"},
+            {"number": 4, "strokes": 5, "par": 4, "putts": 2, "fairway": "right", "gir": False, "approachMiss": "left"},
+            {"number": 5, "strokes": 6, "par": 4, "putts": 3, "fairway": "right", "gir": False, "approachMiss": "short"},
+        ],
+        "hasShots": True,
+    }
+    shots = [
+        {"roundId": "profile-1", "hole": 1, "club": "1D", "distance": 230, "surface": "fairway"},
+        {"roundId": "profile-1", "hole": 2, "club": "8I", "distance": 136, "surface": "bunker"},
+        {"roundId": "profile-1", "hole": 3, "club": "8I", "distance": 134, "surface": "rough"},
+        {"roundId": "profile-1", "hole": 4, "club": "8I", "distance": 138, "surface": "green"},
+        {"roundId": "profile-1", "hole": 5, "club": "8I", "distance": 135, "surface": "bunker"},
+    ]
+    return HistoryData(raw_rounds=[{"id": "profile-1", "hasShots": True}], rounds=[round_row], shots=shots)
+
+
 class HistoryStatsCoreTests(unittest.TestCase):
     def test_stats_cover_required_dimensions(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
@@ -478,6 +507,7 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertIn("clubs", stats)
         self.assertIn("issues", stats)
         self.assertIn("diagnosis", stats)
+        self.assertIn("playerProfile", stats)
         self.assertIn("records", stats)
         self.assertIn("dataQuality", stats)
         self.assertIn("drillDown", stats)
@@ -1575,6 +1605,30 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(audit_quality["ready"], 2)
         self.assertEqual(audit_quality["total"], 6)
         self.assertEqual(audit_quality["sourceRefs"], ["trend-issue-5", "trend-issue-6"])
+
+    def test_player_profile_summarizes_strengths_weaknesses_and_caddie_biases(self) -> None:
+        stats = build_history_stats(player_profile_history_data(), data_mode="fixture")
+
+        profile = stats["playerProfile"]
+        self.assertEqual(profile["schema"], "ai-caddie-player-profile-v1")
+        self.assertEqual(profile["roundCount"], 1)
+
+        weaknesses = {row["key"]: row for row in profile["weaknesses"]}
+        self.assertIn("tee_miss_right", weaknesses)
+        self.assertIn("approach_short_miss", weaknesses)
+        self.assertIn("three_putt_pressure", weaknesses)
+        self.assertIn("club_surface_risk_8i", weaknesses)
+        self.assertEqual(weaknesses["tee_miss_right"]["direction"], "right")
+        self.assertEqual(weaknesses["tee_miss_right"]["sourceRefs"], ["profile-1:2", "profile-1:3", "profile-1:4", "profile-1:5"])
+        self.assertEqual(weaknesses["approach_short_miss"]["sourceRefs"], ["profile-1:2", "profile-1:3", "profile-1:5"])
+        self.assertGreater(weaknesses["club_surface_risk_8i"]["severityScore"], 0)
+
+        biases = {row["key"]: row for row in profile["caddieBiases"]}
+        self.assertEqual(biases["protect_right_tee_miss"]["appliesTo"], ["tee"])
+        self.assertEqual(biases["protect_right_tee_miss"]["riskOptionIds"], ["stock", "attack"])
+        self.assertEqual(biases["bias_against_approach_short"]["appliesTo"], ["approach"])
+        self.assertIn("profile-1:2", profile["sourceRefs"])
+        self.assertEqual(profile["coverage"]["ready"], len(profile["sourceRefs"]))
 
     def test_record_book_exposes_drilldown_ready_personal_bests(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")

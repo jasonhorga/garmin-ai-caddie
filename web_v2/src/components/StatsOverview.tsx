@@ -123,6 +123,46 @@ function phaseFact(row: Record<string, unknown>) {
   return `${displayNumber(row.sampleCount ?? row.count ?? row.roundCount)} records`
 }
 
+function profileSignalValue(row: Record<string, unknown>) {
+  const value = asNumber(row.value)
+  const unit = asString(row.unit)
+  if (value === null) return asString(row.reason) ?? 'profile signal'
+  if (unit === 'pct') return `${displayNumber(value)}%`
+  if (unit === 'strokes') return `${displayNumber(value)} strokes`
+  if (unit === 'meters') return `${displayNumber(value)}m`
+  return displayNumber(value)
+}
+
+function ProfileSignalList({
+  title,
+  rows,
+  onSelectRef,
+}: {
+  title: string
+  rows: Array<Record<string, unknown>>
+  onSelectRef?: (sourceRef: string) => void
+}) {
+  if (!rows.length) return null
+  return (
+    <div className="stat-list" aria-label={title}>
+      {rows.map((row) => {
+        const key = asString(row.key) ?? asString(row.label) ?? title
+        return (
+          <div key={key} className="stat-row">
+            <span>{asString(row.label) ?? key}</span>
+            <b>{profileSignalValue(row)}</b>
+            <span className="record-evidence">
+              {asString(row.phase) ? <span className="fact-chip muted">{asString(row.phase)}</span> : null}
+              {asNumber(row.severityScore) !== null ? <span className="fact-chip muted">severity {displayNumber(row.severityScore)}</span> : null}
+              <SourceRefs refs={refsFor(row)} maxVisible={3} onSelectRef={onSelectRef} />
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const scoreBands = asRows(data.scoring.scoreBands)
   const yearRows = asRows(data.time.byYear).slice(0, 4)
@@ -163,6 +203,10 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const mostPlayedCourse = asRecord(records.mostPlayedCourse)
   const longestShot = asRows(records.longestShots)[0] ?? {}
   const bestHole = asRows(records.bestHoleOutcomes)[0] ?? {}
+  const playerProfile = asRecord(data.playerProfile)
+  const profileStrengths = asRows(playerProfile.strengths).slice(0, 3)
+  const profileWeaknesses = asRows(playerProfile.weaknesses).slice(0, 4)
+  const caddieBiases = asRows(playerProfile.caddieBiases).slice(0, 4)
 
   return (
     <section className="stats-page" aria-label="Statistics overview">
@@ -193,6 +237,50 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
           <b>{displayNumber(data.summary.shotCount)}</b>
         </article>
       </section>
+
+      {profileStrengths.length || profileWeaknesses.length || caddieBiases.length ? (
+        <section className="panel compact-panel" aria-label="Player profile">
+          <div className="section-head">
+            <div>
+              <h2>Player Profile</h2>
+              <p>Condensed strengths, recurring weaknesses, and caddie biases from the loaded history.</p>
+            </div>
+            {asString(playerProfile.confidence) ? (
+              <span className={`confidence-pill ${asString(playerProfile.confidence) ?? 'low'}`}>
+                {asString(playerProfile.confidence)}
+              </span>
+            ) : null}
+          </div>
+          <div className="stats-grid">
+            <section className="profile-signal-column" aria-label="Profile weaknesses">
+              <div className="section-head compact-head">
+                <div>
+                  <h3>Weaknesses</h3>
+                </div>
+              </div>
+              <ProfileSignalList title="Profile weaknesses" rows={profileWeaknesses} onSelectRef={onSelectRef} />
+            </section>
+            <section className="profile-signal-column" aria-label="Profile caddie biases">
+              <div className="section-head compact-head">
+                <div>
+                  <h3>Caddie Biases</h3>
+                </div>
+              </div>
+              <ProfileSignalList title="Profile caddie biases" rows={caddieBiases} onSelectRef={onSelectRef} />
+            </section>
+            {profileStrengths.length ? (
+              <section className="profile-signal-column" aria-label="Profile strengths">
+                <div className="section-head compact-head">
+                  <div>
+                    <h3>Strengths</h3>
+                  </div>
+                </div>
+                <ProfileSignalList title="Profile strengths" rows={profileStrengths} onSelectRef={onSelectRef} />
+              </section>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel compact-panel" aria-label="Round format">
         <div className="section-head">
