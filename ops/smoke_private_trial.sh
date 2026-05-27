@@ -39,6 +39,7 @@ for path, protected in [
     ("/api/v2/history/overview", False),
     ("/api/v2/mobile/rounds/900001/package", True),
     ("/api/v2/reports/trend/recent_10", True),
+    ("/api/v2/media/target/round/900001", True),
 ]:
     call_json("GET", path, protected=protected)
 
@@ -62,20 +63,6 @@ call_json(
             },
             "candidateRoutes": [{"id": "stock_line", "label": "stock line", "carry_m": 230, "riskScore": 1}],
         },
-    },
-)
-
-call_json(
-    "POST",
-    "/api/v2/media",
-    protected=True,
-    payload={
-        "targetType": "round",
-        "targetId": "900001",
-        "mediaKind": "photo",
-        "fileName": "private-trial-smoke.jpg",
-        "contentBase64": "c21va2U=",
-        "capturedAt": "2026-05-27T00:00:00Z",
     },
 )
 

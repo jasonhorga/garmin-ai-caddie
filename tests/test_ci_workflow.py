@@ -36,6 +36,13 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("X-AI-Caddie-Admin-Token", text)
         self.assertIn("/api/v2/mobile/rounds/900001/package", text)
 
+    def test_private_trial_smoke_media_probe_is_non_mutating(self) -> None:
+        script = Path("ops/smoke_private_trial.sh")
+        text = script.read_text(encoding="utf-8")
+
+        self.assertIn("/api/v2/media/target/round/900001", text)
+        self.assertNotIn('"POST",\n    "/api/v2/media"', text)
+
     def test_frontend_lint_ignores_generated_playwright_artifacts(self) -> None:
         config = Path("web_v2/eslint.config.js").read_text(encoding="utf-8")
 
