@@ -1,4 +1,5 @@
 import type { HistoryStatsResponse } from '../types'
+import { CourseDistributionMap } from './CourseDistributionMap'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
 
@@ -116,14 +117,6 @@ function phaseFact(row: Record<string, unknown>) {
   if (phase === 'Tee' && asNumber(row.fairwaysHit) !== null) return `${displayNumber(row.fairwaysHit)} fairways`
   if (phase === 'Short Game' && asNumber(row.roughOrBunkerShots) !== null) return `${displayNumber(row.roughOrBunkerShots)} rough/bunker`
   return `${displayNumber(row.sampleCount ?? row.count ?? row.roundCount)} records`
-}
-
-function locationLabel(value: unknown): string {
-  const location = asRecord(value)
-  const latitude = asNumber(location.latitude)
-  const longitude = asNumber(location.longitude)
-  if (latitude === null || longitude === null) return '-'
-  return `${latitude}, ${longitude}`
 }
 
 export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
@@ -524,21 +517,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <p>Coordinate-backed course distribution, with refs ready for drill-down.</p>
             </div>
           </div>
-          <div className="course-distribution-map">
-            {courseDistribution.map((course) => (
-              <div key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="course-distribution-row">
-                <span className="course-map-pin" aria-hidden="true" />
-                <div>
-                  <strong>{asString(course.courseName) ?? asString(course.courseKey) ?? 'Unknown course'}</strong>
-                  <span>
-                    {displayNumber(course.pct)}% / {roundLabel(course.roundCount)}
-                  </span>
-                  <em>{locationLabel(course.location)}</em>
-                </div>
-                <SourceRefs refs={refsFor(course)} maxVisible={4} onSelectRef={onSelectRef} />
-              </div>
-            ))}
-          </div>
+          <CourseDistributionMap rows={courseDistribution} onSelectRef={onSelectRef} metricMode="combined" />
         </section>
 
         <section className="panel compact-panel" aria-label="Data coverage">

@@ -27,6 +27,14 @@ const statsFixture: HistoryStatsResponse = {
       roundRefs: ['900003'],
       location: null,
     },
+    {
+      courseKey: 'island_club',
+      courseName: 'Island Club',
+      roundCount: 1,
+      pct: 33.3,
+      roundRefs: ['900004'],
+      location: { latitude: 22.315, longitude: 114.21 },
+    },
   ],
   records: {},
   courses: [
@@ -115,6 +123,16 @@ describe('CourseStats', () => {
 
     expect(screen.getByRole('heading', { name: 'Course Distribution' })).toBeInTheDocument()
     const distribution = screen.getByLabelText('Course distribution')
+    const map = within(distribution).getByRole('img', { name: 'Course distribution geography' })
+    expect(map).toHaveAttribute('data-plotted-count', '2')
+    expect(within(distribution).getByText('2 plotted')).toBeInTheDocument()
+    expect(within(distribution).getByText('1 missing location')).toHaveClass('quality-missing')
+
+    const blackKnightPin = within(distribution).getByTestId('course-map-pin-black_knight')
+    const islandClubPin = within(distribution).getByTestId('course-map-pin-island_club')
+    expect(Number(blackKnightPin.getAttribute('cx'))).toBeLessThan(Number(islandClubPin.getAttribute('cx')))
+    expect(Number(blackKnightPin.getAttribute('cy'))).toBeGreaterThan(Number(islandClubPin.getAttribute('cy')))
+
     expect(within(distribution).getByText('Black Knight B')).toBeInTheDocument()
     expect(within(distribution).getByText('66.7%')).toBeInTheDocument()
     expect(within(distribution).getByText('22.2790, 114.1620')).toBeInTheDocument()

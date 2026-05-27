@@ -1037,6 +1037,64 @@ p {
 
 .course-distribution-map {
   display: grid;
+  gap: 10px;
+}
+
+.course-map-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.course-distribution-svg {
+  width: 100%;
+  min-height: 176px;
+  display: block;
+}
+
+.course-map-frame {
+  fill: #f7fbf8;
+  stroke: #bfd8cc;
+  stroke-width: 1;
+}
+
+.course-map-grid {
+  fill: none;
+  stroke: #d7e5dd;
+  stroke-width: 1;
+}
+
+.course-map-pin-node circle {
+  fill: #0f8f5f;
+  stroke: #f7fbf8;
+  stroke-width: 3;
+}
+
+.course-map-pin-node text {
+  fill: #ffffff;
+  font-size: 10px;
+  font-weight: 900;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.course-map-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.course-map-summary span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.course-distribution-list {
+  display: grid;
   gap: 8px;
 }
 
@@ -1056,6 +1114,11 @@ p {
   border: 3px solid #0f8f5f;
   border-radius: 999px;
   background: #e8f5ee;
+}
+
+.course-map-pin.missing {
+  border-color: #c24f3d;
+  background: #fff1ee;
 }
 
 .course-distribution-row div {

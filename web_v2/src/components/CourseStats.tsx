@@ -1,8 +1,9 @@
 import type { HistoryStatsResponse } from '../types'
 import { AggregateEvidence } from './AggregateEvidence'
+import { CourseDistributionMap } from './CourseDistributionMap'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
-import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
+import { asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface CourseStatsProps {
   data: HistoryStatsResponse
@@ -11,7 +12,6 @@ interface CourseStatsProps {
 
 export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
   const courses = data.courses
-  const courseDistribution = asRows(data.courseDistribution)
 
   return (
     <section className="stats-page" aria-label="Course statistics">
@@ -30,30 +30,7 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
             <p>Round mix by course with location evidence and drill-down refs.</p>
           </div>
         </div>
-        {courseDistribution.length === 0 ? (
-          <article className="stats-empty">
-            <h3>No course distribution yet</h3>
-            <p>Distribution rows appear after round history has course keys.</p>
-          </article>
-        ) : (
-          <div className="course-distribution-map">
-            {courseDistribution.map((course) => {
-              const location = formatLocation(course.location)
-              return (
-                <div key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="course-distribution-row">
-                  <span className="course-map-pin" aria-hidden="true" />
-                  <div>
-                    <strong>{asString(course.courseName) ?? asString(course.courseKey) ?? 'Unknown course'}</strong>
-                    <span>{formatNumber(course.pct)}%</span>
-                    <span>{formatNumber(course.roundCount)} rounds</span>
-                    {location ? <em>{location}</em> : <em className="semantic-chip quality-missing">location missing</em>}
-                  </div>
-                  <SourceRefs refs={course.roundRefs ?? course.sourceRefs ?? course.roundIds} onSelectRef={onSelectRef} />
-                </div>
-              )
-            })}
-          </div>
-        )}
+        <CourseDistributionMap rows={data.courseDistribution} onSelectRef={onSelectRef} />
       </section>
       <div className="stats-list">
         {courses.length === 0 ? (
@@ -116,12 +93,4 @@ export function CourseStats({ data, onSelectRef }: CourseStatsProps) {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
-}
-
-function formatLocation(value: unknown): string | null {
-  const location = asRecord(value)
-  const latitude = asNumber(location.latitude)
-  const longitude = asNumber(location.longitude)
-  if (latitude === null || longitude === null) return null
-  return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
 }
