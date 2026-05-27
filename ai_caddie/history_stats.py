@@ -1616,6 +1616,66 @@ def _active_manual_issue_tags_by_target(annotations: list[dict[str, Any]] | None
     return rows
 
 
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _ai_issue_name(row: dict[str, Any]) -> str:
+    return str(row.get("issue") or row.get("suggestedIssue") or row.get("tag") or "").strip().lower()
+
+
+def _ai_issue_refs(row: dict[str, Any], report: dict[str, Any], record: dict[str, Any]) -> list[str]:
+    refs = _source_refs(_as_list(row.get("sourceRefs") or row.get("refs") or row.get("targetRefs")))
+    target_ref = row.get("targetRef") or row.get("targetId")
+    if target_ref is not None:
+        refs = _source_refs([*refs, target_ref])
+    if refs:
+        return refs
+    return _source_refs(_as_list(report.get("sourceRefs") or record.get("sourceRefs")) or [record.get("subjectId")])
+
+
+def _iter_ai_issue_suggestions(report_records: list[dict[str, Any]] | None) -> list[tuple[str, list[str]]]:
+    suggestions: list[tuple[str, list[str]]] = []
+    for record in report_records or []:
+        report = record.get("report") if isinstance(record.get("report"), dict) else {}
+        if not isinstance(report, dict):
+            continue
+        rows: list[Any] = []
+        rows.extend(_as_list(report.get("aiSuggestedIssues")))
+        rows.extend(_as_list(report.get("suggestedIssues")))
+        for inference in _as_list(report.get("inferencesMade")):
+            if isinstance(inference, dict):
+                rows.extend(_as_list(inference.get("suggestedIssues")))
+                if inference.get("suggestedIssue") or inference.get("issue"):
+                    rows.append(inference)
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            issue = _ai_issue_name(row)
+            refs = _ai_issue_refs(row, report, record)
+            if issue and refs:
+                suggestions.append((issue, refs))
+    return suggestions
+
+
+def _ai_suggested_issue_refs(report_records: list[dict[str, Any]] | None) -> dict[str, list[str]]:
+    refs_by_issue: dict[str, list[str]] = defaultdict(list)
+    for issue, refs in _iter_ai_issue_suggestions(report_records):
+        for ref in refs:
+            if ref not in refs_by_issue[issue]:
+                refs_by_issue[issue].append(ref)
+    return refs_by_issue
+
+
+def _ai_suggested_issue_tags_by_target(report_records: list[dict[str, Any]] | None) -> dict[str, list[str]]:
+    rows: dict[str, list[str]] = defaultdict(list)
+    for issue, refs in _iter_ai_issue_suggestions(report_records):
+        for ref in refs:
+            if issue not in rows[ref]:
+                rows[ref].append(issue)
+    return rows
+
+
 def _hole_repeated_issue_records(issue_refs: dict[tuple[str, str], list[str]]) -> list[dict[str, Any]]:
     rows = [
         issue_record(issue, refs, source=source)
@@ -1830,7 +1890,11 @@ def _club_trend_shot_sort_key(shot: dict[str, Any], round_chronology: dict[str, 
     )
 
 
-def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+def _holes(
+    data: HistoryData,
+    annotations: list[dict[str, Any]] | None = None,
+    report_records: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, int], list[tuple[dict[str, Any], dict[str, Any]]]] = defaultdict(list)
     for row in data.rounds:
         course_key = str(row.get("courseKey") or "unknown")
@@ -1844,6 +1908,7 @@ def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
         if str(_shot_surface(shot) or "").lower() in {"water", "bunker", "rough"}
     }
     manual_tags = _active_manual_issue_tags_by_target(annotations)
+    ai_tags = _ai_suggested_issue_tags_by_target(report_records)
     out = []
     for (course_key, number), pairs in grouped.items():
         deltas: list[int] = []
@@ -1865,6 +1930,8 @@ def _holes(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
                 issue_refs[("hazard_result", "deterministic")].append(ref)
             for tag in manual_tags.get(ref, []):
                 issue_refs[(tag, "manual")].append(ref)
+            for tag in ai_tags.get(ref, []):
+                issue_refs[(tag, "ai_suggested")].append(ref)
             refs.append(ref)
         out.append(
             _with_aggregate_contract(
@@ -1952,7 +2019,11 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
     return sorted(out, key=lambda row: row["club"])
 
 
-def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+def _issues(
+    data: HistoryData,
+    annotations: list[dict[str, Any]] | None = None,
+    report_records: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     refs: dict[str, list[str]] = defaultdict(list)
 
     def add_ref(issue: str, ref: str) -> None:
@@ -2045,6 +2116,10 @@ def _issues(data: HistoryData, annotations: list[dict[str, Any]] | None = None) 
                 manual_refs["missing_putt_data"].append(target_id)
             continue
     rows.extend(issue_record(issue, items, source="manual") for issue, items in sorted(manual_refs.items()))
+    rows.extend(
+        issue_record(issue, items, source="ai_suggested")
+        for issue, items in sorted(_ai_suggested_issue_refs(report_records).items())
+    )
     return rows
 
 
@@ -2316,8 +2391,8 @@ def build_history_stats(
     report_records = list_report_records(root=reports_root)
     decision_audits = list_decision_audits(root=decision_audit_root)
     scored_data = _effective_score_data(data, annotations)
-    hole_rows = _holes(scored_data, annotations)
-    issue_rows = _issues(scored_data, annotations)
+    hole_rows = _holes(scored_data, annotations, report_records)
+    issue_rows = _issues(scored_data, annotations, report_records)
     diagnosis = _diagnosis(scored_data, issue_rows)
     diagnosis["decisionAuditTrends"] = _decision_audit_diagnosis(scored_data, decision_audits)
     return {

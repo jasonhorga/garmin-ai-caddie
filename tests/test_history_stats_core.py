@@ -818,6 +818,57 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(annotation_quality["state"], "good")
         self.assertEqual(annotation_quality["ready"], 1)
 
+    def test_ai_suggested_issues_from_reports_appear_as_separate_issue_source(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_report(
+                {
+                    "schema": "ai-caddie-review-report-v1",
+                    "kind": "round",
+                    "provider": "StaticProvider",
+                    "model": "static",
+                    "sourceRefs": ["900001:7"],
+                    "factsUsed": [],
+                    "missingData": [],
+                    "aiSuggestedIssues": [
+                        {
+                            "issue": "blocked_view",
+                            "sourceRefs": ["900001:7"],
+                            "confidence": "medium",
+                            "reason": "AI review suggested trees affected the route window",
+                        }
+                    ],
+                    "inferencesMade": [
+                        {
+                            "claim": "Approach pattern may indicate club uncertainty.",
+                            "suggestedIssue": "club_uncertainty",
+                            "sourceRefs": ["900001:8"],
+                            "confidence": "low",
+                        }
+                    ],
+                    "narrative": "stored report",
+                    "confidence": "medium",
+                },
+                kind="round",
+                subject_id="900001",
+                root=root,
+            )
+
+            stats = build_history_stats(
+                fixture_history_data(),
+                data_mode="fixture",
+                reports_root=root,
+            )
+
+        issues = {(row["issue"], row["source"]): row for row in stats["issues"]}
+        self.assertEqual(issues[("blocked_view", "ai_suggested")]["refs"], ["900001:7"])
+        self.assertEqual(issues[("club_uncertainty", "ai_suggested")]["refs"], ["900001:8"])
+        self.assertNotIn(("blocked_view", "manual"), issues)
+
+        hole = next(row for row in stats["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
+        repeated = {(row["issue"], row["source"]): row for row in hole["repeatedIssues"]}
+        self.assertEqual(repeated[("blocked_view", "ai_suggested")]["refs"], ["900001:7"])
+
     def test_removed_manual_issue_tags_are_excluded_from_active_issue_stats(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
