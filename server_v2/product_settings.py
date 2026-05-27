@@ -9,8 +9,6 @@ from ai_caddie.connectors.garmin_oauth import build_oauth_feasibility_status
 def _provider_state(provider_id: str, configured: bool | None = None) -> str:
     if provider_id == "static":
         return "ready"
-    if provider_id == "gemini_cli_oauth":
-        return "internal_only"
     return "configured" if configured else "missing_key"
 
 
@@ -45,8 +43,9 @@ def build_product_settings_response() -> dict[str, Any]:
         {
             "id": "gemini_cli_oauth",
             "label": "Gemini CLI OAuth",
-            "state": _provider_state("gemini_cli_oauth"),
-            "supports": ["local_development_only"],
+            "state": "configured" if settings.gemini_oauth_configured and settings.google_cloud_project else "missing_config",
+            "supports": ["reports", "caddie_explanations", "local_development_only"],
+            "credentialPolicy": "oauth_token_cache_only",
         },
     ]
     return {

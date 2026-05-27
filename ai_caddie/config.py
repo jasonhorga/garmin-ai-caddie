@@ -34,6 +34,16 @@ class Settings:
             "https://generativelanguage.googleapis.com/v1beta",
         ).rstrip("/")
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.gemini_oauth_credentials_file = os.getenv("GEMINI_OAUTH_CREDENTIALS_FILE")
+        self.gemini_oauth_credentials_json = os.getenv("GEMINI_OAUTH_CREDENTIALS_JSON")
+        self.gemini_oauth_credentials_b64 = os.getenv("GEMINI_OAUTH_CREDENTIALS_B64")
+        self.gemini_oauth_configured = bool(
+            self.gemini_oauth_credentials_file
+            or self.gemini_oauth_credentials_json
+            or self.gemini_oauth_credentials_b64
+        )
+        self.google_cloud_project = os.getenv("GOOGLE_CLOUD_PROJECT")
+        self.google_cloud_location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
         self.anthropic_api_key_present = bool(os.getenv("ANTHROPIC_API_KEY"))
 
 

@@ -16,7 +16,15 @@ class ServerV2SettingsTests(unittest.TestCase):
     def test_product_settings_endpoint_reports_secret_free_capabilities(self) -> None:
         client = TestClient(app)
 
-        with patch.dict("os.environ", {"AI_CADDIE_LLM_PROVIDER": "gemini_api_key", "GEMINI_API_KEY": "secret-key"}):
+        with patch.dict(
+            "os.environ",
+            {
+                "AI_CADDIE_LLM_PROVIDER": "gemini_api_key",
+                "GEMINI_API_KEY": "secret-key",
+                "GEMINI_OAUTH_CREDENTIALS_FILE": "/tmp/gemini-oauth.json",
+                "GOOGLE_CLOUD_PROJECT": "gemini-project",
+            },
+        ):
             get_settings.cache_clear()
             response = client.get("/api/v2/settings/product")
 
@@ -40,6 +48,8 @@ class ServerV2SettingsTests(unittest.TestCase):
         self.assertEqual(payload["aiProviders"]["activeProvider"], "gemini_api_key")
         providers = {row["id"]: row for row in payload["aiProviders"]["providers"]}
         self.assertEqual(providers["gemini_api_key"]["state"], "configured")
+        self.assertEqual(providers["gemini_cli_oauth"]["state"], "configured")
+        self.assertEqual(providers["gemini_cli_oauth"]["credentialPolicy"], "oauth_token_cache_only")
         self.assertEqual(providers["static"]["state"], "ready")
         self.assertTrue(payload["aiProviders"]["factBindingRequired"])
 

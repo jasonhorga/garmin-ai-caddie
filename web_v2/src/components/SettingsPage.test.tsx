@@ -74,6 +74,7 @@ const productSettings: ProductSettingsResponse = {
     providers: [
       { id: 'static', label: 'Static', state: 'ready' },
       { id: 'gemini_api_key', label: 'Gemini API', state: 'configured' },
+      { id: 'gemini_cli_oauth', label: 'Gemini CLI OAuth', state: 'configured' },
     ],
   },
   liveApps: {
@@ -117,6 +118,7 @@ describe('SettingsPage', () => {
     expect(within(aiProviders).getByText('Static')).toBeInTheDocument()
     expect(within(aiProviders).getByText('NVIDIA NIM')).toBeInTheDocument()
     expect(within(aiProviders).getByText('Gemini API')).toBeInTheDocument()
+    expect(within(aiProviders).getByText('Gemini CLI OAuth')).toBeInTheDocument()
     expect(within(aiProviders).getByRole('checkbox', { name: 'Fact binding required' })).toBeChecked()
 
     const liveApps = screen.getByLabelText('Live app settings')

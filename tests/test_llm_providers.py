@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import base64
+from datetime import UTC, datetime, timedelta
 import unittest
 import os
 import json
+from pathlib import Path
 from types import SimpleNamespace
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from ai_caddie.config import get_settings
 from ai_caddie.llm import maybe_call_anthropic, maybe_call_llm
 from ai_caddie.llm_providers import (
     GeminiApiKeyProvider,
+    GeminiCliOAuthProvider,
     LLMMediaPart,
     LLMMessage,
     NvidiaNimProvider,
@@ -17,6 +22,33 @@ from ai_caddie.llm_providers import (
     StaticProvider,
     build_text_provider,
 )
+
+
+class FakeCodeAssistHttpClient:
+    def __init__(self, json_responses: list[dict[str, object]]) -> None:
+        self.json_responses = list(json_responses)
+        self.calls: list[dict[str, object]] = []
+
+    def post_json(self, url: str, *, headers: dict[str, str], body: dict[str, object]) -> dict[str, object]:
+        self.calls.append({"url": url, "headers": headers, "body": body})
+        if not self.json_responses:
+            raise AssertionError(f"unexpected Code Assist call: {url}")
+        return self.json_responses.pop(0)
+
+
+def _write_cli_oauth_token_cache(path: Path, *, token: str = "test-token", expires_in_seconds: int = 3600) -> None:
+    expiry = datetime.now(UTC) + timedelta(seconds=expires_in_seconds)
+    path.write_text(
+        json.dumps(
+            {
+                "access_token": token,
+                "expiry_date": expiry.isoformat().replace("+00:00", "Z"),
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 class LLMProviderTests(unittest.TestCase):
@@ -259,13 +291,100 @@ class LLMProviderTests(unittest.TestCase):
 
         self.assertIn("Unsupported LLM provider", str(raised.exception))
 
-    def test_gemini_cli_oauth_is_internal_only(self) -> None:
-        settings = SimpleNamespace(llm_provider="gemini_cli_oauth")
+    def test_gemini_cli_oauth_provider_posts_to_code_assist_with_bearer_token_and_project(self) -> None:
+        with TemporaryDirectory() as tmp:
+            credentials_file = Path(tmp) / "oauth.json"
+            _write_cli_oauth_token_cache(credentials_file)
+            http_client = FakeCodeAssistHttpClient(
+                [
+                    {"cloudaicompanionProject": "server-project"},
+                    {"response": {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}},
+                ]
+            )
+            provider = GeminiCliOAuthProvider(
+                model="gemini-test",
+                oauth_credentials_file=str(credentials_file),
+                google_cloud_project="gemini-jason-he-o",
+                http_client=http_client,
+            )
+
+            response = provider.chat(
+                [
+                    LLMMessage(role="system", content="Answer briefly."),
+                    LLMMessage(role="user", content="ping"),
+                ],
+                max_tokens=12,
+            )
+
+        self.assertEqual(response, "ok")
+        load_call, generate_call = http_client.calls
+        self.assertEqual(load_call["url"], "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
+        self.assertEqual(load_call["headers"]["Authorization"], "Bearer test-token")
+        self.assertEqual(load_call["body"]["cloudaicompanionProject"], "gemini-jason-he-o")
+        self.assertEqual(load_call["body"]["metadata"]["pluginType"], "GEMINI")
+        self.assertEqual(load_call["body"]["metadata"]["duetProject"], "gemini-jason-he-o")
+        self.assertEqual(generate_call["url"], "https://cloudcode-pa.googleapis.com/v1internal:generateContent")
+        self.assertEqual(generate_call["headers"]["Authorization"], "Bearer test-token")
+        self.assertEqual(generate_call["body"]["model"], "gemini-test")
+        self.assertEqual(generate_call["body"]["project"], "server-project")
+        request_body = generate_call["body"]["request"]
+        self.assertEqual(request_body["contents"], [{"role": "user", "parts": [{"text": "ping"}]}])
+        self.assertEqual(request_body["systemInstruction"], {"role": "user", "parts": [{"text": "Answer briefly."}]})
+        self.assertEqual(request_body["generationConfig"], {"maxOutputTokens": 12})
+        serialized_body = json.dumps(generate_call["body"])
+        self.assertNotIn("test-token", serialized_body)
+        self.assertNotIn("refresh_token", serialized_body)
+
+    def test_gemini_cli_oauth_provider_accepts_base64_credentials_json(self) -> None:
+        credentials_json = json.dumps(
+            {
+                "access_token": "encoded-token",
+                "expiry_date": (datetime.now(UTC) + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+            }
+        )
+        http_client = FakeCodeAssistHttpClient(
+            [
+                {"cloudaicompanionProject": "server-project"},
+                {"response": {"candidates": [{"content": {"parts": [{"text": "encoded ok"}]}}]}},
+            ]
+        )
+        provider = GeminiCliOAuthProvider(
+            model="gemini-test",
+            oauth_credentials_b64=base64.b64encode(credentials_json.encode("utf-8")).decode("ascii"),
+            google_cloud_project="gemini-jason-he-o",
+            http_client=http_client,
+        )
+
+        response = provider.chat([LLMMessage(role="user", content="ping")])
+
+        self.assertEqual(response, "encoded ok")
+        self.assertEqual(http_client.calls[0]["headers"]["Authorization"], "Bearer encoded-token")
+
+    def test_build_text_provider_supports_configured_gemini_cli_oauth(self) -> None:
+        settings = SimpleNamespace(
+            llm_provider="gemini_cli_oauth",
+            gemini_model="gemini-test",
+            gemini_oauth_credentials_file="/tmp/oauth.json",
+            gemini_oauth_credentials_json=None,
+            gemini_oauth_credentials_b64=None,
+            google_cloud_project="gemini-jason-he-o",
+            google_cloud_location="global",
+        )
+
+        provider = build_text_provider(settings=settings)
+
+        self.assertIsInstance(provider, GeminiCliOAuthProvider)
+        self.assertEqual(provider.model, "gemini-test")
+
+    def test_gemini_cli_oauth_requires_credentials_when_called(self) -> None:
+        settings = SimpleNamespace(llm_provider="gemini_cli_oauth", gemini_model="gemini-test", google_cloud_project="project")
+        provider = build_text_provider(settings=settings)
 
         with self.assertRaises(ProviderConfigurationError) as raised:
-            build_text_provider(settings=settings)
+            provider.chat([LLMMessage(role="user", content="ping")])
 
-        self.assertIn("internal development only", str(raised.exception))
+        self.assertIn("requires GEMINI_OAUTH_CREDENTIALS", str(raised.exception))
 
     def test_exception_text_redacts_secret_like_values(self) -> None:
         error = ProviderConfigurationError(

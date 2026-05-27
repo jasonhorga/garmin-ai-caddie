@@ -24,6 +24,8 @@ class ConfigTests(unittest.TestCase):
                 "AI_CADDIE_DATA_MODE": "fixture",
                 "AI_CADDIE_LLM_PROVIDER": "nvidia_nim",
                 "AI_CADDIE_STATIC_LLM_REPLY": "fixture ok",
+                "GEMINI_OAUTH_CREDENTIALS_FILE": "/tmp/gemini-oauth.json",
+                "GOOGLE_CLOUD_PROJECT": "gemini-project",
             },
             clear=True,
         ):
@@ -33,6 +35,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.data_mode, "fixture")
         self.assertEqual(settings.llm_provider, "nvidia_nim")
         self.assertEqual(settings.static_llm_reply, "fixture ok")
+        self.assertTrue(settings.gemini_oauth_configured)
+        self.assertEqual(settings.gemini_oauth_credentials_file, "/tmp/gemini-oauth.json")
+        self.assertEqual(settings.google_cloud_project, "gemini-project")
 
 
 if __name__ == "__main__":

@@ -94,6 +94,7 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
               <span className="setting-chip setting-primary">Static</span>
               <span className={providerChipClass(settings, 'nvidia_nim')}>NVIDIA NIM</span>
               <span className={providerChipClass(settings, 'gemini_api_key')}>Gemini API</span>
+              <span className={providerChipClass(settings, 'gemini_cli_oauth')}>Gemini CLI OAuth</span>
               <span className="setting-chip">Anthropic</span>
               {activeProvider ? <span className="setting-chip setting-primary">{asString(activeProvider.state) ?? 'unknown'}</span> : null}
             </div>
