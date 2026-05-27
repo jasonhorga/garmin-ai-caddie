@@ -270,6 +270,7 @@ export interface VisionFinding {
   findingType: VisionFindingType
   evidenceText: string
   confidence: ReportConfidence
+  confirmationState?: 'unconfirmed' | 'confirmed' | 'player_confirmed' | 'manual_confirmed' | 'rejected'
   missingInfo: string[]
   provider: string
   model: string

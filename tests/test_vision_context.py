@@ -282,6 +282,7 @@ class VisionContextTests(unittest.TestCase):
                             "with authorization: Bearer secret-token"
                         ),
                         "confidence": "medium",
+                        "confirmationState": "confirmed",
                         "missingInfo": ["/tmp/private-media/shot.jpg"],
                         "source": "vision_model",
                         "localPath": "/home/player/private/shot.jpg",
@@ -301,6 +302,7 @@ class VisionContextTests(unittest.TestCase):
         self.assertEqual(listed[0]["targetId"], "round-1:7:2")
         self.assertEqual(listed[0]["findingType"], "visible_water")
         self.assertEqual(listed[0]["confidence"], "medium")
+        self.assertEqual(listed[0]["confirmationState"], "confirmed")
         self.assertEqual(listed[0]["source"], "vision_model")
         self.assertNotIn("localPath", listed[0])
         self.assertNotIn("mediaBytesBase64", listed[0])
@@ -308,6 +310,42 @@ class VisionContextTests(unittest.TestCase):
         self.assertNotIn("/home/player/private", raw_jsonl)
         self.assertNotIn("/tmp/private-media", raw_jsonl)
         self.assertNotIn("cHJpdmF0ZS1ieXRlcw==", raw_jsonl)
+
+    def test_vision_confirmation_state_defaults_and_sanitizes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stored = store_vision_findings(
+                {
+                    "schema": "ai-caddie-vision-context-v1",
+                    "mediaId": "media-confirmation",
+                    "targetType": "shot",
+                    "targetId": "round-1:7:3",
+                    "mediaKind": "photo",
+                    "provider": "static",
+                    "model": "static",
+                    "findings": [
+                        {"findingType": "blocked_view", "evidenceText": "tree", "confidence": "high"},
+                        {
+                            "findingType": "visible_bunker",
+                            "evidenceText": "bunker",
+                            "confidence": "medium",
+                            "confirmationState": "manual_confirmed",
+                        },
+                        {
+                            "findingType": "poor_lie",
+                            "evidenceText": "sitting down",
+                            "confidence": "medium",
+                            "confirmationState": "cookie=secret",
+                        },
+                    ],
+                },
+                root=root,
+            )
+
+        self.assertEqual(
+            [row["confirmationState"] for row in stored],
+            ["unconfirmed", "manual_confirmed", "unconfirmed"],
+        )
 
 
 if __name__ == "__main__":

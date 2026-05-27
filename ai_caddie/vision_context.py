@@ -23,6 +23,7 @@ ALLOWED_FINDING_TYPES = {
     "uncertainty",
 }
 ALLOWED_CONFIDENCE = {"low", "medium", "high"}
+ALLOWED_CONFIRMATION_STATES = {"unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"}
 MAX_PROMPT_MEDIA_BYTES = 1_000_000
 VISION_FINDINGS_PATH = Path("data") / "media" / "vision_findings.jsonl"
 
@@ -46,6 +47,13 @@ def _redact_private_text(text: object) -> str:
     value = re.sub(r"mediaBytesBase64\s*=\s*[A-Za-z0-9+/=]+", "mediaBytesBase64=[REDACTED]", value)
     value = re.sub(r"/(?:tmp|var/folders|private|home|Users)/[^\s,)\"']+", "[REDACTED_PATH]", value)
     return value
+
+
+def _confirmation_state(row: dict[str, Any]) -> str:
+    if row.get("confirmed") is True:
+        return "confirmed"
+    state = str(row.get("confirmationState") or "unconfirmed").strip().lower()
+    return state if state in ALLOWED_CONFIRMATION_STATES else "unconfirmed"
 
 
 def _provider_name(provider: TextProvider) -> str:
@@ -93,10 +101,12 @@ def _normalize_finding(row: dict[str, Any]) -> dict[str, Any] | None:
     missing = row.get("missingInfo") or row.get("missing") or []
     if not isinstance(missing, list):
         missing = [str(missing)]
+    confirmation_state = _confirmation_state(row)
     return {
         "findingType": finding_type,
         "evidenceText": _redact_private_text(row.get("evidenceText") or row.get("evidence") or ""),
         "confidence": confidence,
+        "confirmationState": confirmation_state,
         "missingInfo": [_redact_private_text(item) for item in missing],
         "provider": _redact_private_text(row.get("provider") or ""),
         "model": _redact_private_text(row.get("model") or ""),
@@ -171,6 +181,7 @@ def _stored_finding_record(analysis: dict[str, Any], finding: dict[str, Any]) ->
         "findingType": finding_type,
         "evidenceText": _redact_private_text(finding.get("evidenceText") or finding.get("evidence") or ""),
         "confidence": confidence,
+        "confirmationState": _confirmation_state(finding),
         "missingInfo": [_redact_private_text(item) for item in missing],
         "provider": _redact_private_text(finding.get("provider") or analysis.get("provider") or ""),
         "model": _redact_private_text(finding.get("model") or analysis.get("model") or ""),

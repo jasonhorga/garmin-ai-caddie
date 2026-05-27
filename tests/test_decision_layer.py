@@ -497,10 +497,42 @@ class DecisionLayerTests(unittest.TestCase):
                 "findingType": "blocked_view",
                 "evidenceText": "tree trunk blocks the window",
                 "confidence": "high",
+                "confirmationState": "confirmed",
             },
             {
                 "findingType": "poor_lie",
                 "evidenceText": "ball is sitting down",
+                "confidence": "medium",
+                "confirmationState": "confirmed",
+            },
+            {
+                "findingType": "visible_bunker",
+                "evidenceText": "front bunker visible",
+                "confidence": "medium",
+                "confirmationState": "confirmed",
+            },
+        ]
+
+        plan = recommend_recovery(context)
+
+        self.assertTrue(plan["context"]["blockedView"])
+        self.assertEqual(plan["context"]["lie"], "poor_lie")
+        self.assertEqual(plan["selected"]["id"], "safe")
+        self.assertIn("bunker", {zone["kind"] for zone in plan["avoidZones"]})
+        self.assertTrue(any(row["kind"] == "vision" and "blocked_view" in row["text"] for row in plan["evidence"]))
+
+    def test_unconfirmed_vision_findings_remain_evidence_without_overwriting_facts(self) -> None:
+        context = recovery_fixture(lie="fairway", blocked=False)
+        context["hazards"] = []
+        context["visionFindings"] = [
+            {
+                "findingType": "blocked_view",
+                "evidenceText": "tree trunk may block the window",
+                "confidence": "high",
+            },
+            {
+                "findingType": "poor_lie",
+                "evidenceText": "ball may be sitting down",
                 "confidence": "medium",
             },
             {
@@ -512,10 +544,10 @@ class DecisionLayerTests(unittest.TestCase):
 
         plan = recommend_recovery(context)
 
-        self.assertTrue(plan["context"]["blockedView"])
-        self.assertEqual(plan["context"]["lie"], "poor_lie")
-        self.assertEqual(plan["selected"]["id"], "safe")
-        self.assertIn("bunker", {zone["kind"] for zone in plan["avoidZones"]})
+        self.assertFalse(plan["context"]["blockedView"])
+        self.assertEqual(plan["context"]["lie"], "fairway")
+        self.assertNotIn("bunker", {zone["kind"] for zone in plan["avoidZones"]})
+        self.assertIn("vision", {row["label"] for row in plan["missingData"]})
         self.assertTrue(any(row["kind"] == "vision" and "blocked_view" in row["text"] for row in plan["evidence"]))
 
     def test_low_confidence_vision_findings_degrade_without_overwriting_facts(self) -> None:

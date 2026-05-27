@@ -230,11 +230,13 @@ class ServerV2CaddieTests(unittest.TestCase):
                             "findingType": "blocked_view",
                             "evidenceText": "tree limbs block the direct recovery window",
                             "confidence": "high",
+                            "confirmationState": "confirmed",
                         },
                         {
                             "findingType": "visible_bunker",
                             "evidenceText": "front bunker visible",
                             "confidence": "medium",
+                            "confirmationState": "confirmed",
                         },
                     ],
                 },
@@ -255,6 +257,7 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertEqual(context_response.status_code, 200)
         context = context_response.json()["context"]
         self.assertEqual([row["findingType"] for row in context["visionFindings"]], ["blocked_view", "visible_bunker"])
+        self.assertTrue(all(row["confirmationState"] == "confirmed" for row in context["visionFindings"]))
         self.assertTrue(any(row["label"] == "vision_findings" for row in context_response.json()["evidence"]))
 
         decision_response = client.post("/api/v2/caddie/decision", json={"shotType": "recovery", "context": context})

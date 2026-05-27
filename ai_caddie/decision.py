@@ -939,9 +939,20 @@ def _vision_findings(context: dict[str, Any]) -> list[dict[str, Any]]:
     return [row for row in findings if isinstance(row, dict)]
 
 
+def _vision_confirmation_state(finding: dict[str, Any]) -> str:
+    if finding.get("confirmed") is True:
+        return "confirmed"
+    state = str(finding.get("confirmationState") or "unconfirmed").strip().lower()
+    return state or "unconfirmed"
+
+
+def _vision_finding_confirmed(finding: dict[str, Any]) -> bool:
+    return _vision_confirmation_state(finding) in {"confirmed", "player_confirmed", "manual_confirmed"}
+
+
 def _apply_vision_findings(context: dict[str, Any]) -> dict[str, Any]:
     analysis = dict(context)
-    usable: list[dict[str, Any]] = []
+    evidence_findings: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
     hazards = list(analysis.get("hazards") or [])
 
@@ -956,7 +967,17 @@ def _apply_vision_findings(context: dict[str, Any]) -> dict[str, Any]:
             })
             continue
 
-        usable.append(finding)
+        state = _vision_confirmation_state(finding)
+        evidence_findings.append({**finding, "confirmationState": state})
+        if not _vision_finding_confirmed(finding):
+            missing.append({
+                "findingType": finding_type or "unknown",
+                "confidence": confidence,
+                "confirmationState": state,
+                "reason": "vision finding needs player confirmation before changing caddie facts",
+            })
+            continue
+
         if finding_type == "blocked_view":
             analysis["blockedView"] = True
         elif finding_type == "poor_lie":
@@ -975,8 +996,8 @@ def _apply_vision_findings(context: dict[str, Any]) -> dict[str, Any]:
 
     if hazards:
         analysis["hazards"] = hazards
-    if usable:
-        analysis["_visionEvidence"] = usable
+    if evidence_findings:
+        analysis["_visionEvidence"] = evidence_findings
     if missing:
         analysis["_visionMissing"] = missing
     return analysis
