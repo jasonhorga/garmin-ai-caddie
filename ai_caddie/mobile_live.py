@@ -988,6 +988,9 @@ def build_live_round_package(
         source,
         data_mode=data_mode,
         annotations_root=annotation_lookup_root,
+        weather_root=root,
+        reports_root=root,
+        decision_audit_root=root,
     )
     requested_id = str(round_id)
     lookup_id = str(template_round_id or requested_id)

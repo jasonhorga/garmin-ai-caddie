@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from ai_caddie.annotations import add_annotation
-from ai_caddie.decision import list_decision_audits
+from ai_caddie.decision import list_decision_audits, store_decision_audit
 from ai_caddie.history import HistoryData
 from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
@@ -133,6 +133,56 @@ class ServerV2MobileTests(unittest.TestCase):
             for factor in option.get("historyAdjustment", {}).get("factors", [])
         ]
         self.assertTrue(any(factor.get("label") == "diagnosis_issue_trends" for factor in history_factors))
+
+    def test_mobile_round_package_carries_decision_audits_into_offline_decisions(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_decision_audit(
+                {
+                    "decisionSourceRef": "900001:7",
+                    "selectedOptionId": "safe",
+                    "actualOptionId": "attack",
+                    "actualShotRefs": ["900001:7:1"],
+                    "evidenceRefs": ["900001:7"],
+                    "classification": "strategy",
+                    "criteriaResults": [{"label": "avoid_zones", "status": "fail"}],
+                },
+                decision_id="900001:7:tee",
+                root=root,
+            )
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                package_response = client.get("/api/v2/mobile/rounds/900001/package")
+
+        self.assertEqual(package_response.status_code, 200)
+        payload = package_response.json()
+        seed = next(row for row in payload["caddieContextSeeds"] if row["hole"] == 7)
+        diagnostic = seed["context"]["diagnosticContext"]
+        audit_trends = diagnostic["decisionAuditTrends"]
+        self.assertEqual(audit_trends["totalAudits"], 1)
+        self.assertEqual(audit_trends["criteriaBreakdown"][0]["label"], "avoid_zones")
+        self.assertEqual(audit_trends["optionOutcomes"][0]["actualOptionId"], "attack")
+
+        decision_context = dict(seed["context"])
+        decision_context["shotType"] = "tee"
+        decision_response = client.post(
+            "/api/v2/caddie/decision",
+            json={"shotType": "tee", "context": decision_context},
+        )
+
+        self.assertEqual(decision_response.status_code, 200)
+        decision = decision_response.json()
+        history_factors = [
+            factor
+            for option in decision["options"]
+            for factor in option.get("historyAdjustment", {}).get("factors", [])
+        ]
+        self.assertTrue(any(factor.get("label") == "decision_audit_trends" for factor in history_factors))
+        self.assertTrue(any("900001:7:1" in factor.get("sourceRefs", []) for factor in history_factors))
 
     def test_mobile_round_package_degrades_explicitly_when_round_is_missing(self) -> None:
         client = TestClient(app)
