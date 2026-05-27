@@ -176,6 +176,18 @@ const statsFixture: HistoryStatsResponse = {
       { phase: 'Approach', girPct: 42.2, missedGir: 26, holeRefs: ['900001:1'] },
       { phase: 'Putting', averagePutts: 2.1, threePutts: 5, holeRefs: ['900002:5'] },
     ],
+    putting: {
+      totalPutts: 94,
+      holesWithPutts: 45,
+      averagePutts: 2.1,
+      threePutts: 5,
+      holeRefs: ['900001:1', '900002:5'],
+      threePuttRefs: ['900002:5'],
+      correctedRefs: ['900001:7'],
+      sourceRefs: ['900001:1', '900002:5'],
+      coverage: { ready: 45, total: 45, pct: 100 },
+      confidence: 'high',
+    },
   },
   courseDistribution: [
     {
@@ -285,6 +297,14 @@ describe('StatsOverview', () => {
     expect(screen.getByText('GIR 42.2%')).toBeInTheDocument()
     expect(screen.getByText('Putting')).toBeInTheDocument()
     expect(screen.getByText('avg putts 2.1')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Putting Detail' })).toBeInTheDocument()
+    expect(screen.getByText('94 putts')).toBeInTheDocument()
+    expect(screen.getByText('5 three-putts')).toBeInTheDocument()
+    expect(screen.getByText('1 corrected')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Putting detail')).getByText('coverage 45/45 100%')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Putting detail')).getByText('high confidence')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Putting detail')).getAllByRole('button', { name: 'Open source 900002:5' }).length).toBeGreaterThan(0)
+    expect(within(screen.getByLabelText('Putting detail')).getByRole('button', { name: 'Open source 900001:7' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Tee Direction' })).toBeInTheDocument()
     expect(screen.getByText('FIR 25%')).toBeInTheDocument()
     expect(screen.getByText('miss 75%')).toBeInTheDocument()

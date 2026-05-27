@@ -993,6 +993,10 @@ class HistoryStatsCoreTests(unittest.TestCase):
             base_stats["scoring"]["putting"]["totalPutts"] + 2,
         )
         self.assertEqual(stats["scoring"]["putting"]["correctedRefs"], ["900001:7"])
+        self.assertIn("900001:7", stats["scoring"]["putting"]["sourceRefs"])
+        self.assertIn("900001:7", stats["scoring"]["putting"]["threePuttRefs"])
+        self.assertEqual(stats["scoring"]["putting"]["coverage"], {"ready": 45, "total": 45, "pct": 100.0})
+        self.assertEqual(stats["scoring"]["putting"]["confidence"], "high")
         self.assertEqual(stats["scoring"]["scoreCorrections"]["correctedRefs"], ["900001:1"])
         self.assertEqual(
             stats["scoring"]["outcomes"]["doubleOrWorse"],

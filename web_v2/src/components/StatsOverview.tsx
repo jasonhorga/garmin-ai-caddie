@@ -24,6 +24,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)).filter((item) => item.trim()) : []
+}
+
 function displayNumber(value: unknown) {
   const number = asNumber(value)
   return number === null ? '-' : String(number)
@@ -132,6 +136,8 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const playFrequency = asRecord(data.time.playFrequency)
   const improvement = asRecord(data.time.improvement)
   const phaseStats = asRows(data.scoring.phaseStats)
+  const putting = asRecord(data.scoring.putting)
+  const correctedPuttRefs = asStringArray(putting.correctedRefs)
   const teeDirection = asRecord(data.scoring.teeDirection)
   const dominantTeeMiss = asString(teeDirection.dominantMiss)
   const approachMiss = asRecord(data.scoring.approachMiss)
@@ -443,6 +449,60 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
             ))}
           </div>
         </section>
+
+        {Object.keys(putting).length ? (
+          <section className="panel compact-panel" aria-label="Putting detail">
+            <div className="section-head">
+              <div>
+                <h2>Putting Detail</h2>
+                <p>Putting volume, three-putt pressure, and correction evidence.</p>
+              </div>
+            </div>
+            <div className="mini-metric-grid">
+              <article className="mini-metric">
+                <span>Total putts</span>
+                <b>{displayNumber(putting.totalPutts)} putts</b>
+              </article>
+              <article className="mini-metric">
+                <span>Average</span>
+                <b>{displayNumber(putting.averagePutts)}</b>
+              </article>
+              <article className="mini-metric">
+                <span>Holes recorded</span>
+                <b>{displayNumber(putting.holesWithPutts)}</b>
+              </article>
+              <article className="mini-metric">
+                <span>Three-putts</span>
+                <b>{displayNumber(putting.threePutts)} three-putts</b>
+              </article>
+              <article className="mini-metric">
+                <span>Corrections</span>
+                <b>{correctedPuttRefs.length} corrected</b>
+              </article>
+            </div>
+            <div className="stat-list">
+              <div className="stat-row">
+                <span>Coverage</span>
+                <b>
+                  <AggregateMeta row={putting} />
+                </b>
+                <SourceRefs refs={putting.sourceRefs ?? putting.holeRefs} maxVisible={4} onSelectRef={onSelectRef} />
+              </div>
+              <div className="stat-row">
+                <span>Three-putt refs</span>
+                <b>{displayNumber(putting.threePutts)}</b>
+                <SourceRefs refs={putting.threePuttRefs} maxVisible={4} onSelectRef={onSelectRef} />
+              </div>
+              {correctedPuttRefs.length ? (
+                <div className="stat-row">
+                  <span>Corrected refs</span>
+                  <b>{correctedPuttRefs.length}</b>
+                  <SourceRefs refs={correctedPuttRefs} maxVisible={4} onSelectRef={onSelectRef} />
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         {Object.keys(teeDirection).length ? (
           <section className="panel compact-panel" aria-label="Tee direction">

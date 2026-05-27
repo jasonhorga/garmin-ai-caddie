@@ -1293,14 +1293,21 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
         "byPar": _par_type_scoring(data.rounds),
         "teeDirection": _tee_direction_stats(data.rounds),
         "approachMiss": _approach_miss_stats(data.rounds),
-        "putting": {
-            "totalPutts": sum(putts),
-            "holesWithPutts": len(putts),
-            "averagePutts": average(putts),
-            "threePutts": len(three_putt_refs),
-            "threePuttRefs": three_putt_refs,
-            "correctedRefs": corrected_putt_refs,
-        },
+        "putting": _with_aggregate_contract(
+            {
+                "totalPutts": sum(putts),
+                "holesWithPutts": len(putts),
+                "averagePutts": average(putts),
+                "threePutts": len(three_putt_refs),
+                "holeRefs": putt_refs,
+                "threePuttRefs": three_putt_refs,
+                "correctedRefs": corrected_putt_refs,
+            },
+            putt_refs,
+            ready=len(putts),
+            total=total_holes,
+            confidence_count=len(putts),
+        ),
         "phaseStats": [
             _with_aggregate_contract(
                 {
