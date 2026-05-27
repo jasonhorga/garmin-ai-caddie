@@ -49,6 +49,11 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("playwright-report", config)
         self.assertIn("test-results", config)
 
+    def test_visual_smoke_has_explicit_timeout_budget_for_loaded_ci_hosts(self) -> None:
+        config = Path("web_v2/playwright.config.ts").read_text(encoding="utf-8")
+
+        self.assertIn("timeout: 60_000", config)
+
 
 if __name__ == "__main__":
     unittest.main()
