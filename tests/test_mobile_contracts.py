@@ -906,8 +906,55 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("password", session_view.lower())
         self.assertNotIn("username", session_view.lower())
 
-        self.assertIn("GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        self.assertIn("GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)", round_home)
         self.assertIn('Label("Garmin Session"', round_home)
+
+    def test_ios_garmin_session_material_can_be_stored_in_keychain(self) -> None:
+        session_store = _read_required_source(self, IOS_DIR / "Services" / "GarminSessionStore.swift")
+        session_view = _read_required_source(self, IOS_DIR / "Views" / "GarminSessionView.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+
+        self.assertIn("import Security", session_store)
+        self.assertIn("struct GarminSessionMaterial: Codable, Equatable", session_store)
+        self.assertIn("let webSessionHeader: String", session_store)
+        self.assertIn("let antiForgeryValue: String", session_store)
+        self.assertIn("let storedAt: String", session_store)
+        self.assertIn("final class GarminSessionStore", session_store)
+        self.assertIn("func saveSession(_ material: GarminSessionMaterial) throws", session_store)
+        self.assertIn("func loadSession() throws -> GarminSessionMaterial?", session_store)
+        self.assertIn("func deleteSession() throws", session_store)
+        for keychain_symbol in [
+            "kSecClassGenericPassword",
+            "kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly",
+            "SecItemAdd",
+            "SecItemCopyMatching",
+            "SecItemUpdate",
+            "SecItemDelete",
+        ]:
+            self.assertIn(keychain_symbol, session_store)
+        self.assertIn("if updateStatus == errSecItemNotFound", session_store)
+        self.assertNotIn("try deleteSession()\n        var query = baseQuery()", session_store)
+        self.assertNotIn("username", session_store.lower())
+        self.assertNotIn("garminPassword", session_store)
+
+        self.assertIn("public let sessionStore: GarminSessionStore?", session_view)
+        self.assertIn("sessionStore: GarminSessionStore? = GarminSessionStore()", session_view)
+        self.assertIn("try sessionStore?.saveSession", session_view)
+        self.assertNotIn("try? sessionStore?.saveSession", session_view)
+        self.assertIn("sessionStore.loadSession()", session_view)
+        self.assertIn("sessionStore.deleteSession()", session_view)
+        self.assertIn("Import stored session", session_view)
+        self.assertIn("Forget stored session", session_view)
+        self.assertNotIn("password", session_view.lower())
+        self.assertNotIn("username", session_view.lower())
+
+        self.assertIn("public let sessionStore: GarminSessionStore?", round_home)
+        self.assertIn("sessionStore: GarminSessionStore? = GarminSessionStore()", round_home)
+        self.assertIn("GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)", round_home)
+        self.assertIn("public let garminSessionStore: GarminSessionStore?", app_swift)
+        self.assertIn("garminSessionStore: GarminSessionStore? = GarminSessionStore()", app_swift)
+        self.assertIn("sessionStore: model.garminSessionStore", app_swift)
 
     def test_ios_caddie_decision_client_posts_shared_decision_contract(self) -> None:
         client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")

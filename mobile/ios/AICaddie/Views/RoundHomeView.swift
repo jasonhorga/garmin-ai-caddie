@@ -8,6 +8,7 @@ public struct RoundHomeView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let offlineStore: OfflineStore?
+    public let sessionStore: GarminSessionStore?
     public let watchBridge: WatchEventBridge?
     public let isPreparingRound: Bool
     public let onEvent: (LiveRoundEvent) -> Void
@@ -22,6 +23,7 @@ public struct RoundHomeView: View {
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
         offlineStore: OfflineStore? = nil,
+        sessionStore: GarminSessionStore? = GarminSessionStore(),
         watchBridge: WatchEventBridge? = nil,
         isPreparingRound: Bool = false,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
@@ -35,6 +37,7 @@ public struct RoundHomeView: View {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.offlineStore = offlineStore
+        self.sessionStore = sessionStore
         self.watchBridge = watchBridge
         self.isPreparingRound = isPreparingRound
         self.onEvent = onEvent
@@ -67,7 +70,7 @@ public struct RoundHomeView: View {
                         Label("Sync", systemImage: "arrow.triangle.2.circlepath")
                     }
                     NavigationLink {
-                        GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken)
+                        GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)
                     } label: {
                         Label("Garmin Session", systemImage: "key")
                     }

@@ -18,6 +18,7 @@ public struct AICaddieApp: App {
                         apiBaseURL: model.apiBaseURL,
                         adminToken: model.adminToken,
                         offlineStore: model.offlineStore,
+                        sessionStore: model.garminSessionStore,
                         watchBridge: model.watchBridge,
                         isPreparingRound: model.isPreparingRound,
                         onEvent: model.handleEvent,
@@ -74,6 +75,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var isPreparingRound = false
     public let watchBridge: WatchEventBridge?
     public let offlineStore: OfflineStore
+    public let garminSessionStore: GarminSessionStore?
 
     private let syncClient: SyncClient?
     private let mediaUploadClient: MediaUploadClient?
@@ -84,6 +86,7 @@ public final class LiveRoundAppModel: ObservableObject {
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
         watchBridge: WatchEventBridge? = WatchEventBridge(),
+        garminSessionStore: GarminSessionStore? = GarminSessionStore(),
         preferredRoundId: String? = nil,
         syncClient: SyncClient? = nil
     ) {
@@ -93,6 +96,7 @@ public final class LiveRoundAppModel: ObservableObject {
         self.apiBaseURL = resolvedAPIBaseURL
         self.adminToken = resolvedAdminToken
         self.watchBridge = watchBridge
+        self.garminSessionStore = garminSessionStore
         self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken) }
