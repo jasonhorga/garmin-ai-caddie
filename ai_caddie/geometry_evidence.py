@@ -416,12 +416,26 @@ def build_route_geometry_evidence(
                 avoid_zones.append({"id": hazard_id, "kind": kind, "carryToClear_m": clear["carryToClear_m"]})
             if landing_risk:
                 landing_window_risks.append(landing_risk)
-                if not any(row.get("id") == hazard_id for row in avoid_zones):
+                existing_avoid_zone = next((row for row in avoid_zones if row.get("id") == hazard_id), None)
+                if existing_avoid_zone is not None:
+                    existing_avoid_zone.update(
+                        {
+                            "distanceToCenter_m": landing_risk["distanceToCenter_m"],
+                            "landingRadius_m": landing_risk["landingRadius_m"],
+                            "overlap_m": landing_risk["overlap_m"],
+                            "source": "route_geometry+landing_window"
+                            if existing_avoid_zone.get("carryToClear_m") is not None
+                            else "landing_window",
+                        }
+                    )
+                else:
                     avoid_zones.append(
                         {
                             "id": hazard_id,
                             "kind": kind,
                             "distanceToCenter_m": landing_risk["distanceToCenter_m"],
+                            "landingRadius_m": landing_risk["landingRadius_m"],
+                            "overlap_m": landing_risk["overlap_m"],
                             "source": "landing_window",
                         }
                     )

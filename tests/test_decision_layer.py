@@ -368,6 +368,39 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("landing_window", bunker_zone["source"])
         self.assertGreater(stock["riskScore"], 1.0)
 
+    def test_route_evidence_merges_landing_metadata_into_existing_context_hazard(self) -> None:
+        context = approach_fixture()
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["routeEvidence"] = {
+            "schema": "ai-caddie-route-geometry-evidence-v1",
+            "routeStartLocal": [0.0, 0.0],
+            "routeTargetLocal": [0.0, 142.0],
+            "routeLength_m": 142.0,
+            "landingWindowLocal": {"center": [0.0, 142.0], "radius_m": 18.0},
+            "hazardClearances": [{"hazardId": "water_front", "kind": "water", "carryToClear_m": 126.0}],
+            "landingWindowRisks": [
+                {
+                    "hazardId": "water_front",
+                    "kind": "water",
+                    "distanceToCenter_m": 14.0,
+                    "landingRadius_m": 18.0,
+                    "overlap_m": 4.0,
+                }
+            ],
+            "avoidZones": [{"id": "water_front", "kind": "water", "carryToClear_m": 126.0}],
+        }
+
+        plan = recommend_approach(context)
+
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        water_zone = next(zone for zone in stock["avoidZones"] if zone["id"] == "water_front")
+        self.assertEqual(water_zone["carryToClear_m"], 126.0)
+        self.assertEqual(water_zone["distanceToCenter_m"], 14.0)
+        self.assertEqual(water_zone["landingRadius_m"], 18.0)
+        self.assertEqual(water_zone["overlap_m"], 4.0)
+        self.assertIn("landing_window", water_zone["source"])
+        self.assertGreater(stock["riskScore"], 2.0)
+
     def test_landing_window_penalty_applies_only_to_matching_option_target(self) -> None:
         context = approach_fixture()
         context["hazards"] = []
@@ -402,6 +435,39 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(safe["riskScore"], 1)
         self.assertEqual(attack["riskScore"], 3)
         self.assertGreaterEqual(stock["riskScore"], 3.5)
+
+    def test_selected_safe_option_does_not_expose_stock_only_landing_risk(self) -> None:
+        context = approach_fixture()
+        context["hazards"] = []
+        context["strategyMode"] = "protect_score"
+        context["weatherSnapshot"] = ready_weather_snapshot()
+        context["routeEvidence"] = {
+            "schema": "ai-caddie-route-geometry-evidence-v1",
+            "routeStartLocal": [0.0, 0.0],
+            "routeTargetLocal": [0.0, 142.0],
+            "routeLength_m": 142.0,
+            "landingWindowLocal": {"center": [0.0, 142.0], "radius_m": 6.0},
+            "hazardClearances": [],
+            "landingWindowRisks": [
+                {
+                    "hazardId": "right_bunker",
+                    "kind": "bunker",
+                    "distanceToCenter_m": 30.0,
+                    "landingRadius_m": 6.0,
+                    "overlap_m": 7.0,
+                }
+            ],
+            "avoidZones": [{"id": "right_bunker", "kind": "bunker", "distanceToCenter_m": 30.0, "source": "landing_window"}],
+        }
+
+        plan = recommend_approach(context)
+
+        safe = next(option for option in plan["options"] if option["id"] == "safe")
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        self.assertEqual(plan["selectedOptionId"], "safe")
+        self.assertNotIn("right_bunker", {zone["id"] for zone in safe["avoidZones"]})
+        self.assertNotIn("right_bunker", {zone["id"] for zone in plan["avoidZones"]})
+        self.assertIn("right_bunker", {zone["id"] for zone in stock["avoidZones"]})
 
     def test_recommend_recovery_from_rough_or_blocked_view_prefers_safe(self) -> None:
         plan = recommend_recovery(recovery_fixture())

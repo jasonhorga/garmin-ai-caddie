@@ -344,7 +344,65 @@ class GeometryEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(
             route["avoidZones"],
-            [{"id": "right_bunker", "kind": "bunker", "distanceToCenter_m": 12.0, "source": "landing_window"}],
+            [
+                {
+                    "id": "right_bunker",
+                    "kind": "bunker",
+                    "distanceToCenter_m": 12.0,
+                    "landingRadius_m": 18.0,
+                    "overlap_m": 6.0,
+                    "source": "landing_window",
+                }
+            ],
+        )
+
+    def test_route_evidence_merges_same_hazard_line_clearance_and_landing_window(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h09_hazards.json"
+            hazard.write_text(
+                """
+                {
+                  "refLat": 22.279,
+                  "refLon": 114.162,
+                  "hazards": [
+                    {
+                      "id": "front_bunker",
+                      "kind": "bunker",
+                      "polygon": [[90, -10], [110, -10], [110, 10], [90, 10], [90, -10]]
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
+            ):
+                route = build_route_geometry_evidence(
+                    31795,
+                    9,
+                    start={"x": 0, "y": 0},
+                    target={"x": 116, "y": 0},
+                    landing_radius_m=18,
+                )
+
+        self.assertEqual(route["hazardClearances"][0]["hazardId"], "front_bunker")
+        self.assertEqual(route["landingWindowRisks"][0]["hazardId"], "front_bunker")
+        self.assertEqual(
+            route["avoidZones"],
+            [
+                {
+                    "id": "front_bunker",
+                    "kind": "bunker",
+                    "carryToClear_m": 110.0,
+                    "distanceToCenter_m": 6.0,
+                    "landingRadius_m": 18.0,
+                    "overlap_m": 12.0,
+                    "source": "route_geometry+landing_window",
+                }
+            ],
         )
 
 

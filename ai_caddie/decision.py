@@ -1100,15 +1100,40 @@ def _context_with_default_quality(context: dict[str, Any]) -> dict[str, Any]:
     return analysis
 
 
+def _merge_zone(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for field in (
+        "distance_m",
+        "carryToFront_m",
+        "carryToClear_m",
+        "distanceToCenter_m",
+        "landingRadius_m",
+        "overlap_m",
+    ):
+        value = incoming.get(field)
+        if value is not None:
+            merged[field] = value
+    base_source = str(base.get("source") or "").strip()
+    incoming_source = str(incoming.get("source") or "").strip()
+    source_parts = [part for part in [base_source, incoming_source] if part]
+    if source_parts:
+        merged["source"] = "+".join(dict.fromkeys(part for source in source_parts for part in source.split("+") if part))
+    reason_parts = [str(base.get("reason") or "").strip(), str(incoming.get("reason") or "").strip()]
+    reason_text = "; ".join(dict.fromkeys(part for part in reason_parts if part))
+    if reason_text:
+        merged["reason"] = reason_text
+    return merged
+
+
 def _hazard_avoid_zones(context: dict[str, Any]) -> list[dict[str, Any]]:
     zones = []
-    seen: set[tuple[str, str]] = set()
+    index_by_key: dict[tuple[str, str], int] = {}
     for hazard in context.get("hazards") or []:
         kind = str(hazard.get("kind") or "")
         if not kind:
             continue
         hazard_id = str(hazard.get("id") or "")
-        seen.add((hazard_id, kind))
+        index_by_key[(hazard_id, kind)] = len(zones)
         zones.append({
             "kind": kind,
             "id": hazard.get("id"),
@@ -1122,10 +1147,11 @@ def _hazard_avoid_zones(context: dict[str, Any]) -> list[dict[str, Any]]:
             kind = str(zone.get("kind") or "")
             hazard_id = str(zone.get("id") or "")
             key = (hazard_id, kind)
-            if key in seen:
-                continue
-            seen.add(key)
-            zones.append(zone)
+            if key in index_by_key:
+                zones[index_by_key[key]] = _merge_zone(zones[index_by_key[key]], zone)
+            else:
+                index_by_key[key] = len(zones)
+                zones.append(zone)
     return zones
 
 
@@ -1225,6 +1251,45 @@ def _landing_window_risk_penalty(
     return penalty
 
 
+def _avoid_zones_for_target(
+    zones: list[dict[str, Any]],
+    *,
+    route_evidence: dict[str, Any] | None,
+    target_local: list[float] | None,
+) -> list[dict[str, Any]]:
+    applicable: list[dict[str, Any]] = []
+    for zone in zones:
+        if not _zone_has_landing_window_risk(zone) or _landing_window_risk_applies(
+            zone,
+            route_evidence=route_evidence,
+            target_local=target_local,
+        ):
+            applicable.append(zone)
+            continue
+
+        stripped = {
+            key: value
+            for key, value in zone.items()
+            if key not in {"distanceToCenter_m", "landingRadius_m", "overlap_m"}
+        }
+        source = str(stripped.get("source") or "")
+        source_parts = [part for part in source.split("+") if part and part != "landing_window"]
+        if source_parts:
+            stripped["source"] = "+".join(source_parts)
+        else:
+            stripped.pop("source", None)
+        if (
+            stripped.get("carryToClear_m") is None
+            and stripped.get("carryToFront_m") is None
+            and stripped.get("distance_m") is None
+        ):
+            continue
+        if "landing window" in str(stripped.get("reason") or "") and "route geometry" not in str(stripped.get("reason") or ""):
+            stripped.pop("reason", None)
+        applicable.append(stripped)
+    return applicable
+
+
 def _dispersion_from_recommendation(recommendation: dict[str, Any]) -> dict[str, Any]:
     clubs = recommendation.get("clubs") or []
     if not clubs:
@@ -1281,9 +1346,13 @@ def _shot_option(
         "label": label,
         "carry_m": adjusted_carry_m,
     }
-    avoid_zones = _hazard_avoid_zones(context)
     target_local = _target_local_from_route_evidence(context, adjusted_carry_m)
     route_evidence = context.get("routeEvidence") if isinstance(context.get("routeEvidence"), dict) else None
+    avoid_zones = _avoid_zones_for_target(
+        _hazard_avoid_zones(context),
+        route_evidence=route_evidence,
+        target_local=target_local,
+    )
     adjusted_risk_score = (
         risk_score
         + _float(history_adjustment.get("riskScoreDelta"), 0.0)
