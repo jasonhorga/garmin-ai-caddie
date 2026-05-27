@@ -57,7 +57,4 @@ def call_anthropic(brief: dict[str, Any], *, model: str = DEFAULT_MODEL) -> str:
 
 
 def maybe_call_anthropic(brief: dict[str, Any]) -> tuple[str | None, str | None]:
-    try:
-        return call_anthropic(brief), None
-    except Exception as exc:
-        return None, redact_secret_text(exc)
+    return maybe_call_llm(brief)

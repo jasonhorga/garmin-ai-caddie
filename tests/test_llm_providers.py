@@ -294,8 +294,23 @@ class LLMProviderTests(unittest.TestCase):
         self.assertEqual(text, "static review")
         self.assertIsNone(error)
 
-    def test_maybe_call_anthropic_compatibility_reports_missing_key(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
+    def test_maybe_call_anthropic_compatibility_uses_configured_provider(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AI_CADDIE_LLM_PROVIDER": "static",
+                "AI_CADDIE_STATIC_LLM_REPLY": "static compatibility review",
+            },
+            clear=True,
+        ):
+            get_settings.cache_clear()
+            text, error = maybe_call_anthropic({"summary": "facts"})
+
+        self.assertEqual(text, "static compatibility review")
+        self.assertIsNone(error)
+
+    def test_maybe_call_anthropic_reports_missing_key_when_configured_provider_is_anthropic(self) -> None:
+        with patch.dict(os.environ, {"AI_CADDIE_LLM_PROVIDER": "anthropic"}, clear=True):
             get_settings.cache_clear()
             text, error = maybe_call_anthropic({"summary": "facts"})
 
