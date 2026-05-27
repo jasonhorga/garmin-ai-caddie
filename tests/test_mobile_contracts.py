@@ -675,6 +675,29 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onSync()", round_home)
         self.assertIn('Label("Sync"', round_home)
 
+    def test_ios_sync_acknowledgement_metadata_is_preserved(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        sync_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "SyncClientTests.swift")
+        store_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "OfflineStoreTests.swift")
+
+        for field in ["acceptedEventIds", "duplicateEventIds", "serverSequence"]:
+            self.assertIn(f"public let {field}", sync_client)
+            self.assertIn(field, offline_store)
+            self.assertIn(field, sync_tests)
+            self.assertIn(field, store_tests)
+
+        self.assertIn("init(from decoder: Decoder) throws", sync_client)
+        self.assertIn("decodeIfPresent([String].self, forKey: .acceptedEventIds) ?? []", sync_client)
+        self.assertIn("decodeIfPresent([String].self, forKey: .duplicateEventIds) ?? []", sync_client)
+        self.assertIn("decodeIfPresent(Int.self, forKey: .serverSequence) ?? 0", sync_client)
+        self.assertIn("appendSyncMarker(roundId: String, timestamp: String, result: SyncResult)", offline_store)
+        self.assertIn('"acceptedEventIds": .array(result.acceptedEventIds.map { .string($0) })', offline_store)
+        self.assertIn('"duplicateEventIds": .array(result.duplicateEventIds.map { .string($0) })', offline_store)
+        self.assertIn('"serverSequence": .number(Double(result.serverSequence))', offline_store)
+        self.assertIn("offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)", app_swift)
+
     def test_ios_cached_package_expiry_is_enforced(self) -> None:
         package_swift = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")

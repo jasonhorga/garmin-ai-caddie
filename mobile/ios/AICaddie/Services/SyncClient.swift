@@ -11,6 +11,40 @@ public struct EventBatch: Codable, Equatable {
 public struct SyncResult: Codable, Equatable {
     public let accepted: Int
     public let duplicate: Bool
+    public let acceptedEventIds: [String]
+    public let duplicateEventIds: [String]
+    public let serverSequence: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case accepted
+        case duplicate
+        case acceptedEventIds
+        case duplicateEventIds
+        case serverSequence
+    }
+
+    public init(
+        accepted: Int,
+        duplicate: Bool,
+        acceptedEventIds: [String] = [],
+        duplicateEventIds: [String] = [],
+        serverSequence: Int = 0
+    ) {
+        self.accepted = accepted
+        self.duplicate = duplicate
+        self.acceptedEventIds = acceptedEventIds
+        self.duplicateEventIds = duplicateEventIds
+        self.serverSequence = serverSequence
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.accepted = try container.decode(Int.self, forKey: .accepted)
+        self.duplicate = try container.decode(Bool.self, forKey: .duplicate)
+        self.acceptedEventIds = try container.decodeIfPresent([String].self, forKey: .acceptedEventIds) ?? []
+        self.duplicateEventIds = try container.decodeIfPresent([String].self, forKey: .duplicateEventIds) ?? []
+        self.serverSequence = try container.decodeIfPresent(Int.self, forKey: .serverSequence) ?? 0
+    }
 }
 
 public final class SyncClient {

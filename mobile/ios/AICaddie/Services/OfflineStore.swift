@@ -168,13 +168,24 @@ public final class OfflineStore {
     }
 
     public func appendSyncMarker(roundId: String, timestamp: String) throws {
+        let result = SyncResult(accepted: 0, duplicate: false)
+        try appendSyncMarker(roundId: roundId, timestamp: timestamp, result: result)
+    }
+
+    public func appendSyncMarker(roundId: String, timestamp: String, result: SyncResult) throws {
         let event = LiveRoundEvent(
             eventId: UUID().uuidString,
             roundId: roundId,
             timestamp: timestamp,
             hole: 0,
             kind: .syncMarker,
-            payload: ["status": .string("synced")]
+            payload: [
+                "status": .string("synced"),
+                "source": .string("ios_sync"),
+                "acceptedEventIds": .array(result.acceptedEventIds.map { .string($0) }),
+                "duplicateEventIds": .array(result.duplicateEventIds.map { .string($0) }),
+                "serverSequence": .number(Double(result.serverSequence)),
+            ]
         )
         try appendEvent(event)
     }

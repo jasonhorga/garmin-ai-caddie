@@ -23,6 +23,43 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(decoded.events.first?.kind, .club)
     }
 
+    func testSyncResultDecodesAcknowledgementMetadata() throws {
+        let payload = """
+        {
+          "accepted": 2,
+          "duplicate": false,
+          "acceptedEventIds": ["event-1", "event-2"],
+          "duplicateEventIds": ["event-0"],
+          "serverSequence": 42
+        }
+        """.data(using: .utf8)!
+
+        let result = try JSONDecoder().decode(SyncResult.self, from: payload)
+
+        XCTAssertEqual(result.accepted, 2)
+        XCTAssertFalse(result.duplicate)
+        XCTAssertEqual(result.acceptedEventIds, ["event-1", "event-2"])
+        XCTAssertEqual(result.duplicateEventIds, ["event-0"])
+        XCTAssertEqual(result.serverSequence, 42)
+    }
+
+    func testSyncResultDecodesLegacyAcknowledgementWithoutMetadata() throws {
+        let payload = """
+        {
+          "accepted": 1,
+          "duplicate": true
+        }
+        """.data(using: .utf8)!
+
+        let result = try JSONDecoder().decode(SyncResult.self, from: payload)
+
+        XCTAssertEqual(result.accepted, 1)
+        XCTAssertTrue(result.duplicate)
+        XCTAssertEqual(result.acceptedEventIds, [])
+        XCTAssertEqual(result.duplicateEventIds, [])
+        XCTAssertEqual(result.serverSequence, 0)
+    }
+
     func testFetchRoundPackageAttachesAdminTokenHeader() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]

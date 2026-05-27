@@ -36,6 +36,33 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(events.last?.kind, .syncMarker)
     }
 
+    func testAppendSyncMarkerPersistsAcknowledgementMetadata() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let result = SyncResult(
+            accepted: 2,
+            duplicate: false,
+            acceptedEventIds: ["event-1", "event-2"],
+            duplicateEventIds: ["event-0"],
+            serverSequence: 42
+        )
+
+        try store.appendSyncMarker(
+            roundId: "round-1",
+            timestamp: "2026-05-25T00:01:00Z",
+            result: result
+        )
+
+        let marker = try XCTUnwrap(try store.loadEvents().first)
+        XCTAssertEqual(marker.kind, .syncMarker)
+        XCTAssertEqual(marker.payload["status"], .string("synced"))
+        XCTAssertEqual(marker.payload["source"], .string("ios_sync"))
+        XCTAssertEqual(marker.payload["acceptedEventIds"], .array([.string("event-1"), .string("event-2")]))
+        XCTAssertEqual(marker.payload["duplicateEventIds"], .array([.string("event-0")]))
+        XCTAssertEqual(marker.payload["serverSequence"], .number(42))
+    }
+
     func testRestoreLiveRoundStateReplaysScoringClubAndLocationEvents() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
