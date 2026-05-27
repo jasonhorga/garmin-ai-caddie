@@ -20,6 +20,20 @@ const statsFixture: HistoryStatsResponse = {
     bestScore: 77,
     worstScore: 95,
     shotCount: 6,
+    difficultyAdjusted: {
+      eligibleRoundCount: 3,
+      ratedRoundCount: 2,
+      averageDifferential: 9.8,
+      medianDifferential: 9.8,
+      bestDifferential: 6.1,
+      worstDifferential: 13.5,
+      recent5AverageDifferential: 8.2,
+      recent10AverageDifferential: 9.8,
+      roundRefs: ['900001', '900002'],
+      missingRoundRefs: ['900003'],
+      coverage: { ready: 2, total: 3, pct: 66.7 },
+      confidence: 'medium',
+    },
   },
   time: {
     byYear: [
@@ -85,6 +99,15 @@ const statsFixture: HistoryStatsResponse = {
       recentAverage18: 82,
       deltaAverage18: -10,
       strokesPerRoundTrend: -3.03,
+      baselineAverageDifferential: 13.5,
+      recentAverageDifferential: 8.2,
+      deltaAverageDifferential: -5.3,
+      differentialPerRoundTrend: -1.7,
+      differentialDirection: 'improving',
+      differentialRoundRefs: ['900001', '900002'],
+      baselineDifferentialRoundRefs: ['900002'],
+      recentDifferentialRoundRefs: ['900001'],
+      difficultyAdjustedCoverage: { ready: 2, total: 3, pct: 66.7 },
       baselineRoundRefs: ['900004', '900005', '900006'],
       recentRoundRefs: ['900001', '900002', '900003'],
     },
@@ -324,9 +347,25 @@ describe('StatsOverview', () => {
     expect(within(screen.getByLabelText('Player profile')).getAllByText('severity 1.5').length).toBeGreaterThan(0)
     expect(within(screen.getByLabelText('Player profile')).getAllByRole('button', { name: 'Open source 900001:2' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: 'Improvement Pace' })).toBeInTheDocument()
-    expect(screen.getByText('improving')).toBeInTheDocument()
-    expect(screen.getByText('-10 strokes')).toBeInTheDocument()
-    expect(screen.getByText('-3.03/round')).toBeInTheDocument()
+    const improvementPace = screen.getByLabelText('Improvement pace')
+    expect(within(improvementPace).getByText('improving')).toBeInTheDocument()
+    expect(within(improvementPace).getByText('-10 strokes')).toBeInTheDocument()
+    expect(within(improvementPace).getByText('-3.03/round')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Difficulty Adjusted' })).toBeInTheDocument()
+    const difficultyAdjusted = screen.getByLabelText('Difficulty adjusted scoring')
+    expect(within(difficultyAdjusted).getByText('Rated rounds')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('2 / 3')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('Avg differential')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('9.8')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('Best differential')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('6.1')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('Recent 5 diff')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('8.2')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('-5.3')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('-1.7/round')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('rating/slope 2/3 66.7%')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByRole('button', { name: 'Open source 900001' })).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Quarter Trend' })).toBeInTheDocument()
     expect(screen.getByText('2026-Q2')).toBeInTheDocument()
     expect(screen.getAllByText('2 rounds').length).toBeGreaterThan(0)

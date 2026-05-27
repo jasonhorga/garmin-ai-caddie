@@ -175,6 +175,8 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const quarters = asRows(data.time.byQuarter).slice(0, 4)
   const playFrequency = asRecord(data.time.playFrequency)
   const improvement = asRecord(data.time.improvement)
+  const difficultyAdjusted = asRecord(data.summary.difficultyAdjusted ?? data.scoring.difficultyAdjusted)
+  const difficultyCoverage = asRecord(difficultyAdjusted.coverage ?? improvement.difficultyAdjustedCoverage)
   const phaseStats = asRows(data.scoring.phaseStats)
   const putting = asRecord(data.scoring.putting)
   const correctedPuttRefs = asStringArray(putting.correctedRefs)
@@ -378,6 +380,69 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <b>{displayNumber(improvement.windowSize)} rounds</b>
               <SourceRefs refs={improvement.recentRoundRefs} maxVisible={4} onSelectRef={onSelectRef} />
             </div>
+          </div>
+        </section>
+      ) : null}
+
+      {Object.keys(difficultyAdjusted).length ? (
+        <section className="panel compact-panel" aria-label="Difficulty adjusted scoring">
+          <div className="section-head">
+            <div>
+              <h2>Difficulty Adjusted</h2>
+              <p>Handicap-style differential normalizes scores by course rating and slope when that data exists.</p>
+            </div>
+            <span className={`confidence-pill ${asString(difficultyAdjusted.confidence) ?? 'low'}`}>
+              {asString(difficultyAdjusted.confidence) ?? 'unknown'}
+            </span>
+          </div>
+          <div className="mini-metric-grid">
+            <article className="mini-metric">
+              <span>Rated rounds</span>
+              <b>
+                {displayNumber(difficultyAdjusted.ratedRoundCount)} / {displayNumber(difficultyAdjusted.eligibleRoundCount)}
+              </b>
+            </article>
+            <article className="mini-metric">
+              <span>Avg differential</span>
+              <b>{displayNumber(difficultyAdjusted.averageDifferential)}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Best differential</span>
+              <b>{displayNumber(difficultyAdjusted.bestDifferential)}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Recent 5 diff</span>
+              <b>{displayNumber(difficultyAdjusted.recent5AverageDifferential)}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Diff delta</span>
+              <b>{displaySigned(improvement.deltaAverageDifferential)}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Diff trend</span>
+              <b>{displaySigned(improvement.differentialPerRoundTrend)}/round</b>
+            </article>
+          </div>
+          <div className="stat-list improvement-refs">
+            <div className="stat-row">
+              <span>Adjusted direction</span>
+              <b>{asString(improvement.differentialDirection) ?? '-'}</b>
+              <span className="record-evidence">
+                {asNumber(difficultyCoverage.ready) !== null && asNumber(difficultyCoverage.total) !== null ? (
+                  <span className="fact-chip muted">
+                    rating/slope {displayNumber(difficultyCoverage.ready)}/{displayNumber(difficultyCoverage.total)} {displayNumber(difficultyCoverage.pct)}%
+                  </span>
+                ) : null}
+                <SourceRefs refs={difficultyAdjusted.roundRefs ?? difficultyAdjusted.sourceRefs} maxVisible={4} onSelectRef={onSelectRef} />
+              </span>
+            </div>
+            {asStringArray(difficultyAdjusted.missingRoundRefs).length ? (
+              <div className="stat-row">
+                <span>Missing rating/slope</span>
+                <b>{displayNumber(asStringArray(difficultyAdjusted.missingRoundRefs).length)} rounds</b>
+                <SourceRefs refs={difficultyAdjusted.missingRoundRefs} maxVisible={4} onSelectRef={onSelectRef} />
+              </div>
+            ) : null}
           </div>
         </section>
       ) : null}
