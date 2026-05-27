@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 from ai_caddie.annotations import add_annotation
@@ -144,6 +145,45 @@ def score_correction_issue_history_data() -> HistoryData:
         "hasShots": True,
     }
     return HistoryData(raw_rounds=[{"id": "score-correction-1", "hasShots": True}], rounds=[round_row], shots=[])
+
+
+def geometry_identity_history_data() -> HistoryData:
+    course_id_round = {
+        "id": "geometry-course-id",
+        "date": "2026-05-25",
+        "course": "Geometry Course",
+        "courseKey": "geometry_course",
+        "courseId": 123456,
+        "holesCompleted": 2,
+        "strokes": 9,
+        "par": 8,
+        "holes": [
+            {"number": 1, "strokes": 4, "par": 4},
+            {"number": 10, "strokes": 5, "par": 4},
+        ],
+        "hasShots": True,
+    }
+    split_nine_round = {
+        "id": "geometry-split-nine",
+        "date": "2026-05-26",
+        "course": "Geometry Split Course",
+        "courseKey": "geometry_split",
+        "frontNineGlobalCourseId": 111111,
+        "backNineGlobalCourseId": 222222,
+        "holesCompleted": 2,
+        "strokes": 9,
+        "par": 8,
+        "holes": [
+            {"number": 1, "strokes": 4, "par": 4},
+            {"number": 10, "strokes": 5, "par": 4},
+        ],
+        "hasShots": True,
+    }
+    return HistoryData(
+        raw_rounds=[{"id": "geometry-course-id", "hasShots": True}, {"id": "geometry-split-nine", "hasShots": True}],
+        rounds=[course_id_round, split_nine_round],
+        shots=[],
+    )
 
 
 def raw_garmin_shot_history_data() -> HistoryData:
@@ -1000,6 +1040,37 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(report_quality["trendReports"]["ready"], 0)
         self.assertIn("trend:recent_10", report_quality["refs"])
         self.assertIn("trend:year:2026", report_quality["refs"])
+
+    def test_geometry_coverage_accepts_course_id_and_split_nine_global_ids(self) -> None:
+        with (
+            patch("ai_caddie.history_stats.geometry_coverage_for_course", return_value={"coverage": "ready"}) as course_coverage,
+            patch(
+                "ai_caddie.history_stats.geometry_coverage_for_hole",
+                side_effect=[
+                    {"coverage": "ready"},
+                    {"coverage": "ready"},
+                    {"coverage": "partial"},
+                    {"coverage": "partial"},
+                ],
+            ) as hole_coverage,
+        ):
+            stats = build_history_stats(geometry_identity_history_data(), data_mode="fixture")
+
+        course_by_key = {row["courseKey"]: row for row in stats["courses"]}
+        self.assertEqual(course_by_key["geometry_course"]["geometryCoverage"], "ready")
+        self.assertEqual(course_by_key["geometry_split"]["geometryCoverage"], "ready")
+        course_coverage.assert_any_call(123456, holes=[1, 10])
+        course_coverage.assert_any_call(111111, holes=[1, 10])
+
+        holes = {(row["courseKey"], row["hole"]): row for row in stats["holes"]}
+        self.assertEqual(holes[("geometry_course", 1)]["geometryCoverage"], "ready")
+        self.assertEqual(holes[("geometry_course", 10)]["geometryCoverage"], "ready")
+        self.assertEqual(holes[("geometry_split", 1)]["geometryCoverage"], "partial")
+        self.assertEqual(holes[("geometry_split", 10)]["geometryCoverage"], "partial")
+        hole_coverage.assert_any_call(123456, 1)
+        hole_coverage.assert_any_call(123456, 10)
+        hole_coverage.assert_any_call(111111, 1)
+        hole_coverage.assert_any_call(222222, 10)
 
     def test_shot_row_quality_detects_ready_rounds_without_rows(self) -> None:
         stats = build_history_stats(missing_shot_rows_history_data(), data_mode="fixture")

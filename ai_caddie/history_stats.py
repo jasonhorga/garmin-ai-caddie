@@ -282,11 +282,31 @@ def _par_from_string(hole_pars: str, hole_number: int) -> int | None:
     return None
 
 
-def _global_id(row: dict[str, Any]) -> int | None:
+def _int_field(row: dict[str, Any], key: str) -> int | None:
     try:
-        return int(row["globalId"])
-    except (KeyError, TypeError, ValueError):
+        value = row.get(key)
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
         return None
+
+
+def _global_id(row: dict[str, Any], hole_number: int | None = None) -> int | None:
+    for key in ("globalId", "courseId"):
+        value = _int_field(row, key)
+        if value is not None:
+            return value
+    if hole_number is not None:
+        key = "frontNineGlobalCourseId" if hole_number <= 9 else "backNineGlobalCourseId"
+        value = _int_field(row, key)
+        if value is not None:
+            return value
+    for key in ("frontNineGlobalCourseId", "backNineGlobalCourseId"):
+        value = _int_field(row, key)
+        if value is not None:
+            return value
+    return None
 
 
 def _course_geometry_coverage(rows: list[dict[str, Any]]) -> str:
@@ -308,7 +328,7 @@ def _course_geometry_coverage(rows: list[dict[str, Any]]) -> str:
 
 
 def _hole_geometry_coverage(pairs: list[tuple[dict[str, Any], dict[str, Any]]], hole_number: int) -> str:
-    global_id = next((_global_id(row) for row, _hole in pairs if _global_id(row) is not None), None)
+    global_id = next((_global_id(row, hole_number) for row, _hole in pairs if _global_id(row, hole_number) is not None), None)
     if global_id is None:
         return "missing"
     try:
