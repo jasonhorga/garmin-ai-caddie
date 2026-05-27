@@ -168,6 +168,9 @@ export interface CaddieContextResponse {
 export interface CaddieDecisionAuditRequest {
   decision: CaddieDecisionResponse | Record<string, unknown>
   actualShot: Record<string, unknown> | null
+  actualShots?: Array<Record<string, unknown>>
+  actualScoreToPar?: number | null
+  penalty?: boolean | null
 }
 
 export interface CaddieDecisionAuditRecord {

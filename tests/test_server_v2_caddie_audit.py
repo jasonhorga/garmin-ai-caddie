@@ -48,6 +48,7 @@ class ServerV2CaddieAuditTests(unittest.TestCase):
         self.assertEqual(created["record"]["audit"]["selectedOptionId"], "stock")
         self.assertEqual(created["record"]["audit"]["actualShotRefs"], ["fixture-round:4:2"])
         self.assertIn(created["record"]["audit"]["classification"], {"execution", "strategy", "info_gap", "unknown"})
+        self.assertIn("criteriaResults", created["record"]["audit"])
         self.assertNotIn(tmp, create_response.text)
 
         self.assertEqual(latest_response.status_code, 200)
@@ -135,6 +136,38 @@ class ServerV2CaddieAuditTests(unittest.TestCase):
         self.assertIsNotNone(payload["record"])
         self.assertEqual(payload["record"]["decisionId"], "redacted-decision")
         self.assertNotIn("abc123", latest_response.text)
+
+    def test_decision_audit_api_accepts_actual_shots_and_result_context(self) -> None:
+        client = TestClient(app)
+        decision = client.post("/api/v2/caddie/decision", json=build_decision_request_from_fixture("approach")).json()
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.caddie.DECISION_AUDIT_ROOT", root):
+                response = client.post(
+                    "/api/v2/caddie/decisions/round-1:4:2/audit",
+                    json={
+                        "decision": decision,
+                        "actualShots": [
+                            {
+                                "shotOrder": 2,
+                                "clubName": "7I",
+                                "meters": 168.0,
+                                "penalty": True,
+                                "end": {"lie": "Water", "feature": {"surface": {"kind": "water"}, "nearRisks": [{"kind": "water", "distance_m": 0.0}]}},
+                            }
+                        ],
+                        "actualScoreToPar": 2,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        audit = response.json()["record"]["audit"]
+        results = {row["label"]: row for row in audit["criteriaResults"]}
+        self.assertEqual(audit["actualShotRefs"], ["fixture-round:4:2"])
+        self.assertEqual(audit["result"]["actualShotsCount"], 1)
+        self.assertEqual(results["penalty"]["status"], "fail")
+        self.assertEqual(results["score_result"]["status"], "fail")
 
 
 if __name__ == "__main__":

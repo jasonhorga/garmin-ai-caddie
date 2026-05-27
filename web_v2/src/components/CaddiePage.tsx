@@ -912,6 +912,7 @@ function DecisionAuditPanel({
   const actual = audit ? String(audit.actualOptionId ?? '-') : '-'
   const executionMatch = recordFrom(audit?.executionMatch)
   const result = recordFrom(audit?.result)
+  const criteriaResults = recordRows(audit?.criteriaResults)
   const actualShotRefs = stringRows(record?.actualShotRefs ?? audit?.actualShotRefs)
   const evidenceRefs = stringRows(record?.evidenceRefs ?? audit?.evidenceRefs)
   const suggestion = auditSuggestion(audit?.modelUpdateSuggestion)
@@ -942,6 +943,7 @@ function DecisionAuditPanel({
             <span className="fact-chip">distance {metersLabel(executionMatch.distanceDelta_m)}</span>
             <span className="fact-chip">risk {booleanLabel(executionMatch.riskTriggered)}</span>
           </div>
+          <DecisionAuditCriteria rows={criteriaResults} />
           {Object.keys(result).length ? (
             <p className="decision-audit-result">
               {[
@@ -957,6 +959,28 @@ function DecisionAuditPanel({
         </div>
       ) : null}
     </section>
+  )
+}
+
+function DecisionAuditCriteria({ rows }: { rows: Array<Record<string, unknown>> }) {
+  if (!rows.length) return null
+
+  return (
+    <div className="decision-audit-criteria" aria-label="Decision audit criteria results">
+      {rows.map((row, index) => {
+        const status = stringValue(row.status) || 'unknown'
+        const label = String(row.label ?? `criterion ${index + 1}`)
+        return (
+          <div className="decision-audit-criterion" key={`${label}-${index}`}>
+            <div>
+              <strong>{label}</strong>
+              <span>{auditCriterionText(row)}</span>
+            </div>
+            <span className={`audit-criterion-status audit-criterion-${status}`}>{status}</span>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -1096,6 +1120,14 @@ function booleanLabel(value: unknown): string {
 function metersLabel(value: unknown): string {
   if (value === undefined || value === null || value === '') return 'unknown'
   return `${String(value)}m`
+}
+
+function auditCriterionText(row: Record<string, unknown>): string {
+  const expected = formatExplanationValue(row.expected ?? row.expected_m ?? row.expectedRange_m)
+  const actual = formatExplanationValue(row.actual ?? row.actual_m ?? row.actualScoreToPar ?? row.surface)
+  const delta = row.distanceDelta_m !== undefined && row.distanceDelta_m !== null ? `delta ${String(row.distanceDelta_m)}m` : ''
+  const parts = [expected ? `expected ${expected}` : '', actual ? `actual ${actual}` : '', delta].filter(Boolean)
+  return parts.length ? parts.join(' - ') : String(row.rule ?? '')
 }
 
 function auditSuggestion(value: unknown): string | null {

@@ -1189,6 +1189,69 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(audit["selectedOption"]["id"], "stock")
         self.assertEqual(audit["classification"], "execution")
 
+    def test_audit_returns_criteria_results_for_selected_option(self) -> None:
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+        audit = audit_decision(
+            plan,
+            {
+                "shotOrder": 1,
+                "clubName": "3H",
+                "meters": 181.0,
+                "penalty": False,
+                "end": {
+                    "lie": "Fairway",
+                    "feature": {
+                        "surface": {"kind": "fairway"},
+                        "nearRisks": [],
+                    },
+                },
+            },
+        )
+
+        results = {row["label"]: row for row in audit["criteriaResults"]}
+        self.assertEqual(results["club_match"]["status"], "pass")
+        self.assertEqual(results["club_match"]["actual"], "3H")
+        self.assertEqual(results["carry_window"]["status"], "pass")
+        self.assertEqual(results["carry_window"]["distanceDelta_m"], 1.0)
+        self.assertEqual(results["avoid_zones"]["status"], "pass")
+        self.assertEqual(results["penalty"]["status"], "pass")
+
+    def test_audit_supports_actual_shots_penalty_and_score_context(self) -> None:
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+        audit = audit_decision(
+            plan,
+            {
+                "actualShots": [
+                    {
+                        "shotOrder": 1,
+                        "clubName": "1W",
+                        "meters": 221.0,
+                        "penalty": True,
+                        "end": {
+                            "lie": "Water",
+                            "feature": {
+                                "surface": {"kind": "water"},
+                                "nearRisks": [{"kind": "water", "distance_m": 0.0}],
+                            },
+                        },
+                    }
+                ],
+                "actualScoreToPar": 2,
+            },
+        )
+
+        results = {row["label"]: row for row in audit["criteriaResults"]}
+        self.assertEqual(audit["actualOptionId"], "attack")
+        self.assertEqual(audit["actualShotRefs"], ["round-1:1:1"])
+        self.assertEqual(audit["result"]["actualShotsCount"], 1)
+        self.assertTrue(audit["result"]["penalty"])
+        self.assertEqual(audit["result"]["actualScoreToPar"], 2)
+        self.assertEqual(results["club_match"]["status"], "fail")
+        self.assertEqual(results["carry_window"]["status"], "fail")
+        self.assertEqual(results["avoid_zones"]["status"], "fail")
+        self.assertEqual(results["penalty"]["status"], "fail")
+        self.assertEqual(results["score_result"]["status"], "fail")
+
     def test_audit_classifies_riskier_option_failure_as_strategy(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
         audit = audit_decision(

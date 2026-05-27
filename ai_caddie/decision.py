@@ -153,19 +153,40 @@ def _explicit_evidence_refs(decision: dict[str, Any], source_ref: str | None) ->
     return _evidence_refs(decision, source_ref)
 
 
-def _actual_shot_refs(decision: dict[str, Any], actual_shot: dict[str, Any] | None) -> list[str]:
-    if not actual_shot:
+def _actual_shots_from_input(actual_input: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not actual_input:
         return []
-    explicit = _safe_ref(actual_shot.get("sourceRef") or actual_shot.get("shotRef"))
+    if not isinstance(actual_input, dict):
+        return []
+    for key in ("actualShots", "shots"):
+        rows = actual_input.get(key)
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+    first_shot = actual_input.get("actualShot") or actual_input.get("firstShot")
+    if isinstance(first_shot, dict):
+        return [first_shot]
+    return [actual_input]
+
+
+def _first_actual_shot(actual_input: dict[str, Any] | None) -> dict[str, Any] | None:
+    shots = _actual_shots_from_input(actual_input)
+    return shots[0] if shots else None
+
+
+def _actual_shot_refs(decision: dict[str, Any], actual_shot: dict[str, Any] | None) -> list[str]:
+    shot = _first_actual_shot(actual_shot)
+    if not shot:
+        return []
+    explicit = _safe_ref(shot.get("sourceRef") or shot.get("shotRef"))
     if explicit:
         return [explicit]
     context = decision.get("context") if isinstance(decision.get("context"), dict) else {}
     source_ref = _safe_ref(decision.get("sourceRef") or context.get("sourceRef"))
-    shot_order = actual_shot.get("shotOrder") or actual_shot.get("order")
+    shot_order = shot.get("shotOrder") or shot.get("order")
     if source_ref and shot_order is not None:
         return [f"{source_ref}:{shot_order}"]
-    round_id = _safe_ref(actual_shot.get("roundId") or context.get("roundId"))
-    hole = actual_shot.get("hole") or actual_shot.get("localHole") or context.get("hole") or context.get("localHole")
+    round_id = _safe_ref(shot.get("roundId") or context.get("roundId"))
+    hole = shot.get("hole") or shot.get("localHole") or context.get("hole") or context.get("localHole")
     if round_id and hole is not None and shot_order is not None:
         return [f"{round_id}:{hole}:{shot_order}"]
     return []
@@ -2581,6 +2602,177 @@ def _club_match(selected: dict[str, Any] | None, shot: dict[str, Any]) -> bool |
     return actual in {str(club.get("clubName") or "").strip() for club in clubs}
 
 
+def _club_names_for_option(selected: dict[str, Any] | None) -> list[str]:
+    if not selected:
+        return []
+    clubs = selected.get("clubRecommendation", {}).get("clubs") or []
+    return _dedupe([str(club.get("clubName") or "").strip() for club in clubs if isinstance(club, dict) and club.get("clubName")])
+
+
+def _status_from_bool(value: bool | None) -> str:
+    if value is True:
+        return "pass"
+    if value is False:
+        return "fail"
+    return "missing"
+
+
+def _carry_window_status(selected: dict[str, Any] | None, actual_meters: Any) -> tuple[str, dict[str, Any]]:
+    if not selected or actual_meters is None:
+        return "missing", {}
+    actual = _float(actual_meters, math.nan)
+    if math.isnan(actual):
+        return "missing", {}
+    target_window = selected.get("targetWindow") if isinstance(selected.get("targetWindow"), dict) else {}
+    front = target_window.get("frontCarry_m")
+    back = target_window.get("backCarry_m")
+    if front is not None and back is not None:
+        front_m = _float(front, math.nan)
+        back_m = _float(back, math.nan)
+        if not math.isnan(front_m) and not math.isnan(back_m):
+            tolerance = 5.0
+            return (
+                "pass" if front_m - tolerance <= actual <= back_m + tolerance else "fail",
+                {"expectedRange_m": [round(front_m, 1), round(back_m, 1)], "actual_m": round(actual, 1)},
+            )
+    selected_carry = selected.get("carry_m")
+    if selected_carry is None:
+        return "missing", {"actual_m": round(actual, 1)}
+    expected = _float(selected_carry, math.nan)
+    if math.isnan(expected):
+        return "missing", {"actual_m": round(actual, 1)}
+    tolerance = 15.0
+    delta = round(actual - expected, 1)
+    return (
+        "pass" if abs(delta) <= tolerance else "fail",
+        {"expected_m": round(expected, 1), "actual_m": round(actual, 1), "distanceDelta_m": delta, "tolerance_m": tolerance},
+    )
+
+
+def _penalty_from_input(actual_input: dict[str, Any] | None, first_shot: dict[str, Any] | None) -> bool | None:
+    values: list[Any] = []
+    if isinstance(actual_input, dict):
+        values.extend([
+            actual_input.get("penalty"),
+            actual_input.get("hasPenalty"),
+            actual_input.get("penaltyStrokes"),
+            actual_input.get("penaltyCount"),
+        ])
+    if isinstance(first_shot, dict):
+        values.extend([
+            first_shot.get("penalty"),
+            first_shot.get("hasPenalty"),
+            first_shot.get("penaltyStrokes"),
+            first_shot.get("penaltyCount"),
+        ])
+    saw_clear = False
+    for value in values:
+        if isinstance(value, bool):
+            if value:
+                return True
+            saw_clear = True
+        elif isinstance(value, (int, float)):
+            if value > 0:
+                return True
+            if value == 0:
+                saw_clear = True
+        elif isinstance(value, str) and value.strip():
+            lowered = value.strip().lower()
+            if lowered in {"true", "yes", "y", "penalty"}:
+                return True
+            if lowered in {"false", "no", "n", "none", "0"}:
+                saw_clear = True
+    return False if saw_clear else None
+
+
+def _score_to_par_from_input(actual_input: dict[str, Any] | None, first_shot: dict[str, Any] | None) -> float | None:
+    keys = ("actualScoreToPar", "scoreToPar", "toPar")
+    for container in (actual_input, first_shot):
+        if not isinstance(container, dict):
+            continue
+        for key in keys:
+            if container.get(key) is None:
+                continue
+            value = _float(container.get(key), math.nan)
+            if not math.isnan(value):
+                return value
+    return None
+
+
+def _score_status(score_to_par: float | None) -> str:
+    if score_to_par is None:
+        return "missing"
+    if score_to_par <= 0:
+        return "pass"
+    if score_to_par >= 2:
+        return "fail"
+    return "review"
+
+
+def _criteria_results(
+    decision: dict[str, Any],
+    *,
+    selected: dict[str, Any] | None,
+    actual_shot: dict[str, Any] | None,
+    actual_shots_count: int,
+    actual_option_id: str | None,
+    risk_triggered: bool,
+    near_risks: list[dict[str, Any]],
+    surface: str | None,
+    distance_delta: float | None,
+    penalty: bool | None,
+    score_to_par: float | None,
+) -> list[dict[str, Any]]:
+    criteria = decision.get("auditCriteria") if isinstance(decision.get("auditCriteria"), list) else _audit_criteria(selected)
+    normalized = [row for row in criteria if isinstance(row, dict)]
+    if not actual_shot and not any(row.get("label") == "first_shot" for row in normalized):
+        normalized = [{"label": "first_shot", "rule": "record first shot club, carry, lie, and resulting surface"}] + normalized
+
+    results: list[dict[str, Any]] = []
+    for row in normalized:
+        label = str(row.get("label") or "criterion")
+        result: dict[str, Any] = {"label": label, "rule": row.get("rule"), "status": "unknown"}
+        if label == "first_shot":
+            result.update({"status": "pass" if actual_shot else "missing", "actualShotsCount": actual_shots_count})
+        elif label == "club_match":
+            match = _club_match(selected, actual_shot) if actual_shot else None
+            result.update({
+                "status": _status_from_bool(match),
+                "expected": _club_names_for_option(selected),
+                "actual": actual_shot.get("clubName") if actual_shot else None,
+                "actualOptionId": actual_option_id,
+            })
+        elif label == "carry_window":
+            status, carry_result = _carry_window_status(selected, actual_shot.get("meters") if actual_shot else None)
+            result.update(carry_result)
+            result["status"] = status
+            if distance_delta is not None:
+                result["distanceDelta_m"] = distance_delta
+        elif label == "avoid_zones":
+            result.update({
+                "status": "missing" if not actual_shot else ("fail" if risk_triggered else "pass"),
+                "surface": surface,
+                "triggeredRisks": near_risks,
+            })
+        results.append({key: value for key, value in result.items() if value not in (None, [], "")})
+
+    if penalty is not None:
+        results.append({
+            "label": "penalty",
+            "rule": "actual result should not require a penalty stroke",
+            "status": "fail" if penalty else "pass",
+            "actual": penalty,
+        })
+    if score_to_par is not None:
+        results.append({
+            "label": "score_result",
+            "rule": "actual hole score is recorded for model review without overriding shot-level evidence",
+            "status": _score_status(score_to_par),
+            "actualScoreToPar": score_to_par,
+        })
+    return results
+
+
 def _failure_type(
     *,
     plan: dict[str, Any],
@@ -2626,7 +2818,11 @@ def audit_decision(decision: dict[str, Any], actual_shot: dict[str, Any] | None)
     decision_source_ref = _safe_ref(decision.get("sourceRef") or (decision.get("context") or {}).get("sourceRef"))
     evidence_refs = _explicit_evidence_refs(decision, decision_source_ref)
     actual_refs = _actual_shot_refs(decision, actual_shot)
-    if not actual_shot:
+    actual_shots = _actual_shots_from_input(actual_shot)
+    first_shot = actual_shots[0] if actual_shots else None
+    penalty = _penalty_from_input(actual_shot, first_shot)
+    score_to_par = _score_to_par_from_input(actual_shot, first_shot)
+    if not first_shot:
         return {
             "schema": "ai-caddie-decision-audit-v1",
             "decisionId": decision_id,
@@ -2640,14 +2836,27 @@ def audit_decision(decision: dict[str, Any], actual_shot: dict[str, Any] | None)
             "evidenceRefs": evidence_refs,
             "classification": "info_gap",
             "executionMatch": {"hasFirstShot": False},
+            "criteriaResults": _criteria_results(
+                decision,
+                selected=selected,
+                actual_shot=None,
+                actual_shots_count=len(actual_shots),
+                actual_option_id=None,
+                risk_triggered=False,
+                near_risks=[],
+                surface=None,
+                distance_delta=None,
+                penalty=penalty,
+                score_to_par=score_to_par,
+            ),
             "result": {},
             "modelUpdateSuggestion": _model_update_suggestion("info_gap"),
         }
 
-    actual_option_id = _actual_option_id(decision, actual_shot)
-    risk_triggered, near_risks, surface, surface_source = _risk_triggered(actual_shot, decision)
+    actual_option_id = _actual_option_id(decision, first_shot)
+    risk_triggered, near_risks, surface, surface_source = _risk_triggered(first_shot, decision)
     selected_carry = selected.get("carry_m")
-    actual_meters = actual_shot.get("meters")
+    actual_meters = first_shot.get("meters")
     distance_delta = (
         round(_float(actual_meters) - _float(selected_carry), 1)
         if actual_meters is not None and selected_carry is not None
@@ -2673,18 +2882,34 @@ def audit_decision(decision: dict[str, Any], actual_shot: dict[str, Any] | None)
         "classification": _audit_classification(failure),
         "executionMatch": {
             "hasFirstShot": True,
-            "clubMatch": _club_match(selected, actual_shot),
+            "clubMatch": _club_match(selected, first_shot),
             "distanceDelta_m": distance_delta,
             "riskTriggered": risk_triggered,
         },
+        "criteriaResults": _criteria_results(
+            decision,
+            selected=selected,
+            actual_shot=first_shot,
+            actual_shots_count=len(actual_shots),
+            actual_option_id=actual_option_id,
+            risk_triggered=risk_triggered,
+            near_risks=near_risks,
+            surface=surface,
+            distance_delta=distance_delta,
+            penalty=penalty,
+            score_to_par=score_to_par,
+        ),
         "result": {
-            "shotOrder": actual_shot.get("shotOrder"),
-            "clubName": actual_shot.get("clubName"),
+            "shotOrder": first_shot.get("shotOrder"),
+            "clubName": first_shot.get("clubName"),
             "meters": actual_meters,
             "surface": surface,
             "surfaceSource": surface_source,
             "nearRisks": near_risks,
-            "remainingToTarget_m": actual_shot.get("remainingToTarget_m"),
+            "remainingToTarget_m": first_shot.get("remainingToTarget_m"),
+            "actualShotsCount": len(actual_shots),
+            "penalty": penalty,
+            "actualScoreToPar": score_to_par,
         },
         "modelUpdateSuggestion": _model_update_suggestion(failure),
     }

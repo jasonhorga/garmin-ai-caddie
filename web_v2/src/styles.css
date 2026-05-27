@@ -3433,6 +3433,62 @@ button.round-detail-cell:hover {
   gap: 6px;
 }
 
+.decision-audit-criteria {
+  display: grid;
+  gap: 6px;
+}
+
+.decision-audit-criterion {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.decision-audit-criterion div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.decision-audit-criterion strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.decision-audit-criterion span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.audit-criterion-status {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.audit-criterion-pass {
+  background: #e4f2e8;
+  color: var(--green);
+}
+
+.audit-criterion-fail {
+  background: #f9e1db;
+  color: var(--double);
+}
+
+.audit-criterion-review,
+.audit-criterion-missing,
+.audit-criterion-unknown {
+  background: #f6edcf;
+  color: #765400;
+}
+
 .decision-audit-result,
 .decision-audit-suggestion {
   margin: 0;

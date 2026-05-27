@@ -86,8 +86,23 @@ def _audit_record(row: dict[str, object] | None) -> CaddieDecisionAuditRecord | 
     return CaddieDecisionAuditRecord(**row) if row else None
 
 
+def _actual_audit_input(request: CaddieDecisionAuditRequest) -> dict[str, object] | None:
+    if request.actualShots is None and request.actualScoreToPar is None and request.penalty is None:
+        return request.actualShot
+    payload: dict[str, object] = {}
+    if request.actualShots is not None:
+        payload["actualShots"] = request.actualShots
+    elif request.actualShot is not None:
+        payload["actualShots"] = [request.actualShot]
+    if request.actualScoreToPar is not None:
+        payload["actualScoreToPar"] = request.actualScoreToPar
+    if request.penalty is not None:
+        payload["penalty"] = request.penalty
+    return payload
+
+
 def create_decision_audit_response(decision_id: str, request: CaddieDecisionAuditRequest) -> CaddieDecisionAuditStoreResponse:
-    audit = audit_decision(request.decision, request.actualShot)
+    audit = audit_decision(request.decision, _actual_audit_input(request))
     record = store_decision_audit(audit, decision_id=decision_id, root=DECISION_AUDIT_ROOT)
     return CaddieDecisionAuditStoreResponse(
         schema="ai-caddie-decision-audit-store-v1",

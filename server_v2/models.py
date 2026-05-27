@@ -561,6 +561,9 @@ class CaddieContextResponse(BaseModel):
 class CaddieDecisionAuditRequest(BaseModel):
     decision: dict[str, Any]
     actualShot: dict[str, Any] | None = None
+    actualShots: list[dict[str, Any]] | None = None
+    actualScoreToPar: float | None = None
+    penalty: bool | None = None
 
 
 class CaddieDecisionAuditRecord(BaseModel):

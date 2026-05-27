@@ -178,6 +178,12 @@ const auditRecord: CaddieDecisionAuditRecord = {
     evidenceRefs: ['fixture-links:4'],
     classification: 'execution',
     executionMatch: { hasFirstShot: true, clubMatch: true, distanceDelta_m: -1, riskTriggered: false },
+    criteriaResults: [
+      { label: 'club_match', status: 'pass', expected: ['8I'], actual: '8I' },
+      { label: 'carry_window', status: 'pass', expected_m: 144, actual_m: 143, distanceDelta_m: -1 },
+      { label: 'avoid_zones', status: 'pass', surface: 'green' },
+      { label: 'penalty', status: 'pass', actual: false },
+    ],
     result: { clubName: '8I', meters: 143, surface: 'green' },
     modelUpdateSuggestion: 'Keep the strategic option, but track whether this miss pattern repeats.',
   },
@@ -398,6 +404,9 @@ describe('CaddiePage', () => {
     expect(screen.getByText('club match yes')).toBeInTheDocument()
     expect(screen.getByText('distance -1m')).toBeInTheDocument()
     expect(screen.getByText('risk no')).toBeInTheDocument()
+    expect(screen.getByText('club_match')).toBeInTheDocument()
+    expect(screen.getByText('carry_window')).toBeInTheDocument()
+    expect(screen.getAllByText('pass').length).toBeGreaterThan(0)
     expect(screen.getByText('Keep the strategic option, but track whether this miss pattern repeats.')).toBeInTheDocument()
     const acceptableMiss = screen.getByLabelText('Decision acceptable miss')
     expect(within(acceptableMiss).getByRole('heading', { name: 'Acceptable Miss' })).toBeInTheDocument()
