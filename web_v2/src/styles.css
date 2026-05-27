@@ -2527,6 +2527,21 @@ p {
   color: var(--muted);
 }
 
+.fact-chip.confidence-high {
+  background: #e4f2e8;
+  color: var(--green);
+}
+
+.fact-chip.confidence-medium {
+  background: #edf5f8;
+  color: #2f6f95;
+}
+
+.fact-chip.confidence-low {
+  background: #f7e2dd;
+  color: var(--double);
+}
+
 .caddie-workspace {
   display: grid;
   gap: 18px;
@@ -2926,6 +2941,13 @@ p {
   display: block;
   font-size: 1.4rem;
   margin: 8px 0;
+}
+
+.decision-option-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .decision-sequences {

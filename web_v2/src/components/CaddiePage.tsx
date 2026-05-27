@@ -553,8 +553,9 @@ function DecisionDetail({
                 <h3>{String(option.label ?? id)}</h3>
                 {decision.selectedOptionId === id ? <span className="selected-pill">selected</span> : null}
               </div>
-              <strong>{String(option.recommendedClub ?? option.club ?? '-')}</strong>
+              <strong>{optionClubLabel(option)}</strong>
               <p>{formatOptionMeta(option)}</p>
+              <OptionQualityChips option={option} onSelectRef={onSelectRef} />
             </article>
           )
         })}
@@ -691,6 +692,37 @@ function DecisionSequences({
   )
 }
 
+function OptionQualityChips({
+  option,
+  onSelectRef,
+}: {
+  option: Record<string, unknown>
+  onSelectRef: (sourceRef: string) => void
+}) {
+  const sampleSize = optionClubSampleSize(option)
+  const coverage = recordFrom(option.coverage)
+  const ready = coverage.ready
+  const total = coverage.total
+  const confidence = stringValue(option.confidence)
+  const missingCount = recordRows(option.missingData).length
+  const refs = stringRows(option.sourceRefs)
+  if (sampleSize === null && ready === undefined && !confidence && missingCount === 0 && refs.length === 0) return null
+
+  return (
+    <div className="decision-option-chips">
+      {sampleSize !== null ? <span className="fact-chip muted">sample {sampleSize}</span> : null}
+      {ready !== undefined || total !== undefined ? (
+        <span className="fact-chip muted">
+          coverage {String(ready ?? '-')}/{String(total ?? '-')}
+        </span>
+      ) : null}
+      {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidence} option confidence</span> : null}
+      {missingCount ? <span className="fact-chip muted">missing {missingCount}</span> : null}
+      <SourceRefs refs={refs} maxVisible={2} onSelectRef={onSelectRef} />
+    </div>
+  )
+}
+
 function DecisionAuditPanel({
   decision,
   state,
@@ -703,7 +735,7 @@ function DecisionAuditPanel({
   onSelectRef: (sourceRef: string) => void
 }) {
   const selected = decision.selectedOption ?? decision.selected ?? {}
-  const defaultClub = String(selected.recommendedClub ?? selected.club ?? '')
+  const defaultClub = optionClubLabel(selected)
   const defaultCarry = selected.carry_m ?? selected.carryM ?? decision.context.distanceToPin_m ?? ''
   const [actualClub, setActualClub] = useState(defaultClub)
   const [actualCarry, setActualCarry] = useState(String(defaultCarry))
@@ -1165,6 +1197,27 @@ async function fileToBase64(file: File): Promise<string> {
     binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
   }
   return btoa(binary)
+}
+
+function optionClubRows(option: Record<string, unknown>): Array<Record<string, unknown>> {
+  const recommendation = recordFrom(option.clubRecommendation)
+  return recordRows(recommendation.clubs)
+}
+
+function optionClubLabel(option: Record<string, unknown>): string {
+  const direct = stringValue(option.recommendedClub) || stringValue(option.club)
+  if (direct) return direct
+  const clubs = optionClubRows(option)
+    .map((club) => stringValue(club.clubName) || stringValue(club.name))
+    .filter(Boolean)
+  return clubs.length ? clubs.slice(0, 2).join(' / ') : '-'
+}
+
+function optionClubSampleSize(option: Record<string, unknown>): number | null {
+  const first = optionClubRows(option)[0]
+  if (!first) return null
+  const sample = first.sampleSize
+  return typeof sample === 'number' && Number.isFinite(sample) ? sample : null
 }
 
 function formatOptionMeta(option: Record<string, unknown>): string {

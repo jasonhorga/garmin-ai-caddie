@@ -20,21 +20,47 @@ const decision: CaddieDecisionResponse = {
   phase: 'Approach',
   context: { sourceRef: 'fixture-links:4', distanceToPin_m: 142 },
   options: [
-    { id: 'safe', label: 'Safe', recommendedClub: '9I', carry_m: 132, riskScore: 0 },
+    {
+      id: 'safe',
+      label: 'Safe',
+      clubRecommendation: { source: 'club_profiles', clubs: [{ clubName: '9I', sampleSize: 24, median_m: 132 }] },
+      carry_m: 132,
+      riskScore: 0,
+      coverage: { ready: 4, total: 4, pct: 100 },
+      confidence: 'high',
+      sourceRefs: ['fixture-links:4'],
+    },
     {
       id: 'stock',
       label: 'Stock',
-      recommendedClub: '8I',
+      clubRecommendation: { source: 'club_profiles', clubs: [{ clubName: '8I', sampleSize: 24, median_m: 144, p10_m: 132, p90_m: 153 }] },
       carry_m: 144,
       riskScore: 1,
       scoreImpact: { expectedStrokes: 1.1, expectedStrokesDelta: 0.1 },
       hazardClearance: { minimumClearance_m: 16, criticalHazardId: 'water_front' },
+      coverage: { ready: 4, total: 4, pct: 100 },
+      confidence: 'high',
+      sourceRefs: ['fixture-links:4', 'fixture-links:4:hazard'],
     },
-    { id: 'attack', label: 'Attack', recommendedClub: '7I', carry_m: 156, riskScore: 3 },
+    {
+      id: 'attack',
+      label: 'Attack',
+      clubRecommendation: { source: 'club_profiles', clubs: [{ clubName: '7I', sampleSize: 24, median_m: 156 }] },
+      carry_m: 156,
+      riskScore: 3,
+      coverage: { ready: 3, total: 4, pct: 75 },
+      confidence: 'medium',
+      missingData: [{ label: 'weather', reason: 'wind snapshot missing' }],
+      sourceRefs: ['fixture-links:4'],
+    },
   ],
   selected: { id: 'stock' },
   selectedOptionId: 'stock',
-  selectedOption: { id: 'stock' },
+  selectedOption: {
+    id: 'stock',
+    clubRecommendation: { source: 'club_profiles', clubs: [{ clubName: '8I', sampleSize: 24, median_m: 144 }] },
+    carry_m: 144,
+  },
   sequences: [
     { id: 'safe', label: '3W-5I-54', expectedStrokes: 3, expectedRemaining_m: 40, riskScore: 1 },
     { id: 'stock', label: '1D-3W-58', expectedStrokes: 3, expectedRemaining_m: -21, riskScore: 2 },
@@ -302,6 +328,9 @@ describe('CaddiePage', () => {
     expect(screen.getByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
     expect(screen.getByText('Stock')).toBeInTheDocument()
     expect(screen.getByText('8I')).toBeInTheDocument()
+    expect(screen.getAllByText('sample 24').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('coverage 4/4').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('high option confidence').length).toBeGreaterThan(0)
     expect(screen.getAllByText('selected').length).toBeGreaterThan(0)
     expect(screen.getByText('144m - risk 1 - 1.1 exp - 16m clear')).toBeInTheDocument()
     expect(screen.getAllByText('water_front').length).toBeGreaterThan(0)
