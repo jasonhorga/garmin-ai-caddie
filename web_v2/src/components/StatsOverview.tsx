@@ -46,15 +46,6 @@ function refsFor(row: Record<string, unknown>) {
   return singular ? [singular] : []
 }
 
-function refsPreview(row: Record<string, unknown>, limit = 4) {
-  const refs = refsFor(row)
-  return Array.isArray(refs) ? refs.slice(0, limit) : refs
-}
-
-function refsValuePreview(refs: unknown, limit = 4) {
-  return Array.isArray(refs) ? refs.slice(0, limit) : refs
-}
-
 function recordScore(row: Record<string, unknown>) {
   const score = displayNumber(row.score)
   const toPar = displaySigned(row.toPar)
@@ -113,7 +104,7 @@ function PeriodEvidence({ row, onSelectRef }: { row: Record<string, unknown>; on
           {asString(outcome.label) ?? 'Outcome'} {displayNumber(outcome.count)}
         </span>
       ))}
-      <SourceRefs refs={refsFor(row)} onSelectRef={onSelectRef} />
+      <SourceRefs refs={refsFor(row)} maxVisible={4} onSelectRef={onSelectRef} />
     </span>
   )
 }
@@ -293,12 +284,12 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
             <div className="stat-row">
               <span>Baseline refs</span>
               <b>{displayNumber(improvement.windowSize)} rounds</b>
-              <SourceRefs refs={improvement.baselineRoundRefs} onSelectRef={onSelectRef} />
+              <SourceRefs refs={improvement.baselineRoundRefs} maxVisible={4} onSelectRef={onSelectRef} />
             </div>
             <div className="stat-row">
               <span>Recent refs</span>
               <b>{displayNumber(improvement.windowSize)} rounds</b>
-              <SourceRefs refs={improvement.recentRoundRefs} onSelectRef={onSelectRef} />
+              <SourceRefs refs={improvement.recentRoundRefs} maxVisible={4} onSelectRef={onSelectRef} />
             </div>
           </div>
         </section>
@@ -336,7 +327,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
                 <strong>{asString(outcome.label) ?? 'Outcome'}</strong>
                 <b>{displayNumber(outcome.count)}</b>
                 {asNumber(outcome.pct) !== null ? <em>{displayNumber(outcome.pct)}%</em> : null}
-                <SourceRefs refs={refsPreview(outcome)} onSelectRef={onSelectRef} />
+                <SourceRefs refs={refsFor(outcome)} maxVisible={4} onSelectRef={onSelectRef} />
               </span>
             ))}
           </div>
@@ -354,7 +345,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <div key={asString(band.label) ?? 'unknown'} className="stat-row">
                 <span>{asString(band.label) ?? 'Unknown'}</span>
                 <b>{displayNumber(band.count)}</b>
-                <SourceRefs refs={band.roundRefs ?? band.roundIds} onSelectRef={onSelectRef} />
+                <SourceRefs refs={band.roundRefs ?? band.roundIds} maxVisible={4} onSelectRef={onSelectRef} />
               </div>
             ))}
           </div>
@@ -377,7 +368,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
                     <span className="fact-chip muted">score {displayNumber(row.averageScore)}</span>
                     <span className="fact-chip muted">par+ {displayNumber(row.parOrBetterPct)}%</span>
                     <span className="fact-chip muted">bogey+ {displayNumber(row.bogeyOrWorsePct)}%</span>
-                    <SourceRefs refs={refsFor(row)} onSelectRef={onSelectRef} />
+                    <SourceRefs refs={refsFor(row)} maxVisible={4} onSelectRef={onSelectRef} />
                   </span>
                 </div>
               ))}
@@ -454,7 +445,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <div key={asString(phase.phase) ?? 'phase'} className="stat-row">
                 <span>{asString(phase.phase) ?? 'Unknown'}</span>
                 <b>{phaseFact(phase)}</b>
-                <SourceRefs refs={refsFor(phase)} onSelectRef={onSelectRef} />
+                <SourceRefs refs={refsFor(phase)} maxVisible={4} onSelectRef={onSelectRef} />
               </div>
             ))}
           </div>
@@ -473,12 +464,12 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <div className="stat-row">
                 <span>FIR {displayNumber(teeDirection.hitPct)}%</span>
                 <b>{displayNumber(teeDirection.hit)} hit</b>
-                <SourceRefs refs={refsValuePreview(teeDirection.hitRefs)} onSelectRef={onSelectRef} />
+                <SourceRefs refs={teeDirection.hitRefs} maxVisible={4} onSelectRef={onSelectRef} />
               </div>
               <div className="stat-row">
                 <span>miss {displayNumber(teeDirection.missPct)}%</span>
                 <b>{displayNumber(teeDirection.miss)} misses</b>
-                <SourceRefs refs={refsValuePreview(teeDirection[`${dominantTeeMiss ?? 'miss'}Refs`] ?? teeDirection.sourceRefs)} onSelectRef={onSelectRef} />
+                <SourceRefs refs={teeDirection[`${dominantTeeMiss ?? 'miss'}Refs`] ?? teeDirection.sourceRefs} maxVisible={4} onSelectRef={onSelectRef} />
               </div>
             </div>
           </section>
@@ -497,12 +488,12 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <div className="stat-row">
                 <span>GIR {displayNumber(approachMiss.girPct)}%</span>
                 <b>{displayNumber(approachMiss.gir)} hit</b>
-                <SourceRefs refs={refsValuePreview(approachMiss.girRefs)} onSelectRef={onSelectRef} />
+                <SourceRefs refs={approachMiss.girRefs} maxVisible={4} onSelectRef={onSelectRef} />
               </div>
               <div className="stat-row">
                 <span>green miss {displayNumber(approachMiss.missPct)}%</span>
                 <b>{displayNumber(approachMiss.missed)} misses</b>
-                <SourceRefs refs={refsValuePreview(approachMiss[`${dominantApproachMiss ?? 'missed'}Refs`] ?? approachMiss.missedRefs)} onSelectRef={onSelectRef} />
+                <SourceRefs refs={approachMiss[`${dominantApproachMiss ?? 'missed'}Refs`] ?? approachMiss.missedRefs} maxVisible={4} onSelectRef={onSelectRef} />
               </div>
             </div>
           </section>
@@ -520,7 +511,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <div key={asString(course.courseKey) ?? asString(course.courseName) ?? 'course'} className="stat-row">
                 <span>{asString(course.courseName) ?? 'Unknown course'}</span>
                 <b>{roundLabel(course.roundCount)}</b>
-                <SourceRefs refs={refsFor(course)} onSelectRef={onSelectRef} />
+                <SourceRefs refs={refsFor(course)} maxVisible={4} onSelectRef={onSelectRef} />
               </div>
             ))}
           </div>
@@ -544,7 +535,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
                   </span>
                   <em>{locationLabel(course.location)}</em>
                 </div>
-                <SourceRefs refs={refsFor(course)} onSelectRef={onSelectRef} />
+                <SourceRefs refs={refsFor(course)} maxVisible={4} onSelectRef={onSelectRef} />
               </div>
             ))}
           </div>
@@ -565,7 +556,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
                 <div key={asString(finding.label) ?? 'quality'} className="stat-row">
                   <span>{asString(finding.label) ?? 'quality'}</span>
                   <b>{asString(finding.state) ?? 'unknown'}</b>
-                  <SourceRefs refs={finding.refs} onSelectRef={onSelectRef} />
+                  <SourceRefs refs={finding.refs} maxVisible={4} onSelectRef={onSelectRef} />
                 </div>
               ))}
           </div>
