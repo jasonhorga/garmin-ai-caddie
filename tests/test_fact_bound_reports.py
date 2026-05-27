@@ -360,6 +360,44 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("round_issues", by_label)
         self.assertNotIn({"label": "round_reference", "reason": "900001 not present in drillDown.roundIds"}, facts["missingData"])
 
+    def test_round_report_scorecard_fact_includes_difficulty_adjusted_differential(self) -> None:
+        data = HistoryData(
+            raw_rounds=[{"id": "rated-round", "hasShots": True}],
+            rounds=[
+                {
+                    "id": "rated-round",
+                    "date": "2026-05-25",
+                    "course": "Rated Course",
+                    "courseKey": "rated_course",
+                    "holesCompleted": 18,
+                    "strokes": 84,
+                    "par": 72,
+                    "rating": 72.0,
+                    "slope": 120,
+                    "holes": [],
+                    "hasShots": True,
+                }
+            ],
+            shots=[],
+        )
+
+        facts = build_round_report_facts(
+            {
+                "schema": "ai-caddie-history-stats-v1",
+                "summary": {"totalRounds": 1, "average18": 84.0, "bestScore": 84},
+                "scoring": {},
+                "dataQuality": [],
+                "drillDown": {"roundIds": ["rated-round"]},
+            },
+            "rated-round",
+            history_data=data,
+        )
+
+        scorecard = {row["label"]: row for row in facts["factsUsed"]}["round_scorecard"]["value"]
+        self.assertEqual(scorecard["rating"], 72.0)
+        self.assertEqual(scorecard["slope"], 120.0)
+        self.assertEqual(scorecard["differential"], 11.3)
+
     def test_round_report_facts_expose_normalized_provenance_source_refs(self) -> None:
         data = HistoryData(
             raw_rounds=[],

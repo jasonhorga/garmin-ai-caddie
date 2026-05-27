@@ -441,9 +441,30 @@ def _find_round(history_data: HistoryData | None, round_id: str) -> dict[str, An
     return None
 
 
+def _round_numeric(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric
+
+
+def _round_differential_value(score: Any, rating: Any, slope: Any) -> float | None:
+    score_value = _round_numeric(score)
+    rating_value = _round_numeric(rating)
+    slope_value = _round_numeric(slope)
+    if score_value is None or rating_value is None or slope_value is None or slope_value <= 0:
+        return None
+    return round((score_value - rating_value) * 113.0 / slope_value, 1)
+
+
 def _round_scorecard_fact(round_row: dict[str, Any]) -> dict[str, Any]:
     score = round_row.get("strokes")
     par = round_row.get("par")
+    rating = _round_numeric(round_row.get("rating"))
+    slope = _round_numeric(round_row.get("slope"))
     return {
         "roundRef": str(round_row.get("id")),
         "date": round_row.get("date"),
@@ -453,6 +474,9 @@ def _round_scorecard_fact(round_row: dict[str, Any]) -> dict[str, Any]:
         "score": score,
         "par": par,
         "toPar": int(score) - int(par) if isinstance(score, int) and isinstance(par, int) else None,
+        "rating": rating,
+        "slope": slope,
+        "differential": _round_differential_value(score, rating, slope),
         "putts": round_row.get("putts"),
         "hasShots": round_row.get("hasShots"),
         "shotStatus": round_row.get("shotStatus"),
