@@ -652,7 +652,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct GarminSessionImportResponse: Codable", session_client)
         self.assertIn("final class GarminSessionClient", session_client)
         self.assertIn("func importSession", session_client)
-        self.assertIn('"/api/v2/sync/session"', session_client)
+        self.assertIn('"/api/v2/sync/garmin/session"', session_client)
         self.assertIn('request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")', session_client)
         self.assertNotIn("password", session_client.lower())
         self.assertNotIn("username", session_client.lower())
