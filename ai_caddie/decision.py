@@ -66,6 +66,10 @@ def _safe_ref(value: Any) -> str | None:
     lowered = ref.lower()
     if any(marker in lowered for marker in UNSAFE_REF_MARKERS):
         return None
+    if any(pattern.search(ref) for pattern in PRIVATE_PATH_PATTERNS):
+        return None
+    if "file://" in lowered:
+        return None
     return ref
 
 
@@ -873,7 +877,7 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
     dispersion = _dispersion_from_recommendation(club_recommendation)
     hazard_clearance = _hazard_clearance(carry_m, forbidden)
     risk_score = _risk_score(route)
-    return {
+    option = {
         "id": option_id,
         "routeId": route.get("id"),
         "label": OPTION_LABELS.get(option_id, str(route.get("label") or option_id)),
@@ -890,6 +894,7 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         "scoreImpact": _score_impact(risk_score, hazard_clearance, dispersion),
         "clubRecommendation": club_recommendation,
     }
+    return _with_option_contract(option, analysis, route=route)
 
 
 def _strategy_mode(context: dict[str, Any]) -> str:
@@ -1529,6 +1534,75 @@ def _score_impact(
     }
 
 
+def _option_missing_data(context: dict[str, Any], option: dict[str, Any]) -> list[dict[str, Any]]:
+    missing: list[dict[str, Any]] = []
+    geometry = context.get("geometry") or {}
+    if not geometry.get("hasHazards") or not geometry.get("hasMeshes"):
+        missing.append({"label": "geometry", "reason": "geometry hazards or meshes are incomplete"})
+    if _has_weak_club_sample(option):
+        missing.append({"label": "club_profiles", "reason": "selected option has weak or missing matching club samples"})
+    weather = _weather_snapshot(context)
+    if weather is None or weather.get("state") != "ready":
+        missing.append({"label": "weather", "reason": "weather snapshot is missing or incomplete"})
+    if option.get("carry_m") is None:
+        missing.append({"label": "target", "reason": "carry target could not be derived from distance or route evidence"})
+    return missing
+
+
+def _option_coverage(context: dict[str, Any], option: dict[str, Any]) -> dict[str, Any]:
+    geometry = context.get("geometry") or {}
+    weather = _weather_snapshot(context)
+    components = [
+        bool(geometry.get("hasHazards") and geometry.get("hasMeshes")),
+        not _has_weak_club_sample(option),
+        bool(weather and weather.get("state") == "ready"),
+        option.get("carry_m") is not None,
+    ]
+    ready = sum(1 for component in components if component)
+    total = len(components)
+    return {"ready": ready, "total": total, "pct": round(ready / total * 100, 1) if total else 0.0}
+
+
+def _option_confidence(coverage: dict[str, Any], missing_data: list[dict[str, Any]]) -> str:
+    labels = {str(row.get("label") or "") for row in missing_data}
+    if "geometry" in labels:
+        return "low"
+    if int(coverage.get("ready") or 0) == int(coverage.get("total") or 0):
+        return "high"
+    if int(coverage.get("ready") or 0) >= 2:
+        return "medium"
+    return "low"
+
+
+def _option_source(route: dict[str, Any] | None, default: str) -> str:
+    if not route:
+        return default
+    if route.get("source") == "routeEvidence":
+        return "route_evidence"
+    return "candidate_route"
+
+
+def _with_option_contract(
+    option: dict[str, Any],
+    context: dict[str, Any],
+    *,
+    route: dict[str, Any] | None = None,
+    source: str = "structured_context",
+) -> dict[str, Any]:
+    missing_data = _option_missing_data(context, option)
+    coverage = _option_coverage(context, option)
+    source_ref = _source_ref(context, str(context.get("shotType") or "shot"))
+    return {
+        "schema": "ai-caddie-decision-option-v1",
+        "source": _option_source(route, source),
+        "sourceRefs": _evidence_refs(context, source_ref),
+        "coverage": coverage,
+        "confidence": _option_confidence(coverage, missing_data),
+        "missingData": missing_data,
+        **option,
+    }
+
+
 def _pin_distance(context: dict[str, Any]) -> float:
     return max(1.0, _float(context.get("distanceToPin_m"), 0.0))
 
@@ -1568,7 +1642,7 @@ def _shot_option(
     target_window = _target_window(adjusted_carry_m, shot_type=shot_type, option_id=option_id)
     hazard_clearance = _hazard_clearance(adjusted_carry_m, avoid_zones)
     dispersion = _dispersion_from_recommendation(club_recommendation)
-    return {
+    option = {
         "id": option_id,
         "routeId": route["id"],
         "label": OPTION_LABELS.get(option_id, label),
@@ -1591,6 +1665,7 @@ def _shot_option(
         "scoreImpact": _score_impact(adjusted_risk_score, hazard_clearance, dispersion),
         "clubRecommendation": club_recommendation,
     }
+    return _with_option_contract(option, context, source="structured_context")
 
 
 def _approach_options(context: dict[str, Any]) -> list[dict[str, Any]]:

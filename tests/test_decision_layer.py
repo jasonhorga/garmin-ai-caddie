@@ -300,6 +300,65 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("water", {zone["kind"] for zone in plan["avoidZones"]})
         self.assertEqual(plan["confidence"]["level"], "high")
 
+    def test_each_decision_option_exposes_quality_and_source_contract(self) -> None:
+        context = approach_fixture()
+        context["weatherSnapshot"] = ready_weather_snapshot()
+
+        plan = recommend_approach(context)
+
+        for option in plan["options"]:
+            self.assertEqual(option["schema"], "ai-caddie-decision-option-v1")
+            self.assertIn(option["source"], {"candidate_route", "route_evidence", "structured_context"})
+            self.assertIn("round-1:4", option["sourceRefs"])
+            self.assertEqual(option["coverage"]["total"], 4)
+            self.assertGreaterEqual(option["coverage"]["ready"], 3)
+            self.assertEqual(option["confidence"], "high")
+            self.assertIsInstance(option["missingData"], list)
+
+    def test_tee_and_recovery_options_expose_quality_and_source_contract(self) -> None:
+        tee = build_decision_plan(analysis_fixture(stock_risk=1))
+        recovery = recommend_recovery(recovery_fixture())
+
+        for plan in (tee, recovery):
+            with self.subTest(shot_type=plan["shotType"]):
+                self.assertEqual([option["schema"] for option in plan["options"]], ["ai-caddie-decision-option-v1"] * 3)
+                self.assertTrue(all(option["source"] in {"candidate_route", "route_evidence", "structured_context"} for option in plan["options"]))
+                self.assertTrue(all("coverage" in option for option in plan["options"]))
+                self.assertTrue(all("confidence" in option for option in plan["options"]))
+                self.assertTrue(all("missingData" in option for option in plan["options"]))
+                self.assertTrue(all("sourceRefs" in option for option in plan["options"]))
+
+    def test_decision_option_source_refs_reject_private_local_paths(self) -> None:
+        context = approach_fixture()
+        context["sourceRef"] = "/Users/alice/private/raw.json"
+        context["historicalHole"] = {"sourceRefs": ["/tmp/raw.json", "round-1:4"]}
+        context["routeEvidence"] = {"sourceRefs": ["file:///private/var/mobile/raw.json", "safe-route-ref"]}
+
+        plan = recommend_approach(context)
+
+        rendered_refs = " ".join(ref for option in plan["options"] for ref in option["sourceRefs"])
+        self.assertNotIn("/Users/", rendered_refs)
+        self.assertNotIn("/tmp/", rendered_refs)
+        self.assertNotIn("/private/", rendered_refs)
+        self.assertNotIn("file://", rendered_refs)
+        self.assertIn("round-1:4", rendered_refs)
+        self.assertIn("safe-route-ref", rendered_refs)
+
+    def test_option_quality_degrades_with_missing_geometry_weather_and_weak_club_sample(self) -> None:
+        plan = recommend_approach(approach_fixture(has_geometry=False, sample_size=1))
+
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+
+        self.assertEqual(stock["schema"], "ai-caddie-decision-option-v1")
+        self.assertEqual(stock["confidence"], "low")
+        self.assertLess(stock["coverage"]["ready"], stock["coverage"]["total"])
+        labels = {row["label"] for row in stock["missingData"]}
+        self.assertIn("geometry", labels)
+        self.assertIn("club_profiles", labels)
+        self.assertIn("weather", labels)
+        reasons = {row["label"]: row["reason"] for row in stock["missingData"]}
+        self.assertEqual(reasons["geometry"], "geometry hazards or meshes are incomplete")
+
     def test_live_location_derives_distance_and_protect_score_selects_safe(self) -> None:
         context = approach_fixture()
         context.pop("distanceToPin_m")
