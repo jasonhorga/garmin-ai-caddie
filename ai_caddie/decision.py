@@ -640,6 +640,11 @@ def _routes_from_route_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]
     routes = []
     for route_id, label, option_id, carry_m in specs:
         target_local = _route_target_for_carry(route_evidence, carry_m, route_length)
+        option_zones = _avoid_zones_for_target(
+            zones,
+            route_evidence=route_evidence,
+            target_local=target_local,
+        )
         routes.append(
             {
                 "id": route_id,
@@ -648,11 +653,11 @@ def _routes_from_route_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]
                 "landingLocal": target_local,
                 "expectedSurface": {"kind": "fairway"},
                 "nearRisks": [],
-                "lineRisks": zones,
+                "lineRisks": option_zones,
                 "riskScore": _route_evidence_risk_score(
                     option_id,
                     carry_m,
-                    zones,
+                    option_zones,
                     route_evidence=route_evidence,
                     target_local=target_local,
                 ),
@@ -1284,8 +1289,12 @@ def _avoid_zones_for_target(
             and stripped.get("distance_m") is None
         ):
             continue
-        if "landing window" in str(stripped.get("reason") or "") and "route geometry" not in str(stripped.get("reason") or ""):
-            stripped.pop("reason", None)
+        reason = str(stripped.get("reason") or "")
+        if "landing window" in reason:
+            if "route geometry" in reason:
+                stripped["reason"] = "route geometry intersects known risk"
+            else:
+                stripped.pop("reason", None)
         applicable.append(stripped)
     return applicable
 
