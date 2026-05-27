@@ -33,8 +33,8 @@ const productSettings: ProductSettingsResponse = {
     ],
   },
   liveApps: {
-    ios: { state: 'contract_ready', offlineFirst: true },
-    watch: { state: 'contract_ready', requiresIphoneBridge: true },
+    ios: { state: 'contract_ready', offlineFirst: true, captures: ['gps', 'score', 'club', 'putt', 'penalty', 'note', 'photo', 'video'] },
+    watch: { state: 'contract_ready', requiresIphoneBridge: true, inputs: ['club', 'score', 'putt', 'penalty'] },
     vision: { state: 'bounded_context', confirmationRequired: true },
   },
   privacy: {
@@ -110,6 +110,8 @@ describe('SettingsPage', () => {
     const liveApps = screen.getByLabelText('Live app settings')
     expect(within(liveApps).getByText('iOS contract_ready')).toBeInTheDocument()
     expect(within(liveApps).getByText('Watch contract_ready')).toBeInTheDocument()
+    expect(within(liveApps).getByText('GPS, score, club, putt, penalty, note, photo, video')).toBeInTheDocument()
+    expect(within(liveApps).getByText('club, score, putt, penalty')).toBeInTheDocument()
 
     const privacy = screen.getByLabelText('Privacy settings')
     expect(within(privacy).getByRole('checkbox', { name: 'Secret-free status responses' })).toBeChecked()

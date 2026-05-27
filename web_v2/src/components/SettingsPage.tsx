@@ -16,6 +16,8 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
   const ios = asRecord(settings?.liveApps?.ios)
   const watch = asRecord(settings?.liveApps?.watch)
   const privacy = asRecord(settings?.privacy)
+  const iosCaptures = formatSettingList(ios.captures, ['gps', 'club', 'score'])
+  const watchInputs = formatSettingList(watch.inputs, ['club', 'score', 'putt', 'penalty'])
 
   return (
     <section className="settings-page" aria-label="Settings workspace">
@@ -96,7 +98,9 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
               <span>Round start</span>
               <b>cached package</b>
               <span>On-course input</span>
-              <b>GPS, club, score</b>
+              <b>{iosCaptures}</b>
+              <span>Watch input</span>
+              <b>{watchInputs}</b>
               <span>Post-round</span>
               <b>event reconciliation</b>
             </div>
@@ -176,6 +180,15 @@ function asString(value: unknown): string | null {
 
 function asBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
+}
+
+function formatSettingList(value: unknown, fallback: string[]): string {
+  const rawValues = Array.isArray(value) ? value : fallback
+  return rawValues
+    .map(asString)
+    .filter((item): item is string => Boolean(item))
+    .map((item) => (item.toLowerCase() === 'gps' ? 'GPS' : item))
+    .join(', ')
 }
 
 function providerChipClass(settings: ProductSettingsResponse | null | undefined, providerId: string): string {

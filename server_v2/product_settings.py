@@ -82,13 +82,13 @@ def build_product_settings_response() -> dict[str, Any]:
             "ios": {
                 "state": "contract_ready",
                 "offlineFirst": True,
-                "captures": ["gps", "score", "club", "photo", "video"],
+                "captures": ["gps", "score", "club", "putt", "penalty", "note", "photo", "video"],
                 "packageEndpoint": "/api/v2/mobile/rounds/{round_id}/package",
             },
             "watch": {
                 "state": "contract_ready",
                 "requiresIphoneBridge": True,
-                "inputs": ["club", "score", "putts", "penalty"],
+                "inputs": ["club", "score", "putt", "penalty"],
             },
             "vision": {
                 "state": "bounded_context",
