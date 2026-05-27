@@ -17,6 +17,10 @@ const statsFixture: HistoryStatsResponse = {
     {
       club: '1D',
       sampleCount: 2,
+      rawSampleCount: 4,
+      validSampleCount: 2,
+      invalidSampleCount: 1,
+      outlierCount: 1,
       median: 240,
       p10: 225,
       p90: 255,
@@ -35,6 +39,20 @@ const statsFixture: HistoryStatsResponse = {
       max: 270,
       confidence: 'low',
       shotRefs: ['900001:1:0', '900002:5:4'],
+      validShotRefs: ['900001:1:0', '900002:5:4'],
+      invalidShotRefs: ['900003:6:5'],
+      outlierShotRefs: ['900004:7:6'],
+      sampleQuality: {
+        rawSampleCount: 4,
+        validSampleCount: 2,
+        invalidSampleCount: 1,
+        outlierCount: 1,
+        coverage: { ready: 2, total: 4, pct: 50 },
+        confidence: 'medium',
+        validShotRefs: ['900001:1:0', '900002:5:4'],
+        invalidShotRefs: ['900003:6:5'],
+        outlierShotRefs: ['900004:7:6'],
+      },
     },
   ],
   issues: [],
@@ -57,12 +75,18 @@ describe('ClubStats', () => {
     expect(screen.getByText('p90 255')).toBeInTheDocument()
     expect(screen.getByText('dispersion 30')).toBeInTheDocument()
     expect(screen.getByText('max 270')).toBeInTheDocument()
+    expect(screen.getByText('valid 2/4')).toBeInTheDocument()
+    expect(screen.getByText('invalid 1')).toHaveClass('quality-partial')
+    expect(screen.getByText('outlier 1')).toHaveClass('quality-partial')
+    expect(screen.getByText('sample medium')).toHaveClass('confidence-medium')
     expect(screen.getByText('volatile consistency')).toHaveClass('consistency-volatile')
     expect(screen.getByText('trend -16 shorter')).toHaveClass('trend-shorter')
     expect(screen.getByText('low confidence')).toHaveClass('confidence-low')
     expect(screen.getByText('shots partial 1/2')).toHaveClass('quality-partial')
     expect(screen.getByText('shot_rows good 6/6')).toHaveClass('quality-good')
     expect(screen.getByRole('button', { name: 'Open source 900001:1:0' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900003:6:5' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open source 900004:7:6' })).toBeInTheDocument()
   })
 
   it('renders an empty state when no club samples exist', () => {

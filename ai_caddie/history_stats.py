@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from statistics import median
 from typing import Any, Literal
+import math
 
 from ai_caddie.annotations import list_annotations
 from ai_caddie.decision import list_decision_audits
@@ -1679,6 +1680,104 @@ def _club_distance_trend(distance_rows: list[tuple[float, str]]) -> dict[str, An
     )
 
 
+def _distance_quality(shot: dict[str, Any]) -> tuple[float | None, str | None]:
+    raw_distance = _shot_distance(shot)
+    if raw_distance is None:
+        return None, "missing_distance"
+    try:
+        distance = float(raw_distance)
+    except (TypeError, ValueError):
+        return None, "non_numeric_distance"
+    if not math.isfinite(distance):
+        return None, "non_finite_distance"
+    if distance <= 0:
+        return None, "non_positive_distance"
+    if distance > 400:
+        return None, "implausible_distance"
+    return distance, None
+
+
+def _club_outlier_ref_set(valid_samples: list[dict[str, Any]]) -> set[str]:
+    if len(valid_samples) < 5:
+        return set()
+    distances = [float(sample["distance"]) for sample in valid_samples]
+    center = float(median(distances))
+    deviations = [abs(distance - center) for distance in distances]
+    mad = float(median(deviations))
+    threshold = max(50.0, mad * 3)
+    return {
+        str(sample["shotRef"])
+        for sample in valid_samples
+        if abs(float(sample["distance"]) - center) > threshold
+    }
+
+
+def _club_sample_quality_rows(shots: list[dict[str, Any]]) -> dict[str, Any]:
+    samples: list[dict[str, Any]] = []
+    invalid_samples: list[dict[str, Any]] = []
+    initially_valid: list[dict[str, Any]] = []
+    for shot in shots:
+        shot_ref = str(shot.get("_ref")) if shot.get("_ref") is not None else ""
+        distance, invalid_reason = _distance_quality(shot)
+        if not shot_ref:
+            continue
+        if invalid_reason is not None or distance is None:
+            invalid_samples.append({"shotRef": shot_ref, "reason": invalid_reason or "invalid_distance"})
+            samples.append({"shotRef": shot_ref, "distance": None, "valid": False, "reason": invalid_reason or "invalid_distance"})
+            continue
+        sample = {"shotRef": shot_ref, "distance": distance, "valid": True, "reason": None}
+        samples.append(sample)
+        initially_valid.append(sample)
+
+    outlier_refs = _club_outlier_ref_set(initially_valid)
+    outlier_samples = [
+        {"shotRef": str(sample["shotRef"]), "distance": float(sample["distance"]), "reason": "distance_outlier"}
+        for sample in initially_valid
+        if str(sample["shotRef"]) in outlier_refs
+    ]
+    valid_samples = [
+        sample
+        for sample in initially_valid
+        if str(sample["shotRef"]) not in outlier_refs
+    ]
+    valid_refs = [str(sample["shotRef"]) for sample in valid_samples]
+    invalid_refs = [str(sample["shotRef"]) for sample in invalid_samples]
+    outlier_ref_list = [str(sample["shotRef"]) for sample in outlier_samples]
+    return {
+        "rawSampleCount": len(samples),
+        "validSampleCount": len(valid_samples),
+        "invalidSampleCount": len(invalid_samples),
+        "outlierCount": len(outlier_samples),
+        "validSamples": valid_samples,
+        "invalidSamples": invalid_samples,
+        "outlierSamples": outlier_samples,
+        "validShotRefs": valid_refs,
+        "invalidShotRefs": invalid_refs,
+        "outlierShotRefs": outlier_ref_list,
+        "problemRefs": invalid_refs + outlier_ref_list,
+    }
+
+
+def _club_sample_quality_contract(quality: dict[str, Any]) -> dict[str, Any]:
+    return _with_aggregate_contract(
+        {
+            "rawSampleCount": quality["rawSampleCount"],
+            "validSampleCount": quality["validSampleCount"],
+            "invalidSampleCount": quality["invalidSampleCount"],
+            "outlierCount": quality["outlierCount"],
+            "validShotRefs": quality["validShotRefs"],
+            "invalidShotRefs": quality["invalidShotRefs"],
+            "outlierShotRefs": quality["outlierShotRefs"],
+            "invalidSamples": quality["invalidSamples"],
+            "outlierSamples": quality["outlierSamples"],
+        },
+        quality["validShotRefs"],
+        ready=int(quality["validSampleCount"]),
+        total=int(quality["rawSampleCount"]),
+        confidence_count=int(quality["validSampleCount"]),
+    )
+
+
 def _sortable_int(value: Any, default: int = 999999) -> int:
     try:
         return int(value)
@@ -1775,8 +1874,15 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
     out = []
     round_chronology = _round_chronology(data)
     for club, shots in grouped.items():
-        trend_shots = sorted(shots, key=lambda shot: _club_trend_shot_sort_key(shot, round_chronology))
-        distances = [float(_shot_distance(shot)) for shot in shots if _shot_distance(shot) is not None]
+        quality = _club_sample_quality_rows(shots)
+        valid_ref_set = set(quality["validShotRefs"])
+        valid_shots = [
+            shot
+            for shot in shots
+            if shot.get("_ref") is not None and str(shot.get("_ref")) in valid_ref_set
+        ]
+        trend_shots = sorted(valid_shots, key=lambda shot: _club_trend_shot_sort_key(shot, round_chronology))
+        distances = [float(_shot_distance(shot)) for shot in valid_shots if _shot_distance(shot) is not None]
         distance_rows = [
             (float(_shot_distance(shot)), str(shot.get("_ref")))
             for shot in trend_shots
@@ -1797,6 +1903,10 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
                 {
                     "club": club,
                     "sampleCount": len(distances),
+                    "rawSampleCount": quality["rawSampleCount"],
+                    "validSampleCount": quality["validSampleCount"],
+                    "invalidSampleCount": quality["invalidSampleCount"],
+                    "outlierCount": quality["outlierCount"],
                     "median": round(float(median(distances)), 1) if distances else None,
                     "p10": p10,
                     "p90": p90,
@@ -1806,10 +1916,14 @@ def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -
                     "max": max(distances) if distances else None,
                     "roundIds": round_ids,
                     "shotRefs": shot_refs,
+                    "validShotRefs": quality["validShotRefs"],
+                    "invalidShotRefs": quality["invalidShotRefs"],
+                    "outlierShotRefs": quality["outlierShotRefs"],
+                    "sampleQuality": _club_sample_quality_contract(quality),
                     "correctedRefs": corrected_refs,
                     "correctionCount": len(corrected_refs),
                 },
-                shot_refs,
+                quality["validShotRefs"],
                 ready=len(distances),
                 total=len(shots),
                 confidence_count=len(distances),
@@ -2074,25 +2188,24 @@ def _putt_quality(data: HistoryData) -> dict[str, Any]:
 def _club_sample_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     shots_by_club: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for shot in _effective_shots(data, annotations):
-        if _shot_distance(shot) is None:
-            continue
         shots_by_club[_shot_club(shot)].append(shot)
-    low_sample_refs = [
-        str(shot.get("_ref"))
-        for shots in shots_by_club.values()
-        if len(shots) < 2
-        for shot in shots
-        if shot.get("_ref") is not None
-    ]
-    ready = sum(1 for shots in shots_by_club.values() if len(shots) >= 2)
+    problem_refs: list[str] = []
+    ready = 0
+    for shots in shots_by_club.values():
+        quality = _club_sample_quality_rows(shots)
+        if int(quality["validSampleCount"]) >= 2:
+            ready += 1
+        else:
+            problem_refs.extend(quality["validShotRefs"])
+        problem_refs.extend(quality["problemRefs"])
     total = len(shots_by_club)
     return _with_quality_contract(
         {
             "label": "club_samples",
-            "state": "good" if total and ready == total else "partial" if ready else "missing",
+            "state": "good" if total and ready == total and not problem_refs else "partial" if ready or problem_refs else "missing",
             "ready": ready,
             "total": total,
-            "refs": low_sample_refs,
+            "refs": _source_refs(problem_refs),
         }
     )
 

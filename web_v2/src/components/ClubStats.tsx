@@ -1,7 +1,7 @@
 import type { HistoryStatsResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
-import { asString, formatNumber, formatSigned, semanticClass } from './statsValues'
+import { asNumber, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface ClubStatsProps {
   data: HistoryStatsResponse
@@ -32,8 +32,14 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
         ) : null}
         {data.clubs.map((club) => {
           const trend = asRecord(club.distanceTrend)
+          const sampleQuality = asRecord(club.sampleQuality) ?? {}
           const consistency = asString(club.consistency)
           const trendDirection = asString(trend?.direction)
+          const rawSampleCount = club.rawSampleCount ?? sampleQuality.rawSampleCount
+          const validSampleCount = club.validSampleCount ?? sampleQuality.validSampleCount ?? club.sampleCount
+          const invalidSampleCount = club.invalidSampleCount ?? sampleQuality.invalidSampleCount
+          const outlierCount = club.outlierCount ?? sampleQuality.outlierCount
+          const sampleConfidence = asString(sampleQuality.confidence)
           return (
             <article key={asString(club.club) ?? 'club'} className="stats-item">
               <div className="stats-item-main">
@@ -46,6 +52,20 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
                 <span>p90 {formatNumber(club.p90)}</span>
                 <span>dispersion {formatNumber(club.dispersionRange)}</span>
                 <span>max {formatNumber(club.max)}</span>
+                {asNumber(rawSampleCount) !== null ? (
+                  <span>valid {formatNumber(validSampleCount)}/{formatNumber(rawSampleCount)}</span>
+                ) : null}
+                {(asNumber(invalidSampleCount) ?? 0) > 0 ? (
+                  <span className="semantic-chip quality-partial">invalid {formatNumber(invalidSampleCount)}</span>
+                ) : null}
+                {(asNumber(outlierCount) ?? 0) > 0 ? (
+                  <span className="semantic-chip quality-partial">outlier {formatNumber(outlierCount)}</span>
+                ) : null}
+                {sampleConfidence ? (
+                  <span className={`semantic-chip ${semanticClass('confidence', sampleConfidence)}`}>
+                    sample {sampleConfidence}
+                  </span>
+                ) : null}
                 {consistency ? (
                   <span className={`semantic-chip ${semanticClass('consistency', consistency)}`}>
                     {consistency} consistency
@@ -61,7 +81,9 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
                 </span>
               </div>
               <p className="stats-refs">
-                <SourceRefs refs={club.shotRefs ?? club.roundRefs ?? club.roundIds} onSelectRef={onSelectRef} />
+                <SourceRefs refs={club.validShotRefs ?? club.shotRefs ?? club.roundRefs ?? club.roundIds} onSelectRef={onSelectRef} />
+                <SourceRefs refs={club.invalidShotRefs} onSelectRef={onSelectRef} />
+                <SourceRefs refs={club.outlierShotRefs} onSelectRef={onSelectRef} />
               </p>
             </article>
           )

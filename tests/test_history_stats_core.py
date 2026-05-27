@@ -205,6 +205,26 @@ def club_trend_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=shots)
 
 
+def club_sample_quality_history_data() -> HistoryData:
+    round_row = {
+        "id": "club-quality-1",
+        "date": "2026-05-25",
+        "course": "Club Quality Course",
+        "courseKey": "club_quality",
+        "holesCompleted": 18,
+        "strokes": 82,
+        "par": 72,
+        "holes": [],
+        "hasShots": True,
+    }
+    distances = [150, 152, 151, 149, 300, None, -5]
+    shots = [
+        {"roundId": "club-quality-1", "hole": index + 1, "club": "7I", "distance": distance, "surface": "fairway"}
+        for index, distance in enumerate(distances)
+    ]
+    return HistoryData(raw_rounds=[{"id": "club-quality-1", "hasShots": True}], rounds=[round_row], shots=shots)
+
+
 def club_trend_reversed_shots_history_data() -> HistoryData:
     data = club_trend_history_data()
     return HistoryData(raw_rounds=data.raw_rounds, rounds=data.rounds, shots=list(reversed(data.shots)))
@@ -549,6 +569,47 @@ class HistoryStatsCoreTests(unittest.TestCase):
             seven_iron["distanceTrend"]["recentShotRefs"],
             ["club-trend-4:7:2", "club-trend-5:7:1", "club-trend-6:7:0"],
         )
+
+    def test_club_stats_filter_invalid_samples_and_expose_outlier_evidence(self) -> None:
+        stats = build_history_stats(club_sample_quality_history_data(), data_mode="fixture")
+
+        seven_iron = next(row for row in stats["clubs"] if row["club"] == "7I")
+
+        self.assertEqual(seven_iron["rawSampleCount"], 7)
+        self.assertEqual(seven_iron["sampleCount"], 4)
+        self.assertEqual(seven_iron["validSampleCount"], 4)
+        self.assertEqual(seven_iron["invalidSampleCount"], 2)
+        self.assertEqual(seven_iron["outlierCount"], 1)
+        self.assertEqual(seven_iron["median"], 150.5)
+        self.assertEqual(seven_iron["p10"], 149.0)
+        self.assertEqual(seven_iron["p90"], 152.0)
+        self.assertEqual(seven_iron["dispersionRange"], 3.0)
+        self.assertEqual(seven_iron["consistency"], "tight")
+        self.assertEqual(
+            seven_iron["validShotRefs"],
+            ["club-quality-1:1:0", "club-quality-1:2:1", "club-quality-1:3:2", "club-quality-1:4:3"],
+        )
+        self.assertEqual(seven_iron["outlierShotRefs"], ["club-quality-1:5:4"])
+        self.assertEqual(seven_iron["invalidShotRefs"], ["club-quality-1:6:5", "club-quality-1:7:6"])
+        self.assertEqual(seven_iron["sampleQuality"]["rawSampleCount"], 7)
+        self.assertEqual(seven_iron["sampleQuality"]["validSampleCount"], 4)
+        self.assertEqual(seven_iron["sampleQuality"]["coverage"], {"ready": 4, "total": 7, "pct": 57.1})
+        self.assertEqual(seven_iron["sampleQuality"]["confidence"], "medium")
+        self.assertEqual(
+            seven_iron["sampleQuality"]["invalidSamples"],
+            [
+                {"shotRef": "club-quality-1:6:5", "reason": "missing_distance"},
+                {"shotRef": "club-quality-1:7:6", "reason": "non_positive_distance"},
+            ],
+        )
+        self.assertEqual(
+            seven_iron["sampleQuality"]["outlierSamples"],
+            [{"shotRef": "club-quality-1:5:4", "distance": 300.0, "reason": "distance_outlier"}],
+        )
+
+        club_quality = next(row for row in stats["dataQuality"] if row["label"] == "club_samples")
+        self.assertEqual(club_quality["state"], "partial")
+        self.assertEqual(club_quality["refs"], ["club-quality-1:6:5", "club-quality-1:7:6", "club-quality-1:5:4"])
 
     def test_club_consistency_degrades_for_low_sample_count(self) -> None:
         stats = build_history_stats(one_shot_club_history_data(), data_mode="fixture")
