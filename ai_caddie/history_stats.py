@@ -175,6 +175,29 @@ def _score_band(score: int) -> str:
     return "100+"
 
 
+def _score_band_class(label: str) -> str:
+    return {"70s": "eagle", "80s": "birdie", "90s": "bogey", "100+": "double"}.get(label, "par")
+
+
+def _score18(row: dict[str, Any]) -> int | None:
+    if row.get("holesCompleted") != 18 or row.get("strokes") is None:
+        return None
+    try:
+        return int(row["strokes"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_par18(row: dict[str, Any]) -> int | None:
+    score = _score18(row)
+    if score is None or row.get("par") is None:
+        return None
+    try:
+        return score - int(row["par"])
+    except (TypeError, ValueError):
+        return None
+
+
 def _hole_score_bucket(delta: int) -> tuple[str, str, str]:
     if delta <= -2:
         return ("eagleOrBetter", "Eagle+", "eagle")
@@ -294,12 +317,12 @@ def _hole_geometry_coverage(pairs: list[tuple[dict[str, Any], dict[str, Any]]], 
 
 
 def _summary(data: HistoryData) -> dict[str, Any]:
-    rounds18 = [row for row in data.rounds if row.get("holesCompleted") == 18 and row.get("strokes") is not None]
-    scores18 = [int(row["strokes"]) for row in rounds18]
+    rounds18 = [row for row in data.rounds if _score18(row) is not None]
+    scores18 = [score for row in rounds18 if (score := _score18(row)) is not None]
     recent_scores18 = [
-        int(row["strokes"])
+        score
         for row in sorted(rounds18, key=lambda row: str(row.get("date") or ""), reverse=True)
-        if row.get("strokes") is not None
+        if (score := _score18(row)) is not None
     ]
     refs = [_round_id(row) for row in data.rounds]
     return _with_aggregate_contract(
@@ -322,6 +345,141 @@ def _summary(data: HistoryData) -> dict[str, Any]:
     )
 
 
+def _period_score_bands(score_entries: list[tuple[int, str]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
+    for score, ref in score_entries:
+        grouped[_score_band(score)].append(ref)
+    total = len(score_entries)
+    return [
+        _with_aggregate_contract(
+            {
+                "label": label,
+                "count": len(round_refs),
+                "pct": round(len(round_refs) / total * 100, 1) if total else 0.0,
+                "className": _score_band_class(label),
+                "roundIds": round_refs,
+                "roundRefs": round_refs,
+            },
+            round_refs,
+            total=total,
+        )
+        for label, round_refs in grouped.items()
+    ]
+
+
+def _period_score_histogram(score_entries: list[tuple[int, str]]) -> list[dict[str, Any]]:
+    grouped: dict[int, list[str]] = defaultdict(list)
+    for score, ref in score_entries:
+        grouped[(score // 5) * 5].append(ref)
+    total = len(score_entries)
+    return [
+        _with_aggregate_contract(
+            {
+                "label": f"{start}-{start + 4}",
+                "start": start,
+                "end": start + 4,
+                "count": len(round_refs),
+                "pct": round(len(round_refs) / total * 100, 1) if total else 0.0,
+                "roundIds": round_refs,
+                "roundRefs": round_refs,
+            },
+            round_refs,
+            total=total,
+        )
+        for start, round_refs in sorted(grouped.items())
+    ]
+
+
+def _period_outcome_rows(rows: list[dict[str, Any]]) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
+    outcome_refs: dict[str, list[str]] = defaultdict(list)
+    for row in rows:
+        hole_pars = str(row.get("holePars") or "")
+        for hole in row.get("holes") or []:
+            number = int(hole.get("number") or 0)
+            par = _hole_to_par(hole, _par_from_string(hole_pars, number))
+            score = hole.get("strokes")
+            if not number or par is None or score is None:
+                continue
+            try:
+                delta = int(score) - int(par)
+            except (TypeError, ValueError):
+                continue
+            key, _label, _class_name = _hole_score_bucket(delta)
+            outcomes[key] += 1
+            outcome_refs[key].append(_hole_ref(row, number))
+
+    total = sum(len(refs) for refs in outcome_refs.values())
+    rows_out = [
+        _with_aggregate_contract(
+            {
+                "key": key,
+                "label": label,
+                "className": class_name,
+                "count": len(outcome_refs.get(key, [])),
+                "pct": round(len(outcome_refs.get(key, [])) / total * 100, 1) if total else 0.0,
+                "holeRefs": outcome_refs.get(key, []),
+            },
+            outcome_refs.get(key, []),
+            total=total,
+        )
+        for key, label, class_name in [
+            ("eagleOrBetter", "Eagle+", "eagle"),
+            ("birdie", "Birdie", "birdie"),
+            ("par", "Par", "par"),
+            ("bogey", "Bogey", "bogey"),
+            ("doubleOrWorse", "Double+", "double"),
+        ]
+    ]
+    return (
+        {
+            **dict(outcomes),
+            "parOrBetter": outcomes["eagleOrBetter"] + outcomes["birdie"] + outcomes["par"],
+            "bogeyOrWorse": outcomes["bogey"] + outcomes["doubleOrWorse"],
+        },
+        rows_out,
+    )
+
+
+def _period_pack(key: str, rows: list[dict[str, Any]], *, total_rounds: int) -> dict[str, Any]:
+    date_sorted_rows = sorted(rows, key=lambda row: (str(row.get("date") or ""), _round_id(row)))
+    round_ids = [_round_id(row) for row in rows]
+    scores18 = [score for row in rows if (score := _score18(row)) is not None]
+    score_entries = [(score, _round_id(row)) for row in rows if (score := _score18(row)) is not None]
+    to_par18 = [value for row in rows if (value := _to_par18(row)) is not None]
+    outcomes, outcome_rows = _period_outcome_rows(rows)
+    dates = [str(row.get("date")) for row in date_sorted_rows if row.get("date")]
+    best_round = min((row for row in rows if _score18(row) is not None), key=lambda row: _score18(row) or 10_000, default=None)
+    worst_round = max((row for row in rows if _score18(row) is not None), key=lambda row: _score18(row) or -1, default=None)
+    return _with_aggregate_contract(
+        {
+            "key": key,
+            "year": key if len(key) == 4 else None,
+            "roundCount": len(rows),
+            "eighteenHoleRounds": len(scores18),
+            "nineHoleRounds": sum(1 for row in rows if row.get("holesCompleted") == 9),
+            "average18": average(scores18),
+            "median18": round(float(median(scores18)), 1) if scores18 else None,
+            "bestScore": min(scores18) if scores18 else None,
+            "worstScore": max(scores18) if scores18 else None,
+            "averageToPar18": average(to_par18),
+            "bestRoundRef": _round_id(best_round) if best_round is not None else None,
+            "worstRoundRef": _round_id(worst_round) if worst_round is not None else None,
+            "firstDate": dates[0] if dates else None,
+            "lastDate": dates[-1] if dates else None,
+            "roundIds": round_ids,
+            "roundRefs": round_ids,
+            "scoreBands": _period_score_bands(score_entries),
+            "scoreHistogram": _period_score_histogram(score_entries),
+            "outcomes": outcomes,
+            "outcomeRows": outcome_rows,
+        },
+        round_ids,
+        total=total_rounds,
+        confidence_count=len(round_ids),
+    )
+
+
 def _time_stats(data: HistoryData) -> dict[str, Any]:
     by_year: dict[str, list[dict[str, Any]]] = defaultdict(list)
     by_month: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -338,27 +496,6 @@ def _time_stats(data: HistoryData) -> dict[str, Any]:
         else:
             by_quarter["unknown"].append(row)
 
-    def pack(key: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
-        scores18 = [
-            int(row["strokes"])
-            for row in rows
-            if row.get("holesCompleted") == 18 and row.get("strokes") is not None
-        ]
-        round_ids = [_round_id(row) for row in rows]
-        return _with_aggregate_contract(
-            {
-                "key": key,
-                "year": key if len(key) == 4 else None,
-                "roundCount": len(rows),
-                "average18": average(scores18),
-                "bestScore": min(scores18) if scores18 else None,
-                "roundIds": round_ids,
-                "roundRefs": round_ids,
-            },
-            round_ids,
-            total=len(data.rounds),
-        )
-
     known_months = [key for key in sorted(by_month) if key != "unknown"]
     most_active_month = None
     if known_months:
@@ -366,9 +503,9 @@ def _time_stats(data: HistoryData) -> dict[str, Any]:
         most_active_month = {"key": most_active_key, "roundCount": len(by_month[most_active_key])}
 
     return {
-        "byYear": [pack(key, by_year[key]) for key in sorted(by_year, reverse=True)],
-        "byQuarter": [pack(key, by_quarter[key]) for key in sorted(by_quarter, reverse=True)],
-        "byMonth": [pack(key, by_month[key]) for key in sorted(by_month, reverse=True)],
+        "byYear": [_period_pack(key, by_year[key], total_rounds=len(data.rounds)) for key in sorted(by_year, reverse=True)],
+        "byQuarter": [_period_pack(key, by_quarter[key], total_rounds=len(data.rounds)) for key in sorted(by_quarter, reverse=True)],
+        "byMonth": [_period_pack(key, by_month[key], total_rounds=len(data.rounds)) for key in sorted(by_month, reverse=True)],
         "improvement": _improvement_stats(data),
         "playFrequency": {
             "totalMonths": len(known_months),

@@ -82,6 +82,42 @@ function AggregateMeta({ row }: { row: Record<string, unknown> }) {
   )
 }
 
+function nonzeroRows(value: unknown, limit: number) {
+  return asRows(value)
+    .filter((row) => (asNumber(row.count) ?? 0) > 0)
+    .slice(0, limit)
+}
+
+function PeriodEvidence({ row, onSelectRef }: { row: Record<string, unknown>; onSelectRef?: (sourceRef: string) => void }) {
+  const bands = nonzeroRows(row.scoreBands, 2)
+  const histogram = nonzeroRows(row.scoreHistogram, 2)
+  const outcomes = nonzeroRows(row.outcomeRows, 2)
+  return (
+    <span className="period-detail">
+      {asNumber(row.eighteenHoleRounds) !== null ? <span className="fact-chip muted">18H {displayNumber(row.eighteenHoleRounds)}</span> : null}
+      {asNumber(row.nineHoleRounds) !== null ? <span className="fact-chip muted">9H {displayNumber(row.nineHoleRounds)}</span> : null}
+      {asNumber(row.median18) !== null ? <span className="fact-chip muted">median {displayNumber(row.median18)}</span> : null}
+      {asNumber(row.worstScore) !== null ? <span className="fact-chip muted">worst {displayNumber(row.worstScore)}</span> : null}
+      {bands.map((band) => (
+        <span key={`band-${asString(band.label) ?? 'band'}`} className={`fact-chip score-${asString(band.className) ?? 'par'}`}>
+          {asString(band.label) ?? 'band'} {displayNumber(band.count)}
+        </span>
+      ))}
+      {histogram.map((bucket) => (
+        <span key={`bucket-${asString(bucket.label) ?? 'bucket'}`} className="fact-chip muted">
+          {asString(bucket.label) ?? 'bucket'} {displayNumber(bucket.count)}
+        </span>
+      ))}
+      {outcomes.map((outcome) => (
+        <span key={`outcome-${asString(outcome.key) ?? asString(outcome.label) ?? 'outcome'}`} className={`fact-chip score-${asString(outcome.className) ?? 'par'}`}>
+          {asString(outcome.label) ?? 'Outcome'} {displayNumber(outcome.count)}
+        </span>
+      ))}
+      <SourceRefs refs={refsFor(row)} onSelectRef={onSelectRef} />
+    </span>
+  )
+}
+
 function phaseFact(row: Record<string, unknown>) {
   const phase = asString(row.phase)
   if (phase === 'Approach' && asNumber(row.girPct) !== null) return `GIR ${displayNumber(row.girPct)}%`
@@ -281,7 +317,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <div key={asString(year.key) ?? asString(year.year) ?? 'unknown'} className="stat-row">
                 <span>{asString(year.year) ?? asString(year.key) ?? 'Unknown'}</span>
                 <b>{roundLabel(year.roundCount)}</b>
-                <SourceRefs refs={refsFor(year)} onSelectRef={onSelectRef} />
+                <PeriodEvidence row={year} onSelectRef={onSelectRef} />
               </div>
             ))}
           </div>
@@ -361,7 +397,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <div key={asString(month.key) ?? 'unknown'} className="stat-row">
                 <span>{asString(month.key) ?? 'Unknown'}</span>
                 <b>avg {displayNumber(month.average18)}</b>
-                <SourceRefs refs={month.roundRefs ?? month.roundIds} onSelectRef={onSelectRef} />
+                <PeriodEvidence row={month} onSelectRef={onSelectRef} />
               </div>
             ))}
           </div>
@@ -379,7 +415,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <div key={asString(quarter.key) ?? 'unknown'} className="stat-row">
                 <span>{asString(quarter.key) ?? 'Unknown'}</span>
                 <b>{roundLabel(quarter.roundCount)}</b>
-                <SourceRefs refs={refsFor(quarter)} onSelectRef={onSelectRef} />
+                <PeriodEvidence row={quarter} onSelectRef={onSelectRef} />
               </div>
             ))}
           </div>

@@ -22,13 +22,58 @@ const statsFixture: HistoryStatsResponse = {
     shotCount: 6,
   },
   time: {
-    byYear: [{ key: '2026', year: '2026', roundCount: 3, average18: 82, bestScore: 77, roundIds: ['900001', '900002', '900003'] }],
+    byYear: [
+      {
+        key: '2026',
+        year: '2026',
+        roundCount: 3,
+        eighteenHoleRounds: 2,
+        nineHoleRounds: 1,
+        average18: 82,
+        median18: 82,
+        bestScore: 77,
+        worstScore: 95,
+        roundIds: ['900001', '900002', '900003'],
+        scoreBands: [
+          { label: '70s', count: 1, pct: 50, className: 'eagle', roundRefs: ['900001'] },
+          { label: '80s', count: 1, pct: 50, className: 'birdie', roundRefs: ['900002'] },
+        ],
+        scoreHistogram: [{ label: '80-84', count: 1, roundRefs: ['900002'] }],
+        outcomeRows: [{ key: 'par', label: 'Par', className: 'par', count: 20, pct: 44.4, holeRefs: ['900003:3'] }],
+      },
+    ],
     byQuarter: [
-      { key: '2026-Q2', roundCount: 2, average18: 82, bestScore: 77, roundIds: ['900001', '900002'] },
+      {
+        key: '2026-Q2',
+        roundCount: 2,
+        eighteenHoleRounds: 1,
+        nineHoleRounds: 1,
+        average18: 82,
+        median18: 82,
+        bestScore: 77,
+        worstScore: 87,
+        roundIds: ['900001', '900002'],
+        scoreBands: [{ label: '80s', count: 1, pct: 100, className: 'birdie', roundRefs: ['900002'] }],
+        scoreHistogram: [{ label: '80-84', count: 1, roundRefs: ['900002'] }],
+        outcomeRows: [{ key: 'birdie', label: 'Birdie', className: 'birdie', count: 4, pct: 8.9, holeRefs: ['900002:2'] }],
+      },
       { key: '2026-Q1', roundCount: 1, average18: null, bestScore: null, roundIds: ['900003'] },
     ],
     byMonth: [
-      { key: '2026-05', roundCount: 1, average18: 77, bestScore: 77 },
+      {
+        key: '2026-05',
+        roundCount: 1,
+        eighteenHoleRounds: 1,
+        nineHoleRounds: 0,
+        average18: 77,
+        median18: 77,
+        bestScore: 77,
+        worstScore: 77,
+        roundRefs: ['900001'],
+        scoreBands: [{ label: '70s', count: 1, pct: 100, className: 'eagle', roundRefs: ['900001'] }],
+        scoreHistogram: [{ label: '75-79', count: 1, roundRefs: ['900001'] }],
+        outcomeRows: [{ key: 'eagleOrBetter', label: 'Eagle+', className: 'eagle', count: 1, pct: 2.2, holeRefs: ['900001:9'] }],
+      },
       { key: '2026-04', roundCount: 1, average18: 87, bestScore: 87 },
     ],
     playFrequency: { totalMonths: 3, roundsPerMonth: 1, mostActiveMonth: { key: '2026-05', roundCount: 1 } },
@@ -194,6 +239,14 @@ describe('StatsOverview', () => {
     expect(screen.getByRole('heading', { name: 'Year Summary' })).toBeInTheDocument()
     expect(screen.getByText('2026')).toBeInTheDocument()
     expect(screen.getAllByText('3 rounds').length).toBeGreaterThan(0)
+    const yearSummary = screen.getByLabelText('Year summary')
+    expect(within(yearSummary).getByText('18H 2')).toBeInTheDocument()
+    expect(within(yearSummary).getByText('9H 1')).toBeInTheDocument()
+    expect(within(yearSummary).getByText('median 82')).toBeInTheDocument()
+    expect(within(yearSummary).getByText('worst 95')).toBeInTheDocument()
+    expect(within(yearSummary).getByText('70s 1')).toHaveClass('score-eagle')
+    expect(within(yearSummary).getByText('80-84 1')).toBeInTheDocument()
+    expect(within(yearSummary).getByText('Par 20')).toHaveClass('score-par')
     expect(screen.getByRole('heading', { name: 'Score Outcomes' })).toBeInTheDocument()
     expect(screen.getByText('Eagle+')).toBeInTheDocument()
     expect(screen.getByText('Birdie')).toBeInTheDocument()
@@ -221,6 +274,10 @@ describe('StatsOverview', () => {
     expect(screen.getByRole('heading', { name: 'Quarter Trend' })).toBeInTheDocument()
     expect(screen.getByText('2026-Q2')).toBeInTheDocument()
     expect(screen.getAllByText('2 rounds').length).toBeGreaterThan(0)
+    const quarterTrend = screen.getByLabelText('Quarter trend')
+    expect(within(quarterTrend).getByText('median 82')).toBeInTheDocument()
+    expect(within(quarterTrend).getByText('80s 1')).toHaveClass('score-birdie')
+    expect(within(quarterTrend).getByText('Birdie 4')).toHaveClass('score-birdie')
     expect(screen.getByRole('heading', { name: 'Play Frequency' })).toBeInTheDocument()
     expect(screen.getByText('1 rounds/mo')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Phase Stats' })).toBeInTheDocument()

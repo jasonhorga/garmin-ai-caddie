@@ -979,12 +979,22 @@ p {
 }
 
 .record-evidence,
-.aggregate-meta {
+.aggregate-meta,
+.period-detail {
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   align-items: center;
+}
+
+.period-detail .score-eagle,
+.period-detail .score-birdie,
+.period-detail .score-par,
+.period-detail .score-bogey,
+.period-detail .score-double {
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .score-outcome-grid {

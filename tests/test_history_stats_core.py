@@ -32,6 +32,76 @@ def improvement_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=[])
 
 
+def period_distribution_history_data() -> HistoryData:
+    rounds = [
+        {
+            "id": "period-1",
+            "date": "2026-01-05",
+            "course": "Period Course",
+            "courseKey": "period_course",
+            "holesCompleted": 18,
+            "strokes": 89,
+            "par": 72,
+            "holePars": "444",
+            "holes": [
+                {"number": 1, "strokes": 4, "par": 4},
+                {"number": 2, "strokes": 5, "par": 4},
+                {"number": 3, "strokes": 6, "par": 4},
+            ],
+            "hasShots": True,
+        },
+        {
+            "id": "period-2",
+            "date": "2026-02-10",
+            "course": "Period Course",
+            "courseKey": "period_course",
+            "holesCompleted": 18,
+            "strokes": 81,
+            "par": 72,
+            "holePars": "445",
+            "holes": [
+                {"number": 1, "strokes": 3, "par": 4},
+                {"number": 2, "strokes": 4, "par": 4},
+                {"number": 3, "strokes": 6, "par": 5},
+            ],
+            "hasShots": True,
+        },
+        {
+            "id": "period-3",
+            "date": "2026-04-01",
+            "course": "Period Course",
+            "courseKey": "period_course",
+            "holesCompleted": 18,
+            "strokes": 78,
+            "par": 72,
+            "holePars": "445",
+            "holes": [
+                {"number": 1, "strokes": 2, "par": 4},
+                {"number": 2, "strokes": 4, "par": 4},
+                {"number": 3, "strokes": 6, "par": 5},
+            ],
+            "hasShots": True,
+        },
+        {
+            "id": "period-4",
+            "date": "2026-04-20",
+            "course": "Period Course",
+            "courseKey": "period_course",
+            "holesCompleted": 9,
+            "strokes": 39,
+            "par": 36,
+            "holePars": "445",
+            "holes": [
+                {"number": 1, "strokes": 4, "par": 4},
+                {"number": 2, "strokes": 3, "par": 4},
+                {"number": 3, "strokes": 5, "par": 5},
+            ],
+            "hasShots": True,
+        },
+    ]
+    return HistoryData(raw_rounds=[{"id": row["id"], "hasShots": True} for row in rounds], rounds=rounds, shots=[])
+
+
 def issue_detection_history_data() -> HistoryData:
     round_row = {
         "id": "issues-1",
@@ -942,6 +1012,65 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(improvement["strokesPerRoundTrend"], -3.03)
         self.assertEqual(improvement["baselineRoundRefs"], ["improve-1", "improve-2", "improve-3"])
         self.assertEqual(improvement["recentRoundRefs"], ["improve-4", "improve-5", "improve-6"])
+
+    def test_period_rows_expose_distribution_outcomes_and_source_quality(self) -> None:
+        stats = build_history_stats(period_distribution_history_data(), data_mode="fixture")
+
+        year = stats["time"]["byYear"][0]
+        self.assertEqual(year["key"], "2026")
+        self.assertEqual(year["roundCount"], 4)
+        self.assertEqual(year["eighteenHoleRounds"], 3)
+        self.assertEqual(year["nineHoleRounds"], 1)
+        self.assertEqual(year["average18"], 82.7)
+        self.assertEqual(year["median18"], 81.0)
+        self.assertEqual(year["bestScore"], 78)
+        self.assertEqual(year["worstScore"], 89)
+        self.assertEqual(year["sourceRefs"], ["period-1", "period-2", "period-3", "period-4"])
+        self.assertEqual(year["coverage"], {"ready": 4, "total": 4, "pct": 100.0})
+        self.assertEqual(year["confidence"], "medium")
+
+        q1 = next(row for row in stats["time"]["byQuarter"] if row["key"] == "2026-Q1")
+        self.assertEqual(q1["roundCount"], 2)
+        self.assertEqual(q1["eighteenHoleRounds"], 2)
+        self.assertEqual(q1["nineHoleRounds"], 0)
+        self.assertEqual(q1["average18"], 85.0)
+        self.assertEqual(q1["median18"], 85.0)
+        self.assertEqual(q1["bestScore"], 81)
+        self.assertEqual(q1["worstScore"], 89)
+        self.assertEqual(q1["roundRefs"], ["period-1", "period-2"])
+        self.assertEqual(q1["coverage"], {"ready": 2, "total": 4, "pct": 50.0})
+
+        q1_bands = {row["label"]: row for row in q1["scoreBands"]}
+        self.assertEqual(q1_bands["80s"]["count"], 2)
+        self.assertEqual(q1_bands["80s"]["pct"], 100.0)
+        self.assertEqual(q1_bands["80s"]["roundRefs"], ["period-1", "period-2"])
+        self.assertEqual(q1_bands["80s"]["coverage"], {"ready": 2, "total": 2, "pct": 100.0})
+        self.assertEqual(q1_bands["80s"]["confidence"], "medium")
+
+        q1_histogram = {row["label"]: row for row in q1["scoreHistogram"]}
+        self.assertEqual(q1_histogram["80-84"]["roundRefs"], ["period-2"])
+        self.assertEqual(q1_histogram["85-89"]["roundRefs"], ["period-1"])
+
+        q1_outcomes = {row["key"]: row for row in q1["outcomeRows"]}
+        self.assertEqual(q1_outcomes["birdie"]["holeRefs"], ["period-2:1"])
+        self.assertEqual(q1_outcomes["par"]["count"], 2)
+        self.assertEqual(q1_outcomes["bogey"]["count"], 2)
+        self.assertEqual(q1_outcomes["doubleOrWorse"]["holeRefs"], ["period-1:3"])
+        self.assertEqual(q1_outcomes["doubleOrWorse"]["coverage"], {"ready": 1, "total": 6, "pct": 16.7})
+
+        april = next(row for row in stats["time"]["byMonth"] if row["key"] == "2026-04")
+        self.assertEqual(april["roundCount"], 2)
+        self.assertEqual(april["eighteenHoleRounds"], 1)
+        self.assertEqual(april["nineHoleRounds"], 1)
+        self.assertEqual(april["average18"], 78.0)
+        self.assertEqual(april["median18"], 78.0)
+        self.assertEqual(april["roundRefs"], ["period-3", "period-4"])
+        april_bands = {row["label"]: row for row in april["scoreBands"]}
+        self.assertEqual(april_bands["70s"]["count"], 1)
+        self.assertEqual(april_bands["70s"]["roundRefs"], ["period-3"])
+        april_outcomes = {row["key"]: row for row in april["outcomeRows"]}
+        self.assertEqual(april_outcomes["eagleOrBetter"]["holeRefs"], ["period-3:1"])
+        self.assertEqual(april_outcomes["birdie"]["holeRefs"], ["period-4:2"])
 
     def test_diagnosis_ranks_recent_issue_trends_by_estimated_strokes_lost(self) -> None:
         with TemporaryDirectory() as tmp:
