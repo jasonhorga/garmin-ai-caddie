@@ -2506,15 +2506,31 @@ def _safe_manual_notes(analysis: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(note, dict):
             continue
         text = str(note.get("note") or note.get("text") or "").strip()
-        if not text:
-            continue
         safe_note = {
             "kind": _redact_decision_text(note.get("kind") or "manual_note"),
             "note": _redact_decision_text(text),
         }
+        has_content = bool(text)
         target = _safe_ref(note.get("targetId"))
         if target:
             safe_note["targetId"] = target
+        preferred = _normalize_option_id(note.get("preferredOptionId") or note.get("preferredOption"))
+        if preferred:
+            safe_note["preferredOptionId"] = preferred
+            has_content = True
+        blocked = _ordered_option_ids(_option_ids_from_value(note.get("blockedOptionIds") or note.get("avoidOptionIds")))
+        if blocked:
+            safe_note["blockedOptionIds"] = blocked
+            has_content = True
+        for key in ("targetLine", "intendedTarget", "strategyMode"):
+            if note.get(key) is not None:
+                safe_note[key] = _redact_decision_text(note.get(key))
+                has_content = True
+        if note.get("acceptableMiss") is not None:
+            safe_note["acceptableMiss"] = _redact_decision_value(note.get("acceptableMiss"))
+            has_content = True
+        if not has_content:
+            continue
         rows.append(safe_note)
     return rows[:5]
 

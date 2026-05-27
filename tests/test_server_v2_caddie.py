@@ -242,7 +242,12 @@ class ServerV2CaddieTests(unittest.TestCase):
                 "hole",
                 "900001:7",
                 "strategy_note",
-                {"note": "Favor the center green line; short miss is playable."},
+                {
+                    "note": "Favor the center green line; short miss is playable.",
+                    "preferredOptionId": "stock",
+                    "blockedOptionIds": ["attack"],
+                    "targetLine": "center green",
+                },
                 root=root,
             )
             with patch("server_v2.caddie.ANNOTATION_ROOT", root, create=True):
@@ -261,6 +266,17 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertIn("approach_short", {row["issue"] for row in context["historicalHoleIssues"]})
         self.assertEqual(context["manualNotes"][0]["kind"], "strategy_note")
         self.assertIn("center green", context["manualNotes"][0]["note"])
+        self.assertEqual(context["manualNotes"][0]["preferredOptionId"], "stock")
+        self.assertEqual(context["manualNotes"][0]["blockedOptionIds"], ["attack"])
+        self.assertEqual(context["manualNotes"][0]["targetLine"], "center green")
+
+        decision_response = client.post("/api/v2/caddie/decision", json={"shotType": "approach", "context": context})
+
+        self.assertEqual(decision_response.status_code, 200)
+        decision = decision_response.json()
+        self.assertEqual(decision["selectedOptionId"], "stock")
+        self.assertEqual(decision["context"]["strategyConstraints"]["preferredOptionId"], "stock")
+        self.assertEqual(decision["context"]["manualNotes"][0]["blockedOptionIds"], ["attack"])
 
     def test_context_endpoint_binds_only_manually_confirmed_stored_vision_findings_to_decision_context(self) -> None:
         client = TestClient(app)

@@ -71,6 +71,32 @@ class ServerV2AnnotationTests(unittest.TestCase):
 
         self.assertEqual([response.status_code for response in responses], [200, 200, 200, 200])
 
+    def test_annotation_api_rejects_empty_or_malformed_corrections(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.annotations.ANNOTATION_ROOT", root):
+                responses = [
+                    client.post(
+                        "/api/v2/annotations",
+                        json={
+                            "targetType": "hole",
+                            "targetId": "round-1:7",
+                            "kind": kind,
+                            "payload": payload,
+                        },
+                    )
+                    for kind, payload in [
+                        ("score_correction", {}),
+                        ("putt_correction", {"to": -1}),
+                        ("penalty_correction", {"strokes": 0}),
+                        ("strategy_note", {"preferredOptionId": "hero"}),
+                    ]
+                ]
+
+        self.assertEqual([response.status_code for response in responses], [422, 422, 422, 422])
+
     def test_annotation_api_accepts_issue_tag_removal_and_rejects_invalid_removal_requests(self) -> None:
         client = TestClient(app)
 

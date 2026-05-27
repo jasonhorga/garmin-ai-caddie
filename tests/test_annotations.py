@@ -73,6 +73,49 @@ class AnnotationStoreTests(unittest.TestCase):
 
             self.assertEqual(list_annotations(root=root), [])
 
+    def test_rejects_empty_or_malformed_structured_corrections(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            invalid_cases = [
+                ("hole", "round-1:7", "hole_note", {}),
+                ("shot", "round-1:7:2", "club_correction", {"from": "8I"}),
+                ("shot", "round-1:7:2", "lie_correction", {"from": "rough"}),
+                ("hole", "round-1:7", "penalty_correction", {"strokes": 0}),
+                ("hole", "round-1:7", "putt_correction", {"to": -1}),
+                ("hole", "round-1:7", "score_correction", {"to": 0}),
+                ("hole", "round-1:7", "strategy_note", {}),
+                ("hole", "round-1:7", "strategy_note", {"preferredOptionId": "hero"}),
+                ("hole", "round-1:7", "strategy_note", {"blockedOptionIds": ["attack", "secret"]}),
+            ]
+
+            for target_type, target_id, kind, payload in invalid_cases:
+                with self.subTest(kind=kind, payload=payload):
+                    with self.assertRaises(ValueError):
+                        add_annotation(target_type, target_id, kind, payload, root=root)
+
+            self.assertEqual(list_annotations(root=root), [])
+
+    def test_strategy_note_accepts_structured_decision_constraints_without_free_text(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            record = add_annotation(
+                "hole",
+                "round-1:7",
+                "strategy_note",
+                {
+                    "preferredOptionId": "stock",
+                    "blockedOptionIds": ["attack"],
+                    "targetLine": "left center",
+                    "intendedTarget": "green_center",
+                },
+                root=root,
+            )
+
+        self.assertEqual(record["payload"]["preferredOptionId"], "stock")
+        self.assertEqual(record["payload"]["blockedOptionIds"], ["attack"])
+
     def test_issue_tag_removal_records_are_append_only(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

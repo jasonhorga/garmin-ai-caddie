@@ -413,16 +413,47 @@ def _manual_notes(
             continue
         payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
         note = payload.get("note") or payload.get("text") or payload.get("summary")
-        out.append(
-            {
-                "kind": record.get("kind"),
-                "targetType": record.get("targetType"),
-                "targetId": record.get("targetId"),
-                "note": str(note or "").strip(),
-                "source": "manual",
-            }
+        row: dict[str, Any] = {
+            "kind": record.get("kind"),
+            "targetType": record.get("targetType"),
+            "targetId": record.get("targetId"),
+            "note": str(note or "").strip(),
+            "source": "manual",
+        }
+        if record.get("kind") == "strategy_note":
+            row.update(_strategy_payload(payload))
+        out.append(row)
+    return [row for row in out if row["note"] or _has_strategy_payload(row)]
+
+
+def _strategy_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "preferredOptionId",
+        "preferredOption",
+        "blockedOptionIds",
+        "avoidOptionIds",
+        "targetLine",
+        "intendedTarget",
+        "strategyMode",
+        "acceptableMiss",
+    }
+    return {key: payload[key] for key in allowed if key in payload}
+
+
+def _has_strategy_payload(row: dict[str, Any]) -> bool:
+    return any(
+        key in row
+        for key in (
+            "preferredOptionId",
+            "preferredOption",
+            "blockedOptionIds",
+            "avoidOptionIds",
+            "targetLine",
+            "intendedTarget",
+            "strategyMode",
+            "acceptableMiss",
         )
-    return [row for row in out if row["note"]]
+    )
 
 
 def _vision_findings_for_context(

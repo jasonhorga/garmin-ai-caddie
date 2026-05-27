@@ -28,6 +28,9 @@ VALID_KINDS = {
     "caddie_feedback",
 }
 
+VALID_OPTION_IDS = {"safe", "stock", "attack"}
+NOTE_FIELDS = ("note", "text", "summary")
+
 
 def annotation_file(root: Path | str | None = None) -> Path:
     return Path(root or ".") / "data" / "annotations" / "annotations.jsonl"
@@ -46,6 +49,67 @@ def validate_annotation(target_type: str, kind: str, payload: dict[str, Any]) ->
         raise ValueError("annotation payload must be an object")
     if kind in {"issue_tag", "issue_tag_removed"} and not str(payload.get("tag") or "").strip():
         raise ValueError(f"{kind} payload.tag is required")
+    if kind in {"round_note", "hole_note", "shot_note", "weather_context_note"} and not _has_note_text(payload):
+        raise ValueError(f"{kind} payload note, text, or summary is required")
+    if kind == "strategy_note":
+        _validate_strategy_note_payload(payload)
+    if kind in {"club_correction", "lie_correction"} and not str(payload.get("to") or "").strip():
+        raise ValueError(f"{kind} payload.to is required")
+    if kind == "putt_correction":
+        _require_int_field(kind, payload, "to", minimum=0)
+    if kind == "score_correction":
+        _require_int_field(kind, payload, "to", minimum=1)
+    if kind == "penalty_correction":
+        _require_int_field(kind, payload, "strokes", minimum=1)
+
+
+def _has_note_text(payload: dict[str, Any]) -> bool:
+    return any(str(payload.get(field) or "").strip() for field in NOTE_FIELDS)
+
+
+def _int_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def _require_int_field(kind: str, payload: dict[str, Any], field: str, *, minimum: int) -> None:
+    value = _int_value(payload.get(field))
+    if value is None or value < minimum:
+        raise ValueError(f"{kind} payload.{field} must be an integer >= {minimum}")
+
+
+def _option_ids_from_payload(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_values = [value]
+    elif isinstance(value, list):
+        raw_values = value
+    else:
+        raise ValueError("strategy_note option ids must be a string or string array")
+    option_ids: list[str] = []
+    for item in raw_values:
+        option_id = str(item or "").strip().lower()
+        if option_id not in VALID_OPTION_IDS:
+            raise ValueError("strategy_note option ids must be safe, stock, or attack")
+        if option_id not in option_ids:
+            option_ids.append(option_id)
+    return option_ids
+
+
+def _validate_strategy_note_payload(payload: dict[str, Any]) -> None:
+    preferred = payload.get("preferredOptionId") or payload.get("preferredOption")
+    blocked = payload.get("blockedOptionIds") if payload.get("blockedOptionIds") is not None else payload.get("avoidOptionIds")
+    preferred_ids = _option_ids_from_payload(str(preferred)) if preferred is not None else []
+    blocked_ids = _option_ids_from_payload(blocked)
+    has_structured_constraint = bool(preferred_ids or blocked_ids)
+    if not _has_note_text(payload) and not has_structured_constraint:
+        raise ValueError("strategy_note payload note/text/summary or structured option constraint is required")
 
 
 def _redact_payload(value: Any) -> Any:
