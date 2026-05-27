@@ -561,6 +561,7 @@ function DecisionDetail({
         })}
       </div>
 
+      <DecisionAcceptableMiss decision={decision} onSelectRef={onSelectRef} />
       <DecisionSequences sequences={decision.sequences ?? []} selectedSequence={decision.selectedSequence ?? null} />
       <DecisionExplanation explanation={decision.explanation} onSelectRef={onSelectRef} />
 
@@ -687,6 +688,43 @@ function DecisionSequences({
             </article>
           )
         })}
+      </div>
+    </section>
+  )
+}
+
+function DecisionAcceptableMiss({
+  decision,
+  onSelectRef,
+}: {
+  decision: CaddieDecisionResponse
+  onSelectRef: (sourceRef: string) => void
+}) {
+  const miss = recordFrom(decision.acceptableMiss)
+  if (!Object.keys(miss).length) return null
+
+  const direction = stringValue(miss.direction) || stringValue(miss.side) || 'unknown'
+  const selectedOptionId = stringValue(miss.selectedOptionId) || stringValue(decision.selectedOptionId) || 'unknown option'
+  const avoidRiskKinds = stringRows(miss.avoidRiskKinds)
+  const rationale = stringValue(miss.rationale) || stringValue(miss.reason)
+  const refs = uniqueStrings([...rowSourceRefs(miss), ...stringRows(decision.evidenceRefs), ...(decision.sourceRef ? [decision.sourceRef] : [])])
+
+  return (
+    <section className="decision-acceptable-miss" aria-label="Decision acceptable miss">
+      <div className="report-title-row">
+        <div>
+          <p className="eyebrow">Target discipline</p>
+          <h3>Acceptable Miss</h3>
+        </div>
+        <span className="fact-chip muted">{selectedOptionId}</span>
+      </div>
+      <div className="decision-miss-summary">
+        <strong>{formatMissDirection(direction)}</strong>
+        <span>{rationale || 'No rationale supplied.'}</span>
+      </div>
+      <div className="decision-option-chips">
+        {avoidRiskKinds.length ? <span className="fact-chip muted">avoid {avoidRiskKinds.join(', ')}</span> : null}
+        <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
       </div>
     </section>
   )
@@ -926,12 +964,24 @@ function explanationSourceRefs(row: Record<string, unknown>): string[] {
 }
 
 function rowSourceRefs(row: Record<string, unknown>): string[] {
-  return [
+  return uniqueStrings([
     ...stringRows(row.sourceRefs),
     ...stringRows(row.refs),
     ...stringRows(row.evidenceRefs),
     ...stringRows(row.missingDataRefs),
-  ].filter((ref, index, refs) => refs.indexOf(ref) === index)
+  ])
+}
+
+function uniqueStrings(rows: string[]): string[] {
+  return rows.filter((row, index, refs) => row && refs.indexOf(row) === index)
+}
+
+function formatMissDirection(value: string): string {
+  return value
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }
 
 function explanationRowText(row: Record<string, unknown>): string {

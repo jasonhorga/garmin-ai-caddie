@@ -68,7 +68,12 @@ const decision: CaddieDecisionResponse = {
   selectedSequence: { id: 'stock', label: '1D-3W-58', expectedStrokes: 3, expectedRemaining_m: -21, riskScore: 2 },
   avoidZones: [{ kind: 'water', id: 'water_front' }],
   forbiddenZones: [],
-  acceptableMiss: { side: 'long' },
+  acceptableMiss: {
+    direction: 'away_from_known_risks',
+    selectedOptionId: 'stock',
+    avoidRiskKinds: ['water'],
+    rationale: "miss toward the side that avoids the selected route's known risk kinds",
+  },
   evidence: [{ label: 'water_front', value: 'carry 126m' }, { kind: 'sequence', text: 'Normal three-shot plan: 1D-3W-58' }],
   confidence: { level: 'medium', reason: 'fixture data' },
   missingData: [{ label: 'wind', reason: 'not cached' }],
@@ -344,6 +349,12 @@ describe('CaddiePage', () => {
     expect(screen.getByText('distance -1m')).toBeInTheDocument()
     expect(screen.getByText('risk no')).toBeInTheDocument()
     expect(screen.getByText('Keep the strategic option, but track whether this miss pattern repeats.')).toBeInTheDocument()
+    const acceptableMiss = screen.getByLabelText('Decision acceptable miss')
+    expect(within(acceptableMiss).getByRole('heading', { name: 'Acceptable Miss' })).toBeInTheDocument()
+    expect(within(acceptableMiss).getByText('Away From Known Risks')).toBeInTheDocument()
+    expect(within(acceptableMiss).getByText('stock')).toBeInTheDocument()
+    expect(within(acceptableMiss).getByText('avoid water')).toBeInTheDocument()
+    expect(within(acceptableMiss).getByText("miss toward the side that avoids the selected route's known risk kinds")).toBeInTheDocument()
     const explanationPanel = screen.getByLabelText('Decision explanation')
     expect(within(explanationPanel).getByRole('heading', { name: 'Decision Explanation' })).toBeInTheDocument()
     expect(within(explanationPanel).getByText('Use Stock because the water carry and missing wind are visible in the structured facts.')).toBeInTheDocument()

@@ -2950,6 +2950,32 @@ p {
   margin-top: 10px;
 }
 
+.decision-acceptable-miss {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf8;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.decision-miss-summary {
+  display: grid;
+  gap: 4px;
+}
+
+.decision-miss-summary strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.decision-miss-summary span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
 .decision-sequences {
   display: grid;
   gap: 10px;
