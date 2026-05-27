@@ -15,6 +15,8 @@ from .sync_status import load_sync_status_response
 LIVE_ROUND_PACKAGE_CONTRACT = Path("mobile/contracts/live_round_package.schema.json")
 LIVE_ROUND_EVENT_CONTRACT = Path("mobile/contracts/live_round_event.schema.json")
 SMOKE_SCRIPT = Path("ops/smoke_private_trial.sh")
+BACKUP_SCRIPT = Path("ops/backup_data.sh")
+BACKUP_MANIFEST = Path("backups/latest.json")
 
 VISION_CONFIRMATION_STATES = ["unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"]
 
@@ -57,6 +59,25 @@ def _smoke_covers() -> list[str]:
         "media_context": "/api/v2/media",
     }
     return [label for label, needle in checks.items() if needle in script]
+
+
+def _latest_backup() -> dict[str, Any] | None:
+    if not BACKUP_MANIFEST.exists():
+        return None
+    try:
+        payload = json.loads(BACKUP_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"state": "unreadable"}
+    if not isinstance(payload, dict):
+        return {"state": "invalid"}
+    snapshot = str(payload.get("snapshot") or "")
+    snapshot_path = Path(snapshot)
+    return {
+        "schema": payload.get("schema"),
+        "snapshot": snapshot_path.name if snapshot_path.is_absolute() else snapshot,
+        "createdAt": payload.get("createdAt"),
+        "sizeBytes": payload.get("sizeBytes"),
+    }
 
 
 def _native_mobile_check() -> dict[str, Any]:
@@ -262,6 +283,9 @@ def build_readiness_response() -> dict[str, Any]:
                 "deploymentManifests": deployment_manifests,
                 "smokeCommand": SMOKE_SCRIPT.as_posix(),
                 "smokeCovers": _smoke_covers(),
+                "backupCommand": BACKUP_SCRIPT.as_posix(),
+                "backupManifest": BACKUP_MANIFEST.as_posix(),
+                "lastBackup": _latest_backup(),
                 "redactionPolicy": "no credential material or private filesystem paths in status responses",
                 "missing": missing_ops,
             },

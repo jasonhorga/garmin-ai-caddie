@@ -87,6 +87,9 @@ class ServerV2ReadinessTests(unittest.TestCase):
 
         operations = checks["operations"]["evidence"]
         self.assertEqual(operations["smokeCommand"], "ops/smoke_private_trial.sh")
+        self.assertEqual(operations["backupCommand"], "ops/backup_data.sh")
+        self.assertEqual(operations["backupManifest"], "backups/latest.json")
+        self.assertIn("lastBackup", operations)
         self.assertGreaterEqual(
             set(operations["smokeCovers"]),
             {"readiness", "mobile_package", "caddie_decision", "reports", "media_context"},

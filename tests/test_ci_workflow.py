@@ -45,6 +45,16 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("/api/v2/media/target/round/900001", text)
         self.assertNotIn('"POST",\n    "/api/v2/media"', text)
 
+    def test_backup_script_records_latest_manifest(self) -> None:
+        script = Path("ops/backup_data.sh")
+        text = script.read_text(encoding="utf-8")
+
+        self.assertIn("ops/export_snapshot.py", text)
+        self.assertIn("latest.json", text)
+        self.assertIn("ai-caddie-backup-manifest-v1", text)
+        self.assertIn("sizeBytes", text)
+        self.assertIn("createdAt", text)
+
     def test_frontend_lint_ignores_generated_playwright_artifacts(self) -> None:
         config = Path("web_v2/eslint.config.js").read_text(encoding="utf-8")
 
