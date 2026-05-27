@@ -8,6 +8,26 @@ interface IssueStatsProps {
   onSelectRef?: (sourceRef: string) => void
 }
 
+function TrendContextFacts({ row }: { row: Record<string, unknown> }) {
+  const baselineCount = asNumber(row.baselineCount)
+  const recentCount = asNumber(row.recentCount)
+  const baselineRate = asNumber(row.baselineRatePerRound)
+  const recentRate = asNumber(row.recentRatePerRound)
+
+  return (
+    <>
+      {baselineCount !== null ? <span>baseline {formatNumber(baselineCount)}</span> : null}
+      {recentCount !== null ? <span>recent {formatNumber(recentCount)}</span> : null}
+      {baselineRate !== null || recentRate !== null ? (
+        <span>
+          rate {formatNumber(baselineRate)} -&gt; {formatNumber(recentRate)}/round
+        </span>
+      ) : null}
+      <AggregateEvidence row={row} showReason={false} />
+    </>
+  )
+}
+
 export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
   const issueTrends = asRows(data.diagnosis?.issueTrends)
   const auditDiagnosis = asRecord(data.diagnosis?.decisionAuditTrends)
@@ -45,6 +65,7 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
                   </div>
                   <div className="stats-item-facts">
                     {asString(trend.phase) ? <span>{asString(trend.phase)}</span> : null}
+                    <TrendContextFacts row={trend} />
                     {asString(trend.direction) ? (
                       <span className={`semantic-chip ${semanticClass('trend', trend.direction)}`}>
                         {asString(trend.direction)}
@@ -102,6 +123,7 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
                   </div>
                   <div className="stats-item-facts">
                     {asString(row.phase) ? <span>{asString(row.phase)}</span> : null}
+                    <TrendContextFacts row={row} />
                     {asString(row.direction) ? (
                       <span className={`semantic-chip ${semanticClass('trend', row.direction)}`}>
                         {asString(row.direction)}

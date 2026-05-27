@@ -717,27 +717,31 @@ def _diagnosis(data: HistoryData, issue_rows: list[dict[str, Any]]) -> dict[str,
         estimated_impact = round(delta_count * weight, 1)
         sources = sorted(row["sources"])
         trends.append(
-            {
-                "issue": issue,
-                "phase": row.get("phase"),
-                "reason": row.get("reason"),
-                "source": sources[0] if len(sources) == 1 else "mixed",
-                "sources": sources,
-                "confidence": _confidence(len(refs)),
-                "baselineCount": baseline_count,
-                "recentCount": recent_count,
-                "deltaCount": delta_count,
-                "baselineRatePerRound": round(baseline_count / window_size, 2) if window_size else 0.0,
-                "recentRatePerRound": round(recent_count / window_size, 2) if window_size else 0.0,
-                "deltaRatePerRound": round(delta_count / window_size, 2) if window_size else 0.0,
-                "strokeWeight": weight,
-                "estimatedStrokesImpact": estimated_impact,
-                "estimatedStrokesLost": round(max(0.0, estimated_impact), 1),
-                "direction": _diagnosis_direction(baseline_count, recent_count),
-                "baselineRefs": baseline_refs,
-                "recentRefs": recent_refs,
-                "sourceRefs": refs,
-            }
+            _with_aggregate_contract(
+                {
+                    "issue": issue,
+                    "phase": row.get("phase"),
+                    "reason": row.get("reason"),
+                    "source": sources[0] if len(sources) == 1 else "mixed",
+                    "sources": sources,
+                    "baselineCount": baseline_count,
+                    "recentCount": recent_count,
+                    "deltaCount": delta_count,
+                    "baselineRatePerRound": round(baseline_count / window_size, 2) if window_size else 0.0,
+                    "recentRatePerRound": round(recent_count / window_size, 2) if window_size else 0.0,
+                    "deltaRatePerRound": round(delta_count / window_size, 2) if window_size else 0.0,
+                    "strokeWeight": weight,
+                    "estimatedStrokesImpact": estimated_impact,
+                    "estimatedStrokesLost": round(max(0.0, estimated_impact), 1),
+                    "direction": _diagnosis_direction(baseline_count, recent_count),
+                    "baselineRefs": baseline_refs,
+                    "recentRefs": recent_refs,
+                },
+                refs,
+                ready=len(refs),
+                total=len(refs),
+                confidence_count=len(refs),
+            )
         )
 
     trends.sort(

@@ -34,9 +34,13 @@ const statsFixture: HistoryStatsResponse = {
         recentCount: 3,
         baselineCount: 0,
         deltaCount: 3,
+        baselineRatePerRound: 0,
+        recentRatePerRound: 1,
         estimatedStrokesLost: 3,
         recentRefs: ['900004:7', '900005:7', '900006:7'],
         sourceRefs: ['900004:7', '900005:7', '900006:7'],
+        coverage: { ready: 3, total: 3, pct: 100 },
+        confidence: 'medium',
       },
     ],
     decisionAuditTrends: {
@@ -54,10 +58,16 @@ const statsFixture: HistoryStatsResponse = {
           classification: 'strategy',
           phase: 'tee_shot',
           direction: 'new',
+          baselineCount: 0,
+          recentCount: 1,
+          baselineRatePerRound: 0,
+          recentRatePerRound: 0.33,
           deltaCount: 1,
           estimatedStrokesLost: 1.2,
           recentRefs: ['900002:7'],
           sourceRefs: ['900002:7'],
+          coverage: { ready: 1, total: 1, pct: 100 },
+          confidence: 'low',
         },
       ],
     },
@@ -79,12 +89,21 @@ describe('IssueStats', () => {
     expect(screen.getByText('coverage 2/3 66.7%')).toBeInTheDocument()
     expect(screen.getByText('Trend Diagnosis')).toBeInTheDocument()
     expect(screen.getByText('three_putt')).toBeInTheDocument()
+    expect(screen.getAllByText('baseline 0').length).toBeGreaterThan(0)
+    expect(screen.getByText('recent 3')).toBeInTheDocument()
+    expect(screen.getByText('rate 0 -> 1/round')).toBeInTheDocument()
+    expect(screen.getAllByText('medium confidence')[0]).toHaveClass('confidence-medium')
+    expect(screen.getByText('coverage 3/3 100%')).toBeInTheDocument()
     expect(screen.getByText('+3')).toBeInTheDocument()
     expect(screen.getByText('3.0 est. strokes')).toBeInTheDocument()
     expect(screen.getByText('Caddie Audit')).toBeInTheDocument()
     expect(screen.getByText('execution')).toBeInTheDocument()
     expect(screen.getByText('66.7%')).toBeInTheDocument()
     expect(screen.getByText('strategy')).toBeInTheDocument()
+    expect(screen.getByText('recent 1')).toBeInTheDocument()
+    expect(screen.getByText('rate 0 -> 0.33/round')).toBeInTheDocument()
+    expect(screen.getByText('low confidence')).toHaveClass('confidence-low')
+    expect(screen.getByText('coverage 1/1 100%')).toBeInTheDocument()
     expect(screen.getByText('1.2 est. strokes')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()

@@ -1363,6 +1363,8 @@ class HistoryStatsCoreTests(unittest.TestCase):
             ["trend-issue-4:7", "trend-issue-5:7", "trend-issue-6:7"],
         )
         self.assertEqual(putting["sourceRefs"], putting["recentRefs"])
+        self.assertEqual(putting["coverage"], {"ready": 3, "total": 3, "pct": 100.0})
+        self.assertEqual(putting["confidence"], "medium")
         self.assertEqual(putting["direction"], "new")
 
         approach = trends[1]
@@ -1372,6 +1374,7 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(approach["deltaCount"], 2)
         self.assertEqual(approach["estimatedStrokesLost"], 1.6)
         self.assertEqual(approach["recentRefs"], ["trend-issue-5:7", "trend-issue-6:7"])
+        self.assertEqual(approach["coverage"], {"ready": 2, "total": 2, "pct": 100.0})
 
     def test_decision_audits_feed_history_diagnosis_and_quality(self) -> None:
         with TemporaryDirectory() as tmp:
