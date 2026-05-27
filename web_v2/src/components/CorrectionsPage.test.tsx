@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CorrectionsPage } from './CorrectionsPage'
@@ -34,6 +34,74 @@ function renderPage(
 }
 
 describe('CorrectionsPage', () => {
+  it('summarizes correction impact without implying raw Garmin mutation', () => {
+    render(
+      <CorrectionsPage
+        data={{
+          schema: 'ai-caddie-annotations-v1',
+          total: 4,
+          target: null,
+          annotations: [
+            {
+              id: 'ann-club',
+              createdAt: '2026-05-25T10:40:00Z',
+              targetType: 'shot',
+              targetId: '900001:1:1',
+              kind: 'club_correction',
+              payload: { from: '8I', to: '7I' },
+              source: 'manual',
+            },
+            {
+              id: 'ann-score',
+              createdAt: '2026-05-25T10:41:00Z',
+              targetType: 'hole',
+              targetId: '900001:1',
+              kind: 'score_correction',
+              payload: { from: 5, to: 4 },
+              source: 'manual',
+            },
+            {
+              id: 'ann-tag',
+              createdAt: '2026-05-25T10:42:00Z',
+              targetType: 'hole',
+              targetId: '900001:1',
+              kind: 'issue_tag',
+              payload: { tag: 'approach_short' },
+              source: 'manual',
+            },
+            {
+              id: 'ann-note',
+              createdAt: '2026-05-25T10:43:00Z',
+              targetType: 'round',
+              targetId: '900001',
+              kind: 'round_note',
+              payload: { text: 'Firm greens' },
+              source: 'manual',
+            },
+          ],
+        }}
+        onCreateAnnotation={vi.fn()}
+      />,
+    )
+
+    const impact = screen.getByLabelText('Correction impact')
+    expect(within(impact).getByRole('heading', { name: 'Correction Impact' })).toBeInTheDocument()
+    expect(within(impact).getByText('Manual records are overlays for derived stats; Garmin raw snapshots stay unchanged.')).toBeInTheDocument()
+    expect(within(impact).getByText('Total annotations')).toBeInTheDocument()
+    expect(within(impact).getByText('Stat overlays')).toBeInTheDocument()
+    expect(within(impact).getByText('Corrections')).toBeInTheDocument()
+    expect(within(impact).getByText('append-only audit log')).toBeInTheDocument()
+    expect(within(impact).getByText('raw facts immutable')).toBeInTheDocument()
+    expect(within(impact).getByText('history stats use explicit overlays')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Correction targets')).getByText('hole 2')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Correction targets')).getByText('round 1')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Correction targets')).getByText('shot 1')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Correction kinds')).getByText('Club correction 1')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Correction kinds')).getByText('Issue tag 1')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Correction kinds')).getByText('Round note 1')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Correction kinds')).getByText('Score correction 1')).toBeInTheDocument()
+  })
+
   it.each([
     {
       option: 'Lie correction',

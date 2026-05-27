@@ -47,6 +47,18 @@ const correctionKinds: Array<{ value: CorrectionFormKind; label: string }> = [
 ]
 
 const targetTypes: AnnotationTargetType[] = ['round', 'hole', 'shot', 'decision']
+const correctionKindSet = new Set<AnnotationKind>([
+  'club_correction',
+  'lie_correction',
+  'penalty_correction',
+  'putt_correction',
+  'score_correction',
+])
+const statsOverlayKindSet = new Set<AnnotationKind>([
+  ...correctionKindSet,
+  'issue_tag',
+  'issue_tag_removed',
+])
 
 function labelKind(kind: AnnotationKind) {
   const labels: Record<AnnotationKind, string> = {
@@ -144,6 +156,75 @@ function formatCreatedAt(createdAt: string) {
   const date = new Date(createdAt)
   if (Number.isNaN(date.getTime())) return createdAt
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+function countBy<T extends string>(values: T[]): Array<{ label: T; count: number }> {
+  const counts = new Map<T, number>()
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1)
+  return Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+}
+
+function CorrectionImpactPanel({ annotations }: { annotations: AnnotationRecord[] }) {
+  const correctionCount = annotations.filter((record) => correctionKindSet.has(record.kind)).length
+  const statsOverlayCount = annotations.filter((record) => statsOverlayKindSet.has(record.kind)).length
+  const targetRows = countBy(annotations.map((record) => record.targetType))
+  const kindRows = countBy(annotations.map((record) => record.kind)).slice(0, 5)
+
+  return (
+    <section className="panel correction-impact" aria-label="Correction impact">
+      <div className="section-head">
+        <div>
+          <h2>Correction Impact</h2>
+          <p>Manual records are overlays for derived stats; Garmin raw snapshots stay unchanged.</p>
+        </div>
+      </div>
+      <div className="correction-impact-metrics">
+        <div>
+          <span>Total annotations</span>
+          <b>{annotations.length}</b>
+        </div>
+        <div>
+          <span>Stat overlays</span>
+          <b>{statsOverlayCount}</b>
+        </div>
+        <div>
+          <span>Corrections</span>
+          <b>{correctionCount}</b>
+        </div>
+      </div>
+      <div className="correction-impact-rules" aria-label="Correction rules">
+        <span>append-only audit log</span>
+        <span>raw facts immutable</span>
+        <span>history stats use explicit overlays</span>
+      </div>
+      {targetRows.length || kindRows.length ? (
+        <div className="correction-impact-breakdown">
+          {targetRows.length ? (
+            <div aria-label="Correction targets">
+              <h3>Targets</h3>
+              {targetRows.map((row) => (
+                <span key={row.label}>
+                  {row.label} {row.count}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {kindRows.length ? (
+            <div aria-label="Correction kinds">
+              <h3>Kinds</h3>
+              {kindRows.map((row) => (
+                <span key={row.label}>
+                  {labelKind(row.label)} {row.count}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
 }
 
 export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: CorrectionsPageProps) {
@@ -269,45 +350,47 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
       </div>
 
       <section className="corrections-grid">
-        <form className="panel annotation-form" aria-label="Create annotation" onSubmit={handleSubmit}>
-          <div className="section-head">
-            <div>
-              <h2>Add Correction</h2>
-              <p>Save a targeted manual annotation for derived history stats.</p>
+        <div className="corrections-stack">
+          <CorrectionImpactPanel annotations={data.annotations} />
+          <form className="panel annotation-form" aria-label="Create annotation" onSubmit={handleSubmit}>
+            <div className="section-head">
+              <div>
+                <h2>Add Correction</h2>
+                <p>Save a targeted manual annotation for derived history stats.</p>
+              </div>
+              {initialTarget ? <span className="mode-pill">source-bound</span> : null}
             </div>
-            {initialTarget ? <span className="mode-pill">source-bound</span> : null}
-          </div>
 
-          <div className="annotation-form-grid">
-            <label>
-              <span>Target type</span>
-              <select value={targetType} onChange={(event) => setTargetType(event.target.value as AnnotationTargetType)}>
-                {targetTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="annotation-form-grid">
+              <label>
+                <span>Target type</span>
+                <select value={targetType} onChange={(event) => setTargetType(event.target.value as AnnotationTargetType)}>
+                  {targetTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <label>
-              <span>Target ID</span>
-              <input value={targetId} onChange={(event) => setTargetId(event.target.value)} required />
-            </label>
+              <label>
+                <span>Target ID</span>
+                <input value={targetId} onChange={(event) => setTargetId(event.target.value)} required />
+              </label>
 
-            <label>
-              <span>Correction type</span>
-              <select
-                value={correctionKind}
-                onChange={(event) => setCorrectionKind(event.target.value as CorrectionFormKind)}
-              >
-                {correctionKinds.map((kind) => (
-                  <option key={kind.value} value={kind.value}>
-                    {kind.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label>
+                <span>Correction type</span>
+                <select
+                  value={correctionKind}
+                  onChange={(event) => setCorrectionKind(event.target.value as CorrectionFormKind)}
+                >
+                  {correctionKinds.map((kind) => (
+                    <option key={kind.value} value={kind.value}>
+                      {kind.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
             {correctionKind === 'club_correction' ? (
               <>
@@ -399,13 +482,14 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
             </label>
           </div>
 
-          <div className="annotation-actions">
-            <button type="submit" disabled={isSaving}>
-              Save annotation
-            </button>
-            {message ? <p role="status">{message}</p> : null}
-          </div>
-        </form>
+            <div className="annotation-actions">
+              <button type="submit" disabled={isSaving}>
+                Save annotation
+              </button>
+              {message ? <p role="status">{message}</p> : null}
+            </div>
+          </form>
+        </div>
 
         <section className="panel annotation-history" aria-label="Annotation history">
           <div className="section-head">
