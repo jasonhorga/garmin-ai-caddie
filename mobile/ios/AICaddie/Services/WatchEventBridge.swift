@@ -28,6 +28,8 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let suggestedClub: String?
     public let selectedClub: String?
     public let nextShotPrompt: String?
+    public let evidenceSummary: String?
+    public let missingDataSummary: String?
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -94,6 +96,8 @@ public final class WatchEventBridge: NSObject {
             suggestedClub: clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName,
             selectedClub: selectedClub,
             nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected),
+            evidenceSummary: evidenceSummary(from: decision, offlineOption: offlineSelected),
+            missingDataSummary: missingDataSummary(from: decision),
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
@@ -166,6 +170,97 @@ public final class WatchEventBridge: NSObject {
             return offlineOption == nil ? "low" : "offline"
         }
         return string(decision.confidence["level"]) ?? string(decision.confidence["confidence"]) ?? "low"
+    }
+
+    private func evidenceSummary(from decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) -> String? {
+        if let decision, let summary = compactSummary(from: decision.evidence) {
+            return summary
+        }
+        guard let offlineOption else {
+            return nil
+        }
+        let parts = [safeSummaryText(offlineOption.source), safeSummaryText(offlineOption.sourceRefs.first)]
+            .compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " / ")
+    }
+
+    private func missingDataSummary(from decision: CaddieDecisionResponse?) -> String? {
+        guard let decision else {
+            return nil
+        }
+        return compactSummary(from: decision.missingData)
+    }
+
+    private func compactSummary(from rows: [[String: JSONValue]]) -> String? {
+        for row in rows {
+            let labels = uniqueSummaryParts(["label", "source", "kind"].compactMap { summaryText(row[$0]) })
+            let details = uniqueSummaryParts(["value", "text", "reason", "state"].compactMap { summaryText(row[$0]) })
+            if !labels.isEmpty || !details.isEmpty {
+                return [labels.joined(separator: " / "), details.joined(separator: " / ")]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ": ")
+            }
+        }
+        return nil
+    }
+
+    private func uniqueSummaryParts(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            let key = value.lowercased()
+            if seen.insert(key).inserted {
+                result.append(value)
+            }
+        }
+        return result
+    }
+
+    private func summaryText(_ value: JSONValue?) -> String? {
+        guard let value else {
+            return nil
+        }
+        switch value {
+        case .string(let raw):
+            return safeSummaryText(raw)
+        case .number(let raw):
+            guard raw.isFinite else {
+                return nil
+            }
+            return raw.rounded() == raw ? String(Int(raw)) : String(raw)
+        case .bool(let raw):
+            return raw ? "true" : "false"
+        case .object(_), .array(_), .null:
+            return nil
+        }
+    }
+
+    private func safeSummaryText(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        let lower = trimmed.lowercased()
+        let blockedFragments = [
+            "/users/",
+            "/home/",
+            "/tmp/",
+            "/private/",
+            "file://",
+            "password=",
+            "secret=",
+            "token=",
+            "cookie=",
+            "authorization:",
+            "bearer ",
+            "csrf",
+        ]
+        guard !trimmed.hasPrefix("/"),
+              !trimmed.contains("\\"),
+              !blockedFragments.contains(where: { lower.contains($0) })
+        else {
+            return "[redacted]"
+        }
+        return trimmed
     }
 
     private func nextShotPrompt(selected: [String: JSONValue]?, offlineOption: OfflineCaddieOption?) -> String? {

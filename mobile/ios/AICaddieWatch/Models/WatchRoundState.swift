@@ -11,6 +11,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let suggestedClub: String?
     public let selectedClub: String?
     public let nextShotPrompt: String?
+    public let evidenceSummary: String?
+    public let missingDataSummary: String?
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -25,6 +27,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         suggestedClub: String? = nil,
         selectedClub: String?,
         nextShotPrompt: String? = nil,
+        evidenceSummary: String? = nil,
+        missingDataSummary: String? = nil,
         score: Int,
         putts: Int,
         penaltyCount: Int,
@@ -38,6 +42,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.suggestedClub = suggestedClub
         self.selectedClub = selectedClub
         self.nextShotPrompt = nextShotPrompt
+        self.evidenceSummary = evidenceSummary
+        self.missingDataSummary = missingDataSummary
         self.score = score
         self.putts = putts
         self.penaltyCount = penaltyCount
@@ -71,6 +77,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             suggestedClub: suggestedClub,
             selectedClub: nextSelectedClub,
             nextShotPrompt: nextShotPrompt,
+            evidenceSummary: evidenceSummary,
+            missingDataSummary: missingDataSummary,
             score: nextScore,
             putts: nextPutts,
             penaltyCount: nextPenaltyCount,

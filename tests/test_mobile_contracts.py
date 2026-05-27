@@ -1335,6 +1335,40 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("if let nextShotPrompt = state.nextShotPrompt", glance_view)
         self.assertIn('Image(systemName: "figure.golf")', glance_view)
 
+    def test_watch_state_carries_compact_decision_evidence_and_missing_data(self) -> None:
+        bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
+        state_swift = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundState.swift")
+        glance_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchCaddieGlanceView.swift")
+        state_tests = _read_required_source(self, WATCH_DIR.parent / "AICaddieWatchTests" / "WatchRoundStateTests.swift")
+        bridge_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "WatchEventBridgeTests.swift")
+
+        for field in ["evidenceSummary", "missingDataSummary"]:
+            self.assertIn(f"public let {field}: String?", bridge)
+            self.assertIn(f"public let {field}: String?", state_swift)
+            self.assertIn(f"{field}: String? = nil", state_swift)
+            self.assertIn(f"{field}: {field}", state_swift)
+            self.assertIn(f"state.{field}", glance_view)
+
+        self.assertIn("evidenceSummary: evidenceSummary(from: decision, offlineOption: offlineSelected)", bridge)
+        self.assertIn("missingDataSummary: missingDataSummary(from: decision)", bridge)
+        self.assertIn("private func evidenceSummary(from decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) -> String?", bridge)
+        self.assertIn("private func missingDataSummary(from decision: CaddieDecisionResponse?) -> String?", bridge)
+        self.assertIn("private func compactSummary(from rows: [[String: JSONValue]]) -> String?", bridge)
+        self.assertIn("private func summaryText(_ value: JSONValue?) -> String?", bridge)
+        self.assertIn("private func safeSummaryText(_ value: String?) -> String?", bridge)
+        self.assertIn('["label", "source", "kind"].compactMap', bridge)
+        self.assertIn('["value", "text", "reason", "state"].compactMap', bridge)
+        self.assertIn('case .number(let raw)', bridge)
+        self.assertIn('"/Users/"', bridge_tests)
+        self.assertIn("[redacted]", bridge)
+        self.assertIn("decision.evidence", bridge)
+        self.assertIn("decision.missingData", bridge)
+        self.assertIn('Image(systemName: "checklist")', glance_view)
+        self.assertIn('Image(systemName: "exclamationmark.triangle")', glance_view)
+        self.assertIn("testWatchRoundStatePreservesEvidenceAndMissingDataAcrossQuickInput", state_tests)
+        self.assertIn("testWatchRoundStatePayloadCompactsDecisionEvidenceWithoutDroppingContext", bridge_tests)
+        self.assertIn("testOfflineEvidenceSummaryRedactsPrivateSourceRefs", bridge_tests)
+
     def test_watch_sync_client_defines_connectivity_and_queue(self) -> None:
         sync_swift = (WATCH_DIR / "Services" / "WatchSyncClient.swift").read_text(encoding="utf-8")
 
