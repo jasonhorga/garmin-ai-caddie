@@ -102,13 +102,15 @@ describe('HistoryOverview', () => {
 
   it('opens recent rounds and distribution source refs', async () => {
     const onSelectRef = vi.fn()
+    const onOpenRoundDetail = vi.fn()
 
-    render(<HistoryOverview data={payload} onSelectRef={onSelectRef} />)
+    render(<HistoryOverview data={payload} onSelectRef={onSelectRef} onOpenRoundDetail={onOpenRoundDetail} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20, score 82, ref 1' }))
     await userEvent.click(screen.getAllByRole('button', { name: 'Open source 1' })[0])
 
+    expect(onOpenRoundDetail).toHaveBeenCalledWith('1')
     expect(onSelectRef).toHaveBeenCalledWith('1')
-    expect(onSelectRef).toHaveBeenCalledTimes(2)
+    expect(onSelectRef).toHaveBeenCalledTimes(1)
   })
 })

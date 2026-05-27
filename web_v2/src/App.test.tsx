@@ -661,6 +661,47 @@ function roundDrilldownPayload() {
   }
 }
 
+function roundDetailPayload(roundRef = '1') {
+  return {
+    schema: 'ai-caddie-history-round-detail-v1',
+    roundRef,
+    requestedRef: roundRef,
+    found: true,
+    title: 'Black Knight B - 2026-05-20T08:00:00',
+    round: {
+      id: roundRef,
+      courseName: 'Black Knight B',
+      score: 82,
+      toPar: 10,
+      holesScored: 18,
+      shotCount: 2,
+      coverage: { scorecard: 'ready', shots: 'ready', putts: 'partial' },
+      confidence: 'high',
+    },
+    scorecard: [
+      {
+        hole: 1,
+        par: 4,
+        score: 4,
+        toPar: 0,
+        className: 'par',
+        putts: 2,
+        gir: true,
+        fairway: 'hit',
+        holeRef: `${roundRef}:1`,
+        shotRefs: [`${roundRef}:1:0`],
+        sourceRefs: [`${roundRef}:1`],
+        status: 'complete',
+      },
+    ],
+    phaseSummary: [{ phase: 'Tee', state: 'ready', primary: '1/1 fairways', metrics: {} }],
+    holeDetails: [{ hole: 1, score: 4, toPar: 0, putts: 2, gir: true, fairway: 'hit', holeRef: `${roundRef}:1`, shotRefs: [`${roundRef}:1:0`] }],
+    relatedRefs: { roundRefs: [roundRef], holeRefs: [`${roundRef}:1`], shotRefs: [`${roundRef}:1:0`], sourceRefs: [] },
+    sourceFields: { id: roundRef, strokes: 82 },
+    missingData: [],
+  }
+}
+
 function overviewRoundDrilldownPayload() {
   return {
     schema: 'ai-caddie-history-drilldown-v1',
@@ -991,6 +1032,7 @@ describe('App navigation', () => {
       ok: true,
       json: async () => {
         if (path === '/api/v2/history/rounds') return roundsPayload()
+        if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
         if (path === '/api/v2/history/drilldown/1%3A1') return overviewHoleDrilldownPayload()
         if (path === '/api/v2/history/drilldown/1') return overviewRoundDrilldownPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1004,9 +1046,9 @@ describe('App navigation', () => {
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
 
-    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
-    expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(1)
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1')
+    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(0)
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
     await userEvent.click(screen.getByRole('button', { name: 'Open source 1:1' }))
 
     expect(await screen.findByText('Black Knight B H1')).toBeInTheDocument()
@@ -1016,7 +1058,7 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
 
-    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/drilldown/1')).toHaveLength(2)
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/rounds/1')).toHaveLength(2)
   })
 
   it('shows corrections history and adds a club correction from the response', async () => {
@@ -1075,7 +1117,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/drilldown/1') return overviewRoundDrilldownPayload()
+        if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
         if (path === '/api/v2/annotations') return annotationsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/annotations' && init?.method === 'POST') return createdAnnotationPayload()
@@ -1088,9 +1130,9 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
-    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add correction for source 1' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add correction for round 1' }))
 
     expect(await screen.findByRole('heading', { name: 'Corrections' })).toBeInTheDocument()
     expect(screen.getByLabelText('Target type')).toHaveValue('round')

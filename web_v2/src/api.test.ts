@@ -13,6 +13,7 @@ import {
   fetchHistoryOverview,
   fetchHistoryDrilldown,
   fetchHistoryRounds,
+  fetchHistoryRoundDetail,
   fetchHistoryStats,
   fetchHoleGeometryEvidence,
   fetchHoleMap,
@@ -211,6 +212,66 @@ describe('fetchHistoryRounds', () => {
     await fetchHistoryRounds('admin-secret')
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+})
+
+describe('fetchHistoryRoundDetail', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads a scorecard-first round detail payload with encoded refs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-round-detail-v1',
+        roundRef: 'round:900001',
+        requestedRef: 'round:900001',
+        found: true,
+        title: 'Black Knight - 2026-05-20',
+        round: { id: 'round:900001', score: 82 },
+        scorecard: [{ hole: 1, par: 4, score: 4, toPar: 0, className: 'par', putts: 2, gir: true, fairway: 'hit', holeRef: 'round:900001:1', shotRefs: [], sourceRefs: [], status: 'complete' }],
+        phaseSummary: [],
+        holeDetails: [],
+        relatedRefs: { roundRefs: ['round:900001'], holeRefs: ['round:900001:1'], shotRefs: [], sourceRefs: [] },
+        sourceFields: { strokes: 82 },
+        missingData: [],
+      }),
+    })))
+
+    const payload = await fetchHistoryRoundDetail('round:900001')
+
+    expect(payload.schema).toBe('ai-caddie-history-round-detail-v1')
+    expect(payload.scorecard[0].holeRef).toBe('round:900001:1')
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/rounds/round%3A900001')
+  })
+
+  it('can attach admin tokens to protected round detail reads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-round-detail-v1',
+        roundRef: '900001',
+        requestedRef: '900001',
+        found: true,
+        title: 'Round',
+        round: {},
+        scorecard: [],
+        phaseSummary: [],
+        holeDetails: [],
+        relatedRefs: { roundRefs: [], holeRefs: [], shotRefs: [], sourceRefs: [] },
+        sourceFields: {},
+        missingData: [],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryRoundDetail('900001', 'admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/900001', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })

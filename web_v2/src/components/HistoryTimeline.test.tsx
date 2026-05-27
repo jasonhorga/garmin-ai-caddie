@@ -71,13 +71,15 @@ describe('HistoryTimeline', () => {
 
   it('opens timeline round source refs', async () => {
     const onSelectRef = vi.fn()
+    const onOpenRoundDetail = vi.fn()
 
-    render(<HistoryTimeline data={payload} onNavigate={() => undefined} onSelectRef={onSelectRef} />)
+    render(<HistoryTimeline data={payload} onNavigate={() => undefined} onSelectRef={onSelectRef} onOpenRoundDetail={onOpenRoundDetail} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 1' }))
 
+    expect(onOpenRoundDetail).toHaveBeenCalledWith('1')
     expect(onSelectRef).toHaveBeenCalledWith('1')
-    expect(onSelectRef).toHaveBeenCalledTimes(2)
+    expect(onSelectRef).toHaveBeenCalledTimes(1)
   })
 })

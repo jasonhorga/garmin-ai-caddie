@@ -12,6 +12,7 @@ import type {
   CaddieDecisionResponse,
   HistoryOverviewResponse,
   HistoryDrilldownResponse,
+  HistoryRoundDetailResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
   CourseGeometryCoverageResponse,
@@ -205,6 +206,10 @@ export function confirmVisionFinding(
 
 export function fetchHistoryRounds(adminToken?: string): Promise<HistoryRoundsResponse> {
   return getJson<HistoryRoundsResponse>('/api/v2/history/rounds', adminToken)
+}
+
+export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): Promise<HistoryRoundDetailResponse> {
+  return getJson<HistoryRoundDetailResponse>(`/api/v2/history/rounds/${encodeURIComponent(roundRef)}`, adminToken)
 }
 
 export function fetchHistoryStats(adminToken?: string): Promise<HistoryStatsResponse> {

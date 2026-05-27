@@ -289,6 +289,25 @@ class HistoryRoundsResponse(BaseModel):
     emptyState: EmptyState | None
 
 
+class HistoryRoundDetailResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-history-round-detail-v1"] = Field(alias="schema")
+    roundRef: str
+    requestedRef: str
+    found: bool
+    title: str
+    round: dict[str, Any] | None
+    scorecard: list[dict[str, Any]]
+    phaseSummary: list[dict[str, Any]]
+    holeDetails: list[dict[str, Any]]
+    relatedRefs: dict[str, list[str]]
+    sourceFields: dict[str, Any]
+    missingData: list[dict[str, Any]]
+    annotations: list[dict[str, Any]] = Field(default_factory=list)
+    corrections: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class HistoryStatsResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 

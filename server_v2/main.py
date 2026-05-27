@@ -22,6 +22,7 @@ from .caddie import (
 )
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
+from .history_round_detail import load_history_round_detail_response
 from .history_drilldown import load_history_drilldown_response
 from .history_stats import load_history_stats_response
 from .geometry import (
@@ -65,6 +66,7 @@ from .models import (
     HistoryDrilldownResponse,
     HoleMapResponse,
     HistoryOverviewResponse,
+    HistoryRoundDetailResponse,
     HistoryRoundsResponse,
     HistoryStatsResponse,
     LiveRoundEventBatchRequest,
@@ -233,6 +235,7 @@ def service_index() -> dict[str, object]:
             "productSettings": "/api/v2/settings/product",
             "historyOverview": "/api/v2/history/overview",
             "historyRounds": "/api/v2/history/rounds",
+            "historyRoundDetail": "/api/v2/history/rounds/{round_ref}",
             "historyStats": "/api/v2/history/stats",
             "historyDrilldown": "/api/v2/history/drilldown/{source_ref}",
             "geometryCourseCoverage": "/api/v2/geometry/course/{global_id}/coverage",
@@ -296,6 +299,11 @@ def history_overview() -> HistoryOverviewResponse:
 @app.get("/api/v2/history/rounds", response_model=HistoryRoundsResponse)
 def history_rounds() -> HistoryRoundsResponse:
     return load_history_rounds_response()
+
+
+@app.get("/api/v2/history/rounds/{round_ref}", response_model=HistoryRoundDetailResponse)
+def history_round_detail(round_ref: str) -> HistoryRoundDetailResponse:
+    return load_history_round_detail_response(round_ref)
 
 
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)

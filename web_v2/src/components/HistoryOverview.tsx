@@ -8,13 +8,14 @@ interface HistoryOverviewProps {
   data: HistoryOverviewResponse
   onNavigate?: (page: ProductPage) => void
   onSelectRef?: (sourceRef: string) => void
+  onOpenRoundDetail?: (roundRef: string) => void
 }
 
 function metricValue(value: number | null) {
   return value === null ? '-' : String(value)
 }
 
-export function HistoryOverview({ data, onNavigate = () => undefined, onSelectRef }: HistoryOverviewProps) {
+export function HistoryOverview({ data, onNavigate = () => undefined, onSelectRef, onOpenRoundDetail }: HistoryOverviewProps) {
   const metrics = data.metrics
 
   return (
@@ -76,7 +77,9 @@ export function HistoryOverview({ data, onNavigate = () => undefined, onSelectRe
             {data.recentRounds.length === 0 ? (
               <p className="round-empty">No recent Garmin rounds</p>
             ) : (
-              data.recentRounds.map((round) => <RoundCard key={round.id} round={round} onSelectRef={onSelectRef} />)
+              data.recentRounds.map((round) => (
+                <RoundCard key={round.id} round={round} onSelectRef={onSelectRef} onOpenRoundDetail={onOpenRoundDetail} />
+              ))
             )}
           </div>
         </section>

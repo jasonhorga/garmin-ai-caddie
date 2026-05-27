@@ -421,6 +421,43 @@ export interface HistoryRoundsResponse {
   emptyState: EmptyState | null
 }
 
+export interface HistoryRoundDetailScorecardCell {
+  hole: number
+  par: number | null
+  score: number | null
+  toPar: number | null
+  className: ScoreClass
+  putts: number | null
+  gir: boolean | null
+  fairway: string | null
+  holeRef: string
+  shotRefs: string[]
+  sourceRefs: string[]
+  status: string
+}
+
+export interface HistoryRoundDetailResponse {
+  schema: 'ai-caddie-history-round-detail-v1'
+  roundRef: string
+  requestedRef: string
+  found: boolean
+  title: string
+  round: Record<string, unknown> | null
+  scorecard: HistoryRoundDetailScorecardCell[]
+  phaseSummary: Array<Record<string, unknown>>
+  holeDetails: Array<Record<string, unknown>>
+  relatedRefs: {
+    roundRefs: string[]
+    holeRefs: string[]
+    shotRefs: string[]
+    sourceRefs?: string[]
+  }
+  sourceFields: Record<string, unknown>
+  missingData: Array<Record<string, unknown>>
+  annotations?: AnnotationRecord[]
+  corrections?: AnnotationRecord[]
+}
+
 export interface HistoryStatsResponse {
   schema: 'ai-caddie-history-stats-v1'
   dataMode: ResolvedDataMode

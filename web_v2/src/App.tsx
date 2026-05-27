@@ -14,6 +14,7 @@ import {
   fetchHoleMap,
   fetchHistoryDrilldown,
   fetchHistoryOverview,
+  fetchHistoryRoundDetail,
   fetchHistoryRounds,
   fetchHistoryStats,
   fetchReadiness,
@@ -41,6 +42,7 @@ import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
 import { HistoryOverview } from './components/HistoryOverview'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
+import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
 import { HoleEvidencePanel, type GeometryEnsureState, type HoleEvidenceState } from './components/HoleEvidencePanel'
 import { HoleStats } from './components/HoleStats'
@@ -72,6 +74,7 @@ import type {
   CaddieDecisionResponse,
   HistoryOverviewResponse,
   HistoryDrilldownResponse,
+  HistoryRoundDetailResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
   LiveRoundPackageResponse,
@@ -121,6 +124,7 @@ export default function App() {
   const [mediaState, setMediaState] = useState<MediaContextState>({ status: 'idle' })
   const [selectedCaddieSourceRef, setSelectedCaddieSourceRef] = useState('900001:7')
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
+  const [roundDetailState, setRoundDetailState] = useState<HistoryRoundDetailPanelState>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
   const [geometryEnsureState, setGeometryEnsureState] = useState<GeometryEnsureState>('idle')
@@ -338,6 +342,29 @@ export default function App() {
     }
   }
 
+  async function handleSelectRoundDetail(roundRef: string): Promise<HistoryRoundDetailResponse | null> {
+    const cleanRef = roundRef.trim()
+    setSelectedCaddieSourceRef(cleanRef)
+    setCaddieContextState((current) => (loadedCaddieContextSourceRef(current) === cleanRef ? current : { status: 'idle' }))
+    setRoundDetailState({ status: 'loading', roundRef: cleanRef })
+    setDrilldownState({ status: 'idle' })
+    setHoleEvidenceState({ status: 'idle' })
+    setGeometryEnsureState('idle')
+    activeHoleGeometryTarget.current = null
+    try {
+      const data = await fetchHistoryRoundDetail(cleanRef, currentAdminToken())
+      setRoundDetailState({ status: 'ready', data })
+      return data
+    } catch (error: unknown) {
+      setRoundDetailState({
+        status: 'error',
+        roundRef: cleanRef,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      })
+      return null
+    }
+  }
+
   async function loadHoleEvidenceForDrilldown(sourceRef: string, drilldown: HistoryDrilldownResponse) {
     const target = holeGeometryTargetFromDrilldown(sourceRef, drilldown)
     if (!target) {
@@ -432,9 +459,15 @@ export default function App() {
   }
 
   function renderDrilldownPanels() {
-    if (drilldownState.status === 'idle' && holeEvidenceState.status === 'idle') return null
+    if (roundDetailState.status === 'idle' && drilldownState.status === 'idle' && holeEvidenceState.status === 'idle') return null
     return (
       <div className="app-shell">
+        <HistoryRoundDetailPanel
+          state={roundDetailState}
+          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+          onRetryRound={(roundRef) => void handleSelectRoundDetail(roundRef)}
+          onCreateAnnotationForRound={handleCreateAnnotationForSource}
+        />
         <HistoryDrilldownPanel
           state={drilldownState}
           onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
@@ -815,7 +848,12 @@ export default function App() {
       return (
         <>
           {renderSyncPanel()}
-          <HistoryTimeline data={roundsState.data} onNavigate={navigate} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+          <HistoryTimeline
+            data={roundsState.data}
+            onNavigate={navigate}
+            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+          />
           {renderDrilldownPanels()}
         </>
       )
@@ -989,7 +1027,12 @@ export default function App() {
   return (
     <>
       {renderSyncPanel()}
-      <HistoryOverview data={overviewState.data} onNavigate={navigate} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+      <HistoryOverview
+        data={overviewState.data}
+        onNavigate={navigate}
+        onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+        onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+      />
       {renderDrilldownPanels()}
     </>
   )

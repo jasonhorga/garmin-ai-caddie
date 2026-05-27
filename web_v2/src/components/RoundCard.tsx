@@ -16,9 +16,10 @@ function roundActionLabel(round: RoundCardType) {
 interface RoundCardProps {
   round: RoundCardType
   onSelectRef?: (sourceRef: string) => void
+  onOpenRoundDetail?: (roundRef: string) => void
 }
 
-export function RoundCard({ round, onSelectRef }: RoundCardProps) {
+export function RoundCard({ round, onSelectRef, onOpenRoundDetail }: RoundCardProps) {
   return (
     <article className="round-card">
       <div className="round-card-head">
@@ -33,8 +34,13 @@ export function RoundCard({ round, onSelectRef }: RoundCardProps) {
           <span>{formatToPar(round.toPar)}</span>
         </div>
       </div>
-      {onSelectRef ? (
-        <button type="button" className="round-card-action" onClick={() => onSelectRef(round.id)} aria-label={roundActionLabel(round)}>
+      {onSelectRef || onOpenRoundDetail ? (
+        <button
+          type="button"
+          className="round-card-action"
+          onClick={() => (onOpenRoundDetail ?? onSelectRef)?.(round.id)}
+          aria-label={roundActionLabel(round)}
+        >
           Open
         </button>
       ) : null}

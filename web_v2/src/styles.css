@@ -1646,6 +1646,147 @@ p {
   overflow-wrap: anywhere;
 }
 
+.round-detail-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.round-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.round-detail-facts div,
+.round-phase-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfcfa;
+  padding: 8px;
+}
+
+.round-detail-facts span,
+.round-detail-facts b,
+.round-phase-card span,
+.round-phase-card b,
+.round-phase-card small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.round-detail-facts span,
+.round-phase-card span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.round-detail-facts b,
+.round-phase-card b {
+  margin-top: 2px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.round-detail-section {
+  display: grid;
+  gap: 8px;
+}
+
+.round-detail-scorecard {
+  --round-detail-holes: 18;
+  display: grid;
+  grid-template-columns: repeat(var(--round-detail-holes), minmax(46px, 1fr));
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.round-detail-cell {
+  min-width: 46px;
+  min-height: 76px;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  place-items: center;
+  gap: 1px;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  padding: 6px 4px;
+  font: inherit;
+  text-align: center;
+}
+
+button.round-detail-cell {
+  cursor: pointer;
+}
+
+button.round-detail-cell:hover {
+  filter: brightness(.96);
+}
+
+.round-detail-cell span,
+.round-detail-cell small,
+.round-detail-cell em {
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.15;
+}
+
+.round-detail-cell b {
+  font-size: 23px;
+  line-height: 1;
+}
+
+.round-phase-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.round-phase-card small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.round-hole-table {
+  display: grid;
+  gap: 6px;
+}
+
+.round-hole-row {
+  display: grid;
+  grid-template-columns: minmax(86px, 1fr) repeat(3, minmax(70px, .8fr)) minmax(160px, 1.6fr);
+  gap: 8px;
+  align-items: start;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  font-size: 12px;
+}
+
+.round-hole-row span {
+  display: block;
+  color: var(--muted);
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.round-hole-row b {
+  display: block;
+  color: var(--ink);
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.round-hole-sources {
+  min-width: 0;
+}
+
 .sync-quality-workspace,
 .settings-page {
   display: grid;
@@ -3316,6 +3457,15 @@ p {
   .score-outcome-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .round-detail-facts,
+  .round-phase-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .round-hole-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
@@ -3345,6 +3495,12 @@ p {
 
   .score-strip {
     grid-template-columns: repeat(9, minmax(20px, 1fr));
+  }
+
+  .round-detail-facts,
+  .round-phase-grid,
+  .round-hole-row {
+    grid-template-columns: 1fr;
   }
 
   .timeline-month-head {
