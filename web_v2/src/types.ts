@@ -321,6 +321,21 @@ export interface GeometryEvidenceResponse {
   missingData: Array<Record<string, unknown>>
 }
 
+export interface GeometryEnsureResponse {
+  schema: 'ai-caddie-geometry-ensure-v1'
+  status: string
+  ok: boolean
+  globalId: number
+  localHole: number
+  releaseSource?: string | null
+  releaseId?: string | null
+  courseName?: string | null
+  hazards?: string | null
+  meshes?: string | null
+  steps: Record<string, unknown>
+  error?: string | null
+}
+
 export interface RouteGeometryEvidence {
   routeLength_m?: number
   routeStartLocal?: number[]

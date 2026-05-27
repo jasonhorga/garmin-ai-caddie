@@ -2520,6 +2520,25 @@ p {
   padding: 16px;
 }
 
+.hole-evidence-action {
+  min-height: 32px;
+  border: 1px solid var(--green);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--green);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hole-evidence-action:disabled {
+  cursor: progress;
+  opacity: .68;
+}
+
 .hole-evidence-layout {
   display: grid;
   grid-template-columns: minmax(320px, .92fr) minmax(0, 1.08fr);

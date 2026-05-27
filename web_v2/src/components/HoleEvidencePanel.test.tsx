@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
 import { HoleEvidencePanel, type HoleEvidenceState } from './HoleEvidencePanel'
 
 const readyState: HoleEvidenceState = {
@@ -117,5 +118,49 @@ describe('HoleEvidencePanel', () => {
 
     rerender(<HoleEvidencePanel state={{ status: 'error', sourceRef: '900001:7', message: 'geometry failed' }} />)
     expect(screen.getByText('geometry failed')).toBeInTheDocument()
+  })
+
+  it('offers geometry remediation for partial evidence', async () => {
+    const onEnsureGeometry = vi.fn()
+    const partialState: HoleEvidenceState = {
+      ...readyState,
+      evidence: {
+        ...readyState.evidence,
+        coverage: 'partial',
+        hasMeshes: false,
+        missingData: [{ label: 'meshes', reason: 'prodgeometry mesh file missing' }],
+      },
+    }
+
+    const { rerender } = render(
+      <HoleEvidencePanel state={partialState} ensureState="idle" onEnsureGeometry={onEnsureGeometry} />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Fetch geometry for 31795 H7' }))
+
+    expect(onEnsureGeometry).toHaveBeenCalledWith({ globalId: 31795, localHole: 7, sourceRef: '900001:7' })
+
+    rerender(<HoleEvidencePanel state={partialState} ensureState="running" onEnsureGeometry={onEnsureGeometry} />)
+
+    expect(screen.getByRole('button', { name: 'Fetching geometry for 31795 H7' })).toBeDisabled()
+  })
+
+  it('does not offer geometry remediation when coverage is ready with non-geometry missing data', () => {
+    render(
+      <HoleEvidencePanel
+        state={{
+          ...readyState,
+          evidence: {
+            ...readyState.evidence,
+            coverage: 'ready',
+            missingData: [{ label: 'shot_routes', reason: 'no source shots for this hole' }],
+          },
+        }}
+        onEnsureGeometry={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Fetch geometry for 31795 H7' })).not.toBeInTheDocument()
+    expect(screen.getByText('no source shots for this hole')).toBeInTheDocument()
   })
 })

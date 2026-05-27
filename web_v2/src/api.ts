@@ -15,6 +15,7 @@ import type {
   HistoryRoundsResponse,
   HistoryStatsResponse,
   CourseGeometryCoverageResponse,
+  GeometryEnsureResponse,
   GeometryEvidenceResponse,
   HoleGeometryRouteParams,
   GarminSessionImportRequest,
@@ -216,6 +217,22 @@ export function fetchHoleGeometryEvidence(
   const suffix = query.toString()
   return getJson<GeometryEvidenceResponse>(
     `/api/v2/geometry/hole/${encodeURIComponent(String(globalId))}/${encodeURIComponent(String(localHole))}${suffix ? `?${suffix}` : ''}`,
+  )
+}
+
+export function ensureHoleGeometry(
+  globalId: number,
+  localHole: number,
+  params: { profileId?: string; force?: boolean } = {},
+  adminToken?: string,
+): Promise<GeometryEnsureResponse> {
+  const query = new URLSearchParams()
+  appendParam(query, 'profile_id', params.profileId)
+  appendParam(query, 'force', params.force)
+  const suffix = query.toString()
+  return postEmpty<GeometryEnsureResponse>(
+    `/api/v2/geometry/hole/${encodeURIComponent(String(globalId))}/${encodeURIComponent(String(localHole))}/ensure${suffix ? `?${suffix}` : ''}`,
+    adminToken,
   )
 }
 

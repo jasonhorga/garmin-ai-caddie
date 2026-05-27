@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -664,6 +664,27 @@ function holeGeometryEvidencePayload() {
   }
 }
 
+function partialHoleGeometryEvidencePayload() {
+  return {
+    ...holeGeometryEvidencePayload(),
+    coverage: 'partial',
+    hasMeshes: false,
+    missingData: [{ label: 'meshes', reason: 'prodgeometry mesh file missing' }],
+  }
+}
+
+function geometryEnsurePayload() {
+  return {
+    schema: 'ai-caddie-geometry-ensure-v1',
+    status: 'downloaded',
+    ok: true,
+    globalId: 31795,
+    localHole: 7,
+    releaseSource: 'prodgeometry',
+    steps: { hazards: 'ready', meshes: 'ready' },
+  }
+}
+
 function holeMapPayload() {
   return {
     schema: 'ai-caddie-hole-map-v1',
@@ -1092,6 +1113,99 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A7')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7?source_ref=900001%3A7')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7')
+  })
+
+  it('ensures missing hole geometry and refreshes evidence', async () => {
+    let ensured = false
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
+        if (path === '/api/v2/geometry/hole/31795/7/ensure' && init?.method === 'POST') {
+          ensured = true
+          return geometryEnsurePayload()
+        }
+        if (path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7') {
+          return ensured ? holeGeometryEvidencePayload() : partialHoleGeometryEvidencePayload()
+        }
+        if (path === '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7') return holeMapPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Holes' }))
+    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
+
+    expect(await screen.findByText('partial coverage')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Fetch geometry for 31795 H7' }))
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/ensure', { method: 'POST' })
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7')).toHaveLength(2),
+    )
+    expect(await screen.findByText('ready coverage')).toBeInTheDocument()
+  })
+
+  it('does not let stale geometry ensure responses overwrite a newly selected source', async () => {
+    let ensured = false
+    let resolveEnsure!: () => void
+    const ensureResponse = new Promise<{ ok: boolean; json: () => Promise<ReturnType<typeof geometryEnsurePayload>> }>((resolve) => {
+      resolveEnsure = () => {
+        ensured = true
+        resolve({ ok: true, json: async () => geometryEnsurePayload() })
+      }
+    })
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/v2/geometry/hole/31795/7/ensure' && init?.method === 'POST') {
+        return ensureResponse
+      }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
+          if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()
+          if (path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7') {
+            return ensured ? holeGeometryEvidencePayload() : partialHoleGeometryEvidencePayload()
+          }
+          if (path === '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7') return holeMapPayload()
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Holes' }))
+    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
+    expect(await screen.findByText('partial coverage')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Fetch geometry for 31795 H7' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/ensure', { method: 'POST' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001' }))
+    expect(await screen.findByText('Black Knight B - 2026-05-18')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Hole Evidence' })).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveEnsure()
+      await ensureResponse
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7')).toHaveLength(1)
+    expect(screen.queryByRole('heading', { name: 'Hole Evidence' })).not.toBeInTheDocument()
   })
 
   it('opens the caddie workspace, attaches media context, and requests a decision', async () => {

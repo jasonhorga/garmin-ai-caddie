@@ -7,11 +7,15 @@ export type HoleEvidenceState =
   | { status: 'error'; sourceRef: string; message: string }
   | { status: 'ready'; sourceRef: string; evidence: GeometryEvidenceResponse; map: HoleMapResponse }
 
+export type GeometryEnsureState = 'idle' | 'running' | 'ready' | 'error'
+
 interface HoleEvidencePanelProps {
   state: HoleEvidenceState
+  ensureState?: GeometryEnsureState
+  onEnsureGeometry?: (target: { globalId: number; localHole: number; sourceRef: string }) => void
 }
 
-export function HoleEvidencePanel({ state }: HoleEvidencePanelProps) {
+export function HoleEvidencePanel({ state, ensureState = 'idle', onEnsureGeometry }: HoleEvidencePanelProps) {
   if (state.status === 'idle') {
     return (
       <section className="hole-evidence-panel" aria-label="Hole geometry evidence">
@@ -45,6 +49,8 @@ export function HoleEvidencePanel({ state }: HoleEvidencePanelProps) {
   const shotRoutes = asRecordArray(state.evidence.shotRoutes)
   const surfaceClassifications = asRecordArray(state.evidence.surfaceClassifications)
   const routeEvidence = asRecord(state.evidence.routeEvidence)
+  const canEnsureGeometry = Boolean(onEnsureGeometry) && state.evidence.coverage !== 'ready'
+  const ensureLabel = `${ensureState === 'running' ? 'Fetching' : 'Fetch'} geometry for ${state.evidence.globalId} H${state.evidence.localHole}`
 
   return (
     <section className="hole-evidence-panel" aria-label="Hole geometry evidence">
@@ -59,6 +65,17 @@ export function HoleEvidencePanel({ state }: HoleEvidencePanelProps) {
         <span className={`semantic-chip ${geometryCoverageClass(state.evidence.coverage)}`}>
           {state.evidence.coverage} coverage
         </span>
+        {canEnsureGeometry ? (
+          <button
+            type="button"
+            className="hole-evidence-action"
+            disabled={ensureState === 'running'}
+            onClick={() => onEnsureGeometry?.({ globalId: state.evidence.globalId, localHole: state.evidence.localHole, sourceRef: state.sourceRef })}
+            aria-label={ensureLabel}
+          >
+            {ensureState === 'running' ? 'Fetching Geometry' : 'Fetch Geometry'}
+          </button>
+        ) : null}
       </div>
 
       <div className="hole-evidence-layout">

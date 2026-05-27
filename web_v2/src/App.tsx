@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   analyzeMedia,
   createCaddieDecisionAudit,
   createAnnotation,
   createMedia,
+  ensureHoleGeometry,
   fetchCaddieContext,
   fetchCaddieDecision,
   fetchAnnotations,
@@ -38,7 +39,7 @@ import { DataQualityPage } from './components/DataQualityPage'
 import { HistoryOverview } from './components/HistoryOverview'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
-import { HoleEvidencePanel, type HoleEvidenceState } from './components/HoleEvidencePanel'
+import { HoleEvidencePanel, type GeometryEnsureState, type HoleEvidenceState } from './components/HoleEvidencePanel'
 import { HoleStats } from './components/HoleStats'
 import { IssueStats } from './components/IssueStats'
 import {
@@ -85,6 +86,7 @@ type LoadState<T> =
   | { status: 'error'; message: string }
 
 type DeferredLoadState<T> = { status: 'idle' } | LoadState<T>
+type HoleGeometryTarget = { globalId: number; localHole: number; sourceRef: string }
 
 const statsPages: ProductPage[] = ['history', 'courses', 'holes', 'clubs', 'issues', 'reports', 'sync-quality']
 
@@ -109,6 +111,8 @@ export default function App() {
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
+  const [geometryEnsureState, setGeometryEnsureState] = useState<GeometryEnsureState>('idle')
+  const activeHoleGeometryTarget = useRef<HoleGeometryTarget | null>(null)
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
   const [sessionSaveState, setSessionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -298,6 +302,8 @@ export default function App() {
     setCaddieContextState((current) => (loadedCaddieContextSourceRef(current) === sourceRef.trim() ? current : { status: 'idle' }))
     setDrilldownState({ status: 'loading', sourceRef })
     setHoleEvidenceState({ status: 'idle' })
+    setGeometryEnsureState('idle')
+    activeHoleGeometryTarget.current = null
     try {
       const data = await fetchHistoryDrilldown(sourceRef)
       setDrilldownState({ status: 'ready', data })
@@ -310,6 +316,8 @@ export default function App() {
         message: error instanceof Error ? error.message : 'Unknown error',
       })
       setHoleEvidenceState({ status: 'idle' })
+      setGeometryEnsureState('idle')
+      activeHoleGeometryTarget.current = null
       return null
     }
   }
@@ -318,21 +326,44 @@ export default function App() {
     const target = holeGeometryTargetFromDrilldown(sourceRef, drilldown)
     if (!target) {
       setHoleEvidenceState({ status: 'idle' })
+      setGeometryEnsureState('idle')
+      activeHoleGeometryTarget.current = null
       return
     }
-    setHoleEvidenceState({ status: 'loading', sourceRef })
+    await loadHoleEvidenceForTarget({ ...target, sourceRef })
+  }
+
+  async function loadHoleEvidenceForTarget(target: HoleGeometryTarget) {
+    activeHoleGeometryTarget.current = target
+    setHoleEvidenceState({ status: 'loading', sourceRef: target.sourceRef })
     try {
       const [evidence, map] = await Promise.all([
-        fetchHoleGeometryEvidence(target.globalId, target.localHole, sourceRef),
-        fetchHoleMap(target.globalId, target.localHole, 'esri_world_imagery', sourceRef),
+        fetchHoleGeometryEvidence(target.globalId, target.localHole, target.sourceRef),
+        fetchHoleMap(target.globalId, target.localHole, 'esri_world_imagery', target.sourceRef),
       ])
-      setHoleEvidenceState({ status: 'ready', sourceRef, evidence, map })
+      if (!sameHoleGeometryTarget(activeHoleGeometryTarget.current, target)) return
+      setHoleEvidenceState({ status: 'ready', sourceRef: target.sourceRef, evidence, map })
     } catch (error: unknown) {
+      if (!sameHoleGeometryTarget(activeHoleGeometryTarget.current, target)) return
       setHoleEvidenceState({
         status: 'error',
-        sourceRef,
+        sourceRef: target.sourceRef,
         message: error instanceof Error ? error.message : 'Unknown error',
       })
+    }
+  }
+
+  async function handleEnsureHoleGeometry(target: { globalId: number; localHole: number; sourceRef: string }) {
+    setGeometryEnsureState('running')
+    try {
+      await ensureHoleGeometry(target.globalId, target.localHole, {}, currentAdminToken())
+      if (!sameHoleGeometryTarget(activeHoleGeometryTarget.current, target)) return
+      await loadHoleEvidenceForTarget(target)
+      if (readinessState.status !== 'idle') void refreshReadinessState()
+      if (statsState.status !== 'idle') void refreshStatsState()
+      setGeometryEnsureState('ready')
+    } catch {
+      setGeometryEnsureState('error')
     }
   }
 
@@ -392,7 +423,13 @@ export default function App() {
           onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
           onCreateAnnotationForSource={handleCreateAnnotationForSource}
         />
-        {holeEvidenceState.status === 'idle' ? null : <HoleEvidencePanel state={holeEvidenceState} />}
+        {holeEvidenceState.status === 'idle' ? null : (
+          <HoleEvidencePanel
+            state={holeEvidenceState}
+            ensureState={geometryEnsureState}
+            onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
+          />
+        )}
       </div>
     )
   }
@@ -710,7 +747,13 @@ export default function App() {
               onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
               onCreateAnnotationForSource={handleCreateAnnotationForSource}
             />
-            {holeEvidenceState.status === 'idle' ? null : <HoleEvidencePanel state={holeEvidenceState} />}
+            {holeEvidenceState.status === 'idle' ? null : (
+              <HoleEvidencePanel
+                state={holeEvidenceState}
+                ensureState={geometryEnsureState}
+                onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
+              />
+            )}
           </main>
         </>
       )
@@ -823,6 +866,15 @@ export default function App() {
       <HistoryOverview data={overviewState.data} onNavigate={navigate} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
       {renderDrilldownPanels()}
     </>
+  )
+}
+
+function sameHoleGeometryTarget(left: HoleGeometryTarget | null, right: HoleGeometryTarget): boolean {
+  return Boolean(
+    left &&
+      left.globalId === right.globalId &&
+      left.localHole === right.localHole &&
+      left.sourceRef === right.sourceRef,
   )
 }
 

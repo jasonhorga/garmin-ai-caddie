@@ -8,6 +8,7 @@ import {
   fetchAnnotations,
   fetchAnnotationsForTarget,
   fetchCourseGeometryCoverage,
+  ensureHoleGeometry,
   fetchHistoryOverview,
   fetchHistoryDrilldown,
   fetchHistoryRounds,
@@ -977,6 +978,30 @@ describe('geometry API helpers', () => {
     expect(evidence.evidence[0].label).toBe('hazards')
     expect(map.provider.coordinateSystem).toBe('WGS84')
     expect(map.layers).toContain('target')
+  })
+
+  it('requests geometry ensure with admin token and force/profile query params', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-geometry-ensure-v1',
+        status: 'downloaded',
+        ok: true,
+        globalId: 31795,
+        localHole: 7,
+        releaseSource: 'prodgeometry',
+        steps: {},
+      }),
+    })))
+
+    const response = await ensureHoleGeometry(31795, 7, { force: true, profileId: 'player-1' }, 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/ensure?profile_id=player-1&force=true', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(response.schema).toBe('ai-caddie-geometry-ensure-v1')
+    expect(response.ok).toBe(true)
   })
 
   it('loads source-bound hole evidence and map routes with encoded source refs', async () => {
