@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,9 @@ LIVE_ROUND_EVENT_CONTRACT = Path("mobile/contracts/live_round_event.schema.json"
 SMOKE_SCRIPT = Path("ops/smoke_private_trial.sh")
 BACKUP_SCRIPT = Path("ops/backup_data.sh")
 BACKUP_MANIFEST = Path("backups/latest.json")
+NATIVE_BUILD_EVIDENCE = Path("mobile/ios/native_build_evidence.json")
+NATIVE_BUILD_EVIDENCE_SCHEMA = "ai-caddie-native-build-evidence-v1"
+NATIVE_BUILD_EVIDENCE_MAX_AGE = timedelta(days=14)
 
 VISION_CONFIRMATION_STATES = ["unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"]
 
@@ -80,6 +84,105 @@ def _latest_backup() -> dict[str, Any] | None:
     }
 
 
+def _public_path(path: Path) -> str:
+    return path.name if path.is_absolute() else path.as_posix()
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _native_scheme_evidence(payload: dict[str, Any], key: str, expected_scheme: str) -> tuple[dict[str, Any], list[str]]:
+    raw = payload.get(key)
+    if not isinstance(raw, dict):
+        return {"scheme": expected_scheme, "status": "missing"}, [f"{key}_missing"]
+
+    scheme = str(raw.get("scheme") or expected_scheme)
+    status = str(raw.get("status") or "missing")
+    evidence: dict[str, Any] = {
+        "scheme": scheme,
+        "status": status,
+    }
+    for field in ("destination", "configuration", "sdk", "testCount", "durationSeconds"):
+        if field in raw and raw[field] is not None:
+            evidence[field] = raw[field]
+
+    issues: list[str] = []
+    if scheme != expected_scheme:
+        issues.append(f"{key}_scheme_mismatch")
+    if status != "passed":
+        issues.append(f"{key}_not_passed")
+    return evidence, issues
+
+
+def _native_build_evidence() -> tuple[str, dict[str, Any]]:
+    base: dict[str, Any] = {
+        "nativeBuild": "environment_blocked",
+        "evidenceStamp": _public_path(NATIVE_BUILD_EVIDENCE),
+        "evidenceSchema": NATIVE_BUILD_EVIDENCE_SCHEMA,
+        "evidenceMaxAgeDays": NATIVE_BUILD_EVIDENCE_MAX_AGE.days,
+    }
+    if not NATIVE_BUILD_EVIDENCE.exists():
+        return "degraded", base
+
+    try:
+        payload = json.loads(NATIVE_BUILD_EVIDENCE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        base["nativeBuild"] = "invalid_evidence"
+        return "degraded", base
+    if not isinstance(payload, dict):
+        base["nativeBuild"] = "invalid_evidence"
+        return "degraded", base
+
+    created_at = _parse_utc_datetime(payload.get("createdAt"))
+    now = datetime.now(UTC)
+    issues: list[str] = []
+    if payload.get("schema") != NATIVE_BUILD_EVIDENCE_SCHEMA:
+        issues.append("schema_mismatch")
+    if created_at is None:
+        issues.append("created_at_missing")
+    elif now - created_at > NATIVE_BUILD_EVIDENCE_MAX_AGE:
+        issues.append("stale")
+    elif created_at - now > timedelta(hours=6):
+        issues.append("future_created_at")
+
+    ios, ios_issues = _native_scheme_evidence(payload, "ios", "AICaddie")
+    watch, watch_issues = _native_scheme_evidence(payload, "watch", "AICaddieWatch")
+    issues.extend(ios_issues)
+    issues.extend(watch_issues)
+
+    evidence = {
+        **base,
+        "createdAt": payload.get("createdAt"),
+        "commit": payload.get("commit"),
+        "workflowRunId": payload.get("workflowRunId"),
+        "artifactName": payload.get("artifactName"),
+        "ios": ios,
+        "watch": watch,
+        "issues": issues,
+    }
+    if created_at is not None:
+        evidence["ageHours"] = round(max((now - created_at).total_seconds(), 0.0) / 3600, 2)
+
+    if issues:
+        evidence["nativeBuild"] = "stale_evidence" if issues == ["stale"] else "invalid_evidence"
+        return "degraded", evidence
+
+    evidence["nativeBuild"] = "passed"
+    return "ready", evidence
+
+
 def _native_mobile_check() -> dict[str, Any]:
     required_paths = [
         "mobile/ios/project.yml",
@@ -91,24 +194,32 @@ def _native_mobile_check() -> dict[str, Any]:
         "mobile/ios/AICaddieWatchTests/WatchRoundStateTests.swift",
     ]
     missing = [path for path in required_paths if not Path(path).exists()]
+    build_state, build_evidence = _native_build_evidence()
+    evidence = {
+        **build_evidence,
+        "projectManifest": "mobile/ios/project.yml",
+        "missing": missing,
+        "linuxContractCommand": "uv run python -m unittest tests.test_mobile_contracts -v",
+        "macosCommands": [
+            "xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddie -destination 'platform=iOS Simulator,name=iPhone 16'",
+            "xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddieWatch -destination 'platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)'",
+        ],
+    }
+    if missing:
+        evidence["nativeBuild"] = "source_missing"
     return _check(
         "native_mobile",
-        "degraded",
+        "ready" if build_state == "ready" and not missing else "degraded",
         (
-            "iOS and Watch app source plus project manifest are present; native Xcode build must run on macOS."
-            if not missing
-            else "Some native iOS/Watch packaging files are missing."
+            "iOS and Watch app source plus a current macOS native test evidence stamp are present."
+            if build_state == "ready" and not missing
+            else (
+                "iOS and Watch app source plus project manifest are present; native Xcode build must run on macOS."
+                if not missing
+                else "Some native iOS/Watch packaging files are missing."
+            )
         ),
-        {
-            "nativeBuild": "environment_blocked",
-            "projectManifest": "mobile/ios/project.yml",
-            "missing": missing,
-            "linuxContractCommand": "uv run python -m unittest tests.test_mobile_contracts -v",
-            "macosCommands": [
-                "xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddie -destination 'platform=iOS Simulator,name=iPhone 16'",
-                "xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddieWatch -destination 'platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)'",
-            ],
-        },
+        evidence,
     )
 
 

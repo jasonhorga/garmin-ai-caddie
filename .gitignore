@@ -34,6 +34,7 @@ logs/
 *.log
 backups/
 *.tar.gz
+mobile/ios/native_build_evidence.json
 
 # OS
 .DS_Store

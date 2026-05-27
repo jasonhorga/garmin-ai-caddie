@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -12,6 +14,33 @@ from server_v2.main import app
 
 
 class ServerV2ReadinessTests(unittest.TestCase):
+    def _write_native_build_evidence(self, path: Path, created_at: datetime) -> None:
+        path.write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-native-build-evidence-v1",
+                    "createdAt": created_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                    "commit": "abc123",
+                    "workflowRunId": "1001",
+                    "artifactName": "native-build-evidence",
+                    "ios": {
+                        "scheme": "AICaddie",
+                        "status": "passed",
+                        "destination": "platform=iOS Simulator,name=iPhone 16,OS=latest",
+                        "testCount": 8,
+                    },
+                    "watch": {
+                        "scheme": "AICaddieWatch",
+                        "status": "passed",
+                        "destination": "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest",
+                        "testCount": 4,
+                    },
+                    "localBuildLog": "/Users/private/Library/Developer/Xcode/DerivedData/log.txt",
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def test_readiness_endpoint_reports_private_trial_checks_without_secrets(self) -> None:
         client = TestClient(app)
 
@@ -169,6 +198,58 @@ class ServerV2ReadinessTests(unittest.TestCase):
         readiness_checks = {row["label"]: row for row in mobile_package["evidence"]["readinessChecks"]}
         self.assertEqual(set(readiness_checks), {"source", "geometry", "weather", "club_profiles", "recent_history", "caddie_seeds"})
         self.assertTrue(all(row["state"] == "ready" for row in readiness_checks.values()))
+
+    def test_readiness_native_mobile_turns_ready_with_fresh_build_evidence(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_path = root / "native_build_evidence.json"
+            self._write_native_build_evidence(evidence_path, datetime.now(UTC))
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.NATIVE_BUILD_EVIDENCE", evidence_path),
+            ):
+                response = client.get("/api/v2/readiness")
+
+            serialized = str(response.json())
+            self.assertNotIn(str(root), serialized)
+            self.assertNotIn("/Users/private", serialized)
+
+        self.assertEqual(response.status_code, 200)
+        checks = {check["label"]: check for check in response.json()["checks"]}
+        native_mobile = checks["native_mobile"]
+        self.assertEqual(native_mobile["state"], "ready")
+        evidence = native_mobile["evidence"]
+        self.assertEqual(evidence["nativeBuild"], "passed")
+        self.assertEqual(evidence["evidenceStamp"], "native_build_evidence.json")
+        self.assertEqual(evidence["ios"]["scheme"], "AICaddie")
+        self.assertEqual(evidence["ios"]["status"], "passed")
+        self.assertEqual(evidence["watch"]["scheme"], "AICaddieWatch")
+        self.assertEqual(evidence["watch"]["status"], "passed")
+        self.assertEqual(evidence["issues"], [])
+
+    def test_readiness_native_mobile_stale_evidence_stays_degraded(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_path = root / "native_build_evidence.json"
+            self._write_native_build_evidence(evidence_path, datetime.now(UTC) - timedelta(days=30))
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.NATIVE_BUILD_EVIDENCE", evidence_path),
+            ):
+                response = client.get("/api/v2/readiness")
+
+            self.assertNotIn(str(root), str(response.json()))
+
+        self.assertEqual(response.status_code, 200)
+        checks = {check["label"]: check for check in response.json()["checks"]}
+        native_mobile = checks["native_mobile"]
+        self.assertEqual(native_mobile["state"], "degraded")
+        self.assertEqual(native_mobile["evidence"]["nativeBuild"], "stale_evidence")
+        self.assertEqual(native_mobile["evidence"]["issues"], ["stale"])
 
     def test_service_index_and_smoke_script_advertise_readiness(self) -> None:
         client = TestClient(app)
