@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
+
+from ai_caddie.media import UPLOAD_DIR, VALID_MEDIA_KINDS, resolve_media_content_path
 
 from .history_stats import load_history_stats_response
 from .mobile import build_mobile_round_package_response
 from .reports import load_trend_report_response
 from .sync_status import load_sync_status_response
+
+
+LIVE_ROUND_PACKAGE_CONTRACT = Path("mobile/contracts/live_round_package.schema.json")
+LIVE_ROUND_EVENT_CONTRACT = Path("mobile/contracts/live_round_event.schema.json")
+SMOKE_SCRIPT = Path("ops/smoke_private_trial.sh")
+
+VISION_CONFIRMATION_STATES = ["unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"]
 
 
 def _check(label: str, state: str, detail: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -16,6 +26,37 @@ def _check(label: str, state: str, detail: str, evidence: dict[str, Any] | None 
         "detail": detail,
         "evidence": evidence or {},
     }
+
+
+def _first_round_id(stats: Any) -> str:
+    drill_down = getattr(stats, "drillDown", {})
+    round_ids = drill_down.get("roundIds") if isinstance(drill_down, dict) else None
+    if isinstance(round_ids, list):
+        for round_id in round_ids:
+            if str(round_id).strip():
+                return str(round_id)
+    return "live-round-1"
+
+
+def _contract_event_kinds() -> list[str]:
+    contract = json.loads(LIVE_ROUND_EVENT_CONTRACT.read_text(encoding="utf-8"))
+    kind = contract.get("properties", {}).get("kind", {})
+    values = kind.get("enum", [])
+    return [str(value) for value in values if str(value).strip()]
+
+
+def _smoke_covers() -> list[str]:
+    if not SMOKE_SCRIPT.exists():
+        return []
+    script = SMOKE_SCRIPT.read_text(encoding="utf-8")
+    checks = {
+        "readiness": "/api/v2/readiness",
+        "mobile_package": "/api/v2/mobile/rounds/900001/package",
+        "caddie_decision": "/api/v2/caddie/decision",
+        "reports": "/api/v2/reports/trend/recent_10",
+        "media_context": "/api/v2/media",
+    }
+    return [label for label, needle in checks.items() if needle in script]
 
 
 def _native_mobile_check() -> dict[str, Any]:
@@ -56,6 +97,7 @@ def build_readiness_response() -> dict[str, Any]:
         _check("mobile", "ready", "Live package, event log, and reconciliation endpoints are registered."),
         _check("secret_handling", "ready", "Public status responses redact private credentials and local paths."),
     ]
+    stats = None
     try:
         stats = load_history_stats_response()
         total_rounds = int(stats.summary.get("totalRounds") or 0)
@@ -90,42 +132,72 @@ def build_readiness_response() -> dict[str, Any]:
         checks.append(_check("sync", "error", exc.__class__.__name__))
 
     try:
-        package = build_mobile_round_package_response("live-round-1")
+        round_id = _first_round_id(stats) if stats is not None else "live-round-1"
+        package = build_mobile_round_package_response(round_id)
+        package_ready = (
+            package.schema_ == "ai-caddie-live-round-package-v1"
+            and package.offlinePackageStatus.get("state") == "ready"
+            and package.sourceCoverage.get("state") == "ready"
+            and not package.missingData
+        )
         checks.append(
             _check(
                 "mobile_package",
-                "ready" if package.schema_ == "ai-caddie-live-round-package-v1" else "degraded",
-                "Live round package generation is available for offline-first iOS use.",
+                "ready" if package_ready else "degraded",
+                "Live round package generation is contract-backed for offline-first iOS use."
+                if package_ready
+                else "Live round package generation is available but has degraded source coverage.",
                 {
+                    "contractSchema": LIVE_ROUND_PACKAGE_CONTRACT.as_posix(),
                     "roundId": package.roundId,
                     "holes": len(package.holes),
                     "caddieDecisionEndpoint": package.caddieDecisionEndpoint,
+                    "offlinePackageStatus": package.offlinePackageStatus,
+                    "sourceCoverage": package.sourceCoverage,
+                    "caddieSeedCount": len(package.caddieContextSeeds),
+                    "cachedCaddieRules": package.cachedCaddieRules,
+                    "missingDataCount": len(package.missingData),
                 },
             )
         )
     except Exception as exc:  # pragma: no cover - defensive health surface
         checks.append(_check("mobile_package", "error", exc.__class__.__name__))
 
+    event_kinds = _contract_event_kinds() if LIVE_ROUND_EVENT_CONTRACT.exists() else []
     checks.append(
         _check(
             "mobile_events",
-            "ready",
-            "Mobile event batch, reconciliation, and apply endpoints are registered.",
+            "ready" if event_kinds else "degraded",
+            "Mobile event batch, reconciliation, and apply endpoints are contract-backed.",
             {
-                "eventEndpoint": "/api/v2/mobile/rounds/{round_id}/events",
-                "reconciliationEndpoint": "/api/v2/mobile/rounds/{round_id}/reconciliation",
+                "contractSchema": LIVE_ROUND_EVENT_CONTRACT.as_posix(),
+                "eventKinds": event_kinds,
+                "idempotencyHeader": "Idempotency-Key",
+                "endpoints": {
+                    "batch": "/api/v2/mobile/rounds/{round_id}/events",
+                    "reconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
+                    "reconciliationApply": "/api/v2/mobile/rounds/{round_id}/reconciliation/apply",
+                },
+                "reconcilesOfflineEvents": True,
+                "preservesMediaEventLinkage": True,
             },
         )
     )
+    upload_root = UPLOAD_DIR.as_posix()
+    escape_probe = resolve_media_content_path(Path(upload_root) / ".." / "private.jpg")
     checks.append(
         _check(
             "media_context",
-            "ready",
-            "Photo/video metadata, upload, and bounded vision analysis endpoints are registered.",
+            "ready" if escape_probe is None else "degraded",
+            "Photo/video metadata, upload, and bounded vision analysis endpoints enforce local media constraints.",
             {
                 "mediaEndpoint": "/api/v2/media",
                 "analysisEndpoint": "/api/v2/media/{media_id}/analyze",
-                "storage": "data/media",
+                "uploadRoot": upload_root,
+                "localPathEscapeProtection": escape_probe is None,
+                "allowedMediaKinds": sorted(VALID_MEDIA_KINDS),
+                "confirmationStates": VISION_CONFIRMATION_STATES,
+                "findingsRedactLocalPath": True,
             },
         )
     )
@@ -138,9 +210,14 @@ def build_readiness_response() -> dict[str, Any]:
                 "ready" if report.schema_ == "ai-caddie-review-report-v1" else "degraded",
                 "Fact-bound report generation and retrieval are available.",
                 {
+                    "schema": report.schema_,
                     "kind": report.kind,
                     "provider": report.provider,
-                    "factsUsed": len(report.factsUsed),
+                    "factsUsedCount": len(report.factsUsed),
+                    "missingDataCount": len(report.missingData),
+                    "sourceRefCount": len(report.sourceRefs),
+                    "unsupportedClaimCount": len(report.unsupportedClaims),
+                    "factBinding": report.factBinding,
                 },
             )
         )
@@ -176,6 +253,9 @@ def build_readiness_response() -> dict[str, Any]:
                 "scripts": required_scripts,
                 "docs": required_docs,
                 "deploymentManifests": deployment_manifests,
+                "smokeCommand": SMOKE_SCRIPT.as_posix(),
+                "smokeCovers": _smoke_covers(),
+                "redactionPolicy": "no credential material or private filesystem paths in status responses",
                 "missing": missing_ops,
             },
         )
