@@ -54,7 +54,6 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
         if course_key
         and str(row.get("courseKey") or "") == course_key
         and (row.get("score") is not None or row.get("strokes") is not None)
-        and int(row.get("holesPlayed") or row.get("holesCompleted") or 18) >= 18
     ]
     same_course_scores = [
         int(row.get("score") if row.get("score") is not None else row.get("strokes"))
@@ -559,7 +558,7 @@ def _package_readiness_missing_data(
         out.append(
             {
                 "label": "recent_history",
-                "reason": "no same-course history is available for the prepared package",
+                "reason": "no scored same-course history is available for the prepared package",
             }
         )
     return _dedupe_missing(out)

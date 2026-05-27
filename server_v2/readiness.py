@@ -146,7 +146,7 @@ def build_readiness_response() -> dict[str, Any]:
                 "ready" if package_ready else "degraded",
                 "Live round package generation is contract-backed for offline-first iOS use."
                 if package_ready
-                else "Live round package generation is available but has degraded source coverage.",
+                else "Live round package generation is available but offline package dependencies are incomplete.",
                 {
                     "contractSchema": LIVE_ROUND_PACKAGE_CONTRACT.as_posix(),
                     "roundId": package.roundId,

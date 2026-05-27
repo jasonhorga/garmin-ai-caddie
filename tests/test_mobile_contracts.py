@@ -347,6 +347,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(package["recentHistory"]["course"]["recentScores"], [])
         self.assertIn("recent_history", {row["label"] for row in package["missingData"]})
 
+    def test_live_round_package_counts_nine_hole_same_course_history_for_readiness(self) -> None:
+        package = build_live_round_package("900003", data=fixture_history_data(), data_mode="fixture")
+
+        self.assertEqual(package["recentHistory"]["course"]["roundCount"], 1)
+        self.assertEqual(package["recentHistory"]["course"]["recentScores"], [38])
+        self.assertNotIn("recent_history", {row["label"] for row in package["missingData"]})
+
     def test_live_round_package_recent_round_review_uses_score_corrections(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

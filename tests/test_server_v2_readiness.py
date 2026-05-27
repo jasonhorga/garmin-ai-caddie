@@ -27,6 +27,8 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertNotIn("token", str(payload).lower())
         checks = {check["label"]: check for check in payload["checks"]}
         self.assertEqual(checks["mobile_package"]["state"], "degraded")
+        self.assertIn("offline package", checks["mobile_package"]["detail"])
+        self.assertNotIn("source coverage", checks["mobile_package"]["detail"])
         self.assertEqual(checks["mobile_events"]["state"], "ready")
         self.assertEqual(checks["media_context"]["state"], "ready")
         self.assertEqual(checks["reports"]["state"], "ready")
