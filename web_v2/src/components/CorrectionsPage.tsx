@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
@@ -165,12 +165,6 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
   const [note, setNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!initialTarget) return
-    setTargetType(initialTarget.targetType)
-    setTargetId(initialTarget.targetId)
-  }, [initialTarget?.targetType, initialTarget?.targetId])
 
   function buildRequest(): AnnotationCreateRequest {
     const payload: Record<string, unknown> = {}

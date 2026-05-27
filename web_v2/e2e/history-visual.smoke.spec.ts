@@ -256,6 +256,53 @@ const readinessPayload = {
   ],
 }
 
+const productSettingsPayload = {
+  schema: 'ai-caddie-product-settings-v1',
+  dataSources: [
+    {
+      id: 'garmin_cn_web_session',
+      label: 'Garmin CN Web Session',
+      track: 'primary',
+      state: 'available',
+      credentialPolicy: 'session_material_only',
+      capabilities: ['scorecards', 'shot_rows'],
+    },
+    {
+      id: 'garmin_oauth',
+      label: 'Official Garmin OAuth',
+      track: 'feasibility',
+      state: 'not_syncable',
+      credentialPolicy: 'pkce_only_if_golf_data_is_proven',
+      capabilities: ['identity_feasibility'],
+    },
+  ],
+  aiProviders: {
+    activeProvider: 'gemini_api_key',
+    factBindingRequired: true,
+    providers: [
+      { id: 'static', label: 'Static', state: 'ready' },
+      { id: 'gemini_api_key', label: 'Gemini API', state: 'configured' },
+    ],
+  },
+  liveApps: {
+    ios: { state: 'contract_ready', offlineFirst: true },
+    watch: { state: 'contract_ready', requiresIphoneBridge: true },
+    vision: { state: 'bounded_context', confirmationRequired: true },
+  },
+  privacy: {
+    noGarminPasswordStorage: true,
+    adminProtectedWrites: true,
+    mediaRedaction: true,
+    localSnapshotsSurviveReauth: true,
+    secretFreeStatusResponses: true,
+  },
+  endpoints: {
+    syncStatus: '/api/v2/sync/status',
+    caddieDecision: '/api/v2/caddie/decision',
+    reports: '/api/v2/reports',
+  },
+}
+
 const reportIndexPayload = {
   schema: 'ai-caddie-review-report-index-v1',
   total: 2,
@@ -331,6 +378,7 @@ async function mockApi(page: Page) {
     if (path === '/api/v2/sync/status') return route.fulfill({ json: syncStatusPayload })
     if (path === '/api/v2/readiness') return route.fulfill({ json: readinessPayload })
     if (path === '/api/v2/reports') return route.fulfill({ json: reportIndexPayload })
+    if (path === '/api/v2/settings/product') return route.fulfill({ json: productSettingsPayload })
     return route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } })
   })
 }

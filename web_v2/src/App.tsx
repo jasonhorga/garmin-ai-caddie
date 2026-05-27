@@ -832,7 +832,12 @@ export default function App() {
           {renderSyncPanel()}
           <main className="app-shell">
             <ProductNav activePage={activePage} onNavigate={navigate} />
-            <CorrectionsPage data={annotationsState.data} initialTarget={correctionTarget ?? undefined} onCreateAnnotation={handleCreateAnnotation} />
+            <CorrectionsPage
+              key={correctionTarget ? `${correctionTarget.targetType}:${correctionTarget.targetId}` : 'manual-corrections'}
+              data={annotationsState.data}
+              initialTarget={correctionTarget ?? undefined}
+              onCreateAnnotation={handleCreateAnnotation}
+            />
           </main>
         </>
       )
