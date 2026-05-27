@@ -612,7 +612,8 @@ def build_live_round_package(
             "number": int(hole.get("number") or index),
             "par": int(hole.get("par") or 4),
             "yards": int(hole.get("yards") or 0) if hole.get("yards") is not None else None,
-            "geometryCoverage": next(
+            "geometryCoverage": str(hole.get("geometryCoverage") or "")
+            or next(
                 (
                     str(row.get("geometryCoverage") or "missing")
                     for row in stats["holes"]
@@ -719,6 +720,34 @@ def build_live_round_package(
     }
 
 
+def _geometry_only_course_template(global_id: int, *, round_id: str, tee_box: str | None = None) -> dict[str, Any] | None:
+    holes = []
+    has_geometry_source = False
+    for local_hole in range(1, 19):
+        try:
+            coverage = geometry_coverage_for_hole(int(global_id), local_hole)
+            state = str(coverage.get("coverage") or "missing")
+        except Exception:
+            state = "missing"
+        if state != "missing":
+            has_geometry_source = True
+        holes.append({"number": local_hole, "par": 4, "yards": None, "geometryCoverage": state})
+    if not has_geometry_source:
+        return None
+    return {
+        "id": round_id,
+        "ids": [round_id],
+        "date": "",
+        "course": f"Course {int(global_id)}",
+        "courseKey": f"gid_{int(global_id)}",
+        "globalId": int(global_id),
+        "holesCompleted": len(holes),
+        "teeBox": tee_box or "unknown",
+        "holes": holes,
+        "_source": "geometry_only_course_package",
+    }
+
+
 def build_live_round_package_for_course(
     global_id: int,
     *,
@@ -739,18 +768,38 @@ def build_live_round_package_for_course(
     live_round_id = (round_id or f"live-course-{global_id}").strip()
     if not live_round_id:
         live_round_id = f"live-course-{global_id}"
-    return build_live_round_package(
+    template_round = None
+    package_source = source
+    if selected_round_id is None:
+        template_round = _geometry_only_course_template(int(global_id), round_id=live_round_id, tee_box=tee_box)
+        if template_round is not None:
+            package_source = HistoryData(
+                raw_rounds=source.raw_rounds,
+                rounds=[*source.rounds, template_round],
+                shots=source.shots,
+            )
+    package = build_live_round_package(
         live_round_id,
-        data=source,
+        data=package_source,
         data_mode=data_mode,
         root=root,
         annotations_root=annotations_root,
         captured_at=captured_at,
-        template_round_id=selected_round_id,
+        template_round_id=selected_round_id or (live_round_id if template_round is not None else None),
         preparation_mode="course",
         requested_course_global_id=int(global_id),
         tee_box=tee_box,
     )
+    if template_round is not None and selected_round_id is None:
+        package["sourceCoverage"] = {
+            **package["sourceCoverage"],
+            "state": "ready",
+            "selectedRoundId": None,
+            "roundFound": False,
+            "availableRoundCount": len(source.rounds),
+            "courseFound": True,
+        }
+    return package
 
 
 def mobile_event_log(root: Path | str | None = None) -> Path:

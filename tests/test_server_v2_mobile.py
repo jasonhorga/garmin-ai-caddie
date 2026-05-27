@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.annotations import add_annotation
 from ai_caddie.decision import list_decision_audits
+from ai_caddie.history import HistoryData
 from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 
@@ -112,6 +113,49 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["caddieContextSeeds"][0]["sourceRef"], "live-black-knight:1")
         self.assertEqual(payload["caddieContextSeeds"][0]["context"]["roundId"], "live-black-knight")
         self.assertEqual(payload["eventCursor"], {"serverSequence": 0, "pendingEventCount": 0})
+
+    def test_mobile_course_package_can_use_geometry_only_course_without_prior_round(self) -> None:
+        client = TestClient(app)
+        data = HistoryData(raw_rounds=[], rounds=[], shots=[])
+
+        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": global_id,
+                "localHole": local_hole,
+                "coverage": "ready",
+                "hasHazards": True,
+                "hasMeshes": True,
+                "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}],
+                "missingData": [],
+            }
+
+        with (
+            patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
+            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+        ):
+            response = client.get(
+                "/api/v2/mobile/courses/55555/package",
+                params={"round_id": "live-new-course", "tee_box": "blue"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["roundId"], "live-new-course")
+        self.assertEqual(payload["course"], {"globalId": 55555, "name": "Course 55555", "teeBox": "blue"})
+        self.assertEqual(payload["sourceCoverage"]["state"], "ready")
+        self.assertEqual(payload["sourceCoverage"]["preparationMode"], "course")
+        self.assertEqual(payload["sourceCoverage"]["requestedCourseGlobalId"], 55555)
+        self.assertTrue(payload["sourceCoverage"]["courseFound"])
+        self.assertFalse(payload["sourceCoverage"]["roundFound"])
+        self.assertIsNone(payload["sourceCoverage"]["selectedRoundId"])
+        self.assertEqual(payload["geometryCoverage"], {"state": "ready", "readyHoles": 18, "totalHoles": 18})
+        self.assertEqual(len(payload["holes"]), 18)
+        self.assertNotIn("round_reference", {row["label"] for row in payload["missingData"]})
+        self.assertIn("weather", {row["label"] for row in payload["missingData"]})
+        self.assertIn("recent_history", {row["label"] for row in payload["missingData"]})
+        self.assertEqual(payload["caddieContextSeeds"][0]["sourceRef"], "live-new-course:1")
+        self.assertEqual(payload["caddieContextSeeds"][0]["context"]["globalId"], 55555)
 
     def test_mobile_round_package_endpoint_selects_weather_at_prepared_time(self) -> None:
         client = TestClient(app)
