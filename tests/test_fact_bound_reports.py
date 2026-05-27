@@ -256,6 +256,36 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("weather", {row["category"] for row in report["unsupportedClaims"]})
         self.assertTrue(any("wind was strong" in row["claim"] for row in report["unsupportedClaims"]))
 
+    def test_report_audit_flags_uncited_strategy_practice_and_causal_advice(self) -> None:
+        facts = {
+            "schema": "ai-caddie-report-facts-v1",
+            "kind": "trend",
+            "subjectId": "recent_10",
+            "factsUsed": [
+                {
+                    "label": "summary_trend",
+                    "source": "summary",
+                    "value": {"totalRounds": 3, "recent10Average": 84.0},
+                    "sourceRefs": ["900001", "900002", "900003"],
+                }
+            ],
+            "missingData": [],
+        }
+
+        report = generate_report(
+            facts,
+            StaticProvider(
+                "You should practice 30-yard bunker shots. The main cause is poor strategy, "
+                "so aim away from flags on every approach."
+            ),
+        )
+
+        categories = {row["category"] for row in report["unsupportedClaims"]}
+        self.assertIn("practice_advice", categories)
+        self.assertIn("strategy_advice", categories)
+        self.assertIn("causal_claim", categories)
+        self.assertEqual(report["factBinding"]["state"], "needs_review")
+
     def test_report_source_refs_include_inference_missing_data_refs(self) -> None:
         refs = report_source_refs(
             {

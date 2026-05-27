@@ -157,6 +157,15 @@ _UNSUPPORTED_CLAIM_RULES = {
     "club": {
         "keywords": ("club", "driver", "wood", "iron", "wedge", "putter", "hybrid"),
     },
+    "practice_advice": {
+        "keywords": ("practice", "drill", "train", "lesson", "work on"),
+    },
+    "strategy_advice": {
+        "keywords": ("should", "recommend", "aim", "lay up", "attack", "safe", "conservative", "aggressive"),
+    },
+    "causal_claim": {
+        "keywords": ("cause", "because", "due to", "reason", "costing strokes", "led to"),
+    },
 }
 
 _CLUB_TOKEN_PATTERN = re.compile(r"\b(?:[1-9]i|[1-9]w|[1-9]h|pw|gw|sw|lw|1d)\b", re.IGNORECASE)
@@ -166,6 +175,19 @@ _CATEGORY_MENTION_PATTERNS = {
     "lie": re.compile(r"\b(lie|stance|slope|blocked view|rough|fairway|bunker)\b", re.IGNORECASE),
     "penalty": re.compile(r"\b(penalt(?:y|ies)|ob|out of bounds|water)\b", re.IGNORECASE),
     "club": re.compile(r"\b(club|driver|wood|iron|wedge|putter|hybrid)\b", re.IGNORECASE),
+    "practice_advice": re.compile(
+        r"\b(practice|drills?|training|train|lesson|work on|range session)\b",
+        re.IGNORECASE,
+    ),
+    "strategy_advice": re.compile(
+        r"\b(should|recommend(?:ed|ation)?|aim|lay up|layup|attack|safe|safer|conservative|aggressive|"
+        r"play away|play short|play long|take less|take more|target)\b",
+        re.IGNORECASE,
+    ),
+    "causal_claim": re.compile(
+        r"\b(cause[sd]?|because|due to|reason|cost(?:ing)? strokes?|strokes? lost|led to|leads to)\b",
+        re.IGNORECASE,
+    ),
 }
 _WEATHER_FACT_KEYS = {
     "weather",
@@ -184,6 +206,35 @@ _LIE_VALUE_TOKENS = {"rough", "fairway", "bunker", "green", "fringe", "tee", "sa
 _PENALTY_VALUE_TOKENS = {"penalty", "penalties", "water", "ob", "hazard", "bunker"}
 _WEATHER_VALUE_TOKENS = {"weather", "wind", "rain", "temperature", "precipitation", "gust"}
 _CLUB_WORD_TOKENS = {"driver", "wood", "iron", "wedge", "putter", "hybrid", "club"}
+_PRACTICE_SUPPORT_TERMS = {"practice", "drill", "training", "lesson"}
+_STRATEGY_SUPPORT_TERMS = {
+    "strategy",
+    "decision",
+    "caddie",
+    "plan",
+    "route",
+    "target",
+    "option",
+    "avoid",
+}
+_STRATEGY_ACTION_TERMS = {
+    "recommend",
+    "aim",
+    "lay up",
+    "layup",
+    "attack",
+    "safe",
+    "safer",
+    "conservative",
+    "aggressive",
+    "play away",
+    "play short",
+    "play long",
+    "take less",
+    "take more",
+    "target",
+}
+_CAUSAL_SUPPORT_TERMS = {"issue", "issues", "diagnosis", "audit", "cause", "strokeslost", "estimatedstrokeslost"}
 _MISSING_CALLOUT_TERMS = (
     "missing",
     "unavailable",
@@ -1098,6 +1149,8 @@ def _mentioned_support_tokens(sentence: str, category: str, rule: dict[str, tupl
         if re.search(r"\bpenalt(?:y|ies)\b", lowered):
             tokens.add("penalty")
         return tokens or {"penalty"}
+    if category in {"practice_advice", "strategy_advice", "causal_claim"}:
+        return {category}
     return set(rule["keywords"])
 
 
@@ -1155,7 +1208,15 @@ def _claim_supported_by_facts(category: str, mentioned: set[str], support: dict[
 
 
 def _fact_support_index(facts_used: list[dict[str, Any]]) -> dict[str, set[str]]:
-    support = {"weather": set(), "lie": set(), "penalty": set(), "club": set()}
+    support = {
+        "weather": set(),
+        "lie": set(),
+        "penalty": set(),
+        "club": set(),
+        "practice_advice": set(),
+        "strategy_advice": set(),
+        "causal_claim": set(),
+    }
     for fact in facts_used:
         if not isinstance(fact, dict):
             continue
@@ -1166,6 +1227,13 @@ def _fact_support_index(facts_used: list[dict[str, Any]]) -> dict[str, set[str]]
                 support["weather"].add("weather")
             if any(_term_in_text(term, label_source) for term in _PENALTY_VALUE_TOKENS):
                 support["penalty"].add("penalty")
+            normalized_label_source = label_source.replace("_", "").replace("-", "")
+            if any(term in normalized_label_source for term in _PRACTICE_SUPPORT_TERMS):
+                support["practice_advice"].add("practice_advice")
+            if any(term in normalized_label_source for term in _STRATEGY_SUPPORT_TERMS):
+                support["strategy_advice"].add("strategy_advice")
+            if any(term in normalized_label_source for term in _CAUSAL_SUPPORT_TERMS):
+                support["causal_claim"].add("causal_claim")
         _collect_fact_support(fact_value, support)
     return support
 
@@ -1208,6 +1276,14 @@ def _add_keyed_support(key: str, value: Any, support: dict[str, set[str]]) -> No
         support["penalty"].update(_tokens_from_terms(text, _PENALTY_VALUE_TOKENS) or {"penalty"})
     if normalized_key in _CLUB_FACT_KEYS:
         support["club"].update(_club_tokens(value))
+    if any(term in normalized_key for term in _PRACTICE_SUPPORT_TERMS):
+        support["practice_advice"].add("practice_advice")
+    if any(term in normalized_key for term in _STRATEGY_SUPPORT_TERMS):
+        support["strategy_advice"].add("strategy_advice")
+    if any(term in normalized_key for term in _CAUSAL_SUPPORT_TERMS):
+        support["causal_claim"].add("causal_claim")
+    if _term_in_text("strategy", text) or _term_in_text("execution", text):
+        support["causal_claim"].add("causal_claim")
 
 
 def _weather_tokens_for_key(normalized_key: str) -> set[str]:
@@ -1241,11 +1317,21 @@ def _missing_data_callout_allowed(sentence: str, category: str, missing_labels: 
     lowered = sentence.lower()
     if not any(term in lowered for term in _MISSING_CALLOUT_TERMS):
         return False
+    if category == "strategy_advice" and _strategy_uncertainty_callout(lowered):
+        return True
     if category in {label.lower() for label in missing_labels}:
         return True
     if category == "weather" and any(label.lower() in {"wind", "weather"} for label in missing_labels):
         return True
     return False
+
+
+def _strategy_uncertainty_callout(lowered_sentence: str) -> bool:
+    if "should" not in lowered_sentence:
+        return False
+    if not any(term in lowered_sentence for term in ("uncertain", "unknown", "missing", "unavailable", "no data")):
+        return False
+    return not any(_term_in_text(term, lowered_sentence) for term in _STRATEGY_ACTION_TERMS)
 
 
 def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, Any]:
