@@ -94,6 +94,46 @@ class ServerV2MobileTests(unittest.TestCase):
             any("bias_against_approach_other" in factor.get("value", {}).get("signals", []) for factor in profile_factors)
         )
 
+    def test_mobile_round_package_seeds_course_form_and_diagnosis_for_offline_decisions(self) -> None:
+        client = TestClient(app)
+
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            package_response = client.get("/api/v2/mobile/rounds/900001/package")
+
+        self.assertEqual(package_response.status_code, 200)
+        payload = package_response.json()
+        seed = next(row for row in payload["caddieContextSeeds"] if row["hole"] == 7)
+        context = seed["context"]
+
+        self.assertEqual(context["courseForm"]["courseKey"], "black_knight")
+        self.assertIn("recentForm", context["courseForm"])
+        self.assertIn("roundRefs", context["courseForm"]["recentForm"])
+
+        diagnostic = context["diagnosticContext"]
+        self.assertIn("topIssue", diagnostic)
+        self.assertIn("qualityGaps", diagnostic)
+        relevant_issues = {row["issue"] for row in diagnostic["relevantIssueTrends"]}
+        self.assertTrue({"double_or_worse", "hazard_result"} & relevant_issues)
+        self.assertTrue(
+            any("900001:7" in row.get("sourceRefs", []) or "900002:7" in row.get("sourceRefs", []) for row in diagnostic["relevantIssueTrends"])
+        )
+
+        decision_context = dict(context)
+        decision_context["shotType"] = "tee"
+        decision_response = client.post(
+            "/api/v2/caddie/decision",
+            json={"shotType": "tee", "context": decision_context},
+        )
+
+        self.assertEqual(decision_response.status_code, 200)
+        decision = decision_response.json()
+        history_factors = [
+            factor
+            for option in decision["options"]
+            for factor in option.get("historyAdjustment", {}).get("factors", [])
+        ]
+        self.assertTrue(any(factor.get("label") == "diagnosis_issue_trends" for factor in history_factors))
+
     def test_mobile_round_package_degrades_explicitly_when_round_is_missing(self) -> None:
         client = TestClient(app)
 

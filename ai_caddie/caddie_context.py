@@ -448,11 +448,13 @@ def _find_hole_stats(stats: dict[str, Any], *, course_key: str, local_hole: int)
 
 
 def _find_course_distribution(stats: dict[str, Any], *, course_key: str) -> dict[str, Any] | None:
+    course_rows = stats.get("courses") if isinstance(stats.get("courses"), list) else []
     distribution = stats.get("courseDistribution") if isinstance(stats.get("courseDistribution"), list) else []
-    for row in distribution:
+    matched: dict[str, Any] = {}
+    for row in [*course_rows, *distribution]:
         if isinstance(row, dict) and str(row.get("courseKey") or "") == course_key:
-            return row
-    return None
+            matched.update(row)
+    return matched or None
 
 
 def _manual_notes(

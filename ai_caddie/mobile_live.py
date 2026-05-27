@@ -197,6 +197,148 @@ def _hole_stats_row(stats: dict[str, Any], *, course_key: str, hole: int) -> dic
     return {}
 
 
+def _dedupe_strings(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def _refs_from_row(row: dict[str, Any]) -> list[str]:
+    refs: list[Any] = []
+    for key in ("sourceRefs", "recentRefs", "baselineRefs", "holeRefs", "shotRefs", "roundRefs", "refs", "roundIds"):
+        value = row.get(key)
+        if isinstance(value, list):
+            refs.extend(value)
+    return _dedupe_strings(refs)
+
+
+def _course_form_context(stats: dict[str, Any], *, course_key: str) -> dict[str, Any] | None:
+    matched: dict[str, Any] = {}
+    for collection_name in ("courses", "courseDistribution"):
+        rows = stats.get(collection_name) if isinstance(stats.get(collection_name), list) else []
+        for row in rows:
+            if isinstance(row, dict) and str(row.get("courseKey") or "") == course_key:
+                matched.update(row)
+    if not matched:
+        return None
+    compact_keys = [
+        "courseKey",
+        "courseName",
+        "roundCount",
+        "average18",
+        "bestScore",
+        "worstScore",
+        "averageDifferential",
+        "recentForm",
+        "geometryCoverage",
+        "roundRefs",
+        "sourceRefs",
+        "coverage",
+        "confidence",
+    ]
+    return {key: matched[key] for key in compact_keys if key in matched}
+
+
+def _seed_relevant_refs(
+    *,
+    source_ref: str,
+    round_id: str,
+    local_hole: int,
+    hole_stats: dict[str, Any],
+    course_form: dict[str, Any] | None,
+) -> list[str]:
+    refs = [source_ref, f"{round_id}:{local_hole}"]
+    refs.extend(_refs_from_row(hole_stats))
+    for issue in hole_stats.get("repeatedIssues") or []:
+        if isinstance(issue, dict):
+            refs.extend(_refs_from_row(issue))
+    if course_form:
+        refs.extend(_refs_from_row(course_form))
+    return _dedupe_strings(refs)
+
+
+def _diagnostic_row_matches(row: dict[str, Any], relevant_refs: set[str], issue_names: set[str]) -> bool:
+    if set(_refs_from_row(row)) & relevant_refs:
+        return True
+    issue = str(row.get("issue") or "").strip().lower()
+    return bool(issue and issue in issue_names)
+
+
+def _compact_diagnostic_row(row: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        "issue": row.get("issue"),
+        "phase": row.get("phase"),
+        "direction": row.get("direction"),
+        "estimatedStrokesLost": row.get("estimatedStrokesLost"),
+        "actualStrokesLost": row.get("actualStrokesLost"),
+        "actualToParImpact": row.get("actualToParImpact"),
+        "sourceRefs": _refs_from_row(row),
+        "coverage": row.get("coverage"),
+        "confidence": row.get("confidence"),
+    }
+    return {key: value for key, value in compact.items() if value not in (None, [], "")}
+
+
+def _diagnostic_context_for_seed(
+    stats: dict[str, Any],
+    *,
+    source_ref: str,
+    round_id: str,
+    local_hole: int,
+    hole_stats: dict[str, Any],
+    course_form: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    diagnosis = stats.get("diagnosis") if isinstance(stats.get("diagnosis"), dict) else {}
+    relevant_refs = set(
+        _seed_relevant_refs(
+            source_ref=source_ref,
+            round_id=round_id,
+            local_hole=local_hole,
+            hole_stats=hole_stats,
+            course_form=course_form,
+        )
+    )
+    issue_names = {
+        str(row.get("issue") or "").strip().lower()
+        for row in hole_stats.get("repeatedIssues") or []
+        if isinstance(row, dict) and str(row.get("issue") or "").strip()
+    }
+    trends = [
+        _compact_diagnostic_row(row)
+        for row in diagnosis.get("issueTrends") or []
+        if isinstance(row, dict) and _diagnostic_row_matches(row, relevant_refs, issue_names)
+    ]
+    quality_gaps = [
+        {
+            "label": row.get("label"),
+            "state": row.get("state"),
+            "ready": row.get("ready"),
+            "total": row.get("total"),
+            "sourceRefs": _refs_from_row(row),
+        }
+        for row in (stats.get("dataQuality") if isinstance(stats.get("dataQuality"), list) else [])
+        if isinstance(row, dict) and str(row.get("state") or "").lower() not in {"good", "ready"}
+    ]
+    context: dict[str, Any] = {}
+    top_issue = diagnosis.get("topIssue") if isinstance(diagnosis.get("topIssue"), dict) else None
+    if top_issue:
+        context["topIssue"] = _compact_diagnostic_row(top_issue)
+    if trends:
+        context["relevantIssueTrends"] = trends[:5]
+    if quality_gaps:
+        context["qualityGaps"] = quality_gaps[:5]
+    audit_trends = diagnosis.get("decisionAuditTrends") if isinstance(diagnosis.get("decisionAuditTrends"), dict) else None
+    if audit_trends and audit_trends.get("totalAudits"):
+        context["decisionAuditTrends"] = audit_trends
+    return context or None
+
+
 def _decision_club_profiles(club_profiles: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
     for profile in club_profiles:
@@ -530,6 +672,15 @@ def _caddie_context_seeds(
             continue
         source_ref = f"{round_id}:{number}"
         hole_stats = _hole_stats_row(stats, course_key=course_key, hole=number)
+        course_form = _course_form_context(stats, course_key=course_key)
+        diagnostic_context = _diagnostic_context_for_seed(
+            stats,
+            source_ref=source_ref,
+            round_id=round_id,
+            local_hole=number,
+            hole_stats=hole_stats,
+            course_form=course_form,
+        )
         geometry, geometry_evidence, geometry_missing = _geometry_seed(
             global_id,
             number,
@@ -574,6 +725,10 @@ def _caddie_context_seeds(
             },
             "historicalHoleIssues": hole_stats.get("repeatedIssues") or [],
         }
+        if course_form:
+            context["courseForm"] = course_form
+        if diagnostic_context:
+            context["diagnosticContext"] = diagnostic_context
         if route_evidence:
             context["routeEvidence"] = route_evidence
         if manual_notes:
