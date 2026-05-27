@@ -26,7 +26,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertNotIn("csrf", str(payload).lower())
         self.assertNotIn("token", str(payload).lower())
         checks = {check["label"]: check for check in payload["checks"]}
-        self.assertEqual(checks["mobile_package"]["state"], "ready")
+        self.assertEqual(checks["mobile_package"]["state"], "degraded")
         self.assertEqual(checks["mobile_events"]["state"], "ready")
         self.assertEqual(checks["media_context"]["state"], "ready")
         self.assertEqual(checks["reports"]["state"], "ready")
@@ -40,12 +40,14 @@ class ServerV2ReadinessTests(unittest.TestCase):
 
         mobile_package = checks["mobile_package"]["evidence"]
         self.assertEqual(mobile_package["contractSchema"], "mobile/contracts/live_round_package.schema.json")
-        self.assertEqual(mobile_package["offlinePackageStatus"]["state"], "ready")
+        self.assertEqual(mobile_package["offlinePackageStatus"]["state"], "degraded")
         self.assertEqual(mobile_package["sourceCoverage"]["state"], "ready")
         self.assertTrue(mobile_package["sourceCoverage"]["roundFound"])
         self.assertGreaterEqual(mobile_package["caddieSeedCount"], 1)
         self.assertTrue(mobile_package["cachedCaddieRules"]["offlineCapable"])
-        self.assertEqual(mobile_package["missingDataCount"], 0)
+        self.assertGreater(mobile_package["missingDataCount"], 0)
+        self.assertIn("geometry", mobile_package["missingDataLabels"])
+        self.assertIn("weather", mobile_package["missingDataLabels"])
 
         mobile_events = checks["mobile_events"]["evidence"]
         self.assertEqual(mobile_events["contractSchema"], "mobile/contracts/live_round_event.schema.json")

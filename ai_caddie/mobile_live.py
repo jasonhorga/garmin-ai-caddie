@@ -521,6 +521,49 @@ def _dedupe_missing(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _package_readiness_missing_data(
+    rows: list[dict[str, Any]],
+    *,
+    geometry_coverage: dict[str, Any],
+    weather_snapshot: dict[str, Any],
+    club_profiles: list[dict[str, Any]],
+    recent_history: dict[str, Any],
+) -> list[dict[str, Any]]:
+    out = list(rows)
+    total_holes = int(geometry_coverage.get("totalHoles") or 0)
+    ready_holes = int(geometry_coverage.get("readyHoles") or 0)
+    if geometry_coverage.get("state") != "ready":
+        out.append(
+            {
+                "label": "geometry",
+                "reason": f"{ready_holes}/{total_holes} holes have ready geometry for offline caddie evidence",
+            }
+        )
+    if weather_snapshot.get("state") != "ready":
+        out.append(
+            {
+                "label": "weather",
+                "reason": "weather snapshot is missing for the prepared round time",
+            }
+        )
+    if not any(int(row.get("sampleSize") or 0) > 0 for row in club_profiles):
+        out.append(
+            {
+                "label": "club_profiles",
+                "reason": "club profile distances are fallback values without shot samples",
+            }
+        )
+    recent_course = recent_history.get("course") if isinstance(recent_history.get("course"), dict) else {}
+    if int(recent_course.get("roundCount") or 0) <= 0:
+        out.append(
+            {
+                "label": "recent_history",
+                "reason": "no same-course history is available for the prepared package",
+            }
+        )
+    return _dedupe_missing(out)
+
+
 def build_live_round_package(
     round_id: str,
     data: HistoryData | None = None,
@@ -597,12 +640,26 @@ def build_live_round_package(
     if not club_profiles:
         club_profiles = [{"clubName": "8I", "sampleSize": 0, "median_m": 140.0, "p10_m": 130.0, "p90_m": 150.0}]
     ready_holes = sum(1 for hole in holes if hole["geometryCoverage"] == "ready")
+    geometry_coverage = {
+        "state": "ready" if ready_holes == len(holes) else "partial" if ready_holes else "missing",
+        "readyHoles": ready_holes,
+        "totalHoles": len(holes),
+    }
     weather_snapshot = _weather_snapshot_for_package(round_id, captured_at=captured_at, root=root)
+    recent_history = _recent_history(scored_source, stats, round_row)
+    package_missing_data = _package_readiness_missing_data(
+        package_missing_data,
+        geometry_coverage=geometry_coverage,
+        weather_snapshot=weather_snapshot,
+        club_profiles=club_profiles,
+        recent_history=recent_history,
+    )
     prepared_at = datetime.now(UTC).replace(microsecond=0)
-    package_state = "ready" if round_found else "degraded"
+    source_state = "ready" if round_found else "degraded"
+    package_state = "ready" if not package_missing_data else "degraded"
     selected_round_id = str(round_row.get("id") or "").strip() or None
     source_coverage = {
-        "state": package_state,
+        "state": source_state,
         "dataMode": data_mode,
         "requestedRoundId": requested_id,
         "selectedRoundId": selected_round_id,
@@ -632,11 +689,7 @@ def build_live_round_package(
             "teeBox": str(tee_box or round_row.get("teeBox") or "unknown"),
         },
         "holes": holes,
-        "geometryCoverage": {
-            "state": "ready" if ready_holes == len(holes) else "partial" if ready_holes else "missing",
-            "readyHoles": ready_holes,
-            "totalHoles": len(holes),
-        },
+        "geometryCoverage": geometry_coverage,
         "caddieContextSeeds": _caddie_context_seeds(
             round_id=round_id,
             round_row=round_row,
@@ -660,7 +713,7 @@ def build_live_round_package(
             },
         },
         "eventCursor": _event_cursor(round_id, root=root),
-        "recentHistory": _recent_history(scored_source, stats, round_row),
+        "recentHistory": recent_history,
         "cachedCaddieRules": _cached_caddie_rules(),
         "generatedAt": _format_time(prepared_at),
     }

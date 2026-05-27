@@ -157,6 +157,13 @@ def build_readiness_response() -> dict[str, Any]:
                     "caddieSeedCount": len(package.caddieContextSeeds),
                     "cachedCaddieRules": package.cachedCaddieRules,
                     "missingDataCount": len(package.missingData),
+                    "missingDataLabels": sorted(
+                        {
+                            str(row.get("label") or "")
+                            for row in package.missingData
+                            if isinstance(row, dict) and str(row.get("label") or "").strip()
+                        }
+                    ),
                 },
             )
         )
