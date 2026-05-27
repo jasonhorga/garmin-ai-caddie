@@ -39,6 +39,8 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
   const auditDiagnosis = asRecord(data.diagnosis?.decisionAuditTrends)
   const auditCounts = asRows(auditDiagnosis.classificationCounts)
   const auditDrivers = asRows(auditDiagnosis.recentCostDrivers)
+  const auditCriteria = asRows(auditDiagnosis.criteriaBreakdown)
+  const optionOutcomes = asRows(auditDiagnosis.optionOutcomes)
 
   return (
     <section className="stats-page" aria-label="Issue statistics">
@@ -138,6 +140,53 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
                     <span>{estimated === null ? '- est. strokes' : `${estimated.toFixed(1)} est. strokes`}</span>
                   </div>
                   <strong className="stats-count">{formatSigned(row.deltaCount)}</strong>
+                </article>
+              )
+            })}
+            {auditCriteria.slice(0, 5).map((row) => {
+              const label = asString(row.label) ?? 'criterion'
+              const status = asString(row.status) ?? 'unknown'
+              const pct = asNumber(row.pct)
+              return (
+                <article key={`audit-criterion-${label}-${status}`} className="stats-item diagnosis-item">
+                  <div className="stats-item-main">
+                    <h2>{label}</h2>
+                    <p>
+                      <SourceRefs refs={row.sourceRefs ?? row.refs} onSelectRef={onSelectRef} />
+                    </p>
+                  </div>
+                  <div className="stats-item-facts">
+                    <span className={`semantic-chip ${semanticClass('status', status)}`}>{status}</span>
+                    <span>{pct === null ? '-%' : `${pct.toFixed(1)}% audits`}</span>
+                    <AggregateEvidence row={row} showReason={false} showConfidence={false} />
+                  </div>
+                  <strong className="stats-count">{formatNumber(row.count)}</strong>
+                </article>
+              )
+            })}
+            {optionOutcomes.slice(0, 5).map((row) => {
+              const selected = asString(row.selectedOptionId) ?? 'unknown'
+              const actual = asString(row.actualOptionId) ?? 'unknown'
+              const classification = asString(row.classification) ?? 'unknown'
+              const pct = asNumber(row.pct)
+              return (
+                <article key={`audit-option-${selected}-${actual}-${classification}`} className="stats-item diagnosis-item">
+                  <div className="stats-item-main">
+                    <h2>
+                      {selected} -&gt; {actual}
+                    </h2>
+                    <p>
+                      <SourceRefs refs={row.sourceRefs ?? row.refs} onSelectRef={onSelectRef} />
+                    </p>
+                  </div>
+                  <div className="stats-item-facts">
+                    <span className={`semantic-chip ${semanticClass('confidence', row.confidence)}`}>
+                      {asString(row.confidence) ?? 'unknown'} confidence
+                    </span>
+                    <span>{classification}</span>
+                    <span>{pct === null ? '-%' : `${pct.toFixed(1)}% audits`}</span>
+                  </div>
+                  <strong className="stats-count">{formatNumber(row.count)}</strong>
                 </article>
               )
             })}

@@ -1538,6 +1538,10 @@ class HistoryStatsCoreTests(unittest.TestCase):
                     "actualShotRefs": ["trend-issue-5:7:1"],
                     "evidenceRefs": ["trend-issue-5:7"],
                     "classification": "execution",
+                    "criteriaResults": [
+                        {"label": "avoid_zones", "status": "fail", "surface": "water"},
+                        {"label": "club_match", "status": "pass"},
+                    ],
                     "modelUpdateSuggestion": "Keep the strategic option, but track whether this miss pattern repeats.",
                 },
                 decision_id="trend-issue-5:7:tee",
@@ -1555,6 +1559,10 @@ class HistoryStatsCoreTests(unittest.TestCase):
                     "actualShotRefs": ["trend-issue-6:7:1"],
                     "evidenceRefs": ["trend-issue-6:7"],
                     "classification": "strategy",
+                    "criteriaResults": [
+                        {"label": "carry_window", "status": "fail"},
+                        {"label": "avoid_zones", "status": "fail", "surface": "bunker"},
+                    ],
                     "modelUpdateSuggestion": "Review whether the chosen aggressive option should be down-weighted for similar tee shots.",
                 },
                 decision_id="trend-issue-6:7:tee",
@@ -1572,6 +1580,10 @@ class HistoryStatsCoreTests(unittest.TestCase):
                     "actualShotRefs": ["trend-issue-6:8:2"],
                     "evidenceRefs": ["trend-issue-6:8"],
                     "classification": "execution",
+                    "criteriaResults": [
+                        {"label": "club_match", "status": "pass"},
+                        {"label": "score_result", "status": "review"},
+                    ],
                     "modelUpdateSuggestion": "Keep the strategic option, but track whether this miss pattern repeats.",
                 },
                 decision_id="trend-issue-6:8:approach",
@@ -1606,6 +1618,19 @@ class HistoryStatsCoreTests(unittest.TestCase):
             drivers[0]["modelUpdateSuggestions"],
             ["Keep the strategic option, but track whether this miss pattern repeats."],
         )
+
+        criteria = {(row["label"], row["status"]): row for row in audit_trends["criteriaBreakdown"]}
+        self.assertEqual(criteria[("avoid_zones", "fail")]["count"], 2)
+        self.assertEqual(criteria[("avoid_zones", "fail")]["sourceRefs"], ["trend-issue-5:7", "trend-issue-6:7"])
+        self.assertEqual(criteria[("carry_window", "fail")]["count"], 1)
+        self.assertEqual(criteria[("score_result", "review")]["sourceRefs"], ["trend-issue-6:8"])
+
+        option_outcomes = {
+            (row["selectedOptionId"], row["actualOptionId"], row["classification"]): row
+            for row in audit_trends["optionOutcomes"]
+        }
+        self.assertEqual(option_outcomes[("stock", "stock", "execution")]["count"], 2)
+        self.assertEqual(option_outcomes[("safe", "attack", "strategy")]["sourceRefs"], ["trend-issue-6:7"])
 
         audit_quality = next(row for row in stats["dataQuality"] if row["label"] == "decision_audits")
         self.assertEqual(audit_quality["state"], "partial")

@@ -70,6 +70,9 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
                     "actualShotRefs": ["900001:7:1"],
                     "evidenceRefs": ["900001:7"],
                     "classification": "execution",
+                    "criteriaResults": [
+                        {"label": "avoid_zones", "status": "fail", "surface": "water"},
+                    ],
                     "modelUpdateSuggestion": "Keep the strategic option, but track whether this miss pattern repeats.",
                 },
                 decision_id="900001:7:tee",
@@ -87,6 +90,10 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertEqual(audit_trends["totalAudits"], 1)
         self.assertEqual(audit_trends["classificationCounts"][0]["classification"], "execution")
         self.assertEqual(audit_trends["classificationCounts"][0]["sourceRefs"], ["900001:7"])
+        self.assertEqual(audit_trends["criteriaBreakdown"][0]["label"], "avoid_zones")
+        self.assertEqual(audit_trends["criteriaBreakdown"][0]["status"], "fail")
+        self.assertEqual(audit_trends["optionOutcomes"][0]["selectedOptionId"], "stock")
+        self.assertEqual(audit_trends["optionOutcomes"][0]["actualOptionId"], "stock")
         audit_quality = next(row for row in payload["dataQuality"] if row["label"] == "decision_audits")
         self.assertEqual(audit_quality["ready"], 1)
         self.assertEqual(audit_quality["sourceRefs"], ["900001"])

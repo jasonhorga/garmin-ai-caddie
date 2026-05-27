@@ -74,6 +74,28 @@ const statsFixture: HistoryStatsResponse = {
           confidence: 'low',
         },
       ],
+      criteriaBreakdown: [
+        {
+          label: 'avoid_zones',
+          status: 'fail',
+          count: 2,
+          pct: 66.7,
+          sourceRefs: ['900001:7', '900002:7'],
+          coverage: { ready: 2, total: 3, pct: 66.7 },
+          confidence: 'medium',
+        },
+      ],
+      optionOutcomes: [
+        {
+          selectedOptionId: 'safe',
+          actualOptionId: 'attack',
+          classification: 'strategy',
+          count: 1,
+          pct: 33.3,
+          sourceRefs: ['900002:7'],
+          confidence: 'low',
+        },
+      ],
     },
   },
   dataQuality: [],
@@ -90,7 +112,7 @@ describe('IssueStats', () => {
     expect(screen.getByText('Data Quality')).toBeInTheDocument()
     expect(screen.getByText('deterministic')).toBeInTheDocument()
     expect(screen.getByText('high confidence')).toHaveClass('confidence-high')
-    expect(screen.getByText('coverage 2/3 66.7%')).toBeInTheDocument()
+    expect(screen.getAllByText('coverage 2/3 66.7%').length).toBeGreaterThan(0)
     expect(screen.getByText('Trend Diagnosis')).toBeInTheDocument()
     expect(screen.getByText('three_putt')).toBeInTheDocument()
     expect(screen.getAllByText('baseline 0').length).toBeGreaterThan(0)
@@ -105,17 +127,22 @@ describe('IssueStats', () => {
     expect(screen.getByText('Caddie Audit')).toBeInTheDocument()
     expect(screen.getByText('execution')).toBeInTheDocument()
     expect(screen.getByText('66.7%')).toBeInTheDocument()
-    expect(screen.getByText('strategy')).toBeInTheDocument()
+    expect(screen.getAllByText('strategy').length).toBeGreaterThan(0)
     expect(screen.getByText('recent 1')).toBeInTheDocument()
     expect(screen.getByText('rate 0 -> 0.33/round')).toBeInTheDocument()
-    expect(screen.getByText('low confidence')).toHaveClass('confidence-low')
+    expect(screen.getAllByText('low confidence')[0]).toHaveClass('confidence-low')
     expect(screen.getByText('coverage 1/1 100%')).toBeInTheDocument()
     expect(screen.getByText('1.2 est. strokes')).toBeInTheDocument()
+    expect(screen.getByText('avoid_zones')).toBeInTheDocument()
+    expect(screen.getByText('fail')).toHaveClass('status-fail')
+    expect(screen.getByText('66.7% audits')).toBeInTheDocument()
+    expect(screen.getByText('safe -> attack')).toBeInTheDocument()
+    expect(screen.getByText('33.3% audits')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900002' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open source 900004:7' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open source 900001:7' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open source 900002:7' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Open source 900001:7' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Open source 900002:7' }).length).toBeGreaterThan(0)
   })
 
   it('renders an empty state when no issue aggregates exist', () => {

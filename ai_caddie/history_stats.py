@@ -1004,6 +1004,25 @@ def _audit_suggestions(records: list[dict[str, Any]]) -> list[str]:
     return _source_refs([_audit_payload(record).get("modelUpdateSuggestion") for record in records])
 
 
+def _audit_option_id(record: dict[str, Any], key: str) -> str:
+    value = record.get(key) or _audit_payload(record).get(key) or "unknown"
+    text = str(value).strip().lower()
+    return text if text else "unknown"
+
+
+def _audit_criteria_results(record: dict[str, Any]) -> list[dict[str, Any]]:
+    value = _audit_payload(record).get("criteriaResults")
+    if not isinstance(value, list):
+        value = record.get("criteriaResults")
+    return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+
+
+def _audit_criterion_key(row: dict[str, Any], field: str, default: str) -> str:
+    value = row.get(field)
+    text = str(value).strip().lower() if value is not None else ""
+    return text if text else default
+
+
 def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     records = _loaded_audit_records(data, decision_audits)
     total = len(records)
@@ -1016,8 +1035,24 @@ def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str,
     audited_round_refs = [ref for ref in round_refs if any(_ref_round_id(item) == ref for record in records for item in _audit_all_refs(record))]
 
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    criteria_grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    option_grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for record in records:
         grouped[_audit_classification(record)].append(record)
+        option_grouped[
+            (
+                _audit_option_id(record, "selectedOptionId"),
+                _audit_option_id(record, "actualOptionId"),
+                _audit_classification(record),
+            )
+        ].append(record)
+        for criterion in _audit_criteria_results(record):
+            criteria_grouped[
+                (
+                    _audit_criterion_key(criterion, "label", "criterion"),
+                    _audit_criterion_key(criterion, "status", "unknown"),
+                )
+            ].append(record)
 
     classification_counts = []
     recent_drivers = []
@@ -1083,6 +1118,57 @@ def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str,
         )
 
     classification_counts.sort(key=lambda row: (-int(row["count"]), str(row["classification"])))
+    criteria_breakdown = []
+    for (label, status), rows in criteria_grouped.items():
+        source_refs = _audit_source_refs(rows)
+        criteria_breakdown.append(
+            _with_aggregate_contract(
+                {
+                    "label": label,
+                    "status": status,
+                    "count": len(rows),
+                    "pct": round(len(rows) / total * 100, 1) if total else 0.0,
+                    "decisionIds": _audit_decision_ids(rows),
+                    "actualShotRefs": _source_refs(ref for row in rows for ref in _audit_ref_values(row, "actualShotRefs")),
+                    "evidenceRefs": _source_refs(ref for row in rows for ref in _audit_ref_values(row, "evidenceRefs")),
+                },
+                source_refs,
+                ready=len(source_refs),
+                total=total,
+                confidence_count=len(rows),
+            )
+        )
+    criteria_breakdown.sort(
+        key=lambda row: (
+            {"fail": 0, "review": 1, "missing": 2, "unknown": 3, "pass": 4}.get(str(row["status"]), 5),
+            -int(row["count"]),
+            str(row["label"]),
+        )
+    )
+
+    option_outcomes = []
+    for (selected_option_id, actual_option_id, classification), rows in option_grouped.items():
+        source_refs = _audit_source_refs(rows)
+        option_outcomes.append(
+            _with_aggregate_contract(
+                {
+                    "selectedOptionId": selected_option_id,
+                    "actualOptionId": actual_option_id,
+                    "classification": classification,
+                    "count": len(rows),
+                    "pct": round(len(rows) / total * 100, 1) if total else 0.0,
+                    "decisionIds": _audit_decision_ids(rows),
+                    "actualShotRefs": _source_refs(ref for row in rows for ref in _audit_ref_values(row, "actualShotRefs")),
+                    "evidenceRefs": _source_refs(ref for row in rows for ref in _audit_ref_values(row, "evidenceRefs")),
+                },
+                source_refs,
+                ready=len(source_refs),
+                total=total,
+                confidence_count=len(rows),
+            )
+        )
+    option_outcomes.sort(key=lambda row: (-int(row["count"]), str(row["classification"]), str(row["selectedOptionId"]), str(row["actualOptionId"])))
+
     recent_drivers.sort(
         key=lambda row: (
             -float(row["estimatedStrokesLost"]),
@@ -1097,6 +1183,8 @@ def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str,
         "baselineRoundRefs": baseline_round_refs,
         "recentRoundRefs": recent_round_refs,
         "classificationCounts": classification_counts,
+        "criteriaBreakdown": criteria_breakdown,
+        "optionOutcomes": option_outcomes,
         "recentCostDrivers": recent_drivers,
     }
 
