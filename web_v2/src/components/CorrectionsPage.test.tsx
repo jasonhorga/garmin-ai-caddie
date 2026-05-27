@@ -19,10 +19,14 @@ function responseFor(request: AnnotationCreateRequest): AnnotationCreateResponse
   }
 }
 
-function renderPage(onCreateAnnotation = vi.fn(async (request: AnnotationCreateRequest) => responseFor(request))) {
+function renderPage(
+  onCreateAnnotation = vi.fn(async (request: AnnotationCreateRequest) => responseFor(request)),
+  initialTarget?: { targetType: AnnotationTargetType; targetId: string },
+) {
   render(
     <CorrectionsPage
       data={{ schema: 'ai-caddie-annotations-v1', total: 0, target: null, annotations: [] }}
+      initialTarget={initialTarget}
       onCreateAnnotation={onCreateAnnotation}
     />,
   )
@@ -137,5 +141,25 @@ describe('CorrectionsPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Remove issue tag' })).toBeInTheDocument()
     expect(screen.getByText('approach_short')).toBeInTheDocument()
+  })
+
+  it('prefills a source-bound target and keeps it after saving', async () => {
+    const onCreateAnnotation = renderPage(undefined, { targetType: 'hole', targetId: '900001:7' })
+
+    expect(screen.getByLabelText('Target type')).toHaveValue('hole')
+    expect(screen.getByLabelText('Target ID')).toHaveValue('900001:7')
+
+    await userEvent.selectOptions(screen.getByLabelText('Correction type'), 'note')
+    await userEvent.type(screen.getByLabelText('Note'), 'Pin was back right')
+    await userEvent.click(screen.getByRole('button', { name: 'Save annotation' }))
+
+    expect(onCreateAnnotation).toHaveBeenCalledWith({
+      targetType: 'hole',
+      targetId: '900001:7',
+      kind: 'hole_note',
+      payload: { text: 'Pin was back right' },
+    })
+    expect(screen.getByLabelText('Target type')).toHaveValue('hole')
+    expect(screen.getByLabelText('Target ID')).toHaveValue('900001:7')
   })
 })

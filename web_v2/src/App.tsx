@@ -32,7 +32,7 @@ import {
 } from './api'
 import { CaddiePage, type MediaContextState } from './components/CaddiePage'
 import { ClubStats } from './components/ClubStats'
-import { CorrectionsPage } from './components/CorrectionsPage'
+import { CorrectionsPage, type CorrectionTarget } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
 import { HistoryOverview } from './components/HistoryOverview'
@@ -106,6 +106,7 @@ export default function App() {
   const [caddieContextState, setCaddieContextState] = useState<DeferredLoadState<CaddieContextResponse>>({ status: 'idle' })
   const [mediaState, setMediaState] = useState<MediaContextState>({ status: 'idle' })
   const [selectedCaddieSourceRef, setSelectedCaddieSourceRef] = useState('900001:7')
+  const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
@@ -232,6 +233,9 @@ export default function App() {
   }
 
   function navigate(page: ProductPage) {
+    if (page !== 'corrections') {
+      setCorrectionTarget(null)
+    }
     setActivePage(page)
     if (page === 'rounds' && roundsState.status === 'idle') {
       void loadRoundsState()
@@ -282,6 +286,11 @@ export default function App() {
     })
     refreshLoadedHistorySurfaces()
     return response
+  }
+
+  function handleCreateAnnotationForSource(target: CorrectionTarget) {
+    setCorrectionTarget(target)
+    navigate('corrections')
   }
 
   async function handleSelectSourceRef(sourceRef: string): Promise<HistoryDrilldownResponse | null> {
@@ -378,7 +387,11 @@ export default function App() {
     if (drilldownState.status === 'idle' && holeEvidenceState.status === 'idle') return null
     return (
       <div className="app-shell">
-        <HistoryDrilldownPanel state={drilldownState} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+        <HistoryDrilldownPanel
+          state={drilldownState}
+          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+          onCreateAnnotationForSource={handleCreateAnnotationForSource}
+        />
         {holeEvidenceState.status === 'idle' ? null : <HoleEvidencePanel state={holeEvidenceState} />}
       </div>
     )
@@ -692,7 +705,11 @@ export default function App() {
           <main className="app-shell">
             <ProductNav activePage={activePage} onNavigate={navigate} />
             {renderStatsContent(statsState.data)}
-            <HistoryDrilldownPanel state={drilldownState} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+            <HistoryDrilldownPanel
+              state={drilldownState}
+              onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+              onCreateAnnotationForSource={handleCreateAnnotationForSource}
+            />
             {holeEvidenceState.status === 'idle' ? null : <HoleEvidencePanel state={holeEvidenceState} />}
           </main>
         </>
@@ -771,8 +788,8 @@ export default function App() {
         <>
           {renderSyncPanel()}
           <main className="app-shell">
-            <ProductNav activePage="settings" onNavigate={navigate} />
-            <CorrectionsPage data={annotationsState.data} onCreateAnnotation={handleCreateAnnotation} />
+            <ProductNav activePage={activePage} onNavigate={navigate} />
+            <CorrectionsPage data={annotationsState.data} initialTarget={correctionTarget ?? undefined} onCreateAnnotation={handleCreateAnnotation} />
           </main>
         </>
       )
@@ -781,7 +798,7 @@ export default function App() {
     if (annotationsState.status === 'error') {
       return (
         <main className="app-shell">
-          <ProductNav activePage="settings" onNavigate={navigate} />
+          <ProductNav activePage={activePage} onNavigate={navigate} />
           <section className="panel empty-state">
             <h1>Corrections unavailable</h1>
             <p>{annotationsState.message}</p>
@@ -792,7 +809,7 @@ export default function App() {
 
     return (
       <main className="app-shell">
-        <ProductNav activePage="settings" onNavigate={navigate} />
+        <ProductNav activePage={activePage} onNavigate={navigate} />
         <section className="panel empty-state">
           <h1>Loading corrections</h1>
         </section>

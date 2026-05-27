@@ -35,10 +35,12 @@ describe('HistoryDrilldownPanel', () => {
 
   it('renders related refs as drilldown buttons', async () => {
     const onSelectRef = vi.fn()
+    const onCreateAnnotationForSource = vi.fn()
 
     render(
       <HistoryDrilldownPanel
         onSelectRef={onSelectRef}
+        onCreateAnnotationForSource={onCreateAnnotationForSource}
         state={{
           status: 'ready',
           data: {
@@ -62,6 +64,9 @@ describe('HistoryDrilldownPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1' }))
 
     expect(onSelectRef).toHaveBeenCalledWith('900001:1')
+    await userEvent.click(screen.getByRole('button', { name: 'Add correction for source 900001:1:0' }))
+
+    expect(onCreateAnnotationForSource).toHaveBeenCalledWith({ targetType: 'shot', targetId: '900001:1:0' })
   })
 
   it('surfaces missing source reasons for unresolved refs', () => {

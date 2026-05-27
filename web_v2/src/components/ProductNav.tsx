@@ -12,7 +12,7 @@ export type ProductPage =
   | 'sync-quality'
   | 'settings'
 
-const navItems: Array<{ id: Exclude<ProductPage, 'corrections'>; label: string }> = [
+const navItems: Array<{ id: ProductPage; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'history', label: 'History' },
   { id: 'rounds', label: 'Rounds' },
@@ -21,6 +21,7 @@ const navItems: Array<{ id: Exclude<ProductPage, 'corrections'>; label: string }
   { id: 'clubs', label: 'Clubs' },
   { id: 'issues', label: 'Issues' },
   { id: 'caddie', label: 'Caddie' },
+  { id: 'corrections', label: 'Corrections' },
   { id: 'sync-quality', label: 'Sync & Data Quality' },
   { id: 'reports', label: 'Reports' },
   { id: 'settings', label: 'Settings' },

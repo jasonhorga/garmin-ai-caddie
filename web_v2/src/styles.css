@@ -1509,6 +1509,20 @@ p {
   overflow-wrap: anywhere;
 }
 
+.drilldown-action-button {
+  min-height: 28px;
+  border: 1px solid var(--green);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--green);
+  padding: 4px 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .drilldown-grid {
   align-items: stretch;
 }

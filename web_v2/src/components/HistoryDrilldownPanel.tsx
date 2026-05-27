@@ -1,4 +1,4 @@
-import type { AnnotationRecord, HistoryDrilldownResponse } from '../types'
+import type { AnnotationRecord, AnnotationTargetType, HistoryDrilldownResponse } from '../types'
 import { SourceRefs } from './SourceRefs'
 
 export type HistoryDrilldownPanelState =
@@ -10,6 +10,7 @@ export type HistoryDrilldownPanelState =
 interface HistoryDrilldownPanelProps {
   state: HistoryDrilldownPanelState
   onSelectRef?: (sourceRef: string) => void
+  onCreateAnnotationForSource?: (target: { targetType: AnnotationTargetType; targetId: string }) => void
 }
 
 function valueText(value: unknown): string {
@@ -139,7 +140,15 @@ function RelatedRefs({
   )
 }
 
-export function HistoryDrilldownPanel({ state, onSelectRef }: HistoryDrilldownPanelProps) {
+function correctionTargetForDrilldown(data: HistoryDrilldownResponse): { targetType: AnnotationTargetType; targetId: string } | null {
+  if (!data.found || !data.ref.trim()) return null
+  if (data.refType === 'round' || data.refType === 'hole' || data.refType === 'shot') {
+    return { targetType: data.refType, targetId: data.ref }
+  }
+  return null
+}
+
+export function HistoryDrilldownPanel({ state, onSelectRef, onCreateAnnotationForSource }: HistoryDrilldownPanelProps) {
   if (state.status === 'idle') return null
 
   if (state.status === 'loading') {
@@ -162,6 +171,7 @@ export function HistoryDrilldownPanel({ state, onSelectRef }: HistoryDrilldownPa
   }
 
   const data = state.data
+  const correctionTarget = correctionTargetForDrilldown(data)
   return (
     <section className="panel drilldown-panel" aria-live="polite">
       <div className="drilldown-title-row">
@@ -174,6 +184,16 @@ export function HistoryDrilldownPanel({ state, onSelectRef }: HistoryDrilldownPa
           <span>{data.ref}</span>
           <span>{data.refType}</span>
           <span>{data.found ? 'found' : 'not found'}</span>
+          {onCreateAnnotationForSource && correctionTarget ? (
+            <button
+              type="button"
+              className="drilldown-action-button"
+              onClick={() => onCreateAnnotationForSource(correctionTarget)}
+              aria-label={`Add correction for source ${data.ref}`}
+            >
+              Add Correction
+            </button>
+          ) : null}
         </div>
       </div>
 

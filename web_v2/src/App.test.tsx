@@ -709,12 +709,11 @@ describe('App navigation', () => {
     expect(await screen.findByText('Garmin CN')).toBeInTheDocument()
     expect(screen.getAllByText('ready').length).toBeGreaterThan(0)
     expect(screen.getByText('Overview')).toBeInTheDocument()
-    ;['History', 'Rounds', 'Courses', 'Holes', 'Clubs', 'Issues', 'Caddie', 'Sync & Data Quality', 'Reports', 'Settings'].forEach(
+    ;['History', 'Rounds', 'Courses', 'Holes', 'Clubs', 'Issues', 'Caddie', 'Corrections', 'Sync & Data Quality', 'Reports', 'Settings'].forEach(
       (label) => expect(screen.getByRole('button', { name: label })).toBeEnabled(),
     )
     expect(screen.queryByRole('button', { name: 'Stats' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Quality' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Corrections' })).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Rounds' }))
 
@@ -816,9 +815,7 @@ describe('App navigation', () => {
     render(<App />)
 
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
-    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Open corrections' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Corrections' }))
 
     expect(await screen.findByRole('heading', { name: 'Corrections' })).toBeInTheDocument()
     const history = screen.getByLabelText('Annotation history')
@@ -853,6 +850,33 @@ describe('App navigation', () => {
     expect(await screen.findByText('round-1:8:shot-1')).toBeInTheDocument()
     expect(screen.getAllByText('7I -> 8I')).toHaveLength(2)
     expect(screen.getByText('Trackman confirmed the club')).toBeInTheDocument()
+  })
+
+  it('opens contextual corrections from source drilldown with the target prefilled', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/drilldown/1') return overviewRoundDrilldownPayload()
+        if (path === '/api/v2/annotations') return annotationsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        if (path === '/api/v2/annotations' && init?.method === 'POST') return createdAnnotationPayload()
+        return overviewPayloadWithRoundRefs()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add correction for source 1' }))
+
+    expect(await screen.findByRole('heading', { name: 'Corrections' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Target type')).toHaveValue('round')
+    expect(screen.getByLabelText('Target ID')).toHaveValue('1')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/annotations')
   })
 
   it('loads API-backed settings state when opening settings', async () => {

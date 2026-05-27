@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
@@ -23,7 +23,13 @@ type CorrectionFormKind =
 
 interface CorrectionsPageProps {
   data: AnnotationListResponse
+  initialTarget?: CorrectionTarget
   onCreateAnnotation: (request: AnnotationCreateRequest) => Promise<AnnotationCreateResponse>
+}
+
+export interface CorrectionTarget {
+  targetType: AnnotationTargetType
+  targetId: string
 }
 
 const correctionKinds: Array<{ value: CorrectionFormKind; label: string }> = [
@@ -140,9 +146,9 @@ function formatCreatedAt(createdAt: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
-export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPageProps) {
-  const [targetType, setTargetType] = useState<AnnotationTargetType>('shot')
-  const [targetId, setTargetId] = useState('')
+export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: CorrectionsPageProps) {
+  const [targetType, setTargetType] = useState<AnnotationTargetType>(initialTarget?.targetType ?? 'shot')
+  const [targetId, setTargetId] = useState(initialTarget?.targetId ?? '')
   const [correctionKind, setCorrectionKind] = useState<CorrectionFormKind>('club_correction')
   const [recordedClub, setRecordedClub] = useState('')
   const [correctedClub, setCorrectedClub] = useState('')
@@ -159,6 +165,12 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
   const [note, setNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!initialTarget) return
+    setTargetType(initialTarget.targetType)
+    setTargetId(initialTarget.targetId)
+  }, [initialTarget?.targetType, initialTarget?.targetId])
 
   function buildRequest(): AnnotationCreateRequest {
     const payload: Record<string, unknown> = {}
@@ -229,7 +241,7 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
     try {
       const response = await onCreateAnnotation(buildRequest())
       setMessage(`Saved ${labelKind(response.annotation.kind)}`)
-      setTargetId('')
+      setTargetId(initialTarget?.targetId ?? '')
       setRecordedClub('')
       setCorrectedClub('')
       setRecordedLie('')
@@ -268,6 +280,7 @@ export function CorrectionsPage({ data, onCreateAnnotation }: CorrectionsPagePro
               <h2>Add Correction</h2>
               <p>Save a targeted manual annotation for derived history stats.</p>
             </div>
+            {initialTarget ? <span className="mode-pill">source-bound</span> : null}
           </div>
 
           <div className="annotation-form-grid">
