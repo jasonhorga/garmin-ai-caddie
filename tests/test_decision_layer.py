@@ -30,6 +30,22 @@ class RecordingProvider:
         return "Play the stock line because it has manageable risk and matching club evidence."
 
 
+class HallucinatingProvider:
+    model = "hallucinating-model"
+
+    def chat(self, messages, max_tokens=None):
+        list(messages)
+        return "Attack because the wind is helping, birdie is likely, and your account password is available."
+
+
+class FailingProvider:
+    model = "failing-model"
+
+    def chat(self, messages, max_tokens=None):
+        list(messages)
+        raise RuntimeError("provider failed password=hunter2 secret=abc /home/ubuntu/private/key.txt")
+
+
 def analysis_fixture(*, stock_risk=1, first_shot=None):
     return {
         "roundId": "round-1",
@@ -193,6 +209,39 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertNotIn("cookie", str(explanation).lower())
         self.assertNotIn("token", str(explanation).lower())
         self.assertNotIn("/home/ubuntu", str(explanation))
+
+    def test_decision_explanation_redacts_password_secret_and_provider_errors(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["manualNotes"] = [
+            {
+                "kind": "strategy_note",
+                "targetId": "round-1:1",
+                "note": "Favor stock. password=hunter2 secret=abc /home/ubuntu/private/raw.json",
+            }
+        ]
+        plan = build_decision_plan(context)
+
+        explanation = generate_decision_explanation(plan, provider=FailingProvider())
+
+        rendered = str(explanation).lower()
+        self.assertEqual(explanation["provider"], "UnavailableTextProvider")
+        self.assertIn("explanation_provider", {row["label"] for row in explanation["missingData"]})
+        self.assertNotIn("hunter2", rendered)
+        self.assertNotIn("secret=abc", rendered)
+        self.assertNotIn("password=", rendered)
+        self.assertNotIn("/home/ubuntu", rendered)
+
+    def test_decision_explanation_flags_unsupported_provider_claims(self) -> None:
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+
+        explanation = generate_decision_explanation(plan, provider=HallucinatingProvider())
+
+        self.assertEqual(explanation["factBinding"]["state"], "needs_review")
+        self.assertEqual(explanation["confidence"], "low")
+        categories = {row["category"] for row in explanation["unsupportedClaims"]}
+        self.assertIn("weather", categories)
+        self.assertIn("scoring", categories)
+        self.assertIn("private_account", categories)
 
     def test_decision_identity_uses_explicit_source_refs_and_stays_secret_free(self) -> None:
         context = approach_fixture()

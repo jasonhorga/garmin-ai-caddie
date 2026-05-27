@@ -195,7 +195,12 @@ def _sanitize_audit_payload(audit: dict[str, Any]) -> dict[str, Any]:
 def _redact_decision_text(value: Any) -> str:
     redacted = redact_secret_text(value)
     redacted = re.sub(
-        r"(?i)(authorization|cookie|connect-csrf-token|csrf|token|api[_-]?key|password|secret)\s*=\[REDACTED\]",
+        r"(?i)\b(authorization|cookie|connect-csrf-token|csrf|token|api[_-]?key|password|secret)\s*[:=]\s*[^,\s;)]+",
+        "[REDACTED_SECRET]",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(?i)\b(authorization|cookie|connect-csrf-token|csrf|token|api[_-]?key|password|secret)\s*=\[REDACTED\]",
         "[REDACTED_SECRET]",
         redacted,
     )
@@ -300,6 +305,38 @@ def _deterministic_decision_narrative(facts: dict[str, Any]) -> str:
     return _redact_decision_text(f"Use {option_label}; structured risk score is {risk}.{missing_text}")
 
 
+def _decision_fact_text(facts: dict[str, Any]) -> str:
+    return json.dumps(facts.get("factsUsed") or [], ensure_ascii=False).lower()
+
+
+def _decision_facts_include(facts: dict[str, Any], *terms: str) -> bool:
+    text = _decision_fact_text(facts)
+    return any(term in text for term in terms)
+
+
+def _decision_has_evidence_kind(facts: dict[str, Any], kind: str) -> bool:
+    for fact in facts.get("factsUsed") or []:
+        if not isinstance(fact, dict) or fact.get("label") != "evidence":
+            continue
+        for row in fact.get("value") or []:
+            if isinstance(row, dict) and str(row.get("kind") or "").lower() == kind:
+                return True
+    return False
+
+
+def _decision_unsupported_claims(narrative: str, facts: dict[str, Any]) -> list[dict[str, Any]]:
+    lowered = narrative.lower()
+    rows: list[dict[str, Any]] = []
+    if any(term in lowered for term in ("wind", "weather", "rain", "temperature", "headwind", "tailwind")):
+        if not _decision_has_evidence_kind(facts, "weather"):
+            rows.append({"category": "weather", "claim": "weather or wind claim is not present in decision facts"})
+    if any(term in lowered for term in ("birdie", "eagle", "bogey")):
+        rows.append({"category": "scoring", "claim": "score outcome claim is not present in decision facts"})
+    if any(term in lowered for term in ("account", "password", "login")):
+        rows.append({"category": "private_account", "claim": "private account claim is not allowed in decision explanations"})
+    return rows
+
+
 def generate_decision_explanation(decision: dict[str, Any], provider: TextProvider | None = None) -> dict[str, Any]:
     facts = _decision_explanation_facts(decision)
     prompt = (
@@ -327,6 +364,10 @@ def generate_decision_explanation(decision: dict[str, Any], provider: TextProvid
         narrative = _deterministic_decision_narrative(facts)
         confidence = "low"
         missing_data.append({"label": "explanation_provider", "reason": _redact_decision_text(exc)})
+    safe_narrative = _redact_decision_text(narrative)
+    unsupported_claims = _decision_unsupported_claims(safe_narrative, facts)
+    if unsupported_claims:
+        confidence = "low"
     return {
         "schema": "ai-caddie-decision-explanation-v1",
         "decisionId": facts["decisionId"],
@@ -336,12 +377,14 @@ def generate_decision_explanation(decision: dict[str, Any], provider: TextProvid
         "model": model,
         "factsUsed": facts["factsUsed"],
         "missingData": missing_data,
+        "unsupportedClaims": unsupported_claims,
         "sourceRefs": facts["sourceRefs"],
         "factBinding": {
-            "state": "bound",
+            "state": "needs_review" if unsupported_claims else "bound",
+            "unsupportedClaimCount": len(unsupported_claims),
             "rule": "narrative generated from factsUsed; deterministic decision fields remain authoritative",
         },
-        "narrative": _redact_decision_text(narrative),
+        "narrative": safe_narrative,
         "confidence": confidence,
     }
 

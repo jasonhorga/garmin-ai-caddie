@@ -44,6 +44,26 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertNotIn("token", response.text.lower())
         self.assertNotIn("/home/ubuntu", response.text)
 
+    def test_decision_endpoint_degrades_when_explanation_provider_is_unavailable(self) -> None:
+        client = TestClient(app)
+
+        with patch(
+            "ai_caddie.decision.build_text_provider",
+            side_effect=RuntimeError("missing password=hunter2 secret=abc /home/ubuntu/private/key.txt"),
+        ):
+            response = client.post("/api/v2/caddie/decision", json=build_decision_request_from_fixture("approach"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-decision-v2")
+        self.assertEqual(payload["selectedOptionId"], "stock")
+        self.assertEqual(payload["explanation"]["provider"], "UnavailableTextProvider")
+        self.assertIn("explanation_provider", {row["label"] for row in payload["explanation"]["missingData"]})
+        self.assertNotIn("hunter2", response.text)
+        self.assertNotIn("secret=abc", response.text)
+        self.assertNotIn("password=", response.text)
+        self.assertNotIn("/home/ubuntu", response.text)
+
     def test_decision_endpoint_returns_recovery_contract(self) -> None:
         client = TestClient(app)
 
