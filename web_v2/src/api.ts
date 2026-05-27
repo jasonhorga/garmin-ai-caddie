@@ -36,6 +36,8 @@ import type {
   SyncStatusResponse,
   WeatherSnapshotParams,
   WeatherSnapshotResponse,
+  VisionFindingConfirmationRequest,
+  VisionFindingConfirmationResponse,
   VisionAnalysisResponse,
   VisionFindingsListResponse,
 } from './types'
@@ -182,6 +184,18 @@ export function fetchVisionFindingsForTarget(
 ): Promise<VisionFindingsListResponse> {
   return getJson<VisionFindingsListResponse>(
     `/api/v2/media/target/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}/findings`,
+    adminToken,
+  )
+}
+
+export function confirmVisionFinding(
+  findingId: string,
+  request: VisionFindingConfirmationRequest,
+  adminToken?: string,
+): Promise<VisionFindingConfirmationResponse> {
+  return postJson<VisionFindingConfirmationResponse>(
+    `/api/v2/media/findings/${encodeURIComponent(findingId)}/confirmation`,
+    request,
     adminToken,
   )
 }

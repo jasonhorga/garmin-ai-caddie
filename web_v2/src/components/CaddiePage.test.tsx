@@ -142,6 +142,7 @@ const visionFinding: VisionFindingRecord = {
   findingType: 'visible_bunker',
   evidenceText: 'front bunker visible',
   confidence: 'medium',
+  confirmationState: 'unconfirmed',
   missingInfo: [],
   provider: 'static',
   model: 'static',
@@ -270,6 +271,7 @@ describe('CaddiePage', () => {
     const onAttachMedia = vi.fn()
     const onAnalyzeMedia = vi.fn()
     const onRedactMedia = vi.fn()
+    const onConfirmVisionFinding = vi.fn()
     const onLoadCaddieContext = vi.fn()
 
     render(
@@ -292,6 +294,7 @@ describe('CaddiePage', () => {
         onAttachMedia={onAttachMedia}
         onAnalyzeMedia={onAnalyzeMedia}
         onRedactMedia={onRedactMedia}
+        onConfirmVisionFinding={onConfirmVisionFinding}
         onLoadCaddieContext={onLoadCaddieContext}
       />,
     )
@@ -335,6 +338,7 @@ describe('CaddiePage', () => {
     expect(screen.getByText('data/media/uploads/lie.jpg')).toBeInTheDocument()
     expect(screen.getByText('visible_bunker')).toBeInTheDocument()
     expect(screen.getByText('front bunker visible')).toBeInTheDocument()
+    expect(screen.getByText('unconfirmed')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Club Sequences' })).toBeInTheDocument()
     expect(screen.getByText('1D-3W-58')).toBeInTheDocument()
     expect(screen.getAllByText(/3 shots/).length).toBeGreaterThan(0)
@@ -351,6 +355,8 @@ describe('CaddiePage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Load media context' }))
     await userEvent.click(screen.getByRole('button', { name: 'Analyze media media-1' }))
     await userEvent.click(screen.getByRole('button', { name: 'Redact media media-1' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm finding finding-1' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Reject finding finding-1' }))
     await userEvent.upload(screen.getByLabelText('Media file'), new File(['lie-bytes'], 'lie.jpg', { type: 'image/jpeg' }))
     await userEvent.click(screen.getByRole('button', { name: 'Attach media' }))
     await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
@@ -375,6 +381,8 @@ describe('CaddiePage', () => {
     expect(onLoadMediaContext).toHaveBeenCalledWith({ targetType: 'shot', targetId: 'fixture-round:4:approach' })
     expect(onAnalyzeMedia).toHaveBeenCalledWith('media-1')
     expect(onRedactMedia).toHaveBeenCalledWith('media-1')
+    expect(onConfirmVisionFinding).toHaveBeenNthCalledWith(1, 'finding-1', 'manual_confirmed')
+    expect(onConfirmVisionFinding).toHaveBeenNthCalledWith(2, 'finding-1', 'rejected')
     expect(onAttachMedia).toHaveBeenCalledWith(
       expect.objectContaining({
         targetType: 'shot',

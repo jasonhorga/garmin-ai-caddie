@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   analyzeMedia,
+  confirmVisionFinding,
   createCaddieDecisionAudit,
   createAnnotation,
   createMedia,
@@ -78,6 +79,7 @@ import type {
   ProductSettingsResponse,
   SyncStatusResponse,
   WeatherSnapshotResponse,
+  VisionConfirmationState,
 } from './types'
 
 type LoadState<T> =
@@ -682,6 +684,39 @@ export default function App() {
     })
   }
 
+  async function handleConfirmVisionFinding(
+    findingId: string,
+    confirmationState: Extract<VisionConfirmationState, 'manual_confirmed' | 'rejected'>,
+  ) {
+    const target = mediaState.status === 'ready' ? { targetType: mediaState.targetType, targetId: mediaState.targetId } : null
+    const response = await confirmVisionFinding(findingId, { confirmationState, confirmedBy: 'web' }, currentAdminToken())
+    if (!target) {
+      setMediaState((current) => {
+        if (current.status !== 'ready') return current
+        return {
+          ...current,
+          findings: current.findings.map((finding) => (finding.id === findingId ? response.finding : finding)),
+        }
+      })
+      return
+    }
+    try {
+      const findings = await fetchVisionFindingsForTarget(target.targetType, target.targetId, currentAdminToken())
+      setMediaState((current) => {
+        if (current.status !== 'ready' || current.targetType !== target.targetType || current.targetId !== target.targetId) return current
+        return { ...current, findings: findings.findings }
+      })
+    } catch {
+      setMediaState((current) => {
+        if (current.status !== 'ready') return current
+        return {
+          ...current,
+          findings: current.findings.map((finding) => (finding.id === findingId ? response.finding : finding)),
+        }
+      })
+    }
+  }
+
   if (overviewState.status === 'loading') {
     return (
       <main className="app-shell">
@@ -801,6 +836,7 @@ export default function App() {
             onAttachMedia={handleAttachMedia}
             onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}
             onRedactMedia={(mediaId) => void handleRedactMedia(mediaId)}
+            onConfirmVisionFinding={(findingId, confirmationState) => void handleConfirmVisionFinding(findingId, confirmationState)}
             onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
             selectedSourceRef={selectedCaddieSourceRef}
           />

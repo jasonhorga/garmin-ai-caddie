@@ -6,6 +6,7 @@ export type MediaTargetType = 'round' | 'hole' | 'shot'
 export type MediaKind = 'photo' | 'video'
 export type MediaPrivacyState = 'private_local' | 'synced' | 'redacted'
 export type GeometryCoverageState = 'ready' | 'partial' | 'missing'
+export type VisionConfirmationState = 'unconfirmed' | 'confirmed' | 'player_confirmed' | 'manual_confirmed' | 'rejected'
 export type VisionFindingType =
   | 'poor_lie'
   | 'blocked_view'
@@ -272,7 +273,7 @@ export interface VisionFinding {
   findingType: VisionFindingType
   evidenceText: string
   confidence: ReportConfidence
-  confirmationState?: 'unconfirmed' | 'confirmed' | 'player_confirmed' | 'manual_confirmed' | 'rejected'
+  confirmationState?: VisionConfirmationState
   missingInfo: string[]
   provider: string
   model: string
@@ -293,10 +294,22 @@ export interface VisionAnalysisResponse {
 export interface VisionFindingRecord extends VisionFinding {
   id: string
   createdAt: string
+  confirmedAt?: string | null
+  confirmedBy?: string | null
   targetType: MediaTargetType
   targetId: string
   mediaId: string
   mediaKind: MediaKind | null
+}
+
+export interface VisionFindingConfirmationRequest {
+  confirmationState: Extract<VisionConfirmationState, 'unconfirmed' | 'manual_confirmed' | 'rejected'>
+  confirmedBy?: string | null
+}
+
+export interface VisionFindingConfirmationResponse {
+  schema: 'ai-caddie-vision-finding-confirmation-v1'
+  finding: VisionFindingRecord
 }
 
 export interface VisionFindingsListResponse {

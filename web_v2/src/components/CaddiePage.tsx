@@ -11,6 +11,7 @@ import type {
   MediaRecord,
   MediaTargetType,
   WeatherSnapshotResponse,
+  VisionConfirmationState,
   VisionFindingRecord,
 } from '../types'
 import { SourceRefs } from './SourceRefs'
@@ -59,6 +60,7 @@ interface CaddiePageProps {
   onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
   onAnalyzeMedia?: (mediaId: string) => void
   onRedactMedia?: (mediaId: string) => void
+  onConfirmVisionFinding?: (findingId: string, confirmationState: Extract<VisionConfirmationState, 'manual_confirmed' | 'rejected'>) => void
   onSelectRef?: (sourceRef: string) => void
   selectedSourceRef?: string
 }
@@ -77,6 +79,7 @@ export function CaddiePage({
   onAttachMedia,
   onAnalyzeMedia,
   onRedactMedia,
+  onConfirmVisionFinding,
   onSelectRef = () => undefined,
   selectedSourceRef,
 }: CaddiePageProps) {
@@ -178,6 +181,7 @@ export function CaddiePage({
         onAttachMedia={onAttachMedia}
         onAnalyzeMedia={onAnalyzeMedia}
         onRedactMedia={onRedactMedia}
+        onConfirmVisionFinding={onConfirmVisionFinding}
       />
       <DecisionDetail state={decisionState} auditState={auditState} onCreateAudit={onCreateAudit} onSelectRef={onSelectRef} />
     </section>
@@ -950,12 +954,14 @@ function MediaContextPanel({
   onAttachMedia,
   onAnalyzeMedia,
   onRedactMedia,
+  onConfirmVisionFinding,
 }: {
   state: MediaContextState
   onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
   onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
   onAnalyzeMedia?: (mediaId: string) => void
   onRedactMedia?: (mediaId: string) => void
+  onConfirmVisionFinding?: (findingId: string, confirmationState: Extract<VisionConfirmationState, 'manual_confirmed' | 'rejected'>) => void
 }) {
   const [targetType, setTargetType] = useState<MediaTargetType>('shot')
   const [targetId, setTargetId] = useState('fixture-round:4:approach')
@@ -1076,8 +1082,30 @@ function MediaContextPanel({
                 <div>
                   <strong>{finding.findingType}</strong>
                   <span>{finding.evidenceText}</span>
+                  <span>{finding.confirmationState ?? 'unconfirmed'}</span>
+                  {finding.confirmedBy ? <span>confirmed by {finding.confirmedBy}</span> : null}
                 </div>
                 <span className={`confidence-pill ${finding.confidence}`}>{finding.confidence}</span>
+                {onConfirmVisionFinding ? (
+                  <div className="media-context-actions">
+                    <button
+                      type="button"
+                      aria-label={`Confirm finding ${finding.id}`}
+                      onClick={() => onConfirmVisionFinding(finding.id, 'manual_confirmed')}
+                      disabled={finding.confirmationState === 'manual_confirmed'}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Reject finding ${finding.id}`}
+                      onClick={() => onConfirmVisionFinding(finding.id, 'rejected')}
+                      disabled={finding.confirmationState === 'rejected'}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                ) : null}
               </article>
             ))
           ) : (

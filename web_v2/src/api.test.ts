@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createCaddieDecisionAudit,
+  confirmVisionFinding,
   createAnnotation,
   createMedia,
   fetchCaddieContext,
@@ -939,6 +940,48 @@ describe('media API helpers', () => {
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/media/target/shot/round-1%3A4%3A2/findings', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
+  })
+
+  it('confirms vision findings with an admin token header', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-vision-finding-confirmation-v1',
+        finding: {
+          id: 'finding-1',
+          createdAt: '2026-05-25T00:01:00Z',
+          confirmedAt: '2026-05-25T00:02:00Z',
+          confirmedBy: 'tester',
+          targetType: 'shot',
+          targetId: 'round-1:4:2',
+          mediaId: 'media-1',
+          mediaKind: 'photo',
+          findingType: 'visible_bunker',
+          evidenceText: 'front bunker visible',
+          confidence: 'medium',
+          confirmationState: 'manual_confirmed',
+          missingInfo: [],
+          provider: 'static',
+          model: 'static',
+          source: 'vision_model',
+        },
+      }),
+    }))
+
+    const response = await confirmVisionFinding(
+      'finding-1',
+      { confirmationState: 'manual_confirmed', confirmedBy: 'tester' },
+      'admin-secret',
+    )
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/media/findings/finding-1/confirmation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      body: JSON.stringify({ confirmationState: 'manual_confirmed', confirmedBy: 'tester' }),
+    })
+    expect(response.schema).toBe('ai-caddie-vision-finding-confirmation-v1')
+    expect(response.finding.confirmationState).toBe('manual_confirmed')
+    expect(response.finding.confirmedBy).toBe('tester')
   })
 })
 
