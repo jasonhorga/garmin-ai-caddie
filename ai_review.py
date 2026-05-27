@@ -1,28 +1,38 @@
-"""Tier-1 AI review prototype: feed one round to the configured provider.
+"""Legacy CLI wrapper for fact-bound AI Caddie round reviews.
 
 Usage: uv run ai_review.py <scorecard_id>
        uv run ai_review.py            # uses most recent scorecard
 
-Outputs: output/ai_reviews/<scorecard_id>.md
+Outputs:
+  output/ai_reviews/<scorecard_id>.md
+  output/ai_reviews/<scorecard_id>_facts.json
+  data/reports/reports.jsonl
 """
 
 from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
+from typing import Any, Literal
 
-from ai_caddie.llm_providers import LLMMessage, build_text_provider
+from ai_caddie.history import HistoryData, load_history_data
+from ai_caddie.history_stats import build_history_stats
+from ai_caddie.llm_providers import TextProvider, build_text_provider
+from ai_caddie.reports import (
+    build_round_report_facts,
+    generate_deterministic_report,
+    generate_report,
+    redact_private_text,
+    store_report,
+)
 
 ROOT = Path(__file__).parent
 SCORECARD_DIR = ROOT / "data" / "scorecards"
 OUT_DIR = ROOT / "output" / "ai_reviews"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-
-def semicircle_to_deg(s: int) -> float:
-    return s * 180.0 / 2**31
+DataModeName = Literal["local", "fixture"]
 
 
 def latest_scorecard_id() -> int:
@@ -30,94 +40,63 @@ def latest_scorecard_id() -> int:
     return int(files[-1].stem)
 
 
-def build_round_brief(scorecard_id: int) -> tuple[str, dict]:
-    """Compose a compact, structured brief from a scorecard JSON."""
-    raw = json.loads((SCORECARD_DIR / f"{scorecard_id}.json").read_text())
-    detail = raw["scorecardDetails"][0]
-    sc = detail["scorecard"]
-    stats = detail["scorecardStats"]
-    snap = raw["courseSnapshots"][0] if raw.get("courseSnapshots") else {}
+def _round_id(value: int | str) -> str:
+    return str(value).strip()
 
-    pars = snap.get("holePars", "")
-    holes = sc["holes"]
-    shot_counts = detail.get("shotCounts", [None] * 18)
 
-    lines = []
-    lines.append(f"# Round on {sc.get('formattedStartTime', sc.get('startTime'))}")
-    lines.append(f"Course: {snap.get('name', 'unknown')}  ({snap.get('city')}, {snap.get('country')})")
-    lines.append(f"Tee: {sc.get('teeBox')} (rating {sc.get('teeBoxRating')}, slope {sc.get('teeBoxSlope')})")
-    lines.append(f"Par {snap.get('roundPar')}, scored {sc.get('strokes')} (handicap {sc.get('playerHandicap')}; net {sc.get('handicappedStrokes')})")
-    if sc.get("distanceWalked"):
-        lines.append(f"Walked {sc['distanceWalked']} m in {sc.get('stepsTaken', '?')} steps")
-    lines.append("")
-    lines.append("## Round stats")
-    rd = stats.get("round", {})
-    lines.append(
-        f"FH: {rd.get('fairwaysHit')}/{rd.get('fairwaysRecorded')}  "
-        f"(L:{rd.get('fairwaysLeft')} R:{rd.get('fairwaysRight')})  "
-        f"GIR: {rd.get('greensInRegulation')}/{rd.get('greensRecorded')}  "
-        f"Putts: {rd.get('putts')} ({rd.get('meanPuttsPerHole'):.2f}/hole)"
+def _facts_with_provider_failure(facts: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    payload = dict(facts)
+    missing_data = payload.get("missingData")
+    rows = [row for row in missing_data if isinstance(row, dict)] if isinstance(missing_data, list) else []
+    rows.append(
+        {
+            "label": "report_provider",
+            "state": "missing",
+            "reason": redact_private_text(exc),
+        }
     )
-    lines.append(
-        f"Holes: birdie {rd.get('holesBirdie')}, par {rd.get('holesPar')}, "
-        f"bogey {rd.get('holesBogey')}, double+ {rd.get('holesOverBogey')}; "
-        f"chips {rd.get('chips')}, up&down {rd.get('upsAndDowns')}"
-    )
-    cmp_ = detail.get("statsComparison", {})
-    lines.append(
-        f"Ratings: drive={cmp_.get('driveRating')}, approach={cmp_.get('approachRating')}, "
-        f"chip={cmp_.get('chipRating')}, putt={cmp_.get('puttRating')}"
-    )
-    lines.append("")
-    lines.append("## Per-hole detail")
-    lines.append("hole | par | strokes | putts | FH        | shots auto | net    ")
-    lines.append("---- | --- | ------- | ----- | --------- | ---------- | ------ ")
-    for i, h in enumerate(holes):
-        n = h["number"]
-        par = pars[n - 1] if pars else "?"
-        net = (
-            f"{h['strokes'] - int(par):+d}"
-            if pars and pars[n - 1].isdigit()
-            else "?"
-        )
-        fh = h.get("fairwayShotOutcome", "-")
-        sc_n = shot_counts[i] if i < len(shot_counts) else "?"
-        lines.append(
-            f"{n:>4} | {par:>3} | {h['strokes']:>7} | {h.get('putts','?'):>5} | "
-            f"{fh:<9} | {sc_n!s:>10} | {net:>6}"
-        )
-
-    if sc.get("longestShotInMeters") if False else detail.get("longestShotInMeters"):
-        lines.append("")
-        lines.append(f"Longest shot: {detail['longestShotInMeters']:.1f} m")
-
-    return "\n".join(lines), {"strokes": sc.get("strokes"), "course": snap.get("name"), "date": sc.get("formattedStartTime")}
+    payload["missingData"] = rows
+    return payload
 
 
-PROMPT_TEMPLATE = """你是一个高尔夫教练，看过下面这场单场数据后用中文写一段 300-500 字的复盘，结构如下：
+def build_round_facts_payload(
+    scorecard_id: int | str,
+    *,
+    history_data: HistoryData | None = None,
+    data_mode: DataModeName = "local",
+) -> dict[str, Any]:
+    data = history_data or load_history_data()
+    stats = build_history_stats(data, data_mode=data_mode)
+    return build_round_report_facts(stats, _round_id(scorecard_id), history_data=data)
 
-1. **总体定性**：这场比平均水准好/差在哪？1-2 句。
-2. **数据亮点**：成绩里最值得注意的 2-3 个数字（比如 FH 偏左、推杆偏多、某段连续吃 +2、长度走得远等等）。每个数字带具体数据。
-3. **可能的根因猜测**：基于这一场看不出全貌，但合理推测（开球方向问题？果岭判断？体力？）。明确说「这是基于单场数据的猜测」。
-4. **下一场该试的 1 件事**：一条具体可执行的建议，不要空话。
 
-不要列球友、不要复述场次基本信息（球场名、日期、par 等用户都已知）。
+def build_fact_bound_round_report(
+    scorecard_id: int | str,
+    *,
+    history_data: HistoryData | None = None,
+    provider: TextProvider | None = None,
+    data_mode: DataModeName = "local",
+) -> dict[str, Any]:
+    facts = build_round_facts_payload(scorecard_id, history_data=history_data, data_mode=data_mode)
+    try:
+        return generate_report(facts, provider or build_text_provider())
+    except Exception as exc:
+        report = generate_deterministic_report(_facts_with_provider_failure(facts, exc))
+        report["confidence"] = "low"
+        return report
 
-数据：
----
-{brief}
----
-"""
+
+def build_round_brief(scorecard_id: int) -> tuple[str, dict[str, Any]]:
+    """Compatibility helper returning the fact payload as JSON, not a free-form prompt."""
+    data = load_history_data()
+    facts = build_round_facts_payload(scorecard_id, history_data=data)
+    return json.dumps(facts, ensure_ascii=False, indent=2), _round_meta(data, _round_id(scorecard_id))
 
 
 def call_configured_provider(brief: str) -> str:
-    provider = build_text_provider()
-    return provider.chat(
-        [
-            LLMMessage(role="user", content=PROMPT_TEMPLATE.format(brief=brief)),
-        ],
-        max_tokens=1500,
-    )
+    """Compatibility wrapper for older scripts; `brief` must be a report-facts JSON payload."""
+    facts = json.loads(brief)
+    return generate_report(facts, build_text_provider())["narrative"]
 
 
 def call_claude(brief: str) -> str:
@@ -125,33 +104,67 @@ def call_claude(brief: str) -> str:
     return call_configured_provider(brief)
 
 
+def _round_meta(data: HistoryData, scorecard_id: str) -> dict[str, Any]:
+    rows = [*data.rounds, *data.raw_rounds]
+    for row in rows:
+        ids = [str(row.get("id"))]
+        ids.extend(str(item) for item in row.get("ids", []) if item is not None)
+        if scorecard_id in ids:
+            return {
+                "strokes": row.get("strokes"),
+                "course": row.get("course") or row.get("courseName") or "unknown",
+                "date": row.get("date") or row.get("formattedStartTime") or row.get("startTime") or "unknown",
+            }
+    return {"strokes": None, "course": "unknown", "date": "unknown"}
+
+
+def render_report_markdown(report: dict[str, Any]) -> str:
+    source_refs = ", ".join(str(ref) for ref in report.get("sourceRefs", [])) or "none"
+    fact_binding = report.get("factBinding") if isinstance(report.get("factBinding"), dict) else {}
+    unsupported = report.get("unsupportedClaims") if isinstance(report.get("unsupportedClaims"), list) else []
+    missing_data = report.get("missingData") if isinstance(report.get("missingData"), list) else []
+    facts_used = report.get("factsUsed") if isinstance(report.get("factsUsed"), list) else []
+    rendered = [
+        f"# AI Caddie Round Review - {report.get('subjectId', 'unknown')}",
+        "",
+        f"Provider: {report.get('provider', 'unknown')} / {report.get('model', 'unknown')}",
+        f"Confidence: {report.get('confidence', 'low')}",
+        f"Fact binding: {fact_binding.get('state', 'unknown')} ({fact_binding.get('unsupportedClaimCount', 0)} unsupported)",
+        f"Source refs: {source_refs}",
+        "",
+        str(report.get("narrative") or ""),
+        "",
+        "## Unsupported claims",
+        json.dumps(unsupported, ensure_ascii=False, indent=2),
+        "",
+        "## Missing data",
+        json.dumps(missing_data, ensure_ascii=False, indent=2),
+        "",
+        "## Facts used",
+        json.dumps({"factsUsed": facts_used}, ensure_ascii=False, indent=2),
+        "",
+    ]
+    return "\n".join(rendered)
+
+
 def main() -> int:
     if len(sys.argv) > 1:
-        sid = int(sys.argv[1])
+        sid = _round_id(sys.argv[1])
     else:
-        sid = latest_scorecard_id()
-    print(f"[..] building brief for scorecard {sid}")
-    brief, meta = build_round_brief(sid)
+        sid = _round_id(latest_scorecard_id())
 
-    brief_path = OUT_DIR / f"{sid}_brief.md"
-    brief_path.write_text(brief)
-    print(f"[ok] brief saved -> {brief_path.relative_to(ROOT)}  ({len(brief)} chars)")
+    print(f"[..] building fact-bound report for scorecard {sid}")
+    data = load_history_data()
+    facts = build_round_facts_payload(sid, history_data=data)
+    facts_path = OUT_DIR / f"{sid}_facts.json"
+    facts_path.write_text(json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[ok] facts saved -> {facts_path.relative_to(ROOT)}")
 
-    print("[..] calling configured AI provider")
-    try:
-        review = call_configured_provider(brief)
-    except Exception as e:
-        print(f"[!!] API call failed: {e}")
-        print("    Brief was prepared but no review generated.")
-        return 1
-
+    report = build_fact_bound_round_report(sid, history_data=data)
+    store_report(report, kind="round", subject_id=sid, root=ROOT)
     out = OUT_DIR / f"{sid}.md"
-    out.write_text(
-        f"# AI 复盘 — {meta['course']}\n"
-        f"Date: {meta['date']}  |  Score: {meta['strokes']}\n\n"
-        f"{review}\n\n---\n## Source brief\n\n{brief}\n"
-    )
-    print(f"[ok] review saved -> {out.relative_to(ROOT)}  ({len(review)} chars)")
+    out.write_text(render_report_markdown(report), encoding="utf-8")
+    print(f"[ok] review saved -> {out.relative_to(ROOT)}")
     return 0
 
 
