@@ -91,8 +91,10 @@ from .models import (
     WeatherSnapshotResponse,
 )
 from .reports import (
+    generate_hole_report_response,
     generate_round_report_response,
     generate_trend_report_response,
+    load_hole_report_response,
     load_report_index_response,
     load_round_report_response,
     load_trend_report_response,
@@ -263,6 +265,8 @@ def service_index() -> dict[str, object]:
             "reportIndex": "/api/v2/reports",
             "roundReport": "/api/v2/reports/round/{round_id}",
             "generateRoundReport": "/api/v2/reports/round/{round_id}/generate",
+            "holeReport": "/api/v2/reports/hole/{course_key}/{hole}",
+            "generateHoleReport": "/api/v2/reports/hole/{course_key}/{hole}/generate",
             "trendReport": "/api/v2/reports/trend/{period}",
             "generateTrendReport": "/api/v2/reports/trend/{period}/generate",
             "syncStatus": "/api/v2/sync/status",
@@ -587,6 +591,17 @@ def round_report(round_id: str) -> ReviewReportResponse:
 def generate_round_report(round_id: str, x_ai_caddie_admin_token: AdminTokenHeader = None) -> ReviewReportResponse:
     require_admin_token(x_ai_caddie_admin_token)
     return generate_round_report_response(round_id)
+
+
+@app.get("/api/v2/reports/hole/{course_key}/{hole}", response_model=ReviewReportResponse)
+def hole_report(course_key: str, hole: int) -> ReviewReportResponse:
+    return load_hole_report_response(course_key, hole)
+
+
+@app.post("/api/v2/reports/hole/{course_key}/{hole}/generate", response_model=ReviewReportResponse)
+def generate_hole_report(course_key: str, hole: int, x_ai_caddie_admin_token: AdminTokenHeader = None) -> ReviewReportResponse:
+    require_admin_token(x_ai_caddie_admin_token)
+    return generate_hole_report_response(course_key, hole)
 
 
 @app.get("/api/v2/reports/trend/{period}", response_model=ReviewReportResponse)

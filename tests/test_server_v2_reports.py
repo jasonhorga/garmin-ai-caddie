@@ -67,6 +67,54 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(response.json()["narrative"], "generated review")
         self.assertEqual(response.json()["model"], "static")
 
+    def test_get_hole_report_returns_deterministic_fact_bound_report(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
+                get_settings.cache_clear()
+                with patch("server_v2.reports.REPORT_ROOT", root), patch("server_v2.reports.MEDIA_ROOT", root):
+                    response = client.get("/api/v2/reports/hole/black_knight/7")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-review-report-v1")
+        self.assertEqual(payload["kind"], "hole")
+        self.assertEqual(payload["subjectId"], "black_knight:7")
+        labels = {row["label"] for row in payload["factsUsed"]}
+        self.assertIn("hole_history", labels)
+        self.assertIn("hole_repeated_issues", labels)
+        self.assertIn("hole_shots", labels)
+        self.assertIn("hole_geometry_coverage", labels)
+        self.assertEqual(payload["provider"], "DeterministicReportProvider")
+        self.assertEqual(payload["model"], "deterministic-facts-v1")
+        self.assertIn("Hole review", payload["narrative"])
+        self.assertEqual(payload["factBinding"]["state"], "bound")
+
+    def test_generated_hole_report_is_stored_and_returned_by_get(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
+                get_settings.cache_clear()
+                with (
+                    patch("server_v2.reports.REPORT_ROOT", root),
+                    patch("server_v2.reports.MEDIA_ROOT", root),
+                    patch("server_v2.reports.build_text_provider", return_value=StaticProvider("hole review")),
+                ):
+                    post_response = client.post("/api/v2/reports/hole/black_knight/7/generate")
+                    get_response = client.get("/api/v2/reports/hole/black_knight/7")
+                    raw = (root / "data" / "reports" / "reports.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(post_response.status_code, 200)
+        self.assertEqual(post_response.json()["kind"], "hole")
+        self.assertEqual(post_response.json()["subjectId"], "black_knight:7")
+        self.assertEqual(get_response.json()["narrative"], "hole review")
+        self.assertIn('"kind": "hole"', raw)
+        self.assertIn('"subjectId": "black_knight:7"', raw)
+
     def test_generated_report_response_flags_unsupported_sensitive_claims(self) -> None:
         client = TestClient(app)
 
@@ -283,6 +331,7 @@ class ServerV2ReportsTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["endpoints"]["reportIndex"], "/api/v2/reports")
+        self.assertEqual(response.json()["endpoints"]["holeReport"], "/api/v2/reports/hole/{course_key}/{hole}")
 
 
 if __name__ == "__main__":

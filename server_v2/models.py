@@ -437,7 +437,7 @@ class ReviewReportResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     schema_: Literal["ai-caddie-review-report-v1"] = Field(alias="schema")
-    kind: Literal["round", "trend"]
+    kind: Literal["round", "trend", "hole", "course", "club"]
     subjectId: str
     sourceRefs: list[str] = Field(default_factory=list)
     provider: str

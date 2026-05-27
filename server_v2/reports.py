@@ -5,6 +5,7 @@ from pathlib import Path
 from ai_caddie.llm_providers import build_text_provider
 from ai_caddie.reports import (
     audit_report_narrative,
+    build_hole_report_facts,
     build_report_inferences,
     build_round_report_facts,
     build_trend_report_facts,
@@ -23,6 +24,7 @@ from .models import ReviewReportIndexResponse, ReviewReportResponse
 
 
 REPORT_ROOT = Path(".")
+MEDIA_ROOT = Path(".")
 
 
 def _history_stats_dict() -> dict[str, object]:
@@ -155,6 +157,40 @@ def generate_round_report_response(round_id: str) -> ReviewReportResponse:
     report = _generate_provider_report_or_fallback(facts)
     store_report(report, kind="round", subject_id=round_id, root=REPORT_ROOT)
     return _report_response(report, kind="round", subject_id=round_id)
+
+
+def _hole_subject_id(course_key: str, hole: int) -> str:
+    return f"{course_key}:{hole}"
+
+
+def load_hole_report_response(course_key: str, hole: int) -> ReviewReportResponse:
+    subject_id = _hole_subject_id(course_key, hole)
+    stored = latest_report_record("hole", subject_id, root=REPORT_ROOT)
+    if stored and isinstance(stored.get("report"), dict):
+        return _report_response(stored["report"], kind="hole", subject_id=subject_id)
+    facts = build_hole_report_facts(
+        _history_stats_dict(),
+        course_key,
+        hole,
+        history_data=_history_data(),
+        vision_root=MEDIA_ROOT,
+    )
+    report = generate_deterministic_report(facts)
+    return _report_response(report, kind="hole", subject_id=subject_id)
+
+
+def generate_hole_report_response(course_key: str, hole: int) -> ReviewReportResponse:
+    subject_id = _hole_subject_id(course_key, hole)
+    facts = build_hole_report_facts(
+        _history_stats_dict(),
+        course_key,
+        hole,
+        history_data=_history_data(),
+        vision_root=MEDIA_ROOT,
+    )
+    report = _generate_provider_report_or_fallback(facts)
+    store_report(report, kind="hole", subject_id=subject_id, root=REPORT_ROOT)
+    return _report_response(report, kind="hole", subject_id=subject_id)
 
 
 def load_trend_report_response(period: str) -> ReviewReportResponse:

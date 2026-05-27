@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from ai_caddie.history import HistoryData
 from ai_caddie.llm_providers import LLMMessage, TextProvider, redact_secret_text
+from ai_caddie.vision_context import list_findings_for_target
 
 
 def redact_private_text(text: object) -> str:
@@ -686,6 +687,290 @@ def _round_diagnosis_issue_trends(history_stats: dict[str, Any], round_id: str) 
     return rows[:8]
 
 
+def _find_hole_stat(history_stats: dict[str, Any], course_key: str, local_hole: int) -> dict[str, Any] | None:
+    holes = history_stats.get("holes") if isinstance(history_stats.get("holes"), list) else []
+    for row in holes:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("courseKey") or "") != str(course_key):
+            continue
+        try:
+            hole = int(row.get("hole") or 0)
+        except (TypeError, ValueError):
+            continue
+        if hole == local_hole:
+            return row
+    return None
+
+
+def _find_course_stat(history_stats: dict[str, Any], course_key: str) -> dict[str, Any] | None:
+    courses = history_stats.get("courses") if isinstance(history_stats.get("courses"), list) else []
+    distribution = history_stats.get("courseDistribution") if isinstance(history_stats.get("courseDistribution"), list) else []
+    for row in [*courses, *distribution]:
+        if isinstance(row, dict) and str(row.get("courseKey") or "") == str(course_key):
+            return row
+    return None
+
+
+def _hole_subject_id(course_key: str, local_hole: int) -> str:
+    return f"{course_key}:{local_hole}"
+
+
+def _hole_report_source_refs(hole_stat: dict[str, Any] | None) -> dict[str, list[str]]:
+    if not isinstance(hole_stat, dict):
+        return {"holeRefs": [], "shotRefs": [], "roundRefs": []}
+    hole_refs = _as_string_list(hole_stat.get("holeRefs") or hole_stat.get("refs") or hole_stat.get("sourceRefs"))
+    shot_refs = _as_string_list(hole_stat.get("shotRefs"))
+    round_refs = _unique_strings([ref.split(":", 1)[0] for ref in hole_refs if ref])
+    return {"holeRefs": hole_refs, "shotRefs": shot_refs, "roundRefs": round_refs}
+
+
+def _compact_hole_history(hole_stat: dict[str, Any]) -> dict[str, Any]:
+    keys = [
+        "courseKey",
+        "hole",
+        "sampleCount",
+        "averageToPar",
+        "worstToPar",
+        "scoreDistribution",
+        "geometryCoverage",
+        "holeRefs",
+        "shotRefs",
+        "sourceRefs",
+        "coverage",
+        "confidence",
+    ]
+    return {key: hole_stat[key] for key in keys if key in hole_stat}
+
+
+def _hole_repeated_issues(hole_stat: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(hole_stat, dict):
+        return []
+    rows = [row for row in hole_stat.get("repeatedIssues", []) if isinstance(row, dict)]
+    return sorted(rows, key=lambda row: (-int(row.get("count") or 0), str(row.get("issue") or "")))[:8]
+
+
+def _hole_shot_facts(
+    history_data: HistoryData | None,
+    *,
+    local_hole: int,
+    hole_refs: list[str],
+    shot_refs: list[str],
+) -> list[dict[str, Any]]:
+    if history_data is None:
+        return []
+    hole_ref_set = set(hole_refs)
+    shot_ref_set = set(shot_refs)
+    rows: list[dict[str, Any]] = []
+    for index, shot in enumerate(history_data.shots):
+        shot_round_id = shot.get("roundId")
+        if shot_round_id is None:
+            shot_round_id = shot.get("scorecardId")
+        shot_ref = f"{shot_round_id}:{shot.get('hole')}:{index}"
+        hole_ref = f"{shot_round_id}:{shot.get('hole')}"
+        try:
+            shot_hole = int(shot.get("hole") or 0)
+        except (TypeError, ValueError):
+            shot_hole = 0
+        if shot_ref not in shot_ref_set and not (hole_ref in hole_ref_set and shot_hole == local_hole):
+            continue
+        rows.append(
+            _with_row_provenance(
+                {
+                    "shotRef": shot_ref,
+                    "holeRef": hole_ref,
+                    "hole": shot.get("hole"),
+                    "club": shot.get("club") or shot.get("clubName"),
+                    "distance": shot.get("distance") or shot.get("meters"),
+                    "surface": shot.get("surface") or shot.get("endLie"),
+                },
+                shot.get("provenance"),
+            )
+        )
+    return rows[:40]
+
+
+def _confirmed_vision_findings_for_refs(
+    *,
+    hole_refs: list[str],
+    shot_refs: list[str],
+    vision_root: Path | str | None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    targets = [*[(("hole", ref)) for ref in hole_refs], *[(("shot", ref)) for ref in shot_refs]]
+    for target_type, target_id in targets:
+        for finding in list_findings_for_target(target_type, target_id, root=vision_root):
+            if finding.get("confirmationState") != "manual_confirmed":
+                continue
+            finding_id = str(finding.get("id") or f"{target_type}:{target_id}:{finding.get('findingType')}")
+            if finding_id in seen:
+                continue
+            seen.add(finding_id)
+            rows.append(
+                {
+                    "id": finding_id,
+                    "targetType": finding.get("targetType") or target_type,
+                    "targetId": finding.get("targetId") or target_id,
+                    "mediaId": finding.get("mediaId"),
+                    "mediaKind": finding.get("mediaKind"),
+                    "findingType": finding.get("findingType"),
+                    "evidenceText": redact_private_text(finding.get("evidenceText") or ""),
+                    "confidence": finding.get("confidence"),
+                    "confirmationState": finding.get("confirmationState"),
+                    "sourceRefs": [str(finding.get("targetId") or target_id)],
+                }
+            )
+    return rows
+
+
+def _hole_quality_missing_rows(
+    data_quality: Any,
+    *,
+    hole_refs: list[str],
+    shot_refs: list[str],
+    round_refs: list[str],
+) -> list[dict[str, Any]]:
+    related = set([*hole_refs, *shot_refs, *round_refs])
+    rows = []
+    for row in _missing_data_quality_rows(data_quality):
+        refs = set(report_source_refs(row))
+        if refs and not (refs & related):
+            continue
+        if not refs and row.get("label") not in {"reports", "weather", "geometry"}:
+            continue
+        rows.append(row)
+    return rows
+
+
+def build_hole_report_facts(
+    history_stats: dict[str, Any],
+    course_key: str,
+    local_hole: int,
+    *,
+    history_data: HistoryData | None = None,
+    vision_root: Path | str | None = None,
+) -> dict[str, Any]:
+    subject_id = _hole_subject_id(course_key, local_hole)
+    hole_stat = _find_hole_stat(history_stats, course_key, local_hole)
+    course_stat = _find_course_stat(history_stats, course_key)
+    refs = _hole_report_source_refs(hole_stat)
+    hole_refs = refs["holeRefs"]
+    shot_refs = refs["shotRefs"]
+    round_refs = refs["roundRefs"]
+    facts_used: list[dict[str, Any]] = []
+
+    if hole_stat:
+        hole_history = _compact_hole_history(hole_stat)
+        facts_used.append(
+            _fact(
+                "hole_history",
+                hole_history,
+                "holes",
+                source_refs=report_source_refs(hole_history),
+            )
+        )
+        repeated_issues = _hole_repeated_issues(hole_stat)
+        if repeated_issues:
+            facts_used.append(
+                _fact(
+                    "hole_repeated_issues",
+                    repeated_issues,
+                    "holes.repeatedIssues",
+                    source_refs=report_source_refs(repeated_issues),
+                )
+            )
+        geometry_coverage = hole_stat.get("geometryCoverage")
+        if geometry_coverage is not None:
+            facts_used.append(
+                _fact(
+                    "hole_geometry_coverage",
+                    {
+                        "courseKey": course_key,
+                        "hole": local_hole,
+                        "geometryCoverage": geometry_coverage,
+                        "holeRefs": hole_refs,
+                    },
+                    "holes.geometryCoverage",
+                    source_refs=hole_refs,
+                )
+            )
+
+    if course_stat:
+        facts_used.append(
+            _fact(
+                "course_context",
+                {
+                    "courseKey": course_stat.get("courseKey"),
+                    "courseName": course_stat.get("courseName") or course_stat.get("label"),
+                    "roundCount": course_stat.get("roundCount"),
+                    "average18": course_stat.get("average18"),
+                    "recentForm": course_stat.get("recentForm"),
+                    "issueProfile": course_stat.get("issueProfile", [])[:5] if isinstance(course_stat.get("issueProfile"), list) else [],
+                    "sourceRefs": _as_string_list(course_stat.get("sourceRefs") or course_stat.get("roundRefs") or course_stat.get("roundIds")),
+                    "coverage": course_stat.get("coverage"),
+                    "confidence": course_stat.get("confidence"),
+                },
+                "courses",
+            )
+        )
+
+    hole_shots = _hole_shot_facts(history_data, local_hole=local_hole, hole_refs=hole_refs, shot_refs=shot_refs)
+    if hole_shots:
+        facts_used.append(
+            _fact(
+                "hole_shots",
+                hole_shots,
+                "history.shots",
+                source_refs=report_source_refs(hole_shots),
+            )
+        )
+
+    vision_findings = _confirmed_vision_findings_for_refs(
+        hole_refs=hole_refs,
+        shot_refs=shot_refs,
+        vision_root=vision_root,
+    )
+    if vision_findings:
+        facts_used.append(
+            _fact(
+                "confirmed_vision_findings",
+                vision_findings,
+                "vision.findings",
+                source_refs=report_source_refs(vision_findings),
+            )
+        )
+
+    missing_data: list[dict[str, Any]] = []
+    if hole_stat is None:
+        missing_data.append({"label": "hole_reference", "reason": f"{subject_id} not present in history hole aggregates"})
+    elif str(hole_stat.get("geometryCoverage") or "").lower() != "ready":
+        missing_data.append(
+            {
+                "label": "geometry",
+                "state": str(hole_stat.get("geometryCoverage") or "missing"),
+                "reason": f"Geometry coverage for {subject_id} is {hole_stat.get('geometryCoverage') or 'missing'}",
+                "sourceRefs": hole_refs,
+            }
+        )
+    missing_data.extend(
+        _hole_quality_missing_rows(
+            history_stats.get("dataQuality") if isinstance(history_stats.get("dataQuality"), list) else [],
+            hole_refs=hole_refs,
+            shot_refs=shot_refs,
+            round_refs=round_refs,
+        )
+    )
+
+    return {
+        "schema": "ai-caddie-report-facts-v1",
+        "kind": "hole",
+        "subjectId": subject_id,
+        "factsUsed": facts_used,
+        "missingData": missing_data,
+    }
+
+
 def _course_issue_profiles_fact(history_stats: dict[str, Any]) -> list[dict[str, Any]]:
     courses = history_stats.get("courses") if isinstance(history_stats.get("courses"), list) else []
     rows: list[dict[str, Any]] = []
@@ -1109,6 +1394,25 @@ def _first_course_issue(value: Any) -> tuple[str, str] | None:
     return None
 
 
+def _hole_history_summary(value: Any) -> tuple[int | None, Any, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    hole = value.get("hole")
+    try:
+        hole_number = int(hole) if hole is not None else None
+    except (TypeError, ValueError):
+        hole_number = None
+    return hole_number, value.get("averageToPar"), value.get("sampleCount")
+
+
+def _first_vision_finding(value: Any) -> str | None:
+    rows = value if isinstance(value, list) else []
+    for row in rows:
+        if isinstance(row, dict) and row.get("findingType") is not None:
+            return str(row["findingType"])
+    return None
+
+
 def _summary_round_count(value: Any) -> int | None:
     if isinstance(value, dict):
         count = value.get("totalRounds") or value.get("roundCount")
@@ -1145,6 +1449,40 @@ def build_report_inferences(
             issue = _first_issue(value)
             if issue:
                 _append_inference(rows, _inference(f"Primary scoring-loss signal is {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
+                continue
+        if label == "hole_history":
+            summary = _hole_history_summary(value)
+            if summary:
+                hole, average_to_par, sample_count = summary
+                hole_text = f"Hole {hole}" if hole is not None else "This hole"
+                sample_text = f" across {sample_count} samples" if sample_count is not None else ""
+                _append_inference(
+                    rows,
+                    _inference(
+                        f"{hole_text} averages {average_to_par} to par{sample_text}.",
+                        fact,
+                        default_confidence=confidence,
+                        missing_data=missing_data,
+                    ),
+                )
+                continue
+        if label == "hole_repeated_issues":
+            issue = _first_issue(value)
+            if issue:
+                _append_inference(rows, _inference(f"Hole-specific repeated issue is {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
+                continue
+        if label == "confirmed_vision_findings":
+            finding_type = _first_vision_finding(value)
+            if finding_type:
+                _append_inference(
+                    rows,
+                    _inference(
+                        f"Confirmed vision evidence includes {finding_type}.",
+                        fact,
+                        default_confidence=confidence,
+                        missing_data=missing_data,
+                    ),
+                )
                 continue
         if label == "club_risk_profiles":
             club_risk = _first_risky_club(value)
@@ -1215,7 +1553,13 @@ def _deterministic_report_narrative(
     if not claims:
         claims = [f"Review is constrained to {len(facts_used)} structured facts."]
 
-    title = "Round review" if kind == "round" else "Trend review"
+    title = {
+        "round": "Round review",
+        "trend": "Trend review",
+        "hole": "Hole review",
+        "course": "Course review",
+        "club": "Club review",
+    }.get(kind, "Review")
     parts = [f"{title}: {' '.join(claims[:5])}"]
     missing_labels = _missing_labels(missing_data)
     if missing_labels:
@@ -1479,6 +1823,8 @@ def _collect_fact_support(value: Any, support: dict[str, set[str]], key_hint: st
         support["club"].update(_club_tokens(value))
     if normalized_key in _LIE_FACT_KEYS:
         support["lie"].update(_tokens_from_terms(text, _LIE_VALUE_TOKENS) or {"lie"})
+    if normalized_key in {"findingtype", "evidencetext"}:
+        support["lie"].update(_tokens_from_terms(text, _LIE_VALUE_TOKENS))
     if normalized_key in _WEATHER_FACT_KEYS:
         support["weather"].update(_weather_tokens_for_key(normalized_key))
     if normalized_key in _PENALTY_FACT_KEYS:
@@ -1492,6 +1838,8 @@ def _add_keyed_support(key: str, value: Any, support: dict[str, set[str]]) -> No
         support["weather"].update(_weather_tokens_for_key(normalized_key))
     if normalized_key in _LIE_FACT_KEYS:
         support["lie"].update(_tokens_from_terms(text, _LIE_VALUE_TOKENS) or {"lie"})
+    if normalized_key in {"findingtype", "evidencetext"}:
+        support["lie"].update(_tokens_from_terms(text, _LIE_VALUE_TOKENS))
     if normalized_key in _PENALTY_FACT_KEYS:
         support["penalty"].update(_tokens_from_terms(text, _PENALTY_VALUE_TOKENS) or {"penalty"})
     if normalized_key in _CLUB_FACT_KEYS:

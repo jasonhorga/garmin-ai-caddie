@@ -9,6 +9,7 @@ from ai_caddie.history import HistoryData
 from ai_caddie.llm_providers import LLMMessage, StaticProvider
 from ai_caddie.history_stats import build_history_stats
 from ai_caddie.reports import (
+    build_hole_report_facts,
     build_round_report_facts,
     build_trend_report_facts,
     generate_report,
@@ -18,6 +19,7 @@ from ai_caddie.reports import (
     report_source_refs,
     store_report,
 )
+from ai_caddie.vision_context import confirm_vision_finding, store_vision_findings
 
 
 class RecordingProvider:
@@ -521,6 +523,83 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertIn("record_book", labels)
         self.assertIn("drilldown_refs", labels)
         self.assertEqual(facts["missingData"][0]["label"], "weather")
+
+    def test_hole_report_facts_bind_hole_issues_geometry_shots_and_confirmed_vision(self) -> None:
+        data = fixture_history_data()
+        stats = build_history_stats(data, data_mode="fixture")
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stored = store_vision_findings(
+                {
+                    "schema": "ai-caddie-vision-context-v1",
+                    "mediaId": "media-hole-7",
+                    "targetType": "hole",
+                    "targetId": "900001:7",
+                    "mediaKind": "photo",
+                    "provider": "static",
+                    "model": "static",
+                    "findings": [
+                        {
+                            "findingType": "blocked_view",
+                            "evidenceText": "Trees create a blocked view near the approach window.",
+                            "confidence": "medium",
+                            "missingInfo": [],
+                        }
+                    ],
+                },
+                root=root,
+            )
+            store_vision_findings(
+                {
+                    "schema": "ai-caddie-vision-context-v1",
+                    "mediaId": "media-hole-7-unconfirmed",
+                    "targetType": "hole",
+                    "targetId": "900002:7",
+                    "mediaKind": "photo",
+                    "provider": "static",
+                    "model": "static",
+                    "findings": [
+                        {
+                            "findingType": "visible_water",
+                            "evidenceText": "Unconfirmed water claim must stay out of report facts.",
+                            "confidence": "medium",
+                            "missingInfo": [],
+                        }
+                    ],
+                },
+                root=root,
+            )
+            confirm_vision_finding(stored[0]["id"], "manual_confirmed", confirmed_by="tester", root=root)
+            facts = build_hole_report_facts(
+                stats,
+                "black_knight",
+                7,
+                history_data=data,
+                vision_root=root,
+            )
+
+        self.assertEqual(facts["schema"], "ai-caddie-report-facts-v1")
+        self.assertEqual(facts["kind"], "hole")
+        self.assertEqual(facts["subjectId"], "black_knight:7")
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertEqual(by_label["hole_history"]["value"]["courseKey"], "black_knight")
+        self.assertEqual(by_label["hole_history"]["value"]["hole"], 7)
+        self.assertIn(by_label["hole_history"]["value"]["geometryCoverage"], {"ready", "partial", "missing"})
+        self.assertIn("hole_repeated_issues", by_label)
+        self.assertTrue(any(row["issue"] == "double_or_worse" for row in by_label["hole_repeated_issues"]["value"]))
+        self.assertIn("hole_geometry_coverage", by_label)
+        self.assertIn("course_context", by_label)
+        self.assertIn("hole_shots", by_label)
+        self.assertTrue(all(str(row["hole"]) == "7" for row in by_label["hole_shots"]["value"]))
+        self.assertEqual(by_label["confirmed_vision_findings"]["value"][0]["findingType"], "blocked_view")
+        self.assertEqual(by_label["confirmed_vision_findings"]["sourceRefs"], ["900001:7"])
+        self.assertNotIn("visible_water", str(by_label["confirmed_vision_findings"]))
+
+        report = generate_report(facts, StaticProvider("Hole review from structured facts."))
+        self.assertEqual(report["kind"], "hole")
+        self.assertTrue(any(row["factLabels"] == ["hole_history"] and "Hole 7" in row["claim"] for row in report["inferencesMade"]))
+        self.assertTrue(any(row["factLabels"] == ["confirmed_vision_findings"] and "blocked_view" in row["claim"] for row in report["inferencesMade"]))
 
     def test_report_facts_include_decision_audit_diagnosis(self) -> None:
         stats = {
