@@ -16,6 +16,7 @@ import {
   fetchHistoryStats,
   fetchReadiness,
   fetchMobileReconciliation,
+  fetchProductSettings,
   fetchReportIndex,
   fetchRoundReport,
   fetchTrendReport,
@@ -73,6 +74,7 @@ import type {
   GarminSessionImportRequest,
   MobileReconciliationApplyResponse,
   MobileReconciliationResponse,
+  ProductSettingsResponse,
   SyncStatusResponse,
   WeatherSnapshotResponse,
 } from './types'
@@ -95,6 +97,7 @@ export default function App() {
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
   const [readinessState, setReadinessState] = useState<DeferredLoadState<ReadinessResponse>>({ status: 'idle' })
+  const [productSettingsState, setProductSettingsState] = useState<DeferredLoadState<ProductSettingsResponse>>({ status: 'idle' })
   const [mobileReconciliationState, setMobileReconciliationState] = useState<MobileReconciliationPanelState>({ status: 'idle' })
   const [mobileReconciliationApplyState, setMobileReconciliationApplyState] = useState<MobileReconciliationApplyState>({ status: 'idle' })
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
@@ -201,6 +204,16 @@ export default function App() {
     }
   }
 
+  async function loadProductSettingsState() {
+    setProductSettingsState({ status: 'loading' })
+    try {
+      const data = await fetchProductSettings()
+      setProductSettingsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setProductSettingsState({ status: 'error', message: errorMessage(error) })
+    }
+  }
+
   async function refreshReadinessState() {
     try {
       const data = await fetchReadiness()
@@ -228,6 +241,9 @@ export default function App() {
     }
     if (page === 'sync-quality' && readinessState.status === 'idle') {
       void loadReadinessState()
+    }
+    if (page === 'settings' && productSettingsState.status === 'idle') {
+      void loadProductSettingsState()
     }
     if (page === 'corrections' && annotationsState.status === 'idle') {
       setAnnotationsState({ status: 'loading' })
@@ -739,7 +755,11 @@ export default function App() {
         {renderSyncPanel()}
         <main className="app-shell">
           <ProductNav activePage={activePage} onNavigate={navigate} />
-          <SettingsPage onNavigate={navigate} />
+          <SettingsPage
+            onNavigate={navigate}
+            settings={productSettingsState.status === 'ready' ? productSettingsState.data : null}
+            settingsError={productSettingsState.status === 'error' ? productSettingsState.message : null}
+          />
         </main>
       </>
     )

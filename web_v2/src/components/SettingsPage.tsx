@@ -1,10 +1,22 @@
 import type { ProductPage } from './ProductNav'
+import type { ProductSettingsResponse } from '../types'
 
 interface SettingsPageProps {
   onNavigate: (page: ProductPage) => void
+  settings?: ProductSettingsResponse | null
+  settingsError?: string | null
 }
 
-export function SettingsPage({ onNavigate }: SettingsPageProps) {
+export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPageProps) {
+  const dataSources = Array.isArray(settings?.dataSources) ? settings.dataSources : []
+  const providers = Array.isArray(settings?.aiProviders?.providers) ? settings.aiProviders.providers : []
+  const cnSession = dataSources.find((source) => asString(source.id) === 'garmin_cn_web_session')
+  const oauth = dataSources.find((source) => asString(source.id) === 'garmin_oauth')
+  const activeProvider = providers.find((provider) => asString(provider.id) === settings?.aiProviders?.activeProvider)
+  const ios = asRecord(settings?.liveApps?.ios)
+  const watch = asRecord(settings?.liveApps?.watch)
+  const privacy = asRecord(settings?.privacy)
+
   return (
     <section className="settings-page" aria-label="Settings workspace">
       <div className="section-head stats-head">
@@ -13,6 +25,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
           <h1>Settings</h1>
           <p>Connector, provider, live app, privacy, and correction controls.</p>
         </div>
+        {settingsError ? <span className="semantic-chip quality-missing">{settingsError}</span> : null}
       </div>
 
       <div className="settings-grid">
@@ -23,6 +36,8 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
               <span className="setting-chip setting-primary">CN Web Session</span>
               <span className="setting-chip setting-secondary">OAuth feasibility</span>
               <span className="setting-chip">Local snapshots</span>
+              {cnSession ? <span className="setting-chip setting-primary">{asString(cnSession.state) ?? 'unknown'}</span> : null}
+              {oauth ? <span className="setting-chip setting-secondary">{asString(oauth.state) ?? 'unknown'}</span> : null}
             </div>
             <div className="settings-fact-grid">
               <span>Scorecards</span>
@@ -44,13 +59,15 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
           <div className="settings-item-main">
             <h2>AI Providers</h2>
             <div className="setting-chip-row">
+              {activeProvider ? <span className="setting-chip setting-primary">active: {asString(activeProvider.label) ?? settings?.aiProviders.activeProvider}</span> : null}
               <span className="setting-chip setting-primary">Static</span>
-              <span className="setting-chip">NVIDIA NIM</span>
-              <span className="setting-chip">Gemini API</span>
+              <span className={providerChipClass(settings, 'nvidia_nim')}>NVIDIA NIM</span>
+              <span className={providerChipClass(settings, 'gemini_api_key')}>Gemini API</span>
               <span className="setting-chip">Anthropic</span>
+              {activeProvider ? <span className="setting-chip setting-primary">{asString(activeProvider.state) ?? 'unknown'}</span> : null}
             </div>
             <label className="setting-check">
-              <input type="checkbox" checked readOnly />
+              <input type="checkbox" checked={settings?.aiProviders?.factBindingRequired ?? true} readOnly />
               <span>Fact binding required</span>
             </label>
             <div className="settings-fact-grid">
@@ -72,6 +89,8 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
               <span className="setting-chip setting-primary">iOS offline package</span>
               <span className="setting-chip setting-secondary">Watch bridge</span>
               <span className="setting-chip">Photo / video context</span>
+              {asString(ios.state) ? <span className="setting-chip">iOS {asString(ios.state)}</span> : null}
+              {asString(watch.state) ? <span className="setting-chip">Watch {asString(watch.state)}</span> : null}
             </div>
             <div className="settings-fact-grid">
               <span>Round start</span>
@@ -92,16 +111,20 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
             <h2>Privacy & Retention</h2>
             <div className="setting-check-grid">
               <label className="setting-check">
-                <input type="checkbox" checked readOnly />
+                <input type="checkbox" checked={asBoolean(privacy.adminProtectedWrites, true)} readOnly />
                 <span>Admin protected writes</span>
               </label>
               <label className="setting-check">
-                <input type="checkbox" checked readOnly />
+                <input type="checkbox" checked={asBoolean(privacy.mediaRedaction, true)} readOnly />
                 <span>Media redaction</span>
               </label>
               <label className="setting-check">
-                <input type="checkbox" checked readOnly />
+                <input type="checkbox" checked={asBoolean(privacy.localSnapshotsSurviveReauth, true)} readOnly />
                 <span>Local snapshots survive reauth</span>
+              </label>
+              <label className="setting-check">
+                <input type="checkbox" checked={asBoolean(privacy.secretFreeStatusResponses, true)} readOnly />
+                <span>Secret-free status responses</span>
               </label>
             </div>
             <div className="settings-fact-grid">
@@ -141,4 +164,22 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
       </div>
     </section>
   )
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function providerChipClass(settings: ProductSettingsResponse | null | undefined, providerId: string): string {
+  const providers = Array.isArray(settings?.aiProviders?.providers) ? settings.aiProviders.providers : []
+  const provider = providers.find((row) => asString(row.id) === providerId)
+  return asString(provider?.state) === 'configured' ? 'setting-chip setting-primary' : 'setting-chip'
 }

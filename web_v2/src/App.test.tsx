@@ -199,6 +199,33 @@ function readinessPayload() {
   }
 }
 
+function productSettingsPayload() {
+  return {
+    schema: 'ai-caddie-product-settings-v1',
+    dataSources: [
+      { id: 'garmin_cn_web_session', label: 'Garmin CN Web Session', track: 'primary', state: 'available', capabilities: ['scorecards'] },
+      { id: 'garmin_oauth', label: 'Official Garmin OAuth', track: 'feasibility', state: 'not_syncable', capabilities: [] },
+    ],
+    aiProviders: {
+      activeProvider: 'gemini_api_key',
+      factBindingRequired: true,
+      providers: [
+        { id: 'static', label: 'Static', state: 'ready' },
+        { id: 'gemini_api_key', label: 'Gemini API', state: 'configured' },
+      ],
+    },
+    liveApps: { ios: { state: 'contract_ready' }, watch: { state: 'contract_ready' }, vision: { state: 'bounded_context' } },
+    privacy: {
+      noGarminPasswordStorage: true,
+      adminProtectedWrites: true,
+      mediaRedaction: true,
+      localSnapshotsSurviveReauth: true,
+      secretFreeStatusResponses: true,
+    },
+    endpoints: { syncStatus: '/api/v2/sync/status' },
+  }
+}
+
 function mobileReconciliationPayload() {
   return {
     schema: 'ai-caddie-mobile-reconciliation-v1',
@@ -826,6 +853,28 @@ describe('App navigation', () => {
     expect(await screen.findByText('round-1:8:shot-1')).toBeInTheDocument()
     expect(screen.getAllByText('7I -> 8I')).toHaveLength(2)
     expect(screen.getByText('Trackman confirmed the club')).toBeInTheDocument()
+  })
+
+  it('loads API-backed settings state when opening settings', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/settings/product') return productSettingsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(await screen.findByText('active: Gemini API')).toHaveClass('setting-primary')
+    expect(screen.getByText('available')).toHaveClass('setting-primary')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/settings/product')
   })
 
   it('refreshes loaded history stats after creating a correction', async () => {

@@ -1,7 +1,55 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import type { ProductSettingsResponse } from '../types'
 import { SettingsPage } from './SettingsPage'
+
+const productSettings: ProductSettingsResponse = {
+  schema: 'ai-caddie-product-settings-v1',
+  dataSources: [
+    {
+      id: 'garmin_cn_web_session',
+      label: 'Garmin CN Web Session',
+      track: 'primary',
+      state: 'available',
+      credentialPolicy: 'session_material_only',
+      capabilities: ['scorecards', 'shot_rows'],
+    },
+    {
+      id: 'garmin_oauth',
+      label: 'Official Garmin OAuth',
+      track: 'feasibility',
+      state: 'not_syncable',
+      credentialPolicy: 'pkce_only_if_golf_data_is_proven',
+      capabilities: ['identity_feasibility'],
+    },
+  ],
+  aiProviders: {
+    activeProvider: 'gemini_api_key',
+    factBindingRequired: true,
+    providers: [
+      { id: 'static', label: 'Static', state: 'ready' },
+      { id: 'gemini_api_key', label: 'Gemini API', state: 'configured' },
+    ],
+  },
+  liveApps: {
+    ios: { state: 'contract_ready', offlineFirst: true },
+    watch: { state: 'contract_ready', requiresIphoneBridge: true },
+    vision: { state: 'bounded_context', confirmationRequired: true },
+  },
+  privacy: {
+    noGarminPasswordStorage: true,
+    adminProtectedWrites: true,
+    mediaRedaction: true,
+    localSnapshotsSurviveReauth: true,
+    secretFreeStatusResponses: true,
+  },
+  endpoints: {
+    syncStatus: '/api/v2/sync/status',
+    caddieDecision: '/api/v2/caddie/decision',
+    reports: '/api/v2/reports',
+  },
+}
 
 describe('SettingsPage', () => {
   it('renders product control groups and navigates to owned surfaces', async () => {
@@ -46,5 +94,24 @@ describe('SettingsPage', () => {
     expect(onNavigate).toHaveBeenNthCalledWith(2, 'caddie')
     expect(onNavigate).toHaveBeenNthCalledWith(3, 'reports')
     expect(onNavigate).toHaveBeenNthCalledWith(4, 'corrections')
+  })
+
+  it('renders API-backed settings state when provided', () => {
+    render(<SettingsPage onNavigate={vi.fn()} settings={productSettings} />)
+
+    const dataSources = screen.getByLabelText('Data source settings')
+    expect(within(dataSources).getByText('available')).toHaveClass('setting-primary')
+    expect(within(dataSources).getByText('not_syncable')).toHaveClass('setting-secondary')
+
+    const aiProviders = screen.getByLabelText('AI provider settings')
+    expect(within(aiProviders).getByText('active: Gemini API')).toHaveClass('setting-primary')
+    expect(within(aiProviders).getByText('configured')).toHaveClass('setting-primary')
+
+    const liveApps = screen.getByLabelText('Live app settings')
+    expect(within(liveApps).getByText('iOS contract_ready')).toBeInTheDocument()
+    expect(within(liveApps).getByText('Watch contract_ready')).toBeInTheDocument()
+
+    const privacy = screen.getByLabelText('Privacy settings')
+    expect(within(privacy).getByRole('checkbox', { name: 'Secret-free status responses' })).toBeChecked()
   })
 })
