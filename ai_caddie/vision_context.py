@@ -24,6 +24,7 @@ ALLOWED_FINDING_TYPES = {
 }
 ALLOWED_CONFIDENCE = {"low", "medium", "high"}
 ALLOWED_CONFIRMATION_STATES = {"unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"}
+MANUAL_CONFIRMATION_STATES = {"unconfirmed", "manual_confirmed", "rejected"}
 MAX_PROMPT_MEDIA_BYTES = 1_000_000
 VISION_FINDINGS_PATH = Path("data") / "media" / "vision_findings.jsonl"
 
@@ -50,10 +51,10 @@ def _redact_private_text(text: object) -> str:
 
 
 def _confirmation_state(row: dict[str, Any]) -> str:
-    if row.get("confirmed") is True:
-        return "confirmed"
     state = str(row.get("confirmationState") or "unconfirmed").strip().lower()
-    return state if state in ALLOWED_CONFIRMATION_STATES else "unconfirmed"
+    if row.get("source") == "manual_confirmation" and state in MANUAL_CONFIRMATION_STATES:
+        return state
+    return "unconfirmed"
 
 
 def _provider_name(provider: TextProvider) -> str:
@@ -236,6 +237,45 @@ def list_findings_for_target(
         for record in list_vision_findings(root=root)
         if record.get("targetType") == target_type and record.get("targetId") == target_id
     ]
+
+
+def confirm_vision_finding(
+    finding_id: str,
+    confirmation_state: str,
+    *,
+    confirmed_by: str | None = None,
+    root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    state = str(confirmation_state or "").strip().lower()
+    if state not in MANUAL_CONFIRMATION_STATES:
+        raise ValueError("confirmationState must be unconfirmed, manual_confirmed, or rejected")
+    path = vision_findings_file(root)
+    if not path.exists():
+        return None
+
+    records = list_vision_findings(root=root)
+    updated: dict[str, Any] | None = None
+    for record in records:
+        if record.get("id") != finding_id:
+            continue
+        record["confirmationState"] = state
+        if state == "unconfirmed":
+            record.pop("confirmedAt", None)
+            record.pop("confirmedBy", None)
+        else:
+            record["confirmedAt"] = _created_at()
+            if confirmed_by:
+                record["confirmedBy"] = _redact_private_text(confirmed_by)
+        updated = record
+        break
+    if updated is None:
+        return None
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+    return updated
 
 
 def analyze_media_context(

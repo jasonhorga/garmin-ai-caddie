@@ -10,6 +10,7 @@ from ai_caddie.llm_providers import StaticProvider
 from ai_caddie.vision_context import (
     ALLOWED_FINDING_TYPES,
     analyze_media_context,
+    confirm_vision_finding,
     list_findings_for_target,
     store_vision_findings,
     vision_findings_file,
@@ -325,7 +326,7 @@ class VisionContextTests(unittest.TestCase):
         self.assertEqual(listed[0]["targetId"], "round-1:7:2")
         self.assertEqual(listed[0]["findingType"], "visible_water")
         self.assertEqual(listed[0]["confidence"], "medium")
-        self.assertEqual(listed[0]["confirmationState"], "confirmed")
+        self.assertEqual(listed[0]["confirmationState"], "unconfirmed")
         self.assertEqual(listed[0]["source"], "vision_model")
         self.assertNotIn("localPath", listed[0])
         self.assertNotIn("mediaBytesBase64", listed[0])
@@ -334,7 +335,7 @@ class VisionContextTests(unittest.TestCase):
         self.assertNotIn("/tmp/private-media", raw_jsonl)
         self.assertNotIn("cHJpdmF0ZS1ieXRlcw==", raw_jsonl)
 
-    def test_vision_confirmation_state_defaults_and_sanitizes(self) -> None:
+    def test_provider_confirmation_state_never_confirms_findings(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             stored = store_vision_findings(
@@ -352,6 +353,12 @@ class VisionContextTests(unittest.TestCase):
                             "findingType": "visible_bunker",
                             "evidenceText": "bunker",
                             "confidence": "medium",
+                            "confirmationState": "confirmed",
+                        },
+                        {
+                            "findingType": "slope_clue",
+                            "evidenceText": "ball below feet",
+                            "confidence": "medium",
                             "confirmationState": "manual_confirmed",
                         },
                         {
@@ -367,8 +374,48 @@ class VisionContextTests(unittest.TestCase):
 
         self.assertEqual(
             [row["confirmationState"] for row in stored],
-            ["unconfirmed", "manual_confirmed", "unconfirmed"],
+            ["unconfirmed", "unconfirmed", "unconfirmed", "unconfirmed"],
         )
+
+    def test_manual_confirmation_updates_existing_finding_with_audit_fields(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stored = store_vision_findings(
+                {
+                    "schema": "ai-caddie-vision-context-v1",
+                    "mediaId": "media-confirmation",
+                    "targetType": "shot",
+                    "targetId": "round-1:7:3",
+                    "mediaKind": "photo",
+                    "provider": "static",
+                    "model": "static",
+                    "findings": [
+                        {
+                            "findingType": "visible_bunker",
+                            "evidenceText": "front bunker visible",
+                            "confidence": "medium",
+                            "confirmationState": "manual_confirmed",
+                        }
+                    ],
+                },
+                root=root,
+            )
+
+            confirmed = confirm_vision_finding(
+                stored[0]["id"],
+                "manual_confirmed",
+                confirmed_by="tester",
+                root=root,
+            )
+            listed = list_findings_for_target("shot", "round-1:7:3", root=root)
+
+        self.assertIsNotNone(confirmed)
+        assert confirmed is not None
+        self.assertEqual(confirmed["confirmationState"], "manual_confirmed")
+        self.assertEqual(confirmed["confirmedBy"], "tester")
+        self.assertIn("confirmedAt", confirmed)
+        self.assertEqual(listed[0]["id"], stored[0]["id"])
+        self.assertEqual(listed[0]["confirmationState"], "manual_confirmed")
 
 
 if __name__ == "__main__":

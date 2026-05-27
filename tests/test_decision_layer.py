@@ -796,19 +796,19 @@ class DecisionLayerTests(unittest.TestCase):
                 "findingType": "blocked_view",
                 "evidenceText": "tree trunk blocks the window",
                 "confidence": "high",
-                "confirmationState": "confirmed",
+                "confirmationState": "manual_confirmed",
             },
             {
                 "findingType": "poor_lie",
                 "evidenceText": "ball is sitting down",
                 "confidence": "medium",
-                "confirmationState": "confirmed",
+                "confirmationState": "manual_confirmed",
             },
             {
                 "findingType": "visible_bunker",
                 "evidenceText": "front bunker visible",
                 "confidence": "medium",
-                "confirmationState": "confirmed",
+                "confirmationState": "manual_confirmed",
             },
         ]
 
@@ -846,6 +846,31 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertFalse(plan["context"]["blockedView"])
         self.assertEqual(plan["context"]["lie"], "fairway")
         self.assertNotIn("bunker", {zone["kind"] for zone in plan["avoidZones"]})
+        self.assertIn("vision", {row["label"] for row in plan["missingData"]})
+        self.assertTrue(any(row["kind"] == "vision" and "blocked_view" in row["text"] for row in plan["evidence"]))
+
+    def test_model_confirmed_vision_findings_remain_evidence_without_overwriting_facts(self) -> None:
+        context = recovery_fixture(lie="fairway", blocked=False)
+        context["hazards"] = []
+        context["visionFindings"] = [
+            {
+                "findingType": "blocked_view",
+                "evidenceText": "tree trunk blocks the window",
+                "confidence": "high",
+                "confirmationState": "confirmed",
+            },
+            {
+                "findingType": "poor_lie",
+                "evidenceText": "ball is sitting down",
+                "confidence": "medium",
+                "confirmationState": "confirmed",
+            },
+        ]
+
+        plan = recommend_recovery(context)
+
+        self.assertFalse(plan["context"]["blockedView"])
+        self.assertEqual(plan["context"]["lie"], "fairway")
         self.assertIn("vision", {row["label"] for row in plan["missingData"]})
         self.assertTrue(any(row["kind"] == "vision" and "blocked_view" in row["text"] for row in plan["evidence"]))
 

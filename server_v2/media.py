@@ -13,7 +13,12 @@ from ai_caddie.media import (
     resolve_media_content_path,
     store_media_content,
 )
-from ai_caddie.vision_context import analyze_media_context, list_findings_for_target, store_vision_findings
+from ai_caddie.vision_context import (
+    analyze_media_context,
+    confirm_vision_finding,
+    list_findings_for_target,
+    store_vision_findings,
+)
 
 from .models import (
     MediaCreateRequest,
@@ -23,6 +28,8 @@ from .models import (
     MediaRecord,
     MediaTargetType,
     VisionAnalysisResponse,
+    VisionFindingConfirmationRequest,
+    VisionFindingConfirmationResponse,
     VisionFindingRecord,
     VisionFindingsListResponse,
 )
@@ -133,4 +140,25 @@ def list_target_vision_findings_response(target_type: MediaTargetType, target_id
         total=len(rows),
         findings=rows,
         target={"targetType": target_type, "targetId": target_id},
+    )
+
+
+def confirm_vision_finding_response(
+    finding_id: str,
+    request: VisionFindingConfirmationRequest,
+) -> VisionFindingConfirmationResponse:
+    try:
+        finding = confirm_vision_finding(
+            finding_id,
+            request.confirmationState,
+            confirmed_by=request.confirmedBy,
+            root=MEDIA_ROOT,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if finding is None:
+        raise HTTPException(status_code=404, detail="vision finding not found")
+    return VisionFindingConfirmationResponse(
+        schema="ai-caddie-vision-finding-confirmation-v1",
+        finding=VisionFindingRecord(**finding),
     )

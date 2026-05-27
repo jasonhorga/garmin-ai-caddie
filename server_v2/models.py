@@ -660,6 +660,8 @@ class VisionAnalysisResponse(BaseModel):
 class VisionFindingRecord(BaseModel):
     id: str
     createdAt: str
+    confirmedAt: str | None = None
+    confirmedBy: str | None = None
     targetType: MediaTargetType
     targetId: str
     mediaId: str
@@ -674,6 +676,18 @@ class VisionFindingRecord(BaseModel):
     provider: str
     model: str
     source: Literal["vision_model"]
+
+
+class VisionFindingConfirmationRequest(BaseModel):
+    confirmationState: Literal["unconfirmed", "manual_confirmed", "rejected"]
+    confirmedBy: str | None = None
+
+
+class VisionFindingConfirmationResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-vision-finding-confirmation-v1"] = Field(alias="schema")
+    finding: VisionFindingRecord
 
 
 class VisionFindingsListResponse(BaseModel):

@@ -173,6 +173,17 @@ def _vision_findings_response() -> dict[str, object]:
     }
 
 
+def _vision_confirmation_response() -> dict[str, object]:
+    finding = dict(_vision_findings_response()["findings"][0])
+    finding["confirmationState"] = "manual_confirmed"
+    finding["confirmedBy"] = "tester"
+    finding["confirmedAt"] = "2026-05-25T00:02:00Z"
+    return {
+        "schema": "ai-caddie-vision-finding-confirmation-v1",
+        "finding": finding,
+    }
+
+
 def _reconciliation_apply_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-mobile-reconciliation-apply-v1",
@@ -359,6 +370,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         media_handler = Mock()
         redact_handler = Mock(return_value=_media_redact_response())
         analyze_handler = Mock()
+        confirm_handler = Mock(return_value=_vision_confirmation_response())
 
         with (
             patch.dict("os.environ", ADMIN_ENV),
@@ -366,6 +378,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
             patch("server_v2.main.create_media_response", media_handler),
             patch("server_v2.main.redact_media_response", redact_handler, create=True),
             patch("server_v2.main.analyze_media_response", analyze_handler),
+            patch("server_v2.main.confirm_vision_finding_response", confirm_handler),
         ):
             annotation = client.post(
                 "/api/v2/annotations",
@@ -389,15 +402,21 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
             )
             redact = client.post("/api/v2/media/media-1/redact")
             analyze = client.post("/api/v2/media/media-1/analyze")
+            confirm = client.post(
+                "/api/v2/media/findings/finding-1/confirmation",
+                json={"confirmationState": "manual_confirmed", "confirmedBy": "tester"},
+            )
 
         self.assertEqual(annotation.status_code, 401)
         self.assertEqual(media.status_code, 401)
         self.assertEqual(redact.status_code, 401)
         self.assertEqual(analyze.status_code, 401)
+        self.assertEqual(confirm.status_code, 401)
         annotation_handler.assert_not_called()
         media_handler.assert_not_called()
         redact_handler.assert_not_called()
         analyze_handler.assert_not_called()
+        confirm_handler.assert_not_called()
 
     def test_admin_token_required_for_mobile_mutations_weather_persist_and_report_generation(self) -> None:
         client = TestClient(app)

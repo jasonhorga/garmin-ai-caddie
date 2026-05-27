@@ -1180,7 +1180,7 @@ def _vision_confirmation_state(finding: dict[str, Any]) -> str:
 
 
 def _vision_finding_confirmed(finding: dict[str, Any]) -> bool:
-    return _vision_confirmation_state(finding) in {"confirmed", "player_confirmed", "manual_confirmed"}
+    return _vision_confirmation_state(finding) in {"player_confirmed", "manual_confirmed"}
 
 
 def _apply_vision_findings(context: dict[str, Any]) -> dict[str, Any]:

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.annotations import add_annotation
 from ai_caddie.decision_api import build_decision_request_from_fixture
-from ai_caddie.vision_context import store_vision_findings
+from ai_caddie.vision_context import confirm_vision_finding, store_vision_findings
 from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 
@@ -246,12 +246,12 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertEqual(context["manualNotes"][0]["kind"], "strategy_note")
         self.assertIn("center green", context["manualNotes"][0]["note"])
 
-    def test_context_endpoint_binds_stored_vision_findings_to_decision_context(self) -> None:
+    def test_context_endpoint_binds_only_manually_confirmed_stored_vision_findings_to_decision_context(self) -> None:
         client = TestClient(app)
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            store_vision_findings(
+            stored = store_vision_findings(
                 {
                     "mediaId": "media-shot-1",
                     "targetType": "shot",
@@ -264,18 +264,19 @@ class ServerV2CaddieTests(unittest.TestCase):
                             "findingType": "blocked_view",
                             "evidenceText": "tree limbs block the direct recovery window",
                             "confidence": "high",
-                            "confirmationState": "confirmed",
+                            "confirmationState": "manual_confirmed",
                         },
                         {
                             "findingType": "visible_bunker",
                             "evidenceText": "front bunker visible",
                             "confidence": "medium",
-                            "confirmationState": "confirmed",
+                            "confirmationState": "manual_confirmed",
                         },
                     ],
                 },
                 root=root,
             )
+            confirm_vision_finding(stored[0]["id"], "manual_confirmed", confirmed_by="tester", root=root)
 
             with patch("server_v2.caddie.VISION_ROOT", root, create=True):
                 context_response = client.get(
@@ -290,8 +291,8 @@ class ServerV2CaddieTests(unittest.TestCase):
 
         self.assertEqual(context_response.status_code, 200)
         context = context_response.json()["context"]
-        self.assertEqual([row["findingType"] for row in context["visionFindings"]], ["blocked_view", "visible_bunker"])
-        self.assertTrue(all(row["confirmationState"] == "confirmed" for row in context["visionFindings"]))
+        self.assertEqual([row["findingType"] for row in context["visionFindings"]], ["blocked_view"])
+        self.assertTrue(all(row["confirmationState"] == "manual_confirmed" for row in context["visionFindings"]))
         self.assertTrue(any(row["label"] == "vision_findings" for row in context_response.json()["evidence"]))
 
         decision_response = client.post("/api/v2/caddie/decision", json={"shotType": "recovery", "context": context})
@@ -300,7 +301,7 @@ class ServerV2CaddieTests(unittest.TestCase):
         decision = decision_response.json()
         self.assertEqual(decision["selectedOptionId"], "safe")
         self.assertTrue(any(row["kind"] == "vision" and "blocked_view" in row["text"] for row in decision["evidence"]))
-        self.assertIn("bunker", {zone["kind"] for zone in decision["avoidZones"]})
+        self.assertNotIn("bunker", {zone["kind"] for zone in decision["avoidZones"]})
 
     def test_context_endpoint_binds_live_coordinates_strategy_and_stored_weather(self) -> None:
         client = TestClient(app)

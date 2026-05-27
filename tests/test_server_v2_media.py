@@ -62,7 +62,7 @@ class ServerV2MediaTests(unittest.TestCase):
         self.assertEqual(analyze_response.status_code, 200)
         self.assertEqual(analyze_response.json()["schema"], "ai-caddie-vision-context-v1")
         self.assertEqual(analyze_response.json()["findings"][0]["findingType"], "visible_bunker")
-        self.assertEqual(analyze_response.json()["findings"][0]["confirmationState"], "manual_confirmed")
+        self.assertEqual(analyze_response.json()["findings"][0]["confirmationState"], "unconfirmed")
         self.assertNotIn(tmp, analyze_response.text)
 
         self.assertEqual(findings_response.status_code, 200)
@@ -74,11 +74,61 @@ class ServerV2MediaTests(unittest.TestCase):
         self.assertEqual(finding["targetId"], "round-1:7:2")
         self.assertEqual(finding["findingType"], "visible_bunker")
         self.assertEqual(finding["confidence"], "medium")
-        self.assertEqual(finding["confirmationState"], "manual_confirmed")
+        self.assertEqual(finding["confirmationState"], "unconfirmed")
         self.assertNotIn("localPath", finding)
         self.assertNotIn("mediaBytesBase64", findings_response.text)
         self.assertNotIn("fake image bytes", findings_response.text)
         self.assertNotIn(tmp, findings_response.text)
+
+    def test_media_finding_confirmation_requires_admin_and_marks_manual_confirmation(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.media.MEDIA_ROOT", root):
+                create_response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "fileName": "lie.jpg",
+                        "contentBase64": base64.b64encode(b"uploaded-bytes").decode("ascii"),
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                media_id = create_response.json()["media"]["id"]
+                with patch(
+                    "server_v2.media.build_media_vision_provider",
+                    return_value=StaticProvider(
+                        '[{"findingType":"visible_bunker","evidenceText":"front bunker visible",'
+                        '"confidence":"medium","confirmationState":"manual_confirmed","missingInfo":[]}]'
+                    ),
+                ):
+                    client.post(f"/api/v2/media/{media_id}/analyze")
+                finding = client.get("/api/v2/media/target/shot/round-1:7:2/findings").json()["findings"][0]
+
+                with patch.dict("os.environ", ADMIN_ENV):
+                    unauthorized = client.post(
+                        f"/api/v2/media/findings/{finding['id']}/confirmation",
+                        json={"confirmationState": "manual_confirmed", "confirmedBy": "tester"},
+                    )
+                    confirmed_response = client.post(
+                        f"/api/v2/media/findings/{finding['id']}/confirmation",
+                        headers=ADMIN_HEADER,
+                        json={"confirmationState": "manual_confirmed", "confirmedBy": "tester"},
+                    )
+                listed_response = client.get("/api/v2/media/target/shot/round-1:7:2/findings")
+
+        self.assertEqual(unauthorized.status_code, 401)
+        self.assertEqual(confirmed_response.status_code, 200)
+        self.assertEqual(confirmed_response.json()["schema"], "ai-caddie-vision-finding-confirmation-v1")
+        confirmed = confirmed_response.json()["finding"]
+        self.assertEqual(confirmed["id"], finding["id"])
+        self.assertEqual(confirmed["confirmationState"], "manual_confirmed")
+        self.assertEqual(confirmed["confirmedBy"], "tester")
+        self.assertIn("confirmedAt", confirmed)
+        self.assertEqual(listed_response.json()["findings"][0]["confirmationState"], "manual_confirmed")
 
     def test_media_create_rejects_invalid_kind(self) -> None:
         client = TestClient(app)

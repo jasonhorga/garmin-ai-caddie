@@ -32,6 +32,7 @@ from .geometry import (
 )
 from .media import (
     analyze_media_response,
+    confirm_vision_finding_response,
     create_media_response,
     list_target_media_response,
     list_target_vision_findings_response,
@@ -81,6 +82,8 @@ from .models import (
     SyncRunResponse,
     SyncStatusResponse,
     VisionAnalysisResponse,
+    VisionFindingConfirmationRequest,
+    VisionFindingConfirmationResponse,
     VisionFindingsListResponse,
     WeatherSnapshotResponse,
 )
@@ -195,6 +198,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         ("/api/v2/geometry/hole/", "/ensure"),
         ("/api/v2/media/", "/analyze"),
         ("/api/v2/media/", "/redact"),
+        ("/api/v2/media/findings/", "/confirmation"),
         ("/api/v2/mobile/rounds/", "/events"),
         ("/api/v2/mobile/rounds/", "/reconciliation/apply"),
         ("/api/v2/reports/round/", "/generate"),
@@ -241,6 +245,7 @@ def service_index() -> dict[str, object]:
             "media": "/api/v2/media",
             "mediaByTarget": "/api/v2/media/target/{target_type}/{target_id}",
             "visionFindingsByTarget": "/api/v2/media/target/{target_type}/{target_id}/findings",
+            "confirmVisionFinding": "/api/v2/media/findings/{finding_id}/confirmation",
             "analyzeMedia": "/api/v2/media/{media_id}/analyze",
             "redactMedia": "/api/v2/media/{media_id}/redact",
             "mobileRoundPackage": "/api/v2/mobile/rounds/{round_id}/package",
@@ -471,6 +476,16 @@ def redact_media(
 ) -> MediaRedactResponse:
     require_admin_token(x_ai_caddie_admin_token)
     return redact_media_response(media_id)
+
+
+@app.post("/api/v2/media/findings/{finding_id}/confirmation", response_model=VisionFindingConfirmationResponse)
+def confirm_vision_finding_route(
+    finding_id: str,
+    request: VisionFindingConfirmationRequest,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> VisionFindingConfirmationResponse:
+    require_admin_token(x_ai_caddie_admin_token)
+    return confirm_vision_finding_response(finding_id, request)
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)

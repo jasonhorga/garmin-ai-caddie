@@ -342,6 +342,8 @@ def _vision_findings_for_context(
     seen: set[tuple[str, str, str]] = set()
     for target_type, target_id in targets:
         for finding in list_findings_for_target(target_type, target_id, root=vision_root):
+            if finding.get("confirmationState") != "manual_confirmed":
+                continue
             key = (
                 str(finding.get("id") or ""),
                 str(finding.get("targetType") or target_type),
