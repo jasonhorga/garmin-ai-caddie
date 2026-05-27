@@ -39,13 +39,21 @@ public enum WatchEventBridgeError: Error {
 }
 
 public final class WatchEventBridge: NSObject {
+    public var onAcceptedLiveEvent: ((LiveRoundEvent) async throws -> Void)?
+
     private let offlineStore: OfflineStore
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    public init(offlineStore: OfflineStore = OfflineStore()) {
+    public init(offlineStore: OfflineStore = OfflineStore(), autoActivate: Bool = false) {
         self.offlineStore = offlineStore
         super.init()
+        if autoActivate {
+            activateSession()
+        }
+    }
+
+    public func activateSession() {
         if WCSession.isSupported() {
             WCSession.default.delegate = self
             WCSession.default.activate()
@@ -226,8 +234,19 @@ extension WatchEventBridge: WCSessionDelegate {
 
         do {
             let liveEvent = try mapWatchInputEvent(event)
-            try offlineStore.appendEvent(liveEvent)
-            replyHandler(["accepted": true, "eventId": event.eventId])
+            if let onAcceptedLiveEvent {
+                Task {
+                    do {
+                        try await onAcceptedLiveEvent(liveEvent)
+                        replyHandler(["accepted": true, "eventId": event.eventId])
+                    } catch {
+                        replyHandler(["accepted": false, "eventId": event.eventId])
+                    }
+                }
+            } else {
+                try offlineStore.appendEvent(liveEvent)
+                replyHandler(["accepted": true, "eventId": event.eventId])
+            }
         } catch WatchEventBridgeError.invalidNumericInput {
             replyHandler(["accepted": false, "eventId": event.eventId, "reason": "invalid_numeric_input"])
         } catch {

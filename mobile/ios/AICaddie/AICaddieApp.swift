@@ -81,11 +81,30 @@ public final class LiveRoundAppModel: ObservableObject {
     private let mediaUploadClient: MediaUploadClient?
     private let preferredRoundId: String
 
+    public convenience init(
+        offlineStore: OfflineStore = OfflineStore(),
+        apiBaseURL: URL? = nil,
+        adminToken: String? = nil,
+        garminSessionStore: GarminSessionStore? = GarminSessionStore(),
+        preferredRoundId: String? = nil,
+        syncClient: SyncClient? = nil
+    ) {
+        self.init(
+            offlineStore: offlineStore,
+            apiBaseURL: apiBaseURL,
+            adminToken: adminToken,
+            watchBridge: WatchEventBridge(offlineStore: offlineStore, autoActivate: false),
+            garminSessionStore: garminSessionStore,
+            preferredRoundId: preferredRoundId,
+            syncClient: syncClient
+        )
+    }
+
     public init(
         offlineStore: OfflineStore = OfflineStore(),
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
-        watchBridge: WatchEventBridge? = WatchEventBridge(),
+        watchBridge: WatchEventBridge?,
         garminSessionStore: GarminSessionStore? = GarminSessionStore(),
         preferredRoundId: String? = nil,
         syncClient: SyncClient? = nil
@@ -100,6 +119,13 @@ public final class LiveRoundAppModel: ObservableObject {
         self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken) }
+        watchBridge?.onAcceptedLiveEvent = { [weak self] event in
+            guard let self else {
+                return
+            }
+            try await self.acceptWatchEvent(event)
+        }
+        watchBridge?.activateSession()
     }
 
     public var defaultRoundId: String {
@@ -351,6 +377,16 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func canContinueExpiredPackage(_ cachedPackage: LiveRoundPackage) throws -> Bool {
         try offlineStore.loadPendingEvents(roundId: cachedPackage.roundId).isEmpty == false
+    }
+
+    private func acceptWatchEvent(_ event: LiveRoundEvent) throws {
+        try offlineStore.appendEvent(event)
+        do {
+            pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
+            syncStatus = "Watch event saved"
+        } catch {
+            syncStatus = "Watch event status unavailable"
+        }
     }
 
     private func idempotencyKey(roundId: String, events: [LiveRoundEvent]) -> String {
