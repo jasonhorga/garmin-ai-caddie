@@ -27,6 +27,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         availableClubs.map(\.clubName)
     }
 
+    public let schema: String = "ai-caddie-watch-round-state-v1"
     public let roundId: String
     public let hole: Int
     public let par: Int
@@ -55,6 +56,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let caddieConfidence: String
 
     enum CodingKeys: String, CodingKey {
+        case schema
         case roundId
         case hole
         case par

@@ -147,6 +147,7 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(acceptedReply?["eventId"] as? String, "watch-event-1")
         XCTAssertEqual(acceptedReply?["acceptedEventIds"] as? [String], ["watch-event-1"])
         XCTAssertEqual(acceptedReply?["duplicateEventIds"] as? [String], [])
+        XCTAssertEqual(acceptedReply?["rejectedEventIds"] as? [String], [])
         XCTAssertEqual(try store.loadEvents().map(\.eventId), ["watch-event-1"])
 
         var duplicateReply: [String: Any]?
@@ -158,7 +159,31 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(duplicateReply?["eventId"] as? String, "watch-event-1")
         XCTAssertEqual(duplicateReply?["acceptedEventIds"] as? [String], [])
         XCTAssertEqual(duplicateReply?["duplicateEventIds"] as? [String], ["watch-event-1"])
+        XCTAssertEqual(duplicateReply?["rejectedEventIds"] as? [String], [])
         XCTAssertEqual(try store.loadEvents().map(\.eventId), ["watch-event-1"])
+    }
+
+    func testWatchInputRejectionReportsRejectedEventIds() throws {
+        let bridge = WatchEventBridge()
+        let event = WatchInputEvent(
+            eventId: "watch-distance-2",
+            roundId: "round-1",
+            hole: 4,
+            kind: .distance,
+            value: "155",
+            createdAt: "2026-05-25T00:00:00Z"
+        )
+        let message = ["event": try Self.jsonObject(from: event)]
+
+        var replyPayload: [String: Any]?
+        bridge.handleWatchInputMessage(message) { reply in
+            replyPayload = reply
+        }
+
+        XCTAssertEqual(replyPayload?["accepted"] as? Bool, false)
+        XCTAssertEqual(replyPayload?["eventId"] as? String, "watch-distance-2")
+        XCTAssertEqual(replyPayload?["rejectedEventIds"] as? [String], ["watch-distance-2"])
+        XCTAssertEqual(replyPayload?["reason"] as? String, "missing_club_context")
     }
 
     func testWatchDistanceInputMapsToLiveDistanceForOfflineRestore() throws {

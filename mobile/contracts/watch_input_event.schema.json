@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Caddie Watch Input Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "eventId",
+    "roundId",
+    "hole",
+    "kind",
+    "value",
+    "createdAt"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "ai-caddie-watch-input-event-v1"
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "roundId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hole": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["score", "putt", "penalty", "club", "distance"]
+    },
+    "value": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contextClub": {
+      "type": ["string", "null"]
+    },
+    "shotType": {
+      "type": ["string", "null"],
+      "enum": ["tee", "approach", "recovery", null]
+    },
+    "strategyMode": {
+      "type": ["string", "null"],
+      "enum": ["protect_score", "stock", "attack", null]
+    },
+    "lie": {
+      "type": ["string", "null"]
+    },
+    "distanceToPinM": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "offlineOptionId": {
+      "type": ["string", "null"]
+    },
+    "decisionId": {
+      "type": ["string", "null"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "score" }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "putt" }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "penalty" }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "distance" }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": ["contextClub"],
+        "properties": {
+          "value": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+          },
+          "contextClub": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  ]
+}

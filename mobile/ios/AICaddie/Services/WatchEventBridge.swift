@@ -33,6 +33,7 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
 public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public var id: String { eventId }
 
+    public let schema: String = "ai-caddie-watch-input-event-v1"
     public let eventId: String
     public let roundId: String
     public let hole: Int
@@ -79,6 +80,7 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
 }
 
 public struct WatchRoundStatePayload: Codable, Equatable {
+    public let schema: String = "ai-caddie-watch-round-state-v1"
     public let roundId: String
     public let hole: Int
     public let par: Int
@@ -269,9 +271,9 @@ public final class WatchEventBridge: NSObject {
                 replyHandler(acknowledgementReply(eventId: event.eventId, duplicate: false))
             }
         } catch WatchEventBridgeError.invalidNumericInput {
-            replyHandler(["accepted": false, "eventId": event.eventId, "reason": "invalid_numeric_input"])
+            replyHandler(rejectionReply(eventId: event.eventId, reason: "invalid_numeric_input"))
         } catch WatchEventBridgeError.missingClubContext {
-            replyHandler(["accepted": false, "eventId": event.eventId, "reason": "missing_club_context"])
+            replyHandler(rejectionReply(eventId: event.eventId, reason: "missing_club_context"))
         } catch {
             replyHandler(["accepted": false, "eventId": event.eventId])
         }
@@ -323,6 +325,19 @@ public final class WatchEventBridge: NSObject {
             "eventId": eventId,
             "acceptedEventIds": acceptedEventIds,
             "duplicateEventIds": duplicateEventIds,
+            "rejectedEventIds": [],
+            "source": "ios_watch_bridge",
+        ]
+    }
+
+    private func rejectionReply(eventId: String, reason: String) -> [String: Any] {
+        [
+            "accepted": false,
+            "eventId": eventId,
+            "acceptedEventIds": [],
+            "duplicateEventIds": [],
+            "rejectedEventIds": [eventId],
+            "reason": reason,
             "source": "ios_watch_bridge",
         ]
     }

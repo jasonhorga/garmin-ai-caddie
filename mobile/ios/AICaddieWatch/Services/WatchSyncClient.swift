@@ -13,6 +13,7 @@ public enum WatchInputKind: String, Codable, Equatable {
 public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public var id: String { eventId }
 
+    public let schema: String = "ai-caddie-watch-input-event-v1"
     public let eventId: String
     public let roundId: String
     public let hole: Int
@@ -61,10 +62,15 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
 public struct WatchSyncAcknowledgement: Equatable {
     public let acceptedEventIds: [String]
     public let duplicateEventIds: [String]
+    public let rejectedEventIds: [String]
     public let phoneSequence: Int
 
     public var acknowledgedEventIds: [String] {
         acceptedEventIds + duplicateEventIds
+    }
+
+    public var resolvedEventIds: [String] {
+        acceptedEventIds + duplicateEventIds + rejectedEventIds
     }
 
     public static func decode(_ reply: [String: Any], fallbackEventId: String) -> WatchSyncAcknowledgement {
@@ -73,11 +79,13 @@ public struct WatchSyncAcknowledgement: Equatable {
         let explicitAcceptedEventIds = stringArray(reply["acceptedEventIds"])
         let acceptedEventIds = explicitAcceptedEventIds ?? (accepted ? [eventId] : [])
         let duplicateEventIds = stringArray(reply["duplicateEventIds"]) ?? []
+        let rejectedEventIds = stringArray(reply["rejectedEventIds"]) ?? []
         let phoneSequence = intValue(reply["phoneSequence"]) ?? intValue(reply["watchAckSequence"]) ?? 0
 
         return WatchSyncAcknowledgement(
             acceptedEventIds: acceptedEventIds,
             duplicateEventIds: duplicateEventIds,
+            rejectedEventIds: rejectedEventIds,
             phoneSequence: phoneSequence
         )
     }
@@ -224,9 +232,9 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             ["event": object],
             replyHandler: { [weak self] reply in
                 let acknowledgement = WatchSyncAcknowledgement.decode(reply, fallbackEventId: event.eventId)
-                if !acknowledgement.acknowledgedEventIds.isEmpty {
+                if !acknowledgement.resolvedEventIds.isEmpty {
                     if removeFromQueueOnAck {
-                        try? self?.markEventsAcknowledged(acknowledgement.acknowledgedEventIds)
+                        try? self?.markEventsAcknowledged(acknowledgement.resolvedEventIds)
                     }
                 } else if queueOnFailure {
                     try? self?.queueInputEvent(event)

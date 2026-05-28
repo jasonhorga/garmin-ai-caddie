@@ -303,6 +303,72 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("geometry", {row["label"] for row in package["missingData"]})
         self.assertIn("weather", {row["label"] for row in package["missingData"]})
 
+    def test_watch_state_and_input_schemas_accept_versioned_contract_payloads(self) -> None:
+        state_schema = _load_schema("watch_round_state.schema.json")
+        input_schema = _load_schema("watch_input_event.schema.json")
+        state = {
+            "schema": "ai-caddie-watch-round-state-v1",
+            "roundId": "round-1",
+            "hole": 7,
+            "par": 4,
+            "distanceM": 142.0,
+            "targetNote": "pin set on iPhone",
+            "targetLatitude": 22.279,
+            "targetLongitude": 114.162,
+            "targetKind": "pin",
+            "suggestedClub": "8I",
+            "selectedClub": "8I",
+            "availableClubs": [
+                {"clubName": "8I", "sampleSize": 24, "medianM": 144.0, "source": "club_profile"},
+                {"clubName": "7I", "medianM": 156.0, "source": "offline_option:attack"},
+            ],
+            "shotType": "approach",
+            "strategyMode": "stock",
+            "lie": "fairway",
+            "offlineOptionId": "stock",
+            "decisionId": "decision-1",
+            "nextShotPrompt": "8I / Stock / 142m",
+            "holePlanSummary": "1D-3W-58 / 3 shots / leave -21m",
+            "expectedStrokes": 3.0,
+            "expectedRemainingM": -21.0,
+            "evidenceSummary": "route: water left",
+            "missingDataSummary": "wind: not cached",
+            "score": 4,
+            "putts": 2,
+            "penaltyCount": 0,
+            "caddieConfidence": "medium",
+        }
+        club_event = {
+            "schema": "ai-caddie-watch-input-event-v1",
+            "eventId": "watch-event-1",
+            "roundId": "round-1",
+            "hole": 7,
+            "kind": "club",
+            "value": "8I",
+            "createdAt": "2026-05-25T00:00:00Z",
+            "contextClub": "8I",
+            "shotType": "approach",
+            "strategyMode": "stock",
+            "lie": "fairway",
+            "distanceToPinM": 142.0,
+            "offlineOptionId": "stock",
+            "decisionId": "decision-1",
+        }
+        distance_event = {
+            **club_event,
+            "eventId": "watch-distance-1",
+            "kind": "distance",
+            "value": "155",
+            "contextClub": "8I",
+        }
+        invalid_distance_event = {**distance_event, "eventId": "watch-distance-bad"}
+        invalid_distance_event.pop("contextClub")
+
+        _assert_json_schema_accepts(self, state_schema, state)
+        _assert_json_schema_accepts(self, input_schema, club_event)
+        _assert_json_schema_accepts(self, input_schema, distance_event)
+        _assert_json_schema_rejects(self, input_schema, invalid_distance_event)
+
     def test_live_round_package_can_report_ready_dependency_checks(self) -> None:
         schema = _load_schema("live_round_package.schema.json")
 
@@ -1717,6 +1783,8 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("import WatchConnectivity", bridge)
         self.assertIn("struct WatchClubOption: Codable", bridge)
+        self.assertIn('public let schema: String = "ai-caddie-watch-input-event-v1"', bridge)
+        self.assertIn('public let schema: String = "ai-caddie-watch-round-state-v1"', bridge)
         self.assertIn("let availableClubs: [WatchClubOption]", bridge)
         self.assertIn("let shotType: String?", bridge)
         self.assertIn("let strategyMode: String?", bridge)
@@ -1741,6 +1809,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("containsEvent(eventId:", bridge)
         self.assertIn("acceptedEventIds", bridge)
         self.assertIn("duplicateEventIds", bridge)
+        self.assertIn("rejectedEventIds", bridge)
+        self.assertIn("rejectionReply(eventId:", bridge)
         for mapping in [
             "case .score:",
             "case .putt:",
@@ -1765,14 +1835,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("guard let clubName = nonEmpty(event.value)", bridge)
         self.assertIn("guard let clubName = nonEmpty(event.contextClub)", bridge)
         self.assertIn("throw WatchEventBridgeError.missingClubContext", bridge)
-        self.assertIn('replyHandler(["accepted": false, "eventId": event.eventId, "reason": "missing_club_context"])', bridge)
+        self.assertIn('replyHandler(rejectionReply(eventId: event.eventId, reason: "missing_club_context"))', bridge)
         self.assertIn("watchClubOptions(", bridge)
         self.assertIn("package.clubProfiles", bridge)
         self.assertIn("package.caddieContextSeeds.first(where:", bridge)
         self.assertIn("guard let parsed = Int", bridge)
         self.assertIn("guard let parsed = Double", bridge)
         self.assertIn("throw WatchEventBridgeError.invalidNumericInput", bridge)
-        self.assertIn('replyHandler(["accepted": false, "eventId": event.eventId, "reason": "invalid_numeric_input"])', bridge)
+        self.assertIn('replyHandler(rejectionReply(eventId: event.eventId, reason: "invalid_numeric_input"))', bridge)
         self.assertNotIn("Double(value) ?? 0", bridge)
 
     def test_ios_live_views_define_expected_controls(self) -> None:
@@ -1912,6 +1982,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let sampleSize: Int?", state_swift)
         self.assertIn("let medianM: Double?", state_swift)
         self.assertIn("struct WatchRoundState: Codable", state_swift)
+        self.assertIn('public let schema: String = "ai-caddie-watch-round-state-v1"', state_swift)
+        self.assertIn("case schema", state_swift)
         self.assertIn("init(from decoder: Decoder) throws", state_swift)
         self.assertIn("decodeIfPresent([WatchClubOption].self, forKey: .availableClubs) ?? []", state_swift)
         for field in [
@@ -2042,9 +2114,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("sessionReachabilityDidChange", sync_swift)
         self.assertIn("try? flushQueue()", sync_swift)
         self.assertIn("struct WatchSyncAcknowledgement", sync_swift)
+        self.assertIn('public let schema: String = "ai-caddie-watch-input-event-v1"', sync_swift)
         self.assertIn("acceptedEventIds", sync_swift)
         self.assertIn("duplicateEventIds", sync_swift)
+        self.assertIn("rejectedEventIds", sync_swift)
         self.assertIn("acknowledgedEventIds", sync_swift)
+        self.assertIn("resolvedEventIds", sync_swift)
         self.assertIn("phoneSequence", sync_swift)
         self.assertNotIn("serverSequence", sync_swift)
         self.assertIn("WatchSyncAcknowledgement.decode(reply", sync_swift)

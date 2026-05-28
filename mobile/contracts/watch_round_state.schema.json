@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Caddie Watch Round State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "roundId",
+    "hole",
+    "par",
+    "availableClubs",
+    "score",
+    "putts",
+    "penaltyCount",
+    "caddieConfidence"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "ai-caddie-watch-round-state-v1"
+    },
+    "roundId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hole": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "par": {
+      "type": "integer",
+      "minimum": 3,
+      "maximum": 6
+    },
+    "distanceM": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "targetNote": {
+      "type": ["string", "null"]
+    },
+    "targetLatitude": {
+      "type": ["number", "null"]
+    },
+    "targetLongitude": {
+      "type": ["number", "null"]
+    },
+    "targetKind": {
+      "type": ["string", "null"],
+      "enum": ["pin", "target", "green_center", null]
+    },
+    "suggestedClub": {
+      "type": ["string", "null"]
+    },
+    "selectedClub": {
+      "type": ["string", "null"]
+    },
+    "availableClubs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["clubName"],
+        "properties": {
+          "clubName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sampleSize": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "medianM": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "source": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "shotType": {
+      "type": ["string", "null"],
+      "enum": ["tee", "approach", "recovery", null]
+    },
+    "strategyMode": {
+      "type": ["string", "null"],
+      "enum": ["protect_score", "stock", "attack", null]
+    },
+    "lie": {
+      "type": ["string", "null"]
+    },
+    "offlineOptionId": {
+      "type": ["string", "null"]
+    },
+    "decisionId": {
+      "type": ["string", "null"]
+    },
+    "nextShotPrompt": {
+      "type": ["string", "null"]
+    },
+    "holePlanSummary": {
+      "type": ["string", "null"]
+    },
+    "expectedStrokes": {
+      "type": ["number", "null"]
+    },
+    "expectedRemainingM": {
+      "type": ["number", "null"]
+    },
+    "evidenceSummary": {
+      "type": ["string", "null"]
+    },
+    "missingDataSummary": {
+      "type": ["string", "null"]
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "putts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "penaltyCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "caddieConfidence": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

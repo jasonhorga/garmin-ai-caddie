@@ -33,6 +33,7 @@ final class WatchRoundStateTests: XCTestCase {
         let decoded = try JSONDecoder().decode(WatchRoundState.self, from: data)
 
         XCTAssertEqual(decoded, state)
+        XCTAssertEqual(decoded.schema, "ai-caddie-watch-round-state-v1")
         XCTAssertEqual(decoded.id, "round-1-7")
         XCTAssertEqual(decoded.targetKind, "pin")
         XCTAssertEqual(decoded.availableClubNames, ["8I"])
@@ -111,6 +112,7 @@ final class WatchRoundStateTests: XCTestCase {
         let decoded = try JSONDecoder().decode(WatchRoundState.self, from: legacy)
 
         XCTAssertEqual(decoded.availableClubs, [])
+        XCTAssertEqual(decoded.schema, "ai-caddie-watch-round-state-v1")
         XCTAssertEqual(decoded.selectedClub, "8I")
         XCTAssertNil(decoded.offlineOptionId)
     }

@@ -81,7 +81,9 @@ final class WatchSyncClientTests: XCTestCase {
 
         XCTAssertEqual(batch.acceptedEventIds, ["event-1", "event-2"])
         XCTAssertEqual(batch.duplicateEventIds, ["event-0"])
+        XCTAssertEqual(batch.rejectedEventIds, [])
         XCTAssertEqual(batch.acknowledgedEventIds, ["event-1", "event-2", "event-0"])
+        XCTAssertEqual(batch.resolvedEventIds, ["event-1", "event-2", "event-0"])
         XCTAssertEqual(batch.phoneSequence, 42)
 
         let legacy = WatchSyncAcknowledgement.decode(["accepted": true, "eventId": "legacy-event"], fallbackEventId: "fallback-event")
@@ -90,11 +92,45 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(legacy.duplicateEventIds, [])
         XCTAssertEqual(legacy.acknowledgedEventIds, ["legacy-event"])
 
-        let rejected = WatchSyncAcknowledgement.decode(["accepted": false, "eventId": "rejected-event"], fallbackEventId: "fallback-event")
+        let rejected = WatchSyncAcknowledgement.decode(
+            [
+                "accepted": false,
+                "eventId": "rejected-event",
+                "rejectedEventIds": ["rejected-event"],
+                "reason": "missing_club_context",
+            ],
+            fallbackEventId: "fallback-event"
+        )
 
         XCTAssertEqual(rejected.acceptedEventIds, [])
         XCTAssertEqual(rejected.duplicateEventIds, [])
+        XCTAssertEqual(rejected.rejectedEventIds, ["rejected-event"])
         XCTAssertEqual(rejected.acknowledgedEventIds, [])
+        XCTAssertEqual(rejected.resolvedEventIds, ["rejected-event"])
+    }
+
+    func testRejectedAcknowledgementIdsCanBeRemovedFromQueue() throws {
+        let queueURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("queued_events.json")
+        let client = WatchSyncClient(queueURL: queueURL)
+        let event = WatchInputEvent(
+            eventId: "bad-event",
+            roundId: "round-1",
+            hole: 3,
+            kind: .distance,
+            value: "155",
+            createdAt: "2026-05-25T00:00:00Z"
+        )
+        let acknowledgement = WatchSyncAcknowledgement.decode(
+            ["accepted": false, "eventId": "bad-event", "rejectedEventIds": ["bad-event"]],
+            fallbackEventId: "fallback-event"
+        )
+
+        try client.queueInputEvent(event)
+        try client.markEventsAcknowledged(acknowledgement.resolvedEventIds)
+
+        XCTAssertEqual(try client.loadQueuedEvents(), [])
     }
 
     func testReceiveStatePersistsLastRoundStateForOfflineRelaunch() throws {
