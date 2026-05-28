@@ -10,6 +10,7 @@ import type {
   MediaKind,
   MediaRecord,
   MediaTargetType,
+  WeatherSnapshotParams,
   WeatherSnapshotResponse,
   VisionConfirmationState,
   VisionFindingRecord,
@@ -54,7 +55,7 @@ interface CaddiePageProps {
   mediaState?: MediaContextState
   onRequestDecision: (request: CaddieDecisionRequest) => void
   onCreateAudit?: (decision: CaddieDecisionResponse, actualShot: Record<string, unknown>) => void
-  onLoadWeather?: () => void
+  onLoadWeather?: (params: WeatherSnapshotParams) => void
   onLoadCaddieContext?: (params: CaddieContextParams) => void
   onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
   onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
@@ -99,8 +100,9 @@ export function CaddiePage({
   const [routeTargetX, setRouteTargetX] = useState('')
   const [routeTargetY, setRouteTargetY] = useState('')
   const [landingRadius, setLandingRadius] = useState('18')
+  const mediaTarget = mediaTargetForSourceRef(contextSourceRef)
   const weatherSnapshot = weatherState.status === 'ready' ? weatherState.data : null
-  const visionFindings = mediaState.status === 'ready' ? mediaState.findings : []
+  const visionFindings = mediaStateMatchesTarget(mediaState, mediaTarget) ? mediaState.findings : []
   const hasSourceContext = contextStateMatchesSourceRef(contextState, contextSourceRef)
 
   useEffect(() => {
@@ -129,7 +131,19 @@ export function CaddiePage({
           <option value="recovery">Recovery</option>
         </select>
         {onLoadWeather ? (
-          <button type="button" onClick={onLoadWeather}>
+          <button
+            type="button"
+            onClick={() =>
+              onLoadWeather(buildWeatherLoadParams({
+                sourceRef: contextSourceRef,
+                contextState,
+                currentLatitude,
+                currentLongitude,
+                targetLatitude,
+                targetLongitude,
+              }))
+            }
+          >
             Load weather
           </button>
         ) : null}
@@ -177,6 +191,7 @@ export function CaddiePage({
       />
       <MediaContextPanel
         state={mediaState}
+        defaultTarget={mediaTarget}
         onLoadMediaContext={onLoadMediaContext}
         onAttachMedia={onAttachMedia}
         onAnalyzeMedia={onAnalyzeMedia}
@@ -450,6 +465,52 @@ function buildContextLoadParams({
     if (landingRadiusM !== undefined) params.landingRadiusM = landingRadiusM
   }
   return params
+}
+
+function buildWeatherLoadParams({
+  sourceRef,
+  contextState,
+  currentLatitude,
+  currentLongitude,
+  targetLatitude,
+  targetLongitude,
+}: {
+  sourceRef: string
+  contextState: CaddieContextLoadState
+  currentLatitude: string
+  currentLongitude: string
+  targetLatitude: string
+  targetLongitude: string
+}): WeatherSnapshotParams {
+  const context = contextState.status === 'ready' ? contextState.data.context : {}
+  const roundId = stringValue(context.roundId) || sourceRefRoundId(sourceRef)
+  const hole = numberValue(context.hole) ?? numberValue(context.localHole) ?? sourceRefHole(sourceRef)
+  const currentLat = numericInput(currentLatitude)
+  const currentLon = numericInput(currentLongitude)
+  const targetLat = numericInput(targetLatitude)
+  const targetLon = numericInput(targetLongitude)
+  const contextLocation = recordFrom(context.location)
+  const contextCurrent = recordFrom(context.currentLocation)
+  const latitude = currentLat ?? targetLat ?? numberValue(contextCurrent.latitude) ?? numberValue(contextLocation.latitude)
+  const longitude = currentLon ?? targetLon ?? numberValue(contextCurrent.longitude) ?? numberValue(contextLocation.longitude)
+  return {
+    source: latitude !== null && longitude !== null ? 'open_meteo' : 'manual',
+    persist: true,
+    ...(roundId ? { roundId } : {}),
+    ...(hole !== null ? { hole } : {}),
+    capturedAt: new Date().toISOString(),
+    ...(latitude !== null && longitude !== null ? { latitude, longitude } : {}),
+  }
+}
+
+function sourceRefRoundId(sourceRef: string): string | undefined {
+  const [roundId] = sourceRef.split(':')
+  return roundId?.trim() || undefined
+}
+
+function sourceRefHole(sourceRef: string): number | null {
+  const [, hole] = sourceRef.split(':')
+  return numberValue(hole)
 }
 
 function WeatherContextPanel({ state }: { state: WeatherLoadState }) {
@@ -1248,6 +1309,7 @@ function auditSuggestion(value: unknown): string | null {
 
 function MediaContextPanel({
   state,
+  defaultTarget,
   onLoadMediaContext,
   onAttachMedia,
   onAnalyzeMedia,
@@ -1255,17 +1317,23 @@ function MediaContextPanel({
   onConfirmVisionFinding,
 }: {
   state: MediaContextState
+  defaultTarget: { targetType: MediaTargetType; targetId: string }
   onLoadMediaContext?: (target: { targetType: MediaTargetType; targetId: string }) => void
   onAttachMedia?: (request: MediaCreateRequest) => void | Promise<void>
   onAnalyzeMedia?: (mediaId: string) => void
   onRedactMedia?: (mediaId: string) => void
   onConfirmVisionFinding?: (findingId: string, confirmationState: Extract<VisionConfirmationState, 'manual_confirmed' | 'rejected'>) => void
 }) {
-  const [targetType, setTargetType] = useState<MediaTargetType>('shot')
-  const [targetId, setTargetId] = useState('fixture-round:4:approach')
+  const [targetType, setTargetType] = useState<MediaTargetType>(defaultTarget.targetType)
+  const [targetId, setTargetId] = useState(defaultTarget.targetId)
   const [mediaKind, setMediaKind] = useState<MediaKind>('photo')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setTargetType(defaultTarget.targetType)
+    setTargetId(defaultTarget.targetId)
+  }, [defaultTarget.targetType, defaultTarget.targetId])
 
   async function handleAttachMedia() {
     if (!selectedFile || !onAttachMedia) return
@@ -1285,8 +1353,9 @@ function MediaContextPanel({
     }
   }
 
-  const media = state.status === 'ready' ? state.media : []
-  const findings = state.status === 'ready' ? state.findings : []
+  const targetMatchesLoaded = state.status === 'ready' && state.targetType === targetType && state.targetId === targetId
+  const media = targetMatchesLoaded && Array.isArray(state.media) ? state.media : []
+  const findings = targetMatchesLoaded && Array.isArray(state.findings) ? state.findings : []
 
   return (
     <section className="media-context-panel" aria-label="Media context">
@@ -1338,6 +1407,11 @@ function MediaContextPanel({
       </div>
 
       {state.status === 'error' ? <p className="media-context-error">{state.message}</p> : null}
+      {state.status === 'ready' && !targetMatchesLoaded ? (
+        <p className="media-context-error">
+          Loaded media belongs to {state.targetType} {state.targetId}; reload media for {targetType} {targetId}.
+        </p>
+      ) : null}
       {uploadError ? <p className="media-context-error">{uploadError}</p> : null}
 
       <div className="media-context-grid">
@@ -1437,6 +1511,21 @@ function buildDecisionRequest(
       ...(visionFindings.length ? { visionFindings } : {}),
     },
   }
+}
+
+function mediaTargetForSourceRef(sourceRef: string): { targetType: MediaTargetType; targetId: string } {
+  const normalized = sourceRef.trim()
+  const partCount = normalized.split(':').filter(Boolean).length
+  if (partCount >= 3) return { targetType: 'shot', targetId: normalized }
+  if (partCount >= 2) return { targetType: 'hole', targetId: normalized }
+  return { targetType: 'round', targetId: normalized }
+}
+
+function mediaStateMatchesTarget(
+  state: MediaContextState,
+  target: { targetType: MediaTargetType; targetId: string },
+): state is Extract<MediaContextState, { status: 'ready' }> {
+  return state.status === 'ready' && state.targetType === target.targetType && state.targetId === target.targetId
 }
 
 function formatSequenceMeta(sequence: Record<string, unknown>): string {

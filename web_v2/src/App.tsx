@@ -99,6 +99,7 @@ import type {
   MobileReconciliationResponse,
   ProductSettingsResponse,
   SyncStatusResponse,
+  WeatherSnapshotParams,
   WeatherSnapshotResponse,
   VisionConfirmationState,
 } from './types'
@@ -771,22 +772,11 @@ export default function App() {
     }
   }
 
-  async function handleLoadWeather() {
+  async function handleLoadWeather(params: WeatherSnapshotParams = {}) {
     setWeatherState({ status: 'loading' })
     try {
       const snapshot = await fetchWeatherSnapshot(
-        {
-          source: 'manual',
-          roundId: 'fixture-round',
-          hole: 4,
-          capturedAt: '2026-05-25T08:00:00Z',
-          latitude: 22.279,
-          longitude: 114.162,
-          windSpeedMps: 5.4,
-          windDirectionDeg: 110,
-          temperatureC: 28.5,
-          precipitationMm: 0,
-        },
+        params,
         currentAdminToken(),
       )
       setWeatherState({ status: 'ready', data: snapshot })
@@ -1045,7 +1035,7 @@ export default function App() {
             mediaState={mediaState}
             onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
             onCreateAudit={(decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot)}
-            onLoadWeather={() => void handleLoadWeather()}
+            onLoadWeather={(params) => void handleLoadWeather(params)}
             onLoadCaddieContext={(params) => void handleLoadCaddieContext(params)}
             onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
             onAttachMedia={handleAttachMedia}

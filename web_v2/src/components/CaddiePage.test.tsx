@@ -216,8 +216,8 @@ const weatherSnapshot: WeatherSnapshotResponse = {
   schema: 'ai-caddie-weather-snapshot-v1',
   state: 'ready',
   source: 'manual',
-  roundId: 'fixture-round',
-  hole: 4,
+  roundId: '900001',
+  hole: 7,
   capturedAt: '2026-05-25T08:00:00Z',
   location: { latitude: 22.279, longitude: 114.162 },
   windSpeedMps: 5.4,
@@ -231,8 +231,8 @@ const weatherSnapshot: WeatherSnapshotResponse = {
 const mediaRecord: MediaRecord = {
   id: 'media-1',
   createdAt: '2026-05-25T00:00:00Z',
-  targetType: 'shot',
-  targetId: 'fixture-round:4:approach',
+  targetType: 'hole',
+  targetId: '900001:7',
   mediaKind: 'photo',
   localPath: 'data/media/uploads/lie.jpg',
   capturedAt: '2026-05-25T08:00:00Z',
@@ -243,8 +243,8 @@ const mediaRecord: MediaRecord = {
 const visionFinding: VisionFindingRecord = {
   id: 'finding-1',
   createdAt: '2026-05-25T00:01:00Z',
-  targetType: 'shot',
-  targetId: 'fixture-round:4:approach',
+  targetType: 'hole',
+  targetId: '900001:7',
   mediaId: 'media-1',
   mediaKind: 'photo',
   findingType: 'visible_bunker',
@@ -390,8 +390,8 @@ describe('CaddiePage', () => {
         contextState={{ status: 'ready', data: caddieContext }}
         mediaState={{
           status: 'ready',
-          targetType: 'shot',
-          targetId: 'fixture-round:4:approach',
+          targetType: 'hole',
+          targetId: '900001:7',
           media: [mediaRecord],
           findings: [visionFinding],
         }}
@@ -505,7 +505,15 @@ describe('CaddiePage', () => {
     await userEvent.selectOptions(screen.getByLabelText('Result lie'), 'fringe')
     await userEvent.click(screen.getByRole('button', { name: 'Audit outcome' }))
 
-    expect(onLoadWeather).toHaveBeenCalledTimes(1)
+    expect(onLoadWeather).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'manual',
+        persist: true,
+        roundId: '900001',
+        hole: 7,
+        capturedAt: expect.any(String),
+      }),
+    )
     expect(onLoadCaddieContext).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceRef: '900001:7',
@@ -515,15 +523,15 @@ describe('CaddiePage', () => {
         capturedAt: expect.any(String),
       }),
     )
-    expect(onLoadMediaContext).toHaveBeenCalledWith({ targetType: 'shot', targetId: 'fixture-round:4:approach' })
+    expect(onLoadMediaContext).toHaveBeenCalledWith({ targetType: 'hole', targetId: '900001:7' })
     expect(onAnalyzeMedia).toHaveBeenCalledWith('media-1')
     expect(onRedactMedia).toHaveBeenCalledWith('media-1')
     expect(onConfirmVisionFinding).toHaveBeenNthCalledWith(1, 'finding-1', 'manual_confirmed')
     expect(onConfirmVisionFinding).toHaveBeenNthCalledWith(2, 'finding-1', 'rejected')
     expect(onAttachMedia).toHaveBeenCalledWith(
       expect.objectContaining({
-        targetType: 'shot',
-        targetId: 'fixture-round:4:approach',
+        targetType: 'hole',
+        targetId: '900001:7',
         mediaKind: 'photo',
         fileName: 'lie.jpg',
         contentBase64: 'bGllLWJ5dGVz',
@@ -639,6 +647,36 @@ describe('CaddiePage', () => {
         landingRadiusM: 18,
       }),
     )
+  })
+
+  it('does not send stale vision findings when media target no longer matches the selected source', async () => {
+    const onRequestDecision = vi.fn()
+
+    render(
+      <CaddiePage
+        decisionState={{ status: 'idle' }}
+        contextState={{ status: 'ready', data: caddieContext }}
+        mediaState={{
+          status: 'ready',
+          targetType: 'shot',
+          targetId: 'fixture-round:4:approach',
+          media: [mediaRecord],
+          findings: [visionFinding],
+        }}
+        onRequestDecision={onRequestDecision}
+      />,
+    )
+
+    expect(screen.getByText('Loaded media belongs to shot fixture-round:4:approach; reload media for hole 900001:7.')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
+
+    expect(onRequestDecision).toHaveBeenCalledWith({
+      shotType: 'approach',
+      context: expect.not.objectContaining({
+        visionFindings: expect.anything(),
+      }),
+    })
   })
 
   it('renders history-aware acceptable miss bias', () => {

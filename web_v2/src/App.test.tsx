@@ -642,8 +642,8 @@ function weatherPayload() {
     schema: 'ai-caddie-weather-snapshot-v1',
     state: 'ready',
     source: 'manual',
-    roundId: 'fixture-round',
-    hole: 4,
+    roundId: '900001',
+    hole: 7,
     capturedAt: '2026-05-25T08:00:00Z',
     location: { latitude: 22.279, longitude: 114.162 },
     windSpeedMps: 5.4,
@@ -659,13 +659,13 @@ function mediaListPayload() {
   return {
     schema: 'ai-caddie-media-list-v1',
     total: 1,
-    target: { targetType: 'shot', targetId: 'fixture-round:4:approach' },
+    target: { targetType: 'hole', targetId: '900001:7' },
     media: [
       {
         id: 'media-1',
         createdAt: '2026-05-25T00:00:00Z',
-        targetType: 'shot',
-        targetId: 'fixture-round:4:approach',
+        targetType: 'hole',
+        targetId: '900001:7',
         mediaKind: 'photo',
         localPath: 'data/media/uploads/lie.jpg',
         capturedAt: '2026-05-25T08:00:00Z',
@@ -682,8 +682,8 @@ function createdMediaPayload() {
     media: {
       id: 'media-2',
       createdAt: '2026-05-25T00:02:00Z',
-      targetType: 'shot',
-      targetId: 'fixture-round:4:approach',
+      targetType: 'hole',
+      targetId: '900001:7',
       mediaKind: 'photo',
       localPath: 'data/media/uploads/new-lie.jpg',
       capturedAt: '2026-05-25T08:02:00Z',
@@ -697,13 +697,13 @@ function visionFindingsPayload() {
   return {
     schema: 'ai-caddie-vision-findings-list-v1',
     total: 1,
-    target: { targetType: 'shot', targetId: 'fixture-round:4:approach' },
+    target: { targetType: 'hole', targetId: '900001:7' },
     findings: [
       {
         id: 'finding-1',
         createdAt: '2026-05-25T00:01:00Z',
-        targetType: 'shot',
-        targetId: 'fixture-round:4:approach',
+        targetType: 'hole',
+        targetId: '900001:7',
         mediaId: 'media-1',
         mediaKind: 'photo',
         findingType: 'visible_bunker',
@@ -722,8 +722,8 @@ function visionAnalysisPayload() {
   return {
     schema: 'ai-caddie-vision-context-v1',
     mediaId: 'media-1',
-    targetType: 'shot',
-    targetId: 'fixture-round:4:approach',
+    targetType: 'hole',
+    targetId: '900001:7',
     mediaKind: 'photo',
     provider: 'static',
     model: 'static',
@@ -1741,9 +1741,9 @@ describe('App navigation', () => {
       ok: true,
       json: async () => {
         if (path === '/api/v2/media' && init?.method === 'POST') return createdMediaPayload()
-        if (path === '/api/v2/media/target/shot/fixture-round%3A4%3Aapproach') return mediaListPayload()
+        if (path === '/api/v2/media/target/hole/900001%3A7') return mediaListPayload()
         if (path === '/api/v2/media/media-1/analyze' && init?.method === 'POST') return visionAnalysisPayload()
-        if (path === '/api/v2/media/target/shot/fixture-round%3A4%3Aapproach/findings') return visionFindingsPayload()
+        if (path === '/api/v2/media/target/hole/900001%3A7/findings') return visionFindingsPayload()
         if (String(path).startsWith('/api/v2/caddie/context')) return caddieContextPayload()
         if (path === '/api/v2/caddie/decision') return caddieDecisionPayload()
         if (path === '/api/v2/caddie/decisions/fixture-round%3A4%3Aapproach/audit/latest') return caddieAuditLatestPayload()
@@ -1782,14 +1782,18 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
 
     expect(await screen.findByText('8I')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/v2/weather/snapshot?source=manual'))
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^\/api\/v2\/weather\/snapshot\?source=manual&persist=true&round_id=900001&hole=7&captured_at=/,
+      ),
+    )
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(
         /^\/api\/v2\/caddie\/context\?source_ref=900001%3A7&shot_type=approach&distance_to_pin_m=142&lie=fairway&captured_at=/,
       ),
     )
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/shot/fixture-round%3A4%3Aapproach')
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/shot/fixture-round%3A4%3Aapproach/findings')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/hole/900001%3A7')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/target/hole/900001%3A7/findings')
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v2/media',
       expect.objectContaining({
