@@ -352,6 +352,10 @@ class HistoryDrilldownResponse(BaseModel):
     missingData: list[dict[str, Any]]
     annotations: list[dict[str, Any]] = Field(default_factory=list)
     corrections: list[dict[str, Any]] = Field(default_factory=list)
+    reports: list[dict[str, Any]] = Field(default_factory=list)
+    weatherSnapshots: list[dict[str, Any]] = Field(default_factory=list)
+    decisionAudits: list[dict[str, Any]] = Field(default_factory=list)
+    geometryEvidence: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ConnectorStatus(BaseModel):

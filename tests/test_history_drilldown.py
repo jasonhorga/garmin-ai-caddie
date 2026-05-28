@@ -5,9 +5,12 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from ai_caddie.annotations import add_annotation
+from ai_caddie.decision import store_decision_audit
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history import HistoryData
 from ai_caddie.history_drilldown import build_drilldown_index, resolve_history_ref
+from ai_caddie.reports import store_report
+from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 
 
 def raw_garmin_drilldown_data() -> HistoryData:
@@ -195,6 +198,99 @@ class HistoryDrilldownTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in detail["corrections"]], [correction["id"]])
         self.assertEqual(detail["annotations"][0]["payload"]["text"], "ball was above feet")
         self.assertEqual(detail["corrections"][0]["payload"]["to"], "7I")
+
+    def test_resolved_hole_ref_includes_report_weather_audit_and_geometry_evidence(self) -> None:
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": global_id,
+                "localHole": local_hole,
+                "coverage": "ready",
+                "hasHazards": True,
+                "hasMeshes": True,
+                "evidence": [{"label": "hazards", "ref": f"gid{global_id}_h{local_hole:02d}_hazards.json"}],
+                "missingData": [],
+            }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            correction = add_annotation(
+                "hole",
+                "900001:7",
+                "score_correction",
+                {"from": 6, "to": 5},
+                root=root,
+            )
+            report = store_report(
+                {
+                    "schema": "ai-caddie-review-report-v1",
+                    "kind": "hole",
+                    "subjectId": "black_knight:7",
+                    "provider": "static",
+                    "model": "static",
+                    "confidence": "medium",
+                    "sourceRefs": ["900001:7"],
+                    "factsUsed": [{"label": "hole score", "sourceRefs": ["900001:7"]}],
+                    "missingData": [],
+                    "unsupportedClaims": [],
+                    "narrative": "Hole 7 was costly.",
+                },
+                kind="hole",
+                subject_id="black_knight:7",
+                root=root,
+            )
+            store_weather_snapshot(
+                build_weather_snapshot(
+                    round_id="900001",
+                    hole=7,
+                    captured_at="2026-05-25T09:00:00Z",
+                    latitude=22.279,
+                    longitude=114.162,
+                    source="manual",
+                    observed={"windSpeedMps": 6.0, "windDirectionDeg": 120},
+                ),
+                root=root,
+            )
+            audit = store_decision_audit(
+                {
+                    "decisionSourceRef": "900001:7",
+                    "selectedOptionId": "stock",
+                    "actualOptionId": "attack",
+                    "actualShotRefs": ["900001:7:0"],
+                    "evidenceRefs": ["900001:7"],
+                    "classification": "strategy",
+                },
+                decision_id="decision-900001-7",
+                root=root,
+            )
+
+            from unittest.mock import patch
+
+            with patch("ai_caddie.history_drilldown.geometry_coverage_for_hole", side_effect=ready_geometry):
+                detail = resolve_history_ref(
+                    fixture_history_data(),
+                    "900001:7",
+                    annotations_root=root,
+                    reports_root=root,
+                    weather_root=root,
+                    decision_audit_root=root,
+                )
+
+            serialized = str(detail)
+
+        self.assertEqual([row["id"] for row in detail["corrections"]], [correction["id"]])
+        self.assertEqual(detail["reports"][0]["id"], report["id"])
+        self.assertEqual(detail["reports"][0]["subjectId"], "black_knight:7")
+        self.assertEqual(detail["reports"][0]["sourceRefs"], ["900001:7"])
+        self.assertEqual(detail["reports"][0]["factsUsedCount"], 1)
+        self.assertEqual(detail["weatherSnapshots"][0]["roundId"], "900001")
+        self.assertEqual(detail["weatherSnapshots"][0]["hole"], 7)
+        self.assertEqual(detail["weatherSnapshots"][0]["windSpeedMps"], 6.0)
+        self.assertEqual(detail["decisionAudits"][0]["id"], audit["id"])
+        self.assertEqual(detail["decisionAudits"][0]["actualShotRefs"], ["900001:7:0"])
+        self.assertEqual(detail["decisionAudits"][0]["evidenceRefs"], ["900001:7"])
+        self.assertEqual(detail["geometryEvidence"][0]["coverage"], "ready")
+        self.assertNotIn(str(root), serialized)
 
     def test_resolves_local_raw_garmin_shot_shape(self) -> None:
         data = raw_garmin_drilldown_data()

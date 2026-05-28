@@ -155,6 +155,38 @@ function AnnotationRows({ title, rows }: { title: string; rows: AnnotationRecord
   )
 }
 
+function EvidenceBundleRows({
+  title,
+  rows,
+  summaryKeys,
+}: {
+  title: string
+  rows: Array<Record<string, unknown>>
+  summaryKeys: string[]
+}) {
+  if (rows.length === 0) return null
+
+  return (
+    <section className="drilldown-block" aria-label={title}>
+      <h3>{title}</h3>
+      <div className="drilldown-rows">
+        {rows.map((row, index) => {
+          const summary = summaryKeys
+            .map((key) => valueText(row[key]))
+            .filter((value) => value !== '-')
+            .join(' / ')
+          return (
+            <div key={`${title}-${index}`} className="drilldown-row">
+              <span>{summary || valueText(row.id ?? row.sourceRef ?? index + 1)}</span>
+              <b>{valueText(row.confidence ?? row.coverage ?? row.classification ?? row.state ?? row.source)}</b>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function RelatedRefs({
   relatedRefs,
   onSelectRef,
@@ -273,6 +305,10 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCre
       <RelatedRefs relatedRefs={data.relatedRefs} onSelectRef={onSelectRef} />
       <AnnotationRows title="Manual Annotations" rows={data.annotations ?? []} />
       <AnnotationRows title="Applied Corrections" rows={data.corrections ?? []} />
+      <EvidenceBundleRows title="Reports" rows={data.reports ?? []} summaryKeys={['kind', 'subjectId', 'provider']} />
+      <EvidenceBundleRows title="Weather" rows={data.weatherSnapshots ?? []} summaryKeys={['roundId', 'hole', 'windSpeedMps']} />
+      <EvidenceBundleRows title="Decision Audits" rows={data.decisionAudits ?? []} summaryKeys={['decisionId', 'actualOptionId']} />
+      <EvidenceBundleRows title="Geometry Evidence" rows={data.geometryEvidence ?? []} summaryKeys={['globalId', 'localHole', 'sourceRef']} />
       <MissingDataRows rows={data.missingData} />
     </section>
   )

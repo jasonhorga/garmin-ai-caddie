@@ -217,4 +217,40 @@ describe('HistoryDrilldownPanel', () => {
     expect(screen.getAllByText('club_correction')).toHaveLength(2)
     expect(screen.getAllByText('8I -> 7I')).toHaveLength(2)
   })
+
+  it('renders report weather decision and geometry evidence bundles', () => {
+    render(
+      <HistoryDrilldownPanel
+        state={{
+          status: 'ready',
+          data: {
+            schema: 'ai-caddie-history-drilldown-v1',
+            ref: '900001:7',
+            refType: 'hole',
+            found: true,
+            title: 'Black Knight H7',
+            round: { id: '900001', score: 77 },
+            hole: { number: 7, par: 4, strokes: 6 },
+            shot: null,
+            relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:7'], shotRefs: ['900001:7:0'] },
+            sourceFields: { globalId: 31795, localHole: 7 },
+            missingData: [],
+            reports: [{ kind: 'hole', subjectId: 'black_knight:7', provider: 'static', confidence: 'medium' }],
+            weatherSnapshots: [{ roundId: '900001', hole: 7, windSpeedMps: 6, source: 'manual' }],
+            decisionAudits: [{ decisionId: 'decision-900001-7', actualOptionId: 'attack', classification: 'strategy' }],
+            geometryEvidence: [{ globalId: 31795, localHole: 7, sourceRef: '900001:7', coverage: 'ready' }],
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Reports' })).toBeInTheDocument()
+    expect(screen.getByText('hole / black_knight:7 / static')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Weather' })).toBeInTheDocument()
+    expect(screen.getByText('900001 / 7 / 6')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Decision Audits' })).toBeInTheDocument()
+    expect(screen.getByText('decision-900001-7 / attack')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Geometry Evidence' })).toBeInTheDocument()
+    expect(screen.getByText('31795 / 7 / 900001:7')).toBeInTheDocument()
+  })
 })

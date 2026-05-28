@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ai_caddie.annotations import list_annotations
+from ai_caddie.decision import list_decision_audits
+from ai_caddie.geometry_evidence import geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
+from ai_caddie.reports import list_report_records
+from ai_caddie.weather_context import list_weather_snapshots
 
 
 RefType = Literal["round", "hole", "shot", "unknown"]
@@ -118,6 +122,9 @@ def resolve_history_ref(
     source_ref: str,
     *,
     annotations_root: Path | str | None = None,
+    reports_root: Path | str | None = None,
+    weather_root: Path | str | None = None,
+    decision_audit_root: Path | str | None = None,
 ) -> dict[str, Any]:
     ref = str(source_ref)
     ref_type, parts = _parse_ref(ref)
@@ -125,32 +132,32 @@ def resolve_history_ref(
     shots_by_ref = _shot_aliases(data)
 
     if ref in rounds_by_id:
-        return _attach_annotations(_round_detail(data, rounds_by_id[ref], ref), annotations_root)
+        return _attach_evidence(_round_detail(data, rounds_by_id[ref], ref), annotations_root, reports_root, weather_root, decision_audit_root)
     if ref in shots_by_ref:
         index, shot = shots_by_ref[ref]
         row = rounds_by_id.get(_shot_round_id(shot))
         hole = _find_hole(row, str(shot.get("hole") or "")) if row else None
         if row:
-            return _attach_annotations(_shot_detail(row, hole, shot, index, ref), annotations_root)
+            return _attach_evidence(_shot_detail(row, hole, shot, index, ref), annotations_root, reports_root, weather_root, decision_audit_root)
 
     if ref_type == "round" and parts:
         row = rounds_by_id.get(parts[0])
         if row:
-            return _attach_annotations(_round_detail(data, row, ref), annotations_root)
+            return _attach_evidence(_round_detail(data, row, ref), annotations_root, reports_root, weather_root, decision_audit_root)
     elif ref_type == "hole" and len(parts) == 2:
         row = rounds_by_id.get(parts[0])
         hole = _find_hole(row, parts[1]) if row else None
         if row and hole:
-            return _attach_annotations(_hole_detail(data, row, hole, ref), annotations_root)
+            return _attach_evidence(_hole_detail(data, row, hole, ref), annotations_root, reports_root, weather_root, decision_audit_root)
     elif ref_type == "shot" and len(parts) == 3:
         item = shots_by_ref.get(ref)
         row = rounds_by_id.get(parts[0])
         hole = _find_hole(row, parts[1]) if row else None
         if item and row:
             index, shot = item
-            return _attach_annotations(_shot_detail(row, hole, shot, index, ref), annotations_root)
+            return _attach_evidence(_shot_detail(row, hole, shot, index, ref), annotations_root, reports_root, weather_root, decision_audit_root)
 
-    return _attach_annotations(_missing_detail(ref, ref_type), annotations_root)
+    return _attach_evidence(_missing_detail(ref, ref_type), annotations_root, reports_root, weather_root, decision_audit_root)
 
 
 def _round_summary(row: dict[str, Any]) -> dict[str, Any]:
@@ -343,6 +350,10 @@ def _base_detail(
         "missingData": missing_data or [],
         "annotations": [],
         "corrections": [],
+        "reports": [],
+        "weatherSnapshots": [],
+        "decisionAudits": [],
+        "geometryEvidence": [],
     }
 
 
@@ -392,6 +403,203 @@ def _attach_annotations(detail: dict[str, Any], annotations_root: Path | str | N
     detail["annotations"] = annotations
     detail["corrections"] = [record for record in annotations if record.get("kind") in CORRECTION_KINDS]
     return detail
+
+
+def _attach_evidence(
+    detail: dict[str, Any],
+    annotations_root: Path | str | None,
+    reports_root: Path | str | None,
+    weather_root: Path | str | None,
+    decision_audit_root: Path | str | None,
+) -> dict[str, Any]:
+    detail = _attach_annotations(detail, annotations_root)
+    refs = set(_detail_ref_set(detail))
+    detail["reports"] = _matching_reports(refs, reports_root)
+    detail["weatherSnapshots"] = _matching_weather_snapshots(detail, weather_root)
+    detail["decisionAudits"] = _matching_decision_audits(refs, decision_audit_root)
+    detail["geometryEvidence"] = _geometry_evidence(detail)
+    return detail
+
+
+def _detail_ref_set(detail: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip()
+        if text and text not in refs:
+            refs.append(text)
+
+    add(detail.get("ref"))
+    related = detail.get("relatedRefs") if isinstance(detail.get("relatedRefs"), dict) else {}
+    for key in ("roundRefs", "holeRefs", "shotRefs"):
+        for ref in related.get(key) or []:
+            add(ref)
+    row = detail.get("round") if isinstance(detail.get("round"), dict) else {}
+    add(row.get("id"))
+    shot = detail.get("shot") if isinstance(detail.get("shot"), dict) else {}
+    add(shot.get("ref"))
+    return refs
+
+
+def _record_refs(record: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+
+    def extend(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                text = str(item or "").strip()
+                if text and text not in refs:
+                    refs.append(text)
+
+    extend(record.get("sourceRefs"))
+    extend(record.get("evidenceRefs"))
+    extend(record.get("actualShotRefs"))
+    report = record.get("report") if isinstance(record.get("report"), dict) else {}
+    extend(report.get("sourceRefs"))
+    extend(report.get("evidenceRefs"))
+    for fact in report.get("factsUsed") or []:
+        if isinstance(fact, dict):
+            extend(fact.get("sourceRefs"))
+            extend(fact.get("refs"))
+    return refs
+
+
+def _matching_reports(refs: set[str], reports_root: Path | str | None) -> list[dict[str, Any]]:
+    if not refs:
+        return []
+    rows: list[dict[str, Any]] = []
+    for record in list_report_records(root=reports_root):
+        report = record.get("report") if isinstance(record.get("report"), dict) else {}
+        subject_id = str(record.get("subjectId") or "")
+        record_refs = set(_record_refs(record))
+        if subject_id not in refs and not record_refs.intersection(refs):
+            continue
+        unsupported = report.get("unsupportedClaims") if isinstance(report.get("unsupportedClaims"), list) else []
+        facts = report.get("factsUsed") if isinstance(report.get("factsUsed"), list) else []
+        missing = report.get("missingData") if isinstance(report.get("missingData"), list) else []
+        rows.append(
+            {
+                "id": record.get("id"),
+                "storedAt": record.get("storedAt"),
+                "kind": record.get("kind"),
+                "subjectId": subject_id,
+                "provider": report.get("provider"),
+                "model": report.get("model"),
+                "confidence": report.get("confidence"),
+                "sourceRefs": sorted(record_refs),
+                "factsUsedCount": len(facts),
+                "missingDataCount": len(missing),
+                "unsupportedClaimCount": len(unsupported),
+            }
+        )
+    return rows
+
+
+def _matching_weather_snapshots(detail: dict[str, Any], weather_root: Path | str | None) -> list[dict[str, Any]]:
+    round_id = None
+    hole_number = None
+    round_row = detail.get("round") if isinstance(detail.get("round"), dict) else {}
+    hole_row = detail.get("hole") if isinstance(detail.get("hole"), dict) else {}
+    if round_row.get("id"):
+        round_id = str(round_row["id"])
+    if hole_row.get("number") is not None:
+        try:
+            hole_number = int(hole_row["number"])
+        except (TypeError, ValueError):
+            hole_number = None
+    rows: list[dict[str, Any]] = []
+    for snapshot in list_weather_snapshots(root=weather_root):
+        if round_id and str(snapshot.get("roundId") or "") != round_id:
+            continue
+        if detail.get("refType") in {"hole", "shot"} and hole_number is not None and snapshot.get("hole") not in {hole_number, None}:
+            continue
+        rows.append(
+            {
+                "state": snapshot.get("state"),
+                "source": snapshot.get("source"),
+                "roundId": snapshot.get("roundId"),
+                "hole": snapshot.get("hole"),
+                "capturedAt": snapshot.get("capturedAt"),
+                "windSpeedMps": snapshot.get("windSpeedMps"),
+                "windDirectionDeg": snapshot.get("windDirectionDeg"),
+                "temperatureC": snapshot.get("temperatureC"),
+                "precipitationMm": snapshot.get("precipitationMm"),
+                "confidence": snapshot.get("confidence"),
+            }
+        )
+    return rows
+
+
+def _matching_decision_audits(refs: set[str], decision_audit_root: Path | str | None) -> list[dict[str, Any]]:
+    if not refs:
+        return []
+    rows: list[dict[str, Any]] = []
+    for record in list_decision_audits(root=decision_audit_root):
+        record_refs = set(_record_refs(record))
+        source_ref = str(record.get("sourceRef") or "")
+        decision_id = str(record.get("decisionId") or "")
+        if source_ref not in refs and decision_id not in refs and not record_refs.intersection(refs):
+            continue
+        rows.append(
+            {
+                "id": record.get("id"),
+                "storedAt": record.get("storedAt"),
+                "decisionId": record.get("decisionId"),
+                "sourceRef": record.get("sourceRef"),
+                "selectedOptionId": record.get("selectedOptionId"),
+                "actualOptionId": record.get("actualOptionId"),
+                "actualShotRefs": record.get("actualShotRefs") or [],
+                "evidenceRefs": record.get("evidenceRefs") or [],
+                "classification": record.get("classification"),
+            }
+        )
+    return rows
+
+
+def _geometry_evidence(detail: dict[str, Any]) -> list[dict[str, Any]]:
+    geometry_rows: list[dict[str, Any]] = []
+    targets: list[tuple[int, int, str]] = []
+
+    def add_target(global_id: Any, local_hole: Any, source_ref: str) -> None:
+        try:
+            global_id_int = int(global_id)
+            local_hole_int = int(local_hole)
+        except (TypeError, ValueError):
+            return
+        if global_id_int <= 0 or local_hole_int <= 0:
+            return
+        target = (global_id_int, local_hole_int, source_ref)
+        if target not in targets:
+            targets.append(target)
+
+    if detail.get("refType") in {"hole", "shot"}:
+        hole = detail.get("hole") if isinstance(detail.get("hole"), dict) else {}
+        add_target(hole.get("globalId"), hole.get("localHole"), str(detail.get("ref") or ""))
+    elif detail.get("refType") == "round":
+        round_row = detail.get("round") if isinstance(detail.get("round"), dict) else {}
+        for ref in (detail.get("relatedRefs") or {}).get("holeRefs") or []:
+            try:
+                hole_number = int(str(ref).split(":")[1])
+            except (IndexError, ValueError):
+                continue
+            target = _hole_geometry_target(round_row, hole_number)
+            add_target(target.get("globalId"), target.get("localHole"), str(ref))
+
+    for global_id, local_hole, source_ref in targets[:18]:
+        coverage = geometry_coverage_for_hole(global_id, local_hole)
+        geometry_rows.append(
+            {
+                "sourceRef": source_ref,
+                "globalId": global_id,
+                "localHole": local_hole,
+                "coverage": coverage.get("coverage"),
+                "hasHazards": coverage.get("hasHazards"),
+                "hasMeshes": coverage.get("hasMeshes"),
+                "evidence": coverage.get("evidence") or [],
+                "missingData": coverage.get("missingData") or [],
+            }
+        )
+    return geometry_rows
 
 
 def _find_hole(row: dict[str, Any] | None, hole_number: str) -> dict[str, Any] | None:

@@ -501,6 +501,10 @@ export interface HistoryDrilldownResponse {
   missingData: Array<Record<string, unknown>>
   annotations?: AnnotationRecord[]
   corrections?: AnnotationRecord[]
+  reports?: Array<Record<string, unknown>>
+  weatherSnapshots?: Array<Record<string, unknown>>
+  decisionAudits?: Array<Record<string, unknown>>
+  geometryEvidence?: Array<Record<string, unknown>>
 }
 
 export type ReportKind = 'round' | 'trend' | 'course' | 'hole' | 'club'
