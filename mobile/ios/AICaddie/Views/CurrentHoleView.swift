@@ -226,6 +226,7 @@ public struct CurrentHoleView: View {
                 lie: selectedLie,
                 coordinate: currentCoordinate,
                 targetCoordinate: targetCoordinate,
+                targetKind: targetCoordinate == nil ? nil : "pin",
                 horizontalAccuracyM: currentHorizontalAccuracyM,
                 strategyMode: selectedStrategyMode,
                 visionFindings: visionFindings

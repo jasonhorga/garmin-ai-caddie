@@ -1718,6 +1718,7 @@ class MobileContractTests(unittest.TestCase):
             '"lie"',
             '"currentLocation"',
             '"targetLocation"',
+            '"kind"',
             '"strategyMode"',
             '"latitude"',
             '"longitude"',
@@ -1726,6 +1727,8 @@ class MobileContractTests(unittest.TestCase):
         ]:
             self.assertIn(field, builder)
         self.assertIn("targetCoordinate: CLLocationCoordinate2D?", builder)
+        self.assertIn("targetKind: String?", builder)
+        self.assertIn('targetLocation["kind"] = .string(targetKind)', builder)
         self.assertIn("strategyMode: String?", builder)
 
     def test_ios_vision_findings_feed_live_caddie_request_context(self) -> None:
@@ -1894,6 +1897,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("lie: selectedLie", current_hole)
         self.assertIn("coordinate: currentCoordinate", current_hole)
         self.assertIn("targetCoordinate: targetCoordinate", current_hole)
+        self.assertIn('targetKind: targetCoordinate == nil ? nil : "pin"', current_hole)
         self.assertIn("@State private var caddieDecision: CaddieDecisionResponse?", current_hole)
         self.assertIn("isLoadingCaddieDecision", current_hole)
         self.assertIn("caddieErrorMessage", current_hole)
