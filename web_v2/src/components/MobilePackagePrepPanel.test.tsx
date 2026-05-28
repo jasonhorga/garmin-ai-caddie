@@ -60,7 +60,64 @@ const packageFixture: LiveRoundPackageResponse = {
       sourceRefs: ['live-black-knight:1', 'live-black-knight:2'],
     },
   ],
-  caddieContextSeeds: [{ hole: 1, sourceRef: 'live-black-knight:1', missingData: [{ label: 'current_location' }] }],
+  caddieContextSeeds: [
+    {
+      hole: 1,
+      sourceRef: 'live-black-knight:1',
+      selectedOfflineOptionId: 'stock',
+      offlineOptions: [
+        {
+          id: 'safe',
+          label: 'Safe',
+          clubName: '9I',
+          carryM: 132,
+          p10M: 120,
+          p90M: 140,
+          sampleSize: 24,
+          confidence: 'high',
+          coverage: { ready: 24, total: 24, pct: 100 },
+          riskScore: 1,
+          source: 'offline_package_seed',
+          sourceRefs: ['live-black-knight:1'],
+          sampleRefs: ['live-black-knight:1:2'],
+          missingData: [],
+        },
+        {
+          id: 'stock',
+          label: 'Stock',
+          clubName: '8I',
+          carryM: 144,
+          p10M: 132,
+          p90M: 153,
+          sampleSize: 24,
+          confidence: 'high',
+          coverage: { ready: 24, total: 24, pct: 100 },
+          riskScore: 3,
+          source: 'offline_package_seed',
+          sourceRefs: ['live-black-knight:1'],
+          sampleRefs: ['live-black-knight:1:1'],
+          missingData: [],
+        },
+        {
+          id: 'attack',
+          label: 'Attack',
+          clubName: '7I',
+          carryM: 156,
+          p10M: 142,
+          p90M: 168,
+          sampleSize: 4,
+          confidence: 'medium',
+          coverage: { ready: 4, total: 10, pct: 40 },
+          riskScore: 5,
+          source: 'offline_package_seed',
+          sourceRefs: ['live-black-knight:1'],
+          sampleRefs: ['live-black-knight:1:3'],
+          missingData: [{ label: 'club_profile_sample' }],
+        },
+      ],
+      missingData: [{ label: 'current_location' }],
+    },
+  ],
   weatherSnapshot: {
     schema: 'ai-caddie-weather-snapshot-v1',
     state: 'missing',
@@ -223,5 +280,14 @@ describe('MobilePackagePrepPanel', () => {
     expect(within(readiness).getByText('12/18')).toBeInTheDocument()
     expect(within(readiness).getByText('2/18')).toBeInTheDocument()
     expect(within(readiness).getAllByText('degraded')[0]).toHaveClass('package-state-degraded')
+    const caddieSeeds = within(panel).getByLabelText('Offline caddie seed options')
+    expect(within(caddieSeeds).getByText('H1 Stock')).toBeInTheDocument()
+    expect(within(caddieSeeds).getByText('selected')).toHaveClass('package-state-ready')
+    expect(within(caddieSeeds).getByText('8I / 144m')).toBeInTheDocument()
+    expect(within(caddieSeeds).getAllByText('high confidence')).toHaveLength(2)
+    expect(within(caddieSeeds).getAllByText('coverage 24/24')).toHaveLength(2)
+    expect(within(caddieSeeds).getAllByText('src live-black-knight:1')).toHaveLength(3)
+    expect(within(caddieSeeds).getAllByText('sample refs 1')).toHaveLength(3)
+    expect(within(caddieSeeds).getByText('missing club_profile_sample')).toBeInTheDocument()
   })
 })

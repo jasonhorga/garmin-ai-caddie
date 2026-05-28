@@ -44,6 +44,14 @@ function compactValue(value: unknown) {
   return null
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function asRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.map(asRecord).filter((row) => Object.keys(row).length) : []
+}
+
 function missingLabel(row: Record<string, unknown>) {
   return compactValue(row.label) ?? compactValue(row.key) ?? 'missing'
 }
@@ -87,6 +95,53 @@ function weatherCoverageText(data: LiveRoundPackageResponse) {
 
 function readinessTitle(label: string) {
   return label.replace(/_/g, ' ')
+}
+
+function optionCoverageText(option: Record<string, unknown>) {
+  const coverage = asRecord(option.coverage)
+  const ready = compactValue(coverage.ready)
+  const total = compactValue(coverage.total)
+  return ready && total ? `coverage ${ready}/${total}` : null
+}
+
+function optionMissingText(option: Record<string, unknown>) {
+  const rows = asRecordArray(option.missingData)
+  const labels = rows.map(missingLabel).filter(Boolean)
+  return labels.length ? `missing ${labels.slice(0, 2).join(', ')}` : null
+}
+
+function offlineSeedOptionRows(data: LiveRoundPackageResponse) {
+  return asRecordArray(data.caddieContextSeeds)
+    .flatMap((seed) => {
+      const hole = compactValue(seed.hole) ?? '-'
+      const selectedId = compactValue(seed.selectedOfflineOptionId)
+      const sourceRef = compactValue(seed.sourceRef)
+      return asRecordArray(seed.offlineOptions).map((option) => {
+        const optionId = compactValue(option.id) ?? compactValue(option.optionId) ?? ''
+        const label = compactValue(option.label) ?? (optionId || 'Option')
+        const club = compactValue(option.clubName) ?? '-'
+        const carry = compactValue(option.carryM)
+        const confidence = compactValue(option.confidence)
+        const sampleSize = compactValue(option.sampleSize)
+        const sourceRefs = Array.isArray(option.sourceRefs) ? option.sourceRefs.map(compactValue).filter(Boolean) : []
+        const sampleRefs = Array.isArray(option.sampleRefs) ? option.sampleRefs.map(compactValue).filter(Boolean) : []
+        return {
+          key: `${hole}-${optionId || label}`,
+          hole,
+          label,
+          club,
+          carry,
+          confidence,
+          sampleSize,
+          coverage: optionCoverageText(option),
+          sourceRef: sourceRefs[0] ?? sourceRef,
+          sampleRefCount: sampleRefs.length,
+          missing: optionMissingText(option),
+          selected: selectedId ? selectedId === optionId : false,
+        }
+      })
+    })
+    .slice(0, 12)
 }
 
 export function MobilePackagePrepPanel({
@@ -275,6 +330,7 @@ export function MobilePackagePrepPanel({
 function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
   const missingRows = data.missingData ?? []
   const readinessChecks = data.readinessChecks ?? []
+  const seedOptions = offlineSeedOptionRows(data)
   return (
     <div className="mobile-package-body">
       <div className="package-summary-grid" aria-label="Package summary">
@@ -314,6 +370,24 @@ function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
               <span className={`semantic-chip package-state-${row.state}`}>{row.state}</span>
               <span>{row.ready}/{row.total}</span>
               <span>{row.reason}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {seedOptions.length ? (
+        <div className="package-caddie-list" aria-label="Offline caddie seed options">
+          {seedOptions.map((row) => (
+            <div className="report-row" key={row.key}>
+              <strong>H{row.hole} {row.label}</strong>
+              {row.selected ? <span className="semantic-chip package-state-ready">selected</span> : null}
+              <span>{row.club}{row.carry ? ` / ${row.carry}m` : ''}</span>
+              {row.confidence ? <span>{row.confidence} confidence</span> : null}
+              {row.sampleSize ? <span>{row.sampleSize} samples</span> : null}
+              {row.coverage ? <span>{row.coverage}</span> : null}
+              {row.sourceRef ? <span>src {row.sourceRef}</span> : null}
+              {row.sampleRefCount ? <span>sample refs {row.sampleRefCount}</span> : null}
+              {row.missing ? <span>{row.missing}</span> : null}
             </div>
           ))}
         </div>

@@ -2122,6 +2122,7 @@ button.round-detail-cell:hover {
 }
 
 .package-readiness-list,
+.package-caddie-list,
 .package-missing-list {
   display: grid;
   gap: 6px;
