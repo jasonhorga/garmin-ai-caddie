@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 public struct CaddiePlanOption: Identifiable, Equatable {
@@ -11,6 +12,9 @@ public struct CaddiePlanOption: Identifiable, Equatable {
     public let sampleSize: Int?
     public let confidence: String?
     public let coverageText: String?
+    public let expectedStrokes: Double?
+    public let expectedStrokesDelta: Double?
+    public let scoreImpactModel: String?
     public let sourceRefs: [String]
     public let missingDataLabels: [String]
 
@@ -31,6 +35,23 @@ public struct CaddiePlanOption: Identifiable, Equatable {
         return parts.isEmpty ? "offline evidence unavailable" : parts.joined(separator: " / ")
     }
 
+    public var scoreImpactText: String? {
+        guard expectedStrokes != nil || expectedStrokesDelta != nil else {
+            return nil
+        }
+        var parts: [String] = []
+        if let expectedStrokes {
+            parts.append(String(format: "exp %.2f", expectedStrokes))
+        }
+        if let expectedStrokesDelta {
+            parts.append(String(format: "%+.2f strokes", expectedStrokesDelta))
+        }
+        if let scoreImpactModel {
+            parts.append(scoreImpactModel)
+        }
+        return parts.joined(separator: " / ")
+    }
+
     public static let defaultOptions = [
         CaddiePlanOption(
             id: "offline-unavailable",
@@ -43,6 +64,9 @@ public struct CaddiePlanOption: Identifiable, Equatable {
             sampleSize: nil,
             confidence: "low",
             coverageText: nil,
+            expectedStrokes: nil,
+            expectedStrokesDelta: nil,
+            scoreImpactModel: nil,
             sourceRefs: [],
             missingDataLabels: ["offline_options"]
         )
@@ -61,7 +85,12 @@ public struct CaddiePlanOption: Identifiable, Equatable {
                 sampleSize: integer(option["sampleSize"]) ?? integer(recommendedClubValue(option["clubRecommendation"], key: "sampleSize")),
                 confidence: string(option["confidence"]) ?? string(recommendedClubValue(option["clubRecommendation"], key: "confidence")),
                 coverageText: coverageText(option["coverage"]) ?? coverageText(recommendedClubValue(option["clubRecommendation"], key: "coverage")),
-                sourceRefs: stringArray(option["sourceRefs"]) + stringArray(recommendedClubValue(option["clubRecommendation"], key: "sourceRefs")),
+                expectedStrokes: number(scoreImpactValue(option["scoreImpact"], key: "expectedStrokes")),
+                expectedStrokesDelta: number(scoreImpactValue(option["scoreImpact"], key: "expectedStrokesDelta")),
+                scoreImpactModel: string(scoreImpactValue(option["scoreImpact"], key: "model")),
+                sourceRefs: stringArray(option["sourceRefs"])
+                    + stringArray(recommendedClubValue(option["clubRecommendation"], key: "sourceRefs"))
+                    + scoreImpactSourceRefs(option["scoreImpact"]),
                 missingDataLabels: missingDataLabels(option["missingData"])
             )
         }
@@ -84,6 +113,9 @@ public struct CaddiePlanOption: Identifiable, Equatable {
                 sampleSize: option.sampleSize,
                 confidence: option.confidence,
                 coverageText: option.coverage.map { "\($0.ready)/\($0.total)" },
+                expectedStrokes: nil,
+                expectedStrokesDelta: nil,
+                scoreImpactModel: nil,
                 sourceRefs: option.sourceRefs + (option.sampleRefs ?? []),
                 missingDataLabels: option.missingData?.compactMap { string($0["label"]) } ?? []
             )
@@ -152,6 +184,28 @@ public struct CaddiePlanOption: Identifiable, Equatable {
         recommendedClub(value)?[key]
     }
 
+    private static func scoreImpactValue(_ value: JSONValue?, key: String) -> JSONValue? {
+        guard case .object(let impact) = value else {
+            return nil
+        }
+        return impact[key]
+    }
+
+    private static func scoreImpactSourceRefs(_ value: JSONValue?) -> [String] {
+        guard case .object(let impact) = value else {
+            return []
+        }
+        var refs = stringArray(impact["sourceRefs"])
+        if case .object(let history) = impact["historyAdjustment"] {
+            refs += stringArray(history["sourceRefs"])
+        }
+        if case .object(let surface) = impact["clubSurfaceRisk"] {
+            refs += stringArray(surface["sourceRefs"])
+        }
+        var seen = Set<String>()
+        return refs.filter { seen.insert($0).inserted }
+    }
+
     private static func recommendedClub(_ value: JSONValue?) -> [String: JSONValue]? {
         guard case .object(let recommendation) = value,
               case .array(let clubs) = recommendation["clubs"],
@@ -204,6 +258,11 @@ public struct CaddiePlanView: View {
                         Text(option.qualityText)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        if let scoreImpactText = option.scoreImpactText {
+                            Text(scoreImpactText)
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(AICaddieDesignTokens.confidenceColor(option.confidence ?? "low"))
+                        }
                         if !option.sourceRefs.isEmpty {
                             Text("src \(option.sourceRefs.prefix(2).joined(separator: \", \"))")
                                 .font(.caption2.monospaced())
