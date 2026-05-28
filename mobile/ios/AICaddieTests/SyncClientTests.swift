@@ -123,6 +123,111 @@ final class SyncClientTests: XCTestCase {
 
         XCTAssertEqual(package.roundId, "live-round-1")
     }
+
+    func testFetchEventReplayUsesClientCursorQuery() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = """
+        {
+          "schema": "ai-caddie-mobile-event-replay-v1",
+          "roundId": "live-round-1",
+          "clientId": "ios-test",
+          "afterSequence": 1,
+          "latestServerSequence": 2,
+          "nextCursor": 2,
+          "eventCount": 1,
+          "hasMore": false,
+          "events": [
+            {
+              "serverSequence": 2,
+              "idempotencyKey": "batch-2",
+              "event": {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": "club-1",
+                "roundId": "live-round-1",
+                "timestamp": "2026-05-25T00:00:00Z",
+                "hole": 1,
+                "kind": "club",
+                "payload": {"clubName": "8I"}
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v2/mobile/rounds/live-round-1/events/replay")
+            let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(queryItems?.first { $0.name == "client_id" }?.value, "ios-test")
+            XCTAssertEqual(queryItems?.first { $0.name == "after_sequence" }?.value, "1")
+            XCTAssertEqual(queryItems?.first { $0.name == "limit" }?.value, "25")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            adminToken: "admin-secret",
+            clientId: "ios-test",
+            session: session
+        )
+
+        let replay = try await client.fetchEventReplay(roundId: "live-round-1", afterSequence: 1, limit: 25)
+
+        XCTAssertEqual(replay.clientId, "ios-test")
+        XCTAssertEqual(replay.events.first?.serverSequence, 2)
+        XCTAssertEqual(replay.events.first?.event.eventId, "club-1")
+    }
+
+    func testAckEventCursorPostsClientSequence() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = """
+        {
+          "schema": "ai-caddie-mobile-event-ack-v1",
+          "roundId": "live-round-1",
+          "clientId": "ios-test",
+          "ackedServerSequence": 2,
+          "latestServerSequence": 2,
+          "pendingEventCount": 0
+        }
+        """.data(using: .utf8)!
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v2/mobile/rounds/live-round-1/events/ack")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
+            let body = try XCTUnwrap(request.httpBody)
+            let decoded = try JSONDecoder().decode(EventCursorAckRequest.self, from: body)
+            XCTAssertEqual(decoded.clientId, "ios-test")
+            XCTAssertEqual(decoded.serverSequence, 2)
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            adminToken: "admin-secret",
+            clientId: "ios-test",
+            session: session
+        )
+
+        let ack = try await client.ackEventCursor(roundId: "live-round-1", serverSequence: 2)
+
+        XCTAssertEqual(ack.ackedServerSequence, 2)
+        XCTAssertEqual(ack.pendingEventCount, 0)
+    }
 }
 
 private final class CapturingURLProtocol: URLProtocol {

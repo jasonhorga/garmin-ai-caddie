@@ -664,6 +664,138 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(log_text.count("event-1"), 1)
         self.assertEqual(log_text.count("event-2"), 1)
 
+    def test_mobile_event_replay_ack_and_package_cursor_track_client_progress(self) -> None:
+        client = TestClient(app)
+        base_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+        }
+        score_event = {
+            **base_event,
+            "eventId": "score-1",
+            "kind": "score",
+            "payload": {"strokes": 4},
+        }
+        club_event = {
+            **base_event,
+            "eventId": "club-1",
+            "kind": "club",
+            "payload": {"clubName": "8I"},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                first = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "client-cursor-1"},
+                    json={"roundId": "live-round-1", "events": [score_event]},
+                )
+                second = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "client-cursor-2"},
+                    json={"roundId": "live-round-1", "events": [club_event]},
+                )
+                package_before_ack = client.get(
+                    "/api/v2/mobile/rounds/live-round-1/package",
+                    params={"client_id": "ios-phone"},
+                )
+                replay_before_ack = client.get(
+                    "/api/v2/mobile/rounds/live-round-1/events/replay",
+                    params={"client_id": "ios-phone"},
+                )
+                ack = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events/ack",
+                    json={"clientId": "ios-phone", "serverSequence": 1},
+                )
+                package_after_ack = client.get(
+                    "/api/v2/mobile/rounds/live-round-1/package",
+                    params={"client_id": "ios-phone"},
+                )
+                replay_after_ack = client.get(
+                    "/api/v2/mobile/rounds/live-round-1/events/replay",
+                    params={"client_id": "ios-phone"},
+                )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()["serverSequence"], 1)
+        self.assertEqual(second.json()["serverSequence"], 2)
+        self.assertEqual(package_before_ack.status_code, 200)
+        self.assertEqual(
+            package_before_ack.json()["eventCursor"],
+            {
+                "serverSequence": 2,
+                "pendingEventCount": 2,
+                "clientId": "ios-phone",
+                "lastAckedServerSequence": 0,
+                "replayEndpoint": "/api/v2/mobile/rounds/live-round-1/events/replay",
+            },
+        )
+        self.assertEqual(replay_before_ack.status_code, 200)
+        self.assertEqual(replay_before_ack.json()["schema"], "ai-caddie-mobile-event-replay-v1")
+        self.assertEqual(replay_before_ack.json()["eventCount"], 2)
+        self.assertEqual([row["serverSequence"] for row in replay_before_ack.json()["events"]], [1, 2])
+        self.assertEqual([row["event"]["eventId"] for row in replay_before_ack.json()["events"]], ["score-1", "club-1"])
+        self.assertFalse(replay_before_ack.json()["hasMore"])
+
+        self.assertEqual(ack.status_code, 200)
+        self.assertEqual(ack.json()["schema"], "ai-caddie-mobile-event-ack-v1")
+        self.assertEqual(ack.json()["ackedServerSequence"], 1)
+        self.assertEqual(ack.json()["latestServerSequence"], 2)
+        self.assertEqual(ack.json()["pendingEventCount"], 1)
+
+        self.assertEqual(package_after_ack.status_code, 200)
+        self.assertEqual(package_after_ack.json()["eventCursor"]["lastAckedServerSequence"], 1)
+        self.assertEqual(package_after_ack.json()["eventCursor"]["pendingEventCount"], 1)
+        self.assertEqual(replay_after_ack.status_code, 200)
+        self.assertEqual(replay_after_ack.json()["afterSequence"], 1)
+        self.assertEqual(replay_after_ack.json()["eventCount"], 1)
+        self.assertEqual(replay_after_ack.json()["events"][0]["event"]["eventId"], "club-1")
+
+    def test_mobile_event_replay_supports_after_sequence_and_limit(self) -> None:
+        client = TestClient(app)
+        events = [
+            {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": f"score-{index}",
+                "roundId": "live-round-1",
+                "timestamp": "2026-05-25T00:00:00Z",
+                "hole": index,
+                "kind": "score",
+                "payload": {"strokes": 4},
+            }
+            for index in range(1, 4)
+        ]
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                for event in events:
+                    client.post(
+                        "/api/v2/mobile/rounds/live-round-1/events",
+                        headers={"Idempotency-Key": f"batch-{event['eventId']}"},
+                        json={"roundId": "live-round-1", "events": [event]},
+                    )
+                response = client.get(
+                    "/api/v2/mobile/rounds/live-round-1/events/replay",
+                    params={"after_sequence": 1, "limit": 1},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["afterSequence"], 1)
+        self.assertEqual(payload["latestServerSequence"], 3)
+        self.assertEqual(payload["nextCursor"], 2)
+        self.assertEqual(payload["eventCount"], 1)
+        self.assertTrue(payload["hasMore"])
+        self.assertEqual(payload["events"][0]["event"]["eventId"], "score-2")
+
     def test_mobile_event_batch_accepts_caddie_audit_context_on_club_events(self) -> None:
         client = TestClient(app)
         event = {

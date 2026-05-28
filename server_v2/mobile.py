@@ -5,10 +5,12 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from ai_caddie.mobile_live import (
+    ack_event_cursor,
     append_event_batch,
     build_live_round_package,
     build_live_round_package_for_course,
     build_mobile_course_options,
+    replay_event_log,
 )
 from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.weather_context import WeatherTransport
@@ -17,6 +19,9 @@ from .data_source import load_history_data_for_mode
 from .models import (
     LiveRoundEventBatchRequest,
     LiveRoundEventBatchResponse,
+    LiveRoundEventAckRequest,
+    LiveRoundEventAckResponse,
+    LiveRoundEventReplayResponse,
     LiveRoundPackageResponse,
     MobileCourseOptionsResponse,
     MobileReconciliationApplyRequest,
@@ -31,7 +36,12 @@ DECISION_AUDIT_ROOT = Path(".")
 OPEN_METEO_TRANSPORT: WeatherTransport | None = None
 
 
-def build_mobile_round_package_response(round_id: str, *, captured_at: str | None = None) -> LiveRoundPackageResponse:
+def build_mobile_round_package_response(
+    round_id: str,
+    *,
+    captured_at: str | None = None,
+    client_id: str | None = None,
+) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode()
     return LiveRoundPackageResponse(
         **build_live_round_package(
@@ -42,6 +52,7 @@ def build_mobile_round_package_response(round_id: str, *, captured_at: str | Non
             annotations_root=ANNOTATION_ROOT,
             captured_at=captured_at,
             weather_transport=OPEN_METEO_TRANSPORT,
+            client_id=client_id,
         )
     )
 
@@ -52,6 +63,7 @@ def build_mobile_course_package_response(
     round_id: str | None = None,
     tee_box: str | None = None,
     captured_at: str | None = None,
+    client_id: str | None = None,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode()
     return LiveRoundPackageResponse(
@@ -65,6 +77,7 @@ def build_mobile_course_package_response(
             annotations_root=ANNOTATION_ROOT,
             captured_at=captured_at,
             weather_transport=OPEN_METEO_TRANSPORT,
+            client_id=client_id,
         )
     )
 
@@ -92,6 +105,37 @@ def append_mobile_events_response(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return LiveRoundEventBatchResponse(**result)
+
+
+def replay_mobile_events_response(
+    round_id: str,
+    *,
+    client_id: str | None = None,
+    after_sequence: int | None = None,
+    limit: int = 100,
+) -> LiveRoundEventReplayResponse:
+    return LiveRoundEventReplayResponse(
+        **replay_event_log(
+            round_id,
+            client_id=client_id,
+            after_sequence=after_sequence,
+            limit=limit,
+            root=MOBILE_ROOT,
+        )
+    )
+
+
+def ack_mobile_events_response(round_id: str, request: LiveRoundEventAckRequest) -> LiveRoundEventAckResponse:
+    try:
+        result = ack_event_cursor(
+            round_id,
+            client_id=request.clientId,
+            server_sequence=request.serverSequence,
+            root=MOBILE_ROOT,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return LiveRoundEventAckResponse(**result)
 
 
 def reconcile_mobile_round_response(round_id: str) -> MobileReconciliationResponse:

@@ -130,10 +130,13 @@ class ServerV2ReadinessTests(unittest.TestCase):
             mobile_events["endpoints"],
             {
                 "batch": "/api/v2/mobile/rounds/{round_id}/events",
+                "replay": "/api/v2/mobile/rounds/{round_id}/events/replay",
+                "ack": "/api/v2/mobile/rounds/{round_id}/events/ack",
                 "reconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
                 "reconciliationApply": "/api/v2/mobile/rounds/{round_id}/reconciliation/apply",
             },
         )
+        self.assertTrue(mobile_events["clientAwareCursor"])
 
         media_context = checks["media_context"]["evidence"]
         self.assertEqual(media_context["uploadRoot"], "data/media/uploads")

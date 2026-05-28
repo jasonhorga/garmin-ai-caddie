@@ -41,11 +41,13 @@ from .media import (
 )
 from .mobile import (
     append_mobile_events_response,
+    ack_mobile_events_response,
     apply_mobile_round_reconciliation_response,
     build_mobile_course_package_response,
     build_mobile_course_options_response,
     build_mobile_round_package_response,
     reconcile_mobile_round_response,
+    replay_mobile_events_response,
 )
 from .weather import load_weather_snapshot_response
 from .models import (
@@ -72,6 +74,9 @@ from .models import (
     HistoryStatsResponse,
     LiveRoundEventBatchRequest,
     LiveRoundEventBatchResponse,
+    LiveRoundEventAckRequest,
+    LiveRoundEventAckResponse,
+    LiveRoundEventReplayResponse,
     LiveRoundPackageResponse,
     MediaCreateRequest,
     MediaCreateResponse,
@@ -194,6 +199,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
             or path == "/api/v2/mobile/courses/options"
             or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/replay"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
         )
     if normalized_method != "POST":
@@ -214,6 +220,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         ("/api/v2/media/", "/redact"),
         ("/api/v2/media/findings/", "/confirmation"),
         ("/api/v2/mobile/rounds/", "/events"),
+        ("/api/v2/mobile/rounds/", "/events/ack"),
         ("/api/v2/mobile/rounds/", "/reconciliation/apply"),
         ("/api/v2/reports/round/", "/generate"),
         ("/api/v2/reports/trend/", "/generate"),
@@ -267,6 +274,8 @@ def service_index() -> dict[str, object]:
             "mobileCourseOptions": "/api/v2/mobile/courses/options",
             "mobileCoursePackage": "/api/v2/mobile/courses/{global_id}/package",
             "mobileRoundEvents": "/api/v2/mobile/rounds/{round_id}/events",
+            "mobileRoundEventsReplay": "/api/v2/mobile/rounds/{round_id}/events/replay",
+            "mobileRoundEventsAck": "/api/v2/mobile/rounds/{round_id}/events/ack",
             "mobileRoundReconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
             "mobileRoundReconciliationApply": "/api/v2/mobile/rounds/{round_id}/reconciliation/apply",
             "weatherSnapshot": "/api/v2/weather/snapshot",
@@ -517,8 +526,12 @@ def confirm_vision_finding_route(
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
-def mobile_round_package(round_id: str, captured_at: str | None = None) -> LiveRoundPackageResponse:
-    return build_mobile_round_package_response(round_id, captured_at=captured_at)
+def mobile_round_package(
+    round_id: str,
+    captured_at: str | None = None,
+    client_id: str | None = None,
+) -> LiveRoundPackageResponse:
+    return build_mobile_round_package_response(round_id, captured_at=captured_at, client_id=client_id)
 
 
 @app.get("/api/v2/mobile/courses/options", response_model=MobileCourseOptionsResponse)
@@ -532,8 +545,15 @@ def mobile_course_package(
     round_id: str | None = None,
     tee_box: str | None = None,
     captured_at: str | None = None,
+    client_id: str | None = None,
 ) -> LiveRoundPackageResponse:
-    return build_mobile_course_package_response(global_id, round_id=round_id, tee_box=tee_box, captured_at=captured_at)
+    return build_mobile_course_package_response(
+        global_id,
+        round_id=round_id,
+        tee_box=tee_box,
+        captured_at=captured_at,
+        client_id=client_id,
+    )
 
 
 @app.post("/api/v2/mobile/rounds/{round_id}/events", response_model=LiveRoundEventBatchResponse)
@@ -545,6 +565,31 @@ def mobile_round_events(
 ) -> LiveRoundEventBatchResponse:
     require_admin_token(x_ai_caddie_admin_token)
     return append_mobile_events_response(round_id, request, idempotency_key=idempotency_key)
+
+
+@app.get("/api/v2/mobile/rounds/{round_id}/events/replay", response_model=LiveRoundEventReplayResponse)
+def mobile_round_events_replay(
+    round_id: str,
+    client_id: str | None = None,
+    after_sequence: int | None = None,
+    limit: int = 100,
+) -> LiveRoundEventReplayResponse:
+    return replay_mobile_events_response(
+        round_id,
+        client_id=client_id,
+        after_sequence=after_sequence,
+        limit=limit,
+    )
+
+
+@app.post("/api/v2/mobile/rounds/{round_id}/events/ack", response_model=LiveRoundEventAckResponse)
+def mobile_round_events_ack(
+    round_id: str,
+    request: LiveRoundEventAckRequest,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> LiveRoundEventAckResponse:
+    require_admin_token(x_ai_caddie_admin_token)
+    return ack_mobile_events_response(round_id, request)
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/reconciliation", response_model=MobileReconciliationResponse)

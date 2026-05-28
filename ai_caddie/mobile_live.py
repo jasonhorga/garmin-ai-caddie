@@ -22,6 +22,7 @@ from ai_caddie.weather_context import (
 
 
 EVENT_LOG = Path("data") / "mobile_events" / "events.jsonl"
+EVENT_ACKS = Path("data") / "mobile_events" / "client_acks.json"
 OFFLINE_STALE_AFTER_HOURS = 6
 OFFLINE_EXPIRES_AFTER_HOURS = 24
 LIVE_SHOT_TYPES = ["tee", "approach", "recovery"]
@@ -36,19 +37,27 @@ def _format_time(value: datetime) -> str:
     return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _event_cursor(round_id: str, *, root: Path | str | None = None) -> dict[str, int]:
-    path = mobile_event_log(root)
-    server_sequence = 0
-    if not path.exists():
-        return {"serverSequence": 0, "pendingEventCount": 0}
-    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        if str(row.get("roundId") or "") != str(round_id):
-            continue
-        server_sequence = int(row.get("serverSequence") or index)
-    return {"serverSequence": server_sequence, "pendingEventCount": 0}
+def _event_cursor(
+    round_id: str,
+    *,
+    root: Path | str | None = None,
+    client_id: str | None = None,
+) -> dict[str, Any]:
+    latest_sequence = _latest_event_sequence(round_id, root=root)
+    cursor: dict[str, Any] = {"serverSequence": latest_sequence, "pendingEventCount": 0}
+    clean_client_id = _clean_client_id(client_id)
+    if not clean_client_id:
+        return cursor
+    last_acked = _client_ack_sequence(round_id, clean_client_id, root=root)
+    cursor.update(
+        {
+            "clientId": clean_client_id,
+            "lastAckedServerSequence": last_acked,
+            "pendingEventCount": _pending_event_count(round_id, after_sequence=last_acked, root=root),
+            "replayEndpoint": f"/api/v2/mobile/rounds/{round_id}/events/replay",
+        }
+    )
+    return cursor
 
 
 def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[str, Any]) -> dict[str, Any]:
@@ -1182,6 +1191,7 @@ def build_live_round_package(
     requested_course_global_id: int | None = None,
     tee_box: str | None = None,
     weather_transport: WeatherTransport | None = None,
+    client_id: str | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
@@ -1335,7 +1345,7 @@ def build_live_round_package(
                 "expiresAfterHours": OFFLINE_EXPIRES_AFTER_HOURS,
             },
         },
-        "eventCursor": _event_cursor(round_id, root=root),
+        "eventCursor": _event_cursor(round_id, root=root, client_id=client_id),
         "recentHistory": recent_history,
         "cachedCaddieRules": _cached_caddie_rules(),
         "generatedAt": _format_time(prepared_at),
@@ -1381,6 +1391,7 @@ def build_live_round_package_for_course(
     annotations_root: Path | str | None = None,
     captured_at: str | None = None,
     weather_transport: WeatherTransport | None = None,
+    client_id: str | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     selected_round_id = None
@@ -1413,6 +1424,7 @@ def build_live_round_package_for_course(
         preparation_mode="course",
         requested_course_global_id=int(global_id),
         tee_box=tee_box,
+        client_id=client_id,
     )
     if template_round is not None and selected_round_id is None:
         package["sourceCoverage"] = {
@@ -1428,6 +1440,96 @@ def build_live_round_package_for_course(
 
 def mobile_event_log(root: Path | str | None = None) -> Path:
     return Path(root or ".") / EVENT_LOG
+
+
+def mobile_event_ack_store(root: Path | str | None = None) -> Path:
+    return Path(root or ".") / EVENT_ACKS
+
+
+def _clean_client_id(client_id: str | None) -> str | None:
+    text = str(client_id or "").strip()
+    return text or None
+
+
+def _event_log_rows(
+    round_id: str | None = None,
+    *,
+    root: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    path = mobile_event_log(root)
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for fallback_sequence, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if round_id is not None and str(row.get("roundId") or "") != str(round_id):
+            continue
+        if not row.get("serverSequence"):
+            row["serverSequence"] = fallback_sequence
+        rows.append(row)
+    return rows
+
+
+def _latest_event_sequence(round_id: str, *, root: Path | str | None = None) -> int:
+    latest = 0
+    for row in _event_log_rows(round_id, root=root):
+        latest = max(latest, int(row.get("serverSequence") or 0))
+    return latest
+
+
+def _pending_event_count(round_id: str, *, after_sequence: int, root: Path | str | None = None) -> int:
+    return sum(
+        1
+        for row in _event_log_rows(round_id, root=root)
+        if int(row.get("serverSequence") or 0) > after_sequence
+    )
+
+
+def _ack_key(round_id: str, client_id: str) -> str:
+    return f"{round_id}\n{client_id}"
+
+
+def _load_client_acks(root: Path | str | None = None) -> dict[str, dict[str, Any]]:
+    path = mobile_event_ack_store(root)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    raw_rows = payload.get("acks", {})
+    if not isinstance(raw_rows, dict):
+        return {}
+    return {str(key): value for key, value in raw_rows.items() if isinstance(value, dict)}
+
+
+def _write_client_acks(acks: dict[str, dict[str, Any]], root: Path | str | None = None) -> None:
+    path = mobile_event_ack_store(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "ai-caddie-mobile-event-acks-v1",
+                "acks": acks,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _client_ack_sequence(round_id: str, client_id: str, *, root: Path | str | None = None) -> int:
+    row = _load_client_acks(root).get(_ack_key(round_id, client_id), {})
+    try:
+        return max(0, int(row.get("serverSequence") or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _sanitized_live_event(event: dict[str, Any]) -> dict[str, Any]:
@@ -1510,4 +1612,80 @@ def append_event_batch(
         "acceptedEventIds": accepted_event_ids,
         "duplicateEventIds": duplicate_event_ids,
         "serverSequence": server_sequence,
+    }
+
+
+def replay_event_log(
+    round_id: str,
+    *,
+    client_id: str | None = None,
+    after_sequence: int | None = None,
+    limit: int = 100,
+    root: Path | str | None = None,
+) -> dict[str, Any]:
+    clean_client_id = _clean_client_id(client_id)
+    start_sequence = (
+        max(0, int(after_sequence))
+        if after_sequence is not None
+        else (_client_ack_sequence(round_id, clean_client_id, root=root) if clean_client_id else 0)
+    )
+    bounded_limit = max(1, min(int(limit or 100), 500))
+    matching_rows = [
+        row
+        for row in _event_log_rows(round_id, root=root)
+        if int(row.get("serverSequence") or 0) > start_sequence
+    ]
+    selected_rows = matching_rows[:bounded_limit]
+    events: list[dict[str, Any]] = []
+    for row in selected_rows:
+        event = row.get("event") if isinstance(row.get("event"), dict) else {}
+        events.append(
+            {
+                "serverSequence": int(row.get("serverSequence") or 0),
+                "idempotencyKey": str(row.get("idempotencyKey") or ""),
+                "event": event,
+            }
+        )
+    latest_sequence = _latest_event_sequence(round_id, root=root)
+    next_cursor = events[-1]["serverSequence"] if events else start_sequence
+    return {
+        "schema": "ai-caddie-mobile-event-replay-v1",
+        "roundId": str(round_id),
+        "clientId": clean_client_id,
+        "afterSequence": start_sequence,
+        "latestServerSequence": latest_sequence,
+        "nextCursor": next_cursor,
+        "eventCount": len(events),
+        "hasMore": len(matching_rows) > len(selected_rows),
+        "events": events,
+    }
+
+
+def ack_event_cursor(
+    round_id: str,
+    *,
+    client_id: str,
+    server_sequence: int,
+    root: Path | str | None = None,
+) -> dict[str, Any]:
+    clean_client_id = _clean_client_id(client_id)
+    if not clean_client_id:
+        raise ValueError("clientId is required")
+    latest_sequence = _latest_event_sequence(round_id, root=root)
+    acked_sequence = max(0, min(int(server_sequence), latest_sequence))
+    acks = _load_client_acks(root)
+    acks[_ack_key(str(round_id), clean_client_id)] = {
+        "roundId": str(round_id),
+        "clientId": clean_client_id,
+        "serverSequence": acked_sequence,
+        "updatedAt": _format_time(datetime.now(UTC)),
+    }
+    _write_client_acks(acks, root)
+    return {
+        "schema": "ai-caddie-mobile-event-ack-v1",
+        "roundId": str(round_id),
+        "clientId": clean_client_id,
+        "ackedServerSequence": acked_sequence,
+        "latestServerSequence": latest_sequence,
+        "pendingEventCount": _pending_event_count(round_id, after_sequence=acked_sequence, root=root),
     }

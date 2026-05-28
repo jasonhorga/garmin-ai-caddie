@@ -402,10 +402,13 @@ def build_readiness_response() -> dict[str, Any]:
                 "idempotencyHeader": "Idempotency-Key",
                 "endpoints": {
                     "batch": "/api/v2/mobile/rounds/{round_id}/events",
+                    "replay": "/api/v2/mobile/rounds/{round_id}/events/replay",
+                    "ack": "/api/v2/mobile/rounds/{round_id}/events/ack",
                     "reconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
                     "reconciliationApply": "/api/v2/mobile/rounds/{round_id}/reconciliation/apply",
                 },
                 "reconcilesOfflineEvents": True,
+                "clientAwareCursor": True,
                 "preservesMediaEventLinkage": True,
             },
         )

@@ -32,6 +32,8 @@ class ServerV2HealthTests(unittest.TestCase):
         self.assertEqual(response.json()["endpoints"]["mobileRoundPackage"], "/api/v2/mobile/rounds/{round_id}/package")
         self.assertEqual(response.json()["endpoints"]["mobileCourseOptions"], "/api/v2/mobile/courses/options")
         self.assertEqual(response.json()["endpoints"]["mobileRoundEvents"], "/api/v2/mobile/rounds/{round_id}/events")
+        self.assertEqual(response.json()["endpoints"]["mobileRoundEventsReplay"], "/api/v2/mobile/rounds/{round_id}/events/replay")
+        self.assertEqual(response.json()["endpoints"]["mobileRoundEventsAck"], "/api/v2/mobile/rounds/{round_id}/events/ack")
         self.assertEqual(response.json()["endpoints"]["weatherSnapshot"], "/api/v2/weather/snapshot")
         self.assertEqual(response.json()["endpoints"]["syncStatus"], "/api/v2/sync/status")
         self.assertEqual(response.json()["endpoints"]["syncGarmin"], "/api/v2/sync/garmin")

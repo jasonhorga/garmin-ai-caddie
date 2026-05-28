@@ -47,16 +47,50 @@ public struct SyncResult: Codable, Equatable {
     }
 }
 
+public struct EventReplayItem: Codable, Equatable {
+    public let serverSequence: Int
+    public let idempotencyKey: String
+    public let event: LiveRoundEvent
+}
+
+public struct EventReplayResponse: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let clientId: String?
+    public let afterSequence: Int
+    public let latestServerSequence: Int
+    public let nextCursor: Int
+    public let eventCount: Int
+    public let hasMore: Bool
+    public let events: [EventReplayItem]
+}
+
+public struct EventCursorAckRequest: Codable, Equatable {
+    public let clientId: String
+    public let serverSequence: Int
+}
+
+public struct EventCursorAckResponse: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let clientId: String
+    public let ackedServerSequence: Int
+    public let latestServerSequence: Int
+    public let pendingEventCount: Int
+}
+
 public final class SyncClient {
     private let baseURL: URL
     private let adminToken: String?
+    private let clientId: String
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    public init(baseURL: URL, adminToken: String? = nil, session: URLSession = .shared) {
+    public init(baseURL: URL, adminToken: String? = nil, clientId: String = "ios-phone", session: URLSession = .shared) {
         self.baseURL = baseURL
         self.adminToken = adminToken
+        self.clientId = clientId
         self.session = session
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
@@ -70,7 +104,8 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         components.queryItems = [
-            URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt))
+            URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt)),
+            URLQueryItem(name: "client_id", value: clientId),
         ]
         guard let url = components.url else {
             throw URLError(.badURL)
@@ -95,6 +130,7 @@ public final class SyncClient {
             URLQueryItem(name: "round_id", value: roundId),
             URLQueryItem(name: "tee_box", value: teeBox),
             URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt)),
+            URLQueryItem(name: "client_id", value: clientId),
         ]
         guard let url = components.url else {
             throw URLError(.badURL)
@@ -136,6 +172,52 @@ public final class SyncClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response)
         return try decoder.decode(SyncResult.self, from: data)
+    }
+
+    public func fetchEventReplay(
+        roundId: String,
+        afterSequence: Int? = nil,
+        limit: Int = 100
+    ) async throws -> EventReplayResponse {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/mobile/rounds/\(roundId)/events/replay"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        var queryItems = [
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ]
+        if let afterSequence {
+            queryItems.append(URLQueryItem(name: "after_sequence", value: String(afterSequence)))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response)
+        return try decoder.decode(EventReplayResponse.self, from: data)
+    }
+
+    public func ackEventCursor(roundId: String, serverSequence: Int) async throws -> EventCursorAckResponse {
+        let url = endpointURL("/api/v2/mobile/rounds/\(roundId)/events/ack")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        request.httpBody = try encoder.encode(EventCursorAckRequest(clientId: clientId, serverSequence: serverSequence))
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response)
+        return try decoder.decode(EventCursorAckResponse.self, from: data)
     }
 
     public func postEventBatchWithRetry(

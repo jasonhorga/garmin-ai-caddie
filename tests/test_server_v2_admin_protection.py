@@ -287,6 +287,20 @@ def _reconciliation_response() -> dict[str, object]:
     }
 
 
+def _event_replay_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-mobile-event-replay-v1",
+        "roundId": "live-round-1",
+        "clientId": "ios-phone",
+        "afterSequence": 0,
+        "latestServerSequence": 0,
+        "nextCursor": 0,
+        "eventCount": 0,
+        "hasMore": False,
+        "events": [],
+    }
+
+
 def _weather_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-weather-snapshot-v1",
@@ -447,6 +461,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
     def test_admin_token_required_for_mobile_mutations_weather_persist_and_report_generation(self) -> None:
         client = TestClient(app)
         event_handler = Mock()
+        ack_handler = Mock()
         reconciliation_handler = Mock()
         weather_handler = Mock()
         round_report_handler = Mock()
@@ -455,6 +470,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         with (
             patch.dict("os.environ", ADMIN_ENV),
             patch("server_v2.main.append_mobile_events_response", event_handler),
+            patch("server_v2.main.ack_mobile_events_response", ack_handler),
             patch("server_v2.main.apply_mobile_round_reconciliation_response", reconciliation_handler),
             patch("server_v2.main.load_weather_snapshot_response", weather_handler),
             patch("server_v2.main.generate_round_report_response", round_report_handler),
@@ -465,6 +481,10 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
                 headers={"Idempotency-Key": "batch-1"},
                 json=_event_batch(),
             )
+            ack = client.post(
+                "/api/v2/mobile/rounds/live-round-1/events/ack",
+                json={"clientId": "ios-phone", "serverSequence": 1},
+            )
             reconciliation = client.post(
                 "/api/v2/mobile/rounds/live-round-1/reconciliation/apply",
                 json={"suggestionIds": []},
@@ -474,11 +494,13 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
             trend_report = client.post("/api/v2/reports/trend/recent_10/generate")
 
         self.assertEqual(events.status_code, 401)
+        self.assertEqual(ack.status_code, 401)
         self.assertEqual(reconciliation.status_code, 401)
         self.assertEqual(weather.status_code, 401)
         self.assertEqual(round_report.status_code, 401)
         self.assertEqual(trend_report.status_code, 401)
         event_handler.assert_not_called()
+        ack_handler.assert_not_called()
         reconciliation_handler.assert_not_called()
         weather_handler.assert_not_called()
         round_report_handler.assert_not_called()
@@ -489,6 +511,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         package_handler = Mock(return_value=_mobile_package_response())
         course_options_handler = Mock(return_value=_mobile_course_options_response())
         course_package_handler = Mock(return_value=_mobile_package_response())
+        replay_handler = Mock(return_value=_event_replay_response())
         reconciliation_handler = Mock(return_value=_reconciliation_response())
 
         with (
@@ -496,22 +519,26 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
             patch("server_v2.main.build_mobile_round_package_response", package_handler),
             patch("server_v2.main.build_mobile_course_options_response", course_options_handler),
             patch("server_v2.main.build_mobile_course_package_response", course_package_handler),
+            patch("server_v2.main.replay_mobile_events_response", replay_handler),
             patch("server_v2.main.reconcile_mobile_round_response", reconciliation_handler),
         ):
             package = client.get("/api/v2/mobile/rounds/live-round-1/package")
             course_options = client.get("/api/v2/mobile/courses/options")
             course_package = client.get("/api/v2/mobile/courses/31795/package?round_id=live-round-1")
+            replay = client.get("/api/v2/mobile/rounds/live-round-1/events/replay?client_id=ios-phone")
             reconciliation = client.get("/api/v2/mobile/rounds/live-round-1/reconciliation")
 
         self.assertEqual(package.status_code, 401)
         self.assertEqual(course_options.status_code, 401)
         self.assertEqual(course_package.status_code, 401)
+        self.assertEqual(replay.status_code, 401)
         self.assertEqual(reconciliation.status_code, 401)
         package_handler.assert_not_called()
         course_options_handler.assert_not_called()
         course_package_handler.assert_not_called()
+        replay_handler.assert_not_called()
         reconciliation_handler.assert_not_called()
-        self.assertNotIn("admin-secret", package.text + course_options.text + course_package.text + reconciliation.text)
+        self.assertNotIn("admin-secret", package.text + course_options.text + course_package.text + replay.text + reconciliation.text)
 
     def test_admin_token_required_for_media_context_reads_when_configured(self) -> None:
         client = TestClient(app)
@@ -593,23 +620,28 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         client = TestClient(app)
         package_handler = Mock(return_value=_mobile_package_response())
         course_options_handler = Mock(return_value=_mobile_course_options_response())
+        replay_handler = Mock(return_value=_event_replay_response())
         reconciliation_handler = Mock(return_value=_reconciliation_response())
 
         with (
             patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": ""}),
             patch("server_v2.main.build_mobile_round_package_response", package_handler),
             patch("server_v2.main.build_mobile_course_options_response", course_options_handler),
+            patch("server_v2.main.replay_mobile_events_response", replay_handler),
             patch("server_v2.main.reconcile_mobile_round_response", reconciliation_handler),
         ):
             package = client.get("/api/v2/mobile/rounds/live-round-1/package")
             course_options = client.get("/api/v2/mobile/courses/options")
+            replay = client.get("/api/v2/mobile/rounds/live-round-1/events/replay?client_id=ios-phone")
             reconciliation = client.get("/api/v2/mobile/rounds/live-round-1/reconciliation")
 
         self.assertEqual(package.status_code, 200)
         self.assertEqual(course_options.status_code, 200)
+        self.assertEqual(replay.status_code, 200)
         self.assertEqual(reconciliation.status_code, 200)
-        package_handler.assert_called_once_with("live-round-1", captured_at=None)
+        package_handler.assert_called_once_with("live-round-1", captured_at=None, client_id=None)
         course_options_handler.assert_called_once_with()
+        replay_handler.assert_called_once_with("live-round-1", client_id="ios-phone", after_sequence=None, limit=100)
         reconciliation_handler.assert_called_once_with("live-round-1")
 
     def test_history_reads_require_admin_token_when_configured(self) -> None:

@@ -825,6 +825,42 @@ class LiveRoundEventBatchResponse(BaseModel):
     serverSequence: int = 0
 
 
+class LiveRoundEventReplayItem(BaseModel):
+    serverSequence: int
+    idempotencyKey: str
+    event: dict[str, Any]
+
+
+class LiveRoundEventReplayResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-mobile-event-replay-v1"] = Field(alias="schema")
+    roundId: str
+    clientId: str | None = None
+    afterSequence: int
+    latestServerSequence: int
+    nextCursor: int
+    eventCount: int
+    hasMore: bool
+    events: list[LiveRoundEventReplayItem]
+
+
+class LiveRoundEventAckRequest(BaseModel):
+    clientId: str
+    serverSequence: int
+
+
+class LiveRoundEventAckResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-mobile-event-ack-v1"] = Field(alias="schema")
+    roundId: str
+    clientId: str
+    ackedServerSequence: int
+    latestServerSequence: int
+    pendingEventCount: int
+
+
 class MobileReconciliationApplyRequest(BaseModel):
     suggestionIds: list[str] = Field(default_factory=list)
 

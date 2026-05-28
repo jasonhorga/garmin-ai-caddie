@@ -307,6 +307,9 @@ public struct CachePolicy: Codable, Equatable {
 public struct EventCursor: Codable, Equatable {
     public let serverSequence: Int
     public let pendingEventCount: Int
+    public let clientId: String?
+    public let lastAckedServerSequence: Int?
+    public let replayEndpoint: String?
 }
 
 public struct RecentHistory: Codable, Equatable {

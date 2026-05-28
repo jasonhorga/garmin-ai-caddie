@@ -725,6 +725,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let sourceRefs: [String]", package_swift)
         self.assertIn("decodeIfPresent([RecentRoundSummary].self", package_swift)
         self.assertIn("self.rounds = rounds ?? []", package_swift)
+        self.assertIn("let lastAckedServerSequence: Int?", package_swift)
+        self.assertIn("let replayEndpoint: String?", package_swift)
         self.assertIn("struct LiveRoundEvent: Codable", event_swift)
         self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
         self.assertIn('case syncMarker = "sync_marker"', event_swift)
@@ -746,6 +748,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func fetchRoundPackage", sync_client)
         self.assertIn("func fetchCoursePackage", sync_client)
         self.assertIn("func postEventBatch", sync_client)
+        self.assertIn("func fetchEventReplay", sync_client)
+        self.assertIn("func ackEventCursor", sync_client)
         self.assertIn("Idempotency-Key", sync_client)
         self.assertIn("private func endpointURL(_ endpoint: String) -> URL", sync_client)
         self.assertIn('endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint', sync_client)
@@ -935,6 +939,24 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"duplicateEventIds": .array(result.duplicateEventIds.map { .string($0) })', offline_store)
         self.assertIn('"serverSequence": .number(Double(result.serverSequence))', offline_store)
         self.assertIn("offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)", app_swift)
+        self.assertIn("syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)", app_swift)
+
+    def test_ios_sync_client_supports_server_event_replay_and_ack(self) -> None:
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        sync_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "SyncClientTests.swift")
+
+        self.assertIn("struct EventReplayResponse: Codable, Equatable", sync_client)
+        self.assertIn("struct EventReplayItem: Codable, Equatable", sync_client)
+        self.assertIn("let event: LiveRoundEvent", sync_client)
+        self.assertIn("struct EventCursorAckRequest: Codable, Equatable", sync_client)
+        self.assertIn("struct EventCursorAckResponse: Codable, Equatable", sync_client)
+        self.assertIn("clientId: String = \"ios-phone\"", sync_client)
+        self.assertIn('URLQueryItem(name: "client_id", value: clientId)', sync_client)
+        self.assertIn('endpointURL("/api/v2/mobile/rounds/\\(roundId)/events/replay")', sync_client)
+        self.assertIn('endpointURL("/api/v2/mobile/rounds/\\(roundId)/events/ack")', sync_client)
+        self.assertIn("EventCursorAckRequest(clientId: clientId, serverSequence: serverSequence)", sync_client)
+        self.assertIn("testFetchEventReplayUsesClientCursorQuery", sync_tests)
+        self.assertIn("testAckEventCursorPostsClientSequence", sync_tests)
 
     def test_ios_cached_package_expiry_is_enforced(self) -> None:
         package_swift = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")

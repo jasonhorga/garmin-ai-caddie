@@ -425,6 +425,16 @@
         },
         "pendingEventCount": {
           "type": "integer"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "lastAckedServerSequence": {
+          "type": "integer"
+        },
+        "replayEndpoint": {
+          "type": "string",
+          "pattern": "^/api/v2/mobile/rounds/.+/events/replay$"
         }
       }
     },
