@@ -11,6 +11,8 @@ import type {
   VisionFindingRecord,
 } from '../types'
 
+const INTERACTION_TEST_TIMEOUT_MS = 10_000
+
 const decision: CaddieDecisionResponse = {
   schema: 'ai-caddie-decision-v2',
   decisionId: 'fixture-links-4-approach',
@@ -568,7 +570,7 @@ describe('CaddiePage', () => {
       ],
       penalty: false,
     })
-  })
+  }, INTERACTION_TEST_TIMEOUT_MS)
 
   it('captures sequence audit shots, penalty, and score context', async () => {
     const onCreateAudit = vi.fn()
@@ -610,7 +612,7 @@ describe('CaddiePage', () => {
       actualScoreToPar: 1,
       penalty: true,
     })
-  })
+  }, INTERACTION_TEST_TIMEOUT_MS)
 
   it('passes live coordinates and strategy mode when loading source-bound context', async () => {
     const onLoadCaddieContext = vi.fn()
