@@ -667,6 +667,57 @@ def _linear_slope(values: list[float]) -> float | None:
     return round(numerator / denominator, 2)
 
 
+def _linear_projection_next(values: list[float]) -> float | None:
+    slope = _linear_slope(values)
+    if slope is None:
+        return None
+    xs = list(range(len(values)))
+    x_mean = sum(xs) / len(xs)
+    y_mean = sum(values) / len(values)
+    intercept = y_mean - slope * x_mean
+    return round(intercept + slope * len(values), 1)
+
+
+def _score_volatility(values: list[float]) -> float | None:
+    if len(values) < 2:
+        return None
+    mean = sum(values) / len(values)
+    variance = sum((value - mean) ** 2 for value in values) / len(values)
+    return round(variance**0.5, 1)
+
+
+def _round_over_round_deltas(scores: list[float], refs: list[str]) -> list[dict[str, Any]]:
+    deltas: list[dict[str, Any]] = []
+    for index in range(1, len(scores)):
+        deltas.append(
+            {
+                "fromRoundRef": refs[index - 1],
+                "toRoundRef": refs[index],
+                "delta": round(scores[index] - scores[index - 1], 1),
+                "sourceRefs": [refs[index - 1], refs[index]],
+            }
+        )
+    return deltas
+
+
+def _progress_rate_label(direction: str, slope: float | None, volatility: float | None) -> str:
+    if direction == "insufficient_data" or slope is None:
+        return "insufficient_data"
+    if volatility is not None and volatility >= 7.0:
+        return "volatile"
+    if direction == "improving":
+        if abs(slope) >= 2.0:
+            return "fast_improving"
+        if abs(slope) >= 0.75:
+            return "gradual_improving"
+    if direction == "declining":
+        if abs(slope) >= 2.0:
+            return "fast_declining"
+        if abs(slope) >= 0.75:
+            return "gradual_declining"
+    return "flat"
+
+
 def _improvement_direction(delta_average: float | None, slope: float | None) -> str:
     if delta_average is None or slope is None:
         return "insufficient_data"
@@ -700,6 +751,14 @@ def _improvement_stats(data: HistoryData) -> dict[str, Any]:
             "recentAverage18": average(scores),
             "deltaAverage18": None,
             "strokesPerRoundTrend": None,
+            "projectedNext18": None,
+            "scoreVolatility": _score_volatility(scores),
+            "baselineVolatility": _score_volatility(scores),
+            "recentVolatility": _score_volatility(scores),
+            "progressRate": "insufficient_data",
+            "roundOverRoundDeltas": [],
+            "bestRoundOverRoundGain": None,
+            "worstRoundOverRoundLoss": None,
             "direction": "insufficient_data",
             "confidence": _improvement_confidence(len(scores)),
             "roundRefs": round_refs,
@@ -715,6 +774,11 @@ def _improvement_stats(data: HistoryData) -> dict[str, Any]:
     recent_average = average(recent_scores)
     delta_average = round(float(recent_average) - float(baseline_average), 1) if baseline_average is not None and recent_average is not None else None
     slope = _linear_slope(scores)
+    direction = _improvement_direction(delta_average, slope)
+    volatility = _score_volatility(scores)
+    deltas = _round_over_round_deltas(scores, round_refs)
+    delta_values = [float(row["delta"]) for row in deltas]
+    loss_values = [value for value in delta_values if value > 0]
     return {
         "roundCount": len(scores),
         "windowSize": window_size,
@@ -722,7 +786,15 @@ def _improvement_stats(data: HistoryData) -> dict[str, Any]:
         "recentAverage18": recent_average,
         "deltaAverage18": delta_average,
         "strokesPerRoundTrend": slope,
-        "direction": _improvement_direction(delta_average, slope),
+        "projectedNext18": _linear_projection_next(scores),
+        "scoreVolatility": volatility,
+        "baselineVolatility": _score_volatility(baseline_scores),
+        "recentVolatility": _score_volatility(recent_scores),
+        "progressRate": _progress_rate_label(direction, slope, volatility),
+        "roundOverRoundDeltas": deltas,
+        "bestRoundOverRoundGain": min(delta_values) if delta_values else None,
+        "worstRoundOverRoundLoss": max(loss_values) if loss_values else 0.0,
+        "direction": direction,
         "confidence": _improvement_confidence(len(scores)),
         "roundRefs": round_refs,
         "baselineRoundRefs": round_refs[:window_size],

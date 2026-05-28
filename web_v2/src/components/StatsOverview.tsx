@@ -368,6 +368,22 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <span>Trend</span>
               <b>{displaySigned(improvement.strokesPerRoundTrend)}/round</b>
             </article>
+            <article className="mini-metric">
+              <span>Progress rate</span>
+              <b>{asString(improvement.progressRate) ?? '-'}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Volatility</span>
+              <b>{displayNumber(improvement.scoreVolatility)}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Projected next</span>
+              <b>{displayNumber(improvement.projectedNext18)}</b>
+            </article>
+            <article className="mini-metric">
+              <span>Best jump</span>
+              <b>{displaySigned(improvement.bestRoundOverRoundGain)}</b>
+            </article>
           </div>
           <div className="stat-list improvement-refs">
             <div className="stat-row">

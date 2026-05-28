@@ -99,6 +99,11 @@ const statsFixture: HistoryStatsResponse = {
       recentAverage18: 82,
       deltaAverage18: -10,
       strokesPerRoundTrend: -3.03,
+      progressRate: 'fast_improving',
+      projectedNext18: 76.4,
+      scoreVolatility: 5.3,
+      bestRoundOverRoundGain: -6,
+      worstRoundOverRoundLoss: 0,
       baselineAverageDifferential: 13.5,
       recentAverageDifferential: 8.2,
       deltaAverageDifferential: -5.3,
@@ -351,6 +356,10 @@ describe('StatsOverview', () => {
     expect(within(improvementPace).getByText('improving')).toBeInTheDocument()
     expect(within(improvementPace).getByText('-10 strokes')).toBeInTheDocument()
     expect(within(improvementPace).getByText('-3.03/round')).toBeInTheDocument()
+    expect(within(improvementPace).getByText('fast_improving')).toBeInTheDocument()
+    expect(within(improvementPace).getByText('5.3')).toBeInTheDocument()
+    expect(within(improvementPace).getByText('76.4')).toBeInTheDocument()
+    expect(within(improvementPace).getByText('-6')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Difficulty Adjusted' })).toBeInTheDocument()
     const difficultyAdjusted = screen.getByLabelText('Difficulty adjusted scoring')
     expect(within(difficultyAdjusted).getByText('Rated rounds')).toBeInTheDocument()

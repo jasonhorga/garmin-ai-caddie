@@ -1381,6 +1381,22 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(improvement["recentAverage18"], 82.0)
         self.assertEqual(improvement["deltaAverage18"], -10.0)
         self.assertEqual(improvement["strokesPerRoundTrend"], -3.03)
+        self.assertEqual(improvement["progressRate"], "fast_improving")
+        self.assertEqual(improvement["projectedNext18"], 76.4)
+        self.assertEqual(improvement["scoreVolatility"], 5.3)
+        self.assertEqual(improvement["baselineVolatility"], 1.6)
+        self.assertEqual(improvement["recentVolatility"], 1.6)
+        self.assertEqual(improvement["bestRoundOverRoundGain"], -6.0)
+        self.assertEqual(improvement["worstRoundOverRoundLoss"], 0.0)
+        self.assertEqual(
+            improvement["roundOverRoundDeltas"][2],
+            {
+                "fromRoundRef": "improve-3",
+                "toRoundRef": "improve-4",
+                "delta": -6.0,
+                "sourceRefs": ["improve-3", "improve-4"],
+            },
+        )
         self.assertEqual(improvement["baselineRoundRefs"], ["improve-1", "improve-2", "improve-3"])
         self.assertEqual(improvement["recentRoundRefs"], ["improve-4", "improve-5", "improve-6"])
 
