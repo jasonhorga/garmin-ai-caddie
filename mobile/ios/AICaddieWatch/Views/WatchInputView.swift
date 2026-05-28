@@ -10,6 +10,10 @@ public struct WatchInputView: View {
     @State private var penaltyCount: Int
     @State private var selectedClub: String
     @State private var distanceM: Int
+    @State private var scoreDirty = false
+    @State private var puttsDirty = false
+    @State private var clubDirty = false
+    @State private var distanceDirty = false
 
     public init(state: WatchRoundState, clubs: [String], onEvent: @escaping (WatchInputEvent) -> Void = { _ in }) {
         self.state = state
@@ -41,17 +45,37 @@ public struct WatchInputView: View {
             }
             .disabled(inputClubs.isEmpty)
             Button("Save") {
-                if hasClubContext {
+                if distanceDirty && hasClubContext {
                     emit(kind: .distance, value: "\(distanceM)")
                 }
-                emit(kind: .score, value: "\(score)")
-                emit(kind: .putt, value: "\(putts)")
-                if hasClubContext {
+                if scoreDirty {
+                    emit(kind: .score, value: "\(score)")
+                }
+                if puttsDirty {
+                    emit(kind: .putt, value: "\(putts)")
+                }
+                if clubDirty && hasClubContext {
                     emit(kind: .club, value: selectedClub)
                 }
+                distanceDirty = false
+                scoreDirty = false
+                puttsDirty = false
+                clubDirty = false
             }
         }
         .navigationTitle("Input")
+        .onChange(of: distanceM) { _, _ in
+            distanceDirty = true
+        }
+        .onChange(of: score) { _, _ in
+            scoreDirty = true
+        }
+        .onChange(of: putts) { _, _ in
+            puttsDirty = true
+        }
+        .onChange(of: selectedClub) { _, _ in
+            clubDirty = true
+        }
     }
 
     private var inputClubs: [String] {
