@@ -117,7 +117,17 @@ class GeometryEvidenceTests(unittest.TestCase):
                 """,
                 encoding="utf-8",
             )
-            mesh.write_text("{}", encoding="utf-8")
+            mesh.write_text(
+                """
+                {
+                  "surfaces": [
+                    {"id": "Fairway.drc", "type": "Fairway.drc", "polygon": [[-30, 60], [30, 60], [30, 90], [-30, 90], [-30, 60]]},
+                    {"id": "Green.drc", "polygon": [[-20, 110], [20, 110], [20, 140], [-20, 140], [-20, 110]]}
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
             with (
                 patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
                 patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
@@ -145,11 +155,19 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertIn("hazard", layers)
         self.assertIn("target", layers)
         self.assertIn("tee", layers)
+        self.assertIn("surface", layers)
         self.assertIn("shot_route", layers)
         hazard_feature = next(feature for feature in dto["featureCollection"]["features"] if feature["properties"]["layer"] == "hazard")
         first_coordinate = hazard_feature["geometry"]["coordinates"][0][0]
         self.assertGreater(first_coordinate[0], 100.0)
         self.assertGreater(first_coordinate[1], 20.0)
+        surface_kinds = {
+            feature["properties"]["kind"]
+            for feature in dto["featureCollection"]["features"]
+            if feature["properties"]["layer"] == "surface"
+        }
+        self.assertEqual(surface_kinds, {"fairway", "green"})
+        self.assertNotIn(".drc", str(dto))
         self.assertNotIn(tmp, str(dto))
 
     def test_classifies_shot_surface_from_synthetic_geometry_polygons(self) -> None:

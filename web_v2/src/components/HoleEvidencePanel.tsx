@@ -297,7 +297,8 @@ interface Bounds {
 
 function renderFeature(feature: GeoJsonFeature, index: number, bounds: Bounds) {
   const layer = asString(feature.properties.layer) ?? 'unknown'
-  const className = `hole-map-feature feature-${layer}`
+  const kind = asString(feature.properties.kind)
+  const className = ['hole-map-feature', `feature-${layer}`, kind ? `feature-${layer}-${kind}` : ''].filter(Boolean).join(' ')
   if (feature.geometry.type === 'Point') {
     const point = parsePoint(feature.geometry.coordinates)
     if (!point) return null

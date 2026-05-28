@@ -627,6 +627,28 @@ def _hazard_features(hazards: dict[str, Any], ref_lat: float | None, ref_lon: fl
     return features
 
 
+def _surface_features(meshes: dict[str, Any], ref_lat: float | None, ref_lon: float | None) -> list[dict[str, Any]]:
+    features = []
+    for index, surface in enumerate(_mesh_surface_rows(meshes)):
+        points = surface.get("polygon") or surface.get("points") or surface.get("path")
+        ring = _polygon_ring(points, ref_lat, ref_lon)
+        if not ring:
+            continue
+        kind = _surface_kind(surface, "surface")
+        features.append(
+            _feature(
+                {"type": "Polygon", "coordinates": [ring]},
+                {
+                    "layer": "surface",
+                    "id": _surface_id(surface, f"surface-{index + 1}", kind),
+                    "kind": kind,
+                    "source": "mesh",
+                },
+            )
+        )
+    return features
+
+
 def _point_features(hazards: dict[str, Any], ref_lat: float | None, ref_lon: float | None) -> list[dict[str, Any]]:
     features = []
     target = hazards.get("target") if isinstance(hazards.get("target"), dict) else {}
@@ -682,18 +704,23 @@ def build_hole_map_dto(
     provider_config = map_provider_config(provider)
     coverage = geometry_coverage_for_hole(global_id, local_hole)
     hazards = _load_json_if_ready(hazard_path(int(global_id), int(local_hole))) or {}
-    ref_lat = hazards.get("refLat")
-    ref_lon = hazards.get("refLon")
+    meshes = _load_json_if_ready(mesh_path(int(global_id), int(local_hole))) or {}
+    ref_lat = hazards.get("refLat") if hazards.get("refLat") is not None else meshes.get("refLat")
+    ref_lon = hazards.get("refLon") if hazards.get("refLon") is not None else meshes.get("refLon")
     ref_lat_float = float(ref_lat) if ref_lat is not None else None
     ref_lon_float = float(ref_lon) if ref_lon is not None else None
     features = []
     if hazards:
         features.extend(_hazard_features(hazards, ref_lat_float, ref_lon_float))
         features.extend(_point_features(hazards, ref_lat_float, ref_lon_float))
+    if meshes:
+        features.extend(_surface_features(meshes, ref_lat_float, ref_lon_float))
     features.extend(_shot_features(shots))
     missing_data = list(coverage["missingData"])
     if hazards and (ref_lat_float is None or ref_lon_float is None):
         missing_data.append({"label": "geometry_reference", "reason": "hazard geometry missing WGS84 reference"})
+    if meshes and (ref_lat_float is None or ref_lon_float is None):
+        missing_data.append({"label": "mesh_geometry_reference", "reason": "mesh geometry missing WGS84 reference"})
     return {
         "schema": "ai-caddie-hole-map-v1",
         "globalId": int(global_id),

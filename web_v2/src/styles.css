@@ -3274,6 +3274,32 @@ button.round-detail-cell:hover {
   stroke: #2f7193;
 }
 
+.feature-surface {
+  fill: rgba(88, 130, 94, .18);
+  stroke: #5f8660;
+}
+
+.feature-surface-green {
+  fill: rgba(96, 146, 100, .28);
+  stroke: var(--green);
+}
+
+.feature-surface-fairway {
+  fill: rgba(111, 151, 90, .22);
+  stroke: #6d965f;
+}
+
+.feature-surface-rough,
+.feature-surface-playable_bounds {
+  fill: rgba(128, 150, 122, .14);
+  stroke: #7d9477;
+}
+
+.feature-surface-teebox {
+  fill: rgba(255, 255, 255, .68);
+  stroke: #6b8f42;
+}
+
 .feature-target {
   fill: #ffffff;
   stroke: var(--green);

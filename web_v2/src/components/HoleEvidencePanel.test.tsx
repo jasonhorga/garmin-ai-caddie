@@ -41,7 +41,7 @@ const readyState: HoleEvidenceState = {
     localHole: 7,
     provider: { name: 'esri_world_imagery', label: 'Esri World Imagery', coordinateSystem: 'WGS84' },
     coverage: 'ready',
-    layers: ['hazard', 'target'],
+    layers: ['hazard', 'surface', 'target'],
     featureCollection: {
       type: 'FeatureCollection',
       features: [
@@ -59,6 +59,21 @@ const readyState: HoleEvidenceState = {
             ],
           },
           properties: { layer: 'hazard', kind: 'water', id: 'water-left' },
+        },
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [114.1622, 22.2792],
+                [114.1628, 22.2792],
+                [114.1628, 22.2798],
+                [114.1622, 22.2792],
+              ],
+            ],
+          },
+          properties: { layer: 'surface', kind: 'fairway', id: 'fairway' },
         },
         {
           type: 'Feature',
@@ -82,9 +97,12 @@ describe('HoleEvidencePanel', () => {
     expect(screen.getByText('WGS84')).toBeInTheDocument()
     const layers = screen.getByLabelText('Geometry layers')
     expect(within(layers).getByText('hazard')).toBeInTheDocument()
+    expect(within(layers).getByText('surface')).toBeInTheDocument()
     expect(within(layers).getByText('target')).toBeInTheDocument()
-    expect(screen.getByText('2 features')).toBeInTheDocument()
+    expect(screen.getByText('3 features')).toBeInTheDocument()
     expect(screen.getByText('water-left')).toBeInTheDocument()
+    expect(screen.getByText('fairway')).toBeInTheDocument()
+    expect(screen.getByText('surface / fairway')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Shot Routes' })).toBeInTheDocument()
     expect(screen.getAllByText('900001:7:0').length).toBeGreaterThan(0)
     expect(screen.getByText('7I 144m green')).toBeInTheDocument()
