@@ -102,7 +102,7 @@ def append_mobile_events_response(
     try:
         result = append_event_batch(
             round_id,
-            [event.model_dump() for event in request.events],
+            [event.model_dump(by_alias=True) for event in request.events],
             idempotency_key=idempotency_key,
             root=MOBILE_ROOT,
         )

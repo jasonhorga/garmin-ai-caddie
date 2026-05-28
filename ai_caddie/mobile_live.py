@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from ai_caddie.annotations import annotations_for_target, list_annotations
@@ -12,6 +13,7 @@ from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import _effective_score_data, build_history_stats
+from ai_caddie.llm_providers import redact_secret_text
 from ai_caddie.weather_context import (
     WeatherTransport,
     build_weather_snapshot,
@@ -28,6 +30,7 @@ OFFLINE_EXPIRES_AFTER_HOURS = 24
 LIVE_SHOT_TYPES = ["tee", "approach", "recovery"]
 MANUAL_NOTE_KINDS = {"strategy_note", "hole_note", "round_note", "weather_context_note"}
 REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
+REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 PLAYER_PROFILE_SOURCE_REF_LIMIT = 30
 PLAYER_PROFILE_SIGNAL_REF_LIMIT = 12
 COURSE_OPTION_LIMIT = 24
@@ -1787,8 +1790,36 @@ def _client_ack_sequence(round_id: str, client_id: str, *, root: Path | str | No
         return 0
 
 
+def _redact_mobile_text(value: str) -> str:
+    redacted = redact_secret_text(value)
+    redacted = re.sub(r"(?i)file://[^\s,)]+", REDACTED_MOBILE_PATH, redacted)
+    redacted = re.sub(r"/(?:home|Users|private|tmp|var)/[^\s,)]+", REDACTED_MOBILE_PATH, redacted)
+    redacted = re.sub(r"[A-Za-z]:\\Users\\[^\s,)]+", REDACTED_MOBILE_PATH, redacted)
+    redacted = re.sub(
+        r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*[^,\s;)]+",
+        r"\1=[REDACTED]",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s+[^\s,;)]+",
+        r"\1 [REDACTED]",
+        redacted,
+    )
+    return redacted
+
+
+def _redact_mobile_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _redact_mobile_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_mobile_value(item) for item in value]
+    if isinstance(value, str):
+        return _redact_mobile_text(value)
+    return value
+
+
 def _sanitized_live_event(event: dict[str, Any]) -> dict[str, Any]:
-    sanitized = dict(event)
+    sanitized = _redact_mobile_value(dict(event))
     payload = sanitized.get("payload")
     if not isinstance(payload, dict):
         return sanitized

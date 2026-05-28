@@ -784,6 +784,39 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         self.assertEqual(log_text.count("event-1"), 1)
         self.assertEqual(log_text.count("event-2"), 1)
+        self.assertIn('"schema": "ai-caddie-live-round-event-v1"', log_text)
+        self.assertNotIn("schema_", log_text)
+
+    def test_mobile_event_batch_rejects_invalid_event_envelope_without_writing(self) -> None:
+        client = TestClient(app)
+        valid_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "event-1",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+            "payload": {"strokes": 4},
+        }
+        invalid_events = [
+            {**valid_event, "eventId": ""},
+            {**valid_event, "roundId": ""},
+            {**valid_event, "timestamp": "not-a-date"},
+            {**valid_event, "hole": 0},
+        ]
+
+        for index, event in enumerate(invalid_events):
+            with self.subTest(index=index), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                with patch("server_v2.mobile.MOBILE_ROOT", root):
+                    response = client.post(
+                        "/api/v2/mobile/rounds/live-round-1/events",
+                        headers={"Idempotency-Key": f"bad-envelope-{index}"},
+                        json={"roundId": "live-round-1", "events": [event]},
+                    )
+
+                self.assertEqual(response.status_code, 422)
+                self.assertFalse((root / "data" / "mobile_events" / "events.jsonl").exists())
 
     def test_mobile_event_replay_ack_and_package_cursor_track_client_progress(self) -> None:
         client = TestClient(app)
@@ -863,6 +896,8 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(replay_before_ack.json()["eventCount"], 2)
         self.assertEqual([row["serverSequence"] for row in replay_before_ack.json()["events"]], [1, 2])
         self.assertEqual([row["event"]["eventId"] for row in replay_before_ack.json()["events"]], ["score-1", "club-1"])
+        self.assertEqual([row["event"]["schema"] for row in replay_before_ack.json()["events"]], ["ai-caddie-live-round-event-v1", "ai-caddie-live-round-event-v1"])
+        self.assertNotIn("schema_", replay_before_ack.text)
         self.assertFalse(replay_before_ack.json()["hasMore"])
 
         self.assertEqual(ack.status_code, 200)
@@ -1333,6 +1368,68 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertIn("asset-local-1", combined_text)
         self.assertIn("media-1", combined_text)
         self.assertIn("[REDACTED_LOCAL_MEDIA_URL]", combined_text)
+
+    def test_mobile_event_batch_redacts_nested_private_payloads_before_log_replay_and_reconciliation(self) -> None:
+        client = TestClient(app)
+        note_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "secret-note",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 7,
+            "kind": "note",
+            "payload": {
+                "note": "token=abc123 secret=hunter2 path=/home/ubuntu/private/lie.jpg file:///private/var/mobile/tmp/lie.jpg",
+                "source": "ios",
+            },
+        }
+        club_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "secret-club",
+            "roundId": "900001",
+            "timestamp": "2026-05-25T00:01:00Z",
+            "hole": 7,
+            "kind": "club",
+            "payload": {
+                "clubName": "8I",
+                "decision": {"narrative": "api_key=abc123 /Users/player/private/token.txt"},
+                "actualShot": {"note": "authorization bearer-token /private/var/mobile/tmp/shot.json"},
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                event_response = client.post(
+                    "/api/v2/mobile/rounds/900001/events",
+                    headers={"Idempotency-Key": "secret-payloads"},
+                    json={"roundId": "900001", "events": [note_event, club_event]},
+                )
+                replay = client.get("/api/v2/mobile/rounds/900001/events/replay")
+                reconciliation = client.get("/api/v2/mobile/rounds/900001/reconciliation")
+                log_text = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8")
+
+        combined_text = log_text + replay.text + reconciliation.text
+        self.assertEqual(event_response.status_code, 200)
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(reconciliation.status_code, 200)
+        for private_fragment in [
+            "abc123",
+            "hunter2",
+            "/home/ubuntu",
+            "/Users/player",
+            "/private/var",
+            "file://",
+            "lie.jpg",
+            "shot.json",
+            "bearer-token",
+        ]:
+            self.assertNotIn(private_fragment, combined_text)
+        self.assertIn("[REDACTED]", combined_text)
+        self.assertIn("[REDACTED_PATH]", combined_text)
 
     def test_mobile_reconciliation_endpoint_uses_local_events_and_fixture_facts(self) -> None:
         client = TestClient(app)

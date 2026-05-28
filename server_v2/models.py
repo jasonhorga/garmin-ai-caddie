@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
 import math
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DataQualityState = Literal["good", "partial", "missing"]
 ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
@@ -803,13 +804,24 @@ class MobileCourseOptionsResponse(BaseModel):
 
 
 class LiveRoundEventRecord(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
     schema_: Literal["ai-caddie-live-round-event-v1"] = Field(alias="schema")
-    eventId: str
-    roundId: str
-    timestamp: str
-    hole: int
+    eventId: str = Field(min_length=1)
+    roundId: str = Field(min_length=1)
+    timestamp: str = Field(min_length=1)
+    hole: int = Field(ge=1)
     kind: LiveRoundEventKind
     payload: dict[str, Any]
+
+    @field_validator("timestamp")
+    @classmethod
+    def timestamp_is_iso8601(cls, value: str) -> str:
+        try:
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("timestamp must be ISO 8601") from exc
+        return value
 
     @model_validator(mode="after")
     def payload_matches_event_kind(self) -> "LiveRoundEventRecord":
@@ -818,8 +830,8 @@ class LiveRoundEventRecord(BaseModel):
 
 
 class LiveRoundEventBatchRequest(BaseModel):
-    roundId: str
-    events: list[LiveRoundEventRecord]
+    roundId: str = Field(min_length=1)
+    events: list[LiveRoundEventRecord] = Field(min_length=1)
 
 
 class LiveRoundEventBatchResponse(BaseModel):

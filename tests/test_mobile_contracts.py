@@ -857,6 +857,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(payload_rules["location"]["properties"]["targetKind"]["enum"], ["pin", "target", "green_center"])
         self.assertEqual(payload_rules["photo"]["properties"]["mediaType"]["const"], "photo")
         self.assertEqual(payload_rules["video"]["properties"]["mediaType"]["const"], "video")
+        self.assertEqual(schema["properties"]["eventId"]["minLength"], 1)
+        self.assertEqual(schema["properties"]["roundId"]["minLength"], 1)
+        self.assertEqual(schema["properties"]["timestamp"]["format"], "date-time")
+        self.assertEqual(schema["properties"]["hole"]["minimum"], 1)
         for kind in kinds:
             event = {
                 "schema": "ai-caddie-live-round-event-v1",
@@ -884,6 +888,10 @@ class MobileContractTests(unittest.TestCase):
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"putts": 2}})
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"strokes": 0}})
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "putt", "payload": {"putts": -1}})
+        _assert_json_schema_rejects(self, schema, {**base_event, "eventId": "", "kind": "score", "payload": {"strokes": 4}})
+        _assert_json_schema_rejects(self, schema, {**base_event, "roundId": "", "kind": "score", "payload": {"strokes": 4}})
+        _assert_json_schema_rejects(self, schema, {**base_event, "timestamp": "not-a-date", "kind": "score", "payload": {"strokes": 4}})
+        _assert_json_schema_rejects(self, schema, {**base_event, "hole": 0, "kind": "score", "payload": {"strokes": 4}})
         _assert_json_schema_rejects(
             self,
             schema,
