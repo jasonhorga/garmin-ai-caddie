@@ -43,6 +43,10 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertEqual(payload["records"]["longestShots"][0]["shotRef"], "900001:1:0")
         self.assertIn("diagnosis", payload)
         self.assertIn("issueTrends", payload["diagnosis"])
+        self.assertIn("playerProfile", payload)
+        self.assertEqual(payload["playerProfile"]["schema"], "ai-caddie-player-profile-v1")
+        self.assertGreaterEqual(payload["playerProfile"]["roundCount"], 1)
+        self.assertIn("caddieBiases", payload["playerProfile"])
         quality_labels = {row["label"] for row in payload["dataQuality"]}
         self.assertGreaterEqual(quality_labels, {"geometry", "reports"})
         self.assertIn("drillDown", payload)
