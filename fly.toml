@@ -1,0 +1,29 @@
+app = "ai-caddie-api"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  AI_CADDIE_SECURITY_PROFILE = "private"
+  AI_CADDIE_DATA_MODE = "local_or_fixture"
+  AI_CADDIE_LLM_PROVIDER = "static"
+  AI_CADDIE_PRIVATE_ROOT = "/var/lib/ai-caddie"
+  GOOGLE_CLOUD_LOCATION = "global"
+
+[mounts]
+  source = "ai_caddie_private"
+  destination = "/var/lib/ai-caddie"
+
+[http_service]
+  internal_port = 9000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1

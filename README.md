@@ -92,6 +92,13 @@ ops/run_local_private.sh
 ops/backup_data.sh
 ```
 
+容器化入口：
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
 更多说明：
 
 - 私有部署：`docs/deployment/private-trial.md`

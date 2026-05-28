@@ -30,6 +30,17 @@ class CIWorkflowTests(unittest.TestCase):
         ]:
             self.assertIn(required, text)
 
+    def test_ci_workflow_supports_superpowers_branch_pushes_and_manual_runs(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        triggers = workflow[True]
+
+        self.assertIn("workflow_dispatch", triggers)
+        self.assertIn("pull_request", triggers)
+        self.assertIn("push", triggers)
+        self.assertIn("integration/v2", triggers["push"]["branches"])
+        self.assertIn("superpowers/**", triggers["push"]["branches"])
+        self.assertIn("testing-sandbox", triggers["push"]["branches"])
+
     def test_private_trial_smoke_can_send_admin_token_header(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
         text = script.read_text(encoding="utf-8")

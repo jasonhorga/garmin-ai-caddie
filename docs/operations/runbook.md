@@ -21,6 +21,19 @@ cd web_v2
 npx -y -p node@24 -c 'npm run dev -- --host 127.0.0.1'
 ```
 
+Container stack:
+
+```bash
+cp .env.example .env
+# edit .env with a private AI_CADDIE_ADMIN_TOKEN before exposing the API
+docker compose up --build
+```
+
+The container entrypoint honors `AI_CADDIE_PRIVATE_ROOT` and symlinks private
+runtime directories from that root into `/app` before starting FastAPI. Use this
+for NAS/Fly/VPS deployments so downloaded Garmin data and session material are
+kept on persistent storage instead of inside the image.
+
 ## Stop Services
 
 Stop foreground dev servers with `Ctrl-C`. For background processes, find and stop the process explicitly:
@@ -107,3 +120,10 @@ curl -s http://127.0.0.1:9000/api/v2/sync/status
 ```
 
 The response should never include cookie, CSRF, token, `.env`, or absolute private paths.
+
+## GitHub Actions
+
+The default CI can be run manually from GitHub Actions because the workflow has
+`workflow_dispatch`. It runs fixture-backed backend/frontend checks on Ubuntu
+and native iOS/Watch simulator tests on `macos-15`; it must not receive real
+Garmin session material.

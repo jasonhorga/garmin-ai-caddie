@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import tomllib
 import unittest
 
 
@@ -46,8 +47,69 @@ class DeploymentManifestTests(unittest.TestCase):
 
         self.assertIn("VITE_AI_CADDIE_API_BASE_URL", text)
         self.assertIn("AI_CADDIE_CORS_ORIGINS", text)
+        self.assertIn("AI_CADDIE_CORS_ORIGIN_REGEX", text)
         self.assertIn("Render API URL", text)
         self.assertIn("Vercel Web URL", text)
+
+    def test_container_manifests_define_persistent_private_runtime_root(self) -> None:
+        dockerfile = Path("Dockerfile")
+        compose = Path("docker-compose.yml")
+        entrypoint = Path("ops/start_api.sh")
+
+        self.assertTrue(dockerfile.exists(), "missing API Dockerfile")
+        self.assertTrue(compose.exists(), "missing compose stack")
+        self.assertTrue(entrypoint.exists(), "missing API container entrypoint")
+
+        docker_text = dockerfile.read_text(encoding="utf-8")
+        compose_text = compose.read_text(encoding="utf-8")
+        entrypoint_text = entrypoint.read_text(encoding="utf-8")
+
+        for required in [
+            "ghcr.io/astral-sh/uv:python3.12-bookworm-slim",
+            "uv sync --frozen --no-dev",
+            "npm ci --omit=dev",
+            "ops/start_api.sh",
+            "EXPOSE 9000",
+        ]:
+            self.assertIn(required, docker_text)
+        self.assertIn("AI_CADDIE_PRIVATE_ROOT: /var/lib/ai-caddie", compose_text)
+        self.assertIn("ai-caddie-private:/var/lib/ai-caddie", compose_text)
+        self.assertIn("VITE_AI_CADDIE_API_BASE_URL", compose_text)
+        self.assertIn("AI_CADDIE_PRIVATE_ROOT", entrypoint_text)
+        self.assertIn(".garmin_tokens", entrypoint_text)
+        self.assertNotIn("JWT_WEB", docker_text + compose_text)
+        self.assertNotIn("connect-csrf-token", docker_text + compose_text)
+
+    def test_fly_manifest_uses_container_volume_and_secret_driven_admin_token(self) -> None:
+        manifest = Path("fly.toml")
+        self.assertTrue(manifest.exists(), "missing Fly API manifest")
+
+        payload = tomllib.loads(manifest.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["build"]["dockerfile"], "Dockerfile")
+        self.assertEqual(payload["env"]["AI_CADDIE_SECURITY_PROFILE"], "private")
+        self.assertEqual(payload["env"]["AI_CADDIE_PRIVATE_ROOT"], "/var/lib/ai-caddie")
+        self.assertEqual(payload["mounts"]["source"], "ai_caddie_private")
+        self.assertEqual(payload["mounts"]["destination"], "/var/lib/ai-caddie")
+        self.assertEqual(payload["http_service"]["internal_port"], 9000)
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", payload["env"])
+
+    def test_env_example_documents_placeholders_without_real_secret_values(self) -> None:
+        env = Path(".env.example")
+        self.assertTrue(env.exists(), "missing env template")
+        text = env.read_text(encoding="utf-8")
+
+        for required in [
+            "AI_CADDIE_SECURITY_PROFILE=private",
+            "AI_CADDIE_ADMIN_TOKEN=replace-with-random-admin-token",
+            "AI_CADDIE_DATA_MODE=local_or_fixture",
+            "VITE_AI_CADDIE_API_BASE_URL=http://127.0.0.1:9000",
+            "AI_CADDIE_LLM_PROVIDER=static",
+        ]:
+            self.assertIn(required, text)
+        self.assertNotIn("/home/ubuntu/claude-web-data", text)
+        self.assertNotIn("JWT_WEB", text)
+        self.assertNotIn("connect-csrf-token", text)
 
 
 if __name__ == "__main__":
