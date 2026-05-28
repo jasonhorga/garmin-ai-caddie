@@ -81,6 +81,10 @@ function packageCoverageFacts(data: LiveRoundPackageResponse) {
   if (typeof coverage.courseFound === 'boolean') {
     facts.push(coverage.courseFound ? 'course found' : 'course missing')
   }
+  if (coverage.geometryEnsure) {
+    facts.push(`geometry fetch ${coverage.geometryEnsure.state}`)
+    facts.push(`${coverage.geometryEnsure.ready}/${coverage.geometryEnsure.attempted} fetched`)
+  }
   facts.push(coverage.roundFound ? 'round found' : 'round missing')
   facts.push(coverage.selectedRoundId ? `template round ${coverage.selectedRoundId}` : 'no template round')
   facts.push(`expires ${data.offlinePackageStatus.expiresAt}`)
@@ -162,6 +166,7 @@ export function MobilePackagePrepPanel({
   const [liveRoundId, setLiveRoundId] = useState('')
   const [teeBox, setTeeBox] = useState('')
   const [capturedAt, setCapturedAt] = useState('')
+  const [ensureGeometry, setEnsureGeometry] = useState(true)
   const courseOptions = courseOptionsState.status === 'ready' && Array.isArray(courseOptionsState.data.courses)
     ? courseOptionsState.data.courses
     : []
@@ -182,7 +187,7 @@ export function MobilePackagePrepPanel({
     if (mode === 'round') {
       const nextRoundId = roundId.trim()
       if (!nextRoundId) return
-      void onPrepareRound(nextRoundId, { capturedAt: captured })
+      void onPrepareRound(nextRoundId, { capturedAt: captured, ensureGeometry })
       return
     }
 
@@ -192,6 +197,7 @@ export function MobilePackagePrepPanel({
       roundId: trimmedOrUndefined(liveRoundId),
       teeBox: trimmedOrUndefined(teeBox),
       capturedAt: captured,
+      ensureGeometry,
     })
   }
 
@@ -273,6 +279,15 @@ export function MobilePackagePrepPanel({
         <label>
           <span>Captured time</span>
           <input value={capturedAt} onChange={(event) => setCapturedAt(event.target.value)} spellCheck={false} placeholder="2026-05-25T08:00:00Z" />
+        </label>
+
+        <label className="package-checkbox">
+          <input
+            type="checkbox"
+            checked={ensureGeometry}
+            onChange={(event) => setEnsureGeometry(event.target.checked)}
+          />
+          <span>Fetch geometry</span>
         </label>
 
         {showAdminTokenInput ? (

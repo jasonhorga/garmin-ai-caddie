@@ -530,8 +530,14 @@ def mobile_round_package(
     round_id: str,
     captured_at: str | None = None,
     client_id: str | None = None,
+    ensure_geometry: bool = False,
 ) -> LiveRoundPackageResponse:
-    return build_mobile_round_package_response(round_id, captured_at=captured_at, client_id=client_id)
+    return build_mobile_round_package_response(
+        round_id,
+        captured_at=captured_at,
+        client_id=client_id,
+        ensure_geometry=ensure_geometry,
+    )
 
 
 @app.get("/api/v2/mobile/courses/options", response_model=MobileCourseOptionsResponse)
@@ -546,6 +552,7 @@ def mobile_course_package(
     tee_box: str | None = None,
     captured_at: str | None = None,
     client_id: str | None = None,
+    ensure_geometry: bool = False,
 ) -> LiveRoundPackageResponse:
     return build_mobile_course_package_response(
         global_id,
@@ -553,6 +560,7 @@ def mobile_course_package(
         tee_box=tee_box,
         captured_at=captured_at,
         client_id=client_id,
+        ensure_geometry=ensure_geometry,
     )
 
 

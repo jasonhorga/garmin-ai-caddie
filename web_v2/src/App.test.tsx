@@ -1421,7 +1421,7 @@ describe('App navigation', () => {
         if (path === '/api/v2/history/stats') return statsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/readiness') return readinessPayload()
-        if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue') return mobilePackagePayload()
+        if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&ensure_geometry=true') return mobilePackagePayload()
         if (path === '/api/v2/mobile/rounds/900001/reconciliation') return mobileReconciliationPayload()
         if (path === '/api/v2/mobile/rounds/900001/reconciliation/apply' && init?.method === 'POST') {
           return mobileReconciliationApplyPayload()
@@ -1464,7 +1464,7 @@ describe('App navigation', () => {
 
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&ensure_geometry=true', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation')
@@ -1484,7 +1484,7 @@ describe('App navigation', () => {
         json: async () => {
           if (path === '/api/v2/history/stats') return statsPayload()
           if (path === '/api/v2/readiness') return readinessPayload()
-          if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight') return mobilePackagePayload()
+          if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true') return mobilePackagePayload()
           return overviewPayload()
         },
       }
@@ -1505,7 +1505,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Prepare package' }))
 
     expect(await screen.findByText('Fixture Links')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })

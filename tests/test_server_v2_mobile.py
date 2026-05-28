@@ -75,6 +75,81 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["cachedCaddieRules"]["decisionContract"], "ai-caddie-decision-v2")
         self.assertTrue(payload["cachedCaddieRules"]["offlineCapable"])
 
+    def test_mobile_round_package_can_prefetch_geometry_for_offline_readiness(self) -> None:
+        client = TestClient(app)
+        ensured: set[tuple[int, int]] = set()
+
+        def ensure_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+            ensured.add((int(global_id), int(local_hole)))
+            return {
+                "status": "downloaded",
+                "ok": True,
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "releaseSource": "cache",
+            }
+
+        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+            ready = (int(global_id), int(local_hole)) in ensured
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "coverage": "ready" if ready else "missing",
+                "hasHazards": ready,
+                "hasMeshes": ready,
+                "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}] if ready else [],
+                "missingData": [] if ready else [{"label": "geometry", "reason": "not prefetched"}],
+            }
+
+        def ready_map(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-hole-map-v1",
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "provider": {"coordinateSystem": "local"},
+                "coverage": "ready",
+                "layers": ["hazard"],
+                "featureCollection": {"type": "FeatureCollection", "features": []},
+                "missingData": [],
+            }
+
+        def ready_route(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-route-geometry-evidence-v1",
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "coverage": "ready",
+                "routeLength_m": 180.0,
+                "avoidZones": [],
+                "missingData": [],
+            }
+
+        with (
+            patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            patch("ai_caddie.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
+            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+            patch("ai_caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
+            patch("ai_caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
+        ):
+            response = client.get(
+                "/api/v2/mobile/rounds/900001/package",
+                params={"ensure_geometry": "true"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["geometryCoverage"], {"state": "ready", "readyHoles": 18, "totalHoles": 18})
+        ensure = payload["sourceCoverage"]["geometryEnsure"]
+        self.assertEqual(ensure["schema"], "ai-caddie-geometry-ensure-summary-v1")
+        self.assertTrue(ensure["requested"])
+        self.assertEqual(ensure["state"], "ready")
+        self.assertEqual(ensure["attempted"], 18)
+        self.assertEqual(ensure["ready"], 18)
+        self.assertEqual(ensure["failed"], 0)
+        self.assertEqual(len(ensure["results"]), 18)
+        self.assertNotIn("geometry", {row["label"] for row in payload["missingData"]})
+
     def test_mobile_round_package_carries_player_profile_into_offline_decision_context(self) -> None:
         client = TestClient(app)
 

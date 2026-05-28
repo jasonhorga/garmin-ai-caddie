@@ -20,6 +20,26 @@ const packageFixture: LiveRoundPackageResponse = {
     preparationMode: 'course',
     requestedCourseGlobalId: 31795,
     courseFound: true,
+    geometryEnsure: {
+      schema: 'ai-caddie-geometry-ensure-summary-v1',
+      requested: true,
+      state: 'partial',
+      attempted: 18,
+      ready: 12,
+      failed: 6,
+      sourceRefs: ['geometry:31795:1'],
+      results: [
+        {
+          hole: 1,
+          globalId: 31795,
+          localHole: 1,
+          status: 'downloaded',
+          ok: true,
+          sourceRef: 'geometry:31795:1',
+          releaseSource: 'cache',
+        },
+      ],
+    },
   },
   missingData: [
     { label: 'geometry', reason: '12/18 holes have ready geometry for offline caddie evidence' },
@@ -170,7 +190,10 @@ describe('MobilePackagePrepPanel', () => {
     await userEvent.type(screen.getByLabelText('Captured time'), '2026-05-25T08:00:00Z')
     await userEvent.click(screen.getByRole('button', { name: 'Prepare package' }))
 
-    expect(onPrepareRound).toHaveBeenCalledWith('round:1', { capturedAt: '2026-05-25T08:00:00Z' })
+    expect(onPrepareRound).toHaveBeenCalledWith('round:1', {
+      capturedAt: '2026-05-25T08:00:00Z',
+      ensureGeometry: true,
+    })
   })
 
   it('prepares a course package before the Garmin round exists', async () => {
@@ -195,6 +218,7 @@ describe('MobilePackagePrepPanel', () => {
       roundId: 'live-black-knight',
       teeBox: 'blue',
       capturedAt: undefined,
+      ensureGeometry: true,
     })
   })
 
@@ -246,6 +270,7 @@ describe('MobilePackagePrepPanel', () => {
       roundId: 'live-31795',
       teeBox: 'blue',
       capturedAt: undefined,
+      ensureGeometry: true,
     })
   })
 
@@ -270,6 +295,8 @@ describe('MobilePackagePrepPanel', () => {
     expect(within(panel).getByText('template round 900001')).toBeInTheDocument()
     expect(within(panel).getByText('round found')).toBeInTheDocument()
     expect(within(panel).getByText('course found')).toBeInTheDocument()
+    expect(within(panel).getByText('geometry fetch partial')).toBeInTheDocument()
+    expect(within(panel).getByText('12/18 fetched')).toBeInTheDocument()
     expect(within(panel).getByText('3 available rounds')).toBeInTheDocument()
     expect(within(panel).getByText('course 31795')).toBeInTheDocument()
     expect(within(panel).getByText('3 recent scores')).toBeInTheDocument()

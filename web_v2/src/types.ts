@@ -719,6 +719,27 @@ export interface LiveRoundSourceCoverage {
   preparationMode?: LiveRoundPreparationMode
   requestedCourseGlobalId?: number | null
   courseFound?: boolean
+  geometryEnsure?: GeometryEnsureSummary
+}
+
+export interface GeometryEnsureSummary {
+  schema: 'ai-caddie-geometry-ensure-summary-v1'
+  requested: boolean
+  state: 'not_requested' | 'skipped' | 'ready' | 'partial' | 'failed'
+  attempted: number
+  ready: number
+  failed: number
+  sourceRefs: string[]
+  results: Array<{
+    hole: number
+    globalId: number | null
+    localHole: number
+    status: string
+    ok: boolean
+    sourceRef: string
+    releaseSource?: string
+    reason?: string
+  }>
 }
 
 export interface LiveRoundWeatherSnapshot {
@@ -814,12 +835,14 @@ export interface MobileCourseOptionsResponse {
 
 export interface MobileRoundPackageParams {
   capturedAt?: string
+  ensureGeometry?: boolean
 }
 
 export interface MobileCoursePackageParams {
   roundId?: string
   teeBox?: string
   capturedAt?: string
+  ensureGeometry?: boolean
 }
 
 export type ReadinessState = 'ready' | 'degraded' | 'error'

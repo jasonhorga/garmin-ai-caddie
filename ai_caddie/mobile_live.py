@@ -430,7 +430,128 @@ def _geometry_coverage_for_package_hole(round_row: dict[str, Any], hole: int) ->
     return str(coverage.get("coverage") or "missing")
 
 
-def _package_holes(round_row: dict[str, Any], stats: dict[str, Any], *, course_key: str) -> list[dict[str, Any]]:
+def _geometry_ensure_source_ref(global_id: int, local_hole: int) -> str:
+    return f"geometry:{int(global_id)}:{int(local_hole)}"
+
+
+def _compact_geometry_ensure_result(
+    *,
+    hole: int,
+    global_id: int | None,
+    local_hole: int,
+    result: dict[str, Any] | None = None,
+    status: str | None = None,
+) -> dict[str, Any]:
+    ok = bool(result.get("ok")) if result else False
+    resolved_status = str(status or (result or {}).get("status") or ("ready" if ok else "failed"))
+    row: dict[str, Any] = {
+        "hole": int(hole),
+        "globalId": int(global_id) if global_id is not None else None,
+        "localHole": int(local_hole),
+        "status": resolved_status,
+        "ok": ok,
+        "sourceRef": _geometry_ensure_source_ref(global_id, local_hole) if global_id is not None else f"geometry:missing:{int(hole)}",
+    }
+    release_source = (result or {}).get("releaseSource")
+    if release_source:
+        row["releaseSource"] = str(release_source)
+    if global_id is None:
+        row["reason"] = "course global id is missing"
+    elif not ok and (result or {}).get("error"):
+        row["reason"] = "geometry ensure failed"
+    return row
+
+
+def _geometry_ensure_summary(results: list[dict[str, Any]], *, requested: bool) -> dict[str, Any]:
+    attempted = len(results)
+    ready = sum(1 for row in results if row.get("ok"))
+    skipped = sum(1 for row in results if row.get("status") == "skipped")
+    failed = sum(1 for row in results if attempted and not row.get("ok") and row.get("status") != "skipped")
+    if not requested:
+        state = "not_requested"
+    elif not attempted or skipped == attempted:
+        state = "skipped"
+    elif failed == 0:
+        state = "ready"
+    elif ready:
+        state = "partial"
+    else:
+        state = "failed"
+    return {
+        "schema": "ai-caddie-geometry-ensure-summary-v1",
+        "requested": requested,
+        "state": state,
+        "attempted": attempted,
+        "ready": ready,
+        "failed": failed,
+        "sourceRefs": [str(row["sourceRef"]) for row in results if row.get("sourceRef")],
+        "results": results,
+    }
+
+
+def _ensure_geometry_for_package_holes(round_row: dict[str, Any], hole_numbers: list[int]) -> dict[str, Any]:
+    from ai_caddie.geometry_sync import ensure_prodgeometry
+
+    results: list[dict[str, Any]] = []
+    seen: set[tuple[int, int]] = set()
+    for hole in hole_numbers:
+        global_id, local_hole = _round_hole_geometry_ref(round_row, hole)
+        if global_id is None:
+            results.append(
+                _compact_geometry_ensure_result(
+                    hole=hole,
+                    global_id=None,
+                    local_hole=local_hole,
+                    status="skipped",
+                )
+            )
+            continue
+        key = (int(global_id), int(local_hole))
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            result = ensure_prodgeometry(int(global_id), int(local_hole))
+        except Exception:
+            result = {"status": "failed", "ok": False, "globalId": int(global_id), "localHole": int(local_hole)}
+        results.append(
+            _compact_geometry_ensure_result(
+                hole=hole,
+                global_id=int(global_id),
+                local_hole=int(local_hole),
+                result=result,
+            )
+        )
+    return _geometry_ensure_summary(results, requested=True)
+
+
+def _ensure_geometry_for_course(global_id: int, holes: list[int] | None = None) -> dict[str, Any]:
+    from ai_caddie.geometry_sync import ensure_prodgeometry
+
+    results: list[dict[str, Any]] = []
+    for local_hole in holes or list(range(1, 19)):
+        try:
+            result = ensure_prodgeometry(int(global_id), int(local_hole))
+        except Exception:
+            result = {"status": "failed", "ok": False, "globalId": int(global_id), "localHole": int(local_hole)}
+        results.append(
+            _compact_geometry_ensure_result(
+                hole=int(local_hole),
+                global_id=int(global_id),
+                local_hole=int(local_hole),
+                result=result,
+            )
+        )
+    return _geometry_ensure_summary(results, requested=True)
+
+
+def _package_holes(
+    round_row: dict[str, Any],
+    stats: dict[str, Any],
+    *,
+    course_key: str,
+    hole_numbers: list[int] | None = None,
+) -> list[dict[str, Any]]:
     source_holes: dict[int, dict[str, Any]] = {}
     for index, hole in enumerate(round_row.get("holes") or [], start=1):
         if not isinstance(hole, dict):
@@ -440,7 +561,7 @@ def _package_holes(round_row: dict[str, Any], stats: dict[str, Any], *, course_k
             source_holes[number] = hole
 
     holes: list[dict[str, Any]] = []
-    for number in _expected_package_hole_numbers(round_row, stats, course_key=course_key):
+    for number in hole_numbers or _expected_package_hole_numbers(round_row, stats, course_key=course_key):
         source_hole = source_holes.get(number, {})
         stats_hole = _hole_stats_row(stats, course_key=course_key, hole=number)
         par = (
@@ -451,7 +572,7 @@ def _package_holes(round_row: dict[str, Any], stats: dict[str, Any], *, course_k
         )
         yards = _safe_int(source_hole.get("yards") if source_hole.get("yards") is not None else stats_hole.get("yards"))
         coverage = str(source_hole.get("geometryCoverage") or stats_hole.get("geometryCoverage") or "")
-        if not coverage:
+        if not coverage or coverage == "missing":
             coverage = _geometry_coverage_for_package_hole(round_row, number)
         holes.append({"number": number, "par": par, "yards": yards, "geometryCoverage": coverage or "missing"})
     return holes
@@ -1296,6 +1417,8 @@ def build_live_round_package(
     tee_box: str | None = None,
     weather_transport: WeatherTransport | None = None,
     client_id: str | None = None,
+    ensure_geometry: bool = False,
+    geometry_ensure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
@@ -1330,7 +1453,10 @@ def build_live_round_package(
             }
         )
     course_key = str(round_row.get("courseKey") or "")
-    holes = _package_holes(round_row, stats, course_key=course_key)
+    hole_numbers = _expected_package_hole_numbers(round_row, stats, course_key=course_key)
+    if ensure_geometry and geometry_ensure is None:
+        geometry_ensure = _ensure_geometry_for_package_holes(round_row, hole_numbers)
+    holes = _package_holes(round_row, stats, course_key=course_key, hole_numbers=hole_numbers)
     club_profiles = [
         {
             "clubName": row.get("club"),
@@ -1405,6 +1531,8 @@ def build_live_round_package(
                 "courseFound": round_found,
             }
         )
+    if geometry_ensure is not None:
+        source_coverage["geometryEnsure"] = geometry_ensure
     caddie_context_seeds = _caddie_context_seeds(
         round_id=round_id,
         round_row=round_row,
@@ -1513,6 +1641,7 @@ def build_live_round_package_for_course(
     captured_at: str | None = None,
     weather_transport: WeatherTransport | None = None,
     client_id: str | None = None,
+    ensure_geometry: bool = False,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     selected_round_id = None
@@ -1525,7 +1654,10 @@ def build_live_round_package_for_course(
         live_round_id = f"live-course-{global_id}"
     template_round = None
     package_source = source
+    geometry_ensure = None
     if selected_round_id is None:
+        if ensure_geometry:
+            geometry_ensure = _ensure_geometry_for_course(int(global_id))
         template_round = _geometry_only_course_template(int(global_id), round_id=live_round_id, tee_box=tee_box)
         if template_round is not None:
             package_source = HistoryData(
@@ -1546,6 +1678,8 @@ def build_live_round_package_for_course(
         requested_course_global_id=int(global_id),
         tee_box=tee_box,
         client_id=client_id,
+        ensure_geometry=ensure_geometry and selected_round_id is not None,
+        geometry_ensure=geometry_ensure,
     )
     if template_round is not None and selected_round_id is None:
         package["sourceCoverage"] = {

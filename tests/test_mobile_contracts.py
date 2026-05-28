@@ -417,6 +417,75 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("3/18 holes", checks["geometry"]["reason"])
         self.assertIn("geometry", {row["label"] for row in package["missingData"]})
 
+    def test_live_round_package_contract_accepts_geometry_prefetch_summary(self) -> None:
+        schema = _load_schema("live_round_package.schema.json")
+        ensured: set[tuple[int, int]] = set()
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {
+                    "id": "prefetch-round",
+                    "ids": ["prefetch-round"],
+                    "date": "2026-05-25",
+                    "course": "Prefetch Links",
+                    "courseKey": "prefetch_links",
+                    "globalId": 88888,
+                    "holesCompleted": 18,
+                    "strokes": 82,
+                    "par": 72,
+                    "holes": [{"number": number, "par": 4} for number in range(1, 19)],
+                }
+            ],
+            shots=[],
+        )
+
+        def ensure_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+            ensured.add((int(global_id), int(local_hole)))
+            return {
+                "status": "downloaded",
+                "ok": True,
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "releaseSource": "cache",
+            }
+
+        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+            ready = (int(global_id), int(local_hole)) in ensured
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "coverage": "ready" if ready else "missing",
+                "hasHazards": ready,
+                "hasMeshes": ready,
+                "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}] if ready else [],
+                "missingData": [] if ready else [{"label": "geometry", "reason": "not prefetched"}],
+            }
+
+        with (
+            patch("ai_caddie.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
+            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+            patch("ai_caddie.mobile_live.build_hole_map_dto", return_value={"missingData": []}),
+            patch("ai_caddie.mobile_live.build_route_geometry_evidence", return_value={"missingData": [], "coverage": "ready"}),
+        ):
+            package = build_live_round_package(
+                "prefetch-round",
+                data=data,
+                data_mode="fixture",
+                ensure_geometry=True,
+            )
+
+        _assert_schema_accepts(self, schema, package)
+        _assert_json_schema_accepts(self, schema, package)
+        self.assertEqual(package["geometryCoverage"], {"state": "ready", "readyHoles": 18, "totalHoles": 18})
+        ensure = package["sourceCoverage"]["geometryEnsure"]
+        self.assertEqual(ensure["state"], "ready")
+        self.assertEqual(ensure["attempted"], 18)
+        self.assertEqual(ensure["ready"], 18)
+        self.assertEqual(ensure["failed"], 0)
+        self.assertEqual(len(ensure["sourceRefs"]), 18)
+        self.assertTrue(all(row["ok"] for row in ensure["results"]))
+
     def test_live_round_package_exposes_source_coverage_and_degrades_missing_round(self) -> None:
         package = build_live_round_package("missing-round", data=fixture_history_data(), data_mode="fixture")
 
@@ -845,7 +914,7 @@ class MobileContractTests(unittest.TestCase):
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
 
         self.assertIn(
-            "public func fetchRoundPackage(roundId: String, capturedAt: Date = Date()) async throws -> LiveRoundPackage",
+            "public func fetchRoundPackage(roundId: String, capturedAt: Date = Date(), ensureGeometry: Bool = false) async throws -> LiveRoundPackage",
             sync_client,
         )
         self.assertIn("URLComponents(", sync_client)
@@ -858,7 +927,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchRemotePackage(roundId: requestedRoundId, capturedAt: preparedAt)", app_swift)
         self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
-        self.assertIn("fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, capturedAt: capturedAt)", app_swift)
+        self.assertIn("fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, capturedAt: capturedAt, ensureGeometry: true)", app_swift)
 
     def test_ios_app_entry_bootstraps_cached_or_fixture_package(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))

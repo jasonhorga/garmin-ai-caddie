@@ -1972,7 +1972,7 @@ button.round-detail-cell:hover {
 
 .mobile-package-form {
   display: grid;
-  grid-template-columns: auto repeat(4, minmax(140px, 1fr)) auto;
+  grid-template-columns: auto repeat(5, minmax(128px, 1fr)) auto;
   gap: 8px;
   align-items: end;
 }
@@ -2030,6 +2030,27 @@ button.round-detail-cell:hover {
   font: inherit;
   font-size: 13px;
   padding: 8px 9px;
+}
+
+.mobile-package-form > .package-checkbox {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfcfa;
+  padding: 8px 9px;
+}
+
+.package-checkbox input {
+  min-width: auto;
+  width: 15px;
+  height: 15px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  accent-color: var(--green);
 }
 
 .mobile-package-note {

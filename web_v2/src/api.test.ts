@@ -1477,9 +1477,9 @@ describe('mobile reconciliation API helpers', () => {
       }),
     }))
 
-    const data = await fetchMobileRoundPackage('round:1', { capturedAt: '2026-05-25T08:00:00Z' }, 'admin-secret')
+    const data = await fetchMobileRoundPackage('round:1', { capturedAt: '2026-05-25T08:00:00Z', ensureGeometry: true }, 'admin-secret')
 
-    expect(fetch).toHaveBeenCalledWith('/api/v2/mobile/rounds/round%3A1/package?captured_at=2026-05-25T08%3A00%3A00Z', {
+    expect(fetch).toHaveBeenCalledWith('/api/v2/mobile/rounds/round%3A1/package?captured_at=2026-05-25T08%3A00%3A00Z&ensure_geometry=true', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
     expect(data.schema).toBe('ai-caddie-live-round-package-v1')
@@ -1530,12 +1530,12 @@ describe('mobile reconciliation API helpers', () => {
 
     const data = await fetchMobileCoursePackage(
       31795,
-      { roundId: 'live-black-knight', teeBox: 'blue', capturedAt: '2026-05-25T08:00:00Z' },
+      { roundId: 'live-black-knight', teeBox: 'blue', capturedAt: '2026-05-25T08:00:00Z', ensureGeometry: true },
       'admin-secret',
     )
 
     expect(fetch).toHaveBeenCalledWith(
-      '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&captured_at=2026-05-25T08%3A00%3A00Z',
+      '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&captured_at=2026-05-25T08%3A00%3A00Z&ensure_geometry=true',
       { headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' } },
     )
     expect(data.roundId).toBe('live-black-knight')

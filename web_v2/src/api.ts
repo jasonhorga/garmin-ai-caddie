@@ -358,6 +358,7 @@ export function fetchMobileRoundPackage(
 ): Promise<LiveRoundPackageResponse> {
   const query = new URLSearchParams()
   appendParam(query, 'captured_at', params.capturedAt)
+  appendParam(query, 'ensure_geometry', params.ensureGeometry)
   const suffix = query.toString()
   return getJson<LiveRoundPackageResponse>(
     `/api/v2/mobile/rounds/${encodeURIComponent(roundId)}/package${suffix ? `?${suffix}` : ''}`,
@@ -374,6 +375,7 @@ export function fetchMobileCoursePackage(
   appendParam(query, 'round_id', params.roundId)
   appendParam(query, 'tee_box', params.teeBox)
   appendParam(query, 'captured_at', params.capturedAt)
+  appendParam(query, 'ensure_geometry', params.ensureGeometry)
   const suffix = query.toString()
   return getJson<LiveRoundPackageResponse>(
     `/api/v2/mobile/courses/${encodeURIComponent(String(globalId))}/package${suffix ? `?${suffix}` : ''}`,

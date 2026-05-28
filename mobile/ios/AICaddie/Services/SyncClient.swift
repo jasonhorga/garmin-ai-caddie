@@ -96,7 +96,7 @@ public final class SyncClient {
         self.decoder = JSONDecoder()
     }
 
-    public func fetchRoundPackage(roundId: String, capturedAt: Date = Date()) async throws -> LiveRoundPackage {
+    public func fetchRoundPackage(roundId: String, capturedAt: Date = Date(), ensureGeometry: Bool = false) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/rounds/\(roundId)/package"),
             resolvingAgainstBaseURL: false
@@ -106,6 +106,7 @@ public final class SyncClient {
         components.queryItems = [
             URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt)),
             URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
         ]
         guard let url = components.url else {
             throw URLError(.badURL)
@@ -119,7 +120,7 @@ public final class SyncClient {
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 
-    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, capturedAt: Date = Date()) async throws -> LiveRoundPackage {
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, capturedAt: Date = Date(), ensureGeometry: Bool = false) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
@@ -131,6 +132,7 @@ public final class SyncClient {
             URLQueryItem(name: "tee_box", value: teeBox),
             URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt)),
             URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
         ]
         guard let url = components.url else {
             throw URLError(.badURL)

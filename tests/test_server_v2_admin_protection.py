@@ -639,7 +639,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         self.assertEqual(course_options.status_code, 200)
         self.assertEqual(replay.status_code, 200)
         self.assertEqual(reconciliation.status_code, 200)
-        package_handler.assert_called_once_with("live-round-1", captured_at=None, client_id=None)
+        package_handler.assert_called_once_with("live-round-1", captured_at=None, client_id=None, ensure_geometry=False)
         course_options_handler.assert_called_once_with()
         replay_handler.assert_called_once_with("live-round-1", client_id="ios-phone", after_sequence=None, limit=100)
         reconciliation_handler.assert_called_once_with("live-round-1")

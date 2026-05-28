@@ -85,6 +85,73 @@
         },
         "courseFound": {
           "type": "boolean"
+        },
+        "geometryEnsure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "requested", "state", "attempted", "ready", "failed", "sourceRefs", "results"],
+          "properties": {
+            "schema": {
+              "type": "string",
+              "const": "ai-caddie-geometry-ensure-summary-v1"
+            },
+            "requested": {
+              "type": "boolean"
+            },
+            "state": {
+              "type": "string",
+              "enum": ["not_requested", "skipped", "ready", "partial", "failed"]
+            },
+            "attempted": {
+              "type": "integer"
+            },
+            "ready": {
+              "type": "integer"
+            },
+            "failed": {
+              "type": "integer"
+            },
+            "sourceRefs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "results": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["hole", "globalId", "localHole", "status", "ok", "sourceRef"],
+                "properties": {
+                  "hole": {
+                    "type": "integer"
+                  },
+                  "globalId": {
+                    "type": ["integer", "null"]
+                  },
+                  "localHole": {
+                    "type": "integer"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "ok": {
+                    "type": "boolean"
+                  },
+                  "sourceRef": {
+                    "type": "string"
+                  },
+                  "releaseSource": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
