@@ -128,9 +128,45 @@ describe('HistoryRoundDetailPanel', () => {
             sourceRefs: ['700001', '700001:1'],
             provider: 'StaticProvider',
             model: 'static',
-            factsUsed: [],
-            missingData: [],
-            inferencesMade: [],
+            factsUsed: [
+              {
+                label: 'score',
+                source: 'round',
+                value: { score: 82, toPar: 10 },
+                sourceRefs: ['700001'],
+              },
+              {
+                label: 'putting',
+                source: 'scorecard',
+                value: '5 putts through fixture holes',
+                holeRefs: ['700001:1', '700001:2'],
+              },
+            ],
+            missingData: [
+              {
+                label: 'weather',
+                state: 'missing',
+                reason: 'no weather snapshot for this round',
+                missingDataRefs: ['700001'],
+              },
+            ],
+            inferencesMade: [
+              {
+                claim: 'Putting cost strokes late in the round.',
+                factLabels: ['putting'],
+                missingDataLabels: ['weather'],
+                sourceRefs: ['700001:2'],
+                confidence: 'medium',
+              },
+            ],
+            unsupportedClaims: [
+              {
+                category: 'weather',
+                claim: 'Wind caused the miss.',
+                reason: 'weather snapshot is missing',
+                missingDataRefs: ['700001'],
+              },
+            ],
             narrative: 'Round review from scorecard facts.',
             confidence: 'medium',
           },
@@ -145,5 +181,10 @@ describe('HistoryRoundDetailPanel', () => {
     expect(onGenerateRoundReport).toHaveBeenCalledWith('700001')
     expect(screen.getByText('Round review from scorecard facts.')).toBeInTheDocument()
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(screen.getByLabelText('Round AI facts')).toHaveTextContent('score')
+    expect(screen.getByLabelText('Round AI facts')).toHaveTextContent('score 82')
+    expect(screen.getByLabelText('Round AI inferences')).toHaveTextContent('Putting cost strokes late in the round.')
+    expect(screen.getByLabelText('Round AI missing data')).toHaveTextContent('weather')
+    expect(screen.getByLabelText('Round AI unsupported claims')).toHaveTextContent('Wind caused the miss.')
   })
 })

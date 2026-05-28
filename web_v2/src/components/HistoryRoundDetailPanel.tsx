@@ -227,6 +227,155 @@ function AnnotationRows({ title, rows }: { title: string; rows: AnnotationRecord
   )
 }
 
+function asRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+    : []
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => String(item).trim()).filter(Boolean)
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const unique: string[] = []
+  for (const value of values) {
+    if (seen.has(value)) continue
+    seen.add(value)
+    unique.push(value)
+  }
+  return unique
+}
+
+function evidenceRefs(row: Record<string, unknown>): string[] {
+  return uniqueStrings([
+    ...asStringArray(row.refs),
+    ...asStringArray(row.sourceRefs),
+    ...asStringArray(row.roundRefs),
+    ...asStringArray(row.holeRefs),
+    ...asStringArray(row.shotRefs),
+    ...asStringArray(row.missingDataRefs),
+  ])
+}
+
+function EvidenceValue({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return null
+  if (Array.isArray(value)) {
+    return (
+      <div className="fact-array">
+        {value.slice(0, 4).map((item, index) => (
+          <span key={`${valueText(item)}-${index}`} className="fact-chip">
+            {valueText(item)}
+          </span>
+        ))}
+        {value.length > 4 ? <span className="fact-chip muted">+{value.length - 4} more</span> : null}
+      </div>
+    )
+  }
+  if (typeof value === 'object') {
+    return (
+      <div className="fact-object compact">
+        {Object.entries(value as Record<string, unknown>)
+          .filter(([, item]) => item === null || ['string', 'number', 'boolean'].includes(typeof item))
+          .slice(0, 6)
+          .map(([key, item]) => (
+            <span key={key} className="fact-chip">
+              {key} {valueText(item)}
+            </span>
+          ))}
+      </div>
+    )
+  }
+  return <div className="fact-value">{valueText(value)}</div>
+}
+
+function RoundAiEvidence({ report, onSelectRef }: { report: ReviewReportResponse; onSelectRef?: (sourceRef: string) => void }) {
+  const facts = asRecordArray(report.factsUsed)
+  const missingData = asRecordArray(report.missingData)
+  const inferences = asRecordArray(report.inferencesMade)
+  const unsupportedClaims = asRecordArray(report.unsupportedClaims)
+
+  return (
+    <div className="report-evidence-grid round-ai-review-evidence">
+      <section aria-label="Round AI facts">
+        <h4>Facts</h4>
+        {facts.length ? (
+          facts.map((fact, index) => (
+            <div className="report-row" key={`${valueText(fact.label)}-${index}`}>
+              <div className="report-row-main">
+                <strong>{valueText(fact.label ?? 'fact')}</strong>
+                <span>{valueText(fact.source ?? 'source')}</span>
+                <EvidenceValue value={fact.value} />
+              </div>
+              <SourceRefs refs={evidenceRefs(fact)} onSelectRef={onSelectRef} />
+            </div>
+          ))
+        ) : (
+          <p>None</p>
+        )}
+      </section>
+
+      <section aria-label="Round AI inferences">
+        <h4>Inferences</h4>
+        {inferences.length ? (
+          inferences.map((inference, index) => (
+            <div className="report-row" key={`${valueText(inference.claim)}-${index}`}>
+              <div className="report-row-main">
+                <strong>{valueText(inference.claim ?? 'Inference')}</strong>
+                <div className="report-metadata">
+                  {asStringArray(inference.factLabels).map((label) => <span key={`fact-${label}`} className="fact-chip muted">{label} fact</span>)}
+                  {asStringArray(inference.missingDataLabels).map((label) => <span key={`missing-${label}`} className="fact-chip muted">{label} missing</span>)}
+                  {typeof inference.confidence === 'string' ? <span className="fact-chip muted">{inference.confidence} inference confidence</span> : null}
+                </div>
+              </div>
+              <SourceRefs refs={evidenceRefs(inference)} onSelectRef={onSelectRef} />
+            </div>
+          ))
+        ) : (
+          <p>None</p>
+        )}
+      </section>
+
+      <section aria-label="Round AI missing data">
+        <h4>Missing Data</h4>
+        {missingData.length ? (
+          missingData.map((item, index) => (
+            <div className="report-row" key={`${valueText(item.label)}-${index}`}>
+              <div className="report-row-main">
+                <strong>{valueText(item.label ?? 'missing')}</strong>
+                <span>{valueText(item.state ?? item.reason ?? 'needs review')}</span>
+              </div>
+              <SourceRefs refs={evidenceRefs(item)} onSelectRef={onSelectRef} />
+            </div>
+          ))
+        ) : (
+          <p>None</p>
+        )}
+      </section>
+
+      <section aria-label="Round AI unsupported claims">
+        <h4>Unsupported Claims</h4>
+        {unsupportedClaims.length ? (
+          unsupportedClaims.map((claim, index) => (
+            <div className="report-row" key={`${valueText(claim.category)}-${index}`}>
+              <div className="report-row-main">
+                <strong>{valueText(claim.category ?? 'claim')}</strong>
+                <span>{valueText(claim.claim ?? 'Unsupported claim')}</span>
+                {typeof claim.reason === 'string' ? <span>{claim.reason}</span> : null}
+              </div>
+              <SourceRefs refs={evidenceRefs(claim)} onSelectRef={onSelectRef} />
+            </div>
+          ))
+        ) : (
+          <p>None</p>
+        )}
+      </section>
+    </div>
+  )
+}
+
 function RoundAiReview({
   roundRef,
   reportState,
@@ -279,6 +428,7 @@ function RoundAiReview({
           </div>
           <p>{loadedReport.narrative}</p>
           <SourceRefs refs={loadedReport.sourceRefs} onSelectRef={onSelectRef} />
+          <RoundAiEvidence report={loadedReport} onSelectRef={onSelectRef} />
         </div>
       ) : null}
     </section>
