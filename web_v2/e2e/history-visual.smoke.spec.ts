@@ -246,6 +246,30 @@ const syncStatusPayload = {
   lastRun: { state: 'ready', snapshotId: 'snap-20260525' },
 }
 
+const mobileCourseOptionsPayload = {
+  schema: 'ai-caddie-mobile-course-options-v1',
+  dataMode: 'fixture',
+  total: 1,
+  courses: [
+    {
+      globalId: 31795,
+      courseKey: 'black_knight',
+      name: 'Black Knight B/C',
+      roundCount: 2,
+      latestRoundId: '900001',
+      latestRoundDate: '2026-05-18',
+      templateRoundId: '900001',
+      suggestedLiveRoundId: 'live-31795',
+      holes: 18,
+      teeBox: 'blue',
+      geometryCoverage: 'partial',
+      sourceRefs: ['900001', '900002'],
+    },
+  ],
+  emptyState: null,
+  generatedAt: '2026-05-25T08:00:00Z',
+}
+
 const readinessPayload = {
   schema: 'ai-caddie-readiness-v1',
   status: 'degraded',
@@ -371,11 +395,43 @@ const reportIndexPayload = {
   ],
 }
 
+const annotationsPayload = {
+  schema: 'ai-caddie-annotations-v1',
+  total: 2,
+  target: null,
+  annotations: [
+    {
+      id: 'annotation-1',
+      createdAt: '2026-05-25T09:00:00Z',
+      targetType: 'hole',
+      targetId: '900001:7',
+      kind: 'issue_tag',
+      payload: { tag: 'approach_short', note: 'missed short twice from 140m' },
+      source: 'manual',
+    },
+    {
+      id: 'annotation-2',
+      createdAt: '2026-05-25T09:10:00Z',
+      targetType: 'shot',
+      targetId: '900001:7:2',
+      kind: 'club_correction',
+      payload: { from: '8I', to: '7I', note: 'Garmin club selection was wrong' },
+      source: 'manual',
+    },
+  ],
+}
+
 test('major product screens render with stable Garmin Pro layout', async ({ page }, testInfo) => {
   const browserErrors: string[] = []
+  const failedResponses: string[] = []
   page.on('pageerror', (error) => browserErrors.push(error.message))
   page.on('console', (message) => {
     if (message.type() === 'error') browserErrors.push(message.text())
+  })
+  page.on('response', (response) => {
+    if (response.status() >= 400) {
+      failedResponses.push(`${response.status()} ${new URL(response.url()).pathname}`)
+    }
   })
   await mockApi(page)
 
@@ -394,6 +450,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
     ['Clubs', 'Club Stats'],
     ['Issues', 'Issue Stats'],
     ['Caddie', 'Caddie'],
+    ['Corrections', 'Corrections'],
     ['Sync & Data Quality', 'Sync & Data Quality'],
     ['Reports', 'Reports'],
     ['Settings', 'Settings'],
@@ -405,6 +462,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   }
 
   await expect(page.getByText('Review history')).toBeVisible()
+  await expect(failedResponses).toEqual([])
   await expect(browserErrors).toEqual([])
   await captureSmokeScreenshot(page, testInfo, 'settings')
 })
@@ -417,9 +475,11 @@ async function mockApi(page: Page) {
     if (path === '/api/v2/history/rounds') return route.fulfill({ json: roundsPayload })
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload })
     if (path === '/api/v2/sync/status') return route.fulfill({ json: syncStatusPayload })
+    if (path === '/api/v2/mobile/courses/options') return route.fulfill({ json: mobileCourseOptionsPayload })
     if (path === '/api/v2/readiness') return route.fulfill({ json: readinessPayload })
     if (path === '/api/v2/reports') return route.fulfill({ json: reportIndexPayload })
     if (path === '/api/v2/settings/product') return route.fulfill({ json: productSettingsPayload })
+    if (path === '/api/v2/annotations') return route.fulfill({ json: annotationsPayload })
     return route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } })
   })
 }
