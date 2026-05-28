@@ -2416,6 +2416,17 @@ button.round-detail-cell:hover {
   font-size: 13px;
 }
 
+.settings-oauth-probe-grid {
+  display: grid;
+  grid-template-columns: minmax(92px, .45fr) minmax(0, 1fr);
+  gap: 5px 8px;
+}
+
+.settings-oauth-probe-grid b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .settings-oauth-probe p,
 .settings-oauth-probe ol {
   margin: 0;

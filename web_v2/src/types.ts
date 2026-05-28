@@ -543,7 +543,7 @@ export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error' |
 export type ConnectorNextAction = 'connect_garmin' | 'review_history' | 'reauthenticate_garmin' | 'inspect_sync_error'
 export type ResolvedDataMode = 'local' | 'fixture'
 
-export type ConnectorCapabilityState = 'unproven' | 'not_available' | 'possible'
+export type ConnectorCapabilityState = 'unproven' | 'not_available' | 'possible' | 'proven' | 'needs_golf_fit_validation' | 'not_replacement'
 
 export interface ConnectorCapability {
   key: string
@@ -556,16 +556,29 @@ export interface ConnectorCapability {
 }
 
 export interface ConnectorProbeStatus {
-  schema: 'ai-caddie-garmin-oauth-probe-v1'
+  schema: 'ai-caddie-garmin-oauth-probe-v2'
   state: 'not_configured' | 'ready_for_manual_consent'
   liveProbeAllowed: boolean
   configured: Record<string, boolean>
   missing: string[]
   consentRequest: {
     method: string
+    endpoint?: string
     endpointConfigured: boolean
     parameterKeys: string[]
     redactedPreview: string | null
+  }
+  tokenExchange?: {
+    method: string
+    endpoint?: string
+    ready: boolean
+    missing: string[]
+    parameterKeys: string[]
+  }
+  resourceProbe?: {
+    userIdEndpoint?: string
+    permissionsEndpoint?: string
+    checks: string[]
   }
   manualSteps: string[]
 }

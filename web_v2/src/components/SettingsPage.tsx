@@ -13,9 +13,13 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
   const cnSession = dataSources.find((source) => asString(source.id) === 'garmin_cn_web_session')
   const oauth = dataSources.find((source) => asString(source.id) === 'garmin_oauth')
   const oauthProbe = asRecord(oauth?.probe)
+  const oauthExchange = asRecord(oauthProbe.tokenExchange)
+  const oauthResourceProbe = asRecord(oauthProbe.resourceProbe)
   const oauthMissing = asStringList(oauthProbe.missing)
+  const oauthExchangeMissing = asStringList(oauthExchange.missing)
+  const oauthResourceChecks = asStringList(oauthResourceProbe.checks)
   const oauthCapabilities = asRecords(oauth?.capabilityMatrix).slice(0, 3)
-  const oauthSteps = asStringList(oauthProbe.manualSteps).slice(0, 2)
+  const oauthSteps = asStringList(oauthProbe.manualSteps).slice(0, 3)
   const activeProvider = providers.find((provider) => asString(provider.id) === settings?.aiProviders?.activeProvider)
   const ios = asRecord(settings?.liveApps?.ios)
   const watch = asRecord(settings?.liveApps?.watch)
@@ -62,6 +66,12 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
                   <b>{asString(oauthProbe.state) === 'ready_for_manual_consent' ? 'ready for manual consent' : 'not configured'}</b>
                 </div>
                 {oauthMissing.length ? <p>Missing {oauthMissing.join(', ')}</p> : <p>Consent request uses redacted configured parameters.</p>}
+                <div className="settings-oauth-probe-grid">
+                  <span>Code exchange</span>
+                  <b>{asBoolean(oauthExchange.ready, false) ? 'ready' : oauthExchangeMissing.length ? `missing ${oauthExchangeMissing.join(', ')}` : 'not ready'}</b>
+                  <span>Resource checks</span>
+                  <b>{oauthResourceChecks.length ? oauthResourceChecks.join(', ') : 'user_id, permissions'}</b>
+                </div>
                 {oauthCapabilities.length ? (
                   <div className="settings-oauth-capabilities" aria-label="OAuth capability matrix">
                     {oauthCapabilities.map((capability) => (

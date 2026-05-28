@@ -51,23 +51,28 @@ const baseStatus: SyncStatusResponse = {
         },
       ],
       probe: {
-        schema: 'ai-caddie-garmin-oauth-probe-v1',
+        schema: 'ai-caddie-garmin-oauth-probe-v2',
         state: 'not_configured',
         liveProbeAllowed: false,
         configured: {
           clientId: false,
           clientCredential: false,
           redirectUri: false,
-          consentEndpoint: false,
-          exchangeEndpoint: false,
-          scopes: false,
+          consentEndpoint: true,
+          exchangeEndpoint: true,
+          apiBase: true,
+          requestedScopes: false,
+          authorizationCode: false,
+          codeVerifier: false,
         },
-        missing: ['client_id', 'redirect_uri', 'consent_endpoint', 'exchange_endpoint', 'scopes'],
+        missing: ['client_id', 'redirect_uri'],
         consentRequest: {
           method: 'GET',
-          endpointConfigured: false,
-          parameterKeys: ['response_type', 'client_id', 'redirect_uri', 'scope', 'state'],
-          redactedPreview: null,
+          endpoint: 'https://connect.garmin.com/oauth2Confirm',
+          endpointConfigured: true,
+          parameterKeys: ['response_type', 'client_id', 'redirect_uri', 'state', 'code_challenge', 'code_challenge_method'],
+          redactedPreview:
+            'https://connect.garmin.com/oauth2Confirm?response_type=code&client_id=<configured>&redirect_uri=<configured>&state=<generated>&code_challenge=<generated>&code_challenge_method=S256',
         },
         manualSteps: ['Register a Garmin OAuth client and redirect URI through the official developer path.'],
       },
@@ -118,7 +123,7 @@ describe('SyncStatusPanel', () => {
     expect(screen.getByText('possible')).toBeInTheDocument()
     expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('OAuth probe')
     expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('not configured')
-    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('client_id, redirect_uri, consent_endpoint, exchange_endpoint, scopes')
+    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('client_id, redirect_uri')
     expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('dry-run only')
   })
 

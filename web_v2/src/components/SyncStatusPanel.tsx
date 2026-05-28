@@ -18,6 +18,9 @@ const capabilityStateLabel = {
   unproven: 'unproven',
   not_available: 'not available',
   possible: 'possible',
+  proven: 'proven',
+  needs_golf_fit_validation: 'needs FIT validation',
+  not_replacement: 'not replacement',
 }
 
 const probeStateLabel = {
@@ -156,7 +159,7 @@ export function SyncStatusPanel({
                         <strong>{capability.label}</strong>
                         <em>{capability.nextStep}</em>
                       </span>
-                      <b className={`semantic-chip ${capability.state === 'possible' ? 'quality-good' : 'quality-missing'}`}>
+                      <b className={`semantic-chip ${capability.state === 'possible' || capability.state === 'proven' ? 'quality-good' : 'quality-missing'}`}>
                         {capabilityStateLabel[capability.state]}
                       </b>
                     </div>

@@ -43,27 +43,45 @@ const productSettings: ProductSettingsResponse = {
         },
       ],
       probe: {
-        schema: 'ai-caddie-garmin-oauth-probe-v1',
+        schema: 'ai-caddie-garmin-oauth-probe-v2',
         state: 'not_configured',
         liveProbeAllowed: false,
         configured: {
           clientId: false,
           clientCredential: false,
           redirectUri: false,
-          consentEndpoint: false,
-          exchangeEndpoint: false,
-          scopes: false,
+          consentEndpoint: true,
+          exchangeEndpoint: true,
+          apiBase: true,
+          requestedScopes: false,
+          authorizationCode: false,
+          codeVerifier: false,
         },
         missing: ['client_id', 'redirect_uri'],
         consentRequest: {
           method: 'GET',
-          endpointConfigured: false,
-          parameterKeys: ['response_type', 'client_id', 'redirect_uri', 'scope', 'state'],
-          redactedPreview: null,
+          endpoint: 'https://connect.garmin.com/oauth2Confirm',
+          endpointConfigured: true,
+          parameterKeys: ['response_type', 'client_id', 'redirect_uri', 'state', 'code_challenge', 'code_challenge_method'],
+          redactedPreview:
+            'https://connect.garmin.com/oauth2Confirm?response_type=code&client_id=<configured>&redirect_uri=<configured>&state=<generated>&code_challenge=<generated>&code_challenge_method=S256',
+        },
+        tokenExchange: {
+          method: 'POST',
+          endpoint: 'https://connectapi.garmin.com/di-oauth2-service/oauth/token',
+          ready: false,
+          missing: ['client_id', 'redirect_uri', 'client_credential', 'authorization_code', 'code_verifier'],
+          parameterKeys: ['grant_type', 'client_id', 'client_credential', 'authorization_code', 'code_verifier', 'redirect_uri'],
+        },
+        resourceProbe: {
+          userIdEndpoint: 'https://apis.garmin.com/wellness-api/rest/user/id',
+          permissionsEndpoint: 'https://apis.garmin.com/wellness-api/rest/user/permissions',
+          checks: ['user_id', 'permissions', 'golf_data_replacement_gap'],
         },
         manualSteps: [
           'Register a Garmin OAuth client and redirect URI through the official developer path.',
-          'Run a manual consent probe with a private test account.',
+          'Generate a PKCE consent URL locally and keep the generated code verifier private.',
+          'Exchange the one-time authorization code only when live probing is explicitly enabled.',
         ],
       },
     },
@@ -151,6 +169,9 @@ describe('SettingsPage', () => {
     const oauthProbe = screen.getByLabelText('OAuth feasibility probe')
     expect(within(oauthProbe).getByText('not configured')).toBeInTheDocument()
     expect(within(oauthProbe).getByText('Missing client_id, redirect_uri')).toBeInTheDocument()
+    expect(within(oauthProbe).getByText('Code exchange')).toBeInTheDocument()
+    expect(within(oauthProbe).getByText('missing client_id, redirect_uri, client_credential, authorization_code, code_verifier')).toBeInTheDocument()
+    expect(within(oauthProbe).getByText('user_id, permissions, golf_data_replacement_gap')).toBeInTheDocument()
     expect(within(screen.getByLabelText('OAuth capability matrix')).getByText('Golf scorecards: unproven')).toBeInTheDocument()
     expect(within(screen.getByLabelText('OAuth capability matrix')).getByText('Identity: possible')).toBeInTheDocument()
     expect(within(oauthProbe).getByText('Register a Garmin OAuth client and redirect URI through the official developer path.')).toBeInTheDocument()
