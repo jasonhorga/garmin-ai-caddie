@@ -104,6 +104,13 @@ const statsFixture: HistoryStatsResponse = {
       scoreVolatility: 5.3,
       bestRoundOverRoundGain: -6,
       worstRoundOverRoundLoss: 0,
+      roundOverRoundDeltas: [
+        { fromRoundRef: '900004', toRoundRef: '900005', delta: -2, sourceRefs: ['900004', '900005'] },
+        { fromRoundRef: '900005', toRoundRef: '900006', delta: -2, sourceRefs: ['900005', '900006'] },
+        { fromRoundRef: '900006', toRoundRef: '900001', delta: -6, sourceRefs: ['900006', '900001'] },
+        { fromRoundRef: '900001', toRoundRef: '900002', delta: -2, sourceRefs: ['900001', '900002'] },
+        { fromRoundRef: '900002', toRoundRef: '900003', delta: -2, sourceRefs: ['900002', '900003'] },
+      ],
       baselineAverageDifferential: 13.5,
       recentAverageDifferential: 8.2,
       deltaAverageDifferential: -5.3,
@@ -360,6 +367,8 @@ describe('StatsOverview', () => {
     expect(within(improvementPace).getByText('5.3')).toBeInTheDocument()
     expect(within(improvementPace).getByText('76.4')).toBeInTheDocument()
     expect(within(improvementPace).getByText('-6')).toBeInTheDocument()
+    expect(within(improvementPace).getByText('900006 to 900001')).toBeInTheDocument()
+    expect(within(improvementPace).getAllByRole('button', { name: 'Open source 900006' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: 'Difficulty Adjusted' })).toBeInTheDocument()
     const difficultyAdjusted = screen.getByLabelText('Difficulty adjusted scoring')
     expect(within(difficultyAdjusted).getByText('Rated rounds')).toBeInTheDocument()

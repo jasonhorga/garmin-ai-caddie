@@ -175,6 +175,7 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
   const quarters = asRows(data.time.byQuarter).slice(0, 4)
   const playFrequency = asRecord(data.time.playFrequency)
   const improvement = asRecord(data.time.improvement)
+  const improvementDeltas = asRows(improvement.roundOverRoundDeltas).slice(-4).reverse()
   const difficultyAdjusted = asRecord(data.summary.difficultyAdjusted ?? data.scoring.difficultyAdjusted)
   const difficultyCoverage = asRecord(difficultyAdjusted.coverage ?? improvement.difficultyAdjustedCoverage)
   const phaseStats = asRows(data.scoring.phaseStats)
@@ -396,6 +397,19 @@ export function StatsOverview({ data, onSelectRef }: StatsOverviewProps) {
               <b>{displayNumber(improvement.windowSize)} rounds</b>
               <SourceRefs refs={improvement.recentRoundRefs} maxVisible={4} onSelectRef={onSelectRef} />
             </div>
+            {improvementDeltas.map((row) => {
+              const from = asString(row.fromRoundRef) ?? 'previous'
+              const to = asString(row.toRoundRef) ?? 'next'
+              return (
+                <div className="stat-row" key={`${from}-${to}`}>
+                  <span>
+                    {from} to {to}
+                  </span>
+                  <b>{displaySigned(row.delta)} strokes</b>
+                  <SourceRefs refs={refsFor(row)} maxVisible={2} onSelectRef={onSelectRef} />
+                </div>
+              )
+            })}
           </div>
         </section>
       ) : null}
