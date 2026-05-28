@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -88,22 +89,78 @@ def _latest_backup() -> dict[str, Any] | None:
     snapshot_path = Path(snapshot)
     state, freshness = _freshness_state(payload.get("createdAt"), BACKUP_MAX_AGE)
     issues = list(freshness.get("issues") or [])
+    snapshot_file = _backup_snapshot_file(snapshot_path)
+    snapshot_present = bool(snapshot and snapshot_file is not None and snapshot_file.is_file() and not snapshot_file.is_symlink())
+    expected_size = _int_or_none(payload.get("sizeBytes"))
+    actual_size = snapshot_file.stat().st_size if snapshot_present and snapshot_file is not None else None
+    size_matches = expected_size is not None and actual_size == expected_size
+    expected_sha256 = str(payload.get("sha256") or "").strip().lower()
+    sha256_verified = False
     if payload.get("schema") != "ai-caddie-backup-manifest-v1":
         state = "invalid"
         issues.append("schema_mismatch")
     if not snapshot:
         state = "invalid"
         issues.append("snapshot_missing")
+    elif not snapshot_present:
+        state = "invalid"
+        issues.append("snapshot_file_missing")
+    if expected_size is None:
+        state = "invalid"
+        issues.append("size_missing")
+    elif snapshot_present and not size_matches:
+        state = "invalid"
+        issues.append("size_mismatch")
+    if not expected_sha256:
+        state = "invalid"
+        issues.append("sha256_missing")
+    elif snapshot_present:
+        sha256_verified = _sha256(snapshot_file) == expected_sha256
+        if not sha256_verified:
+            state = "invalid"
+            issues.append("sha256_mismatch")
     return {
         "state": state,
         "schema": payload.get("schema"),
         "snapshot": snapshot_path.name if snapshot_path.is_absolute() else snapshot,
         "createdAt": payload.get("createdAt"),
-        "sizeBytes": payload.get("sizeBytes"),
+        "sizeBytes": expected_size,
+        "actualSizeBytes": actual_size,
+        "snapshotPresent": snapshot_present,
+        "sizeMatches": size_matches,
+        "sha256Present": bool(expected_sha256),
+        "sha256Verified": sha256_verified,
         "maxAgeHours": int(BACKUP_MAX_AGE.total_seconds() // 3600),
         **freshness,
         "issues": sorted(set(issues)),
     }
+
+
+def _backup_snapshot_file(snapshot_path: Path) -> Path | None:
+    if not str(snapshot_path):
+        return None
+    if snapshot_path.is_absolute():
+        return snapshot_path
+    if snapshot_path.exists():
+        return snapshot_path
+    return BACKUP_MANIFEST.parent / snapshot_path.name
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _public_path(path: Path) -> str:

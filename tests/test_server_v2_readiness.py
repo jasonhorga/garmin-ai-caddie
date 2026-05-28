@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,13 +17,16 @@ from server_v2.main import app
 class ServerV2ReadinessTests(unittest.TestCase):
     def _write_backup_manifest(self, path: Path, created_at: datetime) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot = path.parent / "ai-caddie-snapshot.tar.gz"
+        snapshot.write_bytes(b"ai-caddie-private-backup")
         path.write_text(
             json.dumps(
                 {
                     "schema": "ai-caddie-backup-manifest-v1",
-                    "snapshot": "/private/backups/ai-caddie-snapshot.tar.gz",
+                    "snapshot": snapshot.as_posix(),
                     "createdAt": created_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-                    "sizeBytes": 4096,
+                    "sizeBytes": snapshot.stat().st_size,
+                    "sha256": hashlib.sha256(snapshot.read_bytes()).hexdigest(),
                 }
             ),
             encoding="utf-8",
@@ -209,8 +213,53 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(operations["evidence"]["issues"], [])
         self.assertEqual(operations["evidence"]["lastBackup"]["state"], "ready")
         self.assertEqual(operations["evidence"]["lastBackup"]["snapshot"], "ai-caddie-snapshot.tar.gz")
+        self.assertTrue(operations["evidence"]["lastBackup"]["snapshotPresent"])
+        self.assertTrue(operations["evidence"]["lastBackup"]["sizeMatches"])
+        self.assertTrue(operations["evidence"]["lastBackup"]["sha256Verified"])
         self.assertEqual(operations["evidence"]["lastSmoke"]["state"], "ready")
         self.assertEqual(operations["evidence"]["lastSmoke"]["checks"], ["GET /api/v2/readiness", "POST /api/v2/caddie/decision"])
+
+    def test_readiness_operations_degrade_when_backup_manifest_points_to_missing_or_changed_snapshot(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backup_manifest = root / "backups" / "latest.json"
+            smoke_evidence = root / "logs" / "private_trial_smoke_latest.json"
+            self._write_backup_manifest(backup_manifest, datetime.now(UTC))
+            payload = json.loads(backup_manifest.read_text(encoding="utf-8"))
+            payload["snapshot"] = (root / "backups" / "missing-snapshot.tar.gz").as_posix()
+            backup_manifest.write_text(json.dumps(payload), encoding="utf-8")
+            self._write_smoke_evidence(smoke_evidence, datetime.now(UTC))
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.BACKUP_MANIFEST", backup_manifest),
+                patch("server_v2.readiness.SMOKE_EVIDENCE", smoke_evidence),
+            ):
+                missing_response = client.get("/api/v2/readiness")
+
+            self._write_backup_manifest(backup_manifest, datetime.now(UTC))
+            changed_payload = json.loads(backup_manifest.read_text(encoding="utf-8"))
+            Path(changed_payload["snapshot"]).write_bytes(b"changed-after-manifest")
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.BACKUP_MANIFEST", backup_manifest),
+                patch("server_v2.readiness.SMOKE_EVIDENCE", smoke_evidence),
+            ):
+                changed_response = client.get("/api/v2/readiness")
+
+        missing_backup = {check["label"]: check for check in missing_response.json()["checks"]}["operations"]["evidence"]["lastBackup"]
+        self.assertEqual(missing_backup["state"], "invalid")
+        self.assertFalse(missing_backup["snapshotPresent"])
+        self.assertIn("snapshot_file_missing", missing_backup["issues"])
+
+        changed_backup = {check["label"]: check for check in changed_response.json()["checks"]}["operations"]["evidence"]["lastBackup"]
+        self.assertEqual(changed_backup["state"], "invalid")
+        self.assertTrue(changed_backup["snapshotPresent"])
+        self.assertFalse(changed_backup["sizeMatches"])
+        self.assertFalse(changed_backup["sha256Verified"])
+        self.assertIn("size_mismatch", changed_backup["issues"])
+        self.assertIn("sha256_mismatch", changed_backup["issues"])
 
     def test_readiness_operations_degrade_with_stale_backup_or_smoke_evidence(self) -> None:
         client = TestClient(app)

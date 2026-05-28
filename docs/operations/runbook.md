@@ -89,6 +89,10 @@ Backup:
 ops/backup_data.sh
 ```
 
+The script writes `backups/latest.json` with the snapshot filename, size, and
+SHA-256. `/api/v2/readiness` only treats backup evidence as current when that
+manifest is fresh and the referenced tarball is still present and unchanged.
+
 Restore:
 
 ```bash
