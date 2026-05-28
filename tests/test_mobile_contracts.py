@@ -356,6 +356,42 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(checks["geometry"]["ready"], 18)
         self.assertEqual(checks["weather"]["sourceRefs"], ["900001"])
 
+    def test_live_round_package_requires_full_course_geometry_for_partial_round(self) -> None:
+        holes = [{"number": number, "par": 4, "geometryCoverage": "ready"} for number in range(1, 4)]
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {
+                    "id": "partial-round",
+                    "ids": ["partial-round"],
+                    "date": "2026-05-25",
+                    "course": "Partial Championship",
+                    "courseKey": "partial_championship",
+                    "globalId": 77777,
+                    "holesCompleted": 3,
+                    "strokes": 12,
+                    "par": 72,
+                    "holes": holes,
+                }
+            ],
+            shots=[],
+        )
+
+        package = build_live_round_package("partial-round", data=data, data_mode="fixture")
+
+        self.assertEqual(len(package["holes"]), 18)
+        self.assertEqual(package["holes"][0]["geometryCoverage"], "ready")
+        self.assertEqual(package["holes"][2]["geometryCoverage"], "ready")
+        self.assertEqual(package["holes"][3]["geometryCoverage"], "missing")
+        self.assertEqual(package["geometryCoverage"], {"state": "partial", "readyHoles": 3, "totalHoles": 18})
+        checks = {row["label"]: row for row in package["readinessChecks"]}
+        self.assertEqual(checks["geometry"]["state"], "degraded")
+        self.assertEqual(checks["geometry"]["ready"], 3)
+        self.assertEqual(checks["geometry"]["total"], 18)
+        self.assertEqual(checks["caddie_seeds"]["total"], 18)
+        self.assertIn("3/18 holes", checks["geometry"]["reason"])
+        self.assertIn("geometry", {row["label"] for row in package["missingData"]})
+
     def test_live_round_package_exposes_source_coverage_and_degrades_missing_round(self) -> None:
         package = build_live_round_package("missing-round", data=fixture_history_data(), data_mode="fixture")
 

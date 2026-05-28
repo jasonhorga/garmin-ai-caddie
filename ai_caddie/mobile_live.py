@@ -188,6 +188,13 @@ def _course_location(row: dict[str, Any]) -> tuple[float | None, float | None]:
     return lat, lon
 
 
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _hole_stats_row(stats: dict[str, Any], *, course_key: str, hole: int) -> dict[str, Any]:
     for row in stats.get("holes") or []:
         if not isinstance(row, dict):
@@ -195,6 +202,108 @@ def _hole_stats_row(stats: dict[str, Any], *, course_key: str, hole: int) -> dic
         if str(row.get("courseKey") or "") == course_key and int(row.get("hole") or 0) == hole:
             return row
     return {}
+
+
+def _hole_par_from_pars(round_row: dict[str, Any], hole: int) -> int | None:
+    hole_pars = round_row.get("holePars")
+    if isinstance(hole_pars, list):
+        values = [str(item) for item in hole_pars]
+    else:
+        values = list(str(hole_pars or ""))
+    if 1 <= hole <= len(values):
+        return _safe_int(values[hole - 1])
+    return None
+
+
+def _round_hole_numbers(round_row: dict[str, Any]) -> list[int]:
+    numbers: list[int] = []
+    for index, hole in enumerate(round_row.get("holes") or [], start=1):
+        if not isinstance(hole, dict):
+            continue
+        number = _safe_int(hole.get("number")) or index
+        if number > 0 and number not in numbers:
+            numbers.append(number)
+    return sorted(numbers)
+
+
+def _stats_hole_numbers(stats: dict[str, Any], *, course_key: str) -> list[int]:
+    numbers: list[int] = []
+    for row in stats.get("holes") or []:
+        if not isinstance(row, dict):
+            continue
+        if course_key and str(row.get("courseKey") or "") != course_key:
+            continue
+        number = _safe_int(row.get("hole"))
+        if number and number > 0 and number not in numbers:
+            numbers.append(number)
+    return sorted(numbers)
+
+
+def _expected_package_hole_numbers(round_row: dict[str, Any], stats: dict[str, Any], *, course_key: str) -> list[int]:
+    source_numbers = _round_hole_numbers(round_row)
+    stats_numbers = _stats_hole_numbers(stats, course_key=course_key)
+    all_known = sorted(set([*source_numbers, *stats_numbers]))
+    hole_pars = round_row.get("holePars")
+    hole_par_count = len(hole_pars) if isinstance(hole_pars, list) else len(str(hole_pars or ""))
+    holes_completed = _safe_int(round_row.get("holesCompleted") or round_row.get("holesPlayed")) or 0
+
+    if any(number > 9 for number in all_known) or hole_par_count >= 18 or holes_completed >= 18 or len(stats_numbers) >= 10:
+        return list(range(1, 19))
+    if stats_numbers and max(stats_numbers) <= 9 and len(stats_numbers) >= 9:
+        return list(range(1, 10))
+    if hole_par_count == 9 and not any(number > 9 for number in source_numbers):
+        return list(range(1, 10))
+    if source_numbers and max(source_numbers) <= 9 and len(source_numbers) >= 9 and holes_completed <= 9:
+        return list(range(1, 10))
+    return list(range(1, 19))
+
+
+def _round_hole_geometry_ref(round_row: dict[str, Any], hole: int) -> tuple[int | None, int]:
+    global_id = _safe_int(round_row.get("globalId") or round_row.get("courseGlobalId") or round_row.get("courseId"))
+    if hole <= 9:
+        return _safe_int(round_row.get("frontNineGlobalCourseId")) or global_id, hole
+    back_global_id = _safe_int(round_row.get("backNineGlobalCourseId"))
+    if back_global_id is not None:
+        return back_global_id, hole - 9
+    return global_id, hole
+
+
+def _geometry_coverage_for_package_hole(round_row: dict[str, Any], hole: int) -> str:
+    global_id, local_hole = _round_hole_geometry_ref(round_row, hole)
+    if global_id is None:
+        return "missing"
+    try:
+        coverage = geometry_coverage_for_hole(global_id, local_hole)
+    except Exception:
+        return "missing"
+    return str(coverage.get("coverage") or "missing")
+
+
+def _package_holes(round_row: dict[str, Any], stats: dict[str, Any], *, course_key: str) -> list[dict[str, Any]]:
+    source_holes: dict[int, dict[str, Any]] = {}
+    for index, hole in enumerate(round_row.get("holes") or [], start=1):
+        if not isinstance(hole, dict):
+            continue
+        number = _safe_int(hole.get("number")) or index
+        if number > 0:
+            source_holes[number] = hole
+
+    holes: list[dict[str, Any]] = []
+    for number in _expected_package_hole_numbers(round_row, stats, course_key=course_key):
+        source_hole = source_holes.get(number, {})
+        stats_hole = _hole_stats_row(stats, course_key=course_key, hole=number)
+        par = (
+            _safe_int(source_hole.get("par"))
+            or _safe_int(stats_hole.get("par"))
+            or _hole_par_from_pars(round_row, number)
+            or 4
+        )
+        yards = _safe_int(source_hole.get("yards") if source_hole.get("yards") is not None else stats_hole.get("yards"))
+        coverage = str(source_hole.get("geometryCoverage") or stats_hole.get("geometryCoverage") or "")
+        if not coverage:
+            coverage = _geometry_coverage_for_package_hole(round_row, number)
+        holes.append({"number": number, "par": par, "yards": yards, "geometryCoverage": coverage or "missing"})
+    return holes
 
 
 def _dedupe_strings(values: list[Any]) -> list[str]:
@@ -662,7 +771,6 @@ def _caddie_context_seeds(
     player_profile: dict[str, Any] | None = None,
     annotations_root: Path | str | None = None,
 ) -> list[dict[str, Any]]:
-    global_id = int(round_row.get("globalId") or 0)
     course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
     decision_clubs = _decision_club_profiles(club_profiles)
     seeds: list[dict[str, Any]] = []
@@ -670,6 +778,8 @@ def _caddie_context_seeds(
         number = int(hole.get("number") or 0)
         if not number:
             continue
+        geometry_global_id, local_hole = _round_hole_geometry_ref(round_row, number)
+        geometry_global_id = geometry_global_id or 0
         source_ref = f"{round_id}:{number}"
         hole_stats = _hole_stats_row(stats, course_key=course_key, hole=number)
         course_form = _course_form_context(stats, course_key=course_key)
@@ -682,11 +792,17 @@ def _caddie_context_seeds(
             course_form=course_form,
         )
         geometry, geometry_evidence, geometry_missing = _geometry_seed(
-            global_id,
-            number,
+            geometry_global_id,
+            local_hole,
             str(hole.get("geometryCoverage") or "missing"),
         )
-        route_evidence, route_evidence_rows, route_missing = _route_evidence_seed(global_id, number, hole, source_ref, club_profiles)
+        route_evidence, route_evidence_rows, route_missing = _route_evidence_seed(
+            geometry_global_id,
+            local_hole,
+            hole,
+            source_ref,
+            club_profiles,
+        )
         manual_notes = _manual_notes_for_seed(
             annotations_root=annotations_root,
             round_id=round_id,
@@ -704,8 +820,8 @@ def _caddie_context_seeds(
             "sourceRef": source_ref,
             "courseName": course_name,
             "hole": number,
-            "globalId": global_id or None,
-            "localHole": number,
+            "globalId": geometry_global_id or None,
+            "localHole": local_hole,
             "par": hole.get("par"),
             "yards": hole.get("yards"),
             "geometry": geometry,
@@ -1013,26 +1129,7 @@ def build_live_round_package(
             }
         )
     course_key = str(round_row.get("courseKey") or "")
-    holes = [
-        {
-            "number": int(hole.get("number") or index),
-            "par": int(hole.get("par") or 4),
-            "yards": int(hole.get("yards") or 0) if hole.get("yards") is not None else None,
-            "geometryCoverage": str(hole.get("geometryCoverage") or "")
-            or next(
-                (
-                    str(row.get("geometryCoverage") or "missing")
-                    for row in stats["holes"]
-                    if row.get("hole") == int(hole.get("number") or index)
-                    and (not course_key or str(row.get("courseKey") or "") == course_key)
-                ),
-                "missing",
-            ),
-        }
-        for index, hole in enumerate(round_row.get("holes") or [], start=1)
-    ]
-    if not holes:
-        holes = [{"number": index, "par": 4, "yards": None, "geometryCoverage": "missing"} for index in range(1, 19)]
+    holes = _package_holes(round_row, stats, course_key=course_key)
     club_profiles = [
         {
             "clubName": row.get("club"),
