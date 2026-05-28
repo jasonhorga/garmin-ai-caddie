@@ -74,7 +74,7 @@ final class WatchSyncClientTests: XCTestCase {
                 "eventId": "legacy-event",
                 "acceptedEventIds": ["event-1", "event-2"],
                 "duplicateEventIds": ["event-0"],
-                "serverSequence": 42,
+                "phoneSequence": 42,
             ],
             fallbackEventId: "fallback-event"
         )
@@ -82,7 +82,7 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(batch.acceptedEventIds, ["event-1", "event-2"])
         XCTAssertEqual(batch.duplicateEventIds, ["event-0"])
         XCTAssertEqual(batch.acknowledgedEventIds, ["event-1", "event-2", "event-0"])
-        XCTAssertEqual(batch.serverSequence, 42)
+        XCTAssertEqual(batch.phoneSequence, 42)
 
         let legacy = WatchSyncAcknowledgement.decode(["accepted": true, "eventId": "legacy-event"], fallbackEventId: "fallback-event")
 

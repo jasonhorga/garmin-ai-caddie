@@ -12,6 +12,14 @@ final class WatchRoundStateTests: XCTestCase {
             targetLongitude: 114.162,
             targetKind: "pin",
             selectedClub: "8I",
+            availableClubs: [
+                WatchClubOption(clubName: "8I", sampleSize: 24, medianM: 144, source: "club_profile")
+            ],
+            shotType: "approach",
+            strategyMode: "stock",
+            lie: "fairway",
+            offlineOptionId: "stock",
+            decisionId: "decision-1",
             score: 4,
             putts: 2,
             penaltyCount: 0,
@@ -24,6 +32,9 @@ final class WatchRoundStateTests: XCTestCase {
         XCTAssertEqual(decoded, state)
         XCTAssertEqual(decoded.id, "round-1-7")
         XCTAssertEqual(decoded.targetKind, "pin")
+        XCTAssertEqual(decoded.availableClubNames, ["8I"])
+        XCTAssertEqual(decoded.shotType, "approach")
+        XCTAssertEqual(decoded.offlineOptionId, "stock")
     }
 
     func testWatchRoundStatePreservesEvidenceAndMissingDataAcrossQuickInput() throws {
@@ -34,6 +45,15 @@ final class WatchRoundStateTests: XCTestCase {
             distanceM: 142,
             suggestedClub: "8I",
             selectedClub: "8I",
+            availableClubs: [
+                WatchClubOption(clubName: "8I", sampleSize: 24, medianM: 144, source: "club_profile"),
+                WatchClubOption(clubName: "7I", medianM: 156, source: "offline_option:attack"),
+            ],
+            shotType: "approach",
+            strategyMode: "stock",
+            lie: "fairway",
+            offlineOptionId: "stock",
+            decisionId: "decision-1",
             nextShotPrompt: "8I / Stock / 142m",
             evidenceSummary: "route: water left",
             missingDataSummary: "wind: not cached",
@@ -54,8 +74,33 @@ final class WatchRoundStateTests: XCTestCase {
         let updated = state.applying(event)
 
         XCTAssertEqual(updated.selectedClub, "7I")
+        XCTAssertEqual(updated.availableClubNames, ["8I", "7I"])
+        XCTAssertEqual(updated.shotType, "approach")
+        XCTAssertEqual(updated.offlineOptionId, "stock")
         XCTAssertEqual(updated.evidenceSummary, "route: water left")
         XCTAssertEqual(updated.missingDataSummary, "wind: not cached")
+    }
+
+    func testWatchRoundStateDecodesLegacyStateWithoutAvailableClubs() throws {
+        let legacy = """
+        {
+          "roundId": "round-1",
+          "hole": 7,
+          "par": 4,
+          "distanceM": 142,
+          "selectedClub": "8I",
+          "score": 4,
+          "putts": 2,
+          "penaltyCount": 0,
+          "caddieConfidence": "medium"
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(WatchRoundState.self, from: legacy)
+
+        XCTAssertEqual(decoded.availableClubs, [])
+        XCTAssertEqual(decoded.selectedClub, "8I")
+        XCTAssertNil(decoded.offlineOptionId)
     }
 
     func testWatchDistanceInputUpdatesLocalDistanceWithoutDroppingTarget() throws {

@@ -1563,6 +1563,13 @@ class MobileContractTests(unittest.TestCase):
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
 
         self.assertIn("import WatchConnectivity", bridge)
+        self.assertIn("struct WatchClubOption: Codable", bridge)
+        self.assertIn("let availableClubs: [WatchClubOption]", bridge)
+        self.assertIn("let shotType: String?", bridge)
+        self.assertIn("let strategyMode: String?", bridge)
+        self.assertIn("let lie: String?", bridge)
+        self.assertIn("let offlineOptionId: String?", bridge)
+        self.assertIn("let decisionId: String?", bridge)
         self.assertIn("struct WatchRoundStatePayload: Codable", bridge)
         self.assertIn("final class WatchEventBridge", bridge)
         self.assertIn("WCSessionDelegate", bridge)
@@ -1594,10 +1601,21 @@ class MobileContractTests(unittest.TestCase):
             '"strokes": try numericPayload(event.value, minimum: 1)',
             '"putts": try numericPayload(event.value, minimum: 0)',
             '"penalties": try numericPayload(event.value, minimum: 0)',
-            '"clubName": .string(event.value)',
-            '"distanceToPinM": try numericDistancePayload(event.value, minimum: 0)',
+            'payload["shotType"] = .string(shotType)',
+            'payload["strategyMode"] = .string(strategyMode)',
+            'payload["lie"] = .string(lie)',
+            'payload["offlineOptionId"] = jsonStringOrNull(event.offlineOptionId)',
+            'payload["decisionId"] = .string(decisionId)',
+            'payload["distanceToPinM"] = try numericDistancePayload(event.value, minimum: 0)',
         ]:
             self.assertIn(mapping, bridge)
+        self.assertIn("guard let clubName = nonEmpty(event.value)", bridge)
+        self.assertIn("guard let clubName = nonEmpty(event.contextClub)", bridge)
+        self.assertIn("throw WatchEventBridgeError.missingClubContext", bridge)
+        self.assertIn('replyHandler(["accepted": false, "eventId": event.eventId, "reason": "missing_club_context"])', bridge)
+        self.assertIn("watchClubOptions(", bridge)
+        self.assertIn("package.clubProfiles", bridge)
+        self.assertIn("package.caddieContextSeeds.first(where:", bridge)
         self.assertIn("guard let parsed = Int", bridge)
         self.assertIn("guard let parsed = Double", bridge)
         self.assertIn("throw WatchEventBridgeError.invalidNumericInput", bridge)
@@ -1715,7 +1733,13 @@ class MobileContractTests(unittest.TestCase):
     def test_watch_state_model_defines_compact_codable_state(self) -> None:
         state_swift = (WATCH_DIR / "Models" / "WatchRoundState.swift").read_text(encoding="utf-8")
 
+        self.assertIn("struct WatchClubOption: Codable", state_swift)
+        self.assertIn("let clubName: String", state_swift)
+        self.assertIn("let sampleSize: Int?", state_swift)
+        self.assertIn("let medianM: Double?", state_swift)
         self.assertIn("struct WatchRoundState: Codable", state_swift)
+        self.assertIn("init(from decoder: Decoder) throws", state_swift)
+        self.assertIn("decodeIfPresent([WatchClubOption].self, forKey: .availableClubs) ?? []", state_swift)
         for field in [
             "roundId",
             "hole",
@@ -1727,6 +1751,12 @@ class MobileContractTests(unittest.TestCase):
             "targetKind",
             "suggestedClub",
             "selectedClub",
+            "availableClubs",
+            "shotType",
+            "strategyMode",
+            "lie",
+            "offlineOptionId",
+            "decisionId",
             "nextShotPrompt",
             "score",
             "putts",
@@ -1813,7 +1843,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("acceptedEventIds", sync_swift)
         self.assertIn("duplicateEventIds", sync_swift)
         self.assertIn("acknowledgedEventIds", sync_swift)
-        self.assertIn("serverSequence", sync_swift)
+        self.assertIn("phoneSequence", sync_swift)
+        self.assertNotIn("serverSequence", sync_swift)
         self.assertIn("WatchSyncAcknowledgement.decode(reply", sync_swift)
         self.assertNotIn("try FileManager.default.removeItem(at: queueURL)\n    }", sync_swift)
 
@@ -1849,6 +1880,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchSyncClient", watch_app)
         self.assertIn("syncClient.currentState", watch_app)
         self.assertIn("WatchHoleView", watch_app)
+        self.assertIn("clubs: state.availableClubNames", watch_app)
+        self.assertNotIn("defaultClubs", watch_app)
         self.assertIn("sendQuickInputEvent", watch_app)
         self.assertIn("struct WatchHoleView: View", hole_view)
         self.assertIn("WatchCaddieGlanceView", hole_view)
@@ -1858,7 +1891,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("penaltyCount", input_view)
         self.assertIn("Picker", input_view)
         self.assertIn("selectedClub", input_view)
-        self.assertIn("contextClub: selectedClub", input_view)
+        self.assertIn("inputClubs", input_view)
+        self.assertIn("state.availableClubNames", input_view)
+        self.assertIn("contextClub: hasClubContext ? selectedClub : nil", input_view)
+        self.assertIn("shotType: state.shotType", input_view)
+        self.assertIn("strategyMode: state.strategyMode", input_view)
+        self.assertIn("offlineOptionId: state.offlineOptionId", input_view)
+        self.assertIn("decisionId: state.decisionId", input_view)
         self.assertIn("emit(kind: .distance", input_view)
         self.assertIn("struct WatchCaddieGlanceView: View", glance_view)
         self.assertIn("caddieConfidence", glance_view)

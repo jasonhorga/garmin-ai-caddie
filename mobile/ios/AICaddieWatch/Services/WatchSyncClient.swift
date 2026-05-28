@@ -20,6 +20,12 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public let value: String
     public let createdAt: String
     public let contextClub: String?
+    public let shotType: String?
+    public let strategyMode: String?
+    public let lie: String?
+    public let distanceToPinM: Double?
+    public let offlineOptionId: String?
+    public let decisionId: String?
 
     public init(
         eventId: String,
@@ -28,7 +34,13 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         kind: WatchInputKind,
         value: String,
         createdAt: String,
-        contextClub: String? = nil
+        contextClub: String? = nil,
+        shotType: String? = nil,
+        strategyMode: String? = nil,
+        lie: String? = nil,
+        distanceToPinM: Double? = nil,
+        offlineOptionId: String? = nil,
+        decisionId: String? = nil
     ) {
         self.eventId = eventId
         self.roundId = roundId
@@ -37,13 +49,19 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         self.value = value
         self.createdAt = createdAt
         self.contextClub = contextClub
+        self.shotType = shotType
+        self.strategyMode = strategyMode
+        self.lie = lie
+        self.distanceToPinM = distanceToPinM
+        self.offlineOptionId = offlineOptionId
+        self.decisionId = decisionId
     }
 }
 
 public struct WatchSyncAcknowledgement: Equatable {
     public let acceptedEventIds: [String]
     public let duplicateEventIds: [String]
-    public let serverSequence: Int
+    public let phoneSequence: Int
 
     public var acknowledgedEventIds: [String] {
         acceptedEventIds + duplicateEventIds
@@ -55,12 +73,12 @@ public struct WatchSyncAcknowledgement: Equatable {
         let explicitAcceptedEventIds = stringArray(reply["acceptedEventIds"])
         let acceptedEventIds = explicitAcceptedEventIds ?? (accepted ? [eventId] : [])
         let duplicateEventIds = stringArray(reply["duplicateEventIds"]) ?? []
-        let serverSequence = intValue(reply["serverSequence"]) ?? 0
+        let phoneSequence = intValue(reply["phoneSequence"]) ?? intValue(reply["watchAckSequence"]) ?? 0
 
         return WatchSyncAcknowledgement(
             acceptedEventIds: acceptedEventIds,
             duplicateEventIds: duplicateEventIds,
-            serverSequence: serverSequence
+            phoneSequence: phoneSequence
         )
     }
 

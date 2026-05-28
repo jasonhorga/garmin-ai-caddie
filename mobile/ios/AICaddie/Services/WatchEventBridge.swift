@@ -9,6 +9,27 @@ public enum WatchInputKind: String, Codable, Equatable {
     case distance
 }
 
+public struct WatchClubOption: Codable, Equatable, Identifiable {
+    public var id: String { clubName }
+
+    public let clubName: String
+    public let sampleSize: Int?
+    public let medianM: Double?
+    public let source: String?
+
+    public init(
+        clubName: String,
+        sampleSize: Int? = nil,
+        medianM: Double? = nil,
+        source: String? = nil
+    ) {
+        self.clubName = clubName
+        self.sampleSize = sampleSize
+        self.medianM = medianM
+        self.source = source
+    }
+}
+
 public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public var id: String { eventId }
 
@@ -19,6 +40,12 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public let value: String
     public let createdAt: String
     public let contextClub: String?
+    public let shotType: String?
+    public let strategyMode: String?
+    public let lie: String?
+    public let distanceToPinM: Double?
+    public let offlineOptionId: String?
+    public let decisionId: String?
 
     public init(
         eventId: String,
@@ -27,7 +54,13 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         kind: WatchInputKind,
         value: String,
         createdAt: String,
-        contextClub: String? = nil
+        contextClub: String? = nil,
+        shotType: String? = nil,
+        strategyMode: String? = nil,
+        lie: String? = nil,
+        distanceToPinM: Double? = nil,
+        offlineOptionId: String? = nil,
+        decisionId: String? = nil
     ) {
         self.eventId = eventId
         self.roundId = roundId
@@ -36,6 +69,12 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         self.value = value
         self.createdAt = createdAt
         self.contextClub = contextClub
+        self.shotType = shotType
+        self.strategyMode = strategyMode
+        self.lie = lie
+        self.distanceToPinM = distanceToPinM
+        self.offlineOptionId = offlineOptionId
+        self.decisionId = decisionId
     }
 }
 
@@ -50,6 +89,12 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let targetKind: String?
     public let suggestedClub: String?
     public let selectedClub: String?
+    public let availableClubs: [WatchClubOption]
+    public let shotType: String?
+    public let strategyMode: String?
+    public let lie: String?
+    public let offlineOptionId: String?
+    public let decisionId: String?
     public let nextShotPrompt: String?
     public let evidenceSummary: String?
     public let missingDataSummary: String?
@@ -61,6 +106,7 @@ public struct WatchRoundStatePayload: Codable, Equatable {
 
 public enum WatchEventBridgeError: Error {
     case invalidNumericInput
+    case missingClubContext
 }
 
 public final class WatchEventBridge: NSObject {
@@ -94,15 +140,20 @@ public final class WatchEventBridge: NSObject {
         case .penalty:
             return liveEvent(event, kind: .penalty, payload: ["penalties": try numericPayload(event.value, minimum: 0)])
         case .club:
-            return liveEvent(event, kind: .club, payload: ["clubName": .string(event.value)])
+            guard let clubName = nonEmpty(event.value) else {
+                throw WatchEventBridgeError.missingClubContext
+            }
+            return liveEvent(event, kind: .club, payload: clubPayload(for: event, clubName: clubName))
         case .distance:
+            guard let clubName = nonEmpty(event.contextClub) else {
+                throw WatchEventBridgeError.missingClubContext
+            }
+            var payload = clubPayload(for: event, clubName: clubName)
+            payload["distanceToPinM"] = try numericDistancePayload(event.value, minimum: 0)
             return liveEvent(
                 event,
                 kind: .club,
-                payload: [
-                    "clubName": .string(event.contextClub ?? ""),
-                    "distanceToPinM": try numericDistancePayload(event.value, minimum: 0),
-                ]
+                payload: payload
             )
         }
     }
@@ -123,6 +174,8 @@ public final class WatchEventBridge: NSObject {
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
+        let selectedOptionId = string(selected?["id"]) ?? decision?.selectedOptionId ?? offlineSelected?.optionId
+        let suggestedClub = clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName
         return WatchRoundStatePayload(
             roundId: package.roundId,
             hole: hole.number,
@@ -138,8 +191,21 @@ public final class WatchEventBridge: NSObject {
             targetLatitude: targetLatitude,
             targetLongitude: targetLongitude,
             targetKind: targetKind,
-            suggestedClub: clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName,
+            suggestedClub: suggestedClub,
             selectedClub: selectedClub,
+            availableClubs: watchClubOptions(
+                package: package,
+                hole: hole,
+                selectedClub: selectedClub,
+                suggestedClub: suggestedClub,
+                selectedOption: selected,
+                offlineOption: offlineSelected
+            ),
+            shotType: nonEmpty(decision?.shotType),
+            strategyMode: strategyMode(selectedOption: selected, selectedOptionId: selectedOptionId),
+            lie: nonEmpty(string(decision?.context["lie"])),
+            offlineOptionId: selectedOptionId,
+            decisionId: nonEmpty(decision?.decisionId),
             nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected),
             evidenceSummary: evidenceSummary(from: decision, offlineOption: offlineSelected),
             missingDataSummary: missingDataSummary(from: decision),
@@ -197,9 +263,32 @@ public final class WatchEventBridge: NSObject {
             }
         } catch WatchEventBridgeError.invalidNumericInput {
             replyHandler(["accepted": false, "eventId": event.eventId, "reason": "invalid_numeric_input"])
+        } catch WatchEventBridgeError.missingClubContext {
+            replyHandler(["accepted": false, "eventId": event.eventId, "reason": "missing_club_context"])
         } catch {
             replyHandler(["accepted": false, "eventId": event.eventId])
         }
+    }
+
+    private func clubPayload(for event: WatchInputEvent, clubName: String) -> [String: JSONValue] {
+        var payload: [String: JSONValue] = ["clubName": .string(clubName)]
+        if let shotType = nonEmpty(event.shotType) {
+            payload["shotType"] = .string(shotType)
+        }
+        if let strategyMode = nonEmpty(event.strategyMode) {
+            payload["strategyMode"] = .string(strategyMode)
+        }
+        if let lie = nonEmpty(event.lie) {
+            payload["lie"] = .string(lie)
+        }
+        if let distanceToPinM = event.distanceToPinM, distanceToPinM.isFinite {
+            payload["distanceToPinM"] = .number(distanceToPinM)
+        }
+        payload["offlineOptionId"] = jsonStringOrNull(event.offlineOptionId)
+        if let decisionId = nonEmpty(event.decisionId) {
+            payload["decisionId"] = .string(decisionId)
+        }
+        return payload
     }
 
     private func liveEvent(
@@ -243,6 +332,94 @@ public final class WatchEventBridge: NSObject {
             throw WatchEventBridgeError.invalidNumericInput
         }
         return .number(parsed)
+    }
+
+    private func jsonStringOrNull(_ value: String?) -> JSONValue {
+        guard let value = nonEmpty(value) else {
+            return .null
+        }
+        return .string(value)
+    }
+
+    private func watchClubOptions(
+        package: LiveRoundPackage,
+        hole: Hole,
+        selectedClub: String?,
+        suggestedClub: String?,
+        selectedOption: [String: JSONValue]?,
+        offlineOption: OfflineCaddieOption?
+    ) -> [WatchClubOption] {
+        var options: [WatchClubOption] = []
+        var seen = Set<String>()
+
+        func append(_ option: WatchClubOption) {
+            guard let clubName = nonEmpty(option.clubName) else {
+                return
+            }
+            let key = clubName.lowercased()
+            guard seen.insert(key).inserted else {
+                return
+            }
+            options.append(
+                WatchClubOption(
+                    clubName: clubName,
+                    sampleSize: option.sampleSize,
+                    medianM: option.medianM,
+                    source: option.source
+                )
+            )
+        }
+
+        for profile in package.clubProfiles {
+            append(
+                WatchClubOption(
+                    clubName: profile.clubName,
+                    sampleSize: profile.sampleSize,
+                    medianM: profile.medianM,
+                    source: "club_profile"
+                )
+            )
+        }
+
+        for option in package.caddieContextSeeds.first(where: { $0.hole == hole.number })?.offlineOptions ?? [] {
+            append(
+                WatchClubOption(
+                    clubName: option.clubName,
+                    medianM: option.carryM,
+                    source: "offline_option:\(option.optionId)"
+                )
+            )
+        }
+
+        if let offlineOption {
+            append(
+                WatchClubOption(
+                    clubName: offlineOption.clubName,
+                    medianM: offlineOption.carryM,
+                    source: "offline_option:\(offlineOption.optionId)"
+                )
+            )
+        }
+        append(WatchClubOption(clubName: string(selectedOption?["clubName"]) ?? "", source: "decision_option"))
+        append(WatchClubOption(clubName: suggestedClub ?? "", source: "suggested"))
+        append(WatchClubOption(clubName: selectedClub ?? "", source: "selected"))
+        return options
+    }
+
+    private func strategyMode(selectedOption: [String: JSONValue]?, selectedOptionId: String?) -> String? {
+        if let explicit = nonEmpty(string(selectedOption?["strategyMode"])) {
+            return explicit
+        }
+        switch nonEmpty(selectedOptionId)?.lowercased() {
+        case "safe":
+            return "protect_score"
+        case "stock":
+            return "stock"
+        case "attack":
+            return "attack"
+        default:
+            return nil
+        }
     }
 
     private func watchTargetNote(
@@ -408,6 +585,13 @@ public final class WatchEventBridge: NSObject {
             return raw
         }
         return nil
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private func number(_ value: JSONValue?) -> Double? {

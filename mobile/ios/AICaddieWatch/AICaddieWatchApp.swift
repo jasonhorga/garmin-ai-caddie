@@ -11,7 +11,7 @@ public struct AICaddieWatchApp: App {
             if let state = syncClient.currentState {
                 WatchHoleView(
                     state: state,
-                    clubs: defaultClubs,
+                    clubs: state.availableClubNames,
                     onEvent: sendQuickInputEvent
                 )
             } else {
@@ -24,10 +24,6 @@ public struct AICaddieWatchApp: App {
                 }
             }
         }
-    }
-
-    private var defaultClubs: [String] {
-        ["1D", "3W", "5I", "7I", "9I", "PW", "54", "58", "Putter"]
     }
 
     private func sendQuickInputEvent(_ event: WatchInputEvent) {

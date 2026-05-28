@@ -68,6 +68,13 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.targetNote, "Center green / pin set on iPhone")
         XCTAssertEqual(payload.evidenceSummary, "route / prodgeometry / geometry: 2 / water left / ready")
         XCTAssertEqual(payload.missingDataSummary, "wind: not cached / missing")
+        XCTAssertEqual(payload.availableClubs.map(\.clubName), ["8I", "9I", "7I"])
+        XCTAssertEqual(payload.availableClubs.first?.sampleSize, 24)
+        XCTAssertEqual(payload.availableClubs.first?.medianM, 144)
+        XCTAssertEqual(payload.shotType, "approach")
+        XCTAssertEqual(payload.strategyMode, "stock")
+        XCTAssertEqual(payload.offlineOptionId, "stock")
+        XCTAssertEqual(payload.decisionId, "decision-1")
     }
 
     func testOfflineEvidenceSummaryRedactsPrivateSourceRefs() throws {
@@ -154,6 +161,53 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(liveEvent.payload["clubName"], .string("8I"))
         XCTAssertEqual(liveEvent.payload["distanceToPinM"], .number(155))
         XCTAssertEqual(liveEvent.payload["source"], .string("apple_watch"))
+    }
+
+    func testWatchClubInputIncludesDecisionContextForAudit() throws {
+        let bridge = WatchEventBridge()
+        let event = WatchInputEvent(
+            eventId: "watch-club-1",
+            roundId: "round-1",
+            hole: 4,
+            kind: .club,
+            value: "8I",
+            createdAt: "2026-05-25T00:00:00Z",
+            contextClub: "8I",
+            shotType: "approach",
+            strategyMode: "stock",
+            lie: "fairway",
+            distanceToPinM: 142,
+            offlineOptionId: "stock",
+            decisionId: "decision-1"
+        )
+
+        let liveEvent = try bridge.mapWatchInputEvent(event)
+
+        XCTAssertEqual(liveEvent.kind, .club)
+        XCTAssertEqual(liveEvent.payload["clubName"], .string("8I"))
+        XCTAssertEqual(liveEvent.payload["shotType"], .string("approach"))
+        XCTAssertEqual(liveEvent.payload["strategyMode"], .string("stock"))
+        XCTAssertEqual(liveEvent.payload["lie"], .string("fairway"))
+        XCTAssertEqual(liveEvent.payload["distanceToPinM"], .number(142))
+        XCTAssertEqual(liveEvent.payload["offlineOptionId"], .string("stock"))
+        XCTAssertEqual(liveEvent.payload["decisionId"], .string("decision-1"))
+        XCTAssertEqual(liveEvent.payload["source"], .string("apple_watch"))
+    }
+
+    func testWatchDistanceInputRejectsMissingClubContext() throws {
+        let bridge = WatchEventBridge()
+        let event = WatchInputEvent(
+            eventId: "watch-distance-2",
+            roundId: "round-1",
+            hole: 4,
+            kind: .distance,
+            value: "155",
+            createdAt: "2026-05-25T00:00:00Z"
+        )
+
+        XCTAssertThrowsError(try bridge.mapWatchInputEvent(event)) { error in
+            XCTAssertTrue(error is WatchEventBridgeError)
+        }
     }
 
     private func fixturePackage() throws -> LiveRoundPackage {

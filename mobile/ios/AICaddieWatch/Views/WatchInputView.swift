@@ -13,12 +13,13 @@ public struct WatchInputView: View {
 
     public init(state: WatchRoundState, clubs: [String], onEvent: @escaping (WatchInputEvent) -> Void = { _ in }) {
         self.state = state
-        self.clubs = clubs
+        self.clubs = clubs.isEmpty ? state.availableClubNames : clubs
         self.onEvent = onEvent
         self._score = State(initialValue: state.score)
         self._putts = State(initialValue: state.putts)
         self._penaltyCount = State(initialValue: state.penaltyCount)
-        self._selectedClub = State(initialValue: state.selectedClub ?? clubs.first ?? "")
+        let availableClubs = clubs.isEmpty ? state.availableClubNames : clubs
+        self._selectedClub = State(initialValue: state.selectedClub ?? state.suggestedClub ?? availableClubs.first ?? "")
         self._distanceM = State(initialValue: Int(state.distanceM ?? 0))
     }
 
@@ -34,18 +35,31 @@ public struct WatchInputView: View {
                 Label("Pen \(penaltyCount)", systemImage: "plus.circle")
             }
             Picker("Club", selection: $selectedClub) {
-                ForEach(clubs, id: \.self) { club in
+                ForEach(inputClubs, id: \.self) { club in
                     Text(club).tag(club)
                 }
             }
+            .disabled(inputClubs.isEmpty)
             Button("Save") {
-                emit(kind: .distance, value: "\(distanceM)")
+                if hasClubContext {
+                    emit(kind: .distance, value: "\(distanceM)")
+                }
                 emit(kind: .score, value: "\(score)")
                 emit(kind: .putt, value: "\(putts)")
-                emit(kind: .club, value: selectedClub)
+                if hasClubContext {
+                    emit(kind: .club, value: selectedClub)
+                }
             }
         }
         .navigationTitle("Input")
+    }
+
+    private var inputClubs: [String] {
+        clubs.isEmpty ? state.availableClubNames : clubs
+    }
+
+    private var hasClubContext: Bool {
+        !selectedClub.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func emit(kind: WatchInputKind, value: String) {
@@ -57,7 +71,13 @@ public struct WatchInputView: View {
                 kind: kind,
                 value: value,
                 createdAt: ISO8601DateFormatter().string(from: Date()),
-                contextClub: selectedClub
+                contextClub: hasClubContext ? selectedClub : nil,
+                shotType: state.shotType,
+                strategyMode: state.strategyMode,
+                lie: state.lie,
+                distanceToPinM: Double(distanceM),
+                offlineOptionId: state.offlineOptionId,
+                decisionId: state.decisionId
             )
         )
     }
