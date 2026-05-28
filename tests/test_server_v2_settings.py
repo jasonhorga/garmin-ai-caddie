@@ -59,7 +59,7 @@ class ServerV2SettingsTests(unittest.TestCase):
             ["gps", "score", "club", "putt", "penalty", "note", "photo", "video"],
         )
         self.assertTrue(payload["liveApps"]["watch"]["requiresIphoneBridge"])
-        self.assertEqual(payload["liveApps"]["watch"]["inputs"], ["club", "score", "putt", "penalty"])
+        self.assertEqual(payload["liveApps"]["watch"]["inputs"], ["club", "distance", "score", "putt", "penalty"])
         self.assertTrue(payload["privacy"]["noGarminPasswordStorage"])
         self.assertTrue(payload["privacy"]["adminProtectedWrites"])
         self.assertEqual(payload["endpoints"]["syncStatus"], "/api/v2/sync/status")

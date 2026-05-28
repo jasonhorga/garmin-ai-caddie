@@ -25,7 +25,7 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
   const watch = asRecord(settings?.liveApps?.watch)
   const privacy = asRecord(settings?.privacy)
   const iosCaptures = formatSettingList(ios.captures, ['gps', 'club', 'score'])
-  const watchInputs = formatSettingList(watch.inputs, ['club', 'score', 'putt', 'penalty'])
+  const watchInputs = formatSettingList(watch.inputs, ['club', 'distance', 'score', 'putt', 'penalty'])
 
   return (
     <section className="settings-page" aria-label="Settings workspace">

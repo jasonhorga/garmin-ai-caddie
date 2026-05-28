@@ -92,7 +92,7 @@ def build_product_settings_response() -> dict[str, Any]:
             "watch": {
                 "state": "contract_ready",
                 "requiresIphoneBridge": True,
-                "inputs": ["club", "score", "putt", "penalty"],
+                "inputs": ["club", "distance", "score", "putt", "penalty"],
             },
             "vision": {
                 "state": "bounded_context",
