@@ -347,8 +347,11 @@ export function fetchMobileCourseOptions(adminToken?: string): Promise<MobileCou
   return getJson<MobileCourseOptionsResponse>('/api/v2/mobile/courses/options', adminToken)
 }
 
-export function fetchMobileReconciliation(roundId: string): Promise<MobileReconciliationResponse> {
-  return getJson<MobileReconciliationResponse>(`/api/v2/mobile/rounds/${encodeURIComponent(roundId)}/reconciliation`)
+export function fetchMobileReconciliation(roundId: string, adminToken?: string): Promise<MobileReconciliationResponse> {
+  return getJson<MobileReconciliationResponse>(
+    `/api/v2/mobile/rounds/${encodeURIComponent(roundId)}/reconciliation`,
+    adminToken,
+  )
 }
 
 export function fetchMobileRoundPackage(

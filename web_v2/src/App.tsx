@@ -695,7 +695,7 @@ export default function App() {
     setMobileReconciliationState({ status: 'loading', roundId })
     setMobileReconciliationApplyState({ status: 'idle' })
     try {
-      const data = await fetchMobileReconciliation(roundId)
+      const data = await fetchMobileReconciliation(roundId, currentAdminToken())
       setMobileReconciliationState({ status: 'ready', data })
       return data
     } catch (error: unknown) {

@@ -1467,7 +1467,9 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&ensure_geometry=true', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v2/mobile/rounds/900001/reconciliation/apply',
       expect.objectContaining({ method: 'POST' }),

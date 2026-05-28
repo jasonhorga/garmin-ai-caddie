@@ -1620,6 +1620,37 @@ describe('mobile reconciliation API helpers', () => {
     expect(data.annotationSuggestions[0].kind).toBe('score_correction')
   })
 
+  it('sends the admin token header for protected mobile reconciliation reads', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-mobile-reconciliation-v1',
+        roundId: '900001',
+        summary: {
+          eventCount: 0,
+          matchedCount: 0,
+          localOnlyCount: 0,
+          garminOnlyCount: 0,
+          conflictCount: 0,
+          candidateDecisionAuditCount: 0,
+          annotationSuggestionCount: 0,
+        },
+        matched: [],
+        localOnly: [],
+        garminOnly: [],
+        conflicts: [],
+        candidateDecisionAudits: [],
+        annotationSuggestions: [],
+      }),
+    }))
+
+    await fetchMobileReconciliation('900001', 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
   it('applies selected mobile reconciliation suggestions', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
