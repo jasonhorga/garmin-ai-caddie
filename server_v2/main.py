@@ -192,6 +192,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or path == "/api/v2/reports"
             or path.startswith("/api/v2/reports/")
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
+            or path == "/api/v2/mobile/courses/options"
             or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
         )

@@ -239,6 +239,32 @@ def _mobile_package_response() -> dict[str, object]:
     }
 
 
+def _mobile_course_options_response() -> dict[str, object]:
+    return {
+        "schema": "ai-caddie-mobile-course-options-v1",
+        "dataMode": "fixture",
+        "total": 1,
+        "courses": [
+            {
+                "globalId": 31795,
+                "courseKey": "black_knight",
+                "name": "Black Knight B/C",
+                "roundCount": 2,
+                "latestRoundId": "900001",
+                "latestRoundDate": "2026-05-18",
+                "templateRoundId": "900001",
+                "suggestedLiveRoundId": "live-31795",
+                "holes": 18,
+                "teeBox": "blue",
+                "geometryCoverage": "missing",
+                "sourceRefs": ["900001", "900002"],
+            }
+        ],
+        "emptyState": None,
+        "generatedAt": "2026-05-25T00:00:00Z",
+    }
+
+
 def _reconciliation_response() -> dict[str, object]:
     return {
         "schema": "ai-caddie-mobile-reconciliation-v1",
@@ -461,26 +487,31 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
     def test_admin_token_required_for_mobile_package_and_reconciliation_reads_when_configured(self) -> None:
         client = TestClient(app)
         package_handler = Mock(return_value=_mobile_package_response())
+        course_options_handler = Mock(return_value=_mobile_course_options_response())
         course_package_handler = Mock(return_value=_mobile_package_response())
         reconciliation_handler = Mock(return_value=_reconciliation_response())
 
         with (
             patch.dict("os.environ", ADMIN_ENV),
             patch("server_v2.main.build_mobile_round_package_response", package_handler),
+            patch("server_v2.main.build_mobile_course_options_response", course_options_handler),
             patch("server_v2.main.build_mobile_course_package_response", course_package_handler),
             patch("server_v2.main.reconcile_mobile_round_response", reconciliation_handler),
         ):
             package = client.get("/api/v2/mobile/rounds/live-round-1/package")
+            course_options = client.get("/api/v2/mobile/courses/options")
             course_package = client.get("/api/v2/mobile/courses/31795/package?round_id=live-round-1")
             reconciliation = client.get("/api/v2/mobile/rounds/live-round-1/reconciliation")
 
         self.assertEqual(package.status_code, 401)
+        self.assertEqual(course_options.status_code, 401)
         self.assertEqual(course_package.status_code, 401)
         self.assertEqual(reconciliation.status_code, 401)
         package_handler.assert_not_called()
+        course_options_handler.assert_not_called()
         course_package_handler.assert_not_called()
         reconciliation_handler.assert_not_called()
-        self.assertNotIn("admin-secret", package.text + course_package.text + reconciliation.text)
+        self.assertNotIn("admin-secret", package.text + course_options.text + course_package.text + reconciliation.text)
 
     def test_admin_token_required_for_media_context_reads_when_configured(self) -> None:
         client = TestClient(app)
@@ -561,19 +592,24 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
     def test_mobile_package_and_reconciliation_reads_remain_public_without_admin_token(self) -> None:
         client = TestClient(app)
         package_handler = Mock(return_value=_mobile_package_response())
+        course_options_handler = Mock(return_value=_mobile_course_options_response())
         reconciliation_handler = Mock(return_value=_reconciliation_response())
 
         with (
             patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": ""}),
             patch("server_v2.main.build_mobile_round_package_response", package_handler),
+            patch("server_v2.main.build_mobile_course_options_response", course_options_handler),
             patch("server_v2.main.reconcile_mobile_round_response", reconciliation_handler),
         ):
             package = client.get("/api/v2/mobile/rounds/live-round-1/package")
+            course_options = client.get("/api/v2/mobile/courses/options")
             reconciliation = client.get("/api/v2/mobile/rounds/live-round-1/reconciliation")
 
         self.assertEqual(package.status_code, 200)
+        self.assertEqual(course_options.status_code, 200)
         self.assertEqual(reconciliation.status_code, 200)
         package_handler.assert_called_once_with("live-round-1", captured_at=None)
+        course_options_handler.assert_called_once_with()
         reconciliation_handler.assert_called_once_with("live-round-1")
 
     def test_history_reads_require_admin_token_when_configured(self) -> None:
@@ -642,6 +678,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
             patch("server_v2.main.redact_media_response", return_value=_media_redact_response(), create=True),
             patch("server_v2.main.analyze_media_response", return_value=_vision_response()),
             patch("server_v2.main.build_mobile_round_package_response", return_value=_mobile_package_response()),
+            patch("server_v2.main.build_mobile_course_options_response", return_value=_mobile_course_options_response()),
             patch("server_v2.main.reconcile_mobile_round_response", return_value=_reconciliation_response()),
             patch("server_v2.main.append_mobile_events_response", return_value={"accepted": 1, "duplicate": False}),
             patch("server_v2.main.apply_mobile_round_reconciliation_response", return_value=_reconciliation_apply_response()),
@@ -688,6 +725,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
                     json=_event_batch(),
                 ),
                 client.get("/api/v2/mobile/rounds/live-round-1/package", headers=ADMIN_HEADER),
+                client.get("/api/v2/mobile/courses/options", headers=ADMIN_HEADER),
                 client.get("/api/v2/mobile/rounds/live-round-1/reconciliation", headers=ADMIN_HEADER),
                 client.post(
                     "/api/v2/mobile/rounds/live-round-1/reconciliation/apply",
