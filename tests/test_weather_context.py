@@ -145,6 +145,40 @@ class WeatherContextTests(unittest.TestCase):
         self.assertEqual(snapshot["source"], "missing")
         self.assertIn("weather_provider", {row["label"] for row in snapshot["missingData"]})
 
+    def test_open_meteo_provider_redacts_secret_and_private_path_exception_text(self) -> None:
+        def failing_transport(_url: str) -> dict[str, object]:
+            raise RuntimeError(
+                "failed token=abc123 cookie=session-value authorization Bearer abc "
+                "file:///private/var/mobile/tmp/weather.json /home/ubuntu/.env "
+                "/Users/player/secret.txt C:\\Users\\player\\secret.txt"
+            )
+
+        snapshot = fetch_open_meteo_weather_snapshot(
+            round_id="round-1",
+            hole=7,
+            captured_at="2026-05-25T08:00:00Z",
+            latitude=22.279,
+            longitude=114.162,
+            transport=failing_transport,
+        )
+
+        reason = " ".join(str(row.get("reason", "")) for row in snapshot["missingData"])
+        for private_fragment in [
+            "abc123",
+            "session-value",
+            "Bearer abc",
+            "file://",
+            "/private/var",
+            "/home/ubuntu",
+            "/Users/player",
+            "C:\\Users\\player",
+            "weather.json",
+            "secret.txt",
+        ]:
+            self.assertNotIn(private_fragment, reason)
+        self.assertIn("[REDACTED]", reason)
+        self.assertIn("[REDACTED_PATH]", reason)
+
     def test_weather_snapshot_store_round_trips_and_finds_latest(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

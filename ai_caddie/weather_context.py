@@ -9,6 +9,8 @@ from datetime import datetime
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
+from ai_caddie.llm_providers import redact_secret_text
+
 
 WeatherSource = Literal["manual", "open_meteo", "missing"]
 WeatherTransport = Callable[[str], dict[str, Any]]
@@ -220,7 +222,7 @@ def fetch_open_meteo_weather_snapshot(
             longitude=longitude,
             source="open_meteo",
         )
-        snapshot["missingData"].append({"label": "weather_provider", "reason": str(exc)})
+        snapshot["missingData"].append({"label": "weather_provider", "reason": redact_secret_text(exc)})
         return snapshot
 
 

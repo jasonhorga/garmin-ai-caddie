@@ -21,6 +21,7 @@ from ai_caddie.llm_providers import (
     ProviderConfigurationError,
     StaticProvider,
     build_text_provider,
+    redact_secret_text,
 )
 
 
@@ -386,17 +387,66 @@ class LLMProviderTests(unittest.TestCase):
 
         self.assertIn("requires GEMINI_OAUTH_CREDENTIALS", str(raised.exception))
 
+    def test_gemini_cli_oauth_refresh_requires_configured_client_credentials(self) -> None:
+        with TemporaryDirectory() as tmp:
+            credentials_file = Path(tmp) / "oauth.json"
+            credentials_file.write_text(
+                json.dumps(
+                    {
+                        "access_token": "expired-token",
+                        "refresh_token": "refresh-secret",
+                        "expiry_date": "2026-01-01T00:00:00Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            provider = GeminiCliOAuthProvider(
+                model="gemini-test",
+                oauth_credentials_file=str(credentials_file),
+                google_cloud_project="project",
+                http_client=FakeCodeAssistHttpClient([]),
+            )
+
+            with self.assertRaises(ProviderConfigurationError) as raised:
+                provider.chat([LLMMessage(role="user", content="ping")])
+
+        text = str(raised.exception)
+        self.assertIn("requires client_id and client_secret", text)
+        self.assertNotIn("refresh-secret", text)
+
+    def test_llm_provider_source_does_not_embed_gemini_cli_oauth_client_secret(self) -> None:
+        source = Path("ai_caddie/llm_providers.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("GOCSPX", source)
+
     def test_exception_text_redacts_secret_like_values(self) -> None:
         error = ProviderConfigurationError(
-            "failed token=abc123 cookie=session-value connect-csrf-token=csrf-secret /home/ubuntu/private/path"
+            "failed token=abc123 cookie=session-value connect-csrf-token csrf-secret "
+            "file:///private/var/mobile/tmp/secret.txt /home/ubuntu/private/path "
+            "/Users/player/private/path C:\\Users\\player\\secret.txt"
         )
 
         text = str(error)
         self.assertNotIn("abc123", text)
         self.assertNotIn("session-value", text)
         self.assertNotIn("csrf-secret", text)
+        self.assertNotIn("file://", text)
+        self.assertNotIn("/private/var", text)
         self.assertNotIn("/home/ubuntu/private/path", text)
+        self.assertNotIn("/Users/player/private/path", text)
+        self.assertNotIn("C:\\Users\\player", text)
         self.assertIn("[REDACTED]", text)
+
+    def test_redact_secret_text_handles_secret_space_separator_and_private_paths(self) -> None:
+        text = redact_secret_text(
+            "authorization Bearer abc token abc123 api_key value /tmp/weather.json C:\\Users\\player\\secret.txt"
+        )
+
+        self.assertNotIn("abc123", text)
+        self.assertNotIn("weather.json", text)
+        self.assertNotIn("C:\\Users\\player", text)
+        self.assertIn("[REDACTED]", text)
+        self.assertIn("[REDACTED_PATH]", text)
 
     def test_maybe_call_llm_uses_configured_static_provider(self) -> None:
         with patch.dict(

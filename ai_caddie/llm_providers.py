@@ -20,8 +20,6 @@ from ai_caddie.config import get_settings
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
 CODE_ASSIST_API_VERSION = "v1internal"
 GOOGLE_OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token"
-GEMINI_CLI_OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
-GEMINI_CLI_OAUTH_CLIENT_SECRET = "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"
 GEMINI_CLI_OAUTH_SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -66,13 +64,21 @@ class MultimodalProvider(Protocol):
 
 def redact_secret_text(text: object) -> str:
     value = str(text)
+    value = re.sub(r"(?i)authorization\s+bearer\s+[a-z0-9._~+/=-]+", "authorization [REDACTED]", value)
+    value = re.sub(r"(?i)bearer\s+[a-z0-9._~+/=-]+", "Bearer [REDACTED]", value)
     value = re.sub(
         r"(?i)(authorization|cookie|connect-csrf-token|csrf|token|access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key)\s*[:=]\s*[^,\s]+",
         r"\1=[REDACTED]",
         value,
     )
-    value = re.sub(r"(?i)bearer\s+[a-z0-9._~+/=-]+", "Bearer [REDACTED]", value)
-    value = re.sub(r"/(?:home|Users)/[^\s,)]+", "[REDACTED_PATH]", value)
+    value = re.sub(
+        r"(?i)\b(authorization|cookie|connect-csrf-token|csrf|token|access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key)\s+[^\s,;)]+",
+        r"\1 [REDACTED]",
+        value,
+    )
+    value = re.sub(r"(?i)file://[^\s,)]+", "[REDACTED_PATH]", value)
+    value = re.sub(r"/(?:home|Users|private|tmp|var)/[^\s,)]+", "[REDACTED_PATH]", value)
+    value = re.sub(r"[A-Za-z]:\\Users\\[^\s,)]+", "[REDACTED_PATH]", value)
     return value
 
 
@@ -465,8 +471,12 @@ def _load_oauth_credentials_data(
 
 
 def _refresh_oauth_token(source_data: dict[str, Any], refresh_token: str) -> dict[str, Any]:
-    client_id = _optional_str(source_data.get("client_id")) or GEMINI_CLI_OAUTH_CLIENT_ID
-    client_secret = _optional_str(source_data.get("client_secret")) or GEMINI_CLI_OAUTH_CLIENT_SECRET
+    client_id = _optional_str(source_data.get("client_id"))
+    client_secret = _optional_str(source_data.get("client_secret"))
+    if not client_id or not client_secret:
+        raise ProviderConfigurationError(
+            "Gemini OAuth token refresh requires client_id and client_secret in the configured credentials"
+        )
     token_uri = _optional_str(source_data.get("token_uri")) or GOOGLE_OAUTH_TOKEN_URI
     body = urllib.parse.urlencode(
         {
