@@ -760,10 +760,7 @@ export default function App() {
     try {
       const response = await createCaddieDecisionAudit(
         decisionId,
-        {
-          decision,
-          actualShot,
-        },
+        decisionAuditRequest(decision, actualShot),
         currentAdminToken(),
       )
       setDecisionAuditState({ status: 'ready', data: response.record })
@@ -1135,6 +1132,34 @@ function decisionIdFromDecision(decision: CaddieDecisionResponse): string {
   const courseName = typeof context.courseName === 'string' ? context.courseName : 'fixture'
   const hole = typeof context.hole === 'number' || typeof context.hole === 'string' ? String(context.hole) : 'unknown'
   return [slug(courseName), hole, decision.shotType].join('-')
+}
+
+function decisionAuditRequest(
+  decision: CaddieDecisionResponse,
+  actualOutcome: Record<string, unknown>,
+): {
+  decision: CaddieDecisionResponse
+  actualShot: Record<string, unknown> | null
+  actualShots?: Array<Record<string, unknown>>
+  actualScoreToPar?: number | null
+  penalty?: boolean | null
+} {
+  if ('actualShot' in actualOutcome || 'actualShots' in actualOutcome || 'actualScoreToPar' in actualOutcome || 'penalty' in actualOutcome) {
+    return {
+      decision,
+      actualShot: recordOrNull(actualOutcome.actualShot),
+      ...(Array.isArray(actualOutcome.actualShots) ? { actualShots: actualOutcome.actualShots as Array<Record<string, unknown>> } : {}),
+      ...(typeof actualOutcome.actualScoreToPar === 'number' || actualOutcome.actualScoreToPar === null
+        ? { actualScoreToPar: actualOutcome.actualScoreToPar as number | null }
+        : {}),
+      ...(typeof actualOutcome.penalty === 'boolean' || actualOutcome.penalty === null ? { penalty: actualOutcome.penalty as boolean | null } : {}),
+    }
+  }
+  return { decision, actualShot: actualOutcome }
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
 
 function holeGeometryTargetFromDrilldown(

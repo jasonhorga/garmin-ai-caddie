@@ -1831,6 +1831,15 @@ describe('App navigation', () => {
       meters: 137,
       end: { lie: 'fringe', feature: { surface: { kind: 'fringe' }, nearRisks: [] } },
     })
+    expect(auditBody.actualShots).toEqual([
+      {
+        shotOrder: 1,
+        clubName: '9I',
+        meters: 137,
+        end: { lie: 'fringe', feature: { surface: { kind: 'fringe' }, nearRisks: [] } },
+      },
+    ])
+    expect(auditBody.penalty).toBe(false)
   })
 
   it('carries a selected history source ref into the caddie context request', async () => {

@@ -552,10 +552,63 @@ describe('CaddiePage', () => {
       }),
     })
     expect(onCreateAudit).toHaveBeenCalledWith(decision, {
-      shotOrder: 1,
-      clubName: '9I',
-      meters: 137,
-      end: { lie: 'fringe', feature: { surface: { kind: 'fringe' }, nearRisks: [] } },
+      actualShot: {
+        shotOrder: 1,
+        clubName: '9I',
+        meters: 137,
+        end: { lie: 'fringe', feature: { surface: { kind: 'fringe' }, nearRisks: [] } },
+      },
+      actualShots: [
+        {
+          shotOrder: 1,
+          clubName: '9I',
+          meters: 137,
+          end: { lie: 'fringe', feature: { surface: { kind: 'fringe' }, nearRisks: [] } },
+        },
+      ],
+      penalty: false,
+    })
+  })
+
+  it('captures sequence audit shots, penalty, and score context', async () => {
+    const onCreateAudit = vi.fn()
+
+    render(
+      <CaddiePage
+        decisionState={{ status: 'ready', data: decision }}
+        auditState={{ status: 'idle' }}
+        contextState={{ status: 'ready', data: caddieContext }}
+        onRequestDecision={vi.fn()}
+        onCreateAudit={onCreateAudit}
+      />,
+    )
+
+    await userEvent.clear(screen.getByLabelText('Actual club'))
+    await userEvent.type(screen.getByLabelText('Actual club'), '1D')
+    await userEvent.clear(screen.getByLabelText('Actual carry (m)'))
+    await userEvent.type(screen.getByLabelText('Actual carry (m)'), '242')
+    await userEvent.selectOptions(screen.getByLabelText('Result lie'), 'fairway')
+    await userEvent.clear(screen.getByLabelText('Shot 2 club'))
+    await userEvent.type(screen.getByLabelText('Shot 2 club'), '3W')
+    await userEvent.type(screen.getByLabelText('Shot 2 carry (m)'), '211')
+    await userEvent.selectOptions(screen.getByLabelText('Shot 2 result lie'), 'fairway')
+    await userEvent.clear(screen.getByLabelText('Shot 3 club'))
+    await userEvent.type(screen.getByLabelText('Shot 3 club'), '58')
+    await userEvent.type(screen.getByLabelText('Shot 3 carry (m)'), '74')
+    await userEvent.selectOptions(screen.getByLabelText('Shot 3 result lie'), 'green')
+    await userEvent.type(screen.getByLabelText('Actual score to par'), '1')
+    await userEvent.click(screen.getByLabelText('Penalty occurred'))
+    await userEvent.click(screen.getByRole('button', { name: 'Audit outcome' }))
+
+    expect(onCreateAudit).toHaveBeenCalledWith(decision, {
+      actualShot: expect.objectContaining({ shotOrder: 1, clubName: '1D', meters: 242, penalty: true }),
+      actualShots: [
+        expect.objectContaining({ shotOrder: 1, clubName: '1D', meters: 242, penalty: true }),
+        expect.objectContaining({ shotOrder: 2, clubName: '3W', meters: 211 }),
+        expect.objectContaining({ shotOrder: 3, clubName: '58', meters: 74 }),
+      ],
+      actualScoreToPar: 1,
+      penalty: true,
     })
   })
 

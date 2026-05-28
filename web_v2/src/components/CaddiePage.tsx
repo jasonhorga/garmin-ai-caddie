@@ -999,6 +999,14 @@ function DecisionAuditPanel({
   const [actualClub, setActualClub] = useState(defaultClub)
   const [actualCarry, setActualCarry] = useState(String(defaultCarry))
   const [resultLie, setResultLie] = useState('green')
+  const [secondClub, setSecondClub] = useState(sequenceClubDefault(decision, 1))
+  const [secondCarry, setSecondCarry] = useState('')
+  const [secondLie, setSecondLie] = useState('fairway')
+  const [thirdClub, setThirdClub] = useState(sequenceClubDefault(decision, 2))
+  const [thirdCarry, setThirdCarry] = useState('')
+  const [thirdLie, setThirdLie] = useState('green')
+  const [actualScoreToPar, setActualScoreToPar] = useState('')
+  const [penalty, setPenalty] = useState(false)
   const actualCarryMeters = numericInput(actualCarry)
   const canAudit = actualClub.trim().length > 0 && actualCarryMeters !== undefined
   const auditControls = (
@@ -1017,7 +1025,59 @@ function DecisionAuditPanel({
         <option value="water">Water</option>
         <option value="penalty">Penalty</option>
       </select>
-      <button type="button" disabled={!canAudit} onClick={() => onCreateAudit(buildActualShot(actualClub, actualCarryMeters ?? 0, resultLie))}>
+      <label htmlFor="actual-second-club">Shot 2 club</label>
+      <input id="actual-second-club" value={secondClub} onChange={(event) => setSecondClub(event.target.value)} />
+      <label htmlFor="actual-second-carry">Shot 2 carry (m)</label>
+      <input id="actual-second-carry" inputMode="decimal" value={secondCarry} onChange={(event) => setSecondCarry(event.target.value)} />
+      <label htmlFor="actual-second-lie">Shot 2 result lie</label>
+      <select id="actual-second-lie" value={secondLie} onChange={(event) => setSecondLie(event.target.value)}>
+        <option value="green">Green</option>
+        <option value="fringe">Fringe</option>
+        <option value="fairway">Fairway</option>
+        <option value="rough">Rough</option>
+        <option value="bunker">Bunker</option>
+        <option value="water">Water</option>
+        <option value="penalty">Penalty</option>
+      </select>
+      <label htmlFor="actual-third-club">Shot 3 club</label>
+      <input id="actual-third-club" value={thirdClub} onChange={(event) => setThirdClub(event.target.value)} />
+      <label htmlFor="actual-third-carry">Shot 3 carry (m)</label>
+      <input id="actual-third-carry" inputMode="decimal" value={thirdCarry} onChange={(event) => setThirdCarry(event.target.value)} />
+      <label htmlFor="actual-third-lie">Shot 3 result lie</label>
+      <select id="actual-third-lie" value={thirdLie} onChange={(event) => setThirdLie(event.target.value)}>
+        <option value="green">Green</option>
+        <option value="fringe">Fringe</option>
+        <option value="fairway">Fairway</option>
+        <option value="rough">Rough</option>
+        <option value="bunker">Bunker</option>
+        <option value="water">Water</option>
+        <option value="penalty">Penalty</option>
+      </select>
+      <label htmlFor="actual-score-to-par">Actual score to par</label>
+      <input id="actual-score-to-par" inputMode="numeric" value={actualScoreToPar} onChange={(event) => setActualScoreToPar(event.target.value)} />
+      <label className="decision-audit-checkbox" htmlFor="actual-penalty">
+        <input id="actual-penalty" type="checkbox" checked={penalty} onChange={(event) => setPenalty(event.target.checked)} />
+        Penalty occurred
+      </label>
+      <button
+        type="button"
+        disabled={!canAudit}
+        onClick={() =>
+          onCreateAudit(buildActualOutcome({
+            actualClub,
+            actualCarryMeters: actualCarryMeters ?? 0,
+            resultLie,
+            secondClub,
+            secondCarry,
+            secondLie,
+            thirdClub,
+            thirdCarry,
+            thirdLie,
+            actualScoreToPar,
+            penalty,
+          }))
+        }
+      >
         Audit outcome
       </button>
     </div>
@@ -1130,13 +1190,68 @@ function DecisionAuditCriteria({ rows }: { rows: Array<Record<string, unknown>> 
   )
 }
 
-function buildActualShot(clubName: string, meters: number, resultLie: string): Record<string, unknown> {
+function buildActualOutcome({
+  actualClub,
+  actualCarryMeters,
+  resultLie,
+  secondClub,
+  secondCarry,
+  secondLie,
+  thirdClub,
+  thirdCarry,
+  thirdLie,
+  actualScoreToPar,
+  penalty,
+}: {
+  actualClub: string
+  actualCarryMeters: number
+  resultLie: string
+  secondClub: string
+  secondCarry: string
+  secondLie: string
+  thirdClub: string
+  thirdCarry: string
+  thirdLie: string
+  actualScoreToPar: string
+  penalty: boolean
+}): Record<string, unknown> {
+  const firstShot = buildActualShot(1, actualClub, actualCarryMeters, resultLie, penalty)
+  const actualShots = [
+    firstShot,
+    optionalActualShot(2, secondClub, secondCarry, secondLie),
+    optionalActualShot(3, thirdClub, thirdCarry, thirdLie),
+  ].filter((shot): shot is Record<string, unknown> => Boolean(shot))
+  const scoreToPar = numericInput(actualScoreToPar)
   return {
-    shotOrder: 1,
+    actualShot: firstShot,
+    actualShots,
+    ...(scoreToPar !== undefined ? { actualScoreToPar: scoreToPar } : {}),
+    penalty,
+  }
+}
+
+function optionalActualShot(shotOrder: number, clubName: string, carry: string, resultLie: string): Record<string, unknown> | null {
+  const meters = numericInput(carry)
+  if (!clubName.trim() || meters === undefined) return null
+  return buildActualShot(shotOrder, clubName, meters, resultLie, false)
+}
+
+function buildActualShot(shotOrder: number, clubName: string, meters: number, resultLie: string, penalty: boolean): Record<string, unknown> {
+  const shot: Record<string, unknown> = {
+    shotOrder,
     clubName: clubName.trim(),
     meters,
     end: { lie: resultLie, feature: { surface: { kind: resultLie }, nearRisks: [] } },
   }
+  if (penalty) shot.penalty = true
+  return shot
+}
+
+function sequenceClubDefault(decision: CaddieDecisionResponse, index: number): string {
+  const selectedSequence = recordFrom(decision.selectedSequence)
+  const clubs = recordRows(selectedSequence.clubs)
+  const club = clubs[index]
+  return stringValue(club?.clubName)
 }
 
 function EvidenceList({ title, rows }: { title: string; rows: Array<Record<string, unknown>> }) {
