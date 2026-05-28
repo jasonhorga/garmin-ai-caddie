@@ -1476,6 +1476,44 @@ class MobileContractTests(unittest.TestCase):
         for field in ["selectedOptionId", "options", "avoidZones", "evidence", "confidence", "missingData"]:
             self.assertIn(field, client)
 
+    def test_ios_offline_caddie_decision_evaluator_builds_auditable_fallback(self) -> None:
+        evaluator = _read_required_source(self, IOS_DIR / "Services" / "OfflineCaddieDecisionEvaluator.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        evaluator_tests = _read_required_source(self, Path("mobile") / "ios" / "AICaddieTests" / "OfflineCaddieDecisionEvaluatorTests.swift")
+        package_model = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
+
+        self.assertIn("final class OfflineCaddieDecisionEvaluator", evaluator)
+        self.assertIn("func makeDecision(", evaluator)
+        self.assertIn("CaddieDecisionResponse(", evaluator)
+        self.assertIn('schema: "ai-caddie-decision-v2"', evaluator)
+        self.assertIn('decisionId: decisionId', evaluator)
+        self.assertIn('sourceRef: seed.sourceRef', evaluator)
+        self.assertIn('evidenceRefs: evidenceRefs', evaluator)
+        self.assertIn("selectedOptionId: selected.optionId", evaluator)
+        self.assertIn("selectedOption: selectedRow", evaluator)
+        self.assertIn('"offline_caddie"', evaluator)
+        self.assertIn('"offline_selected_option"', evaluator)
+        self.assertIn('"club_profile_confidence"', evaluator)
+        self.assertIn('"clubRecommendation"', evaluator)
+        self.assertIn('"offline_package_seed"', evaluator)
+        self.assertIn("case \"protect_score\":", evaluator)
+        self.assertIn("return \"safe\"", evaluator)
+        self.assertIn("case \"attack\":", evaluator)
+        self.assertIn("return \"attack\"", evaluator)
+
+        self.assertIn("OfflineCaddieDecisionEvaluator()", current_hole)
+        self.assertIn("private func makeOfflineCaddieDecision() -> CaddieDecisionResponse?", current_hole)
+        self.assertIn("caddieDecision = makeOfflineCaddieDecision()", current_hole)
+        self.assertIn("Network caddie unavailable. Using cached offline decision.", current_hole)
+        self.assertIn("Offline caddie using cached package.", current_hole)
+        self.assertIn("offlineDecisionEvaluator.selectedOption(in: seed, strategyMode: selectedStrategyMode)", current_hole)
+
+        self.assertIn("testMakesAuditableOfflineDecisionFromSeedAndStrategy", evaluator_tests)
+        self.assertIn("testStrategyModeSelectsCachedOptionWithoutNetwork", evaluator_tests)
+        self.assertIn("public init(", package_model)
+        self.assertIn("sampleRefs: [String]? = nil", package_model)
+        self.assertIn("missingData: [[String: JSONValue]]? = nil", package_model)
+
     def test_ios_club_events_capture_decision_and_actual_shot_for_audit(self) -> None:
         client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
         builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")

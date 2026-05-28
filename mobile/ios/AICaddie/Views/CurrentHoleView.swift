@@ -7,6 +7,7 @@ public struct CurrentHoleView: View {
     public let hole: Hole
     public let onEvent: (LiveRoundEvent) -> Void
     private let requestBuilder = CaddieDecisionRequestBuilder()
+    private let offlineDecisionEvaluator = OfflineCaddieDecisionEvaluator()
     private let caddieClient: CaddieDecisionClient?
     private let mediaUploadClient: MediaUploadClient?
     private let offlineStore: OfflineStore?
@@ -235,8 +236,11 @@ public struct CurrentHoleView: View {
     @MainActor
     private func loadCaddieDecision() async {
         guard let caddieClient else {
-            caddieErrorMessage = "Offline package ready. Connect to refresh caddie decision."
-            sendWatchState(decision: nil, offlineOption: selectedOfflineOption)
+            caddieDecision = makeOfflineCaddieDecision()
+            caddieErrorMessage = caddieDecision == nil
+                ? "No cached caddie decision is available for this hole."
+                : "Offline caddie using cached package."
+            sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             return
         }
         guard let request = makeCaddieDecisionRequest() else {
@@ -255,20 +259,34 @@ public struct CurrentHoleView: View {
             caddieErrorMessage = nil
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         } catch {
-            caddieErrorMessage = "Caddie decision unavailable. Cached plan remains visible."
+            if let offlineDecision = makeOfflineCaddieDecision() {
+                caddieDecision = offlineDecision
+                caddieErrorMessage = "Network caddie unavailable. Using cached offline decision."
+            } else {
+                caddieErrorMessage = "Caddie decision unavailable. Cached plan remains visible."
+            }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         }
+    }
+
+    private func makeOfflineCaddieDecision() -> CaddieDecisionResponse? {
+        guard let caddieContextSeed,
+              let request = makeCaddieDecisionRequest()
+        else {
+            return nil
+        }
+        return offlineDecisionEvaluator.makeDecision(
+            seed: caddieContextSeed,
+            request: request,
+            strategyMode: selectedStrategyMode
+        )
     }
 
     private var selectedOfflineOption: OfflineCaddieOption? {
         guard let seed = caddieContextSeed else {
             return nil
         }
-        if let selectedOfflineOptionId = seed.selectedOfflineOptionId,
-           let selected = seed.offlineOptions.first(where: { $0.id == selectedOfflineOptionId }) {
-            return selected
-        }
-        return seed.offlineOptions.first
+        return offlineDecisionEvaluator.selectedOption(in: seed, strategyMode: selectedStrategyMode)
     }
 
     private func sendWatchState(decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) {

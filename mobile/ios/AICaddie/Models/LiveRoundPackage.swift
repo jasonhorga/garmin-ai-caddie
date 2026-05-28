@@ -223,6 +223,38 @@ public struct OfflineCaddieOption: Codable, Equatable, Identifiable {
     public let sampleRefs: [String]?
     public let missingData: [[String: JSONValue]]?
 
+    public init(
+        optionId: String,
+        label: String,
+        clubName: String,
+        carryM: Double,
+        p10M: Double? = nil,
+        p90M: Double? = nil,
+        sampleSize: Int? = nil,
+        confidence: String? = nil,
+        coverage: OfflineOptionCoverage? = nil,
+        riskScore: Double,
+        source: String,
+        sourceRefs: [String],
+        sampleRefs: [String]? = nil,
+        missingData: [[String: JSONValue]]? = nil
+    ) {
+        self.optionId = optionId
+        self.label = label
+        self.clubName = clubName
+        self.carryM = carryM
+        self.p10M = p10M
+        self.p90M = p90M
+        self.sampleSize = sampleSize
+        self.confidence = confidence
+        self.coverage = coverage
+        self.riskScore = riskScore
+        self.source = source
+        self.sourceRefs = sourceRefs
+        self.sampleRefs = sampleRefs
+        self.missingData = missingData
+    }
+
     enum CodingKeys: String, CodingKey {
         case optionId = "id"
         case label
