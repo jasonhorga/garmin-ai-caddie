@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import SwiftUI
 import WebKit
 
@@ -63,7 +64,10 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
                         return
                     }
                     let webSessionHeader = cookiePairs.joined(separator: "; ")
-                    let fingerprint = "\(webSessionHeader.count):\(antiForgery.count)"
+                    let fingerprint = Self.sessionFingerprint(
+                        webSessionHeader: webSessionHeader,
+                        antiForgeryValue: antiForgery
+                    )
                     guard fingerprint != self.lastFingerprint else {
                         return
                     }
@@ -108,6 +112,12 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
                 return value.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             return ""
+        }
+
+        private static func sessionFingerprint(webSessionHeader: String, antiForgeryValue: String) -> String {
+            let data = Data("\(webSessionHeader)\n\(antiForgeryValue)".utf8)
+            let digest = SHA256.hash(data: data)
+            return digest.map { String(format: "%02x", $0) }.joined()
         }
 
         private static let csrfProbeScript = """
