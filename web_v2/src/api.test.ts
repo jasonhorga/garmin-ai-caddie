@@ -1713,6 +1713,7 @@ describe('mobile reconciliation API helpers', () => {
 describe('runGarminSync', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     vi.restoreAllMocks()
   })
 
@@ -1762,6 +1763,29 @@ describe('runGarminSync', () => {
     await runGarminSync({ withShots: true, forceRefreshAuth: false, adminToken: 'admin-secret' })
 
     expect(fetch).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=true&force_refresh_auth=false', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('uses the configured staging API base URL for Garmin sync runs', async () => {
+    vi.stubEnv('VITE_AI_CADDIE_API_BASE_URL', 'https://ai-caddie-api.onrender.com/')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-sync-run-v2',
+        connector: 'garmin_cn_web_session',
+        state: 'ready',
+        detail: 'Garmin CN sync completed.',
+        reauthRequired: false,
+        errorCode: null,
+        snapshot: null,
+      }),
+    }))
+
+    await runGarminSync({ withShots: true, forceRefreshAuth: true, adminToken: 'admin-secret' })
+
+    expect(fetch).toHaveBeenCalledWith('https://ai-caddie-api.onrender.com/api/v2/sync/garmin?with_shots=true&force_refresh_auth=true', {
       method: 'POST',
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })

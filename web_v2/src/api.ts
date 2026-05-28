@@ -403,12 +403,14 @@ export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: b
     with_shots: String(options.withShots),
     force_refresh_auth: String(options.forceRefreshAuth),
   })
+  const path = `/api/v2/sync/garmin?${params.toString()}`
+  const url = apiUrl(path)
   const headers = adminTokenHeader(options.adminToken)
   const init: RequestInit = { method: 'POST' }
   if (Object.keys(headers).length) init.headers = headers
-  return fetch(`/api/v2/sync/garmin?${params.toString()}`, init).then((response) => {
+  return fetch(url, init).then((response) => {
     if (!response.ok) {
-      throw new Error(`POST /api/v2/sync/garmin failed: ${response.status} ${response.statusText}`)
+      throw new Error(`POST ${url} failed: ${response.status} ${response.statusText}`)
     }
     return response.json() as Promise<SyncRunResponse>
   })
