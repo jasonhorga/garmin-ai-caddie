@@ -57,7 +57,10 @@ _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
     "putt": ({"putts"}, {"source"}),
     "penalty": ({"penalties"}, {"source"}),
     "note": ({"note"}, {"source"}),
-    "location": ({"latitude", "longitude"}, {"source", "horizontalAccuracyM", "altitudeM"}),
+    "location": (
+        {"latitude", "longitude"},
+        {"source", "horizontalAccuracyM", "altitudeM", "targetLatitude", "targetLongitude", "targetSource", "targetKind"},
+    ),
     "photo": ({"assetLocalId", "mediaType"}, {"source", "fileURL", "note", "mediaId"}),
     "video": ({"assetLocalId", "mediaType"}, {"source", "fileURL", "durationS", "note", "mediaId"}),
     "sync_marker": ({"status"}, {"source", "acceptedEventIds", "duplicateEventIds", "serverSequence"}),
@@ -86,6 +89,10 @@ _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
         "source": "string",
         "horizontalAccuracyM": "nullable_number",
         "altitudeM": "nullable_number",
+        "targetLatitude": "number",
+        "targetLongitude": "number",
+        "targetSource": "string",
+        "targetKind": "string",
     },
     "photo": {
         "assetLocalId": "string",

@@ -23,6 +23,7 @@ public struct CurrentHoleView: View {
     @State private var distanceToPinText: String = ""
     @State private var selectedLie: String = "fairway"
     @State private var currentCoordinate: CLLocationCoordinate2D?
+    @State private var targetCoordinate: CLLocationCoordinate2D?
     @State private var currentHorizontalAccuracyM: Double?
     @State private var note: String = ""
     @State private var caddieDecision: CaddieDecisionResponse?
@@ -66,6 +67,11 @@ public struct CurrentHoleView: View {
             self._currentCoordinate = State(initialValue: CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
         } else {
             self._currentCoordinate = State(initialValue: nil)
+        }
+        if let targetLatitude = restoredHoleState?.targetLatitude, let targetLongitude = restoredHoleState?.targetLongitude {
+            self._targetCoordinate = State(initialValue: CLLocationCoordinate2D(latitude: targetLatitude, longitude: targetLongitude))
+        } else {
+            self._targetCoordinate = State(initialValue: nil)
         }
     }
 
@@ -115,6 +121,12 @@ public struct CurrentHoleView: View {
                 }
                 TextField("Distance m", text: $distanceToPinText)
                     .keyboardType(.decimalPad)
+                Button {
+                    targetCoordinate = currentCoordinate
+                } label: {
+                    Label("Set target", systemImage: "mappin.and.ellipse")
+                }
+                .disabled(currentCoordinate == nil)
                 Picker("Lie", selection: $selectedLie) {
                     ForEach(lieOptions, id: \.self) { lie in
                         Text(lie.capitalized).tag(lie)
@@ -212,6 +224,7 @@ public struct CurrentHoleView: View {
                 distanceToPinM: Double(distanceToPinText),
                 lie: selectedLie,
                 coordinate: currentCoordinate,
+                targetCoordinate: targetCoordinate,
                 horizontalAccuracyM: currentHorizontalAccuracyM,
                 strategyMode: selectedStrategyMode,
                 visionFindings: visionFindings
@@ -298,6 +311,11 @@ public struct CurrentHoleView: View {
         } else {
             currentCoordinate = nil
         }
+        if let targetLatitude = restoredHoleState.targetLatitude, let targetLongitude = restoredHoleState.targetLongitude {
+            targetCoordinate = CLLocationCoordinate2D(latitude: targetLatitude, longitude: targetLongitude)
+        } else {
+            targetCoordinate = nil
+        }
         currentHorizontalAccuracyM = restoredHoleState.horizontalAccuracyM
         lastAppliedRestoredHoleState = restoredHoleState
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
@@ -313,6 +331,12 @@ public struct CurrentHoleView: View {
             ]
             if let currentHorizontalAccuracyM {
                 locationPayload["horizontalAccuracyM"] = .number(currentHorizontalAccuracyM)
+            }
+            if let targetCoordinate {
+                locationPayload["targetLatitude"] = .number(targetCoordinate.latitude)
+                locationPayload["targetLongitude"] = .number(targetCoordinate.longitude)
+                locationPayload["targetSource"] = .string("ios_target")
+                locationPayload["targetKind"] = .string("pin")
             }
             emit(kind: .location, timestamp: timestamp, payload: locationPayload)
         }
@@ -370,6 +394,13 @@ public struct CurrentHoleView: View {
             payload["position"] = .object([
                 "latitude": .number(currentCoordinate.latitude),
                 "longitude": .number(currentCoordinate.longitude),
+            ])
+        }
+        if let targetCoordinate {
+            payload["targetPosition"] = .object([
+                "latitude": .number(targetCoordinate.latitude),
+                "longitude": .number(targetCoordinate.longitude),
+                "kind": .string("pin"),
             ])
         }
         if let currentHorizontalAccuracyM {

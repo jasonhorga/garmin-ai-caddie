@@ -42,6 +42,9 @@ public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
     public var latitude: Double?
     public var longitude: Double?
     public var horizontalAccuracyM: Double?
+    public var targetLatitude: Double?
+    public var targetLongitude: Double?
+    public var targetKind: String?
     public var updatedAt: String?
 
     public func hasSameRestorableFields(as other: LiveHoleStateSnapshot) -> Bool {
@@ -59,6 +62,9 @@ public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
             && latitude == other.latitude
             && longitude == other.longitude
             && horizontalAccuracyM == other.horizontalAccuracyM
+            && targetLatitude == other.targetLatitude
+            && targetLongitude == other.targetLongitude
+            && targetKind == other.targetKind
     }
 }
 
@@ -266,6 +272,15 @@ public final class OfflineStore {
                 if let longitude = numberPayload("longitude", in: event.payload) {
                     state.longitude = longitude
                 }
+                if let targetLatitude = numberPayload("targetLatitude", in: event.payload) {
+                    state.targetLatitude = targetLatitude
+                }
+                if let targetLongitude = numberPayload("targetLongitude", in: event.payload) {
+                    state.targetLongitude = targetLongitude
+                }
+                if let targetKind = stringPayload("targetKind", in: event.payload) {
+                    state.targetKind = targetKind
+                }
                 switch optionalNumberPayload("horizontalAccuracyM", in: event.payload) {
                 case .number(let horizontalAccuracyM):
                     state.horizontalAccuracyM = horizontalAccuracyM
@@ -446,6 +461,9 @@ public final class OfflineStore {
             latitude: nil,
             longitude: nil,
             horizontalAccuracyM: nil,
+            targetLatitude: nil,
+            targetLongitude: nil,
+            targetKind: nil,
             updatedAt: nil
         )
     }

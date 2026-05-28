@@ -600,7 +600,15 @@ class MobileContractTests(unittest.TestCase):
             "putt": {"putts": 2},
             "penalty": {"penalties": 1},
             "note": {"note": "wind hurting"},
-            "location": {"latitude": 22.279, "longitude": 114.162, "source": "ios_gps"},
+            "location": {
+                "latitude": 22.279,
+                "longitude": 114.162,
+                "source": "ios_gps",
+                "targetLatitude": 22.2799,
+                "targetLongitude": 114.162,
+                "targetSource": "ios_target",
+                "targetKind": "pin",
+            },
             "photo": {"assetLocalId": "photo-1", "mediaType": "photo", "source": "ios_camera"},
             "video": {"assetLocalId": "video-1", "mediaType": "video", "source": "ios_camera"},
             "sync_marker": {"status": "synced"},
@@ -630,6 +638,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(payload_rules["club"]["properties"]["lie"]["type"], "string")
         self.assertEqual(payload_rules["club"]["properties"]["distanceToPinM"]["type"], ["number", "null"])
         self.assertEqual(payload_rules["club"]["properties"]["offlineOptionId"]["type"], ["string", "null"])
+        self.assertEqual(payload_rules["location"]["properties"]["targetLatitude"]["type"], "number")
+        self.assertEqual(payload_rules["location"]["properties"]["targetLongitude"]["type"], "number")
+        self.assertEqual(payload_rules["location"]["properties"]["targetKind"]["enum"], ["pin", "target", "green_center"])
         self.assertEqual(payload_rules["photo"]["properties"]["mediaType"]["const"], "photo")
         self.assertEqual(payload_rules["video"]["properties"]["mediaType"]["const"], "video")
         for kind in kinds:
@@ -966,6 +977,9 @@ class MobileContractTests(unittest.TestCase):
             'stringPayload("lie", in: event.payload)',
             'numberPayload("latitude", in: event.payload)',
             'numberPayload("longitude", in: event.payload)',
+            'numberPayload("targetLatitude", in: event.payload)',
+            'numberPayload("targetLongitude", in: event.payload)',
+            'stringPayload("targetKind", in: event.payload)',
         ]:
             self.assertIn(payload_key, offline_store)
         self.assertIn('optionalNumberPayload("distanceToPinM", in: event.payload)', offline_store)
@@ -973,6 +987,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("case .null:", offline_store)
         self.assertIn("state.distanceToPinM = nil", offline_store)
         self.assertIn("state.horizontalAccuracyM = nil", offline_store)
+        self.assertIn("targetLatitude == other.targetLatitude", offline_store)
+        self.assertIn("targetLongitude == other.targetLongitude", offline_store)
+        self.assertIn("targetKind == other.targetKind", offline_store)
 
         self.assertIn("@Published public private(set) var liveRoundState: LiveRoundStateSnapshot?", app_swift)
         self.assertIn("liveRoundState = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)", app_swift)
@@ -1102,6 +1119,10 @@ class MobileContractTests(unittest.TestCase):
             '"latitude"',
             '"longitude"',
             '"horizontalAccuracyM"',
+            '"targetLatitude"',
+            '"targetLongitude"',
+            '"targetSource"',
+            '"targetKind"',
             '"assetLocalId"',
             '"mediaType": .string("photo")',
             '"mediaType": .string("video")',
@@ -1113,6 +1134,7 @@ class MobileContractTests(unittest.TestCase):
             '"note"',
         ]:
             self.assertIn(payload_key, builder)
+        self.assertIn("targetCoordinate: CLLocationCoordinate2D? = nil", builder)
 
     def test_current_hole_view_emits_canonical_scoring_payload_keys(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
@@ -1485,12 +1507,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("distanceToPinText", current_hole)
         self.assertIn("selectedLie", current_hole)
         self.assertIn("CLLocationCoordinate2D", current_hole)
+        self.assertIn("@State private var targetCoordinate: CLLocationCoordinate2D?", current_hole)
         self.assertIn("@StateObject private var locationProvider", current_hole)
         self.assertIn("locationProvider.requestAuthorization()", current_hole)
         self.assertIn("locationProvider.startUpdatingLocation()", current_hole)
         self.assertIn("locationProvider.$latestFix", current_hole)
         self.assertIn('Picker("Shot"', current_hole)
         self.assertIn('TextField("Distance m"', current_hole)
+        self.assertIn('Label("Set target", systemImage: "mappin.and.ellipse")', current_hole)
         self.assertIn("penaltyCount", current_hole)
         self.assertIn("CaddieDecisionRequestBuilder", current_hole)
         self.assertIn("caddieContextSeed", current_hole)
@@ -1498,6 +1522,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("distanceToPinM: Double(distanceToPinText)", current_hole)
         self.assertIn("lie: selectedLie", current_hole)
         self.assertIn("coordinate: currentCoordinate", current_hole)
+        self.assertIn("targetCoordinate: targetCoordinate", current_hole)
         self.assertIn("@State private var caddieDecision: CaddieDecisionResponse?", current_hole)
         self.assertIn("isLoadingCaddieDecision", current_hole)
         self.assertIn("caddieErrorMessage", current_hole)
@@ -1518,6 +1543,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"latitude"', current_hole)
         self.assertIn('"longitude"', current_hole)
         self.assertIn('"horizontalAccuracyM"', current_hole)
+        self.assertIn('locationPayload["targetLatitude"] = .number(targetCoordinate.latitude)', current_hole)
+        self.assertIn('locationPayload["targetLongitude"] = .number(targetCoordinate.longitude)', current_hole)
+        self.assertIn('"targetPosition"', current_hole)
         self.assertIn("struct CaddiePlanView: View", caddie_plan)
         self.assertIn("init(response: CaddieDecisionResponse)", caddie_plan)
         self.assertIn("init(seed: CaddieContextSeed?)", caddie_plan)

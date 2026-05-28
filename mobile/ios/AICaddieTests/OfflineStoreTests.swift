@@ -126,6 +126,9 @@ final class OfflineStoreTests: XCTestCase {
                     "latitude": .number(22.279),
                     "longitude": .number(114.162),
                     "horizontalAccuracyM": .number(4.5),
+                    "targetLatitude": .number(22.2799),
+                    "targetLongitude": .number(114.162),
+                    "targetKind": .string("pin"),
                 ]
             )
         )
@@ -144,6 +147,9 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(holeState.latitude, 22.279)
         XCTAssertEqual(holeState.longitude, 114.162)
         XCTAssertEqual(holeState.horizontalAccuracyM, 4.5)
+        XCTAssertEqual(holeState.targetLatitude, 22.2799)
+        XCTAssertEqual(holeState.targetLongitude, 114.162)
+        XCTAssertEqual(holeState.targetKind, "pin")
     }
 
     func testRestoreLiveRoundStateClearsNullableLiveFieldsInLogOrder() throws {

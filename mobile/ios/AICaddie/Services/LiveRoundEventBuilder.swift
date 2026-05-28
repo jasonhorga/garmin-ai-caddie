@@ -22,7 +22,9 @@ public final class LiveRoundEventBuilder {
         hole: Int,
         coordinate: CLLocationCoordinate2D,
         horizontalAccuracyM: Double?,
-        altitudeM: Double? = nil
+        altitudeM: Double? = nil,
+        targetCoordinate: CLLocationCoordinate2D? = nil,
+        targetKind: String? = nil
     ) -> LiveRoundEvent {
         var payload: [String: JSONValue] = [
             "latitude": .number(coordinate.latitude),
@@ -31,6 +33,12 @@ public final class LiveRoundEventBuilder {
         ]
         payload["horizontalAccuracyM"] = jsonNumberOrNull(horizontalAccuracyM)
         payload["altitudeM"] = jsonNumberOrNull(altitudeM)
+        if let targetCoordinate {
+            payload["targetLatitude"] = .number(targetCoordinate.latitude)
+            payload["targetLongitude"] = .number(targetCoordinate.longitude)
+            payload["targetSource"] = .string("ios_target")
+            payload["targetKind"] = .string(targetKind ?? "pin")
+        }
         return event(hole: hole, kind: .location, payload: payload)
     }
 

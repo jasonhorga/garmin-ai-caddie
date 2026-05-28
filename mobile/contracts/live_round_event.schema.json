@@ -152,7 +152,11 @@
               "longitude": { "type": "number" },
               "source": { "type": "string" },
               "horizontalAccuracyM": { "type": ["number", "null"] },
-              "altitudeM": { "type": ["number", "null"] }
+              "altitudeM": { "type": ["number", "null"] },
+              "targetLatitude": { "type": "number" },
+              "targetLongitude": { "type": "number" },
+              "targetSource": { "type": "string" },
+              "targetKind": { "type": "string", "enum": ["pin", "target", "green_center"] }
             }
           }
         }
