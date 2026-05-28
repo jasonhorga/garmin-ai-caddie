@@ -268,17 +268,19 @@ class ServerV2ReadinessTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            store_weather_snapshot(
-                build_weather_snapshot(
-                    round_id="900001",
-                    captured_at="2026-05-25T09:00:00Z",
-                    latitude=22.279,
-                    longitude=114.162,
-                    source="manual",
-                    observed={"windSpeedMps": 5.4},
-                ),
-                root=root,
-            )
+            for hole in range(1, 19):
+                store_weather_snapshot(
+                    build_weather_snapshot(
+                        round_id="900001",
+                        hole=hole,
+                        captured_at="2026-05-25T09:00:00Z",
+                        latitude=22.279,
+                        longitude=114.162,
+                        source="manual",
+                        observed={"windSpeedMps": 5.4},
+                    ),
+                    root=root,
+                )
             with (
                 patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
                 patch("server_v2.mobile.MOBILE_ROOT", root),

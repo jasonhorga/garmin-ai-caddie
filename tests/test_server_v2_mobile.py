@@ -344,8 +344,52 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         weather = response.json()["weatherSnapshot"]
-        self.assertEqual(weather["capturedAt"], "2026-05-25T09:00:00Z")
-        self.assertEqual(weather["windSpeedMps"], 6.0)
+        self.assertEqual(weather["state"], "missing")
+        self.assertEqual(weather["coverage"], {"ready": 1, "total": 18, "pct": 5.6})
+        seed = next(row for row in response.json()["caddieContextSeeds"] if row["hole"] == 1)
+        self.assertEqual(seed["context"]["weatherSnapshot"]["capturedAt"], "2026-05-25T09:00:00Z")
+        self.assertEqual(seed["context"]["weatherSnapshot"]["windSpeedMps"], 6.0)
+
+    def test_mobile_round_package_reports_per_hole_weather_coverage(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for hole, wind_speed in [(1, 4.0), (2, 7.0)]:
+                store_weather_snapshot(
+                    build_weather_snapshot(
+                        round_id="900001",
+                        hole=hole,
+                        captured_at="2026-05-25T09:00:00Z",
+                        latitude=22.279,
+                        longitude=114.162,
+                        source="manual",
+                        observed={"windSpeedMps": wind_speed},
+                    ),
+                    root=root,
+                )
+
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                response = client.get(
+                    "/api/v2/mobile/rounds/900001/package",
+                    params={"captured_at": "2026-05-25T09:15:00Z"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        weather_check = next(row for row in payload["readinessChecks"] if row["label"] == "weather")
+        weather_missing = next(row for row in payload["missingData"] if row["label"] == "weather")
+        self.assertEqual(payload["weatherSnapshot"]["coverage"], {"ready": 2, "total": 18, "pct": 11.1})
+        self.assertEqual(weather_check["state"], "degraded")
+        self.assertEqual(weather_check["ready"], 2)
+        self.assertEqual(weather_check["total"], 18)
+        self.assertIn("2/18 holes", weather_check["reason"])
+        self.assertEqual(weather_missing["coverage"], {"ready": 2, "total": 18, "pct": 11.1})
+        seed = next(row for row in payload["caddieContextSeeds"] if row["hole"] == 2)
+        self.assertEqual(seed["context"]["weatherSnapshot"]["windSpeedMps"], 7.0)
 
     def test_mobile_round_package_prefetches_open_meteo_weather_for_course_location(self) -> None:
         client = TestClient(app)
@@ -408,7 +452,8 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["weatherSnapshot"]["source"], "open_meteo")
         self.assertEqual(payload["weatherSnapshot"]["capturedAt"], "2026-05-25T09:00:00Z")
         self.assertEqual(payload["weatherSnapshot"]["windSpeedMps"], 6.2)
-        self.assertNotIn("weather", {row["label"] for row in payload["missingData"]})
+        self.assertIn("weather", {row["label"] for row in payload["missingData"]})
+        self.assertEqual(payload["weatherSnapshot"]["coverage"], {"ready": 0, "total": 18, "pct": 0.0})
         self.assertIn('"roundId": "weather-round"', stored)
         self.assertIn('"source": "open_meteo"', stored)
 
@@ -445,6 +490,7 @@ class ServerV2MobileTests(unittest.TestCase):
         weather = response.json()["weatherSnapshot"]
         self.assertEqual(weather["source"], "manual")
         self.assertEqual(weather["windSpeedMps"], 7.7)
+        self.assertEqual(weather["coverage"], {"ready": 0, "total": 18, "pct": 0.0})
 
     def test_mobile_round_package_without_course_location_does_not_call_weather_provider(self) -> None:
         client = TestClient(app)

@@ -247,11 +247,23 @@ def list_weather_snapshots(*, root: Path | str | None = None) -> list[dict[str, 
     return rows
 
 
-def latest_weather_snapshot(round_id: str, hole: int | None = None, *, root: Path | str | None = None) -> dict[str, Any] | None:
+def _weather_hole_matches(row: dict[str, Any], hole: int | None, *, exact_hole: bool) -> bool:
+    if exact_hole:
+        return row.get("hole") == hole
+    return hole is None or row.get("hole") == hole
+
+
+def latest_weather_snapshot(
+    round_id: str,
+    hole: int | None = None,
+    *,
+    root: Path | str | None = None,
+    exact_hole: bool = False,
+) -> dict[str, Any] | None:
     matches = [
         row
         for row in list_weather_snapshots(root=root)
-        if str(row.get("roundId")) == str(round_id) and (hole is None or row.get("hole") == hole)
+        if str(row.get("roundId")) == str(round_id) and _weather_hole_matches(row, hole, exact_hole=exact_hole)
     ]
     if not matches:
         return None
@@ -264,18 +276,19 @@ def weather_snapshot_for_time(
     captured_at: str | None = None,
     *,
     root: Path | str | None = None,
+    exact_hole: bool = False,
 ) -> dict[str, Any] | None:
     target_time = _parse_iso_datetime(captured_at)
     if target_time is None:
-        return latest_weather_snapshot(round_id, hole, root=root)
+        return latest_weather_snapshot(round_id, hole, root=root, exact_hole=exact_hole)
     matches = [
         row
         for row in list_weather_snapshots(root=root)
-        if str(row.get("roundId")) == str(round_id) and (hole is None or row.get("hole") == hole)
+        if str(row.get("roundId")) == str(round_id) and _weather_hole_matches(row, hole, exact_hole=exact_hole)
     ]
     timed_matches = [(snapshot_time, row) for row in matches if (snapshot_time := _parse_iso_datetime(row.get("capturedAt"))) is not None]
     if not timed_matches:
-        return latest_weather_snapshot(round_id, hole, root=root)
+        return latest_weather_snapshot(round_id, hole, root=root, exact_hole=exact_hole)
     at_or_before = [(snapshot_time, row) for snapshot_time, row in timed_matches if snapshot_time <= target_time]
     if at_or_before:
         return max(at_or_before, key=lambda item: item[0])[1]

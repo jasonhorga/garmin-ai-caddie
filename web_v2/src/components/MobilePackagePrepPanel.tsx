@@ -79,6 +79,12 @@ function packageCoverageFacts(data: LiveRoundPackageResponse) {
   return facts
 }
 
+function weatherCoverageText(data: LiveRoundPackageResponse) {
+  const coverage = data.weatherSnapshot.coverage
+  if (!coverage) return data.weatherSnapshot.source
+  return `${coverage.ready}/${coverage.total} holes`
+}
+
 function readinessTitle(label: string) {
   return label.replace(/_/g, ' ')
 }
@@ -290,7 +296,7 @@ function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
         <article>
           <span>Weather</span>
           <strong>weather {data.weatherSnapshot.state}</strong>
-          <em>{data.weatherSnapshot.source}</em>
+          <em>{weatherCoverageText(data)}</em>
         </article>
       </div>
 

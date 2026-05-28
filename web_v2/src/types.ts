@@ -723,6 +723,8 @@ export interface LiveRoundWeatherSnapshot {
   source: WeatherSource
   confidence: ReportConfidence
   missingData: Array<Record<string, unknown>>
+  coverage?: { ready: number; total: number; pct: number }
+  holeCoverage?: Array<Record<string, unknown>>
   roundId?: string | null
   hole?: number | null
   capturedAt?: string | null

@@ -322,17 +322,19 @@ class MobileContractTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            store_weather_snapshot(
-                build_weather_snapshot(
-                    round_id="900001",
-                    captured_at="2026-05-25T09:00:00Z",
-                    latitude=22.279,
-                    longitude=114.162,
-                    source="manual",
-                    observed={"windSpeedMps": 5.4},
-                ),
-                root=root,
-            )
+            for hole in range(1, 19):
+                store_weather_snapshot(
+                    build_weather_snapshot(
+                        round_id="900001",
+                        hole=hole,
+                        captured_at="2026-05-25T09:00:00Z",
+                        latitude=22.279,
+                        longitude=114.162,
+                        source="manual",
+                        observed={"windSpeedMps": 5.4 + hole / 10},
+                    ),
+                    root=root,
+                )
             with (
                 patch("ai_caddie.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
                 patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
@@ -354,7 +356,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(set(checks), {"source", "geometry", "weather", "club_profiles", "recent_history", "caddie_seeds"})
         self.assertTrue(all(row["state"] == "ready" for row in checks.values()))
         self.assertEqual(checks["geometry"]["ready"], 18)
-        self.assertEqual(checks["weather"]["sourceRefs"], ["900001"])
+        self.assertEqual(checks["weather"]["ready"], 18)
+        self.assertEqual(checks["weather"]["total"], 18)
+        self.assertIn("900001:1", checks["weather"]["sourceRefs"])
 
     def test_live_round_package_requires_full_course_geometry_for_partial_round(self) -> None:
         holes = [{"number": number, "par": 4, "geometryCoverage": "ready"} for number in range(1, 4)]
@@ -427,10 +431,19 @@ class MobileContractTests(unittest.TestCase):
 
             package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture", root=root)
 
-        self.assertEqual(package["weatherSnapshot"]["state"], "ready")
-        self.assertEqual(package["weatherSnapshot"]["source"], "manual")
-        self.assertEqual(package["weatherSnapshot"]["windSpeedMps"], 5.4)
-        self.assertEqual(package["weatherSnapshot"]["hole"], 1)
+        self.assertEqual(package["weatherSnapshot"]["state"], "missing")
+        self.assertEqual(package["weatherSnapshot"]["coverage"]["ready"], 1)
+        self.assertEqual(package["weatherSnapshot"]["coverage"]["total"], 18)
+        checks = {row["label"]: row for row in package["readinessChecks"]}
+        self.assertEqual(checks["weather"]["ready"], 1)
+        self.assertEqual(checks["weather"]["total"], 18)
+        self.assertIn("1/18 holes", checks["weather"]["reason"])
+        weather_missing = next(row for row in package["missingData"] if row["label"] == "weather")
+        self.assertEqual(weather_missing["coverage"], {"ready": 1, "total": 18, "pct": 5.6})
+        seed = next(row for row in package["caddieContextSeeds"] if row["hole"] == 1)
+        self.assertEqual(seed["context"]["weatherSnapshot"]["source"], "manual")
+        self.assertEqual(seed["context"]["weatherSnapshot"]["windSpeedMps"], 5.4)
+        self.assertEqual(seed["context"]["weatherSnapshot"]["hole"], 1)
 
     def test_live_round_package_selects_weather_snapshot_at_prepared_time(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -461,8 +474,47 @@ class MobileContractTests(unittest.TestCase):
                 captured_at="2026-05-25T09:15:00Z",
             )
 
-        self.assertEqual(package["weatherSnapshot"]["capturedAt"], "2026-05-25T09:00:00Z")
-        self.assertEqual(package["weatherSnapshot"]["windSpeedMps"], 6.0)
+        self.assertEqual(package["caddieContextSeeds"][0]["context"]["weatherSnapshot"]["windSpeedMps"], 6.0)
+
+    def test_live_round_package_tracks_per_hole_weather_coverage(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for hole, wind_speed in [(1, 4.0), (2, 7.0)]:
+                store_weather_snapshot(
+                    build_weather_snapshot(
+                        round_id="900001",
+                        hole=hole,
+                        captured_at="2026-05-25T09:00:00Z",
+                        latitude=22.279,
+                        longitude=114.162,
+                        source="manual",
+                        observed={"windSpeedMps": wind_speed},
+                    ),
+                    root=root,
+                )
+
+            package = build_live_round_package(
+                "900001",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                root=root,
+                captured_at="2026-05-25T09:15:00Z",
+            )
+
+        checks = {row["label"]: row for row in package["readinessChecks"]}
+        weather_missing = next(row for row in package["missingData"] if row["label"] == "weather")
+        seeds = {row["hole"]: row for row in package["caddieContextSeeds"]}
+        self.assertEqual(package["weatherSnapshot"]["coverage"], {"ready": 2, "total": 18, "pct": 11.1})
+        self.assertEqual(checks["weather"]["state"], "degraded")
+        self.assertEqual(checks["weather"]["ready"], 2)
+        self.assertEqual(checks["weather"]["total"], 18)
+        self.assertIn("2/18 holes", checks["weather"]["reason"])
+        self.assertEqual(weather_missing["coverage"], {"ready": 2, "total": 18, "pct": 11.1})
+        self.assertIn("900001:3", weather_missing["sourceRefs"])
+        self.assertEqual(seeds[1]["context"]["weatherSnapshot"]["windSpeedMps"], 4.0)
+        self.assertEqual(seeds[2]["context"]["weatherSnapshot"]["windSpeedMps"], 7.0)
+        self.assertEqual(seeds[3]["context"]["weatherSnapshot"]["state"], "missing")
+        self.assertEqual(seeds[3]["context"]["weatherSnapshot"]["coverage"]["ready"], 2)
 
     def test_live_round_package_includes_offline_caddie_context_seeds(self) -> None:
         package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")

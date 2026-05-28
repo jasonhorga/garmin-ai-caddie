@@ -23,7 +23,12 @@ const packageFixture: LiveRoundPackageResponse = {
   },
   missingData: [
     { label: 'geometry', reason: '12/18 holes have ready geometry for offline caddie evidence' },
-    { label: 'weather', reason: 'weather snapshot is missing for the prepared round time' },
+    {
+      label: 'weather',
+      reason: '2/18 holes have cached weather snapshots for prepared hole time',
+      coverage: { ready: 2, total: 18, pct: 11.1 },
+      sourceRefs: ['live-black-knight:3'],
+    },
   ],
   playerProfile: { playerId: 'player-1', displayName: 'Test Player', handedness: 'right' },
   course: { globalId: 31795, name: 'Fixture Links', teeBox: 'blue' },
@@ -48,11 +53,11 @@ const packageFixture: LiveRoundPackageResponse = {
     },
     {
       label: 'weather',
-      state: 'missing',
-      ready: 0,
-      total: 1,
-      reason: 'weather snapshot is missing for the prepared round time',
-      sourceRefs: [],
+      state: 'degraded',
+      ready: 2,
+      total: 18,
+      reason: '2/18 holes have cached weather snapshots for prepared hole time',
+      sourceRefs: ['live-black-knight:1', 'live-black-knight:2'],
     },
   ],
   caddieContextSeeds: [{ hole: 1, sourceRef: 'live-black-knight:1', missingData: [{ label: 'current_location' }] }],
@@ -61,6 +66,11 @@ const packageFixture: LiveRoundPackageResponse = {
     state: 'missing',
     source: 'missing',
     confidence: 'low',
+    coverage: { ready: 2, total: 18, pct: 11.1 },
+    holeCoverage: [
+      { hole: 1, sourceRef: 'live-black-knight:1', state: 'ready', capturedAt: '2026-05-25T08:00:00Z' },
+      { hole: 2, sourceRef: 'live-black-knight:2', state: 'ready', capturedAt: '2026-05-25T08:00:00Z' },
+    ],
     missingData: [{ label: 'weather_values', reason: 'not cached' }],
   },
   clubProfiles: [{ clubName: '8I', sampleSize: 24, median_m: 144, p10_m: 132, p90_m: 153 }],
@@ -196,6 +206,7 @@ describe('MobilePackagePrepPanel', () => {
     expect(within(panel).getAllByText('degraded')[0]).toHaveClass('package-state-degraded')
     expect(within(panel).getByText('Fixture Links')).toBeInTheDocument()
     expect(within(panel).getByText('12/18 holes')).toBeInTheDocument()
+    expect(within(panel).getByText('2/18 holes')).toBeInTheDocument()
     expect(within(panel).getByText('weather missing')).toBeInTheDocument()
     expect(within(panel).getByText('source ready')).toBeInTheDocument()
     expect(within(panel).getByText('fixture data')).toBeInTheDocument()
@@ -210,6 +221,7 @@ describe('MobilePackagePrepPanel', () => {
     expect(within(readiness).getByText('geometry')).toBeInTheDocument()
     expect(within(readiness).getByText('weather')).toBeInTheDocument()
     expect(within(readiness).getByText('12/18')).toBeInTheDocument()
-    expect(within(readiness).getByText('missing')).toHaveClass('package-state-missing')
+    expect(within(readiness).getByText('2/18')).toBeInTheDocument()
+    expect(within(readiness).getAllByText('degraded')[0]).toHaveClass('package-state-degraded')
   })
 })

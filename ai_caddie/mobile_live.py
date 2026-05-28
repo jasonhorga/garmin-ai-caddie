@@ -166,7 +166,7 @@ def _weather_snapshot_for_package(
     root: Path | str | None = None,
     transport: WeatherTransport | None = None,
 ) -> dict[str, Any]:
-    cached = weather_snapshot_for_time(round_id, captured_at=captured_at, root=root)
+    cached = weather_snapshot_for_time(round_id, captured_at=captured_at, root=root, exact_hole=True)
     if cached:
         return cached
     if latitude is not None and longitude is not None:
@@ -186,6 +186,59 @@ def _weather_snapshot_for_package(
         latitude=latitude,
         longitude=longitude,
     )
+
+
+def _weather_coverage_for_package(
+    round_id: str,
+    holes: list[dict[str, Any]],
+    *,
+    captured_at: str | None = None,
+    root: Path | str | None = None,
+) -> tuple[dict[str, Any], dict[int, dict[str, Any]]]:
+    total_holes = len(holes)
+    hole_coverage: list[dict[str, Any]] = []
+    weather_by_hole: dict[int, dict[str, Any]] = {}
+    ready_refs: list[str] = []
+    missing_refs: list[str] = []
+    for hole in holes:
+        number = _safe_int(hole.get("number"))
+        if number is None or number <= 0:
+            continue
+        source_ref = f"{round_id}:{number}"
+        snapshot = weather_snapshot_for_time(round_id, number, captured_at=captured_at, root=root, exact_hole=True)
+        if snapshot and snapshot.get("state") == "ready":
+            weather_by_hole[number] = snapshot
+            ready_refs.append(source_ref)
+            hole_coverage.append(
+                {
+                    "hole": number,
+                    "sourceRef": source_ref,
+                    "state": "ready",
+                    "capturedAt": snapshot.get("capturedAt"),
+                    "source": snapshot.get("source"),
+                }
+            )
+        else:
+            missing_refs.append(source_ref)
+            hole_coverage.append(
+                {
+                    "hole": number,
+                    "sourceRef": source_ref,
+                    "state": "missing",
+                }
+            )
+    ready_holes = len(ready_refs)
+    state = "ready" if total_holes and ready_holes == total_holes else "partial" if ready_holes else "missing"
+    coverage = {
+        "state": state,
+        "readyHoles": ready_holes,
+        "totalHoles": total_holes,
+        "pct": round((ready_holes / total_holes) * 100.0, 1) if total_holes else 0.0,
+        "holeCoverage": hole_coverage,
+        "sourceRefs": ready_refs,
+        "missingRefs": missing_refs,
+    }
+    return coverage, weather_by_hole
 
 
 def _course_location(row: dict[str, Any]) -> tuple[float | None, float | None]:
@@ -864,6 +917,7 @@ def _caddie_context_seeds(
     course_key: str,
     club_profiles: list[dict[str, Any]],
     weather_snapshot: dict[str, Any],
+    weather_by_hole: dict[int, dict[str, Any]] | None = None,
     player_profile: dict[str, Any] | None = None,
     annotations_root: Path | str | None = None,
 ) -> list[dict[str, Any]]:
@@ -874,6 +928,7 @@ def _caddie_context_seeds(
         number = int(hole.get("number") or 0)
         if not number:
             continue
+        seed_weather_snapshot = (weather_by_hole or {}).get(number, weather_snapshot)
         geometry_global_id, local_hole = _round_hole_geometry_ref(round_row, number)
         geometry_global_id = geometry_global_id or 0
         source_ref = f"{round_id}:{number}"
@@ -922,7 +977,7 @@ def _caddie_context_seeds(
             "yards": hole.get("yards"),
             "geometry": geometry,
             "hazards": geometry.get("hazards") or [],
-            "weatherSnapshot": weather_snapshot,
+            "weatherSnapshot": seed_weather_snapshot,
             "clubProfiles": decision_clubs,
             "playerProfile": player_profile or {},
             "candidateRoutes": _tee_candidate_routes(hole, club_profiles, geometry.get("hazards") or []),
@@ -1054,7 +1109,7 @@ def _package_readiness_checks(
     *,
     source_coverage: dict[str, Any],
     geometry_coverage: dict[str, Any],
-    weather_snapshot: dict[str, Any],
+    weather_coverage: dict[str, Any],
     club_profiles: list[dict[str, Any]],
     recent_history: dict[str, Any],
     caddie_context_seeds: list[dict[str, Any]],
@@ -1075,7 +1130,8 @@ def _package_readiness_checks(
         and (seed.get("context") or {}).get("clubProfiles")
     )
     seed_total = len(holes)
-    weather_ready = weather_snapshot.get("state") == "ready"
+    weather_ready = int(weather_coverage.get("readyHoles") or 0)
+    weather_total = int(weather_coverage.get("totalHoles") or 0)
     return [
         _readiness_check(
             "source",
@@ -1096,13 +1152,11 @@ def _package_readiness_checks(
         ),
         _readiness_check(
             "weather",
-            "ready" if weather_ready else "missing",
-            1 if weather_ready else 0,
-            1,
-            "weather snapshot is cached for the prepared round time"
-            if weather_ready
-            else "weather snapshot is missing for the prepared round time",
-            source_refs=[weather_snapshot.get("roundId")] if weather_ready else [],
+            "ready" if weather_total and weather_ready == weather_total else "degraded" if weather_ready else "missing",
+            weather_ready,
+            weather_total,
+            f"{weather_ready}/{weather_total} holes have cached weather snapshots for prepared hole time",
+            source_refs=weather_coverage.get("sourceRefs") if isinstance(weather_coverage.get("sourceRefs"), list) else [],
         ),
         _readiness_check(
             "club_profiles",
@@ -1138,7 +1192,7 @@ def _package_readiness_missing_data(
     rows: list[dict[str, Any]],
     *,
     geometry_coverage: dict[str, Any],
-    weather_snapshot: dict[str, Any],
+    weather_coverage: dict[str, Any],
     club_profiles: list[dict[str, Any]],
     recent_history: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -1152,11 +1206,19 @@ def _package_readiness_missing_data(
                 "reason": f"{ready_holes}/{total_holes} holes have ready geometry for offline caddie evidence",
             }
         )
-    if weather_snapshot.get("state") != "ready":
+    weather_ready = int(weather_coverage.get("readyHoles") or 0)
+    weather_total = int(weather_coverage.get("totalHoles") or 0)
+    if weather_coverage.get("state") != "ready":
         out.append(
             {
                 "label": "weather",
-                "reason": "weather snapshot is missing for the prepared round time",
+                "reason": f"{weather_ready}/{weather_total} holes have cached weather snapshots for prepared hole time",
+                "coverage": {
+                    "ready": weather_ready,
+                    "total": weather_total,
+                    "pct": weather_coverage.get("pct", 0.0),
+                },
+                "sourceRefs": weather_coverage.get("missingRefs") if isinstance(weather_coverage.get("missingRefs"), list) else [],
             }
         )
     if not any(int(row.get("sampleSize") or 0) > 0 for row in club_profiles):
@@ -1255,12 +1317,27 @@ def build_live_round_package(
         root=root,
         transport=weather_transport,
     )
+    weather_coverage, weather_by_hole = _weather_coverage_for_package(
+        round_id,
+        holes,
+        captured_at=captured_at,
+        root=root,
+    )
+    weather_snapshot = {
+        **weather_snapshot,
+        "coverage": {
+            "ready": weather_coverage["readyHoles"],
+            "total": weather_coverage["totalHoles"],
+            "pct": weather_coverage["pct"],
+        },
+        "holeCoverage": weather_coverage["holeCoverage"],
+    }
     recent_history = _recent_history(scored_source, stats, round_row)
     player_profile = _mobile_player_profile(stats)
     package_missing_data = _package_readiness_missing_data(
         package_missing_data,
         geometry_coverage=geometry_coverage,
-        weather_snapshot=weather_snapshot,
+        weather_coverage=weather_coverage,
         club_profiles=club_profiles,
         recent_history=recent_history,
     )
@@ -1293,13 +1370,14 @@ def build_live_round_package(
         course_key=course_key,
         club_profiles=club_profiles,
         weather_snapshot=weather_snapshot,
+        weather_by_hole=weather_by_hole,
         player_profile=player_profile,
         annotations_root=annotations_root,
     )
     readiness_checks = _package_readiness_checks(
         source_coverage=source_coverage,
         geometry_coverage=geometry_coverage,
-        weather_snapshot=weather_snapshot,
+        weather_coverage=weather_coverage,
         club_profiles=club_profiles,
         recent_history=recent_history,
         caddie_context_seeds=caddie_context_seeds,
