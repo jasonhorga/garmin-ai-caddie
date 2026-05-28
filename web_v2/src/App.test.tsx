@@ -629,6 +629,14 @@ function caddieAuditPayload() {
   }
 }
 
+function caddieAuditLatestPayload() {
+  return {
+    schema: 'ai-caddie-decision-audit-latest-v1',
+    decisionId: 'fixture-round:4:approach',
+    record: caddieAuditPayload().record,
+  }
+}
+
 function weatherPayload() {
   return {
     schema: 'ai-caddie-weather-snapshot-v1',
@@ -1738,6 +1746,7 @@ describe('App navigation', () => {
         if (path === '/api/v2/media/target/shot/fixture-round%3A4%3Aapproach/findings') return visionFindingsPayload()
         if (String(path).startsWith('/api/v2/caddie/context')) return caddieContextPayload()
         if (path === '/api/v2/caddie/decision') return caddieDecisionPayload()
+        if (path === '/api/v2/caddie/decisions/fixture-round%3A4%3Aapproach/audit/latest') return caddieAuditLatestPayload()
         if (path === '/api/v2/caddie/decisions/fixture-round%3A4%3Aapproach/audit') return caddieAuditPayload()
         if (String(path).startsWith('/api/v2/weather/snapshot')) return weatherPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1789,6 +1798,8 @@ describe('App navigation', () => {
       }),
     )
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decision', expect.objectContaining({ method: 'POST' }))
+    expect(await screen.findByText('Latest decision audit')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decisions/fixture-round%3A4%3Aapproach/audit/latest')
     const decisionPost = fetchMock.mock.calls.find(([path]) => path === '/api/v2/caddie/decision')?.[1] as RequestInit
     const decisionBody = JSON.parse(String(decisionPost.body))
     expect(decisionBody.context.source).toBe('history_drilldown')

@@ -8,6 +8,7 @@ import {
   ensureHoleGeometry,
   fetchCaddieContext,
   fetchCaddieDecision,
+  fetchLatestCaddieDecisionAudit,
   fetchAnnotations,
   fetchMediaForTarget,
   fetchHoleGeometryEvidence,
@@ -138,6 +139,7 @@ export default function App() {
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
   const [geometryEnsureState, setGeometryEnsureState] = useState<GeometryEnsureState>('idle')
   const activeHoleGeometryTarget = useRef<HoleGeometryTarget | null>(null)
+  const activeDecisionAuditLookup = useRef<string | null>(null)
   const adminTokenRefreshTimer = useRef<number | null>(null)
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
@@ -730,16 +732,33 @@ export default function App() {
     try {
       const data = await fetchCaddieDecision(request, currentAdminToken())
       setDecisionState({ status: 'ready', data })
+      void loadLatestDecisionAudit(data)
     } catch (error: unknown) {
       setDecisionState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
     }
   }
 
+  async function loadLatestDecisionAudit(decision: CaddieDecisionResponse) {
+    const decisionId = decisionIdFromDecision(decision)
+    activeDecisionAuditLookup.current = decisionId
+    setDecisionAuditState({ status: 'loading' })
+    try {
+      const response = await fetchLatestCaddieDecisionAudit(decisionId, currentAdminToken())
+      if (activeDecisionAuditLookup.current !== decisionId) return
+      setDecisionAuditState({ status: 'ready', data: response.record ?? null })
+    } catch (error: unknown) {
+      if (activeDecisionAuditLookup.current !== decisionId) return
+      setDecisionAuditState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+    }
+  }
+
   async function handleCreateDecisionAudit(decision: CaddieDecisionResponse, actualShot: Record<string, unknown>) {
+    const decisionId = decisionIdFromDecision(decision)
+    activeDecisionAuditLookup.current = decisionId
     setDecisionAuditState({ status: 'loading' })
     try {
       const response = await createCaddieDecisionAudit(
-        decisionIdFromDecision(decision),
+        decisionId,
         {
           decision,
           actualShot,
