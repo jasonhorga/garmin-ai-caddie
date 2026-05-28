@@ -14,6 +14,35 @@ from server_v2.main import app
 
 
 class ServerV2ReadinessTests(unittest.TestCase):
+    def _write_backup_manifest(self, path: Path, created_at: datetime) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-backup-manifest-v1",
+                    "snapshot": "/private/backups/ai-caddie-snapshot.tar.gz",
+                    "createdAt": created_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                    "sizeBytes": 4096,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def _write_smoke_evidence(self, path: Path, created_at: datetime) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-private-trial-smoke-evidence-v1",
+                    "createdAt": created_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                    "baseUrl": "https://ai-caddie-api.example.test",
+                    "checks": ["GET /api/v2/readiness", "POST /api/v2/caddie/decision"],
+                    "localLog": "/Users/private/tmp/smoke.log",
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def _write_native_build_evidence(self, path: Path, created_at: datetime) -> None:
         path.write_text(
             json.dumps(
@@ -67,7 +96,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["mobile_events"]["state"], "ready")
         self.assertEqual(checks["media_context"]["state"], "ready")
         self.assertEqual(checks["reports"]["state"], "ready")
-        self.assertEqual(checks["operations"]["state"], "ready")
+        self.assertEqual(checks["operations"]["state"], "degraded")
         self.assertEqual(checks["native_mobile"]["state"], "degraded")
         self.assertEqual(checks["private_snapshot_acceptance"]["state"], "degraded")
         self.assertEqual(checks["private_snapshot_acceptance"]["evidence"]["state"], "blocked")
@@ -132,11 +161,69 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(operations["backupCommand"], "ops/backup_data.sh")
         self.assertEqual(operations["backupManifest"], "backups/latest.json")
         self.assertIn("lastBackup", operations)
+        self.assertEqual(operations["lastBackup"]["state"], "missing")
+        self.assertEqual(operations["lastSmoke"]["state"], "missing")
+        self.assertIn("backup_not_fresh", operations["issues"])
+        self.assertIn("smoke_not_fresh", operations["issues"])
         self.assertGreaterEqual(
             set(operations["smokeCovers"]),
             {"readiness", "mobile_package", "caddie_decision", "reports", "media_context"},
         )
         self.assertEqual(operations["redactionPolicy"], "no credential material or private filesystem paths in status responses")
+
+    def test_readiness_operations_turn_ready_with_fresh_backup_and_smoke_evidence(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backup_manifest = root / "backups" / "latest.json"
+            smoke_evidence = root / "logs" / "private_trial_smoke_latest.json"
+            self._write_backup_manifest(backup_manifest, datetime.now(UTC))
+            self._write_smoke_evidence(smoke_evidence, datetime.now(UTC))
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.BACKUP_MANIFEST", backup_manifest),
+                patch("server_v2.readiness.SMOKE_EVIDENCE", smoke_evidence),
+            ):
+                response = client.get("/api/v2/readiness")
+
+            serialized = str(response.json())
+            self.assertNotIn(str(root), serialized)
+            self.assertNotIn("/Users/private", serialized)
+
+        self.assertEqual(response.status_code, 200)
+        checks = {check["label"]: check for check in response.json()["checks"]}
+        operations = checks["operations"]
+        self.assertEqual(operations["state"], "ready")
+        self.assertEqual(operations["evidence"]["issues"], [])
+        self.assertEqual(operations["evidence"]["lastBackup"]["state"], "ready")
+        self.assertEqual(operations["evidence"]["lastBackup"]["snapshot"], "ai-caddie-snapshot.tar.gz")
+        self.assertEqual(operations["evidence"]["lastSmoke"]["state"], "ready")
+        self.assertEqual(operations["evidence"]["lastSmoke"]["checks"], ["GET /api/v2/readiness", "POST /api/v2/caddie/decision"])
+
+    def test_readiness_operations_degrade_with_stale_backup_or_smoke_evidence(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backup_manifest = root / "backups" / "latest.json"
+            smoke_evidence = root / "logs" / "private_trial_smoke_latest.json"
+            self._write_backup_manifest(backup_manifest, datetime.now(UTC) - timedelta(days=30))
+            self._write_smoke_evidence(smoke_evidence, datetime.now(UTC) - timedelta(days=30))
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.BACKUP_MANIFEST", backup_manifest),
+                patch("server_v2.readiness.SMOKE_EVIDENCE", smoke_evidence),
+            ):
+                response = client.get("/api/v2/readiness")
+
+        self.assertEqual(response.status_code, 200)
+        operations = {check["label"]: check for check in response.json()["checks"]}["operations"]
+        self.assertEqual(operations["state"], "degraded")
+        self.assertEqual(operations["evidence"]["lastBackup"]["state"], "stale")
+        self.assertEqual(operations["evidence"]["lastSmoke"]["state"], "stale")
+        self.assertIn("backup_not_fresh", operations["evidence"]["issues"])
+        self.assertIn("smoke_not_fresh", operations["evidence"]["issues"])
 
     def test_readiness_mobile_package_turns_ready_when_offline_dependencies_are_ready(self) -> None:
         client = TestClient(app)

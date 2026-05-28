@@ -2,18 +2,24 @@
 set -euo pipefail
 
 BASE_URL="${1:-http://127.0.0.1:9000}"
+SMOKE_LOG_DIR="${AI_CADDIE_SMOKE_LOG_DIR:-logs}"
+SMOKE_EVIDENCE="${SMOKE_LOG_DIR}/private_trial_smoke_latest.json"
 
-uv run python - "${BASE_URL}" "${AI_CADDIE_ADMIN_TOKEN:-}" <<'PY'
+uv run python - "${BASE_URL}" "${AI_CADDIE_ADMIN_TOKEN:-}" "${SMOKE_EVIDENCE}" <<'PY'
 from __future__ import annotations
 
 import base64
+from datetime import UTC, datetime
 import json
+from pathlib import Path
 import sys
 from uuid import uuid4
 from urllib.request import Request, urlopen
 
 base_url = sys.argv[1].rstrip("/")
 admin_token = sys.argv[2]
+smoke_evidence = Path(sys.argv[3])
+checks: list[str] = []
 
 
 def call_json(method: str, path: str, *, payload: dict[str, object] | None = None, protected: bool = False) -> dict[str, object]:
@@ -43,6 +49,7 @@ def call_json(method: str, path: str, *, payload: dict[str, object] | None = Non
     schema = payload.get("schema") if isinstance(payload, dict) else None
     if not schema:
         raise SystemExit(f"missing schema from {path}")
+    checks.append(f"{method} {path}")
     return payload
 
 
@@ -144,5 +151,20 @@ if not media_rows:
 if not any(isinstance(row, dict) and row.get("id") == media_id and row.get("localPath") == "[redacted]" for row in media_rows):
     raise SystemExit("media list did not expose latest redacted metadata")
 
+smoke_evidence.parent.mkdir(parents=True, exist_ok=True)
+smoke_evidence.write_text(
+    json.dumps(
+        {
+            "schema": "ai-caddie-private-trial-smoke-evidence-v1",
+            "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "baseUrl": base_url,
+            "checks": checks,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
 print(f"private trial smoke ok: {base_url}")
 PY

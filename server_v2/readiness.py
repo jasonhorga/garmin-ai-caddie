@@ -23,8 +23,11 @@ from .sync_status import load_sync_status_response
 LIVE_ROUND_PACKAGE_CONTRACT = Path("mobile/contracts/live_round_package.schema.json")
 LIVE_ROUND_EVENT_CONTRACT = Path("mobile/contracts/live_round_event.schema.json")
 SMOKE_SCRIPT = Path("ops/smoke_private_trial.sh")
+SMOKE_EVIDENCE = Path("logs/private_trial_smoke_latest.json")
 BACKUP_SCRIPT = Path("ops/backup_data.sh")
 BACKUP_MANIFEST = Path("backups/latest.json")
+BACKUP_MAX_AGE = timedelta(days=7)
+SMOKE_EVIDENCE_MAX_AGE = timedelta(days=3)
 NATIVE_BUILD_EVIDENCE = Path("mobile/ios/native_build_evidence.json")
 NATIVE_BUILD_EVIDENCE_SCHEMA = "ai-caddie-native-build-evidence-v1"
 NATIVE_BUILD_EVIDENCE_MAX_AGE = timedelta(days=14)
@@ -74,7 +77,7 @@ def _smoke_covers() -> list[str]:
 
 def _latest_backup() -> dict[str, Any] | None:
     if not BACKUP_MANIFEST.exists():
-        return None
+        return {"state": "missing"}
     try:
         payload = json.loads(BACKUP_MANIFEST.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -83,11 +86,23 @@ def _latest_backup() -> dict[str, Any] | None:
         return {"state": "invalid"}
     snapshot = str(payload.get("snapshot") or "")
     snapshot_path = Path(snapshot)
+    state, freshness = _freshness_state(payload.get("createdAt"), BACKUP_MAX_AGE)
+    issues = list(freshness.get("issues") or [])
+    if payload.get("schema") != "ai-caddie-backup-manifest-v1":
+        state = "invalid"
+        issues.append("schema_mismatch")
+    if not snapshot:
+        state = "invalid"
+        issues.append("snapshot_missing")
     return {
+        "state": state,
         "schema": payload.get("schema"),
         "snapshot": snapshot_path.name if snapshot_path.is_absolute() else snapshot,
         "createdAt": payload.get("createdAt"),
         "sizeBytes": payload.get("sizeBytes"),
+        "maxAgeHours": int(BACKUP_MAX_AGE.total_seconds() // 3600),
+        **freshness,
+        "issues": sorted(set(issues)),
     }
 
 
@@ -104,10 +119,53 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError:
-        return None
+        try:
+            parsed = datetime.strptime(value.strip(), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+        except ValueError:
+            return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _freshness_state(created_at_value: Any, max_age: timedelta) -> tuple[str, dict[str, Any]]:
+    created_at = _parse_utc_datetime(created_at_value)
+    if created_at is None:
+        return "invalid", {"issues": ["created_at_missing"]}
+    now = datetime.now(UTC)
+    age = now - created_at
+    if created_at - now > timedelta(hours=6):
+        return "invalid", {"createdAt": created_at_value, "issues": ["future_created_at"], "ageHours": 0}
+    age_hours = round(max(age.total_seconds(), 0.0) / 3600, 2)
+    if age > max_age:
+        return "stale", {"createdAt": created_at_value, "issues": ["stale"], "ageHours": age_hours}
+    return "ready", {"createdAt": created_at_value, "issues": [], "ageHours": age_hours}
+
+
+def _latest_smoke_evidence() -> dict[str, Any]:
+    if not SMOKE_EVIDENCE.exists():
+        return {"state": "missing"}
+    try:
+        payload = json.loads(SMOKE_EVIDENCE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"state": "unreadable"}
+    if not isinstance(payload, dict):
+        return {"state": "invalid"}
+    state, freshness = _freshness_state(payload.get("createdAt"), SMOKE_EVIDENCE_MAX_AGE)
+    checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
+    evidence = {
+        "state": state,
+        "schema": payload.get("schema"),
+        "createdAt": payload.get("createdAt"),
+        "baseUrl": payload.get("baseUrl"),
+        "checks": [str(check) for check in checks],
+        "maxAgeHours": int(SMOKE_EVIDENCE_MAX_AGE.total_seconds() // 3600),
+        **freshness,
+    }
+    if payload.get("schema") != "ai-caddie-private-trial-smoke-evidence-v1":
+        evidence["state"] = "invalid"
+        evidence["issues"] = sorted({*evidence.get("issues", []), "schema_mismatch"})
+    return evidence
 
 
 def _native_scheme_evidence(payload: dict[str, Any], key: str, expected_scheme: str) -> tuple[dict[str, Any], list[str]]:
@@ -414,24 +472,38 @@ def build_readiness_response() -> dict[str, Any]:
         "web_v2/vercel.json",
     ]
     missing_ops = [path for path in [*required_scripts, *required_docs, *deployment_manifests] if not Path(path).exists()]
+    last_backup = _latest_backup()
+    last_smoke = _latest_smoke_evidence()
+    ops_issues = []
+    if missing_ops:
+        ops_issues.append("missing_ops_files")
+    if last_backup is None or last_backup.get("state") != "ready":
+        ops_issues.append("backup_not_fresh")
+    if last_smoke.get("state") != "ready":
+        ops_issues.append("smoke_not_fresh")
     checks.append(
         _check(
             "operations",
-            "ready" if not missing_ops else "degraded",
-            "Private trial run, smoke, backup, restore, deployment, and security docs are present."
-            if not missing_ops
-            else "Some private trial operations files are missing.",
+            "ready" if not ops_issues else "degraded",
+            "Private trial operations files, backup, and smoke evidence are current."
+            if not ops_issues
+            else "Private trial operations need fresh backup/smoke evidence or missing files resolved.",
             {
                 "scripts": required_scripts,
                 "docs": required_docs,
                 "deploymentManifests": deployment_manifests,
                 "smokeCommand": SMOKE_SCRIPT.as_posix(),
                 "smokeCovers": _smoke_covers(),
+                "smokeEvidence": _public_path(SMOKE_EVIDENCE),
+                "lastSmoke": last_smoke,
                 "backupCommand": BACKUP_SCRIPT.as_posix(),
-                "backupManifest": BACKUP_MANIFEST.as_posix(),
-                "lastBackup": _latest_backup(),
+                "backupManifest": _public_path(BACKUP_MANIFEST),
+                "backupMaxAgeHours": int(BACKUP_MAX_AGE.total_seconds() // 3600),
+                "smokeMaxAgeHours": int(SMOKE_EVIDENCE_MAX_AGE.total_seconds() // 3600),
+                "lastBackup": last_backup,
                 "redactionPolicy": "no credential material or private filesystem paths in status responses",
                 "missing": missing_ops,
+                "issues": ops_issues,
             },
         )
     )
