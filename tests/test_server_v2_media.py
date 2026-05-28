@@ -273,6 +273,46 @@ class ServerV2MediaTests(unittest.TestCase):
         self.assertEqual(mime_response.status_code, 422)
         self.assertIn("mimeType", mime_response.text)
 
+    def test_media_create_rejects_non_media_content_signatures(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            disguised = root / "data" / "media" / "uploads" / "lie.jpg"
+            disguised.parent.mkdir(parents=True)
+            disguised.write_bytes(b"%PDF-1.7 private scorecard")
+            with patch("server_v2.media.MEDIA_ROOT", root):
+                uploaded_response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "fileName": "lie.jpg",
+                        "contentBase64": base64.b64encode(b"%PDF-1.7 private scorecard").decode("ascii"),
+                        "mimeType": "image/jpeg",
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                local_response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "localPath": str(disguised),
+                        "mimeType": "image/jpeg",
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                index_path = root / "data" / "media" / "media_index.jsonl"
+
+        self.assertEqual(uploaded_response.status_code, 422)
+        self.assertEqual(local_response.status_code, 422)
+        self.assertIn("does not look like image/", uploaded_response.text)
+        self.assertIn("does not look like image/", local_response.text)
+        self.assertFalse(index_path.exists())
+
     def test_media_create_rejects_missing_local_file_reference(self) -> None:
         client = TestClient(app)
 

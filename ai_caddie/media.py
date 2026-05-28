@@ -21,6 +21,7 @@ MAX_MEDIA_UPLOAD_BYTES_BY_KIND = {
     "video": 80 * 1024 * 1024,
 }
 MAX_VIDEO_DURATION_SECONDS = 180
+SIGNATURE_SAMPLE_BYTES = 32
 
 
 class MediaUploadTooLarge(ValueError):
@@ -93,12 +94,31 @@ def infer_media_mime_type(file_name: str | Path, media_kind: str) -> str:
     return "video/mp4" if media_kind == "video" else "image/jpeg"
 
 
+def sniff_media_mime_type(sample: bytes) -> str | None:
+    if sample.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if sample.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if sample.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(sample) >= 12 and sample[:4] == b"RIFF" and sample[8:12] == b"WEBP":
+        return "image/webp"
+    if len(sample) >= 12 and sample[4:8] == b"ftyp":
+        return "video/mp4"
+    if sample.startswith(b"%PDF-"):
+        return "application/pdf"
+    if sample[:16].lstrip().lower().startswith((b"<!doctype html", b"<html")):
+        return "text/html"
+    return None
+
+
 def validate_media_upload_constraints(
     media_kind: str,
     *,
     content_byte_size: int | None = None,
     duration_s: float | None = None,
     mime_type: str | None = None,
+    content_sample: bytes | None = None,
 ) -> None:
     if media_kind not in VALID_MEDIA_KINDS:
         raise ValueError(f"unsupported media kind: {media_kind}")
@@ -118,6 +138,12 @@ def validate_media_upload_constraints(
         expected_prefix = "video/" if media_kind == "video" else "image/"
         if not normalized.startswith(expected_prefix):
             raise ValueError(f"{media_kind} mimeType must start with {expected_prefix}")
+    if content_sample:
+        detected = sniff_media_mime_type(content_sample)
+        if detected:
+            expected_prefix = "video/" if media_kind == "video" else "image/"
+            if not detected.startswith(expected_prefix):
+                raise ValueError(f"{media_kind} content does not look like {expected_prefix} media")
 
 
 def store_media_content(
@@ -148,6 +174,7 @@ def store_media_content(
             content_byte_size=len(content),
             duration_s=duration_s,
             mime_type=resolved_mime_type,
+            content_sample=content[:SIGNATURE_SAMPLE_BYTES],
         )
     upload_dir = Path(root or ".") / UPLOAD_DIR
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -170,12 +197,15 @@ def media_file_metadata(
     if not resolved.exists() or not resolved.is_file():
         raise ValueError("media localPath does not exist")
     content_byte_size = resolved.stat().st_size
+    with resolved.open("rb") as handle:
+        content_sample = handle.read(SIGNATURE_SAMPLE_BYTES)
     resolved_mime_type = (mime_type or infer_media_mime_type(resolved, media_kind)).strip()
     validate_media_upload_constraints(
         media_kind,
         content_byte_size=content_byte_size,
         duration_s=duration_s,
         mime_type=resolved_mime_type,
+        content_sample=content_sample,
     )
     return {
         "contentByteSize": content_byte_size,
