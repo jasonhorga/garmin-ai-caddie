@@ -115,6 +115,18 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("-scheme AICaddieWatch", watch_test)
         self.assertIn('-destination "$WATCH_DESTINATION"', watch_test)
 
+        self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
+
+    def test_native_evidence_writer_is_documented_and_reused_by_ci(self) -> None:
+        workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+        readme = Path("mobile/ios/README.md").read_text(encoding="utf-8")
+        writer = Path("ops/write_native_build_evidence.py").read_text(encoding="utf-8")
+
+        self.assertIn("ops/write_native_build_evidence.py", workflow)
+        self.assertIn("ops/write_native_build_evidence.py", readme)
+        self.assertIn("ai-caddie-native-build-evidence-v1", writer)
+        self.assertIn("PRIVATE_VALUE_MARKERS", writer)
+
 
 if __name__ == "__main__":
     unittest.main()

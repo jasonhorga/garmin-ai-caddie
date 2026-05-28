@@ -86,33 +86,7 @@ jobs:
             -scheme AICaddieWatch \
             -destination "$WATCH_DESTINATION"
       - name: Write native build evidence
-        run: |
-          python3 - <<'PY'
-          import datetime
-          import json
-          import os
-          from pathlib import Path
-
-          payload = {
-              "schema": "ai-caddie-native-build-evidence-v1",
-              "createdAt": datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-              "commit": os.environ.get("GITHUB_SHA"),
-              "workflowRunId": os.environ.get("GITHUB_RUN_ID"),
-              "artifactName": "native-build-evidence",
-              "ios": {
-                  "scheme": "AICaddie",
-                  "status": "passed",
-                  "destination": os.environ.get("IOS_DESTINATION"),
-              },
-              "watch": {
-                  "scheme": "AICaddieWatch",
-                  "status": "passed",
-                  "destination": os.environ.get("WATCH_DESTINATION"),
-              },
-          }
-          output = Path("mobile/ios/native_build_evidence.json")
-          output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-          PY
+        run: python3 ops/write_native_build_evidence.py
       - name: Upload native build evidence
         uses: actions/upload-artifact@v4
         with:
