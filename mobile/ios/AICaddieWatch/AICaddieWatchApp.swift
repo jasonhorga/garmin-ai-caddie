@@ -12,6 +12,9 @@ public struct AICaddieWatchApp: App {
                 WatchHoleView(
                     state: state,
                     clubs: state.availableClubNames,
+                    queuedEventCount: syncClient.queuedEventCount,
+                    phoneReachable: syncClient.phoneReachable,
+                    lastPhoneAcceptedAt: syncClient.lastPhoneAcceptedAt,
                     onEvent: sendQuickInputEvent
                 )
             } else {

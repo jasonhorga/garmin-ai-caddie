@@ -21,6 +21,7 @@ final class WatchSyncClientTests: XCTestCase {
 
         try client.queueInputEvent(event)
 
+        XCTAssertEqual(client.queuedEventCount, 1)
         XCTAssertEqual(try client.loadQueuedEvents(), [event])
     }
 
@@ -60,10 +61,12 @@ final class WatchSyncClientTests: XCTestCase {
 
         try client.markEventsAcknowledged(["event-1", "event-3"])
 
+        XCTAssertEqual(client.queuedEventCount, 1)
         XCTAssertEqual(try client.loadQueuedEvents(), [second])
 
         try client.markEventsAcknowledged(["event-2"])
 
+        XCTAssertEqual(client.queuedEventCount, 0)
         XCTAssertEqual(try client.loadQueuedEvents(), [])
     }
 

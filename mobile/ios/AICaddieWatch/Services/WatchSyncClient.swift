@@ -107,6 +107,9 @@ public struct WatchSyncAcknowledgement: Equatable {
 
 public final class WatchSyncClient: NSObject, ObservableObject {
     @Published public private(set) var currentState: WatchRoundState?
+    @Published public private(set) var queuedEventCount = 0
+    @Published public private(set) var phoneReachable = false
+    @Published public private(set) var lastPhoneAcceptedAt: String?
 
     private let queueURL: URL
     private let stateURL: URL
@@ -118,9 +121,11 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         self.stateURL = stateURL ?? queueURL.deletingLastPathComponent().appendingPathComponent("current_state.json")
         super.init()
         currentState = try? loadPersistedState()
+        refreshQueuedEventCount()
         if WCSession.isSupported() {
             WCSession.default.delegate = self
             WCSession.default.activate()
+            phoneReachable = WCSession.default.isReachable
         }
     }
 
@@ -134,7 +139,9 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     }
 
     public func receiveState(_ state: WatchRoundState) {
-        currentState = state
+        publishStateUpdate { client in
+            client.currentState = state
+        }
         try? persistState(state)
     }
 
@@ -153,6 +160,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         }
         events.append(event)
         try writeQueuedEvents(events)
+        refreshQueuedEventCount()
         applyQuickInputToCurrentState(event)
     }
 
@@ -180,7 +188,9 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             return
         }
         let updated = currentState.applying(event)
-        self.currentState = updated
+        publishStateUpdate { client in
+            client.currentState = updated
+        }
         try? persistState(updated)
     }
 
@@ -196,6 +206,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             !eventIds.contains(event.eventId)
         }
         try writeQueuedEvents(remaining)
+        refreshQueuedEventCount()
     }
 
     private func writeQueuedEvents(_ events: [WatchInputEvent]) throws {
@@ -233,6 +244,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             replyHandler: { [weak self] reply in
                 let acknowledgement = WatchSyncAcknowledgement.decode(reply, fallbackEventId: event.eventId)
                 if !acknowledgement.resolvedEventIds.isEmpty {
+                    self?.publishPhoneAccepted()
                     if removeFromQueueOnAck {
                         try? self?.markEventsAcknowledged(acknowledgement.resolvedEventIds)
                     }
@@ -241,11 +253,46 @@ public final class WatchSyncClient: NSObject, ObservableObject {
                 }
             },
             errorHandler: { [weak self] _ in
+                self?.publishPhoneReachable(false)
                 if queueOnFailure {
                     try? self?.queueInputEvent(event)
                 }
             }
         )
+    }
+
+    private func refreshQueuedEventCount() {
+        let count = (try? loadQueuedEvents().count) ?? 0
+        publishStateUpdate { client in
+            client.queuedEventCount = count
+        }
+    }
+
+    private func publishPhoneReachable(_ reachable: Bool) {
+        publishStateUpdate { client in
+            client.phoneReachable = reachable
+        }
+    }
+
+    private func publishPhoneAccepted() {
+        let acceptedAt = ISO8601DateFormatter().string(from: Date())
+        publishStateUpdate { client in
+            client.phoneReachable = true
+            client.lastPhoneAcceptedAt = acceptedAt
+        }
+    }
+
+    private func publishStateUpdate(_ update: @escaping (WatchSyncClient) -> Void) {
+        if Thread.isMainThread {
+            update(self)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    return
+                }
+                update(self)
+            }
+        }
     }
 
     private func receiveStatePayload(_ state: [String: Any]) {
@@ -265,12 +312,14 @@ extension WatchSyncClient: WCSessionDelegate {
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
     ) {
+        publishPhoneReachable(session.isReachable)
         if activationState == .activated, session.isReachable {
             try? flushQueue()
         }
     }
 
     public func sessionReachabilityDidChange(_ session: WCSession) {
+        publishPhoneReachable(session.isReachable)
         if session.isReachable {
             try? flushQueue()
         }
