@@ -24,6 +24,8 @@ final class WatchEventBridgeTests: XCTestCase {
             selected: nil,
             selectedOptionId: "stock",
             selectedOption: nil,
+            sequences: nil,
+            selectedSequence: nil,
             avoidZones: [],
             forbiddenZones: [],
             acceptableMiss: [:],

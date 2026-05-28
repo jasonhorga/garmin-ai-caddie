@@ -22,6 +22,8 @@ public struct CaddieDecisionResponse: Codable, Equatable {
     public let selected: [String: JSONValue]?
     public let selectedOptionId: String?
     public let selectedOption: [String: JSONValue]?
+    public let sequences: [[String: JSONValue]]?
+    public let selectedSequence: [String: JSONValue]?
     public let avoidZones: [[String: JSONValue]]
     public let forbiddenZones: [[String: JSONValue]]
     public let acceptableMiss: [String: JSONValue]
@@ -62,6 +64,12 @@ public struct CaddieDecisionResponse: Codable, Equatable {
         }
         if let selectedOption {
             payload["selectedOption"] = .object(selectedOption)
+        }
+        if let sequences {
+            payload["sequences"] = .array(sequences.map { .object($0) })
+        }
+        if let selectedSequence {
+            payload["selectedSequence"] = .object(selectedSequence)
         }
         return payload
     }

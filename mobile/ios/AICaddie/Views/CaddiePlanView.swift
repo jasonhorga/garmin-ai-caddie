@@ -218,25 +218,180 @@ public struct CaddiePlanOption: Identifiable, Equatable {
     }
 }
 
+public struct CaddiePlanSequenceStep: Identifiable, Equatable {
+    public let id: String
+    public let role: String
+    public let clubName: String
+    public let targetCarryM: Double?
+    public let expectedRemainingM: Double?
+    public let sampleSize: Int?
+    public let confidence: String?
+    public let sourceRefs: [String]
+
+    public var summaryText: String {
+        var parts: [String] = [clubName]
+        if let targetCarryM {
+            parts.append("\(Int(targetCarryM))m")
+        }
+        if let expectedRemainingM {
+            parts.append("leave \(Int(expectedRemainingM))m")
+        }
+        if let sampleSize {
+            parts.append("\(sampleSize) samples")
+        }
+        return parts.joined(separator: " / ")
+    }
+}
+
+public struct CaddiePlanSequence: Identifiable, Equatable {
+    public let id: String
+    public let label: String
+    public let expectedStrokes: Int?
+    public let expectedRemainingM: Double?
+    public let riskScore: Double?
+    public let confidence: String?
+    public let coverageText: String?
+    public let sourceRefs: [String]
+    public let steps: [CaddiePlanSequenceStep]
+
+    public var metaText: String {
+        var parts: [String] = []
+        if let expectedStrokes {
+            parts.append("\(expectedStrokes) shots")
+        }
+        if let expectedRemainingM {
+            parts.append("leave \(Int(expectedRemainingM))m")
+        }
+        if let riskScore {
+            parts.append("risk \(Int(riskScore))")
+        }
+        if let confidence {
+            parts.append("\(confidence) confidence")
+        }
+        if let coverageText {
+            parts.append("coverage \(coverageText)")
+        }
+        return parts.isEmpty ? "sequence evidence unavailable" : parts.joined(separator: " / ")
+    }
+
+    public static func sequences(from response: CaddieDecisionResponse) -> [CaddiePlanSequence] {
+        (response.sequences ?? []).enumerated().map { index, row in
+            CaddiePlanSequence(
+                id: string(row["id"]) ?? string(row["label"]) ?? "sequence-\(index + 1)",
+                label: string(row["label"]) ?? "Sequence \(index + 1)",
+                expectedStrokes: integer(row["expectedStrokes"]),
+                expectedRemainingM: number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"]),
+                riskScore: number(row["riskScore"]),
+                confidence: string(row["confidence"]),
+                coverageText: coverageText(row["coverage"]),
+                sourceRefs: stringArray(row["sourceRefs"]),
+                steps: sequenceSteps(row["clubs"])
+            )
+        }
+    }
+
+    public static func selectedSequenceId(from response: CaddieDecisionResponse) -> String? {
+        guard let selectedSequence = response.selectedSequence else {
+            return nil
+        }
+        return string(selectedSequence["id"]) ?? string(selectedSequence["label"])
+    }
+
+    private static func sequenceSteps(_ value: JSONValue?) -> [CaddiePlanSequenceStep] {
+        guard case .array(let values) = value else {
+            return []
+        }
+        return values.enumerated().compactMap { index, value in
+            guard case .object(let row) = value else {
+                return nil
+            }
+            let role = string(row["role"]) ?? "shot"
+            let clubName = string(row["clubName"]) ?? "-"
+            return CaddiePlanSequenceStep(
+                id: "\(index)-\(role)-\(clubName)",
+                role: role,
+                clubName: clubName,
+                targetCarryM: number(row["targetCarry_m"]) ?? number(row["targetCarryM"]),
+                expectedRemainingM: number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"]),
+                sampleSize: integer(row["sampleSize"]),
+                confidence: string(row["confidence"]),
+                sourceRefs: stringArray(row["sourceRefs"])
+            )
+        }
+    }
+
+    private static func string(_ value: JSONValue?) -> String? {
+        if case .string(let raw) = value {
+            return raw
+        }
+        return nil
+    }
+
+    private static func number(_ value: JSONValue?) -> Double? {
+        if case .number(let raw) = value {
+            return raw
+        }
+        return nil
+    }
+
+    private static func integer(_ value: JSONValue?) -> Int? {
+        guard let raw = number(value) else {
+            return nil
+        }
+        return Int(raw)
+    }
+
+    private static func stringArray(_ value: JSONValue?) -> [String] {
+        guard case .array(let values) = value else {
+            return []
+        }
+        return values.compactMap { string($0) }
+    }
+
+    private static func coverageText(_ value: JSONValue?) -> String? {
+        guard case .object(let coverage) = value else {
+            return nil
+        }
+        guard let ready = integer(coverage["ready"]), let total = integer(coverage["total"]) else {
+            return nil
+        }
+        return "\(ready)/\(total)"
+    }
+}
+
 public struct CaddiePlanView: View {
     public let options: [CaddiePlanOption]
     public let selectedOptionId: String
+    public let sequences: [CaddiePlanSequence]
+    public let selectedSequenceId: String?
 
-    public init(options: [CaddiePlanOption], selectedOptionId: String) {
+    public init(
+        options: [CaddiePlanOption],
+        selectedOptionId: String,
+        sequences: [CaddiePlanSequence] = [],
+        selectedSequenceId: String? = nil
+    ) {
         self.options = options
         self.selectedOptionId = selectedOptionId
+        self.sequences = sequences
+        self.selectedSequenceId = selectedSequenceId
     }
 
     public init(response: CaddieDecisionResponse) {
         let responseOptions = CaddiePlanOption.options(from: response)
+        let responseSequences = CaddiePlanSequence.sequences(from: response)
         self.options = responseOptions
         self.selectedOptionId = response.selectedOptionId ?? responseOptions.first?.id ?? "stock"
+        self.sequences = responseSequences
+        self.selectedSequenceId = CaddiePlanSequence.selectedSequenceId(from: response) ?? response.selectedOptionId
     }
 
     public init(seed: CaddieContextSeed?) {
         let seedOptions = CaddiePlanOption.options(from: seed)
         self.options = seedOptions
         self.selectedOptionId = seed?.selectedOfflineOptionId ?? seedOptions.first?.id ?? "stock"
+        self.sequences = []
+        self.selectedSequenceId = nil
     }
 
     public var body: some View {
@@ -280,6 +435,48 @@ public struct CaddiePlanView: View {
                         .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
                 }
                 .padding(.vertical, 6)
+            }
+            if !sequences.isEmpty {
+                Divider()
+                    .padding(.vertical, 2)
+                Text("Hole plan")
+                    .font(.subheadline.weight(.semibold))
+                ForEach(sequences) { sequence in
+                    let isSelected = sequence.id == selectedSequenceId
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Image(systemName: isSelected ? "checkmark.seal.fill" : "point.topleft.down.curvedto.point.bottomright.up")
+                                .foregroundStyle(isSelected ? AICaddieDesignTokens.strategyColor(sequence.id) : .secondary)
+                            Text(sequence.label)
+                                .font(.caption.weight(.semibold))
+                            Spacer()
+                        }
+                        Text(sequence.metaText)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        if !sequence.steps.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                ForEach(sequence.steps) { step in
+                                    HStack(spacing: 6) {
+                                        Text(step.role.uppercased())
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(AICaddieDesignTokens.confidenceColor(step.confidence ?? sequence.confidence ?? "low"))
+                                            .frame(width: 56, alignment: .leading)
+                                        Text(step.summaryText)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                        if !sequence.sourceRefs.isEmpty {
+                            Text("src \(sequence.sourceRefs.prefix(2).joined(separator: \", \"))")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
             }
         }
         .padding(.vertical, 4)

@@ -1542,8 +1542,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('request.httpMethod = "POST"', client)
         self.assertIn("let shotType: String", client)
         self.assertIn("let context: [String: JSONValue]", client)
-        for field in ["selectedOptionId", "options", "avoidZones", "evidence", "confidence", "missingData"]:
+        for field in [
+            "selectedOptionId",
+            "selectedSequence",
+            "sequences",
+            "options",
+            "avoidZones",
+            "evidence",
+            "confidence",
+            "missingData",
+        ]:
             self.assertIn(field, client)
+        self.assertIn('payload["sequences"] = .array(sequences.map { .object($0) })', client)
+        self.assertIn('payload["selectedSequence"] = .object(selectedSequence)', client)
 
     def test_ios_offline_caddie_decision_evaluator_builds_auditable_fallback(self) -> None:
         evaluator = _read_required_source(self, IOS_DIR / "Services" / "OfflineCaddieDecisionEvaluator.swift")
@@ -1560,6 +1571,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('evidenceRefs: evidenceRefs', evaluator)
         self.assertIn("selectedOptionId: selected.optionId", evaluator)
         self.assertIn("selectedOption: selectedRow", evaluator)
+        self.assertIn("sequences: nil", evaluator)
+        self.assertIn("selectedSequence: nil", evaluator)
         self.assertIn('"offline_caddie"', evaluator)
         self.assertIn('"offline_selected_option"', evaluator)
         self.assertIn('"club_profile_confidence"', evaluator)
@@ -1835,10 +1848,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('locationPayload["targetLongitude"] = .number(targetCoordinate.longitude)', current_hole)
         self.assertIn('"targetPosition"', current_hole)
         self.assertIn("struct CaddiePlanView: View", caddie_plan)
+        self.assertIn("struct CaddiePlanSequence: Identifiable, Equatable", caddie_plan)
+        self.assertIn("struct CaddiePlanSequenceStep: Identifiable, Equatable", caddie_plan)
         self.assertIn("init(response: CaddieDecisionResponse)", caddie_plan)
         self.assertIn("init(seed: CaddieContextSeed?)", caddie_plan)
         self.assertIn("options(from response", caddie_plan)
         self.assertIn("options(from seed", caddie_plan)
+        self.assertIn("sequences(from response", caddie_plan)
+        self.assertIn("selectedSequenceId(from response", caddie_plan)
+        self.assertIn("response.selectedSequence", caddie_plan)
+        self.assertIn("response.sequences ?? []", caddie_plan)
+        self.assertIn("Hole plan", caddie_plan)
+        self.assertIn("sequence.steps", caddie_plan)
+        self.assertIn('number(row["expectedRemaining_m"])', caddie_plan)
+        self.assertIn('number(row["targetCarry_m"])', caddie_plan)
         self.assertIn("OfflineCaddieOption", caddie_plan)
         self.assertIn("selectedOptionId ??", caddie_plan)
         self.assertIn("sampleSize", caddie_plan)

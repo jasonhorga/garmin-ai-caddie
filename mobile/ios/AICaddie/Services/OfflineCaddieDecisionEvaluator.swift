@@ -38,6 +38,8 @@ public final class OfflineCaddieDecisionEvaluator {
             selected: selectedRow,
             selectedOptionId: selected.optionId,
             selectedOption: selectedRow,
+            sequences: nil,
+            selectedSequence: nil,
             avoidZones: [],
             forbiddenZones: [],
             acceptableMiss: [
