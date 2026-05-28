@@ -150,12 +150,12 @@ describe('SettingsPage', () => {
     expect(within(privacy).getByRole('checkbox', { name: 'Local snapshots survive reauth' })).toBeChecked()
 
     await user.click(screen.getByRole('button', { name: 'Open sync controls' }))
-    await user.click(screen.getByRole('button', { name: 'Open caddie controls' }))
+    await user.click(screen.getByRole('button', { name: 'Open live prep' }))
     await user.click(screen.getByRole('button', { name: 'Open report controls' }))
     await user.click(screen.getByRole('button', { name: 'Open corrections' }))
 
     expect(onNavigate).toHaveBeenNthCalledWith(1, 'sync-quality')
-    expect(onNavigate).toHaveBeenNthCalledWith(2, 'caddie')
+    expect(onNavigate).toHaveBeenNthCalledWith(2, 'sync-quality')
     expect(onNavigate).toHaveBeenNthCalledWith(3, 'reports')
     expect(onNavigate).toHaveBeenNthCalledWith(4, 'corrections')
   })

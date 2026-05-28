@@ -190,6 +190,7 @@ export function CaddiePage({
         onLoadCaddieContext={onLoadCaddieContext}
       />
       <MediaContextPanel
+        key={`${mediaTarget.targetType}:${mediaTarget.targetId}`}
         state={mediaState}
         defaultTarget={mediaTarget}
         onLoadMediaContext={onLoadMediaContext}
@@ -1444,11 +1445,6 @@ function MediaContextPanel({
   const [mediaKind, setMediaKind] = useState<MediaKind>('photo')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setTargetType(defaultTarget.targetType)
-    setTargetId(defaultTarget.targetId)
-  }, [defaultTarget.targetType, defaultTarget.targetId])
 
   async function handleAttachMedia() {
     if (!selectedFile || !onAttachMedia) return

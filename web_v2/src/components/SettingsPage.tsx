@@ -145,8 +145,8 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
               <b>event reconciliation</b>
             </div>
           </div>
-          <button type="button" onClick={() => onNavigate('caddie')}>
-            Open caddie controls
+          <button type="button" onClick={() => onNavigate('sync-quality')}>
+            Open live prep
           </button>
         </article>
 

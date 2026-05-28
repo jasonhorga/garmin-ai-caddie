@@ -99,6 +99,35 @@ function numericPayloadValue(value: string) {
   return Number.isNaN(parsed) ? trimmed : parsed
 }
 
+function isFiniteNumberLike(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function missingPayloadMessage(kind: CorrectionFormKind, payload: Record<string, unknown>): string | null {
+  if (kind === 'club_correction') {
+    return payload.from && payload.to ? null : 'Club corrections need both recorded and corrected clubs.'
+  }
+  if (kind === 'lie_correction') {
+    return payload.from && payload.to ? null : 'Lie corrections need both recorded and corrected lies.'
+  }
+  if (kind === 'penalty_correction') {
+    return isFiniteNumberLike(payload.strokes) && payload.strokes >= 1 ? null : 'Penalty corrections need penalty strokes of 1 or more.'
+  }
+  if (kind === 'putt_correction') {
+    return isFiniteNumberLike(payload.from) && isFiniteNumberLike(payload.to) ? null : 'Putt corrections need numeric recorded and corrected putts.'
+  }
+  if (kind === 'score_correction') {
+    return isFiniteNumberLike(payload.from) && isFiniteNumberLike(payload.to) ? null : 'Score corrections need numeric recorded and corrected scores.'
+  }
+  if (kind === 'issue_tag' || kind === 'issue_tag_removed') {
+    return payload.tag ? null : 'Issue tag changes need an issue tag.'
+  }
+  if (kind === 'weather_context_note' || kind === 'strategy_note' || kind === 'note') {
+    return payload.text ? null : 'Notes need text before saving.'
+  }
+  return Object.keys(payload).length ? null : 'Add correction details before saving.'
+}
+
 function payloadSummary(record: AnnotationRecord) {
   const { payload } = record
   if (record.kind === 'club_correction') {
@@ -311,10 +340,17 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setIsSaving(true)
     setMessage(null)
+    const request = buildRequest()
+    const validationMessage = targetId.trim() ? missingPayloadMessage(correctionKind, request.payload) : 'Target ID is required.'
+    if (validationMessage) {
+      setMessage(validationMessage)
+      return
+    }
+
+    setIsSaving(true)
     try {
-      const response = await onCreateAnnotation(buildRequest())
+      const response = await onCreateAnnotation(request)
       setMessage(`Saved ${labelKind(response.annotation.kind)}`)
       setTargetType(initialTarget?.targetType ?? targetType)
       setTargetId(initialTarget?.targetId ?? '')

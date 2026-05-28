@@ -184,6 +184,34 @@ describe('CorrectionsPage', () => {
     })
   })
 
+  it.each([
+    ['club_correction', 'Club corrections need both recorded and corrected clubs.'],
+    ['issue_tag', 'Issue tag changes need an issue tag.'],
+    ['note', 'Notes need text before saving.'],
+  ])('prevents empty %s annotation payloads', async (kind, message) => {
+    const onCreateAnnotation = renderPage()
+
+    await userEvent.type(screen.getByLabelText('Target ID'), '900001:7')
+    await userEvent.selectOptions(screen.getByLabelText('Correction type'), kind)
+    await userEvent.click(screen.getByRole('button', { name: 'Save annotation' }))
+
+    expect(onCreateAnnotation).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent(message)
+  })
+
+  it('prevents non-numeric score corrections before calling the API', async () => {
+    const onCreateAnnotation = renderPage()
+
+    await userEvent.type(screen.getByLabelText('Target ID'), '900001:7')
+    await userEvent.selectOptions(screen.getByLabelText('Correction type'), 'score_correction')
+    await userEvent.type(screen.getByLabelText('Recorded score'), 'four')
+    await userEvent.type(screen.getByLabelText('Corrected score'), '5')
+    await userEvent.click(screen.getByRole('button', { name: 'Save annotation' }))
+
+    expect(onCreateAnnotation).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent('Score corrections need numeric recorded and corrected scores.')
+  })
+
   it('labels issue tag removal records in annotation history', () => {
     render(
       <CorrectionsPage

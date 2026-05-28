@@ -93,8 +93,8 @@ describe('HoleEvidencePanel', () => {
     expect(screen.getByRole('heading', { name: 'Hole Evidence' })).toBeInTheDocument()
     expect(screen.getByText('31795 H7')).toBeInTheDocument()
     expect(screen.getByText('ready coverage')).toHaveClass('quality-good')
-    expect(screen.getByText('Esri World Imagery')).toBeInTheDocument()
-    expect(screen.getByText('WGS84')).toBeInTheDocument()
+    expect(screen.getByText('Vector geometry overlay')).toBeInTheDocument()
+    expect(screen.getByText('source Esri World Imagery / WGS84')).toBeInTheDocument()
     const layers = screen.getByLabelText('Geometry layers')
     expect(within(layers).getByText('hazard')).toBeInTheDocument()
     expect(within(layers).getByText('surface')).toBeInTheDocument()
@@ -124,7 +124,7 @@ describe('HoleEvidencePanel', () => {
     expect(screen.getByText('output/prodgeometry_hazards/gid31795_h07_hazards.json')).toBeInTheDocument()
     expect(screen.getByText('shot_routes')).toBeInTheDocument()
     expect(screen.getByText('no shot lines in this map DTO')).toBeInTheDocument()
-    expect(screen.getByLabelText('Hole geometry map')).toBeInTheDocument()
+    expect(screen.getByLabelText('Hole geometry vector map')).toBeInTheDocument()
   })
 
   it('renders loading, idle, and error states', () => {

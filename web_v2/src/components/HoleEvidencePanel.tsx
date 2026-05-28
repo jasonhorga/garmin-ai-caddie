@@ -82,8 +82,10 @@ export function HoleEvidencePanel({ state, ensureState = 'idle', onEnsureGeometr
         <GeometryMiniMap features={features} />
         <div className="hole-evidence-facts">
           <div className="hole-evidence-provider">
-            <strong>{providerLabel}</strong>
-            <span>{coordinateSystem}</span>
+            <strong>Vector geometry overlay</strong>
+            <span>
+              source {providerLabel} / {coordinateSystem}
+            </span>
           </div>
           <div className="hole-evidence-layers" aria-label="Geometry layers">
             {state.map.layers.map((layer) => (
@@ -279,7 +281,7 @@ function GeometryMiniMap({ features }: { features: GeoJsonFeature[] }) {
   const points = collectPoints(features)
   const bounds = boundsFor(points)
   return (
-    <svg className="hole-geometry-map" aria-label="Hole geometry map" viewBox="0 0 320 210" role="img">
+    <svg className="hole-geometry-map" aria-label="Hole geometry vector map" viewBox="0 0 320 210" role="img">
       <rect x="0" y="0" width="320" height="210" rx="8" />
       {features.map((feature, index) => renderFeature(feature, index, bounds))}
     </svg>
