@@ -782,6 +782,30 @@ export interface LiveRoundPackageResponse {
   generatedAt: string
 }
 
+export interface MobileCourseOption {
+  globalId: number
+  courseKey?: string | null
+  name: string
+  roundCount: number
+  latestRoundId?: string | null
+  latestRoundDate?: string | null
+  templateRoundId?: string | null
+  suggestedLiveRoundId?: string | null
+  holes: number
+  teeBox?: string | null
+  geometryCoverage: string
+  sourceRefs: string[]
+}
+
+export interface MobileCourseOptionsResponse {
+  schema: 'ai-caddie-mobile-course-options-v1'
+  dataMode: ResolvedDataMode
+  total: number
+  courses: MobileCourseOption[]
+  emptyState: EmptyState | null
+  generatedAt: string
+}
+
 export interface MobileRoundPackageParams {
   capturedAt?: string
 }

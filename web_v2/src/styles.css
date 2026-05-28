@@ -2020,7 +2020,8 @@ button.round-detail-cell:hover {
   text-transform: uppercase;
 }
 
-.mobile-package-form input {
+.mobile-package-form input,
+.mobile-package-form select {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -2029,6 +2030,13 @@ button.round-detail-cell:hover {
   font: inherit;
   font-size: 13px;
   padding: 8px 9px;
+}
+
+.mobile-package-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .mobile-package-form button {

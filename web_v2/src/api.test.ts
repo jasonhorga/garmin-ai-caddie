@@ -35,6 +35,7 @@ import {
   generateTrendReport,
   fetchVisionFindingsForTarget,
   fetchSyncStatus,
+  fetchMobileCourseOptions,
   fetchMobileReconciliation,
   fetchMobileCoursePackage,
   fetchMobileRoundPackage,
@@ -1539,6 +1540,43 @@ describe('mobile reconciliation API helpers', () => {
     )
     expect(data.roundId).toBe('live-black-knight')
     expect(data.sourceCoverage.requestedCourseGlobalId).toBe(31795)
+  })
+
+  it('loads mobile course options for start-round selection', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-mobile-course-options-v1',
+        dataMode: 'fixture',
+        total: 1,
+        courses: [
+          {
+            globalId: 31795,
+            courseKey: 'black_knight',
+            name: 'Black Knight B/C',
+            roundCount: 2,
+            latestRoundId: '900001',
+            latestRoundDate: '2026-05-18',
+            templateRoundId: '900001',
+            suggestedLiveRoundId: 'live-31795',
+            holes: 18,
+            teeBox: 'unknown',
+            geometryCoverage: 'missing',
+            sourceRefs: ['900001', '900002'],
+          },
+        ],
+        emptyState: null,
+        generatedAt: '2026-05-25T08:00:00Z',
+      }),
+    }))
+
+    const data = await fetchMobileCourseOptions('admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/mobile/courses/options', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(data.schema).toBe('ai-caddie-mobile-course-options-v1')
+    expect(data.courses[0].suggestedLiveRoundId).toBe('live-31795')
   })
 
   it('loads mobile reconciliation for a round with encoded ids', async () => {

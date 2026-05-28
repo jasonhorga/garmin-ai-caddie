@@ -21,6 +21,7 @@ public struct AICaddieApp: App {
                         sessionStore: model.garminSessionStore,
                         watchBridge: model.watchBridge,
                         liveRoundState: model.liveRoundState,
+                        courseOptions: model.courseOptions,
                         isPreparingRound: model.isPreparingRound,
                         onEvent: model.handleEvent,
                         onPrepareRound: { roundId in
@@ -43,6 +44,7 @@ public struct AICaddieApp: App {
                     NavigationStack {
                         StartRoundView(
                             defaultRoundId: model.defaultRoundId,
+                            courseOptions: model.courseOptions,
                             syncStatus: model.syncStatus,
                             isPreparing: model.isPreparingRound,
                             onPrepareRound: { roundId in
@@ -75,6 +77,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var adminToken: String?
     @Published public private(set) var isPreparingRound = false
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
+    @Published public private(set) var courseOptions: [MobileCourseOption] = []
     public let watchBridge: WatchEventBridge?
     public let offlineStore: OfflineStore
     public let garminSessionStore: GarminSessionStore?
@@ -136,6 +139,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     public func bootstrap() async {
         do {
+            await refreshCourseOptions()
             if let remotePackage = await fetchRemotePackage() {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Remote package cached")
@@ -165,6 +169,17 @@ public final class LiveRoundAppModel: ObservableObject {
             try activatePackage(fixture, status: "Fixture package cached")
         } catch {
             syncStatus = "Offline package unavailable"
+        }
+    }
+
+    public func refreshCourseOptions() async {
+        guard let syncClient else {
+            return
+        }
+        do {
+            courseOptions = try await syncClient.fetchCourseOptions().courses
+        } catch {
+            courseOptions = []
         }
     }
 

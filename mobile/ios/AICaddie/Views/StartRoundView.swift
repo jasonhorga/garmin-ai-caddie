@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct StartRoundView: View {
     public let defaultRoundId: String
+    public let courseOptions: [MobileCourseOption]
     public let syncStatus: String
     public let isPreparing: Bool
     public let onPrepareRound: (String) -> Void
@@ -15,12 +16,14 @@ public struct StartRoundView: View {
         defaultRoundId: String = "900001",
         defaultCourseGlobalId: Int? = nil,
         defaultTeeBox: String = "unknown",
+        courseOptions: [MobileCourseOption] = [],
         syncStatus: String = "Offline ready",
         isPreparing: Bool = false,
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String) -> Void = { _, _, _ in }
     ) {
         self.defaultRoundId = defaultRoundId
+        self.courseOptions = courseOptions
         self.syncStatus = syncStatus
         self.isPreparing = isPreparing
         self.onPrepareRound = onPrepareRound
@@ -33,6 +36,17 @@ public struct StartRoundView: View {
     public var body: some View {
         Form {
             Section("Start Round") {
+                if !courseOptions.isEmpty {
+                    Picker("Recent course", selection: $courseGlobalIdText) {
+                        Text("Manual course ID").tag("")
+                        ForEach(courseOptions) { option in
+                            Text("\(option.name) / \(option.holes) holes").tag(String(option.globalId))
+                        }
+                    }
+                    .onChange(of: courseGlobalIdText) { _, nextValue in
+                        applySelectedCourse(globalIdText: nextValue)
+                    }
+                }
                 TextField("Round ID", text: $roundId)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -61,5 +75,16 @@ public struct StartRoundView: View {
             }
         }
         .navigationTitle("Start Round")
+    }
+
+    private func applySelectedCourse(globalIdText: String) {
+        guard let globalId = Int(globalIdText),
+              let option = courseOptions.first(where: { $0.globalId == globalId }) else {
+            return
+        }
+        roundId = option.suggestedLiveRoundId ?? "live-\(option.globalId)"
+        if let optionTeeBox = option.teeBox, optionTeeBox != "unknown" {
+            teeBox = optionTeeBox
+        }
     }
 }

@@ -771,6 +771,32 @@ class LiveRoundPackageResponse(BaseModel):
     generatedAt: str
 
 
+class MobileCourseOption(BaseModel):
+    globalId: int
+    courseKey: str | None = None
+    name: str
+    roundCount: int
+    latestRoundId: str | None = None
+    latestRoundDate: str | None = None
+    templateRoundId: str | None = None
+    suggestedLiveRoundId: str | None = None
+    holes: int
+    teeBox: str | None = None
+    geometryCoverage: str
+    sourceRefs: list[str] = Field(default_factory=list)
+
+
+class MobileCourseOptionsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-mobile-course-options-v1"] = Field(alias="schema")
+    dataMode: ResolvedDataModeName
+    total: int
+    courses: list[MobileCourseOption]
+    emptyState: dict[str, Any] | None = None
+    generatedAt: str
+
+
 class LiveRoundEventRecord(BaseModel):
     schema_: Literal["ai-caddie-live-round-event-v1"] = Field(alias="schema")
     eventId: str

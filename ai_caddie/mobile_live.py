@@ -29,6 +29,7 @@ MANUAL_NOTE_KINDS = {"strategy_note", "hole_note", "round_note", "weather_contex
 REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
 PLAYER_PROFILE_SOURCE_REF_LIMIT = 30
 PLAYER_PROFILE_SIGNAL_REF_LIMIT = 12
+COURSE_OPTION_LIMIT = 24
 
 
 def _format_time(value: datetime) -> str:
@@ -193,6 +194,92 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _course_option_hole_count(rows: list[dict[str, Any]]) -> int:
+    candidates: list[int] = []
+    for row in rows:
+        holes_completed = _safe_int(row.get("holesCompleted") or row.get("holesPlayed"))
+        if holes_completed:
+            candidates.append(holes_completed)
+        holes = row.get("holes")
+        if isinstance(holes, list):
+            candidates.append(len(holes))
+        hole_pars = row.get("holePars")
+        if isinstance(hole_pars, list):
+            candidates.append(len(hole_pars))
+        elif hole_pars:
+            candidates.append(len(str(hole_pars)))
+    if any(value >= 18 for value in candidates):
+        return 18
+    if any(value >= 9 for value in candidates):
+        return 9
+    return max(candidates, default=18)
+
+
+def build_mobile_course_options(data: HistoryData | None = None, *, data_mode: str = "fixture") -> dict[str, Any]:
+    """Return recent course choices for live round package preparation."""
+
+    source = data or fixture_history_data()
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for row in source.rounds:
+        global_id = _safe_int(row.get("globalId") or row.get("courseGlobalId") or row.get("courseId"))
+        if global_id is None or global_id <= 0:
+            continue
+        grouped.setdefault(global_id, []).append(row)
+
+    courses: list[dict[str, Any]] = []
+    for global_id, rows in grouped.items():
+        rows_sorted = sorted(rows, key=lambda row: str(row.get("date") or ""), reverse=True)
+        latest = rows_sorted[0]
+        template_round_id = str(latest.get("id") or "")
+        source_refs = _dedupe_strings([row.get("id") for row in rows_sorted])
+        geometry_rows = [
+            str(row.get("geometryCoverage") or "")
+            for row in rows_sorted
+            if str(row.get("geometryCoverage") or "").strip()
+        ]
+        geometry_coverage = "missing"
+        if any(value == "ready" for value in geometry_rows):
+            geometry_coverage = "ready"
+        elif any(value == "partial" for value in geometry_rows):
+            geometry_coverage = "partial"
+        courses.append(
+            {
+                "globalId": global_id,
+                "courseKey": str(latest.get("courseKey") or ""),
+                "name": str(latest.get("course") or latest.get("courseName") or f"Course {global_id}"),
+                "roundCount": len(rows),
+                "latestRoundId": template_round_id,
+                "latestRoundDate": str(latest.get("date") or ""),
+                "templateRoundId": template_round_id,
+                "suggestedLiveRoundId": f"live-{global_id}",
+                "holes": _course_option_hole_count(rows_sorted),
+                "teeBox": str(latest.get("teeBox") or latest.get("tee") or "unknown"),
+                "geometryCoverage": geometry_coverage,
+                "sourceRefs": source_refs,
+            }
+        )
+
+    courses = sorted(
+        courses,
+        key=lambda row: (str(row.get("latestRoundDate") or ""), int(row.get("roundCount") or 0), str(row.get("name") or "")),
+        reverse=True,
+    )[:COURSE_OPTION_LIMIT]
+    return {
+        "schema": "ai-caddie-mobile-course-options-v1",
+        "dataMode": data_mode,
+        "total": len(courses),
+        "courses": courses,
+        "emptyState": None
+        if courses
+        else {
+            "kind": "no_courses",
+            "title": "No course history available",
+            "detail": "Sync Garmin rounds or use fixture data before preparing a course package.",
+        },
+        "generatedAt": _format_time(datetime.now(UTC)),
+    }
 
 
 def _hole_stats_row(stats: dict[str, Any], *, course_key: str, hole: int) -> dict[str, Any]:

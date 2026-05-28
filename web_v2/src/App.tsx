@@ -19,6 +19,7 @@ import {
   fetchHistoryStats,
   fetchReadiness,
   fetchMobileCoursePackage,
+  fetchMobileCourseOptions,
   fetchMobileReconciliation,
   fetchMobileRoundPackage,
   fetchProductSettings,
@@ -84,6 +85,7 @@ import type {
   HistoryRoundsResponse,
   HistoryStatsResponse,
   LiveRoundPackageResponse,
+  MobileCourseOptionsResponse,
   MobileCoursePackageParams,
   MobileRoundPackageParams,
   MediaCreateRequest,
@@ -121,6 +123,7 @@ export default function App() {
   const [readinessState, setReadinessState] = useState<DeferredLoadState<ReadinessResponse>>({ status: 'idle' })
   const [productSettingsState, setProductSettingsState] = useState<DeferredLoadState<ProductSettingsResponse>>({ status: 'idle' })
   const [mobilePackagePrepState, setMobilePackagePrepState] = useState<MobilePackagePrepState>({ status: 'idle' })
+  const [mobileCourseOptionsState, setMobileCourseOptionsState] = useState<DeferredLoadState<MobileCourseOptionsResponse>>({ status: 'idle' })
   const [mobileReconciliationState, setMobileReconciliationState] = useState<MobileReconciliationPanelState>({ status: 'idle' })
   const [mobileReconciliationApplyState, setMobileReconciliationApplyState] = useState<MobileReconciliationApplyState>({ status: 'idle' })
   const [decisionState, setDecisionState] = useState<DeferredLoadState<CaddieDecisionResponse>>({ status: 'idle' })
@@ -250,11 +253,22 @@ export default function App() {
     }
   }
 
+  async function loadMobileCourseOptionsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+    setMobileCourseOptionsState({ status: 'loading' })
+    try {
+      const data = await fetchMobileCourseOptions(adminTokenOverride)
+      setMobileCourseOptionsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setMobileCourseOptionsState({ status: 'error', message: errorMessage(error) })
+    }
+  }
+
   function refreshLoadedHistorySurfaces(adminTokenOverride: string | undefined = currentAdminToken()) {
     void refreshOverviewState(adminTokenOverride)
     if (roundsState.status !== 'idle') void refreshRoundsState(adminTokenOverride)
     if (statsState.status !== 'idle') void refreshStatsState(adminTokenOverride)
     if (readinessState.status !== 'idle') void refreshReadinessState()
+    if (mobileCourseOptionsState.status !== 'idle') void loadMobileCourseOptionsState(adminTokenOverride)
     if (reportIndexState.status !== 'idle') loadReportIndex()
   }
 
@@ -275,6 +289,9 @@ export default function App() {
     }
     if (page === 'sync-quality' && readinessState.status === 'idle') {
       void loadReadinessState()
+    }
+    if (page === 'sync-quality' && mobileCourseOptionsState.status === 'idle') {
+      void loadMobileCourseOptionsState()
     }
     if (page === 'settings' && productSettingsState.status === 'idle') {
       void loadProductSettingsState()
@@ -543,6 +560,7 @@ export default function App() {
           ) : null}
           <MobilePackagePrepPanel
             state={mobilePackagePrepState}
+            courseOptionsState={mobileCourseOptionsState}
             onPrepareRound={(roundId, params) => void handlePrepareMobileRoundPackage(roundId, params)}
             onPrepareCourse={(globalId, params) => void handlePrepareMobileCoursePackage(globalId, params)}
             showAdminTokenInput={!syncStatus}

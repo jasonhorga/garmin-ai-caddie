@@ -131,6 +131,57 @@ describe('MobilePackagePrepPanel', () => {
     })
   })
 
+  it('fills course package inputs from recent course options', async () => {
+    const onPrepareCourse = vi.fn()
+
+    render(
+      <MobilePackagePrepPanel
+        state={{ status: 'idle' }}
+        courseOptionsState={{
+          status: 'ready',
+          data: {
+            schema: 'ai-caddie-mobile-course-options-v1',
+            dataMode: 'fixture',
+            total: 1,
+            courses: [
+              {
+                globalId: 31795,
+                courseKey: 'black_knight',
+                name: 'Black Knight B/C',
+                roundCount: 2,
+                latestRoundId: '900001',
+                latestRoundDate: '2026-05-18',
+                templateRoundId: '900001',
+                suggestedLiveRoundId: 'live-31795',
+                holes: 18,
+                teeBox: 'blue',
+                geometryCoverage: 'missing',
+                sourceRefs: ['900001', '900002'],
+              },
+            ],
+            emptyState: null,
+            generatedAt: '2026-05-25T08:00:00Z',
+          },
+        }}
+        onPrepareRound={vi.fn()}
+        onPrepareCourse={onPrepareCourse}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
+    await userEvent.selectOptions(screen.getByLabelText('Recent course'), '31795')
+    await userEvent.click(screen.getByRole('button', { name: 'Prepare package' }))
+
+    expect(screen.getByLabelText('Course global ID')).toHaveValue('31795')
+    expect(screen.getByLabelText('Live round ID')).toHaveValue('live-31795')
+    expect(screen.getByLabelText('Tee box')).toHaveValue('blue')
+    expect(onPrepareCourse).toHaveBeenCalledWith(31795, {
+      roundId: 'live-31795',
+      teeBox: 'blue',
+      capturedAt: undefined,
+    })
+  })
+
   it('renders package readiness, coverage, weather, and missing data labels', () => {
     render(
       <MobilePackagePrepPanel

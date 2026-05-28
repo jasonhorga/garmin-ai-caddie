@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import type {
+  MobileCourseOptionsResponse,
   LiveRoundPackageResponse,
   MobileCoursePackageParams,
   MobileRoundPackageParams,
@@ -13,8 +14,15 @@ export type MobilePackagePrepState =
   | { status: 'ready'; data: LiveRoundPackageResponse }
   | { status: 'error'; mode: PackagePrepMode; target: string; message: string }
 
+export type MobileCourseOptionsState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; data: MobileCourseOptionsResponse }
+  | { status: 'error'; message: string }
+
 interface MobilePackagePrepPanelProps {
   state: MobilePackagePrepState
+  courseOptionsState?: MobileCourseOptionsState
   onPrepareRound: (roundId: string, params: MobileRoundPackageParams) => void | Promise<void>
   onPrepareCourse: (globalId: number, params: MobileCoursePackageParams) => void | Promise<void>
   defaultRoundId?: string
@@ -77,6 +85,7 @@ function readinessTitle(label: string) {
 
 export function MobilePackagePrepPanel({
   state,
+  courseOptionsState = { status: 'idle' },
   onPrepareRound,
   onPrepareCourse,
   defaultRoundId = '900001',
@@ -88,9 +97,23 @@ export function MobilePackagePrepPanel({
   const [mode, setMode] = useState<PackagePrepMode>('round')
   const [roundId, setRoundId] = useState(defaultRoundId)
   const [courseGlobalId, setCourseGlobalId] = useState(defaultCourseGlobalId)
+  const [selectedCourseOption, setSelectedCourseOption] = useState('')
   const [liveRoundId, setLiveRoundId] = useState('')
   const [teeBox, setTeeBox] = useState('')
   const [capturedAt, setCapturedAt] = useState('')
+  const courseOptions = courseOptionsState.status === 'ready' && Array.isArray(courseOptionsState.data.courses)
+    ? courseOptionsState.data.courses
+    : []
+
+  function handleCourseOptionChange(value: string) {
+    setSelectedCourseOption(value)
+    const option = courseOptions.find((row) => String(row.globalId) === value)
+    if (!option) return
+    setMode('course')
+    setCourseGlobalId(String(option.globalId))
+    setLiveRoundId(option.suggestedLiveRoundId ?? `live-${option.globalId}`)
+    setTeeBox(option.teeBox && option.teeBox !== 'unknown' ? option.teeBox : '')
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -155,6 +178,22 @@ export function MobilePackagePrepPanel({
           </label>
         ) : (
           <>
+            {courseOptions.length ? (
+              <label>
+                <span>Recent course</span>
+                <select
+                  value={selectedCourseOption}
+                  onChange={(event) => handleCourseOptionChange(event.target.value)}
+                >
+                  <option value="">Manual course ID</option>
+                  {courseOptions.map((option) => (
+                    <option key={option.globalId} value={option.globalId}>
+                      {option.name} / {option.holes} holes / {option.roundCount} rounds
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label>
               <span>Course global ID</span>
               <input inputMode="numeric" value={courseGlobalId} onChange={(event) => setCourseGlobalId(event.target.value)} spellCheck={false} />
@@ -192,6 +231,14 @@ export function MobilePackagePrepPanel({
           {isLoading ? 'Preparing package' : 'Prepare package'}
         </button>
       </form>
+
+      {mode === 'course' && courseOptionsState.status === 'loading' ? (
+        <p className="mobile-package-note">Loading recent courses.</p>
+      ) : null}
+
+      {mode === 'course' && courseOptionsState.status === 'error' ? (
+        <p className="mobile-package-note">Course options unavailable: {courseOptionsState.message}</p>
+      ) : null}
 
       {state.status === 'idle' ? (
         <article className="stats-empty">

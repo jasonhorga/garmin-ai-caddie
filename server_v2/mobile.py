@@ -4,7 +4,12 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from ai_caddie.mobile_live import append_event_batch, build_live_round_package, build_live_round_package_for_course
+from ai_caddie.mobile_live import (
+    append_event_batch,
+    build_live_round_package,
+    build_live_round_package_for_course,
+    build_mobile_course_options,
+)
 from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.weather_context import WeatherTransport
 
@@ -13,6 +18,7 @@ from .models import (
     LiveRoundEventBatchRequest,
     LiveRoundEventBatchResponse,
     LiveRoundPackageResponse,
+    MobileCourseOptionsResponse,
     MobileReconciliationApplyRequest,
     MobileReconciliationApplyResponse,
     MobileReconciliationResponse,
@@ -61,6 +67,11 @@ def build_mobile_course_package_response(
             weather_transport=OPEN_METEO_TRANSPORT,
         )
     )
+
+
+def build_mobile_course_options_response() -> MobileCourseOptionsResponse:
+    data, mode = load_history_data_for_mode()
+    return MobileCourseOptionsResponse(**build_mobile_course_options(data, data_mode=mode))
 
 
 def append_mobile_events_response(

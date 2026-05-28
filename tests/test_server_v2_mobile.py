@@ -16,6 +16,28 @@ from server_v2.main import app
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_mobile_course_options_list_recent_courses_for_start_round(self) -> None:
+        client = TestClient(app)
+
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            response = client.get("/api/v2/mobile/courses/options")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-mobile-course-options-v1")
+        self.assertEqual(payload["dataMode"], "fixture")
+        self.assertGreaterEqual(payload["total"], 2)
+        black_knight = next(row for row in payload["courses"] if row["globalId"] == 31795)
+        self.assertEqual(black_knight["name"], "Black Knight B/C")
+        self.assertEqual(black_knight["courseKey"], "black_knight")
+        self.assertEqual(black_knight["roundCount"], 2)
+        self.assertEqual(black_knight["latestRoundId"], "900001")
+        self.assertEqual(black_knight["templateRoundId"], "900001")
+        self.assertEqual(black_knight["suggestedLiveRoundId"], "live-31795")
+        self.assertEqual(black_knight["holes"], 18)
+        self.assertIn("900001", black_knight["sourceRefs"])
+        self.assertIn(black_knight["geometryCoverage"], {"ready", "partial", "missing"})
+
     def test_mobile_round_package_matches_ios_sync_client_endpoint(self) -> None:
         client = TestClient(app)
 

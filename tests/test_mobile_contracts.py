@@ -848,6 +848,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@Published public private(set) var isPreparingRound", app_swift)
         self.assertIn("public func prepareRound(roundId:", app_swift)
         self.assertIn("public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String) async", app_swift)
+        self.assertIn("@Published public private(set) var courseOptions: [MobileCourseOption] = []", app_swift)
+        self.assertIn("courseOptions = try await syncClient.fetchCourseOptions().courses", app_swift)
         self.assertIn("fetchRemotePackage(roundId:", app_swift)
         self.assertIn("fetchRemoteCoursePackage(globalId:", app_swift)
         self.assertIn("offlineStore.loadRoundPackage(roundId:", app_swift)
@@ -857,8 +859,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox)", app_swift)
 
         self.assertIn("struct StartRoundView: View", start_view)
+        self.assertIn("public let courseOptions: [MobileCourseOption]", start_view)
         self.assertIn("public let onPrepareRound: (String) -> Void", start_view)
         self.assertIn("public let onPrepareCourseRound: (Int, String, String) -> Void", start_view)
+        self.assertIn('Picker("Recent course"', start_view)
+        self.assertIn("applySelectedCourse(globalIdText:", start_view)
         self.assertIn('TextField("Course global ID"', start_view)
         self.assertIn('TextField("Tee box"', start_view)
         self.assertIn('TextField("Round ID"', start_view)
@@ -870,8 +875,20 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("public let onPrepareRound: (String) -> Void", round_home)
         self.assertIn("public let onPrepareCourseRound: (Int, String, String) -> Void", round_home)
+        self.assertIn("public let courseOptions: [MobileCourseOption]", round_home)
         self.assertIn("StartRoundView(", round_home)
         self.assertIn('Label("Start Round"', round_home)
+
+    def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
+        course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+
+        self.assertIn("struct MobileCourseOptionsResponse: Codable, Equatable", course_options)
+        self.assertIn("struct MobileCourseOption: Codable, Equatable, Identifiable", course_options)
+        self.assertIn("let suggestedLiveRoundId: String?", course_options)
+        self.assertIn("let geometryCoverage: String", course_options)
+        self.assertIn("func fetchCourseOptions() async throws -> MobileCourseOptionsResponse", sync_client)
+        self.assertIn('endpointURL("/api/v2/mobile/courses/options")', sync_client)
 
     def test_ios_app_model_syncs_pending_events_to_backend(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")

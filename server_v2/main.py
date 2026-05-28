@@ -43,6 +43,7 @@ from .mobile import (
     append_mobile_events_response,
     apply_mobile_round_reconciliation_response,
     build_mobile_course_package_response,
+    build_mobile_course_options_response,
     build_mobile_round_package_response,
     reconcile_mobile_round_response,
 )
@@ -76,6 +77,7 @@ from .models import (
     MediaCreateResponse,
     MediaListResponse,
     MediaRedactResponse,
+    MobileCourseOptionsResponse,
     MediaTargetType,
     MobileReconciliationApplyRequest,
     MobileReconciliationApplyResponse,
@@ -261,6 +263,7 @@ def service_index() -> dict[str, object]:
             "analyzeMedia": "/api/v2/media/{media_id}/analyze",
             "redactMedia": "/api/v2/media/{media_id}/redact",
             "mobileRoundPackage": "/api/v2/mobile/rounds/{round_id}/package",
+            "mobileCourseOptions": "/api/v2/mobile/courses/options",
             "mobileCoursePackage": "/api/v2/mobile/courses/{global_id}/package",
             "mobileRoundEvents": "/api/v2/mobile/rounds/{round_id}/events",
             "mobileRoundReconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
@@ -515,6 +518,11 @@ def confirm_vision_finding_route(
 @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
 def mobile_round_package(round_id: str, captured_at: str | None = None) -> LiveRoundPackageResponse:
     return build_mobile_round_package_response(round_id, captured_at=captured_at)
+
+
+@app.get("/api/v2/mobile/courses/options", response_model=MobileCourseOptionsResponse)
+def mobile_course_options() -> MobileCourseOptionsResponse:
+    return build_mobile_course_options_response()
 
 
 @app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)

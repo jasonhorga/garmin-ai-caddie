@@ -30,6 +30,7 @@ class ServerV2HealthTests(unittest.TestCase):
         self.assertEqual(response.json()["endpoints"]["mediaByTarget"], "/api/v2/media/target/{target_type}/{target_id}")
         self.assertEqual(response.json()["endpoints"]["analyzeMedia"], "/api/v2/media/{media_id}/analyze")
         self.assertEqual(response.json()["endpoints"]["mobileRoundPackage"], "/api/v2/mobile/rounds/{round_id}/package")
+        self.assertEqual(response.json()["endpoints"]["mobileCourseOptions"], "/api/v2/mobile/courses/options")
         self.assertEqual(response.json()["endpoints"]["mobileRoundEvents"], "/api/v2/mobile/rounds/{round_id}/events")
         self.assertEqual(response.json()["endpoints"]["weatherSnapshot"], "/api/v2/weather/snapshot")
         self.assertEqual(response.json()["endpoints"]["syncStatus"], "/api/v2/sync/status")

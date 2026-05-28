@@ -28,6 +28,7 @@ import type {
   MediaListResponse,
   MediaRedactResponse,
   MediaTargetType,
+  MobileCourseOptionsResponse,
   MobileReconciliationApplyResponse,
   MobileReconciliationResponse,
   MobileCoursePackageParams,
@@ -340,6 +341,10 @@ export function fetchReadiness(): Promise<ReadinessResponse> {
 
 export function fetchProductSettings(): Promise<ProductSettingsResponse> {
   return getJson<ProductSettingsResponse>('/api/v2/settings/product')
+}
+
+export function fetchMobileCourseOptions(adminToken?: string): Promise<MobileCourseOptionsResponse> {
+  return getJson<MobileCourseOptionsResponse>('/api/v2/mobile/courses/options', adminToken)
 }
 
 export function fetchMobileReconciliation(roundId: string): Promise<MobileReconciliationResponse> {

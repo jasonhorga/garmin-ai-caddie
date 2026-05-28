@@ -11,6 +11,7 @@ public struct RoundHomeView: View {
     public let sessionStore: GarminSessionStore?
     public let watchBridge: WatchEventBridge?
     public let liveRoundState: LiveRoundStateSnapshot?
+    public let courseOptions: [MobileCourseOption]
     public let isPreparingRound: Bool
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
@@ -27,6 +28,7 @@ public struct RoundHomeView: View {
         sessionStore: GarminSessionStore? = GarminSessionStore(),
         watchBridge: WatchEventBridge? = nil,
         liveRoundState: LiveRoundStateSnapshot? = nil,
+        courseOptions: [MobileCourseOption] = [],
         isPreparingRound: Bool = false,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
@@ -42,6 +44,7 @@ public struct RoundHomeView: View {
         self.sessionStore = sessionStore
         self.watchBridge = watchBridge
         self.liveRoundState = liveRoundState
+        self.courseOptions = courseOptions
         self.isPreparingRound = isPreparingRound
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
@@ -82,6 +85,7 @@ public struct RoundHomeView: View {
                             defaultRoundId: package.roundId,
                             defaultCourseGlobalId: package.course.globalId == 0 ? nil : package.course.globalId,
                             defaultTeeBox: package.course.teeBox,
+                            courseOptions: courseOptions,
                             syncStatus: syncStatus,
                             isPreparing: isPreparingRound,
                             onPrepareRound: onPrepareRound,

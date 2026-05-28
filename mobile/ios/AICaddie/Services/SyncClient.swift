@@ -108,6 +108,16 @@ public final class SyncClient {
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 
+    public func fetchCourseOptions() async throws -> MobileCourseOptionsResponse {
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/courses/options"))
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response)
+        return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
+    }
+
     public func postEventBatch(
         _ events: [LiveRoundEvent],
         roundId: String,
