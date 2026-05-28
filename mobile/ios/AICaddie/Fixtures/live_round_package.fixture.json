@@ -162,27 +162,53 @@
           "label": "Safe",
           "clubName": "9I",
           "carryM": 132.0,
+          "p10M": 120.0,
+          "p90M": 140.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": { "ready": 24, "total": 24, "pct": 100.0 },
           "riskScore": 1.0,
           "source": "offline_package_seed",
-          "sourceRefs": ["live-round-1:1"]
+          "sourceRefs": ["live-round-1:1"],
+          "sampleRefs": ["live-round-1:1:2"],
+          "missingData": []
         },
         {
           "id": "stock",
           "label": "Stock",
           "clubName": "8I",
           "carryM": 144.0,
+          "p10M": 132.0,
+          "p90M": 153.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": { "ready": 24, "total": 24, "pct": 100.0 },
           "riskScore": 3.0,
           "source": "offline_package_seed",
-          "sourceRefs": ["live-round-1:1"]
+          "sourceRefs": ["live-round-1:1"],
+          "sampleRefs": ["live-round-1:1:1"],
+          "missingData": []
         },
         {
           "id": "attack",
           "label": "Attack",
           "clubName": "7I",
           "carryM": 156.0,
+          "p10M": 142.0,
+          "p90M": 168.0,
+          "sampleSize": 4,
+          "confidence": "medium",
+          "coverage": { "ready": 4, "total": 10, "pct": 40.0 },
           "riskScore": 5.0,
           "source": "offline_package_seed",
-          "sourceRefs": ["live-round-1:1"]
+          "sourceRefs": ["live-round-1:1"],
+          "sampleRefs": ["live-round-1:1:3"],
+          "missingData": [
+            {
+              "label": "club_profile_sample",
+              "reason": "7I has 4/10 sampled shots for offline option confidence"
+            }
+          ]
         }
       ],
       "evidence": [

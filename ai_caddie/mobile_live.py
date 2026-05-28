@@ -31,6 +31,8 @@ REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
 PLAYER_PROFILE_SOURCE_REF_LIMIT = 30
 PLAYER_PROFILE_SIGNAL_REF_LIMIT = 12
 COURSE_OPTION_LIMIT = 24
+OFFLINE_OPTION_STRONG_SAMPLE = 10
+OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
 
 
 def _format_time(value: datetime) -> str:
@@ -700,20 +702,60 @@ def _offline_caddie_options(
     options: list[dict[str, Any]] = []
     for option_id, label, profile, risk_score in option_specs:
         median = float(profile.get("median_m") or 0)
+        p10 = float(profile.get("p10_m") or median)
         p90 = float(profile.get("p90_m") or median)
         carry = max(median, p90) if option_id == "attack" else median
+        sample_size = int(profile.get("sampleSize") or 0)
+        sample_refs = _compact_source_refs(profile.get("sampleRefs") or profile.get("validShotRefs") or [], limit=OFFLINE_OPTION_SAMPLE_REF_LIMIT)
+        missing_data = _offline_option_missing_data(str(profile.get("clubName") or ""), sample_size)
         options.append(
             {
                 "id": option_id,
                 "label": label,
                 "clubName": str(profile.get("clubName") or ""),
                 "carryM": round(carry, 1),
+                "p10M": round(p10, 1),
+                "p90M": round(p90, 1),
+                "sampleSize": sample_size,
+                "confidence": _offline_option_confidence(sample_size),
+                "coverage": _offline_option_coverage(sample_size),
                 "riskScore": round(risk_score, 1),
                 "source": "offline_package_seed",
                 "sourceRefs": [source_ref],
+                "sampleRefs": sample_refs,
+                "missingData": missing_data,
             }
         )
     return options
+
+
+def _offline_option_confidence(sample_size: int) -> str:
+    if sample_size >= OFFLINE_OPTION_STRONG_SAMPLE:
+        return "high"
+    if sample_size >= 2:
+        return "medium"
+    return "low"
+
+
+def _offline_option_coverage(sample_size: int) -> dict[str, Any]:
+    total = max(sample_size, OFFLINE_OPTION_STRONG_SAMPLE)
+    return {
+        "ready": sample_size,
+        "total": total,
+        "pct": round(sample_size / total * 100, 1) if total else 0.0,
+    }
+
+
+def _offline_option_missing_data(club_name: str, sample_size: int) -> list[dict[str, Any]]:
+    if sample_size >= OFFLINE_OPTION_STRONG_SAMPLE:
+        return []
+    label = club_name or "selected club"
+    return [
+        {
+            "label": "club_profile_sample",
+            "reason": f"{label} has {sample_size}/{OFFLINE_OPTION_STRONG_SAMPLE} sampled shots for offline option confidence",
+        }
+    ]
 
 
 def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -1296,6 +1338,7 @@ def build_live_round_package(
             "median_m": float(row.get("median") or 0),
             "p10_m": float(row.get("p10") or row.get("median") or 0),
             "p90_m": float(row.get("p90") or row.get("median") or 0),
+            "sampleRefs": _compact_source_refs(row.get("validShotRefs") or [], limit=OFFLINE_OPTION_SAMPLE_REF_LIMIT),
         }
         for row in stats["clubs"]
         if row.get("club") and row.get("median") is not None

@@ -6,11 +6,46 @@ public struct CaddiePlanOption: Identifiable, Equatable {
     public let carryM: Double
     public let riskScore: Double
     public let clubName: String
+    public let p10M: Double?
+    public let p90M: Double?
+    public let sampleSize: Int?
+    public let confidence: String?
+    public let coverageText: String?
+    public let sourceRefs: [String]
+    public let missingDataLabels: [String]
+
+    public var qualityText: String {
+        var parts: [String] = []
+        if let sampleSize {
+            parts.append("\(sampleSize) samples")
+        }
+        if let confidence {
+            parts.append("\(confidence) confidence")
+        }
+        if let p10M, let p90M {
+            parts.append("p10/p90 \(Int(p10M))/\(Int(p90M))m")
+        }
+        if let coverageText {
+            parts.append("coverage \(coverageText)")
+        }
+        return parts.isEmpty ? "offline evidence unavailable" : parts.joined(separator: " / ")
+    }
 
     public static let defaultOptions = [
-        CaddiePlanOption(id: "safe", label: "Safe", carryM: 132, riskScore: 1, clubName: "9I"),
-        CaddiePlanOption(id: "stock", label: "Stock", carryM: 144, riskScore: 2, clubName: "8I"),
-        CaddiePlanOption(id: "attack", label: "Attack", carryM: 152, riskScore: 4, clubName: "7I")
+        CaddiePlanOption(
+            id: "offline-unavailable",
+            label: "No cached plan",
+            carryM: 0,
+            riskScore: 0,
+            clubName: "-",
+            p10M: nil,
+            p90M: nil,
+            sampleSize: nil,
+            confidence: "low",
+            coverageText: nil,
+            sourceRefs: [],
+            missingDataLabels: ["offline_options"]
+        )
     ]
 
     public static func options(from response: CaddieDecisionResponse) -> [CaddiePlanOption] {
@@ -20,7 +55,14 @@ public struct CaddiePlanOption: Identifiable, Equatable {
                 label: string(option["label"]) ?? string(option["routeLabel"]) ?? "Option \(index + 1)",
                 carryM: number(option["carry_m"]) ?? number(option["carryM"]) ?? 0,
                 riskScore: number(option["riskScore"]) ?? 0,
-                clubName: clubName(option["clubRecommendation"]) ?? string(option["clubName"]) ?? "-"
+                clubName: clubName(option["clubRecommendation"]) ?? string(option["clubName"]) ?? "-",
+                p10M: number(option["p10M"]) ?? number(option["p10_m"]) ?? number(recommendedClubValue(option["clubRecommendation"], key: "p10_m")),
+                p90M: number(option["p90M"]) ?? number(option["p90_m"]) ?? number(recommendedClubValue(option["clubRecommendation"], key: "p90_m")),
+                sampleSize: integer(option["sampleSize"]) ?? integer(recommendedClubValue(option["clubRecommendation"], key: "sampleSize")),
+                confidence: string(option["confidence"]) ?? string(recommendedClubValue(option["clubRecommendation"], key: "confidence")),
+                coverageText: coverageText(option["coverage"]) ?? coverageText(recommendedClubValue(option["clubRecommendation"], key: "coverage")),
+                sourceRefs: stringArray(option["sourceRefs"]) + stringArray(recommendedClubValue(option["clubRecommendation"], key: "sourceRefs")),
+                missingDataLabels: missingDataLabels(option["missingData"])
             )
         }
         return parsed.isEmpty ? defaultOptions : parsed
@@ -36,7 +78,14 @@ public struct CaddiePlanOption: Identifiable, Equatable {
                 label: option.label,
                 carryM: option.carryM,
                 riskScore: option.riskScore,
-                clubName: option.clubName
+                clubName: option.clubName,
+                p10M: option.p10M,
+                p90M: option.p90M,
+                sampleSize: option.sampleSize,
+                confidence: option.confidence,
+                coverageText: option.coverage.map { "\($0.ready)/\($0.total)" },
+                sourceRefs: option.sourceRefs + (option.sampleRefs ?? []),
+                missingDataLabels: option.missingData?.compactMap { string($0["label"]) } ?? []
             )
         }
         return parsed.isEmpty ? defaultOptions : parsed
@@ -56,7 +105,54 @@ public struct CaddiePlanOption: Identifiable, Equatable {
         return nil
     }
 
+    private static func integer(_ value: JSONValue?) -> Int? {
+        guard let raw = number(value) else {
+            return nil
+        }
+        return Int(raw)
+    }
+
+    private static func stringArray(_ value: JSONValue?) -> [String] {
+        guard case .array(let values) = value else {
+            return []
+        }
+        return values.compactMap { string($0) }
+    }
+
+    private static func coverageText(_ value: JSONValue?) -> String? {
+        guard case .object(let coverage) = value else {
+            return nil
+        }
+        guard let ready = integer(coverage["ready"]), let total = integer(coverage["total"]) else {
+            return nil
+        }
+        return "\(ready)/\(total)"
+    }
+
+    private static func missingDataLabels(_ value: JSONValue?) -> [String] {
+        guard case .array(let values) = value else {
+            return []
+        }
+        return values.compactMap { item in
+            guard case .object(let row) = item else {
+                return nil
+            }
+            return string(row["label"])
+        }
+    }
+
     private static func clubName(_ value: JSONValue?) -> String? {
+        guard let first = recommendedClub(value) else {
+            return nil
+        }
+        return string(first["clubName"])
+    }
+
+    private static func recommendedClubValue(_ value: JSONValue?, key: String) -> JSONValue? {
+        recommendedClub(value)?[key]
+    }
+
+    private static func recommendedClub(_ value: JSONValue?) -> [String: JSONValue]? {
         guard case .object(let recommendation) = value,
               case .array(let clubs) = recommendation["clubs"],
               let first = clubs.first,
@@ -64,7 +160,7 @@ public struct CaddiePlanOption: Identifiable, Equatable {
         else {
             return nil
         }
-        return string(club["clubName"])
+        return club
     }
 }
 
@@ -105,6 +201,19 @@ public struct CaddiePlanView: View {
                         Text("\(option.clubName) / \(Int(option.carryM))m")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        Text(option.qualityText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        if !option.sourceRefs.isEmpty {
+                            Text("src \(option.sourceRefs.prefix(2).joined(separator: \", \"))")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        if !option.missingDataLabels.isEmpty {
+                            Text("missing \(option.missingDataLabels.prefix(2).joined(separator: \", \"))")
+                                .font(.caption2)
+                                .foregroundStyle(AICaddieDesignTokens.riskColor(4))
+                        }
                     }
                     Spacer()
                     Text("Risk \(Int(option.riskScore))")

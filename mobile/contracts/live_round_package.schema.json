@@ -298,6 +298,40 @@
                 "carryM": {
                   "type": "number"
                 },
+                "p10M": {
+                  "type": "number"
+                },
+                "p90M": {
+                  "type": "number"
+                },
+                "sampleSize": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": ["low", "medium", "high"]
+                },
+                "coverage": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["ready", "total", "pct"],
+                  "properties": {
+                    "ready": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "pct": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  }
+                },
                 "riskScore": {
                   "type": "number"
                 },
@@ -308,6 +342,19 @@
                   "type": "array",
                   "items": {
                     "type": "string"
+                  }
+                },
+                "sampleRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "missingData": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
                   }
                 }
               }

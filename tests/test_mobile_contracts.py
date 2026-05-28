@@ -207,27 +207,48 @@ class MobileContractTests(unittest.TestCase):
                             "label": "Safe",
                             "clubName": "9I",
                             "carryM": 132.0,
+                            "p10M": 120.0,
+                            "p90M": 140.0,
+                            "sampleSize": 24,
+                            "confidence": "high",
+                            "coverage": {"ready": 24, "total": 24, "pct": 100.0},
                             "riskScore": 1.0,
                             "source": "offline_package_seed",
                             "sourceRefs": ["live-round-1:1"],
+                            "sampleRefs": ["live-round-1:1:2"],
+                            "missingData": [],
                         },
                         {
                             "id": "stock",
                             "label": "Stock",
                             "clubName": "8I",
                             "carryM": 144.0,
+                            "p10M": 132.0,
+                            "p90M": 153.0,
+                            "sampleSize": 24,
+                            "confidence": "high",
+                            "coverage": {"ready": 24, "total": 24, "pct": 100.0},
                             "riskScore": 2.0,
                             "source": "offline_package_seed",
                             "sourceRefs": ["live-round-1:1"],
+                            "sampleRefs": ["live-round-1:1:1"],
+                            "missingData": [],
                         },
                         {
                             "id": "attack",
                             "label": "Attack",
                             "clubName": "7I",
                             "carryM": 156.0,
+                            "p10M": 142.0,
+                            "p90M": 168.0,
+                            "sampleSize": 4,
+                            "confidence": "medium",
+                            "coverage": {"ready": 4, "total": 10, "pct": 40.0},
                             "riskScore": 4.0,
                             "source": "offline_package_seed",
                             "sourceRefs": ["live-round-1:1"],
+                            "sampleRefs": ["live-round-1:1:3"],
+                            "missingData": [{"label": "club_profile_sample", "reason": "7I has 4/10 sampled shots for offline option confidence"}],
                         },
                     ],
                     "evidence": [{"label": "live_round_package", "value": "offline_seed"}],
@@ -548,6 +569,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertTrue(all(row["clubName"] for row in seed["offlineOptions"]))
         self.assertTrue(all(float(row["carryM"]) > 0 for row in seed["offlineOptions"]))
         self.assertTrue(all(row["sourceRefs"] == [seed["sourceRef"]] for row in seed["offlineOptions"]))
+        self.assertTrue(all(row["confidence"] in {"low", "medium", "high"} for row in seed["offlineOptions"]))
+        self.assertTrue(all(isinstance(row["sampleSize"], int) for row in seed["offlineOptions"]))
+        self.assertTrue(all(row["coverage"]["ready"] == row["sampleSize"] for row in seed["offlineOptions"]))
+        self.assertTrue(all("p10M" in row and "p90M" in row for row in seed["offlineOptions"]))
+        self.assertTrue(all(isinstance(row["sampleRefs"], list) for row in seed["offlineOptions"]))
+        self.assertTrue(all(isinstance(row["missingData"], list) for row in seed["offlineOptions"]))
 
     def test_live_round_package_recent_history_uses_normalized_round_fields(self) -> None:
         package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")
@@ -769,6 +796,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let selectedOfflineOptionId: String?", package_swift)
         self.assertIn("let offlineOptions: [OfflineCaddieOption]", package_swift)
         self.assertIn("struct OfflineCaddieOption: Codable, Equatable, Identifiable", package_swift)
+        self.assertIn("let sampleSize: Int?", package_swift)
+        self.assertIn("let confidence: String?", package_swift)
+        self.assertIn("let coverage: OfflineOptionCoverage?", package_swift)
+        self.assertIn("let sampleRefs: [String]?", package_swift)
+        self.assertIn("let missingData: [[String: JSONValue]]?", package_swift)
+        self.assertIn("struct OfflineOptionCoverage: Codable, Equatable", package_swift)
         self.assertIn("decodeIfPresent([OfflineCaddieOption].self", package_swift)
         self.assertIn("self.offlineOptions = offlineOptions ?? []", package_swift)
         self.assertIn("let rounds: [RecentRoundSummary]", package_swift)
@@ -1701,9 +1734,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("options(from seed", caddie_plan)
         self.assertIn("OfflineCaddieOption", caddie_plan)
         self.assertIn("selectedOptionId ??", caddie_plan)
-        self.assertIn("safe", caddie_plan)
-        self.assertIn("stock", caddie_plan)
-        self.assertIn("attack", caddie_plan)
+        self.assertIn("sampleSize", caddie_plan)
+        self.assertIn("confidence", caddie_plan)
+        self.assertIn("coverageText", caddie_plan)
+        self.assertIn("sourceRefs", caddie_plan)
+        self.assertIn("missingDataLabels", caddie_plan)
+        self.assertIn("No cached plan", caddie_plan)
         self.assertIn("final class LocationProvider", location_provider)
         self.assertIn("CLLocationManagerDelegate", location_provider)
         self.assertIn("@Published public private(set) var latestFix", location_provider)

@@ -212,19 +212,39 @@ public struct OfflineCaddieOption: Codable, Equatable, Identifiable {
     public let label: String
     public let clubName: String
     public let carryM: Double
+    public let p10M: Double?
+    public let p90M: Double?
+    public let sampleSize: Int?
+    public let confidence: String?
+    public let coverage: OfflineOptionCoverage?
     public let riskScore: Double
     public let source: String
     public let sourceRefs: [String]
+    public let sampleRefs: [String]?
+    public let missingData: [[String: JSONValue]]?
 
     enum CodingKeys: String, CodingKey {
         case optionId = "id"
         case label
         case clubName
         case carryM
+        case p10M
+        case p90M
+        case sampleSize
+        case confidence
+        case coverage
         case riskScore
         case source
         case sourceRefs
+        case sampleRefs
+        case missingData
     }
+}
+
+public struct OfflineOptionCoverage: Codable, Equatable {
+    public let ready: Int
+    public let total: Int
+    public let pct: Double
 }
 
 public struct WeatherSnapshot: Codable, Equatable {
