@@ -96,6 +96,9 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let offlineOptionId: String?
     public let decisionId: String?
     public let nextShotPrompt: String?
+    public let holePlanSummary: String?
+    public let expectedStrokes: Double?
+    public let expectedRemainingM: Double?
     public let evidenceSummary: String?
     public let missingDataSummary: String?
     public let score: Int
@@ -176,6 +179,7 @@ public final class WatchEventBridge: NSObject {
         let offlineSelected = selectedOfflineOption(from: offlineOption)
         let selectedOptionId = string(selected?["id"]) ?? decision?.selectedOptionId ?? offlineSelected?.optionId
         let suggestedClub = clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName
+        let selectedSequence = selectedSequence(from: decision)
         return WatchRoundStatePayload(
             roundId: package.roundId,
             hole: hole.number,
@@ -207,6 +211,9 @@ public final class WatchEventBridge: NSObject {
             offlineOptionId: selectedOptionId,
             decisionId: nonEmpty(decision?.decisionId),
             nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected),
+            holePlanSummary: sequenceSummary(from: selectedSequence),
+            expectedStrokes: number(selectedSequence?["expectedStrokes"]),
+            expectedRemainingM: number(selectedSequence?["expectedRemaining_m"]) ?? number(selectedSequence?["expectedRemainingM"]),
             evidenceSummary: evidenceSummary(from: decision, offlineOption: offlineSelected),
             missingDataSummary: missingDataSummary(from: decision),
             score: score,
@@ -456,6 +463,20 @@ public final class WatchEventBridge: NSObject {
         return decision.options.first
     }
 
+    private func selectedSequence(from decision: CaddieDecisionResponse?) -> [String: JSONValue]? {
+        guard let decision else {
+            return nil
+        }
+        if let selectedSequence = decision.selectedSequence {
+            return selectedSequence
+        }
+        if let selectedOptionId = decision.selectedOptionId,
+           let sequence = decision.sequences?.first(where: { string($0["id"]) == selectedOptionId }) {
+            return sequence
+        }
+        return decision.sequences?.first
+    }
+
     private func selectedOfflineOption(from offlineOption: OfflineCaddieOption?) -> OfflineCaddieOption? {
         offlineOption
     }
@@ -565,6 +586,24 @@ public final class WatchEventBridge: NSObject {
         let carryText = carry.map { "\(Int($0))m" }
         let parts = [club, label, carryText].compactMap { value in
             value?.isEmpty == false ? value : nil
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " / ")
+    }
+
+    private func sequenceSummary(from selectedSequence: [String: JSONValue]?) -> String? {
+        guard let selectedSequence else {
+            return nil
+        }
+        var parts: [String] = []
+        if let label = safeSummaryText(string(selectedSequence["label"]) ?? string(selectedSequence["id"])) {
+            parts.append(label)
+        }
+        if let expectedStrokes = number(selectedSequence["expectedStrokes"]) {
+            let shotCount = Int(expectedStrokes)
+            parts.append("\(shotCount) \(shotCount == 1 ? "shot" : "shots")")
+        }
+        if let expectedRemaining = number(selectedSequence["expectedRemaining_m"]) ?? number(selectedSequence["expectedRemainingM"]) {
+            parts.append("leave \(Int(expectedRemaining))m")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " / ")
     }

@@ -44,6 +44,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let offlineOptionId: String?
     public let decisionId: String?
     public let nextShotPrompt: String?
+    public let holePlanSummary: String?
+    public let expectedStrokes: Double?
+    public let expectedRemainingM: Double?
     public let evidenceSummary: String?
     public let missingDataSummary: String?
     public let score: Int
@@ -69,6 +72,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case offlineOptionId
         case decisionId
         case nextShotPrompt
+        case holePlanSummary
+        case expectedStrokes
+        case expectedRemainingM
         case evidenceSummary
         case missingDataSummary
         case score
@@ -95,6 +101,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         offlineOptionId: String? = nil,
         decisionId: String? = nil,
         nextShotPrompt: String? = nil,
+        holePlanSummary: String? = nil,
+        expectedStrokes: Double? = nil,
+        expectedRemainingM: Double? = nil,
         evidenceSummary: String? = nil,
         missingDataSummary: String? = nil,
         score: Int,
@@ -119,6 +128,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.offlineOptionId = offlineOptionId
         self.decisionId = decisionId
         self.nextShotPrompt = nextShotPrompt
+        self.holePlanSummary = holePlanSummary
+        self.expectedStrokes = expectedStrokes
+        self.expectedRemainingM = expectedRemainingM
         self.evidenceSummary = evidenceSummary
         self.missingDataSummary = missingDataSummary
         self.score = score
@@ -146,6 +158,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.offlineOptionId = try container.decodeIfPresent(String.self, forKey: .offlineOptionId)
         self.decisionId = try container.decodeIfPresent(String.self, forKey: .decisionId)
         self.nextShotPrompt = try container.decodeIfPresent(String.self, forKey: .nextShotPrompt)
+        self.holePlanSummary = try container.decodeIfPresent(String.self, forKey: .holePlanSummary)
+        self.expectedStrokes = try container.decodeIfPresent(Double.self, forKey: .expectedStrokes)
+        self.expectedRemainingM = try container.decodeIfPresent(Double.self, forKey: .expectedRemainingM)
         self.evidenceSummary = try container.decodeIfPresent(String.self, forKey: .evidenceSummary)
         self.missingDataSummary = try container.decodeIfPresent(String.self, forKey: .missingDataSummary)
         self.score = try container.decode(Int.self, forKey: .score)
@@ -193,6 +208,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             offlineOptionId: offlineOptionId,
             decisionId: decisionId,
             nextShotPrompt: nextShotPrompt,
+            holePlanSummary: holePlanSummary,
+            expectedStrokes: expectedStrokes,
+            expectedRemainingM: expectedRemainingM,
             evidenceSummary: evidenceSummary,
             missingDataSummary: missingDataSummary,
             score: nextScore,

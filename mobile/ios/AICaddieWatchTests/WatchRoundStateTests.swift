@@ -20,6 +20,9 @@ final class WatchRoundStateTests: XCTestCase {
             lie: "fairway",
             offlineOptionId: "stock",
             decisionId: "decision-1",
+            holePlanSummary: "1D-3W-58 / 3 shots / leave -21m",
+            expectedStrokes: 3,
+            expectedRemainingM: -21,
             score: 4,
             putts: 2,
             penaltyCount: 0,
@@ -35,6 +38,9 @@ final class WatchRoundStateTests: XCTestCase {
         XCTAssertEqual(decoded.availableClubNames, ["8I"])
         XCTAssertEqual(decoded.shotType, "approach")
         XCTAssertEqual(decoded.offlineOptionId, "stock")
+        XCTAssertEqual(decoded.holePlanSummary, "1D-3W-58 / 3 shots / leave -21m")
+        XCTAssertEqual(decoded.expectedStrokes, 3)
+        XCTAssertEqual(decoded.expectedRemainingM, -21)
     }
 
     func testWatchRoundStatePreservesEvidenceAndMissingDataAcrossQuickInput() throws {
@@ -55,6 +61,9 @@ final class WatchRoundStateTests: XCTestCase {
             offlineOptionId: "stock",
             decisionId: "decision-1",
             nextShotPrompt: "8I / Stock / 142m",
+            holePlanSummary: "1D-3W-58 / 3 shots / leave -21m",
+            expectedStrokes: 3,
+            expectedRemainingM: -21,
             evidenceSummary: "route: water left",
             missingDataSummary: "wind: not cached",
             score: 4,
@@ -77,6 +86,9 @@ final class WatchRoundStateTests: XCTestCase {
         XCTAssertEqual(updated.availableClubNames, ["8I", "7I"])
         XCTAssertEqual(updated.shotType, "approach")
         XCTAssertEqual(updated.offlineOptionId, "stock")
+        XCTAssertEqual(updated.holePlanSummary, "1D-3W-58 / 3 shots / leave -21m")
+        XCTAssertEqual(updated.expectedStrokes, 3)
+        XCTAssertEqual(updated.expectedRemainingM, -21)
         XCTAssertEqual(updated.evidenceSummary, "route: water left")
         XCTAssertEqual(updated.missingDataSummary, "wind: not cached")
     }

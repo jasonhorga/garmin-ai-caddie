@@ -24,8 +24,21 @@ final class WatchEventBridgeTests: XCTestCase {
             selected: nil,
             selectedOptionId: "stock",
             selectedOption: nil,
-            sequences: nil,
-            selectedSequence: nil,
+            sequences: [
+                [
+                    "id": .string("stock"),
+                    "label": .string("1D-3W-58"),
+                    "expectedStrokes": .number(3),
+                    "expectedRemaining_m": .number(-21),
+                    "sourceRefs": .array([.string("club-sample-1d-0")]),
+                ]
+            ],
+            selectedSequence: [
+                "id": .string("stock"),
+                "label": .string("1D-3W-58"),
+                "expectedStrokes": .number(3),
+                "expectedRemaining_m": .number(-21),
+            ],
             avoidZones: [],
             forbiddenZones: [],
             acceptableMiss: [:],
@@ -77,6 +90,9 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.strategyMode, "stock")
         XCTAssertEqual(payload.offlineOptionId, "stock")
         XCTAssertEqual(payload.decisionId, "decision-1")
+        XCTAssertEqual(payload.holePlanSummary, "1D-3W-58 / 3 shots / leave -21m")
+        XCTAssertEqual(payload.expectedStrokes, 3)
+        XCTAssertEqual(payload.expectedRemainingM, -21)
     }
 
     func testOfflineEvidenceSummaryRedactsPrivateSourceRefs() throws {

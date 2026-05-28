@@ -35,6 +35,15 @@ public struct WatchCaddieGlanceView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AICaddieDesignTokens.strategyColor("stock"))
             }
+            if let holePlanSummary = state.holePlanSummary {
+                HStack(spacing: 4) {
+                    Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                    Text(holePlanSummary)
+                        .lineLimit(2)
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AICaddieDesignTokens.strategyColor(state.strategyMode ?? "stock"))
+            }
             if let evidenceSummary = state.evidenceSummary {
                 HStack(spacing: 4) {
                     Image(systemName: "checklist")

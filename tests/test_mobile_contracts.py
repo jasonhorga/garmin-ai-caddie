@@ -1932,6 +1932,9 @@ class MobileContractTests(unittest.TestCase):
             "offlineOptionId",
             "decisionId",
             "nextShotPrompt",
+            "holePlanSummary",
+            "expectedStrokes",
+            "expectedRemainingM",
             "score",
             "putts",
             "penaltyCount",
@@ -1947,6 +1950,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let nextShotPrompt: String?", bridge)
         self.assertIn("nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected)", bridge)
         self.assertIn("private func nextShotPrompt(selected: [String: JSONValue]?, offlineOption: OfflineCaddieOption?) -> String?", bridge)
+        self.assertIn("public let holePlanSummary: String?", bridge)
+        self.assertIn("public let expectedStrokes: Double?", bridge)
+        self.assertIn("public let expectedRemainingM: Double?", bridge)
+        self.assertIn("let selectedSequence = selectedSequence(from: decision)", bridge)
+        self.assertIn("holePlanSummary: sequenceSummary(from: selectedSequence)", bridge)
+        self.assertIn('expectedStrokes: number(selectedSequence?["expectedStrokes"])', bridge)
+        self.assertIn('expectedRemainingM: number(selectedSequence?["expectedRemaining_m"])', bridge)
+        self.assertIn("private func selectedSequence(from decision: CaddieDecisionResponse?) -> [String: JSONValue]?", bridge)
+        self.assertIn("decision.selectedSequence", bridge)
+        self.assertIn("decision.sequences?.first", bridge)
+        self.assertIn("private func sequenceSummary(from selectedSequence: [String: JSONValue]?) -> String?", bridge)
         self.assertIn("targetLatitude: Double? = nil", bridge)
         self.assertIn("targetLongitude: Double? = nil", bridge)
         self.assertIn("targetKind: String? = nil", bridge)
@@ -1956,8 +1970,22 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let nextShotPrompt: String?", state_swift)
         self.assertIn("nextShotPrompt: String? = nil", state_swift)
         self.assertIn("nextShotPrompt: nextShotPrompt", state_swift)
+        self.assertIn("public let holePlanSummary: String?", state_swift)
+        self.assertIn("public let expectedStrokes: Double?", state_swift)
+        self.assertIn("public let expectedRemainingM: Double?", state_swift)
+        self.assertIn("holePlanSummary: String? = nil", state_swift)
+        self.assertIn("expectedStrokes: Double? = nil", state_swift)
+        self.assertIn("expectedRemainingM: Double? = nil", state_swift)
+        self.assertIn("holePlanSummary: holePlanSummary", state_swift)
+        self.assertIn("expectedStrokes: expectedStrokes", state_swift)
+        self.assertIn("expectedRemainingM: expectedRemainingM", state_swift)
         self.assertIn("if let nextShotPrompt = state.nextShotPrompt", glance_view)
         self.assertIn('Image(systemName: "figure.golf")', glance_view)
+        self.assertIn("if let holePlanSummary = state.holePlanSummary", glance_view)
+        self.assertIn('Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")', glance_view)
+        self.assertIn("state.strategyMode ?? \"stock\"", glance_view)
+        self.assertIn("XCTAssertEqual(payload.holePlanSummary", _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "WatchEventBridgeTests.swift"))
+        self.assertIn("XCTAssertEqual(decoded.holePlanSummary", _read_required_source(self, WATCH_DIR.parent / "AICaddieWatchTests" / "WatchRoundStateTests.swift"))
 
     def test_watch_state_carries_compact_decision_evidence_and_missing_data(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
