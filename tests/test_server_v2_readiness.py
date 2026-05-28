@@ -110,6 +110,9 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(media_context["uploadRoot"], "data/media/uploads")
         self.assertTrue(media_context["localPathEscapeProtection"])
         self.assertEqual(media_context["allowedMediaKinds"], ["photo", "video"])
+        self.assertEqual(media_context["maxUploadBytesByKind"]["photo"], 12 * 1024 * 1024)
+        self.assertEqual(media_context["maxUploadBytesByKind"]["video"], 80 * 1024 * 1024)
+        self.assertEqual(media_context["maxVideoDurationSeconds"], 180)
         self.assertEqual(
             media_context["confirmationStates"],
             ["unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"],

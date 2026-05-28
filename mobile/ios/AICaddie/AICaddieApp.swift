@@ -295,22 +295,44 @@ public final class LiveRoundAppModel: ObservableObject {
         let pendingMedia = try offlineStore.loadPendingMedia(roundId: roundId)
         var uploadedIds = Set<String>()
         for media in pendingMedia {
-            let mediaData = try Data(contentsOf: media.fileURL)
-            let request = MediaCreateRequest(
-                targetType: "hole",
-                targetId: media.targetId,
-                mediaKind: media.mediaKind,
-                fileName: media.fileName,
-                contentBase64: mediaData.base64EncodedString(),
-                capturedAt: media.capturedAt
-            )
-            let uploadResponse = try await mediaUploadClient.uploadMedia(request)
-            try? await mediaUploadClient.analyzeMedia(mediaId: uploadResponse.media.id)
-            try offlineStore.attachUploadedMediaId(eventId: media.eventId, mediaId: uploadResponse.media.id)
-            uploadedIds.insert(media.id)
+            do {
+                let mediaData = try Data(contentsOf: media.fileURL)
+                let request = MediaCreateRequest(
+                    targetType: "hole",
+                    targetId: media.targetId,
+                    mediaKind: media.mediaKind,
+                    fileName: media.fileName,
+                    contentBase64: mediaData.base64EncodedString(),
+                    capturedAt: media.capturedAt,
+                    mimeType: inferredMimeType(fileName: media.fileName, mediaKind: media.mediaKind)
+                )
+                let uploadResponse = try await mediaUploadClient.uploadMediaWithRetry(request)
+                try? await mediaUploadClient.analyzeMedia(mediaId: uploadResponse.media.id)
+                try offlineStore.attachUploadedMediaId(eventId: media.eventId, mediaId: uploadResponse.media.id)
+                uploadedIds.insert(media.id)
+            } catch {
+                continue
+            }
         }
         try offlineStore.removePendingMedia(ids: uploadedIds)
         return uploadedIds.count
+    }
+
+    private func inferredMimeType(fileName: String, mediaKind: String) -> String {
+        let lower = fileName.lowercased()
+        if mediaKind == "video" {
+            if lower.hasSuffix(".mov") {
+                return "video/quicktime"
+            }
+            return "video/mp4"
+        }
+        if lower.hasSuffix(".png") {
+            return "image/png"
+        }
+        if lower.hasSuffix(".heic") || lower.hasSuffix(".heif") {
+            return "image/heic"
+        }
+        return "image/jpeg"
     }
 
     private static func defaultAPIBaseURL() -> URL? {

@@ -1,6 +1,7 @@
 import Foundation
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 public struct MediaCaptureView: View {
     public let roundId: String
@@ -18,6 +19,8 @@ public struct MediaCaptureView: View {
     @State private var confirmedFindings: [VisionFinding] = []
 
     private let formatter = ISO8601DateFormatter()
+    private let maxPhotoBytes = 12 * 1024 * 1024
+    private let maxVideoBytes = 80 * 1024 * 1024
 
     public init(
         roundId: String,
@@ -96,8 +99,16 @@ public struct MediaCaptureView: View {
                 statusText = "Media unavailable"
                 return
             }
+            let maxBytes = mediaKind == "video" ? maxVideoBytes : maxPhotoBytes
+            guard data.count <= maxBytes else {
+                statusText = "\(mediaKind.capitalized) exceeds upload limit"
+                return
+            }
             let capturedAt = formatter.string(from: Date())
-            let fileName = "\(targetId.replacingOccurrences(of: ":", with: "-"))-\(mediaKind).bin"
+            let contentType = preferredContentType(for: item, mediaKind: mediaKind)
+            let fileExtension = contentType?.preferredFilenameExtension ?? (mediaKind == "video" ? "mp4" : "jpg")
+            let mimeType = contentType?.preferredMIMEType ?? (mediaKind == "video" ? "video/mp4" : "image/jpeg")
+            let fileName = "\(targetId.replacingOccurrences(of: ":", with: "-"))-\(mediaKind).\(fileExtension)"
             let mediaEventId = UUID().uuidString
             let savedMedia: PendingMediaAttachment?
             if let offlineStore {
@@ -121,20 +132,27 @@ public struct MediaCaptureView: View {
                 mediaKind: mediaKind,
                 fileName: savedMedia?.fileName ?? fileName,
                 contentBase64: data.base64EncodedString(),
-                capturedAt: capturedAt
+                capturedAt: capturedAt,
+                mimeType: mimeType
             )
             var uploadedMediaId: String?
             var analyzedCount = 0
+            var uploadDeferred = false
             if let uploadClient {
                 do {
-                    let uploadResponse = try await uploadClient.uploadMedia(request)
+                    let uploadResponse = try await uploadClient.uploadMediaWithRetry(request)
                     uploadedMediaId = uploadResponse.media.id
+                    if let savedMedia {
+                        try? offlineStore?.removePendingMedia(ids: Set([savedMedia.id]))
+                    }
                     let analysis = try await uploadClient.analyzeMedia(mediaId: uploadResponse.media.id)
                     pendingFindings = analysis.findings
                     analyzedCount = analysis.findings.count
                 } catch {
-                    // The media bytes are already in OfflineStore; event sync can retry upload/analysis later.
+                    uploadDeferred = savedMedia != nil
                 }
+            } else {
+                uploadDeferred = savedMedia != nil
             }
             emitMediaEvent(
                 mediaKind: mediaKind,
@@ -144,10 +162,22 @@ public struct MediaCaptureView: View {
                 mediaId: uploadedMediaId,
                 eventId: mediaEventId
             )
-            statusText = analyzedCount == 0 ? "\(mediaKind.capitalized) attached" : "\(mediaKind.capitalized) analyzed; confirm findings before caddie use"
+            if uploadDeferred {
+                statusText = "\(mediaKind.capitalized) saved offline; upload retry pending"
+            } else {
+                statusText = analyzedCount == 0 ? "\(mediaKind.capitalized) attached" : "\(mediaKind.capitalized) analyzed; confirm findings before caddie use"
+            }
         } catch {
             statusText = "\(mediaKind.capitalized) attach failed"
         }
+    }
+
+    private func preferredContentType(for item: PhotosPickerItem, mediaKind: String) -> UTType? {
+        let candidates = item.supportedContentTypes
+        if mediaKind == "video" {
+            return candidates.first { $0.conforms(to: .movie) || $0.conforms(to: .video) }
+        }
+        return candidates.first { $0.conforms(to: .image) }
     }
 
     @MainActor

@@ -6,8 +6,10 @@ from fastapi import HTTPException
 
 from ai_caddie.llm_providers import TextProvider, build_text_provider, redact_secret_text
 from ai_caddie.media import (
+    MediaUploadTooLarge,
     attach_media,
     find_media,
+    media_file_metadata,
     media_for_target,
     redact_media,
     resolve_media_content_path,
@@ -72,19 +74,44 @@ def _record(row: dict[str, object]) -> MediaRecord:
 
 
 def create_media_response(request: MediaCreateRequest) -> MediaCreateResponse:
+    metadata: dict[str, object] = {}
     if request.contentBase64:
         try:
             local_path = store_media_content(
                 request.contentBase64,
                 request.fileName or f"media.{request.mediaKind}",
+                media_kind=request.mediaKind,
+                duration_s=request.durationS,
+                mime_type=request.mimeType,
                 root=MEDIA_ROOT,
             )
+            metadata = media_file_metadata(
+                local_path,
+                media_kind=request.mediaKind,
+                root=MEDIA_ROOT,
+                duration_s=request.durationS,
+                mime_type=request.mimeType,
+            )
+        except MediaUploadTooLarge as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     elif request.localPath:
         resolved = resolve_media_content_path(request.localPath, root=MEDIA_ROOT)
         if resolved is None:
             raise HTTPException(status_code=422, detail="localPath must be inside data/media/uploads")
+        try:
+            metadata = media_file_metadata(
+                request.localPath,
+                media_kind=request.mediaKind,
+                root=MEDIA_ROOT,
+                duration_s=request.durationS,
+                mime_type=request.mimeType,
+            )
+        except MediaUploadTooLarge as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         local_path = request.localPath
     else:
         raise HTTPException(status_code=422, detail="localPath or contentBase64 is required")
@@ -95,6 +122,10 @@ def create_media_response(request: MediaCreateRequest) -> MediaCreateResponse:
         local_path,
         request.capturedAt,
         privacy_state=request.privacyState,
+        content_byte_size=metadata.get("contentByteSize") if isinstance(metadata.get("contentByteSize"), int) else None,
+        mime_type=str(metadata.get("mimeType") or "") or None,
+        duration_s=metadata.get("durationS") if isinstance(metadata.get("durationS"), (int, float)) else None,
+        upload_status="available",
         root=MEDIA_ROOT,
     )
     return MediaCreateResponse(schema="ai-caddie-media-create-v1", media=_record(media))

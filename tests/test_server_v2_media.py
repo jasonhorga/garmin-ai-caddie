@@ -194,6 +194,7 @@ class ServerV2MediaTests(unittest.TestCase):
                         "mediaKind": "photo",
                         "fileName": "lie.jpg",
                         "contentBase64": base64.b64encode(b"uploaded-bytes").decode("ascii"),
+                        "mimeType": "image/jpeg",
                         "capturedAt": "2026-05-25T00:00:00Z",
                     },
                 )
@@ -203,9 +204,95 @@ class ServerV2MediaTests(unittest.TestCase):
                 index_text = (root / "data" / "media" / "media_index.jsonl").read_text(encoding="utf-8")
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["media"]["contentByteSize"], len(b"uploaded-bytes"))
+        self.assertEqual(response.json()["media"]["mimeType"], "image/jpeg")
+        self.assertEqual(response.json()["media"]["uploadStatus"], "available")
         self.assertEqual(stored_bytes, b"uploaded-bytes")
         self.assertNotIn("uploaded-bytes", index_text)
         self.assertTrue(local_path.startswith("data/media/uploads/"))
+
+    def test_media_create_rejects_oversized_upload_before_writing(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.media.MEDIA_ROOT", root),
+                patch.dict("ai_caddie.media.MAX_MEDIA_UPLOAD_BYTES_BY_KIND", {"photo": 4, "video": 4}),
+            ):
+                response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "fileName": "lie.jpg",
+                        "contentBase64": base64.b64encode(b"too-large").decode("ascii"),
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                media_root = root / "data" / "media"
+
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("photo upload exceeds", response.text)
+        self.assertFalse(media_root.exists())
+
+    def test_media_create_rejects_video_duration_and_mime_mismatch(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.media.MEDIA_ROOT", root):
+                duration_response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "hole",
+                        "targetId": "round-1:7",
+                        "mediaKind": "video",
+                        "fileName": "approach.mp4",
+                        "contentBase64": base64.b64encode(b"video-bytes").decode("ascii"),
+                        "durationS": 181,
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+                mime_response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "hole",
+                        "targetId": "round-1:7",
+                        "mediaKind": "video",
+                        "fileName": "approach.jpg",
+                        "contentBase64": base64.b64encode(b"video-bytes").decode("ascii"),
+                        "mimeType": "image/jpeg",
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+
+        self.assertEqual(duration_response.status_code, 422)
+        self.assertIn("durationS exceeds", duration_response.text)
+        self.assertEqual(mime_response.status_code, 422)
+        self.assertIn("mimeType", mime_response.text)
+
+    def test_media_create_rejects_missing_local_file_reference(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            missing = root / "data" / "media" / "uploads" / "missing.jpg"
+            with patch("server_v2.media.MEDIA_ROOT", root):
+                response = client.post(
+                    "/api/v2/media",
+                    json={
+                        "targetType": "shot",
+                        "targetId": "round-1:7:2",
+                        "mediaKind": "photo",
+                        "localPath": str(missing),
+                        "capturedAt": "2026-05-25T00:00:00Z",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("does not exist", response.text)
 
     def test_media_analyze_degrades_when_provider_is_unavailable_without_secret_leak(self) -> None:
         client = TestClient(app)

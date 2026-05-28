@@ -8,6 +8,8 @@ public struct MediaCreateRequest: Codable, Equatable {
     public let contentBase64: String?
     public let capturedAt: String
     public let privacyState: String
+    public let mimeType: String?
+    public let durationS: Double?
 
     public init(
         targetType: String,
@@ -16,7 +18,9 @@ public struct MediaCreateRequest: Codable, Equatable {
         fileName: String?,
         contentBase64: String?,
         capturedAt: String,
-        privacyState: String = "private_local"
+        privacyState: String = "private_local",
+        mimeType: String? = nil,
+        durationS: Double? = nil
     ) {
         self.targetType = targetType
         self.targetId = targetId
@@ -25,6 +29,8 @@ public struct MediaCreateRequest: Codable, Equatable {
         self.contentBase64 = contentBase64
         self.capturedAt = capturedAt
         self.privacyState = privacyState
+        self.mimeType = mimeType
+        self.durationS = durationS
     }
 }
 
@@ -43,6 +49,10 @@ public struct MediaRecord: Codable, Equatable, Identifiable {
     public let capturedAt: String
     public let privacyState: String
     public let source: String
+    public let contentByteSize: Int?
+    public let mimeType: String?
+    public let durationS: Double?
+    public let uploadStatus: String?
 }
 
 public struct VisionFinding: Codable, Equatable {
@@ -164,6 +174,21 @@ public final class MediaUploadClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response)
         return try decoder.decode(MediaCreateResponse.self, from: data)
+    }
+
+    public func uploadMediaWithRetry(_ requestBody: MediaCreateRequest, attempts: Int = 3) async throws -> MediaCreateResponse {
+        var lastError: Error?
+        for attempt in 1...max(1, attempts) {
+            do {
+                return try await uploadMedia(requestBody)
+            } catch {
+                lastError = error
+                if attempt < attempts {
+                    try await Task.sleep(nanoseconds: UInt64(attempt) * 300_000_000)
+                }
+            }
+        }
+        throw lastError ?? URLError(.cannotConnectToHost)
     }
 
     public func analyzeMedia(mediaId: String) async throws -> VisionAnalysisResponse {

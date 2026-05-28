@@ -1158,17 +1158,33 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("private func endpointURL(_ endpoint: String) -> URL", upload_client)
         self.assertIn('endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint', upload_client)
         self.assertNotIn('appendingPathComponent("/api', upload_client)
-        for field in ["targetType", "targetId", "mediaKind", "fileName", "contentBase64", "capturedAt", "privacyState"]:
+        for field in [
+            "targetType",
+            "targetId",
+            "mediaKind",
+            "fileName",
+            "contentBase64",
+            "capturedAt",
+            "privacyState",
+            "mimeType",
+            "durationS",
+        ]:
             self.assertIn(field, upload_client)
+        self.assertIn("func uploadMediaWithRetry", upload_client)
 
         self.assertIn("import PhotosUI", media_view)
+        self.assertIn("import UniformTypeIdentifiers", media_view)
         self.assertIn("struct MediaCaptureView: View", media_view)
         self.assertIn("PhotosPicker", media_view)
         self.assertIn("matching: .images", media_view)
         self.assertIn("matching: .videos", media_view)
         self.assertIn("loadTransferable(type: Data.self)", media_view)
         self.assertIn("base64EncodedString()", media_view)
-        self.assertIn("uploadMedia", media_view)
+        self.assertIn("uploadMediaWithRetry", media_view)
+        self.assertIn("maxPhotoBytes", media_view)
+        self.assertIn("maxVideoBytes", media_view)
+        self.assertIn("preferredMIMEType", media_view)
+        self.assertIn("upload retry pending", media_view)
         self.assertIn("makePhotoEvent", media_view)
         self.assertIn("makeVideoEvent", media_view)
         self.assertIn("MediaCaptureView", current_hole)
@@ -1208,10 +1224,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func syncPendingMedia(roundId: String) async throws -> Int", app_swift)
         self.assertIn("offlineStore.loadPendingMedia(roundId:", app_swift)
         self.assertIn("Data(contentsOf: media.fileURL)", app_swift)
-        self.assertIn("let uploadResponse = try await mediaUploadClient.uploadMedia(request)", app_swift)
+        self.assertIn("let uploadResponse = try await mediaUploadClient.uploadMediaWithRetry(request)", app_swift)
         self.assertIn("try? await mediaUploadClient.analyzeMedia(mediaId: uploadResponse.media.id)", app_swift)
         self.assertIn("try offlineStore.attachUploadedMediaId(eventId: media.eventId, mediaId: uploadResponse.media.id)", app_swift)
         self.assertIn("offlineStore.removePendingMedia", app_swift)
+        self.assertIn("continue", app_swift)
+        self.assertIn("inferredMimeType(fileName: media.fileName, mediaKind: media.mediaKind)", app_swift)
 
         self.assertIn("public let offlineStore: OfflineStore?", round_home)
         self.assertIn("offlineStore: model.offlineStore", app_swift)
@@ -1442,6 +1460,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("confirmedFindings.map { $0.contextPayload }", media_view)
         self.assertNotIn("onVisionFindings(analyzedFindings)", media_view)
         self.assertIn("mediaId: uploadedMediaId", media_view)
+        self.assertIn("offlineStore?.removePendingMedia(ids:", media_view)
 
         self.assertIn("@State private var visionFindings: [[String: JSONValue]] = []", current_hole)
         self.assertIn("visionFindings: visionFindings", current_hole)

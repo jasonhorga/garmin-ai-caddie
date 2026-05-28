@@ -649,6 +649,10 @@ class MediaRecord(BaseModel):
     capturedAt: str
     privacyState: MediaPrivacyState
     source: Literal["manual"]
+    contentByteSize: int | None = None
+    mimeType: str | None = None
+    durationS: float | None = None
+    uploadStatus: str | None = None
 
 
 class MediaCreateRequest(BaseModel):
@@ -660,6 +664,8 @@ class MediaCreateRequest(BaseModel):
     contentBase64: str | None = None
     capturedAt: str = Field(min_length=1)
     privacyState: MediaPrivacyState = "private_local"
+    mimeType: str | None = None
+    durationS: float | None = None
 
 
 class MediaCreateResponse(BaseModel):

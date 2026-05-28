@@ -5,7 +5,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from ai_caddie.media import UPLOAD_DIR, VALID_MEDIA_KINDS, resolve_media_content_path
+from ai_caddie.media import (
+    MAX_MEDIA_UPLOAD_BYTES_BY_KIND,
+    MAX_VIDEO_DURATION_SECONDS,
+    UPLOAD_DIR,
+    VALID_MEDIA_KINDS,
+    resolve_media_content_path,
+)
 from ai_caddie.connectors.snapshot import validate_private_snapshot_acceptance
 
 from .history_stats import load_history_stats_response
@@ -359,6 +365,8 @@ def build_readiness_response() -> dict[str, Any]:
                 "uploadRoot": upload_root,
                 "localPathEscapeProtection": escape_probe is None,
                 "allowedMediaKinds": sorted(VALID_MEDIA_KINDS),
+                "maxUploadBytesByKind": MAX_MEDIA_UPLOAD_BYTES_BY_KIND,
+                "maxVideoDurationSeconds": MAX_VIDEO_DURATION_SECONDS,
                 "confirmationStates": VISION_CONFIRMATION_STATES,
                 "findingsRedactLocalPath": True,
             },
