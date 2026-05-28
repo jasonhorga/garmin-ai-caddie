@@ -7,6 +7,7 @@ public enum WatchInputKind: String, Codable, Equatable {
     case putt
     case penalty
     case club
+    case distance
 }
 
 public struct WatchInputEvent: Codable, Equatable, Identifiable {
@@ -18,14 +19,24 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public let kind: WatchInputKind
     public let value: String
     public let createdAt: String
+    public let contextClub: String?
 
-    public init(eventId: String, roundId: String, hole: Int, kind: WatchInputKind, value: String, createdAt: String) {
+    public init(
+        eventId: String,
+        roundId: String,
+        hole: Int,
+        kind: WatchInputKind,
+        value: String,
+        createdAt: String,
+        contextClub: String? = nil
+    ) {
         self.eventId = eventId
         self.roundId = roundId
         self.hole = hole
         self.kind = kind
         self.value = value
         self.createdAt = createdAt
+        self.contextClub = contextClub
     }
 }
 

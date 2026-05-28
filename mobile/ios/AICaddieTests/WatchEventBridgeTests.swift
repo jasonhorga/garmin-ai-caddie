@@ -55,9 +55,17 @@ final class WatchEventBridgeTests: XCTestCase {
             putts: 2,
             penaltyCount: 0,
             selectedClub: "8I",
-            decision: decision
+            decision: decision,
+            distanceToPinM: 139,
+            targetLatitude: 22.279,
+            targetLongitude: 114.162,
+            targetKind: "pin"
         )
 
+        XCTAssertEqual(payload.distanceM, 139)
+        XCTAssertEqual(payload.targetKind, "pin")
+        XCTAssertEqual(payload.targetLatitude, 22.279)
+        XCTAssertEqual(payload.targetNote, "Center green / pin set on iPhone")
         XCTAssertEqual(payload.evidenceSummary, "route / prodgeometry / geometry: 2 / water left / ready")
         XCTAssertEqual(payload.missingDataSummary, "wind: not cached / missing")
     }
@@ -126,6 +134,26 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(duplicateReply?["acceptedEventIds"] as? [String], [])
         XCTAssertEqual(duplicateReply?["duplicateEventIds"] as? [String], ["watch-event-1"])
         XCTAssertEqual(try store.loadEvents().map(\.eventId), ["watch-event-1"])
+    }
+
+    func testWatchDistanceInputMapsToLiveDistanceForOfflineRestore() throws {
+        let bridge = WatchEventBridge()
+        let event = WatchInputEvent(
+            eventId: "watch-distance-1",
+            roundId: "round-1",
+            hole: 4,
+            kind: .distance,
+            value: "155",
+            createdAt: "2026-05-25T00:00:00Z",
+            contextClub: "8I"
+        )
+
+        let liveEvent = try bridge.mapWatchInputEvent(event)
+
+        XCTAssertEqual(liveEvent.kind, .club)
+        XCTAssertEqual(liveEvent.payload["clubName"], .string("8I"))
+        XCTAssertEqual(liveEvent.payload["distanceToPinM"], .number(155))
+        XCTAssertEqual(liveEvent.payload["source"], .string("apple_watch"))
     }
 
     private func fixturePackage() throws -> LiveRoundPackage {

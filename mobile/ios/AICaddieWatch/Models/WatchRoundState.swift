@@ -8,6 +8,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let par: Int
     public let distanceM: Double?
     public let targetNote: String?
+    public let targetLatitude: Double?
+    public let targetLongitude: Double?
+    public let targetKind: String?
     public let suggestedClub: String?
     public let selectedClub: String?
     public let nextShotPrompt: String?
@@ -24,6 +27,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         par: Int,
         distanceM: Double?,
         targetNote: String? = nil,
+        targetLatitude: Double? = nil,
+        targetLongitude: Double? = nil,
+        targetKind: String? = nil,
         suggestedClub: String? = nil,
         selectedClub: String?,
         nextShotPrompt: String? = nil,
@@ -39,6 +45,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.par = par
         self.distanceM = distanceM
         self.targetNote = targetNote
+        self.targetLatitude = targetLatitude
+        self.targetLongitude = targetLongitude
+        self.targetKind = targetKind
         self.suggestedClub = suggestedClub
         self.selectedClub = selectedClub
         self.nextShotPrompt = nextShotPrompt
@@ -55,6 +64,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             return self
         }
         var nextSelectedClub = selectedClub
+        var nextDistanceM = distanceM
         var nextScore = score
         var nextPutts = putts
         var nextPenaltyCount = penaltyCount
@@ -67,13 +77,18 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             nextPenaltyCount = Int(event.value) ?? penaltyCount
         case .club:
             nextSelectedClub = event.value
+        case .distance:
+            nextDistanceM = Double(event.value)
         }
         return WatchRoundState(
             roundId: roundId,
             hole: hole,
             par: par,
-            distanceM: distanceM,
+            distanceM: nextDistanceM,
             targetNote: targetNote,
+            targetLatitude: targetLatitude,
+            targetLongitude: targetLongitude,
+            targetKind: targetKind,
             suggestedClub: suggestedClub,
             selectedClub: nextSelectedClub,
             nextShotPrompt: nextShotPrompt,

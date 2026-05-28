@@ -19,6 +19,13 @@ public struct WatchCaddieGlanceView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            HStack(spacing: 4) {
+                Image(systemName: state.targetLatitude == nil || state.targetLongitude == nil ? "mappin.slash" : "mappin.and.ellipse")
+                Text(state.targetLatitude == nil || state.targetLongitude == nil ? "Pin needed" : "\(state.targetKind ?? "target") ready")
+                    .lineLimit(1)
+            }
+            .font(.caption2)
+            .foregroundStyle(state.targetLatitude == nil || state.targetLongitude == nil ? AICaddieDesignTokens.confidenceColor("low") : .secondary)
             if let nextShotPrompt = state.nextShotPrompt {
                 HStack(spacing: 4) {
                     Image(systemName: "figure.golf")

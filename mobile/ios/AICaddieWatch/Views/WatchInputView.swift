@@ -9,6 +9,7 @@ public struct WatchInputView: View {
     @State private var putts: Int
     @State private var penaltyCount: Int
     @State private var selectedClub: String
+    @State private var distanceM: Int
 
     public init(state: WatchRoundState, clubs: [String], onEvent: @escaping (WatchInputEvent) -> Void = { _ in }) {
         self.state = state
@@ -18,10 +19,12 @@ public struct WatchInputView: View {
         self._putts = State(initialValue: state.putts)
         self._penaltyCount = State(initialValue: state.penaltyCount)
         self._selectedClub = State(initialValue: state.selectedClub ?? clubs.first ?? "")
+        self._distanceM = State(initialValue: Int(state.distanceM ?? 0))
     }
 
     public var body: some View {
         Form {
+            Stepper("D \(distanceM)m", value: $distanceM, in: 0...320, step: 5)
             Stepper("S \(score)", value: $score, in: 1...12)
             Stepper("P \(putts)", value: $putts, in: 0...6)
             Button {
@@ -36,6 +39,7 @@ public struct WatchInputView: View {
                 }
             }
             Button("Save") {
+                emit(kind: .distance, value: "\(distanceM)")
                 emit(kind: .score, value: "\(score)")
                 emit(kind: .putt, value: "\(putts)")
                 emit(kind: .club, value: selectedClub)
@@ -52,7 +56,8 @@ public struct WatchInputView: View {
                 hole: state.hole,
                 kind: kind,
                 value: value,
-                createdAt: ISO8601DateFormatter().string(from: Date())
+                createdAt: ISO8601DateFormatter().string(from: Date()),
+                contextClub: selectedClub
             )
         )
     }

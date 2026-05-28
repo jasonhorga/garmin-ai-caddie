@@ -28,6 +28,9 @@ public struct WatchHoleView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    Text(state.targetLatitude == nil || state.targetLongitude == nil ? "Pin from iPhone needed" : "\(state.targetKind ?? "target") set")
+                        .font(.caption2)
+                        .foregroundStyle(state.targetLatitude == nil || state.targetLongitude == nil ? AICaddieDesignTokens.confidenceColor("low") : .secondary)
                 }
                 WatchCaddieGlanceView(state: state)
                 NavigationLink("Input") {

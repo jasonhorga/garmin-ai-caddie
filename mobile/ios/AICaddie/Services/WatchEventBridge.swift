@@ -6,6 +6,7 @@ public enum WatchInputKind: String, Codable, Equatable {
     case putt
     case penalty
     case club
+    case distance
 }
 
 public struct WatchInputEvent: Codable, Equatable, Identifiable {
@@ -17,6 +18,25 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public let kind: WatchInputKind
     public let value: String
     public let createdAt: String
+    public let contextClub: String?
+
+    public init(
+        eventId: String,
+        roundId: String,
+        hole: Int,
+        kind: WatchInputKind,
+        value: String,
+        createdAt: String,
+        contextClub: String? = nil
+    ) {
+        self.eventId = eventId
+        self.roundId = roundId
+        self.hole = hole
+        self.kind = kind
+        self.value = value
+        self.createdAt = createdAt
+        self.contextClub = contextClub
+    }
 }
 
 public struct WatchRoundStatePayload: Codable, Equatable {
@@ -25,6 +45,9 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let par: Int
     public let distanceM: Double?
     public let targetNote: String?
+    public let targetLatitude: Double?
+    public let targetLongitude: Double?
+    public let targetKind: String?
     public let suggestedClub: String?
     public let selectedClub: String?
     public let nextShotPrompt: String?
@@ -72,6 +95,15 @@ public final class WatchEventBridge: NSObject {
             return liveEvent(event, kind: .penalty, payload: ["penalties": try numericPayload(event.value, minimum: 0)])
         case .club:
             return liveEvent(event, kind: .club, payload: ["clubName": .string(event.value)])
+        case .distance:
+            return liveEvent(
+                event,
+                kind: .club,
+                payload: [
+                    "clubName": .string(event.contextClub ?? ""),
+                    "distanceToPinM": try numericDistancePayload(event.value, minimum: 0),
+                ]
+            )
         }
     }
 
@@ -83,7 +115,11 @@ public final class WatchEventBridge: NSObject {
         penaltyCount: Int,
         selectedClub: String?,
         decision: CaddieDecisionResponse?,
-        offlineOption: OfflineCaddieOption? = nil
+        offlineOption: OfflineCaddieOption? = nil,
+        distanceToPinM: Double? = nil,
+        targetLatitude: Double? = nil,
+        targetLongitude: Double? = nil,
+        targetKind: String? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
@@ -91,8 +127,17 @@ public final class WatchEventBridge: NSObject {
             roundId: package.roundId,
             hole: hole.number,
             par: hole.par,
-            distanceM: number(selected?["carry_m"]) ?? number(selected?["carryM"]) ?? offlineSelected?.carryM,
-            targetNote: string(selected?["label"]) ?? string(selected?["routeLabel"]) ?? offlineSelected?.label,
+            distanceM: distanceToPinM ?? number(selected?["carry_m"]) ?? number(selected?["carryM"]) ?? offlineSelected?.carryM,
+            targetNote: watchTargetNote(
+                selected: selected,
+                offlineOption: offlineSelected,
+                targetKind: targetKind,
+                targetLatitude: targetLatitude,
+                targetLongitude: targetLongitude
+            ),
+            targetLatitude: targetLatitude,
+            targetLongitude: targetLongitude,
+            targetKind: targetKind,
             suggestedClub: clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName,
             selectedClub: selectedClub,
             nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected),
@@ -191,6 +236,30 @@ public final class WatchEventBridge: NSObject {
             throw WatchEventBridgeError.invalidNumericInput
         }
         return .number(Double(parsed))
+    }
+
+    private func numericDistancePayload(_ value: String, minimum: Double) throws -> JSONValue {
+        guard let parsed = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)), parsed.isFinite, parsed >= minimum else {
+            throw WatchEventBridgeError.invalidNumericInput
+        }
+        return .number(parsed)
+    }
+
+    private func watchTargetNote(
+        selected: [String: JSONValue]?,
+        offlineOption: OfflineCaddieOption?,
+        targetKind: String?,
+        targetLatitude: Double?,
+        targetLongitude: Double?
+    ) -> String? {
+        let label = string(selected?["label"]) ?? string(selected?["routeLabel"]) ?? offlineOption?.label
+        if let targetKind, targetLatitude != nil, targetLongitude != nil {
+            return [label, "\(targetKind) set on iPhone"].compactMap { $0 }.joined(separator: " / ")
+        }
+        if let label {
+            return "\(label) / pin not set"
+        }
+        return "pin not set"
     }
 
     private func selectedOption(from decision: CaddieDecisionResponse?) -> [String: JSONValue]? {

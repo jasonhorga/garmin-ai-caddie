@@ -280,7 +280,11 @@ public struct CurrentHoleView: View {
             penaltyCount: penaltyCount,
             selectedClub: selectedClub,
             decision: decision,
-            offlineOption: offlineOption
+            offlineOption: offlineOption,
+            distanceToPinM: Double(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
+            targetLatitude: targetCoordinate?.latitude,
+            targetLongitude: targetCoordinate?.longitude,
+            targetKind: targetCoordinate == nil ? nil : "pin"
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)

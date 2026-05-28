@@ -1495,6 +1495,7 @@ class MobileContractTests(unittest.TestCase):
             "case .putt:",
             "case .penalty:",
             "case .club:",
+            "case .distance:",
             "kind: .score",
             "kind: .putt",
             "kind: .penalty",
@@ -1503,9 +1504,11 @@ class MobileContractTests(unittest.TestCase):
             '"putts": try numericPayload(event.value, minimum: 0)',
             '"penalties": try numericPayload(event.value, minimum: 0)',
             '"clubName": .string(event.value)',
+            '"distanceToPinM": try numericDistancePayload(event.value, minimum: 0)',
         ]:
             self.assertIn(mapping, bridge)
         self.assertIn("guard let parsed = Int", bridge)
+        self.assertIn("guard let parsed = Double", bridge)
         self.assertIn("throw WatchEventBridgeError.invalidNumericInput", bridge)
         self.assertIn('replyHandler(["accepted": false, "eventId": event.eventId, "reason": "invalid_numeric_input"])', bridge)
         self.assertNotIn("Double(value) ?? 0", bridge)
@@ -1628,6 +1631,9 @@ class MobileContractTests(unittest.TestCase):
             "par",
             "distanceM",
             "targetNote",
+            "targetLatitude",
+            "targetLongitude",
+            "targetKind",
             "suggestedClub",
             "selectedClub",
             "nextShotPrompt",
@@ -1646,6 +1652,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let nextShotPrompt: String?", bridge)
         self.assertIn("nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected)", bridge)
         self.assertIn("private func nextShotPrompt(selected: [String: JSONValue]?, offlineOption: OfflineCaddieOption?) -> String?", bridge)
+        self.assertIn("targetLatitude: Double? = nil", bridge)
+        self.assertIn("targetLongitude: Double? = nil", bridge)
+        self.assertIn("targetKind: String? = nil", bridge)
+        self.assertIn("private func watchTargetNote", bridge)
+        self.assertIn("set on iPhone", bridge)
+        self.assertIn("pin not set", bridge)
         self.assertIn("public let nextShotPrompt: String?", state_swift)
         self.assertIn("nextShotPrompt: String? = nil", state_swift)
         self.assertIn("nextShotPrompt: nextShotPrompt", state_swift)
@@ -1723,6 +1735,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("case .putt:", state_swift)
         self.assertIn("case .penalty:", state_swift)
         self.assertIn("case .club:", state_swift)
+        self.assertIn("case .distance:", state_swift)
+        self.assertIn("nextDistanceM = Double(event.value)", state_swift)
 
         self.assertIn("applyQuickInputToCurrentState(event)", sync_swift)
         self.assertIn("private func applyQuickInputToCurrentState(_ event: WatchInputEvent)", sync_swift)
@@ -1749,11 +1763,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchCaddieGlanceView", hole_view)
         self.assertIn("struct WatchInputView: View", input_view)
         self.assertIn("Stepper", input_view)
+        self.assertIn('Stepper("D \\(distanceM)m"', input_view)
         self.assertIn("penaltyCount", input_view)
         self.assertIn("Picker", input_view)
         self.assertIn("selectedClub", input_view)
+        self.assertIn("contextClub: selectedClub", input_view)
+        self.assertIn("emit(kind: .distance", input_view)
         self.assertIn("struct WatchCaddieGlanceView: View", glance_view)
         self.assertIn("caddieConfidence", glance_view)
+        self.assertIn("Pin needed", glance_view)
+        self.assertIn("mappin.and.ellipse", glance_view)
 
 
 if __name__ == "__main__":

@@ -245,7 +245,7 @@ public final class OfflineStore {
                     state.penaltyCount = Int(penalties)
                 }
             case .club:
-                if let clubName = stringPayload("clubName", in: event.payload) {
+                if let clubName = stringPayload("clubName", in: event.payload), !clubName.isEmpty {
                     state.selectedClub = clubName
                 }
                 if let shotType = stringPayload("shotType", in: event.payload) {
