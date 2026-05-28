@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.media import UPLOAD_DIR, VALID_MEDIA_KINDS, resolve_media_content_path
+from ai_caddie.connectors.snapshot import validate_private_snapshot_acceptance
 
 from .history_stats import load_history_stats_response
 from .mobile import build_mobile_round_package_response
@@ -264,6 +265,28 @@ def build_readiness_response() -> dict[str, Any]:
         checks.append(_check("sync", "error", exc.__class__.__name__))
 
     try:
+        acceptance = validate_private_snapshot_acceptance()
+        checks.append(
+            _check(
+                "private_snapshot_acceptance",
+                "ready" if acceptance.get("hardGate") else "degraded",
+                "Latest Garmin CN snapshot passes the private-data hard gate."
+                if acceptance.get("hardGate")
+                else "Latest Garmin CN snapshot does not yet pass the private-data hard gate.",
+                {
+                    "schema": acceptance.get("schema"),
+                    "state": acceptance.get("state"),
+                    "snapshotId": acceptance.get("snapshotId"),
+                    "failureLabels": acceptance.get("failureLabels"),
+                    "checks": acceptance.get("checks"),
+                    "cli": "uv run python ops/accept_private_snapshot.py",
+                },
+            )
+        )
+    except Exception as exc:  # pragma: no cover - defensive health surface
+        checks.append(_check("private_snapshot_acceptance", "error", exc.__class__.__name__))
+
+    try:
         round_id = _first_round_id(stats) if stats is not None else "live-round-1"
         package = build_mobile_round_package_response(round_id)
         package_ready = (
@@ -367,6 +390,7 @@ def build_readiness_response() -> dict[str, Any]:
     required_scripts = [
         "ops/export_snapshot.py",
         "ops/import_snapshot.py",
+        "ops/accept_private_snapshot.py",
         "ops/backup_data.sh",
         "ops/run_local_fixture.sh",
         "ops/run_local_private.sh",

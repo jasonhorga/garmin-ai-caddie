@@ -4,6 +4,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import shutil
 from typing import Any
 
@@ -29,6 +30,20 @@ GEOMETRY_ASSET_DIRS = (
 GEOMETRY_HAZARD_DIR = Path("output") / "prodgeometry_hazards"
 GEOMETRY_MESH_DIR = Path("output") / "prodgeometry"
 SOURCE_CONNECTOR = "garmin_cn_web_session"
+ACCEPTANCE_SCHEMA = "ai-caddie-private-snapshot-acceptance-v1"
+ACCEPTANCE_CREDENTIAL_TERMS = (
+    "cookie",
+    "csrf",
+    "connect-csrf-token",
+    "access_token",
+    "refresh_token",
+    "authorization",
+    "password=",
+    "secret=",
+    ".garmin_tokens",
+    ".env",
+)
+ACCEPTANCE_PRIVATE_PATH_RE = re.compile(r"(?i)(/(?:home|users)/[^\"'\s,;}]+|[a-z]:\\users\\[^\"'\s,;}]+)")
 
 
 def _utc_now() -> str:
@@ -763,6 +778,272 @@ def load_latest_snapshot_history(*, root: Path = ROOT) -> HistoryData | None:
         if rounds:
             return HistoryData(raw_rounds=raw_rounds, rounds=rounds, shots=shots)
     return None
+
+
+def _acceptance_check(label: str, state: str, detail: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {"label": label, "state": state, "detail": detail, "evidence": evidence or {}}
+
+
+def _manifest_files(manifest: dict[str, Any], prefix: str) -> list[str]:
+    files = manifest.get("files") if isinstance(manifest.get("files"), list) else []
+    return sorted(str(file_name) for file_name in files if str(file_name).startswith(prefix))
+
+
+def _read_normalized_snapshot_payload(*, root: Path, snapshot_id: str) -> dict[str, Any] | None:
+    path = _snapshot_history_path(root, snapshot_id)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _raw_snapshot_missing_files(*, root: Path, snapshot_id: str, files: list[str]) -> list[str]:
+    raw_dir = root / SNAPSHOT_DIR / snapshot_id / "raw"
+    return [file_name for file_name in files if not (raw_dir / file_name).is_file()]
+
+
+def _scorecard_detail_counts(*, root: Path, scorecard_files: list[str]) -> tuple[int, int, list[str]]:
+    valid = 0
+    player_profile_ready = 0
+    invalid: list[str] = []
+    for file_name in scorecard_files:
+        try:
+            payload = _read_json(root / file_name)
+            detail = payload["scorecardDetails"][0]
+            scorecard = detail["scorecard"]
+            if not isinstance(scorecard, dict) or scorecard.get("id") is None:
+                raise ValueError("missing scorecard id")
+        except Exception:
+            invalid.append(file_name)
+            continue
+        valid += 1
+        if scorecard.get("playerProfileId"):
+            player_profile_ready += 1
+    return valid, player_profile_ready, invalid
+
+
+def _provenance_ready(row: dict[str, Any], *, snapshot_id: str, expected_prefix: str | None = None) -> bool:
+    provenance = row.get("provenance")
+    if not isinstance(provenance, dict):
+        return False
+    if provenance.get("sourceConnector") != SOURCE_CONNECTOR or provenance.get("snapshotId") != snapshot_id:
+        return False
+    source_refs = provenance.get("sourceRefs")
+    source_files = provenance.get("sourceFiles")
+    field_refs = provenance.get("fieldRefs")
+    if not isinstance(source_refs, list) or not source_refs:
+        return False
+    if not isinstance(source_files, list) or not source_files:
+        return False
+    if not isinstance(field_refs, dict) or not field_refs:
+        return False
+    if any(str(file_name).startswith("/") for file_name in source_files):
+        return False
+    if expected_prefix and not all(str(file_name).startswith(expected_prefix) for file_name in source_files):
+        return False
+    return True
+
+
+def _credential_issue_count(*payloads: object) -> int:
+    issues = 0
+    for payload in payloads:
+        if payload is None:
+            continue
+        text = json.dumps(payload, ensure_ascii=False, default=str)
+        lower = text.lower()
+        if any(term in lower for term in ACCEPTANCE_CREDENTIAL_TERMS):
+            issues += 1
+        if ACCEPTANCE_PRIVATE_PATH_RE.search(text):
+            issues += 1
+    return issues
+
+
+def validate_private_snapshot_acceptance(*, root: Path = ROOT) -> dict[str, Any]:
+    """Validate that the latest Garmin CN snapshot is complete enough for private-data acceptance."""
+
+    checks: list[dict[str, Any]] = []
+    manifest = read_latest_snapshot_manifest(root=root)
+    if not isinstance(manifest, dict):
+        checks.append(_acceptance_check("snapshot_manifest", "failed", "No raw snapshot manifest is available."))
+        return {
+            "schema": ACCEPTANCE_SCHEMA,
+            "state": "blocked",
+            "hardGate": False,
+            "snapshotId": None,
+            "checks": checks,
+            "failureLabels": ["snapshot_manifest"],
+        }
+
+    snapshot_id = str(manifest.get("snapshotId") or "")
+    scorecard_files = _manifest_files(manifest, "data/scorecards/")
+    shot_files = _manifest_files(manifest, "data/shots/")
+    geometry_files = _manifest_files(manifest, "output/prodgeometry")
+    normalized = _read_normalized_snapshot_payload(root=root, snapshot_id=snapshot_id) if snapshot_id else None
+    connector_status = read_connector_status(root=root)
+
+    manifest_scorecards = _snapshot_int_from_manifest(manifest, "scorecardCount")
+    manifest_shots = _snapshot_int_from_manifest(manifest, "shotFileCount")
+    checks.append(
+        _acceptance_check(
+            "snapshot_manifest",
+            "ready" if snapshot_id and manifest_scorecards > 0 else "failed",
+            "Raw snapshot manifest references synced scorecards." if snapshot_id and manifest_scorecards > 0 else "Snapshot manifest has no scorecards.",
+            {
+                "snapshotId": snapshot_id or None,
+                "scorecardCount": manifest_scorecards,
+                "shotFileCount": manifest_shots,
+            },
+        )
+    )
+
+    valid_scorecards, player_profile_ready, invalid_scorecards = _scorecard_detail_counts(root=root, scorecard_files=scorecard_files)
+    checks.append(
+        _acceptance_check(
+            "scorecard_details",
+            "ready" if valid_scorecards == manifest_scorecards and valid_scorecards > 0 else "failed",
+            "Every manifest scorecard has Garmin detail payload and scorecard id."
+            if valid_scorecards == manifest_scorecards and valid_scorecards > 0
+            else "One or more manifest scorecards are missing usable Garmin detail payload.",
+            {
+                "scorecardFiles": len(scorecard_files),
+                "validScorecards": valid_scorecards,
+                "invalidScorecardCount": len(invalid_scorecards),
+            },
+        )
+    )
+
+    all_manifest_data_files = [*scorecard_files, *shot_files, *geometry_files]
+    missing_raw_copies = _raw_snapshot_missing_files(root=root, snapshot_id=snapshot_id, files=all_manifest_data_files) if snapshot_id else []
+    checks.append(
+        _acceptance_check(
+            "durable_snapshot",
+            "ready" if snapshot_id and not missing_raw_copies and all_manifest_data_files else "failed",
+            "Raw scorecards, shots, and geometry files are copied into the durable snapshot."
+            if snapshot_id and not missing_raw_copies and all_manifest_data_files
+            else "The durable snapshot is missing raw files referenced by the manifest.",
+            {
+                "manifestFileCount": len(all_manifest_data_files),
+                "missingRawCopyCount": len(missing_raw_copies),
+            },
+        )
+    )
+
+    raw_rounds = normalized.get("rawRounds") if isinstance(normalized, dict) and isinstance(normalized.get("rawRounds"), list) else []
+    rounds = normalized.get("rounds") if isinstance(normalized, dict) and isinstance(normalized.get("rounds"), list) else []
+    normalized_shots = normalized.get("shots") if isinstance(normalized, dict) and isinstance(normalized.get("shots"), list) else []
+    normalized_ready = (
+        isinstance(normalized, dict)
+        and normalized.get("schema") == "ai-caddie-normalized-history-v1"
+        and normalized.get("snapshotId") == snapshot_id
+        and len(raw_rounds) == manifest_scorecards
+        and len(rounds) > 0
+    )
+    checks.append(
+        _acceptance_check(
+            "normalized_history",
+            "ready" if normalized_ready else "failed",
+            "Normalized history is present and tied to the latest snapshot."
+            if normalized_ready
+            else "Normalized history is missing or does not match the latest snapshot.",
+            {
+                "rawRoundCount": len(raw_rounds),
+                "roundCount": len(rounds),
+                "shotCount": len(normalized_shots),
+            },
+        )
+    )
+
+    ready_shot_files = sum(1 for file_name in shot_files if _shot_file_ready(root / file_name))
+    shot_rounds_ready = sum(1 for row in raw_rounds if isinstance(row, dict) and row.get("shotStatus") == "ready")
+    shots_ready = manifest_scorecards > 0 and ready_shot_files >= manifest_scorecards and shot_rounds_ready >= manifest_scorecards and len(normalized_shots) > 0
+    checks.append(
+        _acceptance_check(
+            "shot_files",
+            "ready" if shots_ready else "failed",
+            "Each scorecard has ready shot data and normalized shot rows."
+            if shots_ready
+            else "One or more scorecards are missing ready Garmin shot data.",
+            {
+                "shotFileCount": len(shot_files),
+                "readyShotFiles": ready_shot_files,
+                "scorecardsWithReadyShots": shot_rounds_ready,
+                "normalizedShotCount": len(normalized_shots),
+            },
+        )
+    )
+
+    provenance_rows = [row for row in [*raw_rounds, *rounds, *normalized_shots] if isinstance(row, dict)]
+    provenance_ready_count = 0
+    for row in provenance_rows:
+        expected_prefix = "data/shots/" if row in normalized_shots else "data/scorecards/"
+        if _provenance_ready(row, snapshot_id=snapshot_id, expected_prefix=expected_prefix):
+            provenance_ready_count += 1
+    provenance_ready = bool(provenance_rows) and provenance_ready_count == len(provenance_rows)
+    checks.append(
+        _acceptance_check(
+            "provenance",
+            "ready" if provenance_ready else "failed",
+            "Rounds and shots expose connector, snapshot, source refs, source files, and field refs."
+            if provenance_ready
+            else "One or more normalized rounds or shots are missing complete provenance.",
+            {
+                "rowCount": len(provenance_rows),
+                "readyRows": provenance_ready_count,
+            },
+        )
+    )
+
+    dependencies = manifest.get("geometryDependencies") if isinstance(manifest.get("geometryDependencies"), list) else []
+    dependency_count = len(dependencies) or _snapshot_int_from_manifest(manifest, "geometryDependencyCount")
+    profile_ready_count = sum(1 for row in dependencies if isinstance(row, dict) and row.get("profileIdAvailable") is True)
+    geometry_ready = dependency_count > 0 and dependencies and profile_ready_count == len(dependencies)
+    checks.append(
+        _acceptance_check(
+            "geometry_dependencies",
+            "ready" if geometry_ready else "failed",
+            "Geometry dependencies are discovered with player profile id availability for prodgeometry."
+            if geometry_ready
+            else "Geometry dependencies are missing or lack player profile id availability.",
+            {
+                "dependencyCount": dependency_count,
+                "readyCount": _snapshot_int_from_manifest(manifest, "geometryReadyCount"),
+                "missingCount": _snapshot_int_from_manifest(manifest, "geometryMissingCount"),
+                "profileReadyCount": profile_ready_count,
+            },
+        )
+    )
+
+    issue_count = _credential_issue_count(manifest, normalized, connector_status)
+    checks.append(
+        _acceptance_check(
+            "credential_scan",
+            "ready" if issue_count == 0 else "failed",
+            "Snapshot metadata is free of credential material and private filesystem paths."
+            if issue_count == 0
+            else "Credential material or private filesystem paths were found in snapshot metadata.",
+            {"issueCount": issue_count},
+        )
+    )
+
+    failure_labels = [check["label"] for check in checks if check["state"] != "ready"]
+    return {
+        "schema": ACCEPTANCE_SCHEMA,
+        "state": "ready" if not failure_labels else "blocked",
+        "hardGate": not failure_labels,
+        "snapshotId": snapshot_id or None,
+        "checks": checks,
+        "failureLabels": failure_labels,
+    }
+
+
+def _snapshot_int_from_manifest(manifest: dict[str, Any], key: str) -> int:
+    try:
+        return int(manifest.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def write_connector_status(

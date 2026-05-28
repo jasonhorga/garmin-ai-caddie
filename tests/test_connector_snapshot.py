@@ -10,6 +10,7 @@ from ai_caddie.connectors.snapshot import (
     build_snapshot_manifest,
     load_latest_snapshot_history,
     read_connector_status,
+    validate_private_snapshot_acceptance,
     write_durable_snapshot,
     write_connector_status,
     write_snapshot_manifest,
@@ -34,6 +35,7 @@ def _write_scorecard(
     lon: int | None = None,
     city: str | None = None,
     country: str | None = None,
+    player_profile_id: str | None = None,
 ) -> None:
     (root / "data" / "scorecards").mkdir(parents=True, exist_ok=True)
     holes = [
@@ -49,21 +51,24 @@ def _write_scorecard(
         snapshot["city"] = city
     if country is not None:
         snapshot["country"] = country
+    scorecard = {
+        "id": scorecard_id,
+        "formattedStartTime": date,
+        "courseGlobalId": course_global_id,
+        "frontNineGlobalCourseId": front_global_id or course_global_id,
+        "backNineGlobalCourseId": back_global_id,
+        "holesCompleted": len(hole_numbers),
+        "strokes": strokes,
+        "holes": holes,
+    }
+    if player_profile_id is not None:
+        scorecard["playerProfileId"] = player_profile_id
     (root / "data" / "scorecards" / f"{scorecard_id}.json").write_text(
         json.dumps(
             {
                 "scorecardDetails": [
                     {
-                        "scorecard": {
-                            "id": scorecard_id,
-                            "formattedStartTime": date,
-                            "courseGlobalId": course_global_id,
-                            "frontNineGlobalCourseId": front_global_id or course_global_id,
-                            "backNineGlobalCourseId": back_global_id,
-                            "holesCompleted": len(hole_numbers),
-                            "strokes": strokes,
-                            "holes": holes,
-                        },
+                        "scorecard": scorecard,
                         "scorecardStats": {"round": {"putts": len(hole_numbers) * 2}},
                     }
                 ],
@@ -633,6 +638,144 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertNotIn("cookie", text)
         self.assertNotIn("csrf", text)
         self.assertNotIn("token", text)
+
+    def test_private_snapshot_acceptance_hard_gate_passes_complete_secret_free_snapshot(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                701,
+                date="2026-05-25T08:00:00",
+                course="Acceptance Links",
+                hole_numbers=[1],
+                hole_pars="4",
+                strokes=4,
+                course_global_id=31795,
+                player_profile_id="player-1",
+            )
+            (root / "data" / "shots").mkdir(parents=True)
+            (root / "data" / "shots" / "701.json").write_text(
+                json.dumps(
+                    {
+                        "clubDetails": [{"clubId": 10, "name": "8I"}],
+                        "holeShots": [
+                            {
+                                "holeNumber": 1,
+                                "shots": [
+                                    {
+                                        "id": "accept-shot-1",
+                                        "shotOrder": 1,
+                                        "clubId": 10,
+                                        "meters": 142,
+                                        "startLoc": {"lat": deg_to_semicircle(31.1), "lon": deg_to_semicircle(121.1)},
+                                        "endLoc": {"lat": deg_to_semicircle(31.2), "lon": deg_to_semicircle(121.2), "lie": "green"},
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "output" / "prodgeometry_hazards").mkdir(parents=True)
+            (root / "output" / "prodgeometry").mkdir(parents=True)
+            (root / "output" / "prodgeometry_hazards" / "gid31795_h01_hazards.json").write_text(
+                '{"hazards":[]}',
+                encoding="utf-8",
+            )
+            (root / "output" / "prodgeometry" / "gid31795_h01_meshes.json").write_text(
+                '{"meshes":[]}',
+                encoding="utf-8",
+            )
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_accept")
+            write_snapshot_manifest(root=root, manifest=manifest)
+            write_durable_snapshot(root=root, manifest=manifest)
+            write_connector_status(root=root, state="ready", detail="ready", snapshot_id="snap_accept")
+
+            acceptance = validate_private_snapshot_acceptance(root=root)
+
+        self.assertEqual(acceptance["state"], "ready")
+        self.assertTrue(acceptance["hardGate"])
+        self.assertEqual(acceptance["failureLabels"], [])
+        checks = {row["label"]: row for row in acceptance["checks"]}
+        self.assertEqual(checks["scorecard_details"]["state"], "ready")
+        self.assertEqual(checks["shot_files"]["state"], "ready")
+        self.assertEqual(checks["provenance"]["state"], "ready")
+        self.assertEqual(checks["geometry_dependencies"]["state"], "ready")
+        self.assertEqual(checks["credential_scan"]["evidence"]["issueCount"], 0)
+
+    def test_private_snapshot_acceptance_blocks_missing_shots(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                702,
+                date="2026-05-25T08:00:00",
+                course="Acceptance Links",
+                hole_numbers=[1],
+                hole_pars="4",
+                strokes=4,
+                course_global_id=31795,
+                player_profile_id="player-1",
+            )
+            (root / "output" / "prodgeometry_hazards").mkdir(parents=True)
+            (root / "output" / "prodgeometry").mkdir(parents=True)
+            (root / "output" / "prodgeometry_hazards" / "gid31795_h01_hazards.json").write_text("{}", encoding="utf-8")
+            (root / "output" / "prodgeometry" / "gid31795_h01_meshes.json").write_text("{}", encoding="utf-8")
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_missing_shots")
+            write_snapshot_manifest(root=root, manifest=manifest)
+            write_durable_snapshot(root=root, manifest=manifest)
+
+            acceptance = validate_private_snapshot_acceptance(root=root)
+
+        self.assertEqual(acceptance["state"], "blocked")
+        self.assertFalse(acceptance["hardGate"])
+        self.assertIn("shot_files", acceptance["failureLabels"])
+        checks = {row["label"]: row for row in acceptance["checks"]}
+        self.assertEqual(checks["shot_files"]["state"], "failed")
+        self.assertEqual(checks["credential_scan"]["state"], "ready")
+
+    def test_private_snapshot_acceptance_blocks_credential_or_private_path_leaks(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_scorecard(
+                root,
+                703,
+                date="2026-05-25T08:00:00",
+                course="Acceptance Links",
+                hole_numbers=[1],
+                hole_pars="4",
+                strokes=4,
+                course_global_id=31795,
+                player_profile_id="player-1",
+            )
+            (root / "data" / "shots").mkdir(parents=True)
+            (root / "data" / "shots" / "703.json").write_text(
+                json.dumps(
+                    {
+                        "clubDetails": [{"clubId": 10, "name": "8I"}],
+                        "holeShots": [{"holeNumber": 1, "shots": [{"id": "shot", "shotOrder": 1, "clubId": 10, "meters": 142}]}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "output" / "prodgeometry_hazards").mkdir(parents=True)
+            (root / "output" / "prodgeometry").mkdir(parents=True)
+            (root / "output" / "prodgeometry_hazards" / "gid31795_h01_hazards.json").write_text("{}", encoding="utf-8")
+            (root / "output" / "prodgeometry" / "gid31795_h01_meshes.json").write_text("{}", encoding="utf-8")
+            manifest = build_snapshot_manifest(root=root, snapshot_id="snap_leak")
+            manifest_path = write_snapshot_manifest(root=root, manifest=manifest)
+            write_durable_snapshot(root=root, manifest=manifest)
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            payload["debugPath"] = "/Users/private/.garmin_tokens/web_cookie.txt"
+            manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            acceptance = validate_private_snapshot_acceptance(root=root)
+
+        self.assertEqual(acceptance["state"], "blocked")
+        self.assertIn("credential_scan", acceptance["failureLabels"])
+        checks = {row["label"]: row for row in acceptance["checks"]}
+        self.assertGreater(checks["credential_scan"]["evidence"]["issueCount"], 0)
 
 
 if __name__ == "__main__":
