@@ -323,11 +323,25 @@ Completion standard:
 
 ## Current Execution Status
 
-- Plan 1 Foundation And Fixtures is implemented through commit `1588a7d`.
-- Plan 2 Connector And Snapshot Layer is implemented through commit `493f1da`.
-- Plan 3 History Statistics Core is implemented through commit `edba619`.
-- Plan 4 Web History Product is the next execution target.
+- Plans 1-8 are implemented in the v2 backend and Web app: fixtures,
+  connector/snapshot, history statistics, Web review, provider abstraction,
+  fact-bound reports, geometry evidence, caddie decisions, and manual
+  corrections are covered by backend and Vitest suites.
+- Plans 9-11 are implemented as source/contracts and API-backed flows: iOS live
+  package/event models, offline store/sync client, Watch bridge/state/input,
+  media upload, and evidence-bound vision findings are present and covered by
+  Python contract/static tests plus committed Swift source tests.
+- Plan 12 private trial hardening is implemented with admin protection, Render
+  and Vercel manifests, import/export, backup manifests, run scripts, CI, and a
+  private-trial smoke script.
+- Native iOS/Watch execution still requires macOS/Xcode. The Linux workspace
+  verifies contracts/static source; the CI workflow contains the macOS native
+  build/test job and writes `mobile/ios/native_build_evidence.json` when run.
 
-Plan 4 is next because fixture-backed data, connector status, and the backend
-statistics contract now exist. The UI can be tested against non-empty fixture
-data while real Garmin sync remains independent of the history review surface.
+Latest verification in the current execution run:
+
+- Backend full suite: `uv run python -m unittest discover -s tests -v`
+  passed 534 tests with 6 expected local-fixture skips.
+- Frontend full suite: `npm test -- --run`, `npm run lint`, `npm run build`,
+  and Playwright visual smoke passed under Node 24.
+- Private trial smoke passed against fixture/private API on port 9010.

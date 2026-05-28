@@ -78,11 +78,11 @@ uv run python fetch.py --shots     # 加上每杆 GPS 点位（慢，可选）
 
 JWT_WEB cookie 有效期约 ~9 小时。过期后 fetch 会 401/403。重做 Step 1 即可，CSRF token 通常较长期有效但顺手一起更新最稳。
 
-## AI Caddie MVP
+## AI Caddie v2 / private trial
 
-### AI Caddie v2 / private trial
-
-当前重构后的 v2 API 在 `server_v2/`，Web 在 `web_v2/`，移动端 contract/source 在 `mobile/`。
+当前重构后的 v2 产品是主线：API 在 `server_v2/`，Web 在 `web_v2/`，iOS/Apple Watch
+contract/source 在 `mobile/`。旧的 `ai_caddie_web.py` 和 dashboard 脚本仍可作为历史
+验证工具，但不要再把它们当成主产品入口。
 
 常用运维入口：
 
@@ -97,23 +97,50 @@ ops/backup_data.sh
 - 私有部署：`docs/deployment/private-trial.md`
 - 密钥处理：`docs/security/secrets.md`
 - 运维 runbook：`docs/operations/runbook.md`
+- Master spec：`docs/superpowers/specs/2026-05-25-ai-caddie-master-product-spec.md`
+- 当前计划树：`docs/superpowers/plans/2026-05-25-ai-caddie-master-plan-tree.md`
 
-本地 Web 入口：
+本地 v2 开发入口：
 
 ```bash
-uv run python ai_caddie_web.py --port 8765
-open http://127.0.0.1:8765
+# terminal 1
+AI_CADDIE_DATA_MODE=fixture uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000
+
+# terminal 2
+cd web_v2
+npx -y -p node@24 -c 'npm run dev -- --host 127.0.0.1'
 ```
 
-远程服务器开发迁移见 `REMOTE_DEV.md`。
+打开：
 
-当前 Web MVP 提供：
+- API: `http://127.0.0.1:9000`
+- Web: `http://127.0.0.1:5173`
 
-- Garmin round 列表、同步按钮、洞级分析
-- prodgeometry hazard/mesh 与 shot 的本地坐标 join
-- 规则化路线候选、风险提示、数据置信度
-- SVG overlay
-- 手动记杆 round：选择已有 geometry、录入/GPS 填 start/end、生成同格式分析
+远程服务器开发可用 SSH tunnel：
+
+```bash
+ssh -L 9000:127.0.0.1:9000 -L 5173:127.0.0.1:5173 user@server
+```
+
+当前 v2 产品提供：
+
+- Garmin CN Web Session 同步、session 导入、snapshot/status/readiness。
+- 极致历史回顾：overview、timeline、rounds、courses、holes、clubs、issues、reports、data quality。
+- fact-bound AI review：round/course/hole/club/trend report 都带 facts、inferences、missing data、source refs。
+- course geometry evidence：prodgeometry coverage、surface classification、route/hazard evidence、vector overlay。
+- caddie decision：tee/approach/recovery、safe/stock/attack、多杆 sequence、weather/media/manual note/context binding、post-shot audit。
+- manual corrections：append-only annotations/corrections，原始 Garmin facts 不被覆盖。
+- mobile/watch path：离线 live package、iOS/Watch contract/source、event replay/ack、reconciliation、media/vision context。
+- private trial hardening：admin token、CORS、backup/import/export、secret redaction、Render/Vercel/CI/smoke scripts。
+
+核心验证命令：
+
+```bash
+uv run python -m unittest discover -s tests -v
+npx --yes -p node@24 -c 'cd web_v2 && npm test -- --run'
+npx --yes -p node@24 -c 'cd web_v2 && npm run lint && npm run build'
+npx --yes -p node@24 -c 'cd web_v2 && npm run test:e2e'
+```
 
 命令行单洞分析：
 
