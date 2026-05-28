@@ -11,6 +11,7 @@ public struct GarminSessionView: View {
     @State private var statusText = "Session material not imported"
     @State private var isImporting = false
     @State private var cachedSessionAvailable = false
+    @State private var showingWebLogin = false
 
     public init(
         apiBaseURL: URL? = nil,
@@ -39,6 +40,12 @@ public struct GarminSessionView: View {
                     Label("Import session", systemImage: "key")
                 }
                 .disabled(isImporting)
+                Button {
+                    showingWebLogin = true
+                } label: {
+                    Label("Open Garmin login", systemImage: "safari")
+                }
+                .disabled(isImporting)
                 if cachedSessionAvailable {
                     Button {
                         Task {
@@ -62,6 +69,23 @@ public struct GarminSessionView: View {
         .navigationTitle("Garmin Session")
         .task {
             cachedSessionAvailable = hasStoredSession()
+        }
+        .sheet(isPresented: $showingWebLogin) {
+            NavigationStack {
+                GarminWebSessionCaptureView { captured in
+                    Task {
+                        await importCapturedSession(captured)
+                    }
+                }
+                .navigationTitle("Garmin CN")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") {
+                            showingWebLogin = false
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -138,6 +162,42 @@ public struct GarminSessionView: View {
             cachedSessionAvailable = hasStoredSession()
         } catch {
             statusText = "Stored session import failed"
+        }
+    }
+
+    @MainActor
+    private func importCapturedSession(_ captured: CapturedGarminWebSession) async {
+        guard let apiBaseURL else {
+            statusText = "No sync server configured"
+            return
+        }
+
+        isImporting = true
+        defer {
+            isImporting = false
+        }
+
+        let client = GarminSessionClient(baseURL: apiBaseURL, adminToken: adminToken)
+        do {
+            let response = try await client.importSession(
+                GarminSessionImportRequest(
+                    webSessionHeader: captured.webSessionHeader,
+                    antiForgeryValue: captured.antiForgeryValue,
+                    source: "ios_web_login"
+                )
+            )
+            try sessionStore?.saveSession(
+                GarminSessionMaterial(
+                    webSessionHeader: captured.webSessionHeader,
+                    antiForgeryValue: captured.antiForgeryValue,
+                    storedAt: captured.capturedAt
+                )
+            )
+            statusText = response.detail
+            cachedSessionAvailable = hasStoredSession()
+            showingWebLogin = false
+        } catch {
+            statusText = "Web login session import failed"
         }
     }
 
