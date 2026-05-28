@@ -288,6 +288,73 @@ def _native_mobile_check() -> dict[str, Any]:
     )
 
 
+def _offline_seed_quality(package: Any) -> dict[str, Any]:
+    seeds = [seed for seed in package.caddieContextSeeds if isinstance(seed, dict)]
+    option_count = 0
+    seeds_with_options = 0
+    selected_count = 0
+    selected_confidence_counts = {"high": 0, "medium": 0, "low": 0, "missing": 0}
+    selected_coverages: list[float] = []
+    missing_labels: set[str] = set()
+    source_refs: list[str] = []
+
+    for seed in seeds:
+        source_ref = str(seed.get("sourceRef") or "").strip()
+        if source_ref:
+            source_refs.append(source_ref)
+        options = [row for row in seed.get("offlineOptions") or [] if isinstance(row, dict)]
+        option_count += len(options)
+        if options:
+            seeds_with_options += 1
+        selected_id = str(seed.get("selectedOfflineOptionId") or "").strip()
+        selected = next((row for row in options if str(row.get("id") or "") == selected_id), None)
+        if selected is None and options:
+            selected = options[0]
+        if selected is None:
+            selected_confidence_counts["missing"] += 1
+            missing_labels.add("selected_offline_option")
+            continue
+        selected_count += 1
+        confidence = str(selected.get("confidence") or "").strip().lower()
+        if confidence not in {"high", "medium", "low"}:
+            confidence = "missing"
+        selected_confidence_counts[confidence] += 1
+        coverage = selected.get("coverage") if isinstance(selected.get("coverage"), dict) else {}
+        try:
+            selected_coverages.append(round(float(coverage.get("pct") or 0), 1))
+        except (TypeError, ValueError):
+            selected_coverages.append(0.0)
+        for row in selected.get("missingData") or []:
+            if isinstance(row, dict) and str(row.get("label") or "").strip():
+                missing_labels.add(str(row["label"]))
+
+    seed_count = len(seeds)
+    min_selected_coverage = min(selected_coverages) if selected_coverages else 0.0
+    avg_selected_coverage = round(sum(selected_coverages) / len(selected_coverages), 1) if selected_coverages else 0.0
+    if not seed_count:
+        state = "missing"
+    elif selected_count < seed_count or selected_confidence_counts["missing"]:
+        state = "missing"
+    elif selected_confidence_counts["low"] or min_selected_coverage < 50.0:
+        state = "degraded"
+    else:
+        state = "ready"
+
+    return {
+        "schema": "ai-caddie-offline-seed-quality-v1",
+        "state": state,
+        "seedCount": seed_count,
+        "seedWithOptions": seeds_with_options,
+        "selectedOptionCount": selected_count,
+        "optionCount": option_count,
+        "selectedConfidenceCounts": selected_confidence_counts,
+        "minSelectedCoveragePct": min_selected_coverage,
+        "avgSelectedCoveragePct": avg_selected_coverage,
+        "missingDataLabels": sorted(missing_labels),
+        "sourceRefs": source_refs[:12],
+    }
+
+
 def build_readiness_response() -> dict[str, Any]:
     checks: list[dict[str, Any]] = [
         _check("service", "ready", "API process is responding."),
@@ -353,6 +420,7 @@ def build_readiness_response() -> dict[str, Any]:
     try:
         round_id = _first_round_id(stats) if stats is not None else "live-round-1"
         package = build_mobile_round_package_response(round_id)
+        seed_quality = _offline_seed_quality(package)
         package_ready = (
             package.schema_ == "ai-caddie-live-round-package-v1"
             and package.offlinePackageStatus.get("state") == "ready"
@@ -375,6 +443,7 @@ def build_readiness_response() -> dict[str, Any]:
                     "sourceCoverage": package.sourceCoverage,
                     "readinessChecks": package.readinessChecks,
                     "caddieSeedCount": len(package.caddieContextSeeds),
+                    "offlineSeedQuality": seed_quality,
                     "cachedCaddieRules": package.cachedCaddieRules,
                     "missingDataCount": len(package.missingData),
                     "missingDataLabels": sorted(
