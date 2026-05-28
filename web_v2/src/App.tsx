@@ -138,6 +138,7 @@ export default function App() {
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
   const [geometryEnsureState, setGeometryEnsureState] = useState<GeometryEnsureState>('idle')
   const activeHoleGeometryTarget = useRef<HoleGeometryTarget | null>(null)
+  const adminTokenRefreshTimer = useRef<number | null>(null)
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
   const [sessionSaveState, setSessionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -165,6 +166,10 @@ export default function App() {
 
     return () => {
       cancelled = true
+      if (adminTokenRefreshTimer.current !== null) {
+        window.clearTimeout(adminTokenRefreshTimer.current)
+        adminTokenRefreshTimer.current = null
+      }
     }
   }, [])
 
@@ -274,6 +279,17 @@ export default function App() {
 
   function handleAdminTokenChange(value: string) {
     setAdminToken(value)
+    if (adminTokenRefreshTimer.current !== null) {
+      window.clearTimeout(adminTokenRefreshTimer.current)
+      adminTokenRefreshTimer.current = null
+    }
+    const nextToken = value.trim()
+    if (nextToken && activePage === 'sync-quality' && mobileCourseOptionsState.status === 'error') {
+      adminTokenRefreshTimer.current = window.setTimeout(() => {
+        void loadMobileCourseOptionsState(nextToken)
+        adminTokenRefreshTimer.current = null
+      }, 250)
+    }
   }
 
   function navigate(page: ProductPage) {
@@ -555,7 +571,7 @@ export default function App() {
               sessionSaveState={sessionSaveState}
               sessionSaveError={sessionSaveError}
               adminTokenValue={adminToken}
-              onAdminTokenChange={setAdminToken}
+              onAdminTokenChange={handleAdminTokenChange}
             />
           ) : null}
           <MobilePackagePrepPanel
@@ -565,7 +581,7 @@ export default function App() {
             onPrepareCourse={(globalId, params) => void handlePrepareMobileCoursePackage(globalId, params)}
             showAdminTokenInput={!syncStatus}
             adminTokenValue={adminToken}
-            onAdminTokenChange={setAdminToken}
+            onAdminTokenChange={handleAdminTokenChange}
           />
           <MobileReconciliationPanel
             state={mobileReconciliationState}

@@ -338,6 +338,32 @@ function mobilePackagePayload() {
   }
 }
 
+function mobileCourseOptionsPayload() {
+  return {
+    schema: 'ai-caddie-mobile-course-options-v1',
+    dataMode: 'fixture',
+    total: 1,
+    courses: [
+      {
+        globalId: 31795,
+        courseKey: 'black_knight',
+        name: 'Black Knight B/C',
+        roundCount: 2,
+        latestRoundId: '900001',
+        latestRoundDate: '2026-05-18',
+        templateRoundId: '900001',
+        suggestedLiveRoundId: 'live-31795',
+        holes: 18,
+        teeBox: 'blue',
+        geometryCoverage: 'missing',
+        sourceRefs: ['900001', '900002'],
+      },
+    ],
+    emptyState: null,
+    generatedAt: '2026-05-25T08:00:00Z',
+  }
+}
+
 function annotationsPayload() {
   return {
     schema: 'ai-caddie-annotations-v1',
@@ -1482,6 +1508,41 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
+  })
+
+  it('reloads protected mobile course options after the admin token is entered', async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/v2/mobile/courses/options' && !init) {
+        return { ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }
+      }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          if (path === '/api/v2/readiness') return readinessPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Sync & Data Quality' }))
+    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
+
+    expect(await screen.findByText('Course options unavailable: GET /api/v2/mobile/courses/options failed: 401 Unauthorized')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/options', {
+        headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      }),
+    )
+    expect(await screen.findByLabelText('Recent course')).toBeInTheDocument()
   })
 
   it('refreshes loaded history stats after Garmin sync completes', async () => {
