@@ -424,6 +424,7 @@ class SyncRunResponse(BaseModel):
     reauthRequired: bool
     errorCode: str | None
     snapshot: SyncSnapshotPayload | None
+    safeMeta: dict[str, Any] = Field(default_factory=dict)
 
 
 class GarminSessionImportRequest(BaseModel):

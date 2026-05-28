@@ -77,6 +77,7 @@ class ServerV2SyncRunTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-sync-run-v2")
         self.assertEqual(payload["state"], "ready")
         self.assertEqual(payload["snapshot"]["snapshotId"], "snap_api")
+        self.assertEqual(payload["safeMeta"], {"withShots": True})
         connector.sync.assert_called_once_with(with_shots=True, force_refresh_auth=False, ensure_geometry=False)
 
     def test_sync_garmin_endpoint_can_request_geometry_ensure(self) -> None:

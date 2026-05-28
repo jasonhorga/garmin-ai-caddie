@@ -630,6 +630,10 @@ export interface SyncSnapshotPayload {
   shotFileCount: number
   summaryPresent: boolean
   files: string[]
+  geometryDependencyCount?: number
+  geometryReadyCount?: number
+  geometryMissingCount?: number
+  geometryDependencies?: Array<Record<string, unknown>>
 }
 
 export interface SyncRunResponse {
@@ -640,6 +644,7 @@ export interface SyncRunResponse {
   reauthRequired: boolean
   errorCode: string | null
   snapshot: SyncSnapshotPayload | null
+  safeMeta?: Record<string, unknown>
 }
 
 export interface GarminSessionImportRequest {

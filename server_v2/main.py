@@ -738,6 +738,7 @@ def sync_garmin(
         reauthRequired=result.state == "reauth_required",
         errorCode=result.error_code,
         snapshot=snapshot_to_payload(result.snapshot) if result.snapshot else None,
+        safeMeta=result.safe_meta,
     )
 
 
