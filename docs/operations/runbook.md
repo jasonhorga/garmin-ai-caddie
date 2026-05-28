@@ -40,6 +40,21 @@ uv run python fetch.py --refresh-auth
 
 If auth is expired, API sync status should report `reauth_required`.
 
+## Probe Official Garmin OAuth
+
+OAuth is a feasibility track only. CN Web Session remains the primary connector until OAuth proves scorecards, golf shots, and course metadata.
+
+```bash
+export AI_CADDIE_GARMIN_OAUTH_CLIENT_ID=<client-id>
+export AI_CADDIE_GARMIN_OAUTH_CLIENT_SECRET=<client-credential>
+export AI_CADDIE_GARMIN_OAUTH_REDIRECT_URI=<registered-redirect-uri>
+uv run python ops/probe_garmin_oauth.py status
+uv run python ops/probe_garmin_oauth.py authorize
+uv run python ops/probe_garmin_oauth.py exchange --code <returned-code> --code-verifier <printed-verifier>
+```
+
+The exchange output is intentionally secret-free: it reports whether bearer material was received, a one-way user-id fingerprint, granted permissions, and whether any golf replacement capability is proven.
+
 ## Configure Gemini CLI OAuth
 
 For local/dev AI provider testing, set:

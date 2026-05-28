@@ -36,7 +36,7 @@ class ServerV2SettingsTests(unittest.TestCase):
         self.assertEqual(data_sources["garmin_cn_web_session"]["credentialPolicy"], "session_material_only")
         self.assertEqual(data_sources["garmin_oauth"]["track"], "feasibility")
         self.assertEqual(data_sources["garmin_oauth"]["state"], "not_syncable")
-        self.assertEqual(data_sources["garmin_oauth"]["probe"]["schema"], "ai-caddie-garmin-oauth-probe-v1")
+        self.assertEqual(data_sources["garmin_oauth"]["probe"]["schema"], "ai-caddie-garmin-oauth-probe-v2")
         self.assertEqual(data_sources["garmin_oauth"]["probe"]["state"], "not_configured")
         self.assertIn("client_id", data_sources["garmin_oauth"]["probe"]["missing"])
         self.assertIn("Can official OAuth access golf scorecards?", data_sources["garmin_oauth"]["feasibilityQuestions"])

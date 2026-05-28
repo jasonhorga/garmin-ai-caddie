@@ -148,7 +148,7 @@ def build_sync_status_response(
         reauthRequired=state == "reauth_required",
         nextAction=_next_action(state),
     )
-    oauth_connector = ConnectorStatus(**build_oauth_feasibility_status())
+    oauth_connector = ConnectorStatus(**build_oauth_feasibility_status(include_probe=False))
     last_run = None
     if persisted:
         last_run = SyncLastRunStatus(

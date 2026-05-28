@@ -24,9 +24,10 @@ This project is designed for private golf data first. Secrets must stay local or
 ## Garmin OAuth Feasibility Probe
 
 - Official Garmin OAuth remains a feasibility track until golf scorecards, shots, and course metadata are proven for a consented account.
-- Probe configuration uses `AI_CADDIE_GARMIN_OAUTH_CLIENT_ID`, `AI_CADDIE_GARMIN_OAUTH_CLIENT_SECRET`, `AI_CADDIE_GARMIN_OAUTH_REDIRECT_URI`, `AI_CADDIE_GARMIN_OAUTH_AUTH_URL`, `AI_CADDIE_GARMIN_OAUTH_TOKEN_URL`, and `AI_CADDIE_GARMIN_OAUTH_SCOPES`.
-- `AI_CADDIE_GARMIN_OAUTH_LIVE_PROBE=1` only marks that a manual live probe is allowed; automated tests must not call Garmin OAuth.
-- Sync status may expose boolean readiness and a redacted consent-request preview, but it must not echo the client id, client secret, tokens, redirect URI, or raw scopes.
+- Probe configuration uses `AI_CADDIE_GARMIN_OAUTH_CLIENT_ID`, `AI_CADDIE_GARMIN_OAUTH_CLIENT_SECRET`, and `AI_CADDIE_GARMIN_OAUTH_REDIRECT_URI`. `AI_CADDIE_GARMIN_OAUTH_AUTH_URL`, `AI_CADDIE_GARMIN_OAUTH_TOKEN_URL`, `AI_CADDIE_GARMIN_OAUTH_API_BASE_URL`, `AI_CADDIE_GARMIN_OAUTH_USER_ID_URL`, and `AI_CADDIE_GARMIN_OAUTH_PERMISSIONS_URL` are override hooks; the code defaults to Garmin's OAuth2 PKCE, token, user id, and permissions endpoints.
+- `ops/probe_garmin_oauth.py authorize` prints a local PKCE consent URL and private code verifier. Keep the verifier private.
+- `ops/probe_garmin_oauth.py exchange --code ... --code-verifier ...` sets `AI_CADDIE_GARMIN_OAUTH_LIVE_PROBE=1` for that local command and returns a secret-free result with token receipt booleans, user-id fingerprint, permissions, and capability findings.
+- Sync status may expose boolean readiness, redacted consent-request preview, and the live-probe contract, but it must not echo the client id, client secret, authorization code, code verifier, tokens, redirect URI, or raw user id.
 - OAuth feasibility must not replace the CN Web Session connector until it can sync the required golf history data.
 
 ## Admin Protection
