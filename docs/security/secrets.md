@@ -18,6 +18,7 @@ This project is designed for private golf data first. Secrets must stay local or
 - Gemini API-key mode uses `GEMINI_API_KEY`, optional `GEMINI_API_BASE_URL`, and optional `GEMINI_MODEL`.
 - Gemini CLI OAuth mode uses `GEMINI_OAUTH_CREDENTIALS_FILE`, `GEMINI_OAUTH_CREDENTIALS_JSON`, or `GEMINI_OAUTH_CREDENTIALS_B64` plus `GOOGLE_CLOUD_PROJECT` and optional `GEMINI_MODEL`.
 - Gemini CLI OAuth credentials are token material, not a public login flow. Store them only in local protected files or deployment secret stores, and do not expose them through Web/iOS settings.
+- Expired Gemini CLI OAuth access tokens are refreshed only when the configured credential payload itself contains the OAuth client id and client credential fields. The code must not carry an embedded Gemini client credential fallback.
 - Test fixtures use static providers and must not require external model keys.
 - Provider errors should be redacted before returning through APIs or logs.
 

@@ -21,6 +21,7 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
   const oauthCapabilities = asRecords(oauth?.capabilityMatrix).slice(0, 3)
   const oauthSteps = asStringList(oauthProbe.manualSteps).slice(0, 3)
   const activeProvider = providers.find((provider) => asString(provider.id) === settings?.aiProviders?.activeProvider)
+  const geminiCliProvider = providers.find((provider) => asString(provider.id) === 'gemini_cli_oauth')
   const ios = asRecord(settings?.liveApps?.ios)
   const watch = asRecord(settings?.liveApps?.watch)
   const privacy = asRecord(settings?.privacy)
@@ -117,6 +118,8 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
               <b>factsUsed + missingData</b>
               <span>Caddie explanation</span>
               <b>decision facts only</b>
+              <span>CLI OAuth refresh</span>
+              <b>{asBoolean(geminiCliProvider?.refreshRequiresClientCredential, false) ? 'token cache + client credential for refresh' : 'local development only'}</b>
             </div>
           </div>
           <button type="button" onClick={() => onNavigate('reports')}>

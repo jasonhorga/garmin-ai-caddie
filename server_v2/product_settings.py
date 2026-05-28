@@ -45,7 +45,9 @@ def build_product_settings_response() -> dict[str, Any]:
             "label": "Gemini CLI OAuth",
             "state": "configured" if settings.gemini_oauth_configured and settings.google_cloud_project else "missing_config",
             "supports": ["reports", "caddie_explanations", "local_development_only"],
-            "credentialPolicy": "oauth_token_cache_only",
+            "credentialPolicy": "oauth_token_cache_with_refresh_client_credential",
+            "refreshRequiresClientCredential": True,
+            "productionUse": "internal_only",
         },
     ]
     return {

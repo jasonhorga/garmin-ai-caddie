@@ -92,7 +92,14 @@ const productSettings: ProductSettingsResponse = {
     providers: [
       { id: 'static', label: 'Static', state: 'ready' },
       { id: 'gemini_api_key', label: 'Gemini API', state: 'configured' },
-      { id: 'gemini_cli_oauth', label: 'Gemini CLI OAuth', state: 'configured' },
+      {
+        id: 'gemini_cli_oauth',
+        label: 'Gemini CLI OAuth',
+        state: 'configured',
+        credentialPolicy: 'oauth_token_cache_with_refresh_client_credential',
+        refreshRequiresClientCredential: true,
+        productionUse: 'internal_only',
+      },
     ],
   },
   liveApps: {
@@ -137,6 +144,7 @@ describe('SettingsPage', () => {
     expect(within(aiProviders).getByText('NVIDIA NIM')).toBeInTheDocument()
     expect(within(aiProviders).getByText('Gemini API')).toBeInTheDocument()
     expect(within(aiProviders).getByText('Gemini CLI OAuth')).toBeInTheDocument()
+    expect(within(aiProviders).getByText('local development only')).toBeInTheDocument()
     expect(within(aiProviders).getByRole('checkbox', { name: 'Fact binding required' })).toBeChecked()
 
     const liveApps = screen.getByLabelText('Live app settings')
@@ -179,6 +187,7 @@ describe('SettingsPage', () => {
     const aiProviders = screen.getByLabelText('AI provider settings')
     expect(within(aiProviders).getByText('active: Gemini API')).toHaveClass('setting-primary')
     expect(within(aiProviders).getByText('configured')).toHaveClass('setting-primary')
+    expect(within(aiProviders).getByText('token cache + client credential for refresh')).toBeInTheDocument()
 
     const liveApps = screen.getByLabelText('Live app settings')
     expect(within(liveApps).getByText('iOS contract_ready')).toBeInTheDocument()

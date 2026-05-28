@@ -49,7 +49,9 @@ class ServerV2SettingsTests(unittest.TestCase):
         providers = {row["id"]: row for row in payload["aiProviders"]["providers"]}
         self.assertEqual(providers["gemini_api_key"]["state"], "configured")
         self.assertEqual(providers["gemini_cli_oauth"]["state"], "configured")
-        self.assertEqual(providers["gemini_cli_oauth"]["credentialPolicy"], "oauth_token_cache_only")
+        self.assertEqual(providers["gemini_cli_oauth"]["credentialPolicy"], "oauth_token_cache_with_refresh_client_credential")
+        self.assertTrue(providers["gemini_cli_oauth"]["refreshRequiresClientCredential"])
+        self.assertEqual(providers["gemini_cli_oauth"]["productionUse"], "internal_only")
         self.assertEqual(providers["static"]["state"], "ready")
         self.assertTrue(payload["aiProviders"]["factBindingRequired"])
 

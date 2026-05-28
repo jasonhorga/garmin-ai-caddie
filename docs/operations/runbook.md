@@ -66,6 +66,7 @@ export GOOGLE_CLOUD_PROJECT=<project-id>
 ```
 
 Use `GEMINI_OAUTH_CREDENTIALS_JSON` or `GEMINI_OAUTH_CREDENTIALS_B64` instead of a file path only when a deployment secret manager requires inline values.
+If the access token can expire during use, the credential JSON must include its own OAuth client id and client credential fields for refresh. AI Caddie intentionally has no embedded Gemini client credential fallback.
 
 ## Run Tests
 

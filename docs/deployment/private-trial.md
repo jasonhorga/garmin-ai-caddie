@@ -17,7 +17,7 @@ Required API environment for private staging:
 - `AI_CADDIE_ADMIN_TOKEN=<random private token>`
 - `AI_CADDIE_DATA_MODE=local_or_fixture`
 - `AI_CADDIE_CORS_ORIGINS=<Vercel Web URL>`
-- Optional AI provider: `AI_CADDIE_LLM_PROVIDER=gemini_api_key` with `GEMINI_API_KEY`, or `AI_CADDIE_LLM_PROVIDER=gemini_cli_oauth` with `GEMINI_OAUTH_CREDENTIALS_B64` and `GOOGLE_CLOUD_PROJECT`.
+- Optional AI provider: `AI_CADDIE_LLM_PROVIDER=gemini_api_key` with `GEMINI_API_KEY`, or internal-only `AI_CADDIE_LLM_PROVIDER=gemini_cli_oauth` with `GEMINI_OAUTH_CREDENTIALS_B64` and `GOOGLE_CLOUD_PROJECT`. Gemini CLI OAuth refresh requires the credential payload to include its own OAuth client id and client credential fields.
 
 Required Web environment for private staging:
 
