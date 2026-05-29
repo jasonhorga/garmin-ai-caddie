@@ -22,6 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          # The fixture API is launched via `uv run uvicorn ... &` below and the
+          # orphaned `uv` parent holds the cache lock, so the default post-job
+          # `uv cache prune` deadlocks (5 min hang -> exit 2). Skip the prune.
+          prune-cache: false
       - name: Install Python dependencies
         run: uv sync
       - name: Compile Python sources
@@ -34,6 +39,7 @@ jobs:
           AI_CADDIE_ADMIN_TOKEN: ci-admin-token
         run: |
           uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000 > /tmp/ai-caddie-api.log 2>&1 &
+          echo $! > /tmp/ai-caddie-api.pid
           for attempt in {1..30}; do
             curl -fsS http://127.0.0.1:9000/api/v2/health && exit 0
             sleep 1
@@ -45,6 +51,13 @@ jobs:
           AI_CADDIE_SECURITY_PROFILE: private
           AI_CADDIE_ADMIN_TOKEN: ci-admin-token
         run: ops/smoke_private_trial.sh http://127.0.0.1:9000
+      - name: Stop fixture API
+        if: always()
+        run: |
+          if [ -f /tmp/ai-caddie-api.pid ]; then
+            kill "$(cat /tmp/ai-caddie-api.pid)" 2>/dev/null || true
+          fi
+          pkill -f 'uvicorn server_v2.main:app' 2>/dev/null || true
 
   frontend:
     runs-on: ubuntu-latest
