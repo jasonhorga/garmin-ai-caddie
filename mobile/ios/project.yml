@@ -21,11 +21,11 @@ targets:
     resources:
       - path: mobile/ios/AICaddie/Fixtures
     info:
-      path: mobile/ios/AICaddie/Info.plist
+      path: AICaddie/Info.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile
-        INFOPLIST_FILE: mobile/ios/AICaddie/Info.plist
+        INFOPLIST_FILE: $(PROJECT_DIR)/AICaddie/Info.plist
 
   AICaddieTests:
     type: bundle.unit-test
@@ -45,11 +45,11 @@ targets:
     sources:
       - path: mobile/ios/AICaddieWatch
     info:
-      path: mobile/ios/AICaddieWatch/Info.plist
+      path: AICaddieWatch/Info.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp
-        INFOPLIST_FILE: mobile/ios/AICaddieWatch/Info.plist
+        INFOPLIST_FILE: $(PROJECT_DIR)/AICaddieWatch/Info.plist
 
   AICaddieWatchTests:
     type: bundle.unit-test

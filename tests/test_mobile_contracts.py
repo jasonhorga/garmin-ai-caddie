@@ -1038,17 +1038,18 @@ class MobileContractTests(unittest.TestCase):
             "type: application",
             "platform: iOS",
             "mobile/ios/AICaddie",
-            "mobile/ios/AICaddie/Info.plist",
+            "$(PROJECT_DIR)/AICaddie/Info.plist",
             "AICaddieTests:",
             "type: bundle.unit-test",
             "AICaddieWatch:",
             "platform: watchOS",
             "mobile/ios/AICaddieWatch",
-            "mobile/ios/AICaddieWatch/Info.plist",
+            "$(PROJECT_DIR)/AICaddieWatch/Info.plist",
             "AICaddieWatchTests:",
             "GENERATE_INFOPLIST_FILE: YES",
         ]:
             self.assertIn(expected, project)
+        self.assertNotIn("mobile/ios/mobile/ios", project)
         self.assertIn("xcodegen generate --spec mobile/ios/project.yml", readme)
         self.assertIn("xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj", readme)
 
