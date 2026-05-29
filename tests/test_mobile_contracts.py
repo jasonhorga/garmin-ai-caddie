@@ -2107,6 +2107,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('["value", "text", "reason", "state"].compactMap', bridge)
         self.assertIn('case .number(let raw)', bridge)
         self.assertIn('"/Users/"', bridge_tests)
+        self.assertIn("private static func jsonObject", bridge_tests)
+        self.assertIn("JSONSerialization.jsonObject", bridge_tests)
         self.assertIn("[redacted]", bridge)
         self.assertIn("decision.evidence", bridge)
         self.assertIn("decision.missingData", bridge)
