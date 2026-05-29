@@ -26,7 +26,7 @@ public struct GarminSessionView: View {
     public var body: some View {
         Form {
             Section("Garmin CN") {
-                SecureField("Web session header", text: $webSessionHeader, axis: .vertical)
+                SecureField("Web session header", text: $webSessionHeader)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 SecureField("CSRF token", text: $antiForgeryValue)

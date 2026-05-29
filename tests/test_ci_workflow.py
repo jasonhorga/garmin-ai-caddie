@@ -30,6 +30,30 @@ class CIWorkflowTests(unittest.TestCase):
         ]:
             self.assertIn(required, text)
 
+    def test_backend_unit_tests_run_without_private_admin_middleware(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        backend = workflow["jobs"]["backend"]
+        steps = {step.get("name"): step for step in backend["steps"]}
+
+        self.assertEqual({"AI_CADDIE_DATA_MODE": "fixture"}, backend["env"])
+        self.assertNotIn("AI_CADDIE_SECURITY_PROFILE", steps["Run backend tests"].get("env", {}))
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", steps["Run backend tests"].get("env", {}))
+        self.assertEqual("private", steps["Start fixture API"]["env"]["AI_CADDIE_SECURITY_PROFILE"])
+        self.assertEqual("ci-admin-token", steps["Start fixture API"]["env"]["AI_CADDIE_ADMIN_TOKEN"])
+        self.assertEqual("private", steps["Private trial smoke"]["env"]["AI_CADDIE_SECURITY_PROFILE"])
+        self.assertEqual("ci-admin-token", steps["Private trial smoke"]["env"]["AI_CADDIE_ADMIN_TOKEN"])
+
+    def test_ci_workflow_supports_superpowers_branch_pushes_and_manual_runs(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        triggers = workflow[True]
+
+        self.assertIn("workflow_dispatch", triggers)
+        self.assertIn("pull_request", triggers)
+        self.assertIn("push", triggers)
+        self.assertIn("integration/v2", triggers["push"]["branches"])
+        self.assertIn("superpowers/**", triggers["push"]["branches"])
+        self.assertIn("testing-sandbox", triggers["push"]["branches"])
+
     def test_private_trial_smoke_can_send_admin_token_header(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
         text = script.read_text(encoding="utf-8")

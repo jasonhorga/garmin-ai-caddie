@@ -261,4 +261,9 @@ final class WatchEventBridgeTests: XCTestCase {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
     }
+
+    private static func jsonObject<T: Encodable>(from value: T) throws -> Any {
+        let data = try JSONEncoder().encode(value)
+        return try JSONSerialization.jsonObject(with: data)
+    }
 }

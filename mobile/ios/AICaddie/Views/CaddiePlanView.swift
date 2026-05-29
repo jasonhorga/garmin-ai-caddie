@@ -52,6 +52,20 @@ public struct CaddiePlanOption: Identifiable, Equatable {
         return parts.joined(separator: " / ")
     }
 
+    public var sourceRefsText: String? {
+        guard !sourceRefs.isEmpty else {
+            return nil
+        }
+        return "src " + sourceRefs.prefix(2).joined(separator: ", ")
+    }
+
+    public var missingDataText: String? {
+        guard !missingDataLabels.isEmpty else {
+            return nil
+        }
+        return "missing " + missingDataLabels.prefix(2).joined(separator: ", ")
+    }
+
     public static let defaultOptions = [
         CaddiePlanOption(
             id: "offline-unavailable",
@@ -274,6 +288,13 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
         return parts.isEmpty ? "sequence evidence unavailable" : parts.joined(separator: " / ")
     }
 
+    public var sourceRefsText: String? {
+        guard !sourceRefs.isEmpty else {
+            return nil
+        }
+        return "src " + sourceRefs.prefix(2).joined(separator: ", ")
+    }
+
     public static func sequences(from response: CaddieDecisionResponse) -> [CaddiePlanSequence] {
         (response.sequences ?? []).enumerated().map { index, row in
             CaddiePlanSequence(
@@ -418,13 +439,13 @@ public struct CaddiePlanView: View {
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(AICaddieDesignTokens.confidenceColor(option.confidence ?? "low"))
                         }
-                        if !option.sourceRefs.isEmpty {
-                            Text("src \(option.sourceRefs.prefix(2).joined(separator: \", \"))")
+                        if let sourceRefsText = option.sourceRefsText {
+                            Text(sourceRefsText)
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                         }
-                        if !option.missingDataLabels.isEmpty {
-                            Text("missing \(option.missingDataLabels.prefix(2).joined(separator: \", \"))")
+                        if let missingDataText = option.missingDataText {
+                            Text(missingDataText)
                                 .font(.caption2)
                                 .foregroundStyle(AICaddieDesignTokens.riskColor(4))
                         }
@@ -469,8 +490,8 @@ public struct CaddiePlanView: View {
                                 }
                             }
                         }
-                        if !sequence.sourceRefs.isEmpty {
-                            Text("src \(sequence.sourceRefs.prefix(2).joined(separator: \", \"))")
+                        if let sourceRefsText = sequence.sourceRefsText {
+                            Text(sourceRefsText)
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                         }

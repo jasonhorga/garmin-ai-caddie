@@ -133,9 +133,15 @@ def cors_allowed_origins() -> list[str]:
     return origins
 
 
+def cors_allowed_origin_regex() -> str | None:
+    value = os.environ.get("AI_CADDIE_CORS_ORIGIN_REGEX", "").strip()
+    return value or None
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_allowed_origins(),
+    allow_origin_regex=cors_allowed_origin_regex(),
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],

@@ -1038,16 +1038,20 @@ class MobileContractTests(unittest.TestCase):
             "type: application",
             "platform: iOS",
             "mobile/ios/AICaddie",
-            "mobile/ios/AICaddie/Info.plist",
+            "excludes:",
+            "$(PROJECT_DIR)/AICaddie/Info.plist",
             "AICaddieTests:",
             "type: bundle.unit-test",
             "AICaddieWatch:",
             "platform: watchOS",
             "mobile/ios/AICaddieWatch",
-            "mobile/ios/AICaddieWatch/Info.plist",
+            "$(PROJECT_DIR)/AICaddieWatch/Info.plist",
             "AICaddieWatchTests:",
+            "GENERATE_INFOPLIST_FILE: YES",
         ]:
             self.assertIn(expected, project)
+        self.assertNotIn("mobile/ios/mobile/ios", project)
+        self.assertGreaterEqual(project.count("- Info.plist"), 2)
         self.assertIn("xcodegen generate --spec mobile/ios/project.yml", readme)
         self.assertIn("xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj", readme)
 
@@ -1056,8 +1060,14 @@ class MobileContractTests(unittest.TestCase):
         watch_plist = _read_required_source(self, WATCH_DIR / "Info.plist")
 
         for expected in [
+            "CFBundleExecutable",
+            "$(EXECUTABLE_NAME)",
             "CFBundleIdentifier",
             "com.ai-caddie.mobile",
+            "CFBundleShortVersionString",
+            "$(MARKETING_VERSION)",
+            "CFBundleVersion",
+            "$(CURRENT_PROJECT_VERSION)",
             "NSLocationWhenInUseUsageDescription",
             "NSCameraUsageDescription",
             "NSPhotoLibraryUsageDescription",
@@ -1066,8 +1076,14 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn(expected, ios_plist)
 
         for expected in [
+            "CFBundleExecutable",
+            "$(EXECUTABLE_NAME)",
             "CFBundleIdentifier",
             "com.ai-caddie.mobile.watchkitapp",
+            "CFBundleShortVersionString",
+            "$(MARKETING_VERSION)",
+            "CFBundleVersion",
+            "$(CURRENT_PROJECT_VERSION)",
             "WKApplication",
         ]:
             self.assertIn(expected, watch_plist)
@@ -1530,6 +1546,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct GarminSessionView: View", session_view)
         self.assertIn("SecureField(\"Web session header\"", session_view)
         self.assertIn("SecureField(\"CSRF token\"", session_view)
+        self.assertNotIn("axis: .vertical", session_view)
         self.assertIn("GarminSessionClient(baseURL:", session_view)
         self.assertIn("client.importSession", session_view)
         self.assertIn('source: "ios_secure_input"', session_view)
@@ -1961,7 +1978,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('String(format: "exp %.2f"', caddie_plan)
         self.assertIn('String(format: "%+.2f strokes"', caddie_plan)
         self.assertIn("sourceRefs", caddie_plan)
+        self.assertIn("sourceRefsText", caddie_plan)
         self.assertIn("missingDataLabels", caddie_plan)
+        self.assertIn("missingDataText", caddie_plan)
+        self.assertNotIn('joined(separator: \\", \\")")', caddie_plan)
         self.assertIn("No cached plan", caddie_plan)
         self.assertIn("final class LocationProvider", location_provider)
         self.assertIn("CLLocationManagerDelegate", location_provider)
@@ -2099,6 +2119,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('["value", "text", "reason", "state"].compactMap', bridge)
         self.assertIn('case .number(let raw)', bridge)
         self.assertIn('"/Users/"', bridge_tests)
+        self.assertIn("private static func jsonObject", bridge_tests)
+        self.assertIn("JSONSerialization.jsonObject", bridge_tests)
         self.assertIn("[redacted]", bridge)
         self.assertIn("decision.evidence", bridge)
         self.assertIn("decision.missingData", bridge)

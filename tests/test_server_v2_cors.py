@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from server_v2.main import cors_allowed_origins
+from server_v2.main import cors_allowed_origin_regex, cors_allowed_origins
 
 
 class ServerV2CorsTests(unittest.TestCase):
@@ -28,6 +28,22 @@ class ServerV2CorsTests(unittest.TestCase):
         self.assertIn("https://ai-caddie-web.vercel.app", origins)
         self.assertIn("https://preview-ai-caddie.vercel.app", origins)
         self.assertNotIn("https://preview-ai-caddie.vercel.app/", origins)
+
+    def test_cors_origin_regex_supports_preview_domains(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"AI_CADDIE_CORS_ORIGIN_REGEX": r"https://.*\.vercel\.app"},
+            clear=True,
+        ):
+            regex = cors_allowed_origin_regex()
+
+        self.assertEqual(regex, r"https://.*\.vercel\.app")
+
+    def test_cors_origin_regex_defaults_to_none(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            regex = cors_allowed_origin_regex()
+
+        self.assertIsNone(regex)
 
 
 if __name__ == "__main__":

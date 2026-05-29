@@ -9,7 +9,11 @@ Use a Render-style API service and a Vercel-style web frontend for early testing
 Machine-readable starting points are committed:
 
 - API: `render.yaml`
+- API container: `Dockerfile`
+- API Fly.io starter: `fly.toml`
+- Local container stack: `docker-compose.yml`
 - Web: `web_v2/vercel.json`
+- Local/private env template: `.env.example`
 
 Required API environment for private staging:
 
@@ -17,6 +21,7 @@ Required API environment for private staging:
 - `AI_CADDIE_ADMIN_TOKEN=<random private token>`
 - `AI_CADDIE_DATA_MODE=local_or_fixture`
 - `AI_CADDIE_CORS_ORIGINS=<Vercel Web URL>`
+- Optional for Vercel preview URLs: `AI_CADDIE_CORS_ORIGIN_REGEX=https://.*\.vercel\.app`
 - Optional AI provider: `AI_CADDIE_LLM_PROVIDER=gemini_api_key` with `GEMINI_API_KEY`, or internal-only `AI_CADDIE_LLM_PROVIDER=gemini_cli_oauth` with `GEMINI_OAUTH_CREDENTIALS_B64` and `GOOGLE_CLOUD_PROJECT`. Gemini CLI OAuth refresh requires the credential payload to include its own OAuth client id and client credential fields.
 
 Required Web environment for private staging:
@@ -27,6 +32,39 @@ The Vercel Web URL must be allowed by the Render API through
 `AI_CADDIE_CORS_ORIGINS`; the Web build must point at the Render API URL through
 `VITE_AI_CADDIE_API_BASE_URL`. Without those paired settings, the static Web app
 will either request its own Vercel origin or be blocked by browser CORS.
+
+## Container Staging
+
+For a non-Render API trial, build and run the same container locally, on a NAS,
+on Fly.io, or on a small VPS:
+
+```bash
+cp .env.example .env
+# edit .env; do not commit it
+docker compose up --build
+```
+
+Open:
+
+- API: `http://127.0.0.1:9000`
+- Web: `http://127.0.0.1:5173`
+
+The compose API stores private runtime state in the `ai-caddie-private` volume
+and maps it into the app through `AI_CADDIE_PRIVATE_ROOT`. This keeps Garmin
+session material, downloaded Garmin data, generated output, logs, and backups
+out of the image.
+
+Fly.io can use the committed `fly.toml` as a starting point:
+
+```bash
+fly volumes create ai_caddie_private --size 3 --region sin
+fly secrets set AI_CADDIE_ADMIN_TOKEN=<random private token>
+fly deploy
+```
+
+Add AI provider keys with `fly secrets set ...` only when the corresponding
+provider is needed. Garmin CN session material should still be imported through
+the private Web/iOS flow, not committed into the image.
 
 ## NAS Or Private Server
 

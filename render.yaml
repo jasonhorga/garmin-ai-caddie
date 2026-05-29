@@ -17,3 +17,5 @@ services:
         sync: false
       - key: AI_CADDIE_CORS_ORIGINS
         sync: false
+      - key: AI_CADDIE_CORS_ORIGIN_REGEX
+        sync: false

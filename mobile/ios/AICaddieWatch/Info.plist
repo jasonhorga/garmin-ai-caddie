@@ -4,14 +4,22 @@
 <dict>
     <key>CFBundleDisplayName</key>
     <string>AI Caddie</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
     <string>com.ai-caddie.mobile.watchkitapp</string>
     <key>CFBundleName</key>
     <string>AI Caddie Watch</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>WKApplication</key>
     <true/>
+    <key>WKCompanionAppBundleIdentifier</key>
+    <string>com.ai-caddie.mobile</string>
     <key>WKWatchOnly</key>
     <false/>
 </dict>

@@ -3,6 +3,7 @@
 .garmin_tokens/
 .env
 .env.*
+!.env.example
 
 # Personal local config
 clubs.json

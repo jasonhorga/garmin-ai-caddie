@@ -18,14 +18,17 @@ targets:
     platform: iOS
     sources:
       - path: mobile/ios/AICaddie
+        excludes:
+          - Info.plist
+          - Fixtures
     resources:
       - path: mobile/ios/AICaddie/Fixtures
     info:
-      path: mobile/ios/AICaddie/Info.plist
+      path: AICaddie/Info.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile
-        INFOPLIST_FILE: mobile/ios/AICaddie/Info.plist
+        INFOPLIST_FILE: $(PROJECT_DIR)/AICaddie/Info.plist
 
   AICaddieTests:
     type: bundle.unit-test
@@ -37,18 +40,21 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.tests
+        GENERATE_INFOPLIST_FILE: YES
 
   AICaddieWatch:
     type: application
     platform: watchOS
     sources:
       - path: mobile/ios/AICaddieWatch
+        excludes:
+          - Info.plist
     info:
-      path: mobile/ios/AICaddieWatch/Info.plist
+      path: AICaddieWatch/Info.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp
-        INFOPLIST_FILE: mobile/ios/AICaddieWatch/Info.plist
+        INFOPLIST_FILE: $(PROJECT_DIR)/AICaddieWatch/Info.plist
 
   AICaddieWatchTests:
     type: bundle.unit-test
@@ -60,6 +66,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp.tests
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   AICaddie:
