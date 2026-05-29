@@ -1060,8 +1060,14 @@ class MobileContractTests(unittest.TestCase):
         watch_plist = _read_required_source(self, WATCH_DIR / "Info.plist")
 
         for expected in [
+            "CFBundleExecutable",
+            "$(EXECUTABLE_NAME)",
             "CFBundleIdentifier",
             "com.ai-caddie.mobile",
+            "CFBundleShortVersionString",
+            "$(MARKETING_VERSION)",
+            "CFBundleVersion",
+            "$(CURRENT_PROJECT_VERSION)",
             "NSLocationWhenInUseUsageDescription",
             "NSCameraUsageDescription",
             "NSPhotoLibraryUsageDescription",
@@ -1070,8 +1076,14 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn(expected, ios_plist)
 
         for expected in [
+            "CFBundleExecutable",
+            "$(EXECUTABLE_NAME)",
             "CFBundleIdentifier",
             "com.ai-caddie.mobile.watchkitapp",
+            "CFBundleShortVersionString",
+            "$(MARKETING_VERSION)",
+            "CFBundleVersion",
+            "$(CURRENT_PROJECT_VERSION)",
             "WKApplication",
         ]:
             self.assertIn(expected, watch_plist)
