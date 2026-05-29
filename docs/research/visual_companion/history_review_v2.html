@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Caddie Visual Companion</title>
+  <style>
+    :root {
+      --bg: #f4f6f2;
+      --ink: #18231f;
+      --muted: #66736d;
+      --line: #d9ded7;
+      --panel: #ffffff;
+      --green: #1f6b4c;
+      --fairway: #7eb66a;
+      --sand: #d7ba75;
+      --water: #477ea8;
+      --risk: #b74d45;
+      --navy: #24364a;
+      --eagle: #184a90;
+      --birdie: #5aa8d8;
+      --par: #2f8f5f;
+      --bogey: #d39a45;
+      --double: #b55349;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    header {
+      height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.92);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      backdrop-filter: blur(12px);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 760; }
+    .mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 7px;
+      background: conic-gradient(from 210deg, var(--green), var(--fairway), var(--sand), var(--water), var(--green));
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,.8);
+    }
+    nav { display: flex; gap: 8px; align-items: center; }
+    nav a {
+      text-decoration: none;
+      color: var(--muted);
+      padding: 7px 10px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 650;
+    }
+    nav a.active { color: var(--green); background: #e9f2ea; }
+    main { max-width: 1320px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 34px; line-height: 1.1; margin: 0; max-width: 760px; }
+    h2 { font-size: 18px; margin: 0 0 12px; }
+    h3 { font-size: 14px; margin: 0 0 8px; }
+    p { color: var(--muted); line-height: 1.55; margin: 8px 0 0; }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 420px;
+      gap: 22px;
+      align-items: stretch;
+      margin-bottom: 22px;
+    }
+    .hero-copy {
+      min-height: 300px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 28px 0;
+    }
+    .hero-kpis { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+    .kpi {
+      min-width: 128px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.72);
+    }
+    .kpi .label { color: var(--muted); font-size: 12px; }
+    .kpi .value { font-size: 24px; font-weight: 780; margin-top: 3px; }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 16px;
+      box-shadow: 0 1px 2px rgba(16,24,40,.04);
+    }
+    .section { margin-top: 24px; }
+    .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .style-tile { min-height: 290px; display: flex; flex-direction: column; justify-content: space-between; }
+    .style-pro { --accent:#1d5f4a; --surface:#f7faf8; --deep:#17342d; }
+    .style-journal { --accent:#6d7f42; --surface:#fbf8ef; --deep:#30291d; }
+    .style-command { --accent:#315b82; --surface:#f3f7fb; --deep:#18283a; }
+    .swatches { display: flex; gap: 6px; margin: 12px 0; }
+    .swatch { width: 32px; height: 22px; border-radius: 5px; border: 1px solid rgba(0,0,0,.08); }
+    .mini-card {
+      border-radius: 8px;
+      background: var(--surface);
+      border: 1px solid rgba(0,0,0,.08);
+      padding: 12px;
+      margin-top: 10px;
+    }
+    .mini-title { color: var(--deep); font-weight: 760; font-size: 13px; }
+    .mini-number { color: var(--accent); font-size: 28px; font-weight: 820; margin-top: 6px; }
+    .score-strip { display: grid; grid-template-columns: repeat(18, 1fr); gap: 3px; margin-top: 12px; }
+    .hole-box {
+      height: 22px;
+      display: grid;
+      place-items: center;
+      font-size: 10px;
+      font-weight: 760;
+      border-radius: 4px;
+      color: #fff;
+      background: #94a3a0;
+    }
+    .eagle { background: var(--eagle); border-radius: 999px; }
+    .birdie { background: var(--birdie); border-radius: 999px; }
+    .par { background: var(--par); }
+    .bogey { background: var(--bogey); }
+    .double { background: var(--double); }
+    .component-grid {
+      display: grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap: 14px;
+      align-items: start;
+    }
+    .round-card { display: grid; gap: 8px; }
+    .round-head { display:flex; justify-content:space-between; gap: 12px; }
+    .round-course { font-size: 17px; font-weight: 780; }
+    .round-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .round-score { text-align: right; }
+    .round-score b { font-size: 32px; line-height: 1; }
+    .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 23px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #edf2ee;
+      color: #355146;
+      font-size: 11px;
+      font-weight: 680;
+    }
+    .badge.warn { background: #fff3d8; color: #7a4f16; }
+    .badge.risk { background: #f8e5e2; color: #8f3028; }
+    .pyramid { display: grid; gap: 7px; }
+    .pyramid-row { display: grid; grid-template-columns: 54px 1fr 42px; gap: 8px; align-items: center; font-size: 12px; }
+    .bar { height: 16px; border-radius: 999px; overflow: hidden; background: #e8ede9; }
+    .bar span { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+    .map-panel {
+      min-height: 360px;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 25% 25%, rgba(126,182,106,.42), transparent 22%),
+        radial-gradient(circle at 72% 35%, rgba(71,126,168,.28), transparent 18%),
+        linear-gradient(135deg, #dce8d7, #edf3ea 45%, #d7e4d1);
+    }
+    .fairway-shape {
+      position: absolute;
+      left: 33%;
+      top: 9%;
+      width: 31%;
+      height: 80%;
+      border-radius: 48% 52% 38% 45%;
+      background: rgba(126,182,106,.72);
+      transform: rotate(12deg);
+      border: 1px solid rgba(31,107,76,.28);
+    }
+    .green-shape {
+      position: absolute;
+      left: 47%;
+      top: 12%;
+      width: 72px;
+      height: 54px;
+      border-radius: 50%;
+      background: #5eb66a;
+      border: 2px solid rgba(255,255,255,.7);
+    }
+    .bunker, .water {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,.8);
+    }
+    .bunker { background: var(--sand); width: 70px; height: 38px; left: 59%; top: 33%; }
+    .water { background: var(--water); width: 120px; height: 52px; left: 14%; top: 60%; }
+    .route {
+      position: absolute;
+      left: 42%;
+      bottom: 9%;
+      width: 2px;
+      height: 245px;
+      background: #fff;
+      transform: rotate(-7deg);
+      box-shadow: 0 0 0 2px rgba(31,107,76,.25);
+    }
+    .target-dot, .tee-dot {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      box-shadow: 0 2px 8px rgba(0,0,0,.24);
+    }
+    .tee-dot { left: 39%; bottom: 7%; background: var(--navy); }
+    .target-dot { left: 51%; top: 31%; background: var(--green); }
+    .decision-card { display: grid; gap: 12px; }
+    .decision-main { display:flex; justify-content:space-between; gap:12px; }
+    .decision-main b { font-size: 22px; }
+    .decision-list { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+    .small-block { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: #fbfcfa; }
+    .small-block .label { color: var(--muted); font-size: 11px; margin-bottom: 5px; }
+    .small-block .value { font-size: 13px; font-weight: 680; line-height: 1.35; }
+    .platforms { display:grid; grid-template-columns: 1.1fr .75fr 280px; gap: 14px; align-items:start; }
+    .module-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 12px; }
+    .module-tile {
+      min-height: 84px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .module-tile b { font-size: 18px; }
+    .module-tile span { color: var(--muted); font-size: 11px; }
+    .phone {
+      width: 100%;
+      max-width: 360px;
+      margin: 0 auto;
+      border: 10px solid #1d2420;
+      border-radius: 32px;
+      background: #f7f8f5;
+      min-height: 620px;
+      overflow: hidden;
+    }
+    .phone-screen { padding: 16px; }
+    .watch {
+      width: 220px;
+      height: 270px;
+      margin: 0 auto;
+      background: #161b19;
+      border-radius: 42px;
+      padding: 18px;
+      color: #f4f7f2;
+      box-shadow: inset 0 0 0 2px #303832;
+    }
+    .watch-card {
+      height: 100%;
+      border-radius: 28px;
+      background: #0f1412;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .watch .muted { color: #9aa69f; }
+    .watch-big { font-size: 30px; font-weight: 820; }
+    .watch-action { color: #95d27d; font-size: 15px; line-height: 1.3; font-weight: 750; }
+    .data-health { display:grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 10px; }
+    .health { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }
+    .health .value { font-size: 22px; font-weight: 800; margin-top: 5px; }
+    .health.good .value { color: var(--green); }
+    .health.warn .value { color: #a86b1d; }
+    .health.bad .value { color: var(--risk); }
+    @media (max-width: 980px) {
+      .hero, .component-grid, .platforms { grid-template-columns: 1fr; }
+      .tiles { grid-template-columns: 1fr; }
+      .data-health { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      nav { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand"><div class="mark"></div><span>AI Caddie Visual System</span></div>
+    <nav>
+      <a class="active" href="#directions">Directions</a>
+      <a href="#components">Components</a>
+      <a href="#platforms">Platforms</a>
+      <a href="#health">Data</a>
+    </nav>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <div>
+          <h1>A personal golf history system that feels like memory, evidence, and caddie judgment in one place.</h1>
+          <p>Goal: unify Web, future mobile, and possible Apple Watch UI around the same visual language. This is not the current app skin. It is the direction board for History Review v2 and Caddie decisions.</p>
+        </div>
+        <div class="hero-kpis">
+          <div class="kpi"><div class="label">Rounds</div><div class="value">423</div></div>
+          <div class="kpi"><div class="label">Recent 10</div><div class="value">94.6</div></div>
+          <div class="kpi"><div class="label">Best</div><div class="value">82</div></div>
+          <div class="kpi"><div class="label">Geometry</div><div class="value">117</div></div>
+        </div>
+      </div>
+      <div class="panel map-panel">
+        <div class="fairway-shape"></div>
+        <div class="green-shape"></div>
+        <div class="bunker"></div>
+        <div class="water"></div>
+        <div class="route"></div>
+        <div class="tee-dot">T</div>
+        <div class="target-dot">3H</div>
+      </div>
+    </section>
+
+    <section class="section" id="directions">
+      <h2>Three Visual Directions</h2>
+      <div class="tiles">
+        <div class="panel style-tile style-pro">
+          <div>
+            <h3>Garmin Pro</h3>
+            <p>Precise, quiet, performance-first. Best for trust and serious statistics.</p>
+            <div class="swatches">
+              <div class="swatch" style="background:#17342d"></div>
+              <div class="swatch" style="background:#1d5f4a"></div>
+              <div class="swatch" style="background:#e8efea"></div>
+              <div class="swatch" style="background:#477ea8"></div>
+            </div>
+          </div>
+          <div class="mini-card">
+            <div class="mini-title">18H Average</div>
+            <div class="mini-number">93.8</div>
+            <div class="score-strip">
+              <div class="hole-box par">4</div><div class="hole-box bogey">5</div><div class="hole-box par">3</div><div class="hole-box double">7</div><div class="hole-box bogey">5</div><div class="hole-box birdie">3</div><div class="hole-box par">4</div><div class="hole-box bogey">6</div><div class="hole-box par">4</div><div class="hole-box par">4</div><div class="hole-box bogey">5</div><div class="hole-box double">7</div><div class="hole-box eagle">3</div><div class="hole-box bogey">5</div><div class="hole-box par">3</div><div class="hole-box bogey">6</div><div class="hole-box par">4</div><div class="hole-box double">7</div>
+            </div>
+          </div>
+        </div>
+        <div class="panel style-tile style-journal">
+          <div>
+            <h3>Golf Journal</h3>
+            <p>Warmer and more reflective. Best for annual review, memories, and long-term history.</p>
+            <div class="swatches">
+              <div class="swatch" style="background:#30291d"></div>
+              <div class="swatch" style="background:#6d7f42"></div>
+              <div class="swatch" style="background:#fbf8ef"></div>
+              <div class="swatch" style="background:#d7ba75"></div>
+            </div>
+          </div>
+          <div class="mini-card">
+            <div class="mini-title">2026 Q2</div>
+            <div class="mini-number">12 rounds</div>
+            <p>Avg 92.4 · Best 84 · Birdies 14 · Doubles 31</p>
+          </div>
+        </div>
+        <div class="panel style-tile style-command">
+          <div>
+            <h3>Caddie Command</h3>
+            <p>Tactical, map-led, decision-oriented. Best for hole review and Apple Watch prompts.</p>
+            <div class="swatches">
+              <div class="swatch" style="background:#18283a"></div>
+              <div class="swatch" style="background:#315b82"></div>
+              <div class="swatch" style="background:#f3f7fb"></div>
+              <div class="swatch" style="background:#b74d45"></div>
+            </div>
+          </div>
+          <div class="mini-card">
+            <div class="mini-title">Hole 2 · Stock line</div>
+            <div class="mini-number">3H / 178m</div>
+            <p>Aim left-center. Avoid right water. Confidence high.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="components">
+      <h2>Core Components</h2>
+      <div class="component-grid">
+        <div class="panel round-card">
+          <div class="round-head">
+            <div>
+              <div class="round-course">Black Knight B/C</div>
+              <div class="round-meta">2026-05-08 · Blue tee · 18 holes</div>
+            </div>
+            <div class="round-score"><b>91</b><div class="round-meta">+19</div></div>
+          </div>
+          <div class="score-strip">
+            <div class="hole-box par">4</div><div class="hole-box bogey">5</div><div class="hole-box birdie">3</div><div class="hole-box double">7</div><div class="hole-box bogey">5</div><div class="hole-box par">4</div><div class="hole-box bogey">6</div><div class="hole-box par">4</div><div class="hole-box par">4</div><div class="hole-box bogey">5</div><div class="hole-box double">7</div><div class="hole-box par">4</div><div class="hole-box bogey">5</div><div class="hole-box eagle">3</div><div class="hole-box bogey">6</div><div class="hole-box par">4</div><div class="hole-box double">7</div><div class="hole-box bogey">5</div>
+          </div>
+          <div class="badges">
+            <span class="badge">shots ready</span>
+            <span class="badge">putts partial</span>
+            <span class="badge warn">geometry 12/18</span>
+            <span class="badge risk">tee miss cluster</span>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Score Distribution</h3>
+          <div class="pyramid">
+            <div class="pyramid-row"><span>70s</span><div class="bar"><span style="width:8%;background:var(--eagle)"></span></div><b>4</b></div>
+            <div class="pyramid-row"><span>80s</span><div class="bar"><span style="width:38%;background:var(--birdie)"></span></div><b>42</b></div>
+            <div class="pyramid-row"><span>90s</span><div class="bar"><span style="width:82%;background:var(--bogey)"></span></div><b>171</b></div>
+            <div class="pyramid-row"><span>100+</span><div class="bar"><span style="width:55%;background:var(--double)"></span></div><b>93</b></div>
+          </div>
+        </div>
+      </div>
+      <div class="component-grid" style="margin-top:14px">
+        <div class="panel map-panel">
+          <div class="fairway-shape"></div><div class="green-shape"></div><div class="bunker"></div><div class="water"></div><div class="route"></div><div class="tee-dot">T</div><div class="target-dot">T</div>
+        </div>
+        <div class="panel decision-card">
+          <div class="decision-main">
+            <div><div class="round-meta">Caddie card</div><b>3H to left-center</b><p>Stock line · 178m carry · high confidence</p></div>
+            <span class="badge">tee shot</span>
+          </div>
+          <div class="decision-list">
+            <div class="small-block"><div class="label">Do this</div><div class="value">Start left-center, leave 135-150m approach.</div></div>
+            <div class="small-block"><div class="label">Avoid</div><div class="value">Right water from 185-215m.</div></div>
+            <div class="small-block"><div class="label">Why</div><div class="value">1W right miss pattern; 3H median fits landing window.</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="platforms">
+      <h2>Cross-platform Shape</h2>
+      <div class="platforms">
+        <div class="panel">
+          <h3>Web History Overview</h3>
+          <div class="hero-kpis">
+            <div class="kpi"><div class="label">Rounds</div><div class="value">423</div></div>
+            <div class="kpi"><div class="label">Courses</div><div class="value">69</div></div>
+            <div class="kpi"><div class="label">Shots</div><div class="value">20k</div></div>
+          </div>
+          <div class="mini-card"><div class="mini-title">Next review target</div><div class="mini-number">Hole 2</div><p>7 rounds · repeated right-side risk · geometry ready</p></div>
+        </div>
+        <div class="phone">
+          <div class="phone-screen">
+            <h3>Mobile History</h3>
+            <div class="mini-card"><div class="mini-title">Recent form</div><div class="mini-number">94.6</div><p>Last 10 rounds</p></div>
+            <div class="module-grid">
+              <div class="module-tile"><span>Timeline</span><b>423</b><span>rounds</span></div>
+              <div class="module-tile"><span>Annual</span><b>2026</b><span>quarter review</span></div>
+              <div class="module-tile"><span>Courses</span><b>69</b><span>map + ranking</span></div>
+              <div class="module-tile"><span>Holes</span><b>117</b><span>geometry ready</span></div>
+            </div>
+            <div class="mini-card"><div class="mini-title">Latest round</div><div class="mini-number">91</div><div class="badges"><span class="badge">shots</span><span class="badge warn">6 gaps</span></div></div>
+          </div>
+        </div>
+        <div class="watch">
+          <div class="watch-card">
+            <div><div class="muted">Black Knight · H2</div><div class="watch-big">3H</div></div>
+            <div class="watch-action">Aim left-center<br>avoid right water</div>
+            <div class="muted">178m · High confidence</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="health">
+      <h2>Data Health As A Visual System</h2>
+      <div class="data-health">
+        <div class="health good"><div class="label">Shots</div><div class="value">92%</div></div>
+        <div class="health warn"><div class="label">Putts</div><div class="value">68%</div></div>
+        <div class="health good"><div class="label">Geometry</div><div class="value">117</div></div>
+        <div class="health warn"><div class="label">Club samples</div><div class="value">8/14</div></div>
+        <div class="health bad"><div class="label">Reports</div><div class="value">3</div></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
