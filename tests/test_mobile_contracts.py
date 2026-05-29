@@ -1038,6 +1038,7 @@ class MobileContractTests(unittest.TestCase):
             "type: application",
             "platform: iOS",
             "mobile/ios/AICaddie",
+            "excludes:",
             "$(PROJECT_DIR)/AICaddie/Info.plist",
             "AICaddieTests:",
             "type: bundle.unit-test",
@@ -1050,6 +1051,7 @@ class MobileContractTests(unittest.TestCase):
         ]:
             self.assertIn(expected, project)
         self.assertNotIn("mobile/ios/mobile/ios", project)
+        self.assertGreaterEqual(project.count("- Info.plist"), 2)
         self.assertIn("xcodegen generate --spec mobile/ios/project.yml", readme)
         self.assertIn("xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj", readme)
 

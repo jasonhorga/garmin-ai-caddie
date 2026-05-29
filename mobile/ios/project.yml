@@ -18,6 +18,9 @@ targets:
     platform: iOS
     sources:
       - path: mobile/ios/AICaddie
+        excludes:
+          - Info.plist
+          - Fixtures
     resources:
       - path: mobile/ios/AICaddie/Fixtures
     info:
@@ -44,6 +47,8 @@ targets:
     platform: watchOS
     sources:
       - path: mobile/ios/AICaddieWatch
+        excludes:
+          - Info.plist
     info:
       path: AICaddieWatch/Info.plist
     settings:
