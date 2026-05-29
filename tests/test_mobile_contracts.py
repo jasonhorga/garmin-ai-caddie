@@ -1046,6 +1046,7 @@ class MobileContractTests(unittest.TestCase):
             "mobile/ios/AICaddieWatch",
             "mobile/ios/AICaddieWatch/Info.plist",
             "AICaddieWatchTests:",
+            "GENERATE_INFOPLIST_FILE: YES",
         ]:
             self.assertIn(expected, project)
         self.assertIn("xcodegen generate --spec mobile/ios/project.yml", readme)

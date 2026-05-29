@@ -19,8 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AI_CADDIE_DATA_MODE: fixture
-      AI_CADDIE_SECURITY_PROFILE: private
-      AI_CADDIE_ADMIN_TOKEN: ci-admin-token
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -31,6 +29,9 @@ jobs:
       - name: Run backend tests
         run: uv run python -m unittest discover -s tests -v
       - name: Start fixture API
+        env:
+          AI_CADDIE_SECURITY_PROFILE: private
+          AI_CADDIE_ADMIN_TOKEN: ci-admin-token
         run: |
           uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000 > /tmp/ai-caddie-api.log 2>&1 &
           for attempt in {1..30}; do
@@ -40,6 +41,9 @@ jobs:
           cat /tmp/ai-caddie-api.log
           exit 1
       - name: Private trial smoke
+        env:
+          AI_CADDIE_SECURITY_PROFILE: private
+          AI_CADDIE_ADMIN_TOKEN: ci-admin-token
         run: ops/smoke_private_trial.sh http://127.0.0.1:9000
 
   frontend:
