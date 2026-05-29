@@ -1534,6 +1534,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct GarminSessionView: View", session_view)
         self.assertIn("SecureField(\"Web session header\"", session_view)
         self.assertIn("SecureField(\"CSRF token\"", session_view)
+        self.assertNotIn("axis: .vertical", session_view)
         self.assertIn("GarminSessionClient(baseURL:", session_view)
         self.assertIn("client.importSession", session_view)
         self.assertIn('source: "ios_secure_input"', session_view)
