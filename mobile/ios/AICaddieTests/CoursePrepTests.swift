@@ -27,8 +27,9 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.teeClub, "1W")
         XCTAssertEqual(hole.steps.count, 2)
         XCTAssertEqual(hole.hazards.bunkers.first, [440.0, 12.0])
-        XCTAssertEqual(hole.map?.overlay.route.count, 2)
-        XCTAssertEqual(hole.map?.overlay.ln, 478.4, accuracy: 0.01)
+        let map = try XCTUnwrap(hole.map)
+        XCTAssertEqual(map.overlay.route.count, 2)
+        XCTAssertEqual(map.overlay.ln, 478.4, accuracy: 0.01)
     }
 
     func testOptionalFieldsTolerateAbsence() throws {
