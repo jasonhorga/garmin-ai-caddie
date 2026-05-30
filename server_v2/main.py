@@ -400,11 +400,13 @@ def course_prep_nine(
     from ai_caddie import course_prep
 
     requested = holes or list(range(1, 10))
-    nine = course_prep.prep_nine(global_id, requested, render=render)
+    ladder = course_prep.club_ladder()
+    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render)
     return {
         "schema": "ai-caddie-course-prep-v1",
         "globalId": int(global_id),
         "holeCount": len(nine),
+        "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
         "holes": nine,
     }
 

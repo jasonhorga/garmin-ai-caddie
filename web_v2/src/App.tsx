@@ -65,6 +65,7 @@ import {
   type MobilePackagePrepState,
 } from './components/MobilePackagePrepPanel'
 import { ProductNav } from './components/ProductNav'
+import { CoursePrepPanel } from './components/CoursePrepPanel'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
@@ -1042,6 +1043,7 @@ export default function App() {
             onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
             selectedSourceRef={selectedCaddieSourceRef}
           />
+          <CoursePrepPanel />
         </main>
       </>
     )
