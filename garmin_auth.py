@@ -1,8 +1,12 @@
 """Local Garmin web auth helpers.
 
 This module reads the user's existing browser session for connect.garmin.cn and
-updates the local cookie/csrf files used by fetch.py. It never asks for or stores
-the Garmin password.
+updates the local cookie/csrf files used by fetch.py. On a desktop it uses
+``browser_cookie3`` (no password needed). On a headless server, where no logged-in
+browser exists, it falls back to ``garmin_playwright_login.mint_web_auth`` — a real
+Chromium re-login using credentials the user placed in
+``.garmin_tokens/garmin_login.json``. The password is read only for that re-login and
+is never printed or logged.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from dataclasses import dataclass
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Iterable
+import os
 import re
 
 import requests
@@ -167,29 +172,59 @@ def save_web_auth(auth: GarminWebAuth) -> None:
     CSRF_FILE.chmod(0o600)
 
 
+def _try_playwright_refresh(*, validate: bool) -> GarminWebAuth | None:
+    """Durable headless refresh: mint the web cookie with a real Chromium (xvfb).
+
+    Used when no desktop browser cookies are available (e.g. on a server). Requires
+    ``.garmin_tokens/garmin_login.json`` and Playwright; returns None if unavailable.
+    """
+    if not (TOKEN_DIR / "garmin_login.json").exists():
+        return None
+    try:
+        from garmin_playwright_login import mint_web_auth
+    except Exception:
+        return None
+    try:
+        return mint_web_auth(validate=validate)
+    except Exception:
+        return None
+
+
 def refresh_web_auth(*, validate: bool = True) -> GarminWebAuth:
     failures: list[str] = []
-    for source, jar in _load_browser_cookie_sources():
-        cookie_header, csrf_cookie, count = _cookie_header_from_jar(jar)
-        if not cookie_header:
-            failures.append(f"{source}: no garmin.cn cookies")
-            continue
-        csrf = _csrf_from_existing_or_html(cookie_header, csrf_cookie)
-        if not csrf:
-            failures.append(f"{source}: no csrf token")
-            continue
-        auth = GarminWebAuth(cookie_header, csrf, source, count)
-        if validate:
-            ok, status = validate_web_auth(auth)
-            if not ok:
-                failures.append(f"{source}: validation status {status}")
+    # Skip the desktop-browser path entirely when explicitly asked to use Playwright.
+    if os.getenv("AI_CADDIE_AUTH_REFRESH", "").lower() != "playwright":
+        try:
+            sources = list(_load_browser_cookie_sources())
+        except RuntimeError as exc:
+            sources = []
+            failures.append(str(exc).splitlines()[0])
+        for source, jar in sources:
+            cookie_header, csrf_cookie, count = _cookie_header_from_jar(jar)
+            if not cookie_header:
+                failures.append(f"{source}: no garmin.cn cookies")
                 continue
-        save_web_auth(auth)
+            csrf = _csrf_from_existing_or_html(cookie_header, csrf_cookie)
+            if not csrf:
+                failures.append(f"{source}: no csrf token")
+                continue
+            auth = GarminWebAuth(cookie_header, csrf, source, count)
+            if validate:
+                ok, status = validate_web_auth(auth)
+                if not ok:
+                    failures.append(f"{source}: validation status {status}")
+                    continue
+            save_web_auth(auth)
+            return auth
+    # Headless durable fallback: re-login with a real Chromium (Playwright + xvfb).
+    auth = _try_playwright_refresh(validate=validate)
+    if auth is not None:
         return auth
     detail = "; ".join(failures) if failures else "no browser cookie source worked"
     raise RuntimeError(
-        "Could not refresh Garmin browser auth. Log in to https://connect.garmin.cn "
-        f"in Chrome/Safari, then retry. Detail: {detail}"
+        "Could not refresh Garmin web auth. On a desktop, log in to "
+        "https://connect.garmin.cn in Chrome/Safari; on a server, ensure "
+        f".garmin_tokens/garmin_login.json + Playwright are present. Detail: {detail}"
     )
 
 
