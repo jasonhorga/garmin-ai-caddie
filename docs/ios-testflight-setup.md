@@ -13,12 +13,14 @@ interactive Apple login. Same Apple account as gomoku (**Team `6HB84897DJ`**), s
    - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`  (App Store Connect API key, `.p8` content)
    - `MATCH_GIT_URL`, `MATCH_PASSWORD`, `MATCH_KEYCHAIN_PASSWORD`  (fastlane match)
    `match` stores multiple app identifiers in one repo, so gomoku's match repo works as-is.
-2. **Register the app in App Store Connect** once: an app record with bundle id
-   `com.ai-caddie.mobile`, Team `6HB84897DJ`. (The watch app `com.ai-caddie.mobile.watchkitapp`
-   needs only an App ID, which the bootstrap creates — no separate ASC record.)
-3. **Run the `iOS Signing Bootstrap` workflow** once (Actions → iOS Signing Bootstrap → Run
-   workflow). It creates/registers the app + watch certs and provisioning profiles into the
-   match repo.
+2. **Run the `iOS Signing Bootstrap` workflow** once (Actions → iOS Signing Bootstrap → Run
+   workflow). It now **auto-creates the App Store Connect app record** (via `create_app_online`
+   using the API key — no manual registration) for `com.ai-caddie.mobile`, registers the app +
+   watch App IDs, and writes the certs/profiles into the match repo. (Idempotent — safe if the
+   app already exists.)
+
+That's it — no manual App Store Connect form. After step 2, the app is registered and signing
+is ready.
 
 ## Shipping a build
 
