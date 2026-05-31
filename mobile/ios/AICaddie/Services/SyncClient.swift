@@ -156,6 +156,17 @@ public final class SyncClient {
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
     }
 
+    public func fetchCoursePrep(globalId: Int, render: Bool = true) async throws -> CoursePrepResponse {
+        let path = "/api/v2/courses/\(globalId)/prep" + (render ? "" : "?render=false")
+        var request = URLRequest(url: endpointURL(path))
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response)
+        return try decoder.decode(CoursePrepResponse.self, from: data)
+    }
+
     public func postEventBatch(
         _ events: [LiveRoundEvent],
         roundId: String,
