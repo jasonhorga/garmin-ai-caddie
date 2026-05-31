@@ -1,6 +1,7 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { CoursePrepClub, CoursePrepHole, CoursePrepOverlay, CoursePrepResponse } from '../types'
 import { fetchCoursePrep } from '../api'
+import { routeYardageReadout } from './coursePrepPanelLogic'
 
 type LoadState =
   | { status: 'idle' }
@@ -8,7 +9,6 @@ type LoadState =
   | { status: 'ready'; data: CoursePrepResponse }
   | { status: 'error'; message: string }
 
-const YARD = 1.09361
 const PAR_CLASS: Record<number, string> = { 3: '#4aa3d6', 4: '#3fae6b', 5: '#caa14a' }
 const SOURCE_LABEL: Record<string, string> = { played: '记分卡', official: '官方', estimate: '推算' }
 
@@ -45,26 +45,6 @@ function nearestCum(route: CoursePrepOverlay['route'], px: number, py: number): 
     }
   }
   return best
-}
-
-function toYards(metres: number): number {
-  return Math.round(metres * YARD)
-}
-
-export function routeYardageReadout(
-  overlay: CoursePrepOverlay,
-  cum: number,
-  hazardCum?: number,
-): { distT: number; toGreen: number; hazard?: number } {
-  const routeCum = Math.max(0, Math.min(overlay.ln, cum))
-  const out: { distT: number; toGreen: number; hazard?: number } = {
-    distT: toYards(routeCum),
-    toGreen: toYards(Math.max(0, overlay.ln - routeCum)),
-  }
-  if (hazardCum !== undefined) {
-    out.hazard = toYards(Math.abs(hazardCum - routeCum))
-  }
-  return out
 }
 
 function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub[] }): React.ReactElement {
@@ -166,7 +146,7 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
       ) : null}
       <ol style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>
         {hole.steps.map((step, i) => (
-          <li key={i}><b>{step.club ?? '?'}</b>　{step.note}</li>
+          <li key={i}><b>{step.club ?? '?'}</b> {step.note}</li>
         ))}
       </ol>
       {hole.cautions.length > 0 ? (

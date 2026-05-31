@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CoursePrepOverlay } from '../types'
-import { routeYardageReadout } from './CoursePrepPanel'
+import { routeYardageReadout } from './coursePrepPanelLogic'
 
 describe('routeYardageReadout', () => {
   it('uses route cumulative distance instead of straight-line chord distance', () => {
