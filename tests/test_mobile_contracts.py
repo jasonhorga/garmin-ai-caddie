@@ -1323,6 +1323,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
         self.assertIn("MediaUploadClient(baseURL:", current_hole)
 
+    def test_ios_course_prep_link_requires_real_course_global_id(self) -> None:
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+
+        self.assertIn("if let apiBaseURL, package.course.globalId != 0", round_home)
+        self.assertIn("globalId: package.course.globalId", round_home)
+        self.assertIn('Label("赛前球场 Prep", systemImage: "map")', round_home)
+
     def test_ios_clients_attach_admin_token_header_when_configured(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")

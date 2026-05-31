@@ -47,6 +47,26 @@ function nearestCum(route: CoursePrepOverlay['route'], px: number, py: number): 
   return best
 }
 
+function toYards(metres: number): number {
+  return Math.round(metres * YARD)
+}
+
+export function routeYardageReadout(
+  overlay: CoursePrepOverlay,
+  cum: number,
+  hazardCum?: number,
+): { distT: number; toGreen: number; hazard?: number } {
+  const routeCum = Math.max(0, Math.min(overlay.ln, cum))
+  const out: { distT: number; toGreen: number; hazard?: number } = {
+    distT: toYards(routeCum),
+    toGreen: toYards(Math.max(0, overlay.ln - routeCum)),
+  }
+  if (hazardCum !== undefined) {
+    out.hazard = toYards(Math.abs(hazardCum - routeCum))
+  }
+  return out
+}
+
 function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub[] }): React.ReactElement {
   const map = hole.map
   const overlay = map?.overlay
@@ -85,9 +105,8 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
     const tee = atCum(route, 0)
     const green = atCum(route, ln)
     const ball = atCum(route, cum)
-    const distT = Math.round((Math.hypot(ball.x - tee.x, ball.y - tee.y) / overlay.ppm) * YARD)
-    const toGreen = Math.round((Math.hypot(green.x - ball.x, green.y - ball.y) / overlay.ppm) * YARD)
-    readout = hole.par === 3 ? `开球 ${distT}y 一杆上果岭` : `距T ${distT}y · 到果岭 ${toGreen}y`
+    const distances = routeYardageReadout(overlay, cum)
+    readout = hole.par === 3 ? `开球 ${distances.distT}y 一杆上果岭` : `距T ${distances.distT}y · 到果岭 ${distances.toGreen}y`
     const haz = [
       ...hole.hazards.water_carry.map((w) => ({ cum: w[1], color: '#2f7fb0', label: '碳' })),
       ...hole.hazards.bunkers.filter((b) => b[1] <= 20).slice(0, 3).map((b) => ({ cum: b[0], color: '#caa14a', label: '沙' })),
@@ -109,7 +128,7 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
             <g key={i}>
               <circle cx={p.x} cy={p.y} r={5} fill={h.color} stroke="#fff" strokeWidth={2} />
               <text x={p.x + 7} y={p.y + 4} fontSize={12} fontWeight={700} fill="#fff" stroke="#000" strokeWidth={2.4} paintOrder="stroke">
-                {h.label}{Math.round((Math.hypot(p.x - ball.x, p.y - ball.y) / overlay.ppm) * YARD)}y
+                {h.label}{routeYardageReadout(overlay, cum, h.cum).hazard}y
               </text>
             </g>
           )

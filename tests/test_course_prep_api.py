@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -10,6 +11,17 @@ from server_v2.main import app
 class CoursePrepApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
+
+    def test_prep_endpoint_requires_admin_token_when_configured(self) -> None:
+        with patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}):
+            unauthorized = self.client.get("/api/v2/courses/31870/prep?render=false")
+            authorized = self.client.get(
+                "/api/v2/courses/31870/prep?render=false",
+                headers={"X-AI-Caddie-Admin-Token": "admin-secret"},
+            )
+
+        self.assertEqual(unauthorized.status_code, 401)
+        self.assertEqual(authorized.status_code, 200)
 
     def test_prep_endpoint_contract(self) -> None:
         resp = self.client.get("/api/v2/courses/31870/prep?render=false")

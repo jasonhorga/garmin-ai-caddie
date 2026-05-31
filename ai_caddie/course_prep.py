@@ -15,7 +15,7 @@ import math
 from dataclasses import asdict, dataclass, field
 
 from ai_caddie import course_reference, hole_render
-from ai_caddie.data import ROOT, mesh_path, read_json
+from ai_caddie.data import build_club_profiles, read_json
 
 YARD = 1.09361
 DEFAULT_LADDER = {  # metres; overridden by the player's real club model when available
@@ -148,13 +148,20 @@ def route_hazards(by: dict, route) -> dict:
 # ---------- club ladder (player's real distances) ----------
 
 def club_ladder(path=None) -> list[tuple[str, int]]:
-    """Median distance per club, longest-first. Reads the player's club file if present."""
+    """Median distance per club, longest-first, from product club profiles when available."""
     ladder = dict(DEFAULT_LADDER)
-    candidate = path or (ROOT / "output" / "yinhu_clubs.json")
     try:
-        if candidate.exists():
-            data = read_json(candidate)
+        if path is not None and path.exists():
+            data = read_json(path)
             ladder = {k: round(v["median"]) for k, v in data.items() if isinstance(v, dict) and v.get("median")}
+        else:
+            profiles = build_club_profiles()
+            if profiles:
+                ladder = {
+                    name: round(profile["median"])
+                    for name, profile in profiles.items()
+                    if isinstance(profile, dict) and profile.get("median")
+                }
     except Exception:
         pass
     return sorted(ladder.items(), key=lambda kv: -kv[1])
@@ -221,8 +228,9 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     ladder = ladder or club_ladder()
     if par_record is None:
         par_record = course_reference.load_course_par(global_id)
-    if par_record is not None:
-        par = par_record.par[local_hole - 1] if 0 <= local_hole - 1 < len(par_record.par) else course_reference.estimate_par_from_length(route_len)
+    par_idx = local_hole - 1
+    if par_record is not None and 0 <= par_idx < len(par_record.par):
+        par = par_record.par[par_idx]
         par_source = par_record.par_source
     else:
         par = course_reference.estimate_par_from_length(route_len)

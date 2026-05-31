@@ -141,6 +141,18 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
 
+    def test_testflight_fastfile_is_text_and_embeds_watch_target(self) -> None:
+        fastfile = Path("fastlane/Fastfile")
+        raw = fastfile.read_bytes()
+        self.assertNotIn(b"\x00", raw)
+        text = raw.decode("utf-8")
+        self.assertIn("build_app(", text)
+        self.assertIn("scheme: SCHEME", text)
+
+        project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
+        targets = project["schemes"]["AICaddie"]["build"]["targets"]
+        self.assertIn("AICaddieWatch", targets)
+
     def test_native_evidence_writer_is_documented_and_reused_by_ci(self) -> None:
         workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
         readme = Path("mobile/ios/README.md").read_text(encoding="utf-8")

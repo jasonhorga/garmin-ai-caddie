@@ -39,10 +39,6 @@ from garmin_auth import (
 ROOT = Path(__file__).parent
 LOGIN_FILE = TOKEN_DIR / "garmin_login.json"
 PROFILE_DIR = Path(os.getenv("AI_CADDIE_PW_PROFILE", os.path.expanduser("~/.cache/garmin_pw_profile")))
-CHROME = os.getenv(
-    "AI_CADDIE_CHROME",
-    "/home/ubuntu/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome",
-)
 SIGNIN_URL = "https://connect.garmin.cn/signin"
 GOLF_APP_URLS = ("https://connect.garmin.cn/app/golf", "https://connect.garmin.cn/modern/golf")
 GOLF_SUMMARY = (
@@ -62,6 +58,11 @@ _LAUNCH_ARGS = [
 def load_credentials(path: Path = LOGIN_FILE) -> tuple[str, str]:
     data = json.loads(Path(path).read_text())
     return data["email"].strip(), data["password"].strip()
+
+
+def chromium_executable_path() -> str | None:
+    """Optional Chromium override; None lets Playwright use its installed browser."""
+    return os.getenv("AI_CADDIE_CHROME") or None
 
 
 def _find_login_form(page, *, poll: int, wait_ms: int):
@@ -145,10 +146,17 @@ def _login_once() -> GarminWebAuth | None:
     email, password = load_credentials()
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(
-            str(PROFILE_DIR), headless=False, executable_path=CHROME, args=_LAUNCH_ARGS,
-            locale="zh-CN", timezone_id="Asia/Shanghai", viewport={"width": 1280, "height": 900},
-        )
+        launch_options = {
+            "headless": False,
+            "args": _LAUNCH_ARGS,
+            "locale": "zh-CN",
+            "timezone_id": "Asia/Shanghai",
+            "viewport": {"width": 1280, "height": 900},
+        }
+        chrome_path = chromium_executable_path()
+        if chrome_path:
+            launch_options["executable_path"] = chrome_path
+        ctx = p.chromium.launch_persistent_context(str(PROFILE_DIR), **launch_options)
         ctx.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
         try:
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -168,7 +176,7 @@ def mint_web_auth(*, attempts: int = 12, validate: bool = True) -> GarminWebAuth
     Returns a validated :class:`GarminWebAuth` (already saved) or ``None``.
     """
     if not os.getenv("DISPLAY"):
-        return _reexec_under_xvfb()
+        return _reexec_under_xvfb(validate=validate)
     for _ in range(attempts):
         try:
             auth = _login_once()
@@ -185,25 +193,28 @@ def mint_web_auth(*, attempts: int = 12, validate: bool = True) -> GarminWebAuth
     return None
 
 
-def _reexec_under_xvfb() -> GarminWebAuth | None:
+def _reexec_under_xvfb(*, validate: bool = True) -> GarminWebAuth | None:
     """Run this module's CLI under xvfb-run, then read the tokens it wrote."""
     if not shutil.which("xvfb-run"):
         return None
     cmd = ["xvfb-run", "-a", "--server-args=-screen 0 1280x1024x24",
            sys.executable, str(Path(__file__).resolve())]
+    if not validate:
+        cmd.append("--no-validate")
     try:
         subprocess.run(cmd, cwd=str(ROOT), timeout=1800, check=False)
     except Exception:
         return None
     from garmin_auth import _read_existing  # noqa: PLC0415
     auth = _read_existing()
-    if auth and validate_web_auth(auth)[0]:
+    if auth and (not validate or validate_web_auth(auth)[0]):
         return auth
     return None
 
 
 def main() -> int:
-    auth = mint_web_auth()
+    validate = "--no-validate" not in sys.argv[1:]
+    auth = mint_web_auth(validate=validate)
     if auth:
         print(f"[ok] minted Garmin web auth via {auth.source}; cookies={auth.cookie_count}; csrf=present")
         return 0

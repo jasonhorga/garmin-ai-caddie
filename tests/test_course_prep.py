@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from ai_caddie import course_prep as cp
+from ai_caddie.course_reference import CoursePar
 from ai_caddie.data import mesh_path
 
 
@@ -34,6 +36,31 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(cp.club_for(125, ladder)[0], "7I")
         self.assertEqual(cp.club_for(205, ladder)[0], "1W")
         self.assertEqual(cp.club_for(205, ladder, exclude=("1W",))[0], "7I")
+
+    def test_club_ladder_uses_product_club_profiles_before_default(self) -> None:
+        profiles = {
+            "7I": {"median": 133.6, "sampleSize": 12},
+            "PW": {"median": 101.2, "sampleSize": 9},
+        }
+        with patch("ai_caddie.course_prep.build_club_profiles", return_value=profiles):
+            self.assertEqual(cp.club_ladder(), [("7I", 134), ("PW", 101)])
+
+    def test_prep_hole_marks_out_of_range_par_record_as_estimate(self) -> None:
+        md = {"hole": {
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
+            "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 450.0}]}],
+        }}
+        with patch.object(cp.hole_render, "load_mesh", return_value=(md, {})):
+            prep = cp.prep_hole(
+                99999,
+                2,
+                ladder=[("1W", 200), ("7I", 128)],
+                par_record=CoursePar(global_id=99999, par=[4], par_source="played", confidence="high"),
+                render=False,
+            )
+        self.assertIsNotNone(prep)
+        self.assertEqual(prep.par, 5)
+        self.assertEqual(prep.par_source, "estimate")
 
     def test_par3_strategy_one_club_to_green(self) -> None:
         ladder = [("1W", 200), ("7I", 128), ("PW", 102)]

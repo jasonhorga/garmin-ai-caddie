@@ -99,7 +99,7 @@ public struct RoundHomeView: View {
                     } label: {
                         Label("Recent Review", systemImage: "chart.line.uptrend.xyaxis")
                     }
-                    if let apiBaseURL {
+                    if let apiBaseURL, package.course.globalId != 0 {
                         NavigationLink {
                             CourseReviewView(client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken), globalId: package.course.globalId)
                         } label: {

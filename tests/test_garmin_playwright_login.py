@@ -4,12 +4,42 @@ import json
 import os
 import tempfile
 import unittest
+from http.cookiejar import Cookie, CookieJar
 from pathlib import Path
 from unittest.mock import patch
 
 import garmin_auth
 import garmin_playwright_login as gpl
 from garmin_auth import GarminWebAuth
+
+
+def _cookie(name: str, value: str, domain: str = ".garmin.cn") -> Cookie:
+    return Cookie(
+        version=0,
+        name=name,
+        value=value,
+        port=None,
+        port_specified=False,
+        domain=domain,
+        domain_specified=True,
+        domain_initial_dot=domain.startswith("."),
+        path="/",
+        path_specified=True,
+        secure=False,
+        expires=None,
+        discard=True,
+        comment=None,
+        comment_url=None,
+        rest={},
+        rfc2109=False,
+    )
+
+
+def _jar(*cookies: Cookie) -> CookieJar:
+    jar = CookieJar()
+    for cookie in cookies:
+        jar.set_cookie(cookie)
+    return jar
 
 
 class FakeLocator:
@@ -96,7 +126,36 @@ class CredentialTests(unittest.TestCase):
         self.assertEqual(pw, "secret")
 
 
+class BrowserLaunchTests(unittest.TestCase):
+    def test_default_chromium_path_uses_playwright_discovery(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(gpl.chromium_executable_path())
+
+    def test_chromium_path_can_be_overridden_for_known_hosts(self) -> None:
+        with patch.dict(os.environ, {"AI_CADDIE_CHROME": "/custom/chrome"}):
+            self.assertEqual(gpl.chromium_executable_path(), "/custom/chrome")
+
+    def test_xvfb_reexec_preserves_validate_false(self) -> None:
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(gpl, "_reexec_under_xvfb", return_value=None) as reexec:
+            self.assertIsNone(gpl.mint_web_auth(validate=False))
+        reexec.assert_called_once_with(validate=False)
+
+
 class RefreshFallbackTests(unittest.TestCase):
+    def test_uses_first_valid_browser_source_without_touching_later_sources(self) -> None:
+        def sources():
+            yield "chrome", _jar(_cookie("SESSIONID", "abc"), _cookie("connect-csrf-token", "csrf-xyz"))
+            raise RuntimeError("late browser profile is locked")
+
+        with patch.object(garmin_auth, "_load_browser_cookie_sources", side_effect=sources), \
+                patch.object(garmin_auth, "save_web_auth") as save:
+            auth = garmin_auth.refresh_web_auth(validate=False)
+
+        self.assertEqual(auth.source, "chrome")
+        self.assertEqual(auth.csrf_token, "csrf-xyz")
+        save.assert_called_once_with(auth)
+
     def test_falls_back_to_playwright_when_no_browser_cookies(self) -> None:
         minted = GarminWebAuth("c=1", "csrf", "playwright", 1)
         with patch.object(garmin_auth, "_load_browser_cookie_sources", return_value=iter([])), \

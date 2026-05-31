@@ -157,8 +157,13 @@ public final class SyncClient {
     }
 
     public func fetchCoursePrep(globalId: Int, render: Bool = true) async throws -> CoursePrepResponse {
-        let path = "/api/v2/courses/\(globalId)/prep" + (render ? "" : "?render=false")
-        var request = URLRequest(url: endpointURL(path))
+        var url = endpointURL("/api/v2/courses/\(globalId)/prep")
+        if !render {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = [URLQueryItem(name: "render", value: "false")]
+            url = components?.url ?? url
+        }
+        var request = URLRequest(url: url)
         if let adminToken {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }

@@ -23,6 +23,8 @@ targets:
           - Fixtures
     resources:
       - path: mobile/ios/AICaddie/Fixtures
+    dependencies:
+      - target: AICaddieWatch
     info:
       path: AICaddie/Info.plist
     settings:
@@ -73,6 +75,7 @@ schemes:
     build:
       targets:
         AICaddie: all
+        AICaddieWatch: all
         AICaddieTests: [test]
     test:
       targets:

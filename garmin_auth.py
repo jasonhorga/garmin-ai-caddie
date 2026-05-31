@@ -195,27 +195,25 @@ def refresh_web_auth(*, validate: bool = True) -> GarminWebAuth:
     # Skip the desktop-browser path entirely when explicitly asked to use Playwright.
     if os.getenv("AI_CADDIE_AUTH_REFRESH", "").lower() != "playwright":
         try:
-            sources = list(_load_browser_cookie_sources())
-        except RuntimeError as exc:
-            sources = []
-            failures.append(str(exc).splitlines()[0])
-        for source, jar in sources:
-            cookie_header, csrf_cookie, count = _cookie_header_from_jar(jar)
-            if not cookie_header:
-                failures.append(f"{source}: no garmin.cn cookies")
-                continue
-            csrf = _csrf_from_existing_or_html(cookie_header, csrf_cookie)
-            if not csrf:
-                failures.append(f"{source}: no csrf token")
-                continue
-            auth = GarminWebAuth(cookie_header, csrf, source, count)
-            if validate:
-                ok, status = validate_web_auth(auth)
-                if not ok:
-                    failures.append(f"{source}: validation status {status}")
+            for source, jar in _load_browser_cookie_sources():
+                cookie_header, csrf_cookie, count = _cookie_header_from_jar(jar)
+                if not cookie_header:
+                    failures.append(f"{source}: no garmin.cn cookies")
                     continue
-            save_web_auth(auth)
-            return auth
+                csrf = _csrf_from_existing_or_html(cookie_header, csrf_cookie)
+                if not csrf:
+                    failures.append(f"{source}: no csrf token")
+                    continue
+                auth = GarminWebAuth(cookie_header, csrf, source, count)
+                if validate:
+                    ok, status = validate_web_auth(auth)
+                    if not ok:
+                        failures.append(f"{source}: validation status {status}")
+                        continue
+                save_web_auth(auth)
+                return auth
+        except RuntimeError as exc:
+            failures.append(str(exc).splitlines()[0])
     # Headless durable fallback: re-login with a real Chromium (Playwright + xvfb).
     auth = _try_playwright_refresh(validate=validate)
     if auth is not None:
