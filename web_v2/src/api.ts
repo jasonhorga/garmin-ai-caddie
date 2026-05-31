@@ -10,6 +10,7 @@ import type {
   CaddieDecisionAuditRequest,
   CaddieDecisionAuditStoreResponse,
   CaddieDecisionResponse,
+  CoursePrepResponse,
   HistoryOverviewResponse,
   HistoryDrilldownResponse,
   HistoryRoundDetailResponse,
@@ -100,6 +101,18 @@ function appendParam(query: URLSearchParams, key: string, value: string | number
 
 export function fetchHistoryOverview(adminToken?: string): Promise<HistoryOverviewResponse> {
   return getJson<HistoryOverviewResponse>('/api/v2/history/overview', adminToken)
+}
+
+export function fetchCoursePrep(
+  globalId: number,
+  opts?: { holes?: number[]; render?: boolean },
+  adminToken?: string,
+): Promise<CoursePrepResponse> {
+  const params = new URLSearchParams()
+  for (const hole of opts?.holes ?? []) params.append('holes', String(hole))
+  if (opts?.render === false) params.set('render', 'false')
+  const query = params.toString()
+  return getJson<CoursePrepResponse>(`/api/v2/courses/${globalId}/prep${query ? `?${query}` : ''}`, adminToken)
 }
 
 export function fetchCaddieDecision(request: CaddieDecisionRequest, adminToken?: string): Promise<CaddieDecisionResponse> {
