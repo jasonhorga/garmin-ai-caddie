@@ -103,7 +103,7 @@ public struct RoundHomeView: View {
                         NavigationLink {
                             CourseReviewView(client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken), globalId: package.course.globalId)
                         } label: {
-                            Label("赛前球场 Prep", systemImage: "map")
+                            Label("赛前攻略", systemImage: "map")
                         }
                     }
                 }

@@ -1,7 +1,7 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { CoursePrepClub, CoursePrepHole, CoursePrepOverlay, CoursePrepResponse } from '../types'
 import { fetchCoursePrep } from '../api'
-import { routeYardageReadout } from './coursePrepPanelLogic'
+import { routeIntervalReadout, routeYardageReadout } from './coursePrepPanelLogic'
 
 type LoadState =
   | { status: 'idle' }
@@ -11,6 +11,23 @@ type LoadState =
 
 const PAR_CLASS: Record<number, string> = { 3: '#4aa3d6', 4: '#3fae6b', 5: '#caa14a' }
 const SOURCE_LABEL: Record<string, string> = { played: '记分卡', official: '官方', estimate: '推算' }
+
+type HazardMarker =
+  | { kind: 'water'; start: number; end: number; cum: number; color: string }
+  | { kind: 'bunker'; cum: number; color: string; label: string }
+
+function waterCarryLabel(overlay: CoursePrepOverlay, cum: number, start: number, end: number): string {
+  const readout = routeIntervalReadout(overlay, cum, start, end)
+  if (readout.isCleared) return '水已过'
+  if (readout.isInside) return `水中过${readout.toClear}y`
+  return `水 进${readout.toStart}y / 过${readout.toClear}y`
+}
+
+function pointHazardLabel(overlay: CoursePrepOverlay, cum: number, hazardCum: number, label: string): string {
+  const readout = routeIntervalReadout(overlay, cum, hazardCum, hazardCum)
+  if (readout.isCleared) return `${label}已过`
+  return `${label}${readout.toStart}y`
+}
 
 function atCum(route: CoursePrepOverlay['route'], cum: number): { x: number; y: number } {
   for (let i = 0; i < route.length - 1; i += 1) {
@@ -64,7 +81,7 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
       </span>
       <span style={{ fontSize: 12, color: '#667' }}>{hole.blue_yards}y 蓝T</span>
       <span style={{ fontSize: 10, color: '#8a8f98', border: '1px dotted #aab', borderRadius: 8, padding: '0 5px' }}>
-        {SOURCE_LABEL[hole.par_source] ?? hole.par_source}
+        Par 来源：{SOURCE_LABEL[hole.par_source] ?? hole.par_source}
       </span>
     </div>
   )
@@ -87,9 +104,9 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
     const ball = atCum(route, cum)
     const distances = routeYardageReadout(overlay, cum)
     readout = hole.par === 3 ? `开球 ${distances.distT}y 一杆上果岭` : `距T ${distances.distT}y · 到果岭 ${distances.toGreen}y`
-    const haz = [
-      ...hole.hazards.water_carry.map((w) => ({ cum: w[1], color: '#2f7fb0', label: '碳' })),
-      ...hole.hazards.bunkers.filter((b) => b[1] <= 20).slice(0, 3).map((b) => ({ cum: b[0], color: '#caa14a', label: '沙' })),
+    const haz: HazardMarker[] = [
+      ...hole.hazards.water_carry.map((w) => ({ kind: 'water' as const, start: w[0], end: w[1], cum: w[1], color: '#2f7fb0' })),
+      ...hole.hazards.bunkers.filter((b) => b[1] <= 20).slice(0, 3).map((b) => ({ kind: 'bunker' as const, cum: b[0], color: '#caa14a', label: '沙' })),
     ]
     overlaySvg = (
       <svg
@@ -108,7 +125,9 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
             <g key={i}>
               <circle cx={p.x} cy={p.y} r={5} fill={h.color} stroke="#fff" strokeWidth={2} />
               <text x={p.x + 7} y={p.y + 4} fontSize={12} fontWeight={700} fill="#fff" stroke="#000" strokeWidth={2.4} paintOrder="stroke">
-                {h.label}{routeYardageReadout(overlay, cum, h.cum).hazard}y
+                {h.kind === 'water'
+                  ? waterCarryLabel(overlay, cum, h.start, h.end)
+                  : pointHazardLabel(overlay, cum, h.cum, h.label)}
               </text>
             </g>
           )
@@ -146,7 +165,7 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
       ) : null}
       <ol style={{ margin: '4px 0', paddingLeft: 18, fontSize: 13 }}>
         {hole.steps.map((step, i) => (
-          <li key={i}><b>{step.club ?? '?'}</b> {step.note}</li>
+          <li key={i}>{step.club ? <><b>{step.club}</b> {step.note}</> : step.note}</li>
         ))}
       </ol>
       {hole.cautions.length > 0 ? (
@@ -179,9 +198,9 @@ export function CoursePrepPanel({ adminToken, defaultGlobalId = 31870 }: { admin
 
   return (
     <section style={{ marginTop: 16 }}>
-      <h2 style={{ fontSize: 16 }}>赛前球场 Prep</h2>
+      <h2 style={{ fontSize: 16 }}>赛前球场攻略</h2>
       <p style={{ fontSize: 12, color: '#667', margin: '2px 0 8px' }}>
-        每洞 par（标注来源）、球洞图、用你真实杆距给的打法；拖动橙点或点球杆看码数。
+        默认蓝T；每洞显示 Par 来源、球洞图、路线码数和水障碍/沙坑距离，并结合你的真实杆距生成打法。
       </p>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10 }}>
         <label style={{ fontSize: 13 }}>球场 globalId</label>

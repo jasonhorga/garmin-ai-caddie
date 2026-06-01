@@ -1328,7 +1328,27 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("if let apiBaseURL, package.course.globalId != 0", round_home)
         self.assertIn("globalId: package.course.globalId", round_home)
-        self.assertIn('Label("赛前球场 Prep", systemImage: "map")', round_home)
+        self.assertIn('Label("赛前攻略", systemImage: "map")', round_home)
+
+    def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
+        course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
+        course_prep = _read_required_source(self, IOS_DIR / "Models" / "CoursePrep.swift")
+
+        self.assertIn("struct CoursePrepHazardIntervalReadout: Equatable", course_prep)
+        self.assertIn("enum CoursePrepRoute", course_prep)
+        self.assertIn("intervalReadout(currentMetres:", course_prep)
+        self.assertIn("yards(fromMetres:", course_prep)
+
+        self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
+        self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
+        self.assertIn('Text("Par 来源：\\(sourceLabel)")', course_review)
+        self.assertIn("CoursePrepRoute.intervalReadout", course_review)
+        self.assertIn("水障碍：进", course_review)
+        self.assertIn("沙坑：约", course_review)
+        self.assertIn("沙坑：已过", course_review)
+        self.assertIn("bunker[0] >= current", course_review)
+        self.assertNotIn("abs(bunker[0] - current)", course_review)
+        self.assertNotIn('?? "?"', course_review)
 
     def test_ios_clients_attach_admin_token_header_when_configured(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")

@@ -31,9 +31,11 @@ class CoursePrepApiTests(unittest.TestCase):
         self.assertEqual(body["globalId"], 31870)
         self.assertIsInstance(body["holes"], list)
         self.assertEqual(body["holeCount"], len(body["holes"]))
+        self.assertTrue(all({"name", "m", "yd"} <= set(club) for club in body["clubs"]))
         for hole in body["holes"]:  # shape holds whether or not geometry is cached
             self.assertIn("par", hole)
             self.assertIn(hole["par_source"], {"played", "official", "estimate"})
+            self.assertIn("blue_yards", hole)
             self.assertIn("hazards", hole)
 
     def test_holes_query_filter(self) -> None:
