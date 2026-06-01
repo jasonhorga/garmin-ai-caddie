@@ -1,0 +1,54 @@
+name: iOS Signing Bootstrap (one-time)
+
+# Run once (manually) after the 6 signing secrets are set, to create/register the app +
+# watch certificates and provisioning profiles into the fastlane match repo. Mirrors
+# gomoku's signing-bootstrap. Safe to re-run; it refreshes the match assets.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-signing-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Validate signing secrets
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
+        run: |
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY MATCH_GIT_URL MATCH_PASSWORD MATCH_KEYCHAIN_PASSWORD; do
+            eval "val=\${$v}"
+            test -n "$val" || { echo "❌ Missing secret: $v"; exit 1; }
+          done
+          echo "✅ all 6 signing secrets present"
+
+      - name: fastlane bootstrap_signing
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
+        run: bundle exec fastlane ios bootstrap_signing

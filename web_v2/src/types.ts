@@ -906,3 +906,46 @@ export interface AnnotationListResponse {
   annotations: AnnotationRecord[]
   target: { targetType: AnnotationTargetType; targetId: string } | null
 }
+
+export type ParSource = 'played' | 'official' | 'estimate'
+
+export interface CoursePrepOverlay {
+  w: number
+  h: number
+  ppm: number
+  ln: number
+  route: Array<[number, number, number]> // [px, py, cumMetres]
+}
+
+export interface CoursePrepStep {
+  club: string | null
+  note: string
+}
+
+export interface CoursePrepHole {
+  hole: number
+  par: number
+  par_source: ParSource
+  blue_yards: number
+  route_len_m: number
+  steps: CoursePrepStep[]
+  cautions: string[]
+  landing_m: number | null
+  tee_club: string | null
+  hazards: { water_carry: Array<[number, number]>; bunkers: Array<[number, number]> }
+  map?: { image: string; overlay: CoursePrepOverlay }
+}
+
+export interface CoursePrepClub {
+  name: string
+  m: number
+  yd: number
+}
+
+export interface CoursePrepResponse {
+  schema: 'ai-caddie-course-prep-v1'
+  globalId: number
+  holeCount: number
+  clubs: CoursePrepClub[]
+  holes: CoursePrepHole[]
+}

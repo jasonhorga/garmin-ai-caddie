@@ -205,6 +205,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
             or path == "/api/v2/mobile/courses/options"
             or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
+            or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/replay"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
         )
@@ -386,6 +387,29 @@ def geometry_hole_map(
     source_ref: str | None = None,
 ) -> HoleMapResponse:
     return load_hole_map_response(global_id, local_hole, provider=provider, source_ref=source_ref)
+
+
+@app.get("/api/v2/courses/{global_id}/prep")
+def course_prep_nine(
+    global_id: int,
+    holes: list[int] | None = Query(default=None),
+    render: bool = True,
+) -> dict:
+    """Pre-round prep for a nine: per-hole par (labelled source) + route + hazard carries +
+    strategy from the player's club ladder + (when render=true) a styled map image + overlay.
+    Holes without cached geometry are skipped. render=false returns facts only (lightweight)."""
+    from ai_caddie import course_prep
+
+    requested = holes or list(range(1, 10))
+    ladder = course_prep.club_ladder()
+    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render)
+    return {
+        "schema": "ai-caddie-course-prep-v1",
+        "globalId": int(global_id),
+        "holeCount": len(nine),
+        "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
+        "holes": nine,
+    }
 
 
 @app.post("/api/v2/geometry/hole/{global_id}/{local_hole}/ensure", response_model=GeometryEnsureResponse)
