@@ -2234,15 +2234,32 @@ def _course_toughest_holes(
     out: list[dict[str, Any]] = []
     for number, values in grouped.items():
         refs = _source_refs(values["refs"])
+        refs_set = set(refs)
         deltas = values["deltas"]
-        issue_refs: dict[tuple[str, str], list[str]] = defaultdict(list)
+        # values["issues"] holds one entry per (round x issue) at this hole, but
+        # _course_issue_profile emits a single object per (issue, source) -- so every
+        # occurrence of a given key is the SAME object with identical sourceRefs.
+        # Compute each key's matching refs once and repeat by its occurrence count:
+        # this reproduces the original list exactly (order, length, and the
+        # duplicate-inflated count), while replacing the per-ref O(len(refs))
+        # startswith(tuple(...)) -- which rebuilt the prefix tuple for every ref -- with
+        # an O(1) _ref_hole_ref membership test. (That genexpr was the dominant cost on
+        # real data: 967M evaluations / ~128s for build_history_stats on 435 rounds.)
+        occurrences: dict[tuple[str, str], int] = defaultdict(int)
+        issue_by_key: dict[tuple[str, str], dict[str, Any]] = {}
         for issue in values["issues"]:
-            issue_key = str(issue.get("issue") or "")
-            source = str(issue.get("source") or "deterministic")
-            for ref in issue.get("sourceRefs") or []:
-                ref_text = str(ref)
-                if ref_text.startswith(tuple(f"{hole_ref}:" for hole_ref in refs)) or ref_text in refs:
-                    issue_refs[(issue_key, source)].append(ref_text)
+            key = (str(issue.get("issue") or ""), str(issue.get("source") or "deterministic"))
+            occurrences[key] += 1
+            issue_by_key.setdefault(key, issue)
+        issue_refs: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for key, issue in issue_by_key.items():
+            matching = [
+                str(ref)
+                for ref in (issue.get("sourceRefs") or [])
+                if _ref_hole_ref(str(ref)) in refs_set
+            ]
+            if matching:
+                issue_refs[key] = matching * occurrences[key]
         out.append(
             _with_aggregate_contract(
                 {
