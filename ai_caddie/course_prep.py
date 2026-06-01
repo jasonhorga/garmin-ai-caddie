@@ -208,7 +208,7 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
             steps.append({"club": ap_club, "note": f"剩约 {yd(remaining)}y 上果岭"})
     for w in hazards.get("water_carry") or []:
         if w[0] < route_len_m - 5:
-            cautions.append(f"水障：需越过约 {yd(w[0])}–{yd(w[1])}y")
+            cautions.append(f"水障碍：进水前约 {yd(w[0])}y，过水需 {yd(w[1])}y")
     for cum, side in hazards.get("bunkers") or []:
         if cum >= route_len_m - 45 and side <= 25:
             cautions.append(f"果岭边沙坑（约 {yd(cum)}y）——别短别偏")

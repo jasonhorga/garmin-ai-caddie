@@ -34,6 +34,42 @@ public struct CoursePrepMap: Codable, Equatable {
     public let overlay: CoursePrepOverlay
 }
 
+public struct CoursePrepHazardIntervalReadout: Equatable {
+    public let toStartYards: Int
+    public let toClearYards: Int
+    public let isBehind: Bool
+    public let isInside: Bool
+    public let isCleared: Bool
+
+    public init(toStartYards: Int, toClearYards: Int, isBehind: Bool, isInside: Bool, isCleared: Bool) {
+        self.toStartYards = toStartYards
+        self.toClearYards = toClearYards
+        self.isBehind = isBehind
+        self.isInside = isInside
+        self.isCleared = isCleared
+    }
+}
+
+public enum CoursePrepRoute {
+    private static let yard = 1.09361
+
+    public static func yards(fromMetres metres: Double) -> Int {
+        Int((metres * yard).rounded())
+    }
+
+    public static func intervalReadout(currentMetres: Double, startMetres: Double, endMetres: Double) -> CoursePrepHazardIntervalReadout {
+        let start = min(startMetres, endMetres)
+        let end = max(startMetres, endMetres)
+        return CoursePrepHazardIntervalReadout(
+            toStartYards: yards(fromMetres: max(0, start - currentMetres)),
+            toClearYards: yards(fromMetres: max(0, end - currentMetres)),
+            isBehind: currentMetres < start,
+            isInside: currentMetres >= start && currentMetres <= end,
+            isCleared: currentMetres > end
+        )
+    }
+}
+
 public struct CoursePrepHazards: Codable, Equatable {
     public let waterCarry: [[Double]]
     public let bunkers: [[Double]]

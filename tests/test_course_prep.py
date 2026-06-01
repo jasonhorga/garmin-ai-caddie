@@ -8,6 +8,19 @@ from ai_caddie.course_reference import CoursePar
 from ai_caddie.data import mesh_path
 
 
+def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float) -> dict:
+    """Rectangle in local hole metres, encoded like decoded prodgeometry positions."""
+    return {
+        "positions": [
+            [-min_x, 0.0, min_y],
+            [-max_x, 0.0, min_y],
+            [-max_x, 0.0, max_y],
+            [-min_x, 0.0, max_y],
+        ],
+        "faces": [[0, 1, 2], [0, 2, 3]],
+    }
+
+
 class PureLogicTests(unittest.TestCase):
     def test_xy_handles_dict_and_list(self) -> None:
         self.assertEqual(cp._xy({"X": 1.0, "Y": 2.0}), (1.0, 2.0))
@@ -80,6 +93,25 @@ class PureLogicTests(unittest.TestCase):
         a, b, c = (0, 0), (10, 0), (0, 10)
         self.assertTrue(cp._in_tri((2, 2), a, b, c))
         self.assertFalse(cp._in_tri((9, 9), a, b, c))
+
+    def test_route_hazards_reports_route_cumulative_water_interval_and_bunker(self) -> None:
+        route = [(0.0, 0.0), (0.0, 100.0)]
+        hazards = cp.route_hazards({
+            "Lake.drc": _rect_mesh(-5.0, 40.0, 5.0, 60.0),
+            "Bunker.drc": _rect_mesh(8.0, 78.0, 12.0, 82.0),
+        }, route)
+
+        self.assertEqual(hazards["water_carry"], [[40.0, 60.0]])
+        self.assertEqual(len(hazards["bunkers"]), 1)
+        bunker_cum, bunker_side = hazards["bunkers"][0]
+        self.assertEqual(bunker_cum, 80.0)
+        self.assertAlmostEqual(bunker_side, 10.0, places=1)
+
+    def test_strategy_water_caution_names_enter_and_clear_yardages(self) -> None:
+        ladder = [("1W", 200), ("7I", 128), ("PW", 102)]
+        _steps, cautions, _landing, _tee = cp._strategy(4, 300, {"water_carry": [[40.0, 60.0]], "bunkers": []}, ladder)
+
+        self.assertEqual(cautions, ["水障碍：进水前约 44y，过水需 66y"])
 
 
 class GeometryBackedTests(unittest.TestCase):

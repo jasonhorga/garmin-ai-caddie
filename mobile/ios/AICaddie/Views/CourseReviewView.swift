@@ -32,7 +32,7 @@ public struct CourseReviewView: View {
             }
             .padding()
         }
-        .navigationTitle("赛前球场")
+        .navigationTitle("赛前球场攻略")
         .task { await load() }
     }
 
@@ -60,9 +60,9 @@ struct HolePrepCard: View {
                     .font(.caption).bold()
                     .padding(.horizontal, 8).padding(.vertical, 2)
                     .background(parColor).foregroundColor(.white).clipShape(Capsule())
-                Text("\(hole.blueYards)y").font(.caption).foregroundColor(.secondary)
+                Text("蓝T \(hole.blueYards)y").font(.caption).foregroundColor(.secondary)
                 Spacer()
-                Text(sourceLabel).font(.caption2).foregroundColor(.secondary)
+                Text("Par 来源：\(sourceLabel)").font(.caption2).foregroundColor(.secondary)
             }
             #if canImport(UIKit)
             if let image = holeImage {
@@ -71,7 +71,10 @@ struct HolePrepCard: View {
             }
             #endif
             ForEach(Array(hole.steps.enumerated()), id: \.offset) { _, step in
-                Text("• \(step.club ?? "?")  \(step.note)").font(.subheadline)
+                Text(step.club.map { "• \($0)  \(step.note)" } ?? "• \(step.note)").font(.subheadline)
+            }
+            ForEach(Array(hazardSummaries.enumerated()), id: \.offset) { _, summary in
+                Text(summary).font(.caption).foregroundColor(.secondary)
             }
             ForEach(Array(hole.cautions.enumerated()), id: \.offset) { _, caution in
                 Text("⚠︎ \(caution)").font(.caption).foregroundColor(.orange)
@@ -97,6 +100,35 @@ struct HolePrepCard: View {
         case "official": return "官方"
         default: return "推算"
         }
+    }
+
+    private var routeCurrentMetres: Double {
+        if let landing = hole.landingM { return landing }
+        return hole.par == 3 ? hole.routeLenM : hole.routeLenM * 0.55
+    }
+
+    private var hazardSummaries: [String] {
+        let current = routeCurrentMetres
+        var summaries: [String] = []
+        for water in hole.hazards.waterCarry where water.count >= 2 {
+            let readout = CoursePrepRoute.intervalReadout(currentMetres: current, startMetres: water[0], endMetres: water[1])
+            if readout.isCleared {
+                summaries.append("水障碍：已过")
+            } else if readout.isInside {
+                summaries.append("水障碍：过水还需 \(readout.toClearYards)y")
+            } else {
+                summaries.append("水障碍：进 \(readout.toStartYards)y，过 \(readout.toClearYards)y")
+            }
+        }
+        for bunker in hole.hazards.bunkers where bunker.count >= 2 && bunker[1] <= 20 {
+            if bunker[0] >= current {
+                let yards = CoursePrepRoute.yards(fromMetres: bunker[0] - current)
+                summaries.append("沙坑：约 \(yards)y")
+            } else {
+                summaries.append("沙坑：已过")
+            }
+        }
+        return summaries
     }
 
     private var cardBackground: Color {

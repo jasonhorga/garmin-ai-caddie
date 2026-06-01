@@ -46,4 +46,17 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertNil(hole.map)
         XCTAssertEqual(hole.hazards.waterCarry.first, [40.0, 90.0])
     }
+
+    func testCoursePrepRouteIntervalReadoutUsesYards() throws {
+        XCTAssertEqual(CoursePrepRoute.yards(fromMetres: 100), 109)
+
+        let before = CoursePrepRoute.intervalReadout(currentMetres: 70, startMetres: 100, endMetres: 130)
+        XCTAssertEqual(before, CoursePrepHazardIntervalReadout(toStartYards: 33, toClearYards: 66, isBehind: true, isInside: false, isCleared: false))
+
+        let inside = CoursePrepRoute.intervalReadout(currentMetres: 110, startMetres: 100, endMetres: 130)
+        XCTAssertEqual(inside, CoursePrepHazardIntervalReadout(toStartYards: 0, toClearYards: 22, isBehind: false, isInside: true, isCleared: false))
+
+        let cleared = CoursePrepRoute.intervalReadout(currentMetres: 150, startMetres: 100, endMetres: 130)
+        XCTAssertEqual(cleared, CoursePrepHazardIntervalReadout(toStartYards: 0, toClearYards: 0, isBehind: false, isInside: false, isCleared: true))
+    }
 }
