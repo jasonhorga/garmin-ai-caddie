@@ -118,9 +118,9 @@ describe('HistoryRoundDetailPanel', () => {
     render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
 
     const summary = screen.getByLabelText('Round shot summary')
-    expect(summary).toHaveTextContent('42')
+    expect(summary).toHaveTextContent('Recorded shots 42')
     // both fixture holes carry shotRefs, so 2 holes have recorded shots
-    expect(summary).toHaveTextContent('2')
+    expect(summary).toHaveTextContent('Holes with shots 2')
   })
 
   it('omits the issue tags and shot summary sections when there is no data', () => {
