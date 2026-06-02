@@ -20,7 +20,7 @@ class ServerV2DataSourceTests(unittest.TestCase):
 
     def test_local_mode_returns_local_mode_even_when_empty(self) -> None:
         with patch(
-            "server_v2.data_source.load_history_data",
+            "server_v2.data_source.cached_load_history_data",
             return_value=HistoryData(raw_rounds=[], rounds=[], shots=[]),
         ):
             data, mode = load_history_data_for_mode("local")
@@ -30,7 +30,7 @@ class ServerV2DataSourceTests(unittest.TestCase):
 
     def test_local_or_fixture_uses_fixture_when_local_has_no_rounds(self) -> None:
         with patch(
-            "server_v2.data_source.load_history_data",
+            "server_v2.data_source.cached_load_history_data",
             return_value=HistoryData(raw_rounds=[], rounds=[], shots=[]),
         ), patch("server_v2.data_source.load_latest_snapshot_history", return_value=None):
             data, mode = load_history_data_for_mode("local_or_fixture")
@@ -45,7 +45,7 @@ class ServerV2DataSourceTests(unittest.TestCase):
             shots=[{"roundId": "snap-round", "club": "8I"}],
         )
         with (
-            patch("server_v2.data_source.load_history_data", return_value=HistoryData(raw_rounds=[], rounds=[], shots=[])),
+            patch("server_v2.data_source.cached_load_history_data", return_value=HistoryData(raw_rounds=[], rounds=[], shots=[])),
             patch("server_v2.data_source.load_latest_snapshot_history", return_value=snapshot),
         ):
             data, mode = load_history_data_for_mode("local_or_fixture")
@@ -56,7 +56,7 @@ class ServerV2DataSourceTests(unittest.TestCase):
 
     def test_local_or_fixture_keeps_local_when_rounds_exist(self) -> None:
         local = HistoryData(raw_rounds=[{"id": 1}], rounds=[{"id": 1}], shots=[])
-        with patch("server_v2.data_source.load_history_data", return_value=local):
+        with patch("server_v2.data_source.cached_load_history_data", return_value=local):
             data, mode = load_history_data_for_mode("local_or_fixture")
 
         self.assertEqual(mode, "local")

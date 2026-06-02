@@ -12,7 +12,8 @@ from ai_caddie.annotations import annotations_for_target, list_annotations
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
-from ai_caddie.history_stats import _effective_score_data, build_history_stats
+from ai_caddie.history_stats import _effective_score_data
+from ai_caddie.stats_cache import cached_build_history_stats
 from ai_caddie.llm_providers import redact_secret_text
 from ai_caddie.weather_context import (
     WeatherTransport,
@@ -1427,7 +1428,7 @@ def build_live_round_package(
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
     annotations = list_annotations(root=annotation_lookup_root)
     scored_source = _effective_score_data(source, annotations)
-    stats = build_history_stats(
+    stats = cached_build_history_stats(
         source,
         data_mode=data_mode,
         annotations_root=annotation_lookup_root,
