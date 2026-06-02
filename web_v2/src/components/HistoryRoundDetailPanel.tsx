@@ -46,6 +46,26 @@ function annotationSummary(record: AnnotationRecord): string {
   return valueText(record.payload)
 }
 
+const ISSUE_TAG_KINDS = new Set<AnnotationRecord['kind']>(['issue_tag', 'issue_tag_removed'])
+
+// Resolve the issue tags that are currently active for the round: an `issue_tag`
+// record adds a tag and a later `issue_tag_removed` record retracts it. The most
+// recent record for a given tag wins, matching the IssueStats / history_stats logic.
+function activeIssueTags(records: AnnotationRecord[]): string[] {
+  const ordered = [...records]
+    .filter((record) => ISSUE_TAG_KINDS.has(record.kind))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const active = new Map<string, boolean>()
+  const seenOrder: string[] = []
+  for (const record of ordered) {
+    const tag = compactValue(record.payload.tag)
+    if (!tag) continue
+    if (!active.has(tag)) seenOrder.push(tag)
+    active.set(tag, record.kind === 'issue_tag')
+  }
+  return seenOrder.filter((tag) => active.get(tag))
+}
+
 function RoundFacts({ data }: { data: HistoryRoundDetailResponse }) {
   const round = data.round ?? {}
   const coverage = typeof round.coverage === 'object' && round.coverage !== null ? round.coverage as Record<string, unknown> : {}
@@ -210,13 +230,58 @@ function MissingDataRows({ rows }: { rows: Array<Record<string, unknown>> }) {
   )
 }
 
+function IssueTags({ annotations }: { annotations: AnnotationRecord[] }) {
+  const tags = activeIssueTags(annotations)
+  if (tags.length === 0) return null
+  return (
+    <section className="round-detail-section" aria-label="Round issue tags">
+      <h3>Issue Tags</h3>
+      <div className="fact-array">
+        {tags.map((tag) => (
+          <span key={tag} className="fact-chip">
+            {tag}
+          </span>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ShotSummary({ data }: { data: HistoryRoundDetailResponse }) {
+  const round = data.round ?? {}
+  const shotCount = typeof round.shotCount === 'number' ? round.shotCount : 0
+  const holesWithShots = data.scorecard.filter((cell) => cell.shotRefs.length > 0).length
+  const holesWithRoute = data.scorecard.filter((cell) => cell.shotRefs.length > 0 && cell.globalId != null && cell.localHole != null).length
+  if (shotCount === 0 && holesWithShots === 0) return null
+  const facts: Array<[string, string]> = [
+    ['Recorded shots', String(shotCount)],
+    ['Holes with shots', String(holesWithShots)],
+    ['Holes with route map', String(holesWithRoute)],
+  ]
+  return (
+    <section className="round-detail-section" aria-label="Round shot summary">
+      <h3>Shot Summary</h3>
+      <div className="fact-array">
+        {facts.map(([label, value]) => (
+          <span key={label} className="fact-chip">
+            {label} {value}
+          </span>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function AnnotationRows({ title, rows }: { title: string; rows: AnnotationRecord[] }) {
-  if (rows.length === 0) return null
+  // Issue tags are surfaced in their own IssueTags section, so keep them out of
+  // the generic annotation list to avoid showing the same tag twice.
+  const visible = rows.filter((row) => !ISSUE_TAG_KINDS.has(row.kind))
+  if (visible.length === 0) return null
   return (
     <section className="round-detail-section" aria-label={title}>
       <h3>{title}</h3>
       <div className="drilldown-rows">
-        {rows.map((row) => (
+        {visible.map((row) => (
           <div key={row.id} className="drilldown-row">
             <span>{row.kind}</span>
             <b>{annotationSummary(row)}</b>
@@ -497,7 +562,9 @@ export function HistoryRoundDetailPanel({
       </div>
 
       {data.found ? <RoundFacts data={data} /> : null}
+      {data.found ? <IssueTags annotations={data.annotations ?? []} /> : null}
       <ScorecardGrid data={data} onSelectRef={onSelectRef} />
+      {data.found ? <ShotSummary data={data} /> : null}
       {data.found ? (
         <RoundAiReview
           roundRef={data.roundRef}

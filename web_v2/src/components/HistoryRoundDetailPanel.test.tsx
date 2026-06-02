@@ -68,6 +68,10 @@ const payload: HistoryRoundDetailResponse = {
   missingData: [{ label: 'putts', state: 'partial', reason: 'some holes missing putts' }],
   annotations: [
     { id: 'note-1', createdAt: '2026-05-25T12:00:00Z', targetType: 'round', targetId: '700001', kind: 'round_note', payload: { text: 'windy finish' }, source: 'manual' },
+    { id: 'issue-1', createdAt: '2026-05-25T12:01:00Z', targetType: 'round', targetId: '700001', kind: 'issue_tag', payload: { tag: 'three_putts' }, source: 'manual' },
+    { id: 'issue-2', createdAt: '2026-05-25T12:02:00Z', targetType: 'round', targetId: '700001', kind: 'issue_tag', payload: { tag: 'tee_miss_right' }, source: 'manual' },
+    { id: 'issue-3', createdAt: '2026-05-25T12:03:00Z', targetType: 'round', targetId: '700001', kind: 'issue_tag', payload: { tag: 'retracted_issue' }, source: 'manual' },
+    { id: 'issue-4', createdAt: '2026-05-25T12:04:00Z', targetType: 'round', targetId: '700001', kind: 'issue_tag_removed', payload: { tag: 'retracted_issue' }, source: 'manual' },
   ],
   corrections: [
     { id: 'correction-1', createdAt: '2026-05-25T12:00:00Z', targetType: 'round', targetId: '700001', kind: 'score_correction', payload: { from: 83, to: 82 }, source: 'manual' },
@@ -88,6 +92,50 @@ describe('HistoryRoundDetailPanel', () => {
     expect(screen.getByText('windy finish')).toBeInTheDocument()
     expect(screen.getByText('83 -> 82')).toBeInTheDocument()
     expect(screen.getAllByText('partial').length).toBeGreaterThan(0)
+  })
+
+  it('renders active issue tags as a dedicated section and excludes retracted ones', () => {
+    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
+
+    const issues = screen.getByLabelText('Round issue tags')
+    expect(within(issues).getByText('three_putts')).toBeInTheDocument()
+    expect(within(issues).getByText('tee_miss_right')).toBeInTheDocument()
+    // retracted_issue had a later issue_tag_removed record, so it must not appear
+    expect(within(issues).queryByText('retracted_issue')).not.toBeInTheDocument()
+  })
+
+  it('does not duplicate issue tags inside the generic annotations rows', () => {
+    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
+
+    // issue tags live only in the dedicated section, not the raw round annotations list
+    const annotations = screen.getByLabelText('Round Annotations')
+    expect(within(annotations).getByText('windy finish')).toBeInTheDocument()
+    expect(within(annotations).queryByText('three_putts')).not.toBeInTheDocument()
+    expect(within(annotations).queryByText('tee_miss_right')).not.toBeInTheDocument()
+  })
+
+  it('shows a compact round shot summary', () => {
+    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
+
+    const summary = screen.getByLabelText('Round shot summary')
+    expect(summary).toHaveTextContent('42')
+    // both fixture holes carry shotRefs, so 2 holes have recorded shots
+    expect(summary).toHaveTextContent('2')
+  })
+
+  it('omits the issue tags and shot summary sections when there is no data', () => {
+    const empty: HistoryRoundDetailResponse = {
+      ...payload,
+      round: { ...(payload.round as Record<string, unknown>), shotCount: 0 },
+      scorecard: [],
+      annotations: [
+        { id: 'note-9', createdAt: '2026-05-25T12:00:00Z', targetType: 'round', targetId: '700001', kind: 'round_note', payload: { text: 'no issues here' }, source: 'manual' },
+      ],
+    }
+    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: empty }} />)
+
+    expect(screen.queryByLabelText('Round issue tags')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Round shot summary')).not.toBeInTheDocument()
   })
 
   it('opens hole and shot source refs from the round detail', async () => {
