@@ -10,6 +10,14 @@ from server_v2.main import app
 
 
 class ServerV2SyncRunTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # A successful sync (state="ready") now warms the stats cache on a background
+        # thread. Stub it so these tests don't spawn a real ~10s warm thread that mutates
+        # the global cache mid-suite; individual tests assert against this mock.
+        patcher = patch("server_v2.main.warm_stats_cache_in_background")
+        self.warm_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_sync_garmin_endpoint_requires_admin_token_when_configured(self) -> None:
         connector = Mock()
 
@@ -152,6 +160,47 @@ class ServerV2SyncRunTests(unittest.TestCase):
         self.assertNotIn("token", text)
         self.assertNotIn("secret", text)
         self.assertNotIn("authorization", text)
+
+    def test_sync_garmin_warms_stats_cache_on_successful_sync(self) -> None:
+        manifest = SnapshotManifest(
+            snapshot_id="snap_api",
+            scorecard_count=3,
+            shot_file_count=2,
+            summary_present=True,
+            files=["data/summary.json"],
+        )
+        connector = Mock()
+        connector.sync.return_value = ConnectorRunResult(
+            connector="garmin_cn_web_session",
+            state="ready",
+            detail="Garmin CN sync completed.",
+            snapshot=manifest,
+        )
+
+        with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
+            response = TestClient(app).post("/api/v2/sync/garmin")
+
+        self.assertEqual(response.status_code, 200)
+        # The sync landed new data -> the cache must be warmed (off the request path).
+        self.warm_mock.assert_called_once_with()
+
+    def test_sync_garmin_does_not_warm_when_sync_does_not_succeed(self) -> None:
+        for state, error_code in (("reauth_required", "auth_failed"), ("error", "sync_failed")):
+            with self.subTest(state=state):
+                self.warm_mock.reset_mock()
+                connector = Mock()
+                connector.sync.return_value = ConnectorRunResult(
+                    connector="garmin_cn_web_session",
+                    state=state,
+                    detail="Garmin sync did not complete.",
+                    error_code=error_code,
+                )
+
+                with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
+                    TestClient(app).post("/api/v2/sync/garmin")
+
+                # No new data landed -> no warm.
+                self.warm_mock.assert_not_called()
 
 
 if __name__ == "__main__":
