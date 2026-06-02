@@ -11,7 +11,8 @@ from ai_caddie.decision_api import ShotType, validate_shot_type
 from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
 from ai_caddie.history_drilldown import resolve_history_ref
-from ai_caddie.history_stats import DataModeName, build_history_stats
+from ai_caddie.history_stats import DataModeName
+from ai_caddie.stats_cache import cached_build_history_stats
 from ai_caddie.vision_context import list_findings_for_target
 from ai_caddie.weather_context import weather_snapshot_for_time
 
@@ -100,7 +101,7 @@ def build_caddie_context(
     if effective_lie is None and normalized_shot_type != "tee":
         missing_data.append({"label": "lie", "reason": "current lie was not provided"})
 
-    stats = build_history_stats(data, data_mode=data_mode, annotations_root=annotations_root)
+    stats = cached_build_history_stats(data, data_mode=data_mode, annotations_root=annotations_root)
     club_profiles = _club_profiles(data, stats=stats)
     if not club_profiles:
         missing_data.append({"label": "club_profiles", "reason": "no usable historical shot distances"})
