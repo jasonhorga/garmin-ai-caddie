@@ -103,6 +103,7 @@ import type {
   WeatherSnapshotParams,
   WeatherSnapshotResponse,
   VisionConfirmationState,
+  RoundsFilters,
 } from './types'
 
 type LoadState<T> =
@@ -119,6 +120,7 @@ export default function App() {
   const [activePage, setActivePage] = useState<ProductPage>('overview')
   const [overviewState, setOverviewState] = useState<LoadState<HistoryOverviewResponse>>({ status: 'loading' })
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
+  const [roundsFilters, setRoundsFilters] = useState<RoundsFilters>({})
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
@@ -195,10 +197,10 @@ export default function App() {
     }
   }
 
-  async function loadRoundsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+  async function loadRoundsState(filters: RoundsFilters = roundsFilters, adminTokenOverride: string | undefined = currentAdminToken()) {
     setRoundsState({ status: 'loading' })
     try {
-      const data = await fetchHistoryRounds(adminTokenOverride)
+      const data = await fetchHistoryRounds(adminTokenOverride, filters)
       setRoundsState({ status: 'ready', data })
     } catch (error: unknown) {
       setRoundsState({ status: 'error', message: errorMessage(error) })
@@ -207,7 +209,7 @@ export default function App() {
 
   async function refreshRoundsState(adminTokenOverride: string | undefined = currentAdminToken()) {
     try {
-      const data = await fetchHistoryRounds(adminTokenOverride)
+      const data = await fetchHistoryRounds(adminTokenOverride, roundsFilters)
       setRoundsState({ status: 'ready', data })
     } catch (error: unknown) {
       setRoundsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
@@ -930,6 +932,11 @@ export default function App() {
           {renderSyncPanel()}
           <HistoryTimeline
             data={roundsState.data}
+            filters={roundsFilters}
+            onFilterChange={(next) => {
+              setRoundsFilters(next)
+              void loadRoundsState(next)
+            }}
             onNavigate={navigate}
             onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
             onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}

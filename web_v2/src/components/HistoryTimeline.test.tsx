@@ -82,4 +82,37 @@ describe('HistoryTimeline', () => {
     expect(onSelectRef).toHaveBeenCalledWith('1')
     expect(onSelectRef).toHaveBeenCalledTimes(1)
   })
+
+  const filterData: HistoryRoundsResponse = {
+    ...payload,
+    availableYears: ['2026', '2025'],
+    availableCourses: [
+      { key: 'ca', label: 'Course A' },
+      { key: 'cb', label: 'Course B' },
+    ],
+    appliedFilters: {},
+  }
+
+  it('renders year and course filter options when filtering is enabled', () => {
+    render(<HistoryTimeline data={filterData} filters={{}} onFilterChange={() => undefined} onNavigate={() => undefined} />)
+
+    expect(screen.getByRole('option', { name: '2026' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Course A' })).toBeInTheDocument()
+  })
+
+  it('emits filter changes for the year select and the has-shots toggle', async () => {
+    const onFilterChange = vi.fn()
+    render(<HistoryTimeline data={filterData} filters={{}} onFilterChange={onFilterChange} onNavigate={() => undefined} />)
+
+    await userEvent.selectOptions(screen.getByLabelText('Year'), '2026')
+    expect(onFilterChange).toHaveBeenCalledWith({ year: '2026' })
+
+    await userEvent.click(screen.getByLabelText('Has shots'))
+    expect(onFilterChange).toHaveBeenCalledWith({ hasShots: true })
+  })
+
+  it('omits the filter bar when filtering is not enabled', () => {
+    render(<HistoryTimeline data={filterData} onNavigate={() => undefined} />)
+    expect(screen.queryByLabelText('Year')).toBeNull()
+  })
 })

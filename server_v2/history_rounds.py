@@ -5,10 +5,11 @@ from datetime import datetime
 from typing import Any
 
 from ai_caddie.history import HistoryData, average
+from ai_caddie.reports import list_report_records
 
 from .data_source import load_history_data_for_mode
 from .history_overview import round_card_for_row
-from .models import EmptyState, HistoryRoundsResponse, MonthRoundGroup
+from .models import CourseFilterOption, EmptyState, HistoryRoundsResponse, MonthRoundGroup
 
 
 def _month_key(date_value: str | None) -> str:
@@ -40,16 +41,54 @@ def _month_group(key: str, rows: list[dict[str, Any]]) -> MonthRoundGroup:
     )
 
 
-def build_history_rounds_response(data: HistoryData, *, limit: int = 120) -> HistoryRoundsResponse:
-    rows = sorted(data.rounds, key=lambda row: row.get("date") or "", reverse=True)[:limit]
+def _year_of(row: dict[str, Any]) -> str:
+    text = str(row.get("date") or "")
+    return text[:4] if len(text) >= 4 and text[:4].isdigit() else ""
+
+
+def _available_courses(rounds: list[dict[str, Any]]) -> list[CourseFilterOption]:
+    labels: dict[str, str] = {}
+    for row in rounds:
+        key = str(row.get("courseKey") or "")
+        if key and key not in labels:
+            labels[key] = str(row.get("course") or row.get("courseName") or key)
+    return [CourseFilterOption(key=key, label=label) for key, label in sorted(labels.items(), key=lambda kv: kv[1])]
+
+
+def build_history_rounds_response(
+    data: HistoryData,
+    *,
+    limit: int = 120,
+    year: str | None = None,
+    course: str | None = None,
+    has_shots: bool | None = None,
+    has_report: bool | None = None,
+    report_round_ids: set[str] | None = None,
+) -> HistoryRoundsResponse:
+    report_ids = report_round_ids or set()
+
+    def keep(row: dict[str, Any]) -> bool:
+        if year and _year_of(row) != year:
+            return False
+        if course and str(row.get("courseKey") or "") != course:
+            return False
+        if has_shots is not None and bool(row.get("hasShots")) != has_shots:
+            return False
+        if has_report is not None and (str(row.get("id")) in report_ids) != has_report:
+            return False
+        return True
+
+    matching = [row for row in data.rounds if keep(row)]
+    rows = sorted(matching, key=lambda row: row.get("date") or "", reverse=True)[:limit]
     by_month: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         by_month[_month_key(row.get("date"))].append(row)
 
     groups = [_month_group(key, by_month[key]) for key in sorted(by_month, reverse=True)]
+    years = sorted({y for y in (_year_of(row) for row in data.rounds) if y}, reverse=True)
     return HistoryRoundsResponse(
         schema="ai-caddie-history-rounds-v2",
-        total=len(data.rounds),
+        total=len(matching),
         groups=groups,
         emptyState=EmptyState(
             kind="no_rounds",
@@ -59,9 +98,31 @@ def build_history_rounds_response(data: HistoryData, *, limit: int = 120) -> His
                 "Sync Garmin scorecards into data/scorecards or run the fetch workflow, then refresh."
             ),
         ) if not data.rounds else None,
+        availableYears=years,
+        availableCourses=_available_courses(data.rounds),
+        appliedFilters={"year": year, "course": course, "hasShots": has_shots, "hasReport": has_report},
     )
 
 
-def load_history_rounds_response() -> HistoryRoundsResponse:
+def _round_ids_with_reports() -> set[str]:
+    return {str(rec.get("subjectId")) for rec in list_report_records() if rec.get("kind") == "round"}
+
+
+def load_history_rounds_response(
+    *,
+    year: str | None = None,
+    course: str | None = None,
+    has_shots: bool | None = None,
+    has_report: bool | None = None,
+) -> HistoryRoundsResponse:
     data, _mode = load_history_data_for_mode()
-    return build_history_rounds_response(data)
+    # Only pay the report-store read when the caller actually filters on it.
+    report_round_ids = _round_ids_with_reports() if has_report is not None else None
+    return build_history_rounds_response(
+        data,
+        year=year,
+        course=course,
+        has_shots=has_shots,
+        has_report=has_report,
+        report_round_ids=report_round_ids,
+    )

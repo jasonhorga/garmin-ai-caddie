@@ -16,6 +16,7 @@ import type {
   HistoryRoundDetailResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  RoundsFilters,
   CourseGeometryCoverageResponse,
   GeometryEnsureResponse,
   GeometryEvidenceResponse,
@@ -218,8 +219,14 @@ export function confirmVisionFinding(
   )
 }
 
-export function fetchHistoryRounds(adminToken?: string): Promise<HistoryRoundsResponse> {
-  return getJson<HistoryRoundsResponse>('/api/v2/history/rounds', adminToken)
+export function fetchHistoryRounds(adminToken?: string, filters?: RoundsFilters): Promise<HistoryRoundsResponse> {
+  const params = new URLSearchParams()
+  if (filters?.year) params.set('year', filters.year)
+  if (filters?.course) params.set('course', filters.course)
+  if (filters?.hasShots !== undefined) params.set('hasShots', String(filters.hasShots))
+  if (filters?.hasReport !== undefined) params.set('hasReport', String(filters.hasReport))
+  const qs = params.toString()
+  return getJson<HistoryRoundsResponse>(`/api/v2/history/rounds${qs ? `?${qs}` : ''}`, adminToken)
 }
 
 export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): Promise<HistoryRoundDetailResponse> {

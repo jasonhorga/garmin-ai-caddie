@@ -289,6 +289,11 @@ class MonthRoundGroup(BaseModel):
     rounds: list[RoundCard]
 
 
+class CourseFilterOption(BaseModel):
+    key: str
+    label: str
+
+
 class HistoryRoundsResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
@@ -296,6 +301,9 @@ class HistoryRoundsResponse(BaseModel):
     total: int
     groups: list[MonthRoundGroup]
     emptyState: EmptyState | None
+    availableYears: list[str] = Field(default_factory=list)
+    availableCourses: list[CourseFilterOption] = Field(default_factory=list)
+    appliedFilters: dict[str, object] = Field(default_factory=dict)
 
 
 class HistoryRoundDetailResponse(BaseModel):
