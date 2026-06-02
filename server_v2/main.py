@@ -24,7 +24,7 @@ from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_round_detail import load_history_round_detail_response
 from .history_drilldown import load_history_drilldown_response
-from .history_stats import load_history_stats_response
+from .history_stats import load_history_stats_response, warm_stats_cache_in_background
 from .geometry import (
     load_course_geometry_coverage_response,
     load_geometry_ensure_response,
@@ -765,6 +765,12 @@ def sync_garmin(
         response.status_code = 409
     elif result.state == "error":
         response.status_code = 500
+    elif result.state == "ready":
+        # The sync just wrote new scorecards/shots to disk, invalidating the stats-cache
+        # fingerprint. Warm it on a daemon thread so the FIRST user request after the
+        # sync is a cache hit instead of a ~10s cold recompute. Failure-isolated inside
+        # warm_stats_cache, so it can never break this response.
+        warm_stats_cache_in_background()
     return SyncRunResponse(
         schema="ai-caddie-sync-run-v2",
         connector=result.connector,
