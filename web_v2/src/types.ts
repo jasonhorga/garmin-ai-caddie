@@ -417,11 +417,26 @@ export interface MonthRoundGroup {
   rounds: RoundCard[]
 }
 
+export interface CourseFilterOption {
+  key: string
+  label: string
+}
+
+export interface RoundsFilters {
+  year?: string
+  course?: string
+  hasShots?: boolean
+  hasReport?: boolean
+}
+
 export interface HistoryRoundsResponse {
   schema: 'ai-caddie-history-rounds-v2'
   total: number
   groups: MonthRoundGroup[]
   emptyState: EmptyState | null
+  availableYears?: string[]
+  availableCourses?: CourseFilterOption[]
+  appliedFilters?: RoundsFilters
 }
 
 export interface HistoryRoundDetailScorecardCell {

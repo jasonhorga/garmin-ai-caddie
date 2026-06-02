@@ -329,8 +329,13 @@ def history_overview() -> HistoryOverviewResponse:
 
 
 @app.get("/api/v2/history/rounds", response_model=HistoryRoundsResponse)
-def history_rounds() -> HistoryRoundsResponse:
-    return load_history_rounds_response()
+def history_rounds(
+    year: str | None = Query(default=None),
+    course: str | None = Query(default=None),
+    hasShots: bool | None = Query(default=None),
+    hasReport: bool | None = Query(default=None),
+) -> HistoryRoundsResponse:
+    return load_history_rounds_response(year=year, course=course, has_shots=hasShots, has_report=hasReport)
 
 
 @app.get("/api/v2/history/rounds/{round_ref}", response_model=HistoryRoundDetailResponse)
