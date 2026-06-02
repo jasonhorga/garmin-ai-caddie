@@ -83,8 +83,20 @@ def _file_sig(path: Path) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_size)
 
 
-def _fingerprint(roots: dict[str, Any]) -> tuple:
+def _data_signature(data) -> tuple:
+    """Cheap content-identity of the `data` argument: round ids + shot count. Different
+    in-memory datasets (e.g. ones injected directly by tests) get different signatures,
+    so the cache can never hand one dataset's result back for another -- independent of
+    the test runner (CI uses `unittest discover`, which ignores pytest fixtures). In
+    production `data` always comes from disk, so this matches the file fingerprint."""
+    rounds = getattr(data, "rounds", None) or []
+    shots = getattr(data, "shots", None) or []
+    return (len(shots), hash(tuple(str(r.get("id")) for r in rounds)))
+
+
+def _fingerprint(data, roots: dict[str, Any]) -> tuple:
     return (
+        _data_signature(data),
         tuple(_dir_sig(d) for d in _FINGERPRINT_DIRS),
         tuple(_file_sig(f) for f in _aux_files(**roots)),
     )
@@ -128,18 +140,17 @@ def cached_build_history_stats(
         "reports_root": reports_root,
         "decision_audit_root": decision_audit_root,
     }
-    # data_mode + roots + a cheap data signature keep distinct callers/datasets apart;
-    # the fingerprint detects when the underlying files have changed.
+    # Key by caller (data_mode + roots); the fingerprint (data signature + input-file
+    # state) decides hit vs recompute, so distinct datasets and any file change are
+    # both handled.
     key = (
         data_mode,
         str(annotations_root),
         str(weather_root),
         str(reports_root),
         str(decision_audit_root),
-        len(getattr(data, "rounds", []) or []),
-        len(getattr(data, "shots", []) or []),
     )
-    fingerprint = _fingerprint(roots)
+    fingerprint = _fingerprint(data, roots)
     with _lock:
         hit = _cache.get(key)
         if hit is not None and hit[0] == fingerprint:
