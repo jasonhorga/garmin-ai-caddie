@@ -28,6 +28,14 @@ def read_varint(buf: bytes, pos: int) -> tuple[int, int]:
         shift += 7
 
 
+def _nested_field1(buf: bytes) -> int | None:
+    """First varint (field 1) of a nested protobuf message; None if absent."""
+    for field_no, wire_type, _value, _raw in parse_fields(buf):
+        if field_no == 1 and wire_type == 0:
+            return _value
+    return None
+
+
 def parse_fields(buf: bytes):
     pos = 0
     while pos < len(buf):
@@ -95,6 +103,10 @@ def inspect_release(pb: bytes) -> dict:
                     hole["lat_raw"] = sub_value
                 elif sub_no == 5 and sub_wire == 0:
                     hole["lon_raw"] = sub_value
+                elif sub_no == 2 and sub_wire == 2 and _sub_raw is not None:
+                    hole["par"] = _nested_field1(_sub_raw)
+                elif sub_no == 3 and sub_wire == 2 and _sub_raw is not None:
+                    hole["handicap"] = _nested_field1(_sub_raw)
                 elif sub_no == 6 and sub_wire == 0:
                     hole["yardage_or_length"] = sub_value
                 elif sub_no == 7 and sub_wire == 2:
