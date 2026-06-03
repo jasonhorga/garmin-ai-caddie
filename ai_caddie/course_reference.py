@@ -150,7 +150,7 @@ def build_played_store() -> dict[int, CoursePar]:
     for gid in sorted(referenced):
         if gid in records or load_course_par(gid) is not None:
             continue
-        rec = resolve_par(gid)  # -> courseview (or estimate/None)
+        rec = _courseview_record(gid)  # courseview par, or None (no scorecard rescan)
         if rec is not None:
             records[gid] = rec
     return records
@@ -186,6 +186,25 @@ def courseview_par(global_id: int, *, allow_fetch: bool = True) -> list[int] | N
     return pars if pars and all(isinstance(p, int) for p in pars) else None
 
 
+def _courseview_record(global_id: int, *, course_name: str | None = None, allow_fetch: bool = True) -> CoursePar | None:
+    """Build (and persist) a CoursePar from the CourseView release par, or None if unavailable."""
+    gid = int(global_id)
+    holes = _release_holes(gid, allow_fetch=allow_fetch)
+    if not holes:
+        return None
+    pars = [h.get("par") for h in holes]
+    if not (pars and all(isinstance(p, int) for p in pars)):
+        return None
+    hcaps = [h.get("handicap") for h in holes]
+    rec = CoursePar(
+        gid, pars, "courseview", "high",
+        provenance="courseview_release", course_name=course_name,
+        handicap=hcaps if all(isinstance(h, int) for h in hcaps) else None,
+    )
+    save_course_par(rec)
+    return rec
+
+
 def resolve_par(
     global_id: int,
     *,
@@ -202,18 +221,9 @@ def resolve_par(
     if played:
         save_course_par(played)
         return played
-    holes = _release_holes(gid, allow_fetch=allow_fetch)
-    if holes:
-        pars = [h.get("par") for h in holes]
-        if pars and all(isinstance(p, int) for p in pars):
-            hcaps = [h.get("handicap") for h in holes]
-            rec = CoursePar(
-                gid, pars, "courseview", "high",
-                provenance="courseview_release", course_name=course_name,
-                handicap=hcaps if all(isinstance(h, int) for h in hcaps) else None,
-            )
-            save_course_par(rec)
-            return rec
+    rec = _courseview_record(gid, course_name=course_name, allow_fetch=allow_fetch)
+    if rec is not None:
+        return rec
     if lengths_m:
         est = [estimate_par_from_length(x) for x in lengths_m]
         rec = CoursePar(gid, est, "estimate", "medium",
