@@ -358,9 +358,12 @@ class ServerV2MobileTests(unittest.TestCase):
                 "missingData": [],
             }
 
+        from ai_caddie import course_reference
+
         with (
             patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
             patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+            patch.object(course_reference, "courseview_par", return_value=[4, 5, 3, 4, 3, 4, 4, 5, 4, 4, 5, 3, 4, 3, 4, 4, 5, 4]),
         ):
             response = client.get(
                 "/api/v2/mobile/courses/55555/package",
@@ -369,6 +372,9 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
+        holes = payload["holes"]
+        self.assertEqual(holes[0]["par"], 4)
+        self.assertEqual(holes[1]["par"], 5)  # would be 4 under the old hardcode
         self.assertEqual(payload["roundId"], "live-new-course")
         self.assertEqual(payload["course"], {"globalId": 55555, "name": "Course 55555", "teeBox": "blue"})
         self.assertEqual(payload["sourceCoverage"]["state"], "ready")
