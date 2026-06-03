@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie import course_prep as cp
+from ai_caddie import course_prep, course_reference
 from ai_caddie.course_reference import CoursePar
 from ai_caddie.data import mesh_path
 
@@ -134,6 +135,27 @@ class GeometryBackedTests(unittest.TestCase):
         prep = cp.prep_hole(self.GID, self.HOLE, render=True)
         self.assertTrue(prep["map"]["image"].startswith("data:image/jpeg;base64,"))
         self.assertTrue(prep["map"]["overlay"]["route"])
+
+
+class PrepResolvesParTests(unittest.TestCase):
+    def test_prep_nine_resolves_when_not_cached(self) -> None:
+        rec = course_reference.CoursePar(31936, [4, 5, 3, 4, 3, 4, 4, 5, 4], "courseview", "high")
+        seen = {}
+        with patch.object(course_reference, "load_course_par", return_value=None), \
+                patch.object(course_reference, "resolve_par", return_value=rec) as rp, \
+                patch.object(course_prep, "prep_hole",
+                             side_effect=lambda gid, h, **kw: seen.update(kw) or None):
+            course_prep.prep_nine(31936, holes=range(1, 2))
+        rp.assert_called_once_with(31936)
+        self.assertIs(seen.get("par_record"), rec)
+
+    def test_prep_nine_uses_cached_store_without_recompute(self) -> None:
+        rec = course_reference.CoursePar(40590, [4, 5, 3, 4, 4, 4, 4, 3, 4], "played", "high")
+        with patch.object(course_reference, "load_course_par", return_value=rec), \
+                patch.object(course_reference, "resolve_par") as rp, \
+                patch.object(course_prep, "prep_hole", side_effect=lambda *a, **k: None):
+            course_prep.prep_nine(40590, holes=range(1, 2))
+        rp.assert_not_called()  # cached store hit -> no recompute, no network
 
 
 if __name__ == "__main__":

@@ -255,6 +255,8 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True) -
     if ladder is None:
         ladder = club_ladder()
     par_record = course_reference.load_course_par(global_id)
+    if par_record is None:
+        par_record = course_reference.resolve_par(global_id)
     out = []
     for hole in holes:
         prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render)
