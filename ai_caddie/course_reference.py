@@ -14,6 +14,8 @@ import difflib
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 
+from inspect_courseview_release import COURSEVIEW, inspect_release, load_release_pb
+
 from ai_caddie.data import ROOT, SCORECARD_DIR, read_json, write_json
 from ai_caddie.scrapers import golfpass
 
@@ -171,6 +173,36 @@ def build_played_store() -> dict[int, CoursePar]:
     for record in records.values():
         save_course_par(record)
     return records
+
+
+def _release_holes(global_id: int, *, allow_fetch: bool = True) -> list[dict] | None:
+    """Per-hole records from the CourseView release protobuf (cache-first, then fetch+cache)."""
+    gid = int(global_id)
+    path = COURSEVIEW / f"{gid}_releases.pb"
+    if path.exists():
+        pb = path.read_bytes()
+    elif allow_fetch:
+        try:
+            pb = load_release_pb(gid, True)  # live fetch (anonymous)
+        except Exception:
+            return None
+        COURSEVIEW.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(pb)
+    else:
+        return None
+    try:
+        return inspect_release(pb).get("holes") or None
+    except Exception:
+        return None
+
+
+def courseview_par(global_id: int, *, allow_fetch: bool = True) -> list[int] | None:
+    """Exact per-hole par for a course nine from Garmin's CourseView release (any course)."""
+    holes = _release_holes(global_id, allow_fetch=allow_fetch)
+    if not holes:
+        return None
+    pars = [h.get("par") for h in holes]
+    return pars if pars and all(isinstance(p, int) for p in pars) else None
 
 
 def resolve_par(
