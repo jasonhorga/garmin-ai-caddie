@@ -5,7 +5,13 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie import course_reference
+from ai_caddie.course_reference import CoursePar
 from server_v2.main import app
+
+# Canned played par for 31870 — mirrors data/courses/31870.json so tests run in CI
+# (no data/ symlink) without attempting a live CourseView fetch.
+_PAR_31870 = CoursePar(31870, [5, 4, 3, 4, 4, 4, 5, 3, 4], "played", "high", rounds=1)
 
 
 class CoursePrepApiTests(unittest.TestCase):
@@ -13,7 +19,8 @@ class CoursePrepApiTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_prep_endpoint_requires_admin_token_when_configured(self) -> None:
-        with patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}):
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}):
             unauthorized = self.client.get("/api/v2/courses/31870/prep?render=false")
             authorized = self.client.get(
                 "/api/v2/courses/31870/prep?render=false",
@@ -24,7 +31,8 @@ class CoursePrepApiTests(unittest.TestCase):
         self.assertEqual(authorized.status_code, 200)
 
     def test_prep_endpoint_contract(self) -> None:
-        resp = self.client.get("/api/v2/courses/31870/prep?render=false")
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870):
+            resp = self.client.get("/api/v2/courses/31870/prep?render=false")
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["schema"], "ai-caddie-course-prep-v1")
@@ -39,7 +47,8 @@ class CoursePrepApiTests(unittest.TestCase):
             self.assertIn("hazards", hole)
 
     def test_holes_query_filter(self) -> None:
-        resp = self.client.get("/api/v2/courses/31870/prep?holes=3&render=false")
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870):
+            resp = self.client.get("/api/v2/courses/31870/prep?holes=3&render=false")
         self.assertEqual(resp.status_code, 200)
         holes = resp.json()["holes"]
         self.assertTrue(all(h["hole"] == 3 for h in holes))
