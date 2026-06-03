@@ -2,7 +2,7 @@
 
 Runs idempotently and ties the backbone together:
 
-  ensure auth  ->  fetch history (scorecards [+ shots])  ->  build played course-ref store
+  ensure auth  ->  fetch history (scorecards [+ shots])  ->  ensure missing geometry  ->  build played course-ref store
 
 Auth refresh self-heals on a server via the Playwright fallback in
 ``garmin_auth.refresh_web_auth`` (see Phase 2); per-hole geometry is synced on demand
@@ -60,7 +60,7 @@ def _on_disk() -> tuple[int, int]:
     return scs, shots
 
 
-def _ensure_geometry() -> dict:
+def _ensure_geometry() -> dict[str, int]:
     """Idempotently download missing prodgeometry for played courses (skips already-ready)."""
     from ai_caddie.connectors.snapshot import discover_geometry_dependencies, ensure_geometry_dependencies
     return ensure_geometry_dependencies(discover_geometry_dependencies(root=ROOT), root=ROOT)
