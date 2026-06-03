@@ -136,11 +136,23 @@ def save_course_par(record: CoursePar) -> None:
 
 
 def build_played_store() -> dict[int, CoursePar]:
-    """Materialise played par for every played nine into data/courses/. Idempotent;
-    played records always overwrite (authoritative supersedes any prior estimate)."""
+    """Materialise par for every played nine (authoritative), then fill courseview par for any
+    nine referenced by a scorecard that has no played record. Idempotent."""
     records = played_par_by_nine()
     for record in records.values():
         save_course_par(record)
+    referenced: set[int] = set()
+    for rnd in _rounds_from_files():
+        for key in ("front_gid", "back_gid"):
+            gid = rnd.get(key)
+            if gid:
+                referenced.add(int(gid))
+    for gid in sorted(referenced):
+        if gid in records or load_course_par(gid) is not None:
+            continue
+        rec = resolve_par(gid)  # -> courseview (or estimate/None)
+        if rec is not None:
+            records[gid] = rec
     return records
 
 
