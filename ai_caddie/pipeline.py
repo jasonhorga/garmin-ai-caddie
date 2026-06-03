@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 
 from ai_caddie import course_reference
-from ai_caddie.data import SCORECARD_DIR, SHOT_DIR
+from ai_caddie.data import ROOT, SCORECARD_DIR, SHOT_DIR
 
 
 @dataclass
@@ -60,16 +60,25 @@ def _on_disk() -> tuple[int, int]:
     return scs, shots
 
 
+def _ensure_geometry() -> dict:
+    """Idempotently download missing prodgeometry for played courses (skips already-ready)."""
+    from ai_caddie.connectors.snapshot import discover_geometry_dependencies, ensure_geometry_dependencies
+    return ensure_geometry_dependencies(discover_geometry_dependencies(root=ROOT), root=ROOT)
+
+
 def sync(*, with_shots: bool = False, force_refresh: bool = False) -> SyncResult:
     """Run the full local sync idempotently and return a coverage summary."""
     if not _ensure_auth(force_refresh):
         return SyncResult(auth_ok=False, notes=["auth unavailable; cannot fetch"])
     rounds = _fetch_history(with_shots)
+    geometry = _ensure_geometry()
     store = course_reference.build_played_store()
     scs, shots = _on_disk()
     notes: list[str] = []
     if not shots:
         notes.append("shots not fetched (run with --shots for shot maps / decision evidence)")
+    if geometry.get("failed"):
+        notes.append(f"{geometry['failed']} hole(s) missing geometry (will retry on demand)")
     return SyncResult(
         auth_ok=True,
         rounds=rounds,

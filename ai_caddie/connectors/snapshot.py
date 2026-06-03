@@ -422,6 +422,26 @@ def discover_geometry_dependencies(*, root: Path = ROOT) -> list[dict[str, Any]]
     return [dependencies[key] for key in sorted(dependencies)]
 
 
+def ensure_geometry_dependencies(dependencies: list[dict[str, object]], *, root: Path = ROOT) -> dict[str, int]:
+    """Idempotently download any MISSING per-hole prodgeometry. Skips rows already 'ready'."""
+    from ai_caddie.geometry_sync import ensure_prodgeometry
+    profile_id = geometry_player_profile_id(root=root)
+    summary = {"attempted": 0, "cached": 0, "downloaded": 0, "failed": 0, "skipped": 0}
+    for row in dependencies:
+        if row.get("status") == "ready":
+            summary["cached"] += 1
+            continue
+        global_id, local_hole = row.get("globalId"), row.get("localHole")
+        if profile_id is None or global_id is None or local_hole is None:
+            summary["skipped"] += 1
+            continue
+        summary["attempted"] += 1
+        result = ensure_prodgeometry(int(global_id), int(local_hole), profile_id=profile_id, force=False)
+        status = str(result.get("status") or "failed")
+        summary["downloaded" if status == "downloaded" else "cached" if status == "cached" else "failed"] += 1
+    return summary
+
+
 def geometry_player_profile_id(*, root: Path = ROOT) -> str | None:
     for path in _json_files(root / "data" / "scorecards"):
         try:

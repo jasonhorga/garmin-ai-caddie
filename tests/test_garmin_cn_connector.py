@@ -236,7 +236,7 @@ class GarminCnConnectorTests(unittest.TestCase):
                 patch("ai_caddie.connectors.garmin_cn.fetch_summary", return_value=[{"id": 1}]),
                 patch("ai_caddie.connectors.garmin_cn.fetch_details"),
                 patch(
-                    "ai_caddie.connectors.garmin_cn.ensure_prodgeometry",
+                    "ai_caddie.geometry_sync.ensure_prodgeometry",
                     return_value={"status": "downloaded", "ok": True, "globalId": 31795, "localHole": 1},
                 ) as ensure,
             ):
@@ -246,6 +246,26 @@ class GarminCnConnectorTests(unittest.TestCase):
         self.assertEqual(result.safe_meta["geometryEnsure"]["attempted"], 1)
         self.assertEqual(result.safe_meta["geometryEnsure"]["downloaded"], 1)
         ensure.assert_called_once_with(31795, 1, profile_id="player-1", force=False)
+
+    def test_sync_runs_course_ref_after_ready_snapshot(self) -> None:
+        with patch("ai_caddie.course_reference.build_played_store") as store:
+            with TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "data" / "scorecards").mkdir(parents=True)
+                (root / "data" / "shots").mkdir(parents=True)
+                (root / "data" / "summary.json").write_text("{}")
+                (root / "data" / "scorecards" / "1.json").write_text("{}")
+                (root / "data" / "shots" / "1.json").write_text("{}")
+                connector = GarminCnWebSessionConnector(root=root)
+
+                with (
+                    patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
+                    patch("ai_caddie.connectors.garmin_cn.fetch_summary", return_value=[{"id": 1}]),
+                    patch("ai_caddie.connectors.garmin_cn.fetch_details"),
+                ):
+                    result = connector.sync(with_shots=False, force_refresh_auth=False)
+                self.assertEqual(result.state, "ready")
+        store.assert_called_once()
 
     def test_non_auth_failure_returns_error_without_secret_leak(self) -> None:
         with TemporaryDirectory() as tmp:
