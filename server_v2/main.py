@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
+from ai_caddie import course_search
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error
 from ai_caddie.connectors.snapshot import snapshot_to_payload
 
@@ -206,6 +207,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or path == "/api/v2/mobile/courses/options"
             or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
+            or path == "/api/v2/courses/search"
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/replay"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
         )
@@ -414,6 +416,26 @@ def course_prep_nine(
         "holeCount": len(nine),
         "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
         "holes": nine,
+    }
+
+
+@app.get("/api/v2/courses/search")
+def course_search_endpoint(
+    name: str,
+    city: str | None = None,
+    holes: int | None = None,
+) -> dict:
+    """Search Garmin's course DB by name (+ optional city / hole-count guard); returns ranked
+    matches with globalId. Feed a chosen globalId into /api/v2/courses/{global_id}/prep."""
+    matches = course_search.courseview_search(name, city=city, expected_holes=holes)
+    return {
+        "schema": "ai-caddie-course-search-v1",
+        "query": name,
+        "matches": [
+            {"globalId": m.global_id, "name": m.name, "holes": m.holes,
+             "city": m.city, "province": m.province, "ratio": m.ratio}
+            for m in matches
+        ],
     }
 
 
