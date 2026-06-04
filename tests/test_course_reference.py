@@ -87,8 +87,22 @@ class BuildStoreTests(unittest.TestCase):
                 patch.object(cr, "_rounds_from_files", return_value=rounds), \
                 patch.object(cr, "_release_holes", return_value=holes), \
                 patch.object(cr, "load_course_par", return_value=None), \
-                patch.object(cr, "save_course_par", side_effect=lambda r: saved.__setitem__(r.global_id, r)):
+                patch.object(cr, "save_course_par", side_effect=lambda r, **_: saved.__setitem__(r.global_id, r)):
             store = cr.build_played_store()
+        self.assertEqual(store[40590].par_source, "played")
+        self.assertEqual(store[31936].par_source, "courseview")
+
+    def test_returns_cached_courseview_for_referenced_unplayed_nine(self) -> None:
+        rounds = [{"front_gid": 40590, "back_gid": 31936, "hole_pars": "453444434", "name": "X"}]
+        played = {40590: cr.CoursePar(40590, [4, 5, 3, 4, 4, 4, 4, 3, 4], "played", "high")}
+        cached = cr.CoursePar(31936, [4, 5, 3, 4, 3, 4, 4, 5, 4], "courseview", "high")
+        with patch.object(cr, "played_par_by_nine", return_value=played), \
+                patch.object(cr, "_rounds_from_files", return_value=rounds), \
+                patch.object(cr, "load_course_par", side_effect=lambda gid, **_: cached if gid == 31936 else None), \
+                patch.object(cr, "_courseview_record") as courseview_record, \
+                patch.object(cr, "save_course_par"):
+            store = cr.build_played_store()
+        courseview_record.assert_not_called()
         self.assertEqual(store[40590].par_source, "played")
         self.assertEqual(store[31936].par_source, "courseview")
 

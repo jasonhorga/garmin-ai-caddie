@@ -12,12 +12,12 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
-from inspect_courseview_release import COURSEVIEW, inspect_release, load_release_pb
+from inspect_courseview_release import inspect_release, load_release_pb
 
-from ai_caddie.data import ROOT, SCORECARD_DIR, read_json, write_json
+from ai_caddie.data import ROOT, read_json, write_json
 
-SUMMARY_FILE = ROOT / "data" / "summary.json"
 COURSE_DIR = ROOT / "data" / "courses"
 
 PAR_SOURCES = ("played", "courseview", "estimate")
@@ -87,16 +87,33 @@ def aggregate_played_par(rounds: list[dict]) -> dict[int, CoursePar]:
     return out
 
 
-def _rounds_from_files() -> list[dict]:
+def _summary_file(root: Path = ROOT) -> Path:
+    return Path(root) / "data" / "summary.json"
+
+
+def _scorecard_dir(root: Path = ROOT) -> Path:
+    return Path(root) / "data" / "scorecards"
+
+
+def _course_dir(root: Path = ROOT) -> Path:
+    return Path(root) / "data" / "courses"
+
+
+def _courseview_dir(root: Path = ROOT) -> Path:
+    return Path(root) / "data" / "courseview"
+
+
+def _rounds_from_files(*, root: Path = ROOT) -> list[dict]:
     """Read played rounds from summary.json + scorecard details (joined by id)."""
-    if not SUMMARY_FILE.exists():
+    summary_file = _summary_file(root)
+    if not summary_file.exists():
         return []
     summaries = {
         s.get("id"): s
-        for s in (read_json(SUMMARY_FILE).get("scorecardSummaries") or [])
+        for s in (read_json(summary_file).get("scorecardSummaries") or [])
     }
     rounds: list[dict] = []
-    for path in SCORECARD_DIR.glob("*.json"):
+    for path in _scorecard_dir(root).glob("*.json"):
         try:
             sc = read_json(path)["scorecardDetails"][0]["scorecard"]
         except (KeyError, IndexError, ValueError):
@@ -113,53 +130,57 @@ def _rounds_from_files() -> list[dict]:
     return rounds
 
 
-def played_par_by_nine() -> dict[int, CoursePar]:
+def played_par_by_nine(*, root: Path = ROOT) -> dict[int, CoursePar]:
     """Authoritative per-nine par from the user's played scorecards (file-backed)."""
-    return aggregate_played_par(_rounds_from_files())
+    return aggregate_played_par(_rounds_from_files(root=root))
 
 
 
-def _store_path(global_id: int):
-    return COURSE_DIR / f"{int(global_id)}.json"
+def _store_path(global_id: int, *, root: Path = ROOT) -> Path:
+    return _course_dir(root) / f"{int(global_id)}.json"
 
 
-def load_course_par(global_id: int) -> CoursePar | None:
-    path = _store_path(global_id)
+def load_course_par(global_id: int, *, root: Path = ROOT) -> CoursePar | None:
+    path = _store_path(global_id, root=root)
     if not path.exists():
         return None
     return CoursePar(**read_json(path))
 
 
-def save_course_par(record: CoursePar) -> None:
-    COURSE_DIR.mkdir(parents=True, exist_ok=True)
-    write_json(_store_path(record.global_id), asdict(record))
+def save_course_par(record: CoursePar, *, root: Path = ROOT) -> None:
+    _course_dir(root).mkdir(parents=True, exist_ok=True)
+    write_json(_store_path(record.global_id, root=root), asdict(record))
 
 
-def build_played_store() -> dict[int, CoursePar]:
+def build_played_store(*, root: Path = ROOT) -> dict[int, CoursePar]:
     """Materialise par for every played nine (authoritative), then fill courseview par for any
     nine referenced by a scorecard that has no played record. Idempotent."""
-    records = played_par_by_nine()
+    records = played_par_by_nine(root=root)
     for record in records.values():
-        save_course_par(record)
+        save_course_par(record, root=root)
     referenced: set[int] = set()
-    for rnd in _rounds_from_files():
+    for rnd in _rounds_from_files(root=root):
         for key in ("front_gid", "back_gid"):
             gid = rnd.get(key)
             if gid:
                 referenced.add(int(gid))
     for gid in sorted(referenced):
-        if gid in records or load_course_par(gid) is not None:
+        if gid in records:
             continue
-        rec = _courseview_record(gid)  # courseview par, or None (no scorecard rescan)
+        cached = load_course_par(gid, root=root)
+        if cached is not None:
+            records[gid] = cached
+            continue
+        rec = _courseview_record(gid, root=root)  # courseview par, or None (no scorecard rescan)
         if rec is not None:
             records[gid] = rec
     return records
 
 
-def _release_holes(global_id: int, *, allow_fetch: bool = True) -> list[dict] | None:
+def _release_holes(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict] | None:
     """Per-hole records from the CourseView release protobuf (cache-first, then fetch+cache)."""
     gid = int(global_id)
-    path = COURSEVIEW / f"{gid}_releases.pb"
+    path = _courseview_dir(root) / f"{gid}_releases.pb"
     if path.exists():
         pb = path.read_bytes()
     elif allow_fetch:
@@ -167,7 +188,7 @@ def _release_holes(global_id: int, *, allow_fetch: bool = True) -> list[dict] | 
             pb = load_release_pb(gid, True)  # live fetch (anonymous)
         except Exception:
             return None
-        COURSEVIEW.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(pb)
     else:
         return None
@@ -177,19 +198,25 @@ def _release_holes(global_id: int, *, allow_fetch: bool = True) -> list[dict] | 
         return None
 
 
-def courseview_par(global_id: int, *, allow_fetch: bool = True) -> list[int] | None:
+def courseview_par(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[int] | None:
     """Exact per-hole par for a course nine from Garmin's CourseView release (any course)."""
-    holes = _release_holes(global_id, allow_fetch=allow_fetch)
+    holes = _release_holes(global_id, allow_fetch=allow_fetch, root=root)
     if not holes:
         return None
     pars = [h.get("par") for h in holes]
     return pars if pars and all(isinstance(p, int) for p in pars) else None
 
 
-def _courseview_record(global_id: int, *, course_name: str | None = None, allow_fetch: bool = True) -> CoursePar | None:
+def _courseview_record(
+    global_id: int,
+    *,
+    course_name: str | None = None,
+    allow_fetch: bool = True,
+    root: Path = ROOT,
+) -> CoursePar | None:
     """Build (and persist) a CoursePar from the CourseView release par, or None if unavailable."""
     gid = int(global_id)
-    holes = _release_holes(gid, allow_fetch=allow_fetch)
+    holes = _release_holes(gid, allow_fetch=allow_fetch, root=root)
     if not holes:
         return None
     pars = [h.get("par") for h in holes]
@@ -201,7 +228,7 @@ def _courseview_record(global_id: int, *, course_name: str | None = None, allow_
         provenance="courseview_release", course_name=course_name,
         handicap=hcaps if all(isinstance(h, int) for h in hcaps) else None,
     )
-    save_course_par(rec)
+    save_course_par(rec, root=root)
     return rec
 
 
@@ -211,24 +238,25 @@ def resolve_par(
     course_name: str | None = None,
     lengths_m: list[float] | None = None,
     allow_fetch: bool = True,
+    root: Path = ROOT,
 ) -> CoursePar | None:
     """Resolve par for a nine via the ladder: played -> courseview -> estimate. Persists the result.
 
     ``allow_fetch=False`` keeps the courseview rung cache-only (no network) for request-time paths.
     """
     gid = int(global_id)
-    played = played_par_by_nine().get(gid)
+    played = played_par_by_nine(root=root).get(gid)
     if played:
-        save_course_par(played)
+        save_course_par(played, root=root)
         return played
-    rec = _courseview_record(gid, course_name=course_name, allow_fetch=allow_fetch)
+    rec = _courseview_record(gid, course_name=course_name, allow_fetch=allow_fetch, root=root)
     if rec is not None:
         return rec
     if lengths_m:
         est = [estimate_par_from_length(x) for x in lengths_m]
         rec = CoursePar(gid, est, "estimate", "medium",
                         provenance="length_estimate", course_name=course_name)
-        save_course_par(rec)
+        save_course_par(rec, root=root)
         return rec
     return None
 

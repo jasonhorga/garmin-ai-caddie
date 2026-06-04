@@ -158,7 +158,7 @@ class GarminCnWebSessionConnector:
             if state == "ready":
                 try:
                     from ai_caddie import course_reference
-                    course_reference.build_played_store()
+                    course_reference.build_played_store(root=self.root)
                 except Exception:
                     pass  # course-ref is best-effort; never fail the sync on it
             detail = (

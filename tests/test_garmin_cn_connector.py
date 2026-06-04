@@ -265,7 +265,7 @@ class GarminCnConnectorTests(unittest.TestCase):
                 ):
                     result = connector.sync(with_shots=False, force_refresh_auth=False)
                 self.assertEqual(result.state, "ready")
-        store.assert_called_once()
+        store.assert_called_once_with(root=root)
 
     def test_non_auth_failure_returns_error_without_secret_leak(self) -> None:
         with TemporaryDirectory() as tmp:

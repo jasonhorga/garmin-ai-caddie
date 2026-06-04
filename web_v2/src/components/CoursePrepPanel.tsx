@@ -10,7 +10,7 @@ type LoadState =
   | { status: 'error'; message: string }
 
 const PAR_CLASS: Record<number, string> = { 3: '#4aa3d6', 4: '#3fae6b', 5: '#caa14a' }
-const SOURCE_LABEL: Record<string, string> = { played: '记分卡', official: '官方', estimate: '推算' }
+const SOURCE_LABEL: Record<string, string> = { played: '记分卡', courseview: 'CourseView', estimate: '推算' }
 
 type HazardMarker =
   | { kind: 'water'; start: number; end: number; cum: number; color: string }
