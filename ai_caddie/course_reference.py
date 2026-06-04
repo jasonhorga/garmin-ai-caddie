@@ -1,26 +1,26 @@
 """Course-reference resolver: authoritative per-hole par for a course nine, keyed by
 Garmin globalId. NO AI anywhere. Deterministic priority ladder:
 
-  1. ``played``   -> the user's own scorecards (summary ``holePars`` + detail nine ids)
-  2. ``official`` -> deterministic GolfPass scrape (for unplayed preview courses)
-  3. ``estimate`` -> from geometry hole length (last resort; validated 18/18)
+  1. ``played``     -> the user's own scorecards (summary ``holePars`` + detail nine ids)
+  2. ``courseview`` -> per-hole par from the Garmin CourseView release protobuf
+  3. ``estimate``   -> from geometry hole length (last resort; validated 18/18)
 
 Results persist to ``data/courses/<global_id>.json`` with a ``par_source`` label, so the
 UI can show provenance and a course the user later plays auto-supersedes an estimate.
 """
 from __future__ import annotations
 
-import difflib
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
-from ai_caddie.data import ROOT, SCORECARD_DIR, read_json, write_json
-from ai_caddie.scrapers import golfpass
+from inspect_courseview_release import inspect_release, load_release_pb
 
-SUMMARY_FILE = ROOT / "data" / "summary.json"
+from ai_caddie.data import ROOT, read_json, write_json
+
 COURSE_DIR = ROOT / "data" / "courses"
 
-PAR_SOURCES = ("played", "official", "estimate")
+PAR_SOURCES = ("played", "courseview", "estimate")
 
 
 @dataclass
@@ -32,6 +32,7 @@ class CoursePar:
     rounds: int = 0
     provenance: str | None = None
     course_name: str | None = None
+    handicap: list[int] | None = None
 
 
 def _digits_to_pars(value: object) -> list[int] | None:
@@ -86,16 +87,33 @@ def aggregate_played_par(rounds: list[dict]) -> dict[int, CoursePar]:
     return out
 
 
-def _rounds_from_files() -> list[dict]:
+def _summary_file(root: Path = ROOT) -> Path:
+    return Path(root) / "data" / "summary.json"
+
+
+def _scorecard_dir(root: Path = ROOT) -> Path:
+    return Path(root) / "data" / "scorecards"
+
+
+def _course_dir(root: Path = ROOT) -> Path:
+    return Path(root) / "data" / "courses"
+
+
+def _courseview_dir(root: Path = ROOT) -> Path:
+    return Path(root) / "data" / "courseview"
+
+
+def _rounds_from_files(*, root: Path = ROOT) -> list[dict]:
     """Read played rounds from summary.json + scorecard details (joined by id)."""
-    if not SUMMARY_FILE.exists():
+    summary_file = _summary_file(root)
+    if not summary_file.exists():
         return []
     summaries = {
         s.get("id"): s
-        for s in (read_json(SUMMARY_FILE).get("scorecardSummaries") or [])
+        for s in (read_json(summary_file).get("scorecardSummaries") or [])
     }
     rounds: list[dict] = []
-    for path in SCORECARD_DIR.glob("*.json"):
+    for path in _scorecard_dir(root).glob("*.json"):
         try:
             sc = read_json(path)["scorecardDetails"][0]["scorecard"]
         except (KeyError, IndexError, ValueError):
@@ -112,95 +130,133 @@ def _rounds_from_files() -> list[dict]:
     return rounds
 
 
-def played_par_by_nine() -> dict[int, CoursePar]:
+def played_par_by_nine(*, root: Path = ROOT) -> dict[int, CoursePar]:
     """Authoritative per-nine par from the user's played scorecards (file-backed)."""
-    return aggregate_played_par(_rounds_from_files())
+    return aggregate_played_par(_rounds_from_files(root=root))
 
 
-def official_par_from_golfpass(url: str, nine_name: str | None = None) -> list[int] | None:
-    """Deterministic GolfPass scrape. ``nine_name`` (e.g. 'mountain') selects the
-    matching nine of an 18-hole combo via the URL slug; default = front nine."""
-    sc = golfpass.parse_scorecard(golfpass.fetch_scorecard_html(url))
-    if not sc.par:
-        return None
-    if sc.back_par and nine_name:
-        combo = golfpass.combo_nines_from_url(url)
-        if combo and nine_name.lower() == combo[1]:
-            return sc.back_par
-        return sc.front_par
-    return sc.front_par
+
+def _store_path(global_id: int, *, root: Path = ROOT) -> Path:
+    return _course_dir(root) / f"{int(global_id)}.json"
 
 
-def pick_course_link(query: str, links: list[tuple[str, str]], *, min_ratio: float = 0.45):
-    """Fuzzy-pick the best (course_id, slug) for a query name using stdlib difflib.
-
-    Returns (course_id, slug, ratio) or None. Guarded by ``min_ratio`` so a weak match
-    is reported, never silently accepted.
-    """
-    best = None
-    q = query.lower()
-    for cid, slug in links:
-        ratio = difflib.SequenceMatcher(None, q, slug.replace("-", " ")).ratio()
-        if best is None or ratio > best[2]:
-            best = (cid, slug, ratio)
-    if best and best[2] >= min_ratio:
-        return best
-    return None
-
-
-def _store_path(global_id: int):
-    return COURSE_DIR / f"{int(global_id)}.json"
-
-
-def load_course_par(global_id: int) -> CoursePar | None:
-    path = _store_path(global_id)
+def load_course_par(global_id: int, *, root: Path = ROOT) -> CoursePar | None:
+    path = _store_path(global_id, root=root)
     if not path.exists():
         return None
     return CoursePar(**read_json(path))
 
 
-def save_course_par(record: CoursePar) -> None:
-    COURSE_DIR.mkdir(parents=True, exist_ok=True)
-    write_json(_store_path(record.global_id), asdict(record))
+def save_course_par(record: CoursePar, *, root: Path = ROOT) -> None:
+    _course_dir(root).mkdir(parents=True, exist_ok=True)
+    write_json(_store_path(record.global_id, root=root), asdict(record))
 
 
-def build_played_store() -> dict[int, CoursePar]:
-    """Materialise played par for every played nine into data/courses/. Idempotent;
-    played records always overwrite (authoritative supersedes any prior estimate)."""
-    records = played_par_by_nine()
+def build_played_store(*, root: Path = ROOT) -> dict[int, CoursePar]:
+    """Materialise par for every played nine (authoritative), then fill courseview par for any
+    nine referenced by a scorecard that has no played record. Idempotent."""
+    records = played_par_by_nine(root=root)
     for record in records.values():
-        save_course_par(record)
+        save_course_par(record, root=root)
+    referenced: set[int] = set()
+    for rnd in _rounds_from_files(root=root):
+        for key in ("front_gid", "back_gid"):
+            gid = rnd.get(key)
+            if gid:
+                referenced.add(int(gid))
+    for gid in sorted(referenced):
+        if gid in records:
+            continue
+        cached = load_course_par(gid, root=root)
+        if cached is not None:
+            records[gid] = cached
+            continue
+        rec = _courseview_record(gid, root=root)  # courseview par, or None (no scorecard rescan)
+        if rec is not None:
+            records[gid] = rec
     return records
+
+
+def _release_holes(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict] | None:
+    """Per-hole records from the CourseView release protobuf (cache-first, then fetch+cache)."""
+    gid = int(global_id)
+    path = _courseview_dir(root) / f"{gid}_releases.pb"
+    if path.exists():
+        pb = path.read_bytes()
+    elif allow_fetch:
+        try:
+            pb = load_release_pb(gid, True)  # live fetch (anonymous)
+        except Exception:
+            return None
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(pb)
+    else:
+        return None
+    try:
+        return inspect_release(pb).get("holes") or None
+    except Exception:
+        return None
+
+
+def courseview_par(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[int] | None:
+    """Exact per-hole par for a course nine from Garmin's CourseView release (any course)."""
+    holes = _release_holes(global_id, allow_fetch=allow_fetch, root=root)
+    if not holes:
+        return None
+    pars = [h.get("par") for h in holes]
+    return pars if pars and all(isinstance(p, int) for p in pars) else None
+
+
+def _courseview_record(
+    global_id: int,
+    *,
+    course_name: str | None = None,
+    allow_fetch: bool = True,
+    root: Path = ROOT,
+) -> CoursePar | None:
+    """Build (and persist) a CoursePar from the CourseView release par, or None if unavailable."""
+    gid = int(global_id)
+    holes = _release_holes(gid, allow_fetch=allow_fetch, root=root)
+    if not holes:
+        return None
+    pars = [h.get("par") for h in holes]
+    if not (pars and all(isinstance(p, int) for p in pars)):
+        return None
+    hcaps = [h.get("handicap") for h in holes]
+    rec = CoursePar(
+        gid, pars, "courseview", "high",
+        provenance="courseview_release", course_name=course_name,
+        handicap=hcaps if all(isinstance(h, int) for h in hcaps) else None,
+    )
+    save_course_par(rec, root=root)
+    return rec
 
 
 def resolve_par(
     global_id: int,
     *,
     course_name: str | None = None,
-    golfpass_url: str | None = None,
-    nine_name: str | None = None,
     lengths_m: list[float] | None = None,
+    allow_fetch: bool = True,
+    root: Path = ROOT,
 ) -> CoursePar | None:
-    """Resolve par for a nine via the ladder: played -> official(GolfPass) -> estimate.
+    """Resolve par for a nine via the ladder: played -> courseview -> estimate. Persists the result.
 
-    A played record always wins (authoritative). Persists the resolved record.
+    ``allow_fetch=False`` keeps the courseview rung cache-only (no network) for request-time paths.
     """
-    played = played_par_by_nine().get(int(global_id))
+    gid = int(global_id)
+    played = played_par_by_nine(root=root).get(gid)
     if played:
-        save_course_par(played)
+        save_course_par(played, root=root)
         return played
-    if golfpass_url:
-        official = official_par_from_golfpass(golfpass_url, nine_name)
-        if official:
-            rec = CoursePar(int(global_id), official, "official", "high",
-                            provenance=golfpass_url, course_name=course_name)
-            save_course_par(rec)
-            return rec
+    rec = _courseview_record(gid, course_name=course_name, allow_fetch=allow_fetch, root=root)
+    if rec is not None:
+        return rec
     if lengths_m:
         est = [estimate_par_from_length(x) for x in lengths_m]
-        rec = CoursePar(int(global_id), est, "estimate", "medium",
+        rec = CoursePar(gid, est, "estimate", "medium",
                         provenance="length_estimate", course_name=course_name)
-        save_course_par(rec)
+        save_course_par(rec, root=root)
         return rec
     return None
 

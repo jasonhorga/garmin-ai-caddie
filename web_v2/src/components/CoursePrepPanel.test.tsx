@@ -76,7 +76,7 @@ describe('CoursePrepPanel', () => {
       holes: [{
         hole: 1,
         par: 4,
-        par_source: 'played',
+        par_source: 'courseview',
         blue_yards: 219,
         route_len_m: 200,
         steps: [{ club: null, note: '开球落点约 87y' }],
@@ -100,7 +100,7 @@ describe('CoursePrepPanel', () => {
 
     expect(await screen.findByRole('heading', { name: '赛前球场攻略' })).toBeInTheDocument()
     expect(screen.getByText(/默认蓝T/)).toBeInTheDocument()
-    expect(screen.getAllByText(/Par 来源/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Par 来源：CourseView')).toBeInTheDocument()
     expect(screen.getByText('219y 蓝T')).toBeInTheDocument()
     expect(screen.getByText('水 进22y / 过55y')).toBeInTheDocument()
     expect(screen.getByText('沙87y')).toBeInTheDocument()

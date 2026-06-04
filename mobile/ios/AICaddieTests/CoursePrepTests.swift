@@ -47,6 +47,12 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.hazards.waterCarry.first, [40.0, 90.0])
     }
 
+    func testParSourceLabelsCourseViewWithoutMarkingAsEstimate() throws {
+        XCTAssertEqual(coursePrepParSourceLabel("played"), "记分卡")
+        XCTAssertEqual(coursePrepParSourceLabel("courseview"), "CourseView")
+        XCTAssertEqual(coursePrepParSourceLabel("unknown"), "推算")
+    }
+
     func testCoursePrepRouteIntervalReadoutUsesYards() throws {
         XCTAssertEqual(CoursePrepRoute.yards(fromMetres: 100), 109)
 

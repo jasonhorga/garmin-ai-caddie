@@ -1606,7 +1606,9 @@ def build_live_round_package(
 
 
 def _geometry_only_course_template(global_id: int, *, round_id: str, tee_box: str | None = None) -> dict[str, Any] | None:
+    from ai_caddie import course_reference
     holes = []
+    cv_par = course_reference.courseview_par(int(global_id), allow_fetch=False)
     has_geometry_source = False
     for local_hole in range(1, 19):
         try:
@@ -1616,7 +1618,8 @@ def _geometry_only_course_template(global_id: int, *, round_id: str, tee_box: st
             state = "missing"
         if state != "missing":
             has_geometry_source = True
-        holes.append({"number": local_hole, "par": 4, "yards": None, "geometryCoverage": state})
+        par = cv_par[local_hole - 1] if (cv_par and local_hole - 1 < len(cv_par)) else 4
+        holes.append({"number": local_hole, "par": par, "yards": None, "geometryCoverage": state})
     if not has_geometry_source:
         return None
     return {

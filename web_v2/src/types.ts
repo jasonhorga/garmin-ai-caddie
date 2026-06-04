@@ -922,7 +922,7 @@ export interface AnnotationListResponse {
   target: { targetType: AnnotationTargetType; targetId: string } | null
 }
 
-export type ParSource = 'played' | 'official' | 'estimate'
+export type ParSource = 'played' | 'courseview' | 'estimate'
 
 export interface CoursePrepOverlay {
   w: number

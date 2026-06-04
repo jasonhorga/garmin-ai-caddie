@@ -4,7 +4,7 @@ recommended club/target (from the player's real distances) + a styled hole map. 
 Geometry-only and self-contained (works before any shot exists), using the decoded
 prodgeometry meshes in the mesh coord frame — the same frame as :mod:`ai_caddie.hole_render`,
 so map + overlay + hazards align exactly. Par comes from :mod:`ai_caddie.course_reference`
-(played -> official -> estimate), labelled with its source. Ported from the validated
+(played -> courseview -> estimate), labelled with its source. Ported from the validated
 prototype (route = blue-tee + dogleg centreline; green = dogleg line end; hazards by
 point-in-polygon along the densified route).
 """
@@ -251,10 +251,17 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
 
 
 def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True) -> list:
-    """Pre-round prep for every hole of a nine that has geometry. Skips missing holes."""
+    """Pre-round prep for every hole of a nine that has geometry. Skips missing holes.
+
+    Par is cache-first: the stored ``data/courses/<gid>.json`` record, else ``resolve_par``
+    (courseview). For an UNPLAYED course with no cached release, ``resolve_par`` does a one-time
+    blocking CourseView fetch (then caches it), so the first prep of a cold course is slower.
+    """
     if ladder is None:
         ladder = club_ladder()
     par_record = course_reference.load_course_par(global_id)
+    if par_record is None:
+        par_record = course_reference.resolve_par(global_id)
     out = []
     for hole in holes:
         prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render)

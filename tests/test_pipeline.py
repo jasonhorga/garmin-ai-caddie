@@ -20,6 +20,7 @@ class PipelineSyncTests(unittest.TestCase):
         store = {31870: CoursePar(31870, [5, 4, 3, 4, 4, 4, 5, 3, 4], "played", "high", rounds=2)}
         with patch.object(pipeline, "_ensure_auth", return_value=True), \
                 patch.object(pipeline, "_fetch_history", return_value=461) as fetch_history, \
+                patch.object(pipeline, "_ensure_geometry", return_value={"attempted": 0}), \
                 patch.object(pipeline.course_reference, "build_played_store", return_value=store), \
                 patch.object(pipeline, "_on_disk", return_value=(461, 0)):
             result = pipeline.sync(with_shots=False)
@@ -32,12 +33,26 @@ class PipelineSyncTests(unittest.TestCase):
     def test_with_shots_passes_through_and_no_note(self) -> None:
         with patch.object(pipeline, "_ensure_auth", return_value=True), \
                 patch.object(pipeline, "_fetch_history", return_value=10) as fetch_history, \
+                patch.object(pipeline, "_ensure_geometry", return_value={"attempted": 0}), \
                 patch.object(pipeline.course_reference, "build_played_store", return_value={}), \
                 patch.object(pipeline, "_on_disk", return_value=(10, 10)):
             result = pipeline.sync(with_shots=True)
         fetch_history.assert_called_once_with(True)
         self.assertEqual(result.shots, 10)
         self.assertFalse(any("shots not fetched" in n for n in result.notes))
+
+
+class PipelineRunsAllStepsTests(unittest.TestCase):
+    def test_sync_runs_geometry_ensure_and_course_ref(self) -> None:
+        with patch.object(pipeline, "_ensure_auth", return_value=True), \
+                patch.object(pipeline, "_fetch_history", return_value=5), \
+                patch.object(pipeline, "_ensure_geometry", return_value={"attempted": 0}) as geo, \
+                patch("ai_caddie.course_reference.build_played_store", return_value={1: object()}) as store, \
+                patch.object(pipeline, "_on_disk", return_value=(5, 0)):
+            result = pipeline.sync(with_shots=False)
+        self.assertTrue(result.auth_ok)
+        geo.assert_called_once()
+        store.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ai_caddie.data import ROOT
-from ai_caddie.geometry_sync import ensure_prodgeometry
 import fetch as fetch_module
 import garmin_auth as garmin_auth_module
 from fetch import GarminAuthExpired, fetch_details, fetch_summary, make_session
@@ -17,7 +16,6 @@ from .base import ConnectorRunResult
 from .redaction import sanitize_secret_text
 from .snapshot import (
     build_snapshot_manifest,
-    geometry_player_profile_id,
     write_connector_status,
     write_durable_snapshot,
     write_snapshot_manifest,
@@ -157,6 +155,12 @@ class GarminCnWebSessionConnector:
             write_snapshot_manifest(root=self.root, manifest=manifest)
             write_durable_snapshot(root=self.root, manifest=manifest)
             state = "ready" if manifest.scorecard_count else "no_data"
+            if state == "ready":
+                try:
+                    from ai_caddie import course_reference
+                    course_reference.build_played_store(root=self.root)
+                except Exception:
+                    pass  # course-ref is best-effort; never fail the sync on it
             detail = (
                 f"Synced {manifest.scorecard_count} scorecards and {manifest.shot_file_count} shot files."
                 if state == "ready"
@@ -219,24 +223,5 @@ class GarminCnWebSessionConnector:
             )
 
     def _ensure_geometry_dependencies(self, dependencies: list[dict[str, object]]) -> dict[str, int]:
-        profile_id = geometry_player_profile_id(root=self.root)
-        summary = {"attempted": 0, "cached": 0, "downloaded": 0, "failed": 0, "skipped": 0}
-        for row in dependencies:
-            if row.get("status") == "ready":
-                summary["cached"] += 1
-                continue
-            global_id = row.get("globalId")
-            local_hole = row.get("localHole")
-            if profile_id is None or global_id is None or local_hole is None:
-                summary["skipped"] += 1
-                continue
-            summary["attempted"] += 1
-            result = ensure_prodgeometry(int(global_id), int(local_hole), profile_id=profile_id, force=False)
-            status = str(result.get("status") or "failed")
-            if status == "cached":
-                summary["cached"] += 1
-            elif status == "downloaded":
-                summary["downloaded"] += 1
-            else:
-                summary["failed"] += 1
-        return summary
+        from .snapshot import ensure_geometry_dependencies
+        return ensure_geometry_dependencies(dependencies, root=self.root)

@@ -3,6 +3,14 @@ import SwiftUI
 import UIKit
 #endif
 
+func coursePrepParSourceLabel(_ source: String) -> String {
+    switch source {
+    case "played": return "记分卡"
+    case "courseview": return "CourseView"
+    default: return "推算"
+    }
+}
+
 /// Pre-round course review: browse every hole of a course with its styled map, par
 /// (labelled source), and the club-based strategy — fed by `/api/v2/courses/{gid}/prep`.
 public struct CourseReviewView: View {
@@ -95,11 +103,7 @@ struct HolePrepCard: View {
     }
 
     private var sourceLabel: String {
-        switch hole.parSource {
-        case "played": return "记分卡"
-        case "official": return "官方"
-        default: return "推算"
-        }
+        coursePrepParSourceLabel(hole.parSource)
     }
 
     private var routeCurrentMetres: Double {

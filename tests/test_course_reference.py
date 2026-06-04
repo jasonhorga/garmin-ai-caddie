@@ -1,47 +1,9 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from ai_caddie import course_reference as cr
-from ai_caddie.scrapers import golfpass
-
-FIXTURE = Path(__file__).parent / "fixtures" / "golfpass_zhongshan_mountain_lake.html"
-
-
-class GolfPassParserTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.html = FIXTURE.read_text()
-
-    def test_parses_both_nines(self) -> None:
-        sc = golfpass.parse_scorecard(self.html)
-        self.assertEqual(sc.holes, 18)
-        self.assertEqual(sc.front_par, [4, 5, 3, 4, 4, 4, 5, 3, 4])
-        self.assertEqual(sc.back_par, [4, 5, 4, 3, 5, 4, 4, 3, 4])
-        self.assertEqual(sum(sc.front_par), 36)
-        self.assertEqual(sum(sc.back_par), 36)
-
-    def test_tee_yardage_rows_extracted(self) -> None:
-        sc = golfpass.parse_scorecard(self.html)
-        self.assertTrue(sc.tee_yardages)
-        self.assertEqual(len(sc.tee_yardages[0]), 18)
-        self.assertTrue(all(v >= 70 for v in sc.tee_yardages[0]))
-
-    def test_combo_nines_from_url(self) -> None:
-        combo = golfpass.combo_nines_from_url(
-            "https://www.golfpass.com/travel-advisor/courses/43243-x-mountain-lake-course"
-        )
-        self.assertEqual(combo, ("mountain", "lake"))
-
-    def test_empty_html_yields_no_par(self) -> None:
-        sc = golfpass.parse_scorecard("<html>no scorecard here</html>")
-        self.assertEqual(sc.par, [])
-        self.assertEqual(sc.holes, 0)
-
-    def test_course_links_extracted(self) -> None:
-        links = golfpass.course_links(self.html)
-        self.assertTrue(any(cid == "43243" for cid, _ in links))
 
 
 class PlayedParAggregationTests(unittest.TestCase):
@@ -81,36 +43,68 @@ class EstimateTests(unittest.TestCase):
         self.assertEqual(cr.estimate_par_from_length(450), 5)
 
 
-class FuzzyPickTests(unittest.TestCase):
-    def test_good_match_accepted(self) -> None:
-        links = [
-            ("1", "pebble-beach-golf-links"),
-            ("2", "nanjing-zhongshan-international-golf-club-mountain-lake-course"),
-        ]
-        pick = cr.pick_course_link("nanjing zhongshan international golf club", links)
-        self.assertIsNotNone(pick)
-        self.assertEqual(pick[0], "2")
-
-    def test_weak_match_rejected(self) -> None:
-        links = [("1", "pebble-beach-golf-links")]
-        self.assertIsNone(cr.pick_course_link("nanjing zhongshan", links, min_ratio=0.6))
-
-
 class ResolveLadderTests(unittest.TestCase):
-    def test_played_supersedes_estimate(self) -> None:
+    def test_played_supersedes(self) -> None:
         played = {31870: cr.CoursePar(31870, [5, 4, 3, 4, 4, 4, 5, 3, 4], "played", "high", rounds=2)}
         with patch.object(cr, "played_par_by_nine", return_value=played), \
                 patch.object(cr, "save_course_par"):
             rec = cr.resolve_par(31870, lengths_m=[400] * 9)
         self.assertEqual(rec.par_source, "played")
 
-    def test_estimate_fallback_when_unplayed(self) -> None:
+    def test_courseview_when_unplayed(self) -> None:
+        holes = [{"par": p, "handicap": h} for p, h in
+                 zip([4, 5, 3, 4, 3, 4, 4, 5, 4], [6, 3, 2, 1, 9, 5, 8, 7, 4])]
         with patch.object(cr, "played_par_by_nine", return_value={}), \
+                patch.object(cr, "_release_holes", return_value=holes), \
+                patch.object(cr, "save_course_par"):
+            rec = cr.resolve_par(31936)
+        self.assertEqual(rec.par_source, "courseview")
+        self.assertEqual(rec.par, [4, 5, 3, 4, 3, 4, 4, 5, 4])
+        self.assertEqual(rec.handicap, [6, 3, 2, 1, 9, 5, 8, 7, 4])
+
+    def test_estimate_when_no_release(self) -> None:
+        with patch.object(cr, "played_par_by_nine", return_value={}), \
+                patch.object(cr, "_release_holes", return_value=None), \
                 patch.object(cr, "save_course_par"):
             rec = cr.resolve_par(99999, lengths_m=[150, 460, 300, 300, 300, 300, 300, 300, 300])
         self.assertEqual(rec.par_source, "estimate")
-        self.assertEqual(rec.par[0], 3)
-        self.assertEqual(rec.par[1], 5)
+        self.assertEqual(rec.par[:2], [3, 5])
+
+    def test_none_when_nothing(self) -> None:
+        with patch.object(cr, "played_par_by_nine", return_value={}), \
+                patch.object(cr, "_release_holes", return_value=None), \
+                patch.object(cr, "save_course_par"):
+            self.assertIsNone(cr.resolve_par(99999))
+
+
+class BuildStoreTests(unittest.TestCase):
+    def test_fills_courseview_for_referenced_unplayed_nine(self) -> None:
+        rounds = [{"front_gid": 40590, "back_gid": 31936, "hole_pars": "453444434", "name": "X"}]
+        played = {40590: cr.CoursePar(40590, [4, 5, 3, 4, 4, 4, 4, 3, 4], "played", "high")}
+        holes = [{"par": p} for p in [4, 5, 3, 4, 3, 4, 4, 5, 4]]
+        saved = {}
+        with patch.object(cr, "played_par_by_nine", return_value=played), \
+                patch.object(cr, "_rounds_from_files", return_value=rounds), \
+                patch.object(cr, "_release_holes", return_value=holes), \
+                patch.object(cr, "load_course_par", return_value=None), \
+                patch.object(cr, "save_course_par", side_effect=lambda r, **_: saved.__setitem__(r.global_id, r)):
+            store = cr.build_played_store()
+        self.assertEqual(store[40590].par_source, "played")
+        self.assertEqual(store[31936].par_source, "courseview")
+
+    def test_returns_cached_courseview_for_referenced_unplayed_nine(self) -> None:
+        rounds = [{"front_gid": 40590, "back_gid": 31936, "hole_pars": "453444434", "name": "X"}]
+        played = {40590: cr.CoursePar(40590, [4, 5, 3, 4, 4, 4, 4, 3, 4], "played", "high")}
+        cached = cr.CoursePar(31936, [4, 5, 3, 4, 3, 4, 4, 5, 4], "courseview", "high")
+        with patch.object(cr, "played_par_by_nine", return_value=played), \
+                patch.object(cr, "_rounds_from_files", return_value=rounds), \
+                patch.object(cr, "load_course_par", side_effect=lambda gid, **_: cached if gid == 31936 else None), \
+                patch.object(cr, "_courseview_record") as courseview_record, \
+                patch.object(cr, "save_course_par"):
+            store = cr.build_played_store()
+        courseview_record.assert_not_called()
+        self.assertEqual(store[40590].par_source, "played")
+        self.assertEqual(store[31936].par_source, "courseview")
 
 
 if __name__ == "__main__":
