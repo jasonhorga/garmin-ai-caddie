@@ -417,3 +417,53 @@ data/courseview/prodgeometry  190M
 output/prodgeometry           544M
 output/prodgeometry_hazards   46M
 ```
+
+### Continued Dynamic Release-Capability Backfill
+
+Ran one more bounded local batch with the same current-release preflight.
+
+- Batch 10: 75 attempted, 75 downloaded, 0 failed.
+- Preflight skipped 16 dependencies before selection.
+- All skipped rows were `release_missing_hole`; the representative release mismatch remained `31765` / `31776` current CourseView releases exposing only holes `1..9`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 298,
+  "partialPairs": 0,
+  "missingPairs": 1203,
+  "coverage": {"ready": 298, "total": 1501, "pct": 19.9},
+  "completePlayedCourseCount": 8,
+  "completePlayedGlobalIds": [31794, 41825, 31796, 31795, 39315, 39270, 31692, 39668]
+}
+```
+
+Representative partially covered played course groups after this batch:
+
+```json
+{
+  "31765": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "40590": {"playedPairs": 18, "readyPairs": 16, "missingPairs": 2},
+  "31702": {"playedPairs": 18, "readyPairs": 16, "missingPairs": 2},
+  "31776": {"playedPairs": 18, "readyPairs": 7, "missingPairs": 11},
+  "32871": {"playedPairs": 18, "readyPairs": 11, "missingPairs": 7},
+  "39592": {"playedPairs": 18, "readyPairs": 8, "missingPairs": 10}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  246M
+output/prodgeometry           725M
+output/prodgeometry_hazards   60M
+```
+
+Disk remained sufficient:
+
+```text
+/dev/root  58G size, 27G used, 31G available
+```
