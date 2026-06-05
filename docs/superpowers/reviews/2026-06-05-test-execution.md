@@ -114,3 +114,38 @@ The real-data result keeps the next roadmap blocker explicit: geometry for playe
 - No GitHub Actions run is required for this record.
 - Native iOS/Watch simulator tests require macOS/Xcode and are not executable in this Linux workspace.
 - Full backend discovery is slow locally: the passing 60 minute-cap run took 1498.641s.
+
+## Follow-Up: Played Geometry Data Quality
+
+Purpose: make the Phase 1 geometry blocker visible from data-quality output, not only from an ad hoc smoke script.
+
+Change:
+
+- Added `playedGeometryCoverage` to `history_data_quality()`.
+- The new block groups unique played `(globalId, localHole)` shot-hole pairs by course, reports ready/partial/missing pair counts, reports ready/partial/missing shot counts, and sorts `topMissingCourses` by affected shot volume.
+
+Commands:
+
+| Area | Command | Result |
+| --- | --- | --- |
+| TDD red | `uv run python -m unittest tests.test_history_data_quality -v` before implementation | RED: `KeyError: 'playedGeometryCoverage'` |
+| Targeted data-quality test | `uv run python -m unittest tests.test_history_data_quality -v` | PASS: 1 test |
+| Adjacent backend tests | `uv run python -m unittest tests.test_ai_caddie tests.test_history_stats_core tests.test_history_data_quality -v` | PASS: 51 tests, 4 skipped |
+| Python compile | `uv run python -m py_compile ai_caddie/history.py tests/test_history_data_quality.py` | PASS |
+| Real-data played geometry smoke | local Python smoke with `AI_CADDIE_DATA_MODE=local` | PASS |
+
+Real-data smoke values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 0,
+  "partialPairs": 0,
+  "missingPairs": 1501,
+  "coverage": {"ready": 0, "total": 1501, "pct": 0.0},
+  "topMissingCourseGlobalIds": [31794, 41825, 31796, 31795, 39315]
+}
+```
+
+This does not resolve geometry coverage yet. It turns the blocker into a ranked, product-readable dependency list for the next sync step.

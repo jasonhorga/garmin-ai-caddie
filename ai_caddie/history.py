@@ -1022,6 +1022,114 @@ def history_reports(*, limit: int = 80) -> dict[str, Any]:
     return {"schema": "ai-caddie-history-reports-v1", "total": len(rows), "reports": rows[:limit]}
 
 
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coverage_pct(ready: int, total: int) -> dict[str, Any]:
+    return {
+        "ready": ready,
+        "total": total,
+        "pct": round(ready / total * 100, 1) if total else 0.0,
+    }
+
+
+def _played_geometry_coverage(data: HistoryData) -> dict[str, Any]:
+    pairs: dict[tuple[int, int], dict[str, Any]] = {}
+    for shot in data.shots:
+        global_id = _int_or_none(shot.get("globalId"))
+        local_hole = _int_or_none(shot.get("localHole"))
+        if global_id is None or local_hole is None:
+            continue
+        key = (global_id, local_hole)
+        row = pairs.setdefault(
+            key,
+            {
+                "globalId": global_id,
+                "localHole": local_hole,
+                "shotCount": 0,
+                "courseCounts": Counter(),
+            },
+        )
+        row["shotCount"] += 1
+        row["courseCounts"][str(shot.get("course") or "Unknown course")] += 1
+
+    courses: dict[int, dict[str, Any]] = {}
+    ready_pairs = 0
+    partial_pairs = 0
+    missing_pairs = 0
+    for (global_id, local_hole), pair in sorted(pairs.items()):
+        has_hazards = hazard_path(global_id, local_hole).exists()
+        has_meshes = mesh_path(global_id, local_hole).exists()
+        if has_hazards and has_meshes:
+            status = "ready"
+            ready_pairs += 1
+        elif has_hazards or has_meshes:
+            status = "partial"
+            partial_pairs += 1
+        else:
+            status = "missing"
+            missing_pairs += 1
+
+        course = pair["courseCounts"].most_common(1)[0][0] if pair["courseCounts"] else "Unknown course"
+        bucket = courses.setdefault(
+            global_id,
+            {
+                "globalId": global_id,
+                "course": course,
+                "shotCount": 0,
+                "playedPairs": 0,
+                "readyPairs": 0,
+                "partialPairs": 0,
+                "missingPairs": 0,
+                "readyShotCount": 0,
+                "partialShotCount": 0,
+                "missingShotCount": 0,
+                "readyLocalHoles": [],
+                "partialLocalHoles": [],
+                "missingLocalHoles": [],
+            },
+        )
+        shot_count = int(pair["shotCount"])
+        bucket["shotCount"] += shot_count
+        bucket["playedPairs"] += 1
+        bucket[f"{status}Pairs"] += 1
+        bucket[f"{status}ShotCount"] += shot_count
+        bucket[f"{status}LocalHoles"].append(local_hole)
+
+    course_rows = []
+    for row in courses.values():
+        for key in ("readyLocalHoles", "partialLocalHoles", "missingLocalHoles"):
+            row[key] = sorted(row[key])
+        row["geometryDebtShotCount"] = int(row["missingShotCount"]) + int(row["partialShotCount"])
+        row["coverage"] = _coverage_pct(int(row["readyPairs"]), int(row["playedPairs"]))
+        course_rows.append(row)
+    course_rows.sort(
+        key=lambda row: (
+            -int(row["geometryDebtShotCount"]),
+            -int(row["missingPairs"]),
+            -int(row["partialPairs"]),
+            -int(row["shotCount"]),
+            int(row["globalId"]),
+        )
+    )
+    total_pairs = len(pairs)
+    return {
+        "schema": "ai-caddie-played-geometry-coverage-v1",
+        "shotCount": sum(int(row["shotCount"]) for row in pairs.values()),
+        "totalPairs": total_pairs,
+        "readyPairs": ready_pairs,
+        "partialPairs": partial_pairs,
+        "missingPairs": missing_pairs,
+        "coverage": _coverage_pct(ready_pairs, total_pairs),
+        "courses": course_rows,
+        "topMissingCourses": [row for row in course_rows if row["missingPairs"] or row["partialPairs"]][:25],
+    }
+
+
 def history_data_quality(data: HistoryData | None = None) -> dict[str, Any]:
     data = data or load_history_data()
     reports = history_reports(limit=10_000)["reports"]
@@ -1073,6 +1181,7 @@ def history_data_quality(data: HistoryData | None = None) -> dict[str, Any]:
         "missingGeometry": missing_geometry[:200],
         "missingReports": [_round_public(r) for r in sorted(missing_reports, key=lambda r: r.get("date") or "", reverse=True)[:120]],
         "lowClubSamples": low_club_samples,
+        "playedGeometryCoverage": _played_geometry_coverage(data),
         "coveredGeometry": [
             {"globalId": gid, "localHole": hole, "roundHits": count}
             for (gid, hole), count in geometry_counts.most_common(80)

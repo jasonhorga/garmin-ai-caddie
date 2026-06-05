@@ -48,7 +48,7 @@
   - same-day 9-hole merge
   - non-ASCII course names
   - missing geometry degradation
-- [ ] Make data-quality output explicitly show geometry coverage for real played courses.
+- [x] Make data-quality output explicitly show geometry coverage for real played courses.
 
 **Done when:** Real-data smoke reports the current round count, shot coverage, club profiles, round detail, and at least representative real played holes with geometry evidence.
 
