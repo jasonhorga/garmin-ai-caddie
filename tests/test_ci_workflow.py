@@ -49,10 +49,7 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertIn("workflow_dispatch", triggers)
         self.assertIn("pull_request", triggers)
-        self.assertIn("push", triggers)
-        self.assertIn("integration/v2", triggers["push"]["branches"])
-        self.assertNotIn("superpowers/**", triggers["push"]["branches"])
-        self.assertIn("testing-sandbox", triggers["push"]["branches"])
+        self.assertNotIn("push", triggers)
 
     def test_private_trial_smoke_can_send_admin_token_header(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
