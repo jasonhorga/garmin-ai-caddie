@@ -43,7 +43,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual("private", steps["Private trial smoke"]["env"]["AI_CADDIE_SECURITY_PROFILE"])
         self.assertEqual("ci-admin-token", steps["Private trial smoke"]["env"]["AI_CADDIE_ADMIN_TOKEN"])
 
-    def test_ci_workflow_supports_superpowers_branch_pushes_and_manual_runs(self) -> None:
+    def test_ci_workflow_avoids_duplicate_feature_branch_push_runs(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
         triggers = workflow[True]
 
@@ -51,7 +51,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("pull_request", triggers)
         self.assertIn("push", triggers)
         self.assertIn("integration/v2", triggers["push"]["branches"])
-        self.assertIn("superpowers/**", triggers["push"]["branches"])
+        self.assertNotIn("superpowers/**", triggers["push"]["branches"])
         self.assertIn("testing-sandbox", triggers["push"]["branches"])
 
     def test_private_trial_smoke_can_send_admin_token_header(self) -> None:
@@ -108,9 +108,22 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertIn("timeout: 60_000", config)
 
-    def test_ci_workflow_runs_native_ios_and_watch_validation_on_macos(self) -> None:
+    def test_ci_workflow_keeps_expensive_native_validation_out_of_general_ci(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        self.assertNotIn("native-mobile", workflow["jobs"])
+
+    def test_native_mobile_workflow_runs_ios_and_watch_validation_on_macos_only_for_native_changes(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8"))
+        triggers = workflow[True]
         native = workflow["jobs"]["native-mobile"]
+
+        self.assertIn("workflow_dispatch", triggers)
+        self.assertNotIn("push", triggers)
+        paths = triggers["pull_request"]["paths"]
+        self.assertIn("mobile/ios/**", paths)
+        self.assertIn("Package.swift", paths)
+        self.assertIn(".github/workflows/native-mobile.yml", paths)
+        self.assertNotIn("ai_caddie/**", paths)
 
         self.assertEqual("macos-15", native["runs-on"])
         self.assertEqual("platform=iOS Simulator,name=iPhone 16,OS=latest", native["env"]["IOS_DESTINATION"])
@@ -154,7 +167,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("AICaddieWatch", targets)
 
     def test_native_evidence_writer_is_documented_and_reused_by_ci(self) -> None:
-        workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+        workflow = Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
         readme = Path("mobile/ios/README.md").read_text(encoding="utf-8")
         writer = Path("ops/write_native_build_evidence.py").read_text(encoding="utf-8")
 

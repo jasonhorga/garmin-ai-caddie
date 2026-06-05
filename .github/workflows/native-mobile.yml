@@ -1,0 +1,48 @@
+name: Native Mobile CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'mobile/ios/**'
+      - 'Package.swift'
+      - 'ops/write_native_build_evidence.py'
+      - '.github/workflows/native-mobile.yml'
+
+concurrency:
+  group: ai-caddie-native-mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-mobile:
+    runs-on: macos-15
+    env:
+      IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
+      WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate native project
+        run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+      - name: Show simulator inventory
+        run: xcrun simctl list devices available
+      - name: Test iOS app target
+        run: |
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddie \
+            -destination "$IOS_DESTINATION"
+      - name: Test Watch app target
+        run: |
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "$WATCH_DESTINATION"
+      - name: Write native build evidence
+        run: python3 ops/write_native_build_evidence.py
+      - name: Upload native build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-build-evidence
+          path: mobile/ios/native_build_evidence.json
