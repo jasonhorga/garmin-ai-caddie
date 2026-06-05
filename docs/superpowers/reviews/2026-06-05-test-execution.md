@@ -249,3 +249,55 @@ The first representative real played course groups now have full geometry overla
 - `31794`: 9/9 ready, 2,428 ready shots.
 - `31795`: 9/9 ready, 2,106 ready shots.
 - `31796`: 9/9 ready, 2,362 ready shots.
+
+### Continued Backfill And First Mapping Blocker
+
+Ran two more bounded local batches:
+
+- Batch 4: 20 attempted, 20 downloaded, 0 failed.
+- Batch 5: 20 attempted, 19 downloaded, 1 failed.
+- Batch 6: skipped known `31765` back-nine release-missing dependencies, then 25 attempted, 25 downloaded, 0 failed.
+
+The single failure was:
+
+```json
+{
+  "globalId": 31765,
+  "localHole": 12,
+  "status": "failed",
+  "error": "hole not found in CourseView release"
+}
+```
+
+Root-cause evidence:
+
+- Current CourseView release `31765` (`Beijing Fragrant Hills International Golf Club ~ A`, release `006-D7351-25`) exposes holes `1..9` only.
+- Historical scorecards for this course store `courseGlobalId=31765`, `frontNineGlobalCourseId=31765`, no back-nine global id, and an 18-char `holePars` string.
+- Historical shot files include `gid031765/hole10..hole18` raster URLs, so the historical 18-hole scorecard and current 9-hole CourseView release disagree.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 104,
+  "partialPairs": 0,
+  "missingPairs": 1397,
+  "coverage": {"ready": 104, "total": 1501, "pct": 6.9},
+  "completePlayedGlobalIds": [31794, 31795, 31796, 39315, 41825],
+  "globalId39270": {"playedPairs": 18, "readyPairs": 14, "missingPairs": 4},
+  "globalId31692": {"playedPairs": 18, "readyPairs": 8, "missingPairs": 10},
+  "globalId31765": {"playedPairs": 18, "readyPairs": 7, "missingPairs": 11}
+}
+```
+
+Local ignored geometry cache size after these batches:
+
+```text
+data/courseview/prodgeometry  106M
+output/prodgeometry           286M
+output/prodgeometry_hazards   25M
+```
+
+The next implementation issue is a historical-geometry fallback for scorecards whose shot/raster URLs reference holes that are no longer present in the current CourseView release.
