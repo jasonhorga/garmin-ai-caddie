@@ -149,3 +149,65 @@ Real-data smoke values:
 ```
 
 This does not resolve geometry coverage yet. It turns the blocker into a ranked, product-readable dependency list for the next sync step.
+
+## Follow-Up: Ranked Played Geometry Sync
+
+Purpose: make geometry sync prioritize the real played holes with the highest shot volume, then prove the path can download and decode at least one currently missing played hole.
+
+Change:
+
+- Added `discover_played_geometry_dependencies()` to rank unique played `(globalId, localHole)` pairs by affected shot count.
+- Changed `ai_caddie.pipeline._ensure_geometry(limit=...)` to prefer ranked played shot dependencies when normalized shots exist.
+- Added `--geometry-limit` parsing for bounded local sync probes.
+
+Commands:
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Targeted backend tests | `uv run python -m unittest tests.test_connector_snapshot tests.test_pipeline -v` | PASS: 22 tests in 52.852s |
+| Python compile | `uv run python -m py_compile ai_caddie/connectors/snapshot.py ai_caddie/pipeline.py tests/test_connector_snapshot.py tests/test_pipeline.py` | PASS |
+| Diff whitespace check | `git diff --check` | PASS |
+| Real-data dependency smoke | local Python smoke with `discover_played_geometry_dependencies(data, limit=5)` | PASS |
+| Top-1 geometry sync probe | local Python smoke with `ensure_geometry_dependencies(discover_played_geometry_dependencies(data, limit=1))` | PASS: attempted 1, downloaded 1, failed 0 |
+| Post-sync geometry evidence | `geometry_coverage_for_hole(31796, 4)` | PASS: coverage `ready`, hazards and meshes present |
+| Post-sync data-quality smoke | `history_data_quality()["playedGeometryCoverage"]` after `stats_cache.clear()` | PASS |
+
+Top ranked dependency before sync:
+
+```json
+{
+  "globalId": 31796,
+  "localHole": 4,
+  "status": "missing",
+  "shotCount": 391,
+  "profileIdAvailable": true
+}
+```
+
+Generated local geometry cache files are ignored by git:
+
+```text
+data/courseview/prodgeometry/31796/hole04_220572.zip
+output/prodgeometry/gid31796_h04_meshes.json
+output/prodgeometry/gid31796_h04_stats.json
+output/prodgeometry/gid31796_h04_tee_distances.json
+output/prodgeometry_hazards/gid31796_h04_hazards.json
+```
+
+Post-sync real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 1,
+  "partialPairs": 0,
+  "missingPairs": 1500,
+  "coverage": {"ready": 1, "total": 1501, "pct": 0.1},
+  "readyGlobalId": 31796,
+  "readyLocalHole": 4,
+  "readyShotCount": 391
+}
+```
+
+This proves the missing-geometry blocker is actionable through the current local CourseView/prodgeometry path. It does not complete the Phase 1 geometry item yet; 1,500 played shot-hole pairs remain missing.
