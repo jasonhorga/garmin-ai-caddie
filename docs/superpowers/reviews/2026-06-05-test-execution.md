@@ -1334,3 +1334,82 @@ Disk remained sufficient:
 ```text
 /dev/root  58G size, 30G used, 28G available
 ```
+
+### Additional Dynamic Backfill Past Ninety Percent Coverage
+
+Ran one more bounded local batch with the same current-release preflight.
+
+- Batch 25: 75 attempted, 75 downloaded, 0 failed.
+- Preflight skipped 36 dependencies before selection:
+  - `release_missing_hole`: 18
+  - `release_unavailable`: 18
+- `release_unavailable` remained concentrated on `31636` and `31637`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 1423,
+  "partialPairs": 0,
+  "missingPairs": 78,
+  "coverage": {"ready": 1423, "total": 1501, "pct": 94.8},
+  "completePlayedCourseCount": 73
+}
+```
+
+New complete played course groups:
+
+```json
+{
+  "39659": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 121},
+  "42707": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 90},
+  "31761": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 62},
+  "31610": {"playedPairs": 17, "readyPairs": 17, "missingPairs": 0, "shotCount": 55},
+  "31744": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 52},
+  "39660": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 52},
+  "30250": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 51},
+  "31669": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 51},
+  "31800": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 51},
+  "30249": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 50},
+  "30253": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 48},
+  "31673": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 48},
+  "31801": {"playedPairs": 17, "readyPairs": 17, "missingPairs": 0, "shotCount": 48},
+  "31676": {"playedPairs": 17, "readyPairs": 17, "missingPairs": 0, "shotCount": 45},
+  "31763": {"playedPairs": 12, "readyPairs": 12, "missingPairs": 0, "shotCount": 40},
+  "31678": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 25},
+  "39651": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 22},
+  "31821": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 21},
+  "31822": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 20}
+}
+```
+
+Representative remaining blocked or partially covered played course groups:
+
+```json
+{
+  "31765": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31776": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31636": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9},
+  "31637": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9},
+  "31918": {"playedPairs": 18, "readyPairs": 14, "missingPairs": 4},
+  "38404": {"playedPairs": 18, "readyPairs": 14, "missingPairs": 4},
+  "31920": {"playedPairs": 18, "readyPairs": 15, "missingPairs": 3},
+  "42936": {"playedPairs": 17, "readyPairs": 14, "missingPairs": 3}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  972M
+output/prodgeometry           2.9G
+output/prodgeometry_hazards   241M
+```
+
+Disk remained sufficient:
+
+```text
+/dev/root  58G size, 30G used, 28G available
+```
