@@ -211,3 +211,41 @@ Post-sync real-data coverage values:
 ```
 
 This proves the missing-geometry blocker is actionable through the current local CourseView/prodgeometry path. It does not complete the Phase 1 geometry item yet; 1,500 played shot-hole pairs remain missing.
+
+### Continued Local Geometry Backfill
+
+After the top-1 probe, ran three bounded local batches against ranked played dependencies:
+
+- Batch 1: 12 attempted, 12 downloaded, 0 failed.
+- Batch 2: 12 attempted, 12 downloaded, 0 failed.
+- Batch 3: 15 attempted, 15 downloaded, 0 failed.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 40,
+  "partialPairs": 0,
+  "missingPairs": 1461,
+  "coverage": {"ready": 40, "total": 1501, "pct": 2.7},
+  "completePlayedNineGlobalIds": [31794, 31795, 31796],
+  "globalId41825": {"playedPairs": 18, "readyPairs": 12, "missingPairs": 6},
+  "globalId39315": {"playedPairs": 18, "readyPairs": 1, "missingPairs": 17}
+}
+```
+
+Local ignored geometry cache size after these batches:
+
+```text
+data/courseview/prodgeometry  64M
+output/prodgeometry           167M
+output/prodgeometry_hazards   14M
+```
+
+The first representative real played course groups now have full geometry overlap for their played holes:
+
+- `31794`: 9/9 ready, 2,428 ready shots.
+- `31795`: 9/9 ready, 2,106 ready shots.
+- `31796`: 9/9 ready, 2,362 ready shots.
