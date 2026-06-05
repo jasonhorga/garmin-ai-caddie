@@ -1267,3 +1267,70 @@ Disk remained sufficient:
 ```text
 /dev/root  58G size, 30G used, 28G available
 ```
+
+### Additional Dynamic Backfill Near Ninety Percent Coverage
+
+Ran one more bounded local batch with the same current-release preflight.
+
+- Batch 24: 75 attempted, 75 downloaded, 0 failed.
+- Preflight skipped 36 dependencies before selection:
+  - `release_missing_hole`: 18
+  - `release_unavailable`: 18
+- `release_unavailable` remained concentrated on `31636` and `31637`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 1348,
+  "partialPairs": 0,
+  "missingPairs": 153,
+  "coverage": {"ready": 1348, "total": 1501, "pct": 89.8},
+  "completePlayedCourseCount": 54,
+  "completePlayedGlobalIds": [31794, 41825, 31796, 31795, 39315, 39270, 31692, 40590, 31702, 31793, 39668, 31777, 31791, 31792, 31789, 32871, 39592, 31835, 46249, 31779, 32870, 31751, 31778, 39293, 31829, 31833, 31810, 31834, 31682, 31688, 31596, 31787, 32859, 31687, 31790, 31877, 39247, 31926, 31929, 31597, 31594, 38642, 2625, 6997, 31806, 31695, 39546, 31826, 31805, 31827, 31832, 31828, 31679, 31598]
+}
+```
+
+New complete played course groups:
+
+```json
+{
+  "39293": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 143},
+  "32859": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 102},
+  "39247": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 90},
+  "31926": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 89},
+  "31929": {"playedPairs": 17, "readyPairs": 17, "missingPairs": 0, "shotCount": 85},
+  "38642": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 62}
+}
+```
+
+Representative remaining blocked or partially covered played course groups:
+
+```json
+{
+  "31765": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31776": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31636": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9},
+  "31637": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9},
+  "39643": {"playedPairs": 18, "readyPairs": 8, "missingPairs": 10},
+  "41319": {"playedPairs": 18, "readyPairs": 10, "missingPairs": 8},
+  "39615": {"playedPairs": 18, "readyPairs": 12, "missingPairs": 6},
+  "42707": {"playedPairs": 18, "readyPairs": 13, "missingPairs": 5}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  931M
+output/prodgeometry           2.8G
+output/prodgeometry_hazards   233M
+```
+
+Disk remained sufficient:
+
+```text
+/dev/root  58G size, 30G used, 28G available
+```
