@@ -301,3 +301,33 @@ output/prodgeometry_hazards   25M
 ```
 
 The next implementation issue is a historical-geometry fallback for scorecards whose shot/raster URLs reference holes that are no longer present in the current CourseView release.
+
+### Continued Backfill With Known Blocker Skipped
+
+Skipped `31765` back-nine dependencies in the local batch runner after the root-cause check above, then ran one additional bounded batch:
+
+- Batch 7: 30 attempted, 30 downloaded, 0 failed.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 134,
+  "partialPairs": 0,
+  "missingPairs": 1367,
+  "coverage": {"ready": 134, "total": 1501, "pct": 8.9},
+  "globalId40590": {"playedPairs": 18, "readyPairs": 12, "missingPairs": 6},
+  "globalId31692": {"playedPairs": 18, "readyPairs": 14, "missingPairs": 4},
+  "globalId39270": {"playedPairs": 18, "readyPairs": 15, "missingPairs": 3}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  128M
+output/prodgeometry           352M
+output/prodgeometry_hazards   31M
+```
