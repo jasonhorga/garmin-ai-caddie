@@ -583,6 +583,64 @@ output/prodgeometry           1.7G
 output/prodgeometry_hazards   140M
 ```
 
+### Additional Dynamic Backfill Past Half Coverage
+
+Ran one more bounded local batch with current-release preflight.
+
+- Batch 17: 75 attempted, 75 downloaded, 0 failed.
+- Preflight skipped 35 dependencies before selection:
+  - `release_missing_hole`: 18
+  - `release_unavailable`: 17
+- `release_unavailable` remained concentrated on `31636` and `31637`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 823,
+  "partialPairs": 0,
+  "missingPairs": 678,
+  "coverage": {"ready": 823, "total": 1501, "pct": 54.8},
+  "completePlayedCourseCount": 25,
+  "completePlayedGlobalIds": [31794, 41825, 31796, 31795, 39315, 39270, 31692, 40590, 31702, 31793, 39668, 31777, 31791, 31792, 31789, 46249, 31778, 31829, 31833, 31834, 31596, 31597, 31806, 31805, 31827]
+}
+```
+
+New complete played course groups:
+
+```json
+{
+  "31778": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 154},
+  "31806": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 55},
+  "31805": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 51},
+  "31827": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 49}
+}
+```
+
+Representative partially covered played course groups after this batch:
+
+```json
+{
+  "31765": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31776": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "32871": {"playedPairs": 18, "readyPairs": 17, "missingPairs": 1},
+  "31835": {"playedPairs": 18, "readyPairs": 17, "missingPairs": 1},
+  "32870": {"playedPairs": 18, "readyPairs": 17, "missingPairs": 1},
+  "39293": {"playedPairs": 18, "readyPairs": 16, "missingPairs": 2},
+  "39247": {"playedPairs": 18, "readyPairs": 8, "missingPairs": 10}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  605M
+output/prodgeometry           1.8G
+output/prodgeometry_hazards   153M
+```
+
 ### Additional Dynamic Backfill Toward Forty Percent Coverage
 
 Ran one more bounded local batch with current-release preflight.
