@@ -882,3 +882,65 @@ Disk remained sufficient:
 ```text
 /dev/root  58G size, 27G used, 31G available
 ```
+
+### Additional Dynamic Backfill Toward Sixty Percent Coverage
+
+Continued the active geometry backfill process from the existing session and let the bounded local batch finish before starting any new work.
+
+- Batch 18: 75 attempted, 75 downloaded, 0 failed.
+- Preflight skipped 35 dependencies before selection:
+  - `release_missing_hole`: 18
+  - `release_unavailable`: 17
+- `release_unavailable` remained concentrated on `31636` and `31637`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 898,
+  "partialPairs": 0,
+  "missingPairs": 603,
+  "coverage": {"ready": 898, "total": 1501, "pct": 59.8},
+  "completePlayedCourseCount": 26,
+  "completePlayedGlobalIds": [31794, 41825, 31796, 31795, 39315, 39270, 31692, 40590, 31702, 31793, 39668, 31777, 31791, 31792, 31789, 39592, 46249, 31778, 31829, 31833, 31834, 31596, 31597, 31806, 31805, 31827]
+}
+```
+
+New complete played course group:
+
+```json
+{
+  "39592": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 187}
+}
+```
+
+Representative remaining blocked or partially covered played course groups:
+
+```json
+{
+  "31765": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31776": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31636": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9},
+  "31637": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9},
+  "41319": {"playedPairs": 18, "readyPairs": 0, "missingPairs": 18},
+  "39643": {"playedPairs": 18, "readyPairs": 2, "missingPairs": 16},
+  "31932": {"playedPairs": 17, "readyPairs": 3, "missingPairs": 14},
+  "38402": {"playedPairs": 18, "readyPairs": 4, "missingPairs": 14}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  657M
+output/prodgeometry           2.0G
+output/prodgeometry_hazards   167M
+```
+
+Disk remained sufficient:
+
+```text
+/dev/root  58G size, 29G used, 29G available
+```
