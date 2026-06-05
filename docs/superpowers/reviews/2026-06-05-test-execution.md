@@ -520,3 +520,72 @@ data/courseview/prodgeometry  300M
 output/prodgeometry           898M
 output/prodgeometry_hazards   74M
 ```
+
+### Additional Dynamic Backfill With Release-Unavailable Rows
+
+Ran one more bounded local batch with current-release preflight.
+
+- Batch 12: 75 attempted, 75 downloaded, 0 failed.
+- Preflight skipped 19 dependencies before selection:
+  - `release_missing_hole`: 16
+  - `release_unavailable`: 3
+- A post-batch skip diagnostic found the same new unavailable course ids expanding in priority: `31636` and `31637` (`Shenzhen Golf Club` A/B and B/A shapes). Both had no local release protobuf and live CourseView returned HTTP 404.
+
+Representative `release_unavailable` evidence:
+
+```json
+[
+  {
+    "globalId": 31636,
+    "localHole": 2,
+    "course": "深圳高尔夫俱乐部 ~ A/B",
+    "error": "cache: no 31636_releases.pb; live: HTTP Error 404: Not Found"
+  },
+  {
+    "globalId": 31637,
+    "localHole": 3,
+    "course": "深圳高尔夫俱乐部 ~ A/B",
+    "error": "cache: no 31637_releases.pb; live: HTTP Error 404: Not Found"
+  }
+]
+```
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 448,
+  "partialPairs": 0,
+  "missingPairs": 1053,
+  "coverage": {"ready": 448, "total": 1501, "pct": 29.8},
+  "completePlayedCourseCount": 13,
+  "completePlayedGlobalIds": [31794, 41825, 31796, 31795, 39315, 39270, 31692, 40590, 31793, 39668, 46249, 31829, 31833]
+}
+```
+
+New complete played course groups:
+
+```json
+{
+  "31793": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 284},
+  "46249": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 160},
+  "31829": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 134},
+  "31833": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 130}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  348M
+output/prodgeometry           1.1G
+output/prodgeometry_hazards   87M
+```
+
+Disk remained sufficient:
+
+```text
+/dev/root  58G size, 27G used, 31G available
+```
