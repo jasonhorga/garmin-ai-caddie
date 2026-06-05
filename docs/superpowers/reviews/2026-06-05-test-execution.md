@@ -468,6 +468,68 @@ Disk remained sufficient:
 /dev/root  58G size, 27G used, 31G available
 ```
 
+### Additional Dynamic Backfill With Growing Unavailable Set
+
+Ran one more bounded local batch with current-release preflight.
+
+- Batch 13: 75 attempted, 75 downloaded, 0 failed.
+- Preflight skipped 25 dependencies before selection:
+  - `release_missing_hole`: 17
+  - `release_unavailable`: 8
+- `release_unavailable` remained concentrated on `31636` and `31637`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 523,
+  "partialPairs": 0,
+  "missingPairs": 978,
+  "coverage": {"ready": 523, "total": 1501, "pct": 34.8},
+  "completePlayedCourseCount": 15,
+  "completePlayedGlobalIds": [31794, 41825, 31796, 31795, 39315, 39270, 31692, 40590, 31702, 31793, 39668, 46249, 31829, 31833, 31596]
+}
+```
+
+New complete played course groups:
+
+```json
+{
+  "31702": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 357},
+  "31596": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 109}
+}
+```
+
+Representative partially covered played course groups after this batch:
+
+```json
+{
+  "31765": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31776": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31777": {"playedPairs": 18, "readyPairs": 17, "missingPairs": 1},
+  "31791": {"playedPairs": 18, "readyPairs": 17, "missingPairs": 1},
+  "31789": {"playedPairs": 18, "readyPairs": 17, "missingPairs": 1},
+  "32871": {"playedPairs": 18, "readyPairs": 16, "missingPairs": 2},
+  "39659": {"playedPairs": 18, "readyPairs": 5, "missingPairs": 13}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  401M
+output/prodgeometry           1.2G
+output/prodgeometry_hazards   102M
+```
+
+Disk remained sufficient:
+
+```text
+/dev/root  58G size, 28G used, 30G available
+```
+
 ### Additional Dynamic Backfill
 
 Ran one more bounded local batch with the same preflight.
