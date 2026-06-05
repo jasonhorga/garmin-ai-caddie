@@ -1067,3 +1067,66 @@ Disk remained sufficient:
 ```text
 /dev/root  58G size, 29G used, 29G available
 ```
+
+### Additional Dynamic Backfill Past Seventy Percent Coverage
+
+Ran one more bounded local batch with the same current-release preflight.
+
+- Batch 21: 75 attempted, 75 downloaded, 0 failed.
+- Preflight skipped 36 dependencies before selection:
+  - `release_missing_hole`: 18
+  - `release_unavailable`: 18
+- `release_unavailable` remained concentrated on `31636` and `31637`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 1123,
+  "partialPairs": 0,
+  "missingPairs": 378,
+  "coverage": {"ready": 1123, "total": 1501, "pct": 74.8},
+  "completePlayedCourseCount": 35,
+  "completePlayedGlobalIds": [31794, 41825, 31796, 31795, 39315, 39270, 31692, 40590, 31702, 31793, 39668, 31777, 31791, 31792, 31789, 32871, 39592, 31835, 46249, 31779, 32870, 31751, 31778, 31829, 31833, 31810, 31834, 31688, 31596, 31687, 31790, 31597, 31806, 31805, 31827]
+}
+```
+
+New complete played course groups:
+
+```json
+{
+  "32871": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 208},
+  "32870": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 155}
+}
+```
+
+Representative remaining blocked or partially covered played course groups:
+
+```json
+{
+  "31765": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31776": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31636": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9},
+  "31637": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9},
+  "41319": {"playedPairs": 18, "readyPairs": 5, "missingPairs": 13},
+  "39321": {"playedPairs": 17, "readyPairs": 4, "missingPairs": 13},
+  "39643": {"playedPairs": 18, "readyPairs": 5, "missingPairs": 13},
+  "39615": {"playedPairs": 18, "readyPairs": 6, "missingPairs": 12}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  802M
+output/prodgeometry           2.4G
+output/prodgeometry_hazards   204M
+```
+
+Disk remained sufficient:
+
+```text
+/dev/root  58G size, 29G used, 29G available
+```
