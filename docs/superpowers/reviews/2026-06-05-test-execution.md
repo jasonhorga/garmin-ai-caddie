@@ -530,6 +530,63 @@ Disk remained sufficient:
 /dev/root  58G size, 28G used, 30G available
 ```
 
+### Additional Dynamic Backfill Toward Forty Percent Coverage
+
+Ran one more bounded local batch with current-release preflight.
+
+- Batch 14: 75 attempted, 75 downloaded, 0 failed.
+- Preflight skipped 29 dependencies before selection:
+  - `release_missing_hole`: 18
+  - `release_unavailable`: 11
+- `release_unavailable` remained concentrated on `31636` and `31637`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 598,
+  "partialPairs": 0,
+  "missingPairs": 903,
+  "coverage": {"ready": 598, "total": 1501, "pct": 39.8},
+  "completePlayedCourseCount": 18,
+  "completePlayedGlobalIds": [31794, 41825, 31796, 31795, 39315, 39270, 31692, 40590, 31702, 31793, 39668, 31777, 31791, 46249, 31829, 31833, 31834, 31596]
+}
+```
+
+New complete played course groups:
+
+```json
+{
+  "31777": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 265},
+  "31791": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 246},
+  "31834": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 121}
+}
+```
+
+Representative partially covered played course groups after this batch:
+
+```json
+{
+  "31765": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31776": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9},
+  "31792": {"playedPairs": 18, "readyPairs": 16, "missingPairs": 2},
+  "31789": {"playedPairs": 18, "readyPairs": 17, "missingPairs": 1},
+  "32871": {"playedPairs": 18, "readyPairs": 16, "missingPairs": 2},
+  "39592": {"playedPairs": 18, "readyPairs": 14, "missingPairs": 4},
+  "39659": {"playedPairs": 18, "readyPairs": 10, "missingPairs": 8}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  449M
+output/prodgeometry           1.4G
+output/prodgeometry_hazards   114M
+```
+
 ### Additional Dynamic Backfill
 
 Ran one more bounded local batch with the same preflight.
