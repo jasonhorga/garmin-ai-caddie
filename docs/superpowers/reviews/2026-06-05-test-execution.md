@@ -331,3 +331,48 @@ data/courseview/prodgeometry  128M
 output/prodgeometry           352M
 output/prodgeometry_hazards   31M
 ```
+
+### Additional Backfill And Repeated Release-Missing Pattern
+
+Ran one more bounded local batch:
+
+- Batch 8: 40 attempted, 39 downloaded, 1 failed.
+
+The new failure has the same root-cause pattern:
+
+```json
+{
+  "globalId": 31776,
+  "localHole": 14,
+  "status": "failed",
+  "error": "hole not found in CourseView release"
+}
+```
+
+Root-cause evidence:
+
+- Current CourseView release `31776` (`Beijing Honghua International Golf Club ~ A`, release `006-D2419-44`) exposes holes `1..9` only.
+- This repeats the historical scorecard/current CourseView mismatch first observed for `31765`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 173,
+  "partialPairs": 0,
+  "missingPairs": 1328,
+  "coverage": {"ready": 173, "total": 1501, "pct": 11.5},
+  "globalId40590": {"playedPairs": 18, "readyPairs": 13, "missingPairs": 5},
+  "globalId31692": {"playedPairs": 18, "readyPairs": 15, "missingPairs": 3}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  157M
+output/prodgeometry           445M
+output/prodgeometry_hazards   38M
+```
