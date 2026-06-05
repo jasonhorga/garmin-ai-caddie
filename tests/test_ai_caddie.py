@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 from ai_caddie.analysis import build_hole_analysis, build_round_analysis, overlay_geojson, render_svg, strategy_distances
@@ -192,6 +193,45 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(merged[0]["strokes"], 91)
         self.assertEqual(merged[0]["holesCompleted"], 18)
         self.assertEqual(merged[0]["holes"][9]["number"], 10)
+
+    def test_pin_only_shot_file_is_not_marked_ready(self) -> None:
+        from ai_caddie import history as history_module
+
+        raw = {
+            "scorecardDetails": [
+                {
+                    "scorecard": {
+                        "id": 123,
+                        "formattedStartTime": "2026-01-01T08:00:00+08:00",
+                        "strokes": 5,
+                        "holesCompleted": 1,
+                        "courseGlobalId": 31796,
+                        "frontNineGlobalCourseId": 31796,
+                        "holes": [{"number": 1, "strokes": 5}],
+                    },
+                    "scorecardStats": {"round": {}},
+                    "statsComparison": {},
+                }
+            ],
+            "courseSnapshots": [{"name": "Pin Only", "holePars": "4"}],
+        }
+
+        with TemporaryDirectory() as tmp:
+            shot_dir = Path(tmp)
+            (shot_dir / "123.json").write_text('{"holeShots":[]}', encoding="utf-8")
+            with (
+                patch.object(history_module, "SHOT_DIR", shot_dir),
+                patch.object(
+                    history_module,
+                    "load_shot_file",
+                    return_value={"holeShots": [{"holeNumber": 1, "pinPosition": {"x": 1, "y": 2}}]},
+                ),
+            ):
+                row = history_module._scorecard_to_round(raw)
+
+        self.assertTrue(row["hasShotFile"])
+        self.assertFalse(row["hasShots"])
+        self.assertEqual(row["shotStatus"], "pin_only")
 
     def test_history_overview_and_rounds(self) -> None:
         if not (ROOT / "data" / "scorecards").exists():

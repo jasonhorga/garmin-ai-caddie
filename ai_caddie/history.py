@@ -205,6 +205,15 @@ def _played_par(raw: dict[str, Any], holes: list[dict[str, Any]]) -> int | None:
     return snap.get("roundPar")
 
 
+def _shot_data_has_usable_rows(shot_data: dict[str, Any] | None) -> bool:
+    if not shot_data or shot_data.get("_no_data"):
+        return False
+    for hole in shot_data.get("holeShots", []) or []:
+        if hole.get("shots"):
+            return True
+    return False
+
+
 def _scorecard_to_round(raw: dict[str, Any]) -> dict[str, Any]:
     detail = raw["scorecardDetails"][0]
     sc = detail["scorecard"]
@@ -216,6 +225,15 @@ def _scorecard_to_round(raw: dict[str, Any]) -> dict[str, Any]:
     sid = sc["id"]
     shot_path = SHOT_DIR / f"{sid}.json"
     shot_data = load_shot_file(sid)
+    has_usable_shots = _shot_data_has_usable_rows(shot_data)
+    if has_usable_shots:
+        shot_status = "ready"
+    elif shot_data is not None and shot_path.exists():
+        shot_status = "pin_only"
+    elif shot_path.exists():
+        shot_status = "no_data"
+    else:
+        shot_status = "missing"
     holes = _played_holes(sc.get("holes", []) or [])
     return {
         "id": sid,
@@ -256,8 +274,8 @@ def _scorecard_to_round(raw: dict[str, Any]) -> dict[str, Any]:
         "approach": cmp_.get("approachRating"),
         "chip": cmp_.get("chipRating"),
         "hasShotFile": shot_path.exists(),
-        "hasShots": shot_data is not None,
-        "shotStatus": "ready" if shot_data else "no_data" if shot_path.exists() else "missing",
+        "hasShots": has_usable_shots,
+        "shotStatus": shot_status,
         "merged": False,
     }
 
