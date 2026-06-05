@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.config import get_settings
 from ai_caddie.decision import list_decision_audits
 from ai_caddie.llm_providers import StaticProvider
 from server_v2.main import app
@@ -28,6 +29,10 @@ def _deep_merge(base: dict[str, object], patch: dict[str, object]) -> dict[str, 
 
 
 class PrivateAcceptanceFlowTests(unittest.TestCase):
+    def setUp(self) -> None:
+        get_settings.cache_clear()
+        self.addCleanup(get_settings.cache_clear)
+
     def test_sanitized_private_round_fixture_drives_end_to_end_flow(self) -> None:
         self.assertTrue(FIXTURE_PATH.exists(), f"missing acceptance fixture: {FIXTURE_PATH}")
         fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
@@ -51,6 +56,7 @@ class PrivateAcceptanceFlowTests(unittest.TestCase):
                 patch("server_v2.reports.REPORT_ROOT", root),
                 patch("server_v2.reports.build_text_provider", return_value=StaticProvider(fixture["reportReply"])),
             ):
+                get_settings.cache_clear()
                 package_response = client.get(f"/api/v2/mobile/rounds/{round_id}/package")
                 package = package_response.json()
                 seed = next(row for row in package["caddieContextSeeds"] if row["hole"] == hole)

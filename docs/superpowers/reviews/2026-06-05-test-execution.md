@@ -11,7 +11,10 @@ Purpose: Execute the roadmap test plan for the current AI Caddie v2 real-data la
 | Git status | `git status --short --branch` | Ran; tracked worktree clean before docs were staged, with known untracked local docs/data artifacts |
 | Python compile | `uv run python -m py_compile $(git ls-files '*.py')` | PASS |
 | CI workflow tests | `uv run python -m unittest tests.test_ci_workflow -v` | PASS: 14 tests |
-| Backend fixture suite | `timeout 1200 bash -c 'AI_CADDIE_DATA_MODE=fixture uv run python -m unittest discover -s tests -v'` | INCOMPLETE: timed out at 20 minutes with exit 124 |
+| Backend fixture suite, 20 min cap | `timeout 1200 bash -c 'AI_CADDIE_DATA_MODE=fixture uv run python -m unittest discover -s tests -v'` | INCOMPLETE: timed out at 20 minutes with exit 124 |
+| Backend fixture suite, 60 min cap before isolation fix | `timeout 3600 bash -c 'AI_CADDIE_DATA_MODE=fixture uv run python -m unittest discover -s tests -v'` | FAIL: 622 tests in 1469.604s, 1 failure, 4 skipped |
+| Settings-cache order regression | poisoned `get_settings()` to `local_or_fixture`, then ran `tests.test_private_acceptance_flow.PrivateAcceptanceFlowTests.test_sanitized_private_round_fixture_drives_end_to_end_flow` | RED before fix; PASS after fix |
+| Backend fixture suite, 60 min cap after isolation fix | `timeout 3600 bash -c 'AI_CADDIE_DATA_MODE=fixture uv run python -m unittest discover -s tests -v'` | PASS: 622 tests in 1498.641s, 4 skipped |
 | Backend targeted: private acceptance | `AI_CADDIE_DATA_MODE=fixture uv run python -m unittest tests.test_private_acceptance_flow -v` | PASS: 1 test |
 | Backend targeted: caddie context/decision API | `timeout 720 bash -c 'AI_CADDIE_DATA_MODE=fixture uv run python -m unittest tests.test_server_v2_caddie -v'` | PASS: 13 tests in 485.286s |
 | Real-data smoke | local TestClient smoke with `AI_CADDIE_DATA_MODE=local` | PASS |
@@ -27,13 +30,24 @@ Purpose: Execute the roadmap test plan for the current AI Caddie v2 real-data la
 
 - Python compile passed with no output and exit 0.
 - CI workflow contract tests passed: 14 tests in 0.097s.
-- Full backend fixture discovery did not finish within the 20 minute local cap:
+- Full backend fixture discovery did not finish within the first 20 minute local cap:
   - Command exit: 124 from `timeout`.
   - It had progressed through connector, course prep/reference/search/par, decision layer, reports, Garmin connector/login/session, geometry evidence, history drilldown, history rounds filters, history stats core, LLM, media, mobile contracts, mobile reconciliation, native evidence, pipeline, and into server caddie tests.
   - One `FAIL` line appeared for `test_sanitized_private_round_fixture_drives_end_to_end_flow` during the long discovery run, but the single-module rerun immediately after passed.
-  - This record does not claim full backend discovery passed.
+- A second 60 minute full backend fixture run completed but failed one test:
+  - 622 tests ran in 1469.604s.
+  - Failure: `test_sanitized_private_round_fixture_drives_end_to_end_flow`.
+  - Assertion: `package["sourceCoverage"]["state"]` was `degraded`, expected `ready`.
+  - Root cause: `get_settings()` had cached `AI_CADDIE_DATA_MODE=local_or_fixture` from an earlier test environment, so the acceptance test's patched fixture environment was ignored and the mobile package endpoint looked at local real data instead of fixture round `900001`.
+- Fixed the test isolation issue in `tests/test_private_acceptance_flow.py` by clearing `get_settings()` before and after the test and after the fixture env patch is active.
+- Regression verification:
+  - Before the fix, a poisoned-cache targeted run failed with the same `degraded` vs `ready` assertion.
+  - After the fix, the same poisoned-cache targeted run passed.
+- Final full backend fixture discovery passed:
+  - 622 tests ran in 1498.641s.
+  - Result: `OK (skipped=4)`.
 - Targeted reruns:
-  - `tests.test_private_acceptance_flow`: 1 test passed in 3.988s.
+  - `tests.test_private_acceptance_flow`: 1 test passed in 1.323s after the isolation fix.
   - `tests.test_server_v2_caddie`: 13 tests passed in 485.286s.
 
 ### Real-Data Smoke
@@ -99,4 +113,4 @@ The real-data result keeps the next roadmap blocker explicit: geometry for playe
 
 - No GitHub Actions run is required for this record.
 - Native iOS/Watch simulator tests require macOS/Xcode and are not executable in this Linux workspace.
-- The long backend discovery command did not complete inside the local cap, so this record relies on targeted backend reruns plus the CI-style and real-data smoke lanes rather than claiming full discovery success.
+- Full backend discovery is slow locally: the passing 60 minute-cap run took 1498.641s.

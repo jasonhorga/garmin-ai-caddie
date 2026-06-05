@@ -156,6 +156,8 @@ The local real-data smoke must verify:
 - [x] Commit this roadmap and test plan into the repo.
 - [x] Execute Python compile.
 - [x] Execute backend fixture suite with a 20 minute cap; record the timeout and targeted reruns.
+- [x] Fix the discovered backend fixture-suite settings-cache order dependency.
+- [x] Rerun backend fixture suite with a 60 minute cap and record the final passing result.
 - [x] Execute real-data smoke.
 - [x] Execute frontend unit, lint, build, and visual smoke under Node 24.
 - [x] Execute private-trial smoke against a local fixture API.
