@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from ai_caddie import pipeline
 from ai_caddie.course_reference import CoursePar
+from ai_caddie.history import HistoryData
 
 
 class PipelineSyncTests(unittest.TestCase):
@@ -53,6 +54,22 @@ class PipelineRunsAllStepsTests(unittest.TestCase):
         self.assertTrue(result.auth_ok)
         geo.assert_called_once()
         store.assert_called_once()
+
+    def test_ensure_geometry_prefers_ranked_played_shot_dependencies(self) -> None:
+        data = HistoryData(raw_rounds=[], rounds=[], shots=[{"globalId": 900, "localHole": 1}])
+        dependencies = [{"globalId": 900, "localHole": 1, "status": "missing", "shotCount": 3}]
+        with (
+            patch("ai_caddie.stats_cache.cached_load_history_data", return_value=data),
+            patch("ai_caddie.connectors.snapshot.discover_played_geometry_dependencies", return_value=dependencies) as discover_played,
+            patch("ai_caddie.connectors.snapshot.discover_geometry_dependencies") as discover_scorecards,
+            patch("ai_caddie.connectors.snapshot.ensure_geometry_dependencies", return_value={"attempted": 1}) as ensure,
+        ):
+            result = pipeline._ensure_geometry(limit=1)
+
+        self.assertEqual(result, {"attempted": 1})
+        discover_played.assert_called_once_with(data, root=pipeline.ROOT, limit=1)
+        discover_scorecards.assert_not_called()
+        ensure.assert_called_once_with(dependencies, root=pipeline.ROOT)
 
 
 if __name__ == "__main__":

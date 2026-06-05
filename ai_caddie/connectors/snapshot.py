@@ -422,6 +422,83 @@ def discover_geometry_dependencies(*, root: Path = ROOT) -> list[dict[str, Any]]
     return [dependencies[key] for key in sorted(dependencies)]
 
 
+def discover_played_geometry_dependencies(
+    data: HistoryData,
+    *,
+    root: Path = ROOT,
+    limit: int | None = None,
+    include_ready: bool = False,
+) -> list[dict[str, Any]]:
+    """Rank geometry dependencies by actual played shot volume.
+
+    Scorecard dependencies tell us every recorded hole. Played dependencies tell us
+    which CourseView holes are blocking shot-map and route-evidence value first.
+    """
+    pairs: dict[tuple[int, int], dict[str, Any]] = {}
+    for shot in data.shots:
+        global_id = _safe_int(shot.get("globalId"))
+        local_hole = _safe_int(shot.get("localHole"))
+        if global_id is None or local_hole is None:
+            continue
+        key = (global_id, local_hole)
+        row = pairs.setdefault(
+            key,
+            {
+                "globalId": global_id,
+                "localHole": local_hole,
+                "shotCount": 0,
+                "courseCounts": {},
+                "sourceRefs": [],
+            },
+        )
+        row["shotCount"] += 1
+        course = str(shot.get("course") or "Unknown course")
+        row["courseCounts"][course] = int(row["courseCounts"].get(course, 0)) + 1
+        source_ref = str(shot.get("scorecardId") or shot.get("roundId") or shot.get("id") or "").strip()
+        if source_ref and source_ref not in row["sourceRefs"]:
+            row["sourceRefs"].append(source_ref)
+
+    profile_id_available = geometry_player_profile_id(root=root) is not None
+    rows: list[dict[str, Any]] = []
+    for (global_id, local_hole), pair in pairs.items():
+        status, has_hazards, has_meshes, hazard_ref, mesh_ref = _geometry_status(root, global_id, local_hole)
+        if status == "ready" and not include_ready:
+            continue
+        course_counts = pair.get("courseCounts") or {}
+        course = "Unknown course"
+        if course_counts:
+            course = sorted(course_counts.items(), key=lambda item: (-int(item[1]), item[0]))[0][0]
+        row: dict[str, Any] = {
+            "globalId": global_id,
+            "localHole": local_hole,
+            "status": status,
+            "hasHazards": has_hazards,
+            "hasMeshes": has_meshes,
+            "course": course,
+            "shotCount": int(pair["shotCount"]),
+            "sourceRefs": pair["sourceRefs"][:20],
+            "profileIdAvailable": profile_id_available,
+        }
+        if hazard_ref:
+            row["hazards"] = hazard_ref
+        if mesh_ref:
+            row["meshes"] = mesh_ref
+        rows.append(row)
+
+    status_priority = {"partial": 0, "missing": 1, "ready": 2}
+    rows.sort(
+        key=lambda row: (
+            -int(row.get("shotCount") or 0),
+            status_priority.get(str(row.get("status")), 9),
+            int(row.get("globalId") or 0),
+            int(row.get("localHole") or 0),
+        )
+    )
+    if limit is not None:
+        rows = rows[: max(0, int(limit))]
+    return rows
+
+
 def ensure_geometry_dependencies(dependencies: list[dict[str, object]], *, root: Path = ROOT) -> dict[str, int]:
     """Idempotently download any MISSING per-hole prodgeometry. Skips rows already 'ready'."""
     from ai_caddie.geometry_sync import ensure_prodgeometry

@@ -9,7 +9,7 @@ Auth refresh self-heals on a server via the Playwright fallback in
 elsewhere, so the pipeline reports coverage rather than bulk-downloading. The heavy
 steps are module-level functions so they can be patched in tests (no network in CI).
 
-Run:  ``uv run python -m ai_caddie.pipeline [--shots] [--refresh-auth]``
+Run:  ``uv run python -m ai_caddie.pipeline [--shots] [--refresh-auth] [--geometry-limit N]``
 """
 from __future__ import annotations
 
@@ -60,18 +60,31 @@ def _on_disk() -> tuple[int, int]:
     return scs, shots
 
 
-def _ensure_geometry() -> dict[str, int]:
+def _ensure_geometry(*, limit: int | None = None) -> dict[str, int]:
     """Idempotently download missing prodgeometry for played courses (skips already-ready)."""
-    from ai_caddie.connectors.snapshot import discover_geometry_dependencies, ensure_geometry_dependencies
-    return ensure_geometry_dependencies(discover_geometry_dependencies(root=ROOT), root=ROOT)
+    from ai_caddie.connectors.snapshot import (
+        discover_geometry_dependencies,
+        discover_played_geometry_dependencies,
+        ensure_geometry_dependencies,
+    )
+    from ai_caddie.stats_cache import cached_load_history_data
+
+    data = cached_load_history_data()
+    if data.shots:
+        dependencies = discover_played_geometry_dependencies(data, root=ROOT, limit=limit)
+    else:
+        dependencies = discover_geometry_dependencies(root=ROOT)
+        if limit is not None:
+            dependencies = [row for row in dependencies if row.get("status") != "ready"][: max(0, int(limit))]
+    return ensure_geometry_dependencies(dependencies, root=ROOT)
 
 
-def sync(*, with_shots: bool = False, force_refresh: bool = False) -> SyncResult:
+def sync(*, with_shots: bool = False, force_refresh: bool = False, geometry_limit: int | None = None) -> SyncResult:
     """Run the full local sync idempotently and return a coverage summary."""
     if not _ensure_auth(force_refresh):
         return SyncResult(auth_ok=False, notes=["auth unavailable; cannot fetch"])
     rounds = _fetch_history(with_shots)
-    geometry = _ensure_geometry()
+    geometry = _ensure_geometry(limit=geometry_limit)
     store = course_reference.build_played_store()
     scs, shots = _on_disk()
     notes: list[str] = []
@@ -94,9 +107,20 @@ def main(argv: list[str] | None = None) -> int:
     import sys
 
     argv = sys.argv[1:] if argv is None else argv
-    result = sync(with_shots="--shots" in argv, force_refresh="--refresh-auth" in argv)
+    geometry_limit = _int_arg(argv, "--geometry-limit")
+    result = sync(with_shots="--shots" in argv, force_refresh="--refresh-auth" in argv, geometry_limit=geometry_limit)
     print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
     return 0 if result.auth_ok else 1
+
+
+def _int_arg(argv: list[str], name: str) -> int | None:
+    prefix = f"{name}="
+    for index, arg in enumerate(argv):
+        if arg.startswith(prefix):
+            return int(arg.split("=", 1)[1])
+        if arg == name and index + 1 < len(argv):
+            return int(argv[index + 1])
+    return None
 
 
 if __name__ == "__main__":

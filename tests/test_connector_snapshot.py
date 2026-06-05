@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from ai_caddie.data import deg_to_semicircle
 from ai_caddie.connectors.snapshot import (
     build_snapshot_manifest,
+    discover_played_geometry_dependencies,
     load_latest_snapshot_history,
     read_connector_status,
     validate_private_snapshot_acceptance,
@@ -15,7 +16,7 @@ from ai_caddie.connectors.snapshot import (
     write_connector_status,
     write_snapshot_manifest,
 )
-from ai_caddie.history import history_course_detail, history_hole
+from ai_caddie.history import HistoryData, history_course_detail, history_hole
 from ai_caddie.history_drilldown import build_drilldown_index, resolve_history_ref
 
 
@@ -172,6 +173,40 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertEqual(manifest.geometry_ready_count, 1)
         self.assertEqual(manifest.geometry_missing_count, 1)
         self.assertNotIn(tmp, json.dumps(manifest.geometry_dependencies, ensure_ascii=False))
+
+    def test_played_geometry_dependencies_are_ranked_by_missing_shot_volume(self) -> None:
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[],
+            shots=[
+                {"id": "a1", "scorecardId": "r1", "course": "High Volume", "globalId": 900, "localHole": 1},
+                {"id": "a2", "scorecardId": "r2", "course": "High Volume", "globalId": 900, "localHole": 1},
+                {"id": "b1", "scorecardId": "r3", "course": "Ready", "globalId": 901, "localHole": 1},
+                {"id": "c1", "scorecardId": "r4", "course": "Partial", "globalId": 902, "localHole": 1},
+                {"id": "d1", "scorecardId": "r5", "course": "Low Volume", "globalId": 903, "localHole": 1},
+            ],
+        )
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "output" / "prodgeometry_hazards").mkdir(parents=True)
+            (root / "output" / "prodgeometry").mkdir(parents=True)
+            (root / "output" / "prodgeometry_hazards" / "gid901_h01_hazards.json").write_text("{}", encoding="utf-8")
+            (root / "output" / "prodgeometry" / "gid901_h01_meshes.json").write_text("{}", encoding="utf-8")
+            (root / "output" / "prodgeometry_hazards" / "gid902_h01_hazards.json").write_text("{}", encoding="utf-8")
+
+            dependencies = discover_played_geometry_dependencies(data, root=root)
+            limited = discover_played_geometry_dependencies(data, root=root, limit=1)
+            with_ready = discover_played_geometry_dependencies(data, root=root, include_ready=True)
+
+        self.assertEqual([(row["globalId"], row["localHole"]) for row in dependencies], [(900, 1), (902, 1), (903, 1)])
+        self.assertEqual(dependencies[0]["status"], "missing")
+        self.assertEqual(dependencies[0]["shotCount"], 2)
+        self.assertEqual(dependencies[0]["course"], "High Volume")
+        self.assertEqual(dependencies[0]["sourceRefs"], ["r1", "r2"])
+        self.assertEqual(dependencies[1]["status"], "partial")
+        self.assertEqual(limited[0]["globalId"], 900)
+        self.assertIn((901, 1), {(row["globalId"], row["localHole"]) for row in with_ready})
 
     def test_write_snapshot_manifest_persists_json(self) -> None:
         with TemporaryDirectory() as tmp:
