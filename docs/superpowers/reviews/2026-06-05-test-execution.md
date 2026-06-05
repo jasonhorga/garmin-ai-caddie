@@ -1413,3 +1413,92 @@ Disk remained sufficient:
 ```text
 /dev/root  58G size, 30G used, 28G available
 ```
+
+### Dynamic Backfill Processable Set Exhausted
+
+Ran the final bounded local batch with the same current-release preflight. This batch was smaller because only 42 processable played geometry dependencies remained.
+
+- Batch 26: 42 attempted, 42 downloaded, 0 failed.
+- Preflight skipped 36 dependencies before selection:
+  - `release_missing_hole`: 18
+  - `release_unavailable`: 18
+- Post-batch preflight found no remaining processable geometry dependencies.
+- Remaining missing geometry is fully explained by the two known blocker classes:
+  - `release_missing_hole`: back-nine historical played holes absent from the current release for `31765` and `31776`.
+  - `release_unavailable`: current release unavailable for `31636` and `31637`.
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 1465,
+  "partialPairs": 0,
+  "missingPairs": 36,
+  "coverage": {"ready": 1465, "total": 1501, "pct": 97.6},
+  "completePlayedCourseCount": 96,
+  "remainingCandidateDependencies": 36,
+  "remainingProcessable": 0,
+  "remainingSkipReasons": {
+    "release_missing_hole": 18,
+    "release_unavailable": 18
+  },
+  "releaseUnavailableGlobalIds": [31636, 31637]
+}
+```
+
+New complete played course groups:
+
+```json
+{
+  "39623": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 134},
+  "39319": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 79},
+  "32235": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 67},
+  "31874": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 56},
+  "31918": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 56},
+  "31920": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 56},
+  "38402": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 55},
+  "42936": {"playedPairs": 17, "readyPairs": 17, "missingPairs": 0, "shotCount": 55},
+  "39615": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 54},
+  "31875": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 52},
+  "38404": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 51},
+  "38644": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 50},
+  "39643": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 49},
+  "41319": {"playedPairs": 18, "readyPairs": 18, "missingPairs": 0, "shotCount": 49},
+  "31878": {"playedPairs": 17, "readyPairs": 17, "missingPairs": 0, "shotCount": 48},
+  "31932": {"playedPairs": 17, "readyPairs": 17, "missingPairs": 0, "shotCount": 48},
+  "39573": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 47},
+  "39321": {"playedPairs": 17, "readyPairs": 17, "missingPairs": 0, "shotCount": 45},
+  "31927": {"playedPairs": 17, "readyPairs": 17, "missingPairs": 0, "shotCount": 38},
+  "31930": {"playedPairs": 10, "readyPairs": 10, "missingPairs": 0, "shotCount": 23},
+  "33509": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 23},
+  "39648": {"playedPairs": 9, "readyPairs": 9, "missingPairs": 0, "shotCount": 23},
+  "33508": {"playedPairs": 8, "readyPairs": 8, "missingPairs": 0, "shotCount": 21}
+}
+```
+
+Remaining blocked played course groups:
+
+```json
+{
+  "31765": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9, "missingLocalHoles": [10, 11, 12, 13, 14, 15, 16, 17, 18]},
+  "31776": {"playedPairs": 18, "readyPairs": 9, "missingPairs": 9, "missingLocalHoles": [10, 11, 12, 13, 14, 15, 16, 17, 18]},
+  "31636": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9, "missingLocalHoles": [1, 2, 3, 4, 5, 6, 7, 8, 9]},
+  "31637": {"playedPairs": 9, "readyPairs": 0, "missingPairs": 9, "missingLocalHoles": [1, 2, 3, 4, 5, 6, 7, 8, 9]}
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  994M
+output/prodgeometry           2.9G
+output/prodgeometry_hazards   245M
+```
+
+Disk remained sufficient:
+
+```text
+/dev/root  58G size, 30G used, 28G available
+```
