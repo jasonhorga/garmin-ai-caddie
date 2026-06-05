@@ -376,3 +376,44 @@ data/courseview/prodgeometry  157M
 output/prodgeometry           445M
 output/prodgeometry_hazards   38M
 ```
+
+### Dynamic Release-Capability Skip Batch
+
+Ran one additional bounded local batch with a preflight check that loads the current CourseView release and skips any dependency whose `localHole` is not present in the release.
+
+- Batch 9: 50 attempted, 50 downloaded, 0 failed.
+- Preflight skipped 13 release-missing dependencies before selecting the 50 processable rows.
+- The skipped high-priority dependencies were all current-release nine-hole mismatches for `31765` and `31776`.
+
+Representative skipped rows:
+
+```json
+[
+  {"globalId": 31765, "localHole": 12, "shotCount": 49, "releaseHoles": [1, 2, 3, 4, 5, 6, 7, 8, 9]},
+  {"globalId": 31765, "localHole": 10, "shotCount": 39, "releaseHoles": [1, 2, 3, 4, 5, 6, 7, 8, 9]},
+  {"globalId": 31776, "localHole": 14, "shotCount": 20, "releaseHoles": [1, 2, 3, 4, 5, 6, 7, 8, 9]}
+]
+```
+
+Post-batch real-data coverage values:
+
+```json
+{
+  "shotCount": 21251,
+  "totalPairs": 1501,
+  "readyPairs": 223,
+  "partialPairs": 0,
+  "missingPairs": 1278,
+  "coverage": {"ready": 223, "total": 1501, "pct": 14.9},
+  "completePlayedCourseCount": 7,
+  "completePlayedGlobalIds": [31794, 41825, 31796, 31795, 39315, 39270, 31692]
+}
+```
+
+Local ignored geometry cache size after this batch:
+
+```text
+data/courseview/prodgeometry  190M
+output/prodgeometry           544M
+output/prodgeometry_hazards   46M
+```
