@@ -1502,3 +1502,53 @@ Disk remained sufficient:
 ```text
 /dev/root  58G size, 30G used, 28G available
 ```
+
+### Post-Backfill Verification
+
+After exhausting the processable played-geometry set, reran targeted backend tests and a strict local real-data smoke.
+
+Commands:
+
+| Area | Command | Result |
+| --- | --- | --- |
+| Targeted backend tests | `uv run python -m unittest tests.test_connector_snapshot tests.test_pipeline tests.test_history_data_quality -v` | PASS: 23 tests in 107.067s |
+| Diff whitespace check | `git diff --check` | PASS |
+| Strict real-data smoke | local TestClient smoke with `AI_CADDIE_DATA_MODE=local` | PASS |
+
+Strict real-data smoke values:
+
+```json
+{
+  "raw_rounds": 461,
+  "rounds_after_merge": 435,
+  "shots": 21251,
+  "endpoint_statuses": {
+    "/api/v2/health": 200,
+    "/api/v2/history/overview": 200,
+    "/api/v2/history/rounds": 200,
+    "/api/v2/history/stats": 200,
+    "/api/v2/sync/status": 200
+  },
+  "history_rounds_total": 435,
+  "first_round_id": "17409719",
+  "first_round_detail_status": 200,
+  "played_course_ids": 93,
+  "shot_club_names": 30,
+  "playedGeometryCoverage": {
+    "shotCount": 21251,
+    "totalPairs": 1501,
+    "readyPairs": 1465,
+    "partialPairs": 0,
+    "missingPairs": 36,
+    "coverage": {"ready": 1465, "total": 1501, "pct": 97.6},
+    "completePlayedCourseCount": 96
+  },
+  "remainingGeometryDependencies": 36,
+  "remainingProcessable": 0,
+  "remainingSkipReasons": {
+    "release_missing_hole": 18,
+    "release_unavailable": 18
+  },
+  "releaseUnavailableGlobalIds": [31636, 31637]
+}
+```

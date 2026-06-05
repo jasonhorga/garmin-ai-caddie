@@ -29,8 +29,10 @@
   - pin-only shot JSON files are no longer marked `hasShots=True`
   - six current scorecards are `shotStatus=pin_only`
 - Biggest known product gap:
-  - 1,501 real shot-hole pairs currently have zero overlap with decoded `output/prodgeometry*` coverage.
-  - This blocks high-confidence real-data course/hole maps, route evidence, and pre-round course prep.
+  - Played geometry backfill has exhausted the processable current-release set.
+  - Real played shot-hole geometry coverage is 1,465/1,501 pairs, 97.6%.
+  - The remaining 36 missing pairs are currently blocked by release availability or current-release shape:
+    `release_missing_hole` for `31765`/`31776`, and `release_unavailable` for `31636`/`31637`.
 
 ## Roadmap
 
@@ -41,7 +43,7 @@
 - [x] Land real scorecards and shots locally.
 - [x] Smoke real history endpoints and direct history functions.
 - [x] Fix pin-only shot files being reported as ready shots.
-- [ ] Decode/sync geometry for played course globalIds so real shot-hole pairs overlap with CourseView geometry.
+- [x] Decode/sync geometry for played course globalIds so real shot-hole pairs overlap with CourseView geometry.
 - [ ] Add sanitized regression fixtures for real-data shapes:
   - pin-only shot files
   - partial/incomplete rounds
