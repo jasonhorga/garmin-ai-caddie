@@ -44,10 +44,9 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
           MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
         run: |
-          for v in ASC_KEY_ID MATCH_GIT_URL MATCH_PASSWORD MATCH_KEYCHAIN_PASSWORD MATCH_GIT_PRIVATE_KEY; do
+          for v in ASC_KEY_ID MATCH_GIT_URL MATCH_PASSWORD MATCH_GIT_PRIVATE_KEY; do
             eval "val=\${$v}"
             test -n "$val" || { echo "❌ Missing secret: $v (run ios-signing-bootstrap first)"; exit 1; }
           done
@@ -59,7 +58,6 @@ jobs:
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
           MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
           RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
         run: bundle exec fastlane ios beta

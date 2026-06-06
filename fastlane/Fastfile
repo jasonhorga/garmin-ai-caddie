@@ -7,8 +7,9 @@
 #
 # Required secrets (Team 6HB84897DJ):
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY  (App Store Connect API key)
-#   MATCH_GIT_URL, MATCH_GIT_PRIVATE_KEY, MATCH_PASSWORD, MATCH_KEYCHAIN_PASSWORD  (fastlane match)
+#   MATCH_GIT_URL, MATCH_GIT_PRIVATE_KEY, MATCH_PASSWORD  (fastlane match)
 require "spaceship/connect_api"
+require "securerandom"
 
 default_platform(:ios)
 
@@ -32,8 +33,15 @@ platform :ios do
   end
 
   def ensure_match_env!
-    missing = %w[MATCH_GIT_URL MATCH_PASSWORD MATCH_KEYCHAIN_PASSWORD MATCH_GIT_PRIVATE_KEY].select { |k| ENV[k].to_s.strip.empty? }
+    missing = %w[MATCH_GIT_URL MATCH_PASSWORD MATCH_GIT_PRIVATE_KEY].select { |k| ENV[k].to_s.strip.empty? }
     UI.user_error!("Missing signing env vars: #{missing.join(', ')}") unless missing.empty?
+  end
+
+  def match_keychain_password
+    existing = ENV["MATCH_KEYCHAIN_PASSWORD"].to_s.strip
+    return existing unless existing.empty?
+
+    ENV["MATCH_KEYCHAIN_PASSWORD"] = SecureRandom.hex(24)
   end
 
   def ensure_bundle_id!(identifier, name)
@@ -59,7 +67,7 @@ platform :ios do
   end
 
   def make_keychain!
-    create_keychain(name: KEYCHAIN, password: ENV["MATCH_KEYCHAIN_PASSWORD"],
+    create_keychain(name: KEYCHAIN, password: match_keychain_password,
                     default_keychain: true, unlock: true, timeout: 3600)
   end
 
@@ -80,7 +88,7 @@ platform :ios do
     match(
       api_key: api_key, type: "appstore", readonly: false, storage_mode: "git",
       git_url: ENV["MATCH_GIT_URL"], app_identifier: [APP_BUNDLE_ID, WATCH_BUNDLE_ID],
-      keychain_name: KEYCHAIN, keychain_password: ENV["MATCH_KEYCHAIN_PASSWORD"],
+      keychain_name: KEYCHAIN, keychain_password: match_keychain_password,
       force: true, force_for_new_devices: false
     )
     UI.success("match bootstrap complete (app + watch).")
@@ -94,7 +102,7 @@ platform :ios do
     match(
       api_key: api_key, type: "appstore", readonly: true, storage_mode: "git",
       git_url: ENV["MATCH_GIT_URL"], app_identifier: [APP_BUNDLE_ID, WATCH_BUNDLE_ID],
-      keychain_name: KEYCHAIN, keychain_password: ENV["MATCH_KEYCHAIN_PASSWORD"]
+      keychain_name: KEYCHAIN, keychain_password: match_keychain_password
     )
 
     begin

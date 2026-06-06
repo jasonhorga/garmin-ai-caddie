@@ -8,9 +8,10 @@ needed. Signing is isolated from other apps in `jasonhorga/garmin-ai-caddie-sign
 
 1. **Add the signing secrets to this repo** (Settings → Secrets and variables → Actions):
    - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`  (App Store Connect API key, `.p8` content)
-   - `MATCH_GIT_URL`, `MATCH_GIT_PRIVATE_KEY`, `MATCH_PASSWORD`, `MATCH_KEYCHAIN_PASSWORD`  (fastlane match)
+   - `MATCH_GIT_URL`, `MATCH_GIT_PRIVATE_KEY`, `MATCH_PASSWORD`  (fastlane match)
    The match repo is private and project-specific:
    `git@github.com:jasonhorga/garmin-ai-caddie-signing.git`.
+   The CI keychain password is generated per run and is not a GitHub secret.
 2. **Create the App Store Connect app record once** at
    `https://appstoreconnect.apple.com/apps`:
    - Platform: `iOS`
@@ -38,8 +39,10 @@ but does not create a new app record for this account.
   - `operation=distribute` assigns the latest or selected build to that external
     TestFlight group. External distribution may require Beta App Review before testers
     can install.
-  - For external distribution, set the `TESTFLIGHT_FEEDBACK_EMAIL` repo secret.
-    It is intentionally secret-only because this repo is public.
+  - For automated external Beta App Review submission, set the
+    `TESTFLIGHT_FEEDBACK_EMAIL` repo secret. It is intentionally secret-only
+    because this repo is public. If you fill the Beta App feedback email
+    manually in App Store Connect, this secret is not needed.
   This workflow calls fastlane's Spaceship/App Store Connect API directly instead of the
   `pilot builds/list/add/distribute` subcommands, because Apple's current API no longer
   accepts the legacy `buildDeliveries` relationship used by those listing paths.

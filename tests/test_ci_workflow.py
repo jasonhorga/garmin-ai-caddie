@@ -170,6 +170,7 @@ class CIWorkflowTests(unittest.TestCase):
             self.assertIn("workflow_dispatch", triggers)
             self.assertNotIn("push", triggers)
             self.assertIn("secrets.", text)
+            self.assertNotIn("secrets.MATCH_KEYCHAIN_PASSWORD", text)
             if name != "ios-testflight-testers.yml":
                 self.assertIn("MATCH_GIT_PRIVATE_KEY", text)
             self.assertNotIn("AI_CADDIE_ADMIN_TOKEN=", text)
@@ -208,6 +209,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("get_beta_app_localizations", text)
         self.assertIn("patch_beta_app_localizations", text)
         self.assertIn("post_beta_app_localizations", text)
+        self.assertIn("TESTFLIGHT_FEEDBACK_EMAIL or fill Beta App feedback email", text)
         self.assertIn("beta_metadata_pending?", text)
         self.assertIn("sleep 10", text)
         self.assertIn("redact_email", text)
@@ -225,6 +227,8 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("build_app(", text)
         self.assertIn("scheme: SCHEME", text)
         self.assertIn("Spaceship::ConnectAPI::BundleId.create", text)
+        self.assertIn('require "securerandom"', text)
+        self.assertIn("SecureRandom.hex(24)", text)
         self.assertNotIn("create_app_online", text)
 
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))

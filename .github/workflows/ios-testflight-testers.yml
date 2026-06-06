@@ -316,7 +316,7 @@ jobs:
             if missing_feedback_email
               raise(
                 "External TestFlight distribution requires Beta App feedback email. " \
-                "Provide workflow input feedback_email or repo secret TESTFLIGHT_FEEDBACK_EMAIL."
+                "Set repo secret TESTFLIGHT_FEEDBACK_EMAIL or fill Beta App feedback email in App Store Connect."
               )
             end
 
