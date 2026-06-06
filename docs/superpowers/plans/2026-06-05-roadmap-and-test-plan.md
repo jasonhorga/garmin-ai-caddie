@@ -70,13 +70,13 @@
 **Outcome:** Every played or searched course gets source-labeled par and yardage metadata cached in `data/courses/<gid>.json`.
 
 - [x] CourseView par decode and course search exist.
-- [ ] Build or finish the resolver ladder:
+- [x] Build or finish the resolver ladder:
   - played `holePars`
   - CourseView release par
   - official/scraped source when available
   - deterministic length estimate fallback
-- [ ] Persist source, confidence, and provenance for every resolved course reference.
-- [ ] Add saved-HTML/parser fixtures for any web lookup path; no live network in CI.
+- [x] Persist source, confidence, and provenance for every resolved course reference.
+- [x] Add saved-HTML/parser fixtures for any web lookup path; no live network in CI.
 
 **Done when:** `resolve_course_par(globalId)` returns labeled par automatically for real played courses and unplayed CourseView search results.
 
