@@ -108,6 +108,10 @@ jobs:
           require "spaceship/connect_api/spaceship"
 
           APP_IDENTIFIER = "com.ai-caddie.mobile"
+          DEFAULT_BETA_APP_DESCRIPTION = (
+            "Private TestFlight build for validating AI Caddie golf history, " \
+            "course prep, and iOS/watchOS trial flows."
+          )
 
           def blank_to_nil(value)
             stripped = value.to_s.strip
@@ -301,6 +305,32 @@ jobs:
             end
           end
 
+          def ensure_beta_app_description!(app)
+            localizations = app.get_beta_app_localizations
+            localization = localizations.find { |item| item.locale == "en-US" } || localizations.first
+
+            if localization
+              if localization.description.to_s.strip.empty?
+                Spaceship::ConnectAPI.patch_beta_app_localizations(
+                  localization_id: localization.id,
+                  attributes: { description: DEFAULT_BETA_APP_DESCRIPTION }
+                )
+                puts "Beta App Description set on existing #{localization.locale} localization."
+              else
+                puts "Beta App Description already exists on #{localization.locale} localization."
+              end
+            else
+              Spaceship::ConnectAPI.post_beta_app_localizations(
+                app_id: app.id,
+                attributes: {
+                  locale: "en-US",
+                  description: DEFAULT_BETA_APP_DESCRIPTION
+                }
+              )
+              puts "Beta App Description created for en-US localization."
+            end
+          end
+
           def submit_beta_review_if_ready!(build)
             ready = safely { build.ready_for_beta_submission? }
             if ready == true
@@ -345,6 +375,7 @@ jobs:
             puts "Selected build: #{safely { build.app_version }} (#{build.version}), id=#{build.id}."
             mark_export_compliance!(build)
             set_auto_notify!(build, notify_external_testers)
+            ensure_beta_app_description!(app)
             submit_beta_review_if_ready!(build)
             build.add_beta_groups(beta_groups: groups)
             puts(
