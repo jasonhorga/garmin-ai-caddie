@@ -11,14 +11,20 @@ needed. Signing is isolated from other apps in `jasonhorga/garmin-ai-caddie-sign
    - `MATCH_GIT_URL`, `MATCH_GIT_PRIVATE_KEY`, `MATCH_PASSWORD`, `MATCH_KEYCHAIN_PASSWORD`  (fastlane match)
    The match repo is private and project-specific:
    `git@github.com:jasonhorga/garmin-ai-caddie-signing.git`.
-2. **Run the `iOS Signing Bootstrap` workflow** once (Actions → iOS Signing Bootstrap → Run
-   workflow). It now **auto-creates the App Store Connect app record** (via `create_app_online`
-   using the API key — no manual registration) for `com.ai-caddie.mobile`, registers the app +
-   watch App IDs, and writes the certs/profiles into the match repo. (Idempotent — safe if the
-   app already exists.)
+2. **Create the App Store Connect app record once** at
+   `https://appstoreconnect.apple.com/apps`:
+   - Platform: `iOS`
+   - Name: `AI Caddie` (or another available display name)
+   - Bundle ID: `com.ai-caddie.mobile`
+   - SKU: `com.ai-caddie.mobile`
+   Do not create a separate watch app record.
+3. **Run the `iOS Signing Bootstrap` workflow** once (Actions → iOS Signing Bootstrap → Run
+   workflow). It registers the app + watch Apple Developer Bundle IDs and writes the
+   certs/profiles into the match repo. (Idempotent — safe if the app IDs already exist.)
 
-That's it — no manual App Store Connect form. After step 2, the app is registered and signing
-is ready.
+After step 3, signing is ready. The App Store Connect app record must exist before
+`upload_to_testflight` can upload the IPA; Apple's API key can manage existing app records
+but does not create a new app record for this account.
 
 ## Shipping a build
 
