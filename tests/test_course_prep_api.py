@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import course_reference
+from ai_caddie import course_prep, course_reference
 from ai_caddie.course_reference import CoursePar
 from server_v2.main import app
 
@@ -45,6 +45,38 @@ class CoursePrepApiTests(unittest.TestCase):
             self.assertIn(hole["par_source"], {"played", "courseview", "estimate"})
             self.assertIn("blue_yards", hole)
             self.assertIn("hazards", hole)
+
+    def test_prep_endpoint_keeps_missing_geometry_rows(self) -> None:
+        missing_row = {
+            "globalId": 31870,
+            "localHole": 1,
+            "hole": 1,
+            "par": 5,
+            "par_source": "played",
+            "blue_yards": 0,
+            "route_len_m": 0.0,
+            "route": [],
+            "geometryCoverage": "missing",
+            "sourceRefs": ["course:31870", "geometry:31870:1"],
+            "missingData": [{"label": "geometry", "reason": "prodgeometry mesh file missing"}],
+            "candidateRoutes": [],
+            "carryTargets": [],
+            "steps": [],
+            "cautions": [],
+            "landing_m": None,
+            "tee_club": None,
+            "hazards": {"water_carry": [], "bunkers": []},
+        }
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.object(course_prep, "prep_nine", return_value=[missing_row]) as prep_nine:
+            resp = self.client.get("/api/v2/courses/31870/prep?holes=1&render=false")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["holeCount"], 1)
+        self.assertEqual(body["holes"][0]["geometryCoverage"], "missing")
+        self.assertEqual(body["holes"][0]["missingData"][0]["label"], "geometry")
+        self.assertTrue(prep_nine.call_args.kwargs["include_missing"])
 
     def test_holes_query_filter(self) -> None:
         with patch.object(course_reference, "load_course_par", return_value=_PAR_31870):

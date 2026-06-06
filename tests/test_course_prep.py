@@ -169,6 +169,16 @@ class GeometryBackedTests(unittest.TestCase):
 
 
 class PrepResolvesParTests(unittest.TestCase):
+    def test_prep_nine_keeps_requested_missing_geometry_rows(self) -> None:
+        rec = course_reference.CoursePar(99999, [4, 5], "courseview", "high")
+        with patch.object(course_reference, "load_course_par", return_value=rec), \
+                patch.object(course_prep, "prep_hole", side_effect=[None, {"hole": 2, "missingData": []}]):
+            rows = course_prep.prep_nine(99999, holes=[1, 2], render=False, include_missing=True)
+
+        self.assertEqual([row["hole"] for row in rows], [1, 2])
+        self.assertEqual(rows[0]["geometryCoverage"], "missing")
+        self.assertEqual(rows[0]["missingData"][0]["label"], "geometry")
+
     def test_prep_nine_resolves_when_not_cached(self) -> None:
         rec = course_reference.CoursePar(31936, [4, 5, 3, 4, 3, 4, 4, 5, 4], "courseview", "high")
         seen = {}

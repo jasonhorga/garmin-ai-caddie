@@ -409,7 +409,7 @@ def course_prep_nine(
 
     requested = holes or list(range(1, 10))
     ladder = course_prep.club_ladder()
-    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render)
+    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True)
     return {
         "schema": "ai-caddie-course-prep-v1",
         "globalId": int(global_id),

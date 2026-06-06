@@ -316,12 +316,44 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     return result if render else prep
 
 
-def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True) -> list:
-    """Pre-round prep for every hole of a nine that has geometry. Skips missing holes.
+def _missing_hole(global_id: int, local_hole: int, par_record=None) -> dict:
+    par_idx = int(local_hole) - 1
+    if par_record is not None and 0 <= par_idx < len(par_record.par):
+        par = int(par_record.par[par_idx])
+        par_source = par_record.par_source
+    else:
+        par = 4
+        par_source = "estimate"
+    return {
+        "globalId": int(global_id),
+        "localHole": int(local_hole),
+        "hole": int(local_hole),
+        "par": par,
+        "par_source": par_source,
+        "blue_yards": 0,
+        "route_len_m": 0.0,
+        "route": [],
+        "geometryCoverage": "missing",
+        "sourceRefs": [f"course:{int(global_id)}", f"geometry:{int(global_id)}:{int(local_hole)}"],
+        "missingData": [{"label": "geometry", "reason": "prodgeometry geometry is missing for this hole"}],
+        "candidateRoutes": [],
+        "carryTargets": [],
+        "steps": [],
+        "cautions": [],
+        "landing_m": None,
+        "tee_club": None,
+        "hazards": {"water_carry": [], "bunkers": []},
+    }
+
+
+def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, include_missing: bool = False) -> list:
+    """Pre-round prep for every hole of a nine that has geometry.
 
     Par is cache-first: the stored ``data/courses/<gid>.json`` record, else ``resolve_par``
     (courseview). For an UNPLAYED course with no cached release, ``resolve_par`` does a one-time
     blocking CourseView fetch (then caches it), so the first prep of a cold course is slower.
+    When ``include_missing`` is true, requested holes without geometry are returned as degraded
+    DTO rows instead of being skipped.
     """
     if ladder is None:
         ladder = club_ladder()
@@ -332,5 +364,7 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True) -
     for hole in holes:
         prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render)
         if prep is not None:
-            out.append(prep)
+            out.append(prep.to_dict() if include_missing and hasattr(prep, "to_dict") else prep)
+        elif include_missing:
+            out.append(_missing_hole(global_id, hole, par_record))
     return out
