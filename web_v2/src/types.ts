@@ -937,12 +937,38 @@ export interface CoursePrepStep {
   note: string
 }
 
+export interface CoursePrepMissingData {
+  label?: string
+  reason?: string
+}
+
+export interface CoursePrepCandidateRoute {
+  id: string
+  club?: string
+  carryM?: number
+  riskScore?: number
+}
+
+export interface CoursePrepCarryTarget {
+  kind: string
+  distanceM?: number
+  enterM?: number
+  clearM?: number
+  sideM?: number
+}
+
 export interface CoursePrepHole {
   hole: number
   par: number
   par_source: ParSource
   blue_yards: number
   route_len_m: number
+  route: Array<[number, number, number]>
+  geometryCoverage: GeometryCoverageState
+  sourceRefs: string[]
+  missingData: CoursePrepMissingData[]
+  candidateRoutes: CoursePrepCandidateRoute[]
+  carryTargets: CoursePrepCarryTarget[]
   steps: CoursePrepStep[]
   cautions: string[]
   landing_m: number | null

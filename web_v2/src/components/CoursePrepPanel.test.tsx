@@ -79,6 +79,12 @@ describe('CoursePrepPanel', () => {
         par_source: 'courseview',
         blue_yards: 219,
         route_len_m: 200,
+        route: [[0, 0, 0], [100, 0, 100], [100, 100, 200]],
+        geometryCoverage: 'ready',
+        sourceRefs: ['course:31870', 'geometry:31870:1'],
+        missingData: [],
+        candidateRoutes: [{ id: 'stock', club: '1W', carryM: 200, riskScore: 1 }],
+        carryTargets: [{ kind: 'landing', distanceM: 80 }],
         steps: [{ club: null, note: '开球落点约 87y' }],
         cautions: [],
         landing_m: 80,
@@ -88,6 +94,23 @@ describe('CoursePrepPanel', () => {
           image: 'data:image/jpeg;base64,',
           overlay,
         },
+      }, {
+        hole: 2,
+        par: 4,
+        par_source: 'estimate',
+        blue_yards: 0,
+        route_len_m: 0,
+        route: [],
+        geometryCoverage: 'missing',
+        sourceRefs: ['course:31870', 'geometry:31870:2'],
+        missingData: [{ label: 'geometry', reason: 'prodgeometry geometry is missing for this hole' }],
+        candidateRoutes: [],
+        carryTargets: [],
+        steps: [],
+        cautions: [],
+        landing_m: null,
+        tee_club: null,
+        hazards: { water_carry: [], bunkers: [] },
       }],
     }
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(response), {
@@ -105,6 +128,10 @@ describe('CoursePrepPanel', () => {
     expect(screen.getByText('水 进22y / 过55y')).toBeInTheDocument()
     expect(screen.getByText('沙87y')).toBeInTheDocument()
     expect(screen.getByText('开球落点约 87y')).toBeInTheDocument()
+    expect(screen.getByText('stock 219y')).toBeInTheDocument()
+    expect(screen.getByText('2 洞')).toBeInTheDocument()
+    expect(screen.getByText('geometry missing')).toBeInTheDocument()
+    expect(screen.getAllByText('course:31870').length).toBeGreaterThan(0)
 
     await userEvent.click(screen.getByRole('button', { name: '1W 219y' }))
     expect(screen.getByText('水已过')).toBeInTheDocument()

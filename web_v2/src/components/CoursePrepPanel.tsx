@@ -11,6 +11,7 @@ type LoadState =
 
 const PAR_CLASS: Record<number, string> = { 3: '#4aa3d6', 4: '#3fae6b', 5: '#caa14a' }
 const SOURCE_LABEL: Record<string, string> = { played: '记分卡', courseview: 'CourseView', estimate: '推算' }
+const YARD = 1.09361
 
 type HazardMarker =
   | { kind: 'water'; start: number; end: number; cum: number; color: string }
@@ -27,6 +28,14 @@ function pointHazardLabel(overlay: CoursePrepOverlay, cum: number, hazardCum: nu
   const readout = routeIntervalReadout(overlay, cum, hazardCum, hazardCum)
   if (readout.isCleared) return `${label}已过`
   return `${label}${readout.toStart}y`
+}
+
+function routeOptionLabel(route: { id: string; carryM?: number }): string {
+  return route.carryM ? `${route.id} ${Math.round(route.carryM * YARD)}y` : route.id
+}
+
+function missingLabel(row: { label?: string }): string {
+  return `${row.label ?? 'data'} missing`
 }
 
 function atCum(route: CoursePrepOverlay['route'], cum: number): { x: number; y: number } {
@@ -71,6 +80,9 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
   const initial = hole.par === 3 ? ln : hole.landing_m ?? ln * 0.55
   const [cum, setCum] = useState<number>(initial)
   const svgRef = useRef<SVGSVGElement>(null)
+  const candidateRoutes = hole.candidateRoutes ?? []
+  const missingData = hole.missingData ?? []
+  const sourceRefs = hole.sourceRefs ?? []
 
   const parColor = PAR_CLASS[hole.par] ?? '#3fae6b'
   const header = (
@@ -149,7 +161,34 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
         <div style={{ color: '#8a8f98', fontSize: 13 }}>（此洞暂无几何图）</div>
       )}
       {map ? <div style={{ textAlign: 'center', fontSize: 13, color: '#445', margin: '6px 0' }}>{readout} · 拖动橙点查看码数</div> : null}
-      {clubs.length > 0 && hole.par !== 3 ? (
+      {candidateRoutes.length > 0 ? (
+        <div aria-label={`Hole ${hole.hole} route options`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', margin: '6px 0' }}>
+          {candidateRoutes.map((route) => (
+            <span key={route.id} style={{ fontSize: 11, border: '1px solid #d6dbe1', borderRadius: 8, padding: '2px 7px', color: '#344054', background: '#f8fafc' }}>
+              {routeOptionLabel(route)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {missingData.length > 0 ? (
+        <div aria-label={`Hole ${hole.hole} missing data`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '6px 0' }}>
+          {missingData.map((row, index) => (
+            <span key={`${row.label ?? 'missing'}-${index}`} style={{ fontSize: 11, color: '#9f4a35', border: '1px solid #efd0c8', borderRadius: 8, padding: '2px 7px', background: '#fff7f4' }}>
+              {missingLabel(row)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {sourceRefs.length > 0 ? (
+        <div aria-label={`Hole ${hole.hole} source refs`} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '6px 0' }}>
+          {sourceRefs.map((ref) => (
+            <span key={ref} style={{ fontSize: 10, color: '#667', border: '1px solid #e3e6ea', borderRadius: 8, padding: '1px 6px' }}>
+              {ref}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {map && clubs.length > 0 && hole.par !== 3 ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', marginBottom: 6 }}>
           {clubs.map((club) => (
             <button
