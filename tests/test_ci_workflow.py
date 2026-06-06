@@ -185,13 +185,23 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("tester_emails", inputs)
         self.assertIn("groups", inputs)
         self.assertIn("notify_external_testers", inputs)
-        self.assertIn("bundle exec fastlane pilot builds", text)
-        self.assertIn("bundle exec fastlane pilot list", text)
-        self.assertIn("bundle exec fastlane pilot add", text)
-        self.assertIn("bundle exec fastlane pilot distribute", text)
-        self.assertIn("Spaceship::ConnectAPI.create_beta_group", text)
-        self.assertIn('App.find("com.ai-caddie.mobile")', text)
-        self.assertIn("--api_key_path", text)
+        for obsolete_pilot_command in [
+            "bundle exec fastlane pilot builds",
+            "bundle exec fastlane pilot list",
+            "bundle exec fastlane pilot add",
+            "bundle exec fastlane pilot distribute",
+        ]:
+            self.assertNotIn(obsolete_pilot_command, text)
+        self.assertIn("bundle exec ruby", text)
+        self.assertIn("Spaceship::ConnectAPI::Build.all", text)
+        self.assertIn("post_bulk_beta_tester_assignments", text)
+        self.assertIn("build.add_beta_groups", text)
+        self.assertIn("app.create_beta_group", text)
+        self.assertIn("patch_build_beta_details", text)
+        self.assertIn("redact_email", text)
+        self.assertIn('APP_IDENTIFIER = "com.ai-caddie.mobile"', text)
+        self.assertIn("App.find(APP_IDENTIFIER)", text)
+        self.assertIn("ASC_API_KEY_PATH", text)
         self.assertIn("ASC_PRIVATE_KEY", text)
         self.assertNotIn("@", inputs["tester_emails"]["default"])
 

@@ -102,85 +102,247 @@ jobs:
           NOTIFY_EXTERNAL_TESTERS: ${{ github.event.inputs.notify_external_testers }}
         run: |
           set -euo pipefail
-          app_identifier="com.ai-caddie.mobile"
-          groups="${TESTFLIGHT_GROUPS:-Private Trial}"
-
-          ensure_testflight_groups() {
           bundle exec ruby - <<'RUBY'
           require "json"
           require "spaceship/connect_api"
 
-          api_key = JSON.parse(File.read(ENV.fetch("ASC_API_KEY_PATH")))
-          Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
-            key_id: api_key.fetch("key_id"),
-            issuer_id: api_key.fetch("issuer_id"),
-            key: api_key.fetch("key"),
-            in_house: api_key.fetch("in_house", false)
-          )
+          APP_IDENTIFIER = "com.ai-caddie.mobile"
 
-          app = Spaceship::ConnectAPI::App.find("com.ai-caddie.mobile")
-          raise "App Store Connect app not found for com.ai-caddie.mobile" unless app
+          def blank_to_nil(value)
+            stripped = value.to_s.strip
+            stripped.empty? ? nil : stripped
+          end
 
-          names = ENV.fetch("TESTFLIGHT_GROUPS", "Private Trial").split(",").map(&:strip).reject(&:empty?)
-          existing = app.get_beta_groups.map(&:name)
-          names.each do |name|
-            if existing.include?(name)
-              UI.message("TestFlight group already exists: #{name}")
+          def parse_group_names(value)
+            names = value.to_s.split(",").map(&:strip).reject(&:empty?).uniq
+            names.empty? ? ["Private Trial"] : names
+          end
+
+          def parse_tester_emails(value)
+            value.to_s.split(/[\s,]+/).map(&:strip).reject(&:empty?).uniq
+          end
+
+          def redact_email(email)
+            local, domain = email.to_s.split("@", 2)
+            return "(invalid email)" if local.nil? || domain.nil?
+
+            visible = local.length <= 2 ? local[0].to_s : local[0, 2]
+            "#{visible}***@#{domain}"
+          end
+
+          def bool_input?(value)
+            value.to_s.strip.downcase == "true"
+          end
+
+          def describe(value)
+            value.nil? ? "unknown" : value.to_s
+          end
+
+          def safely
+            yield
+          rescue => e
+            "unavailable: #{e.class}"
+          end
+
+          def connect_api!
+            api_key = JSON.parse(File.read(ENV.fetch("ASC_API_KEY_PATH")))
+            Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+              key_id: api_key.fetch("key_id"),
+              issuer_id: api_key.fetch("issuer_id"),
+              key: api_key.fetch("key"),
+              in_house: api_key.fetch("in_house", false)
+            )
+          end
+
+          def find_app!
+            app = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
+            raise "App Store Connect app not found for #{APP_IDENTIFIER}" unless app
+
+            app
+          end
+
+          def fetch_builds(app, app_version, build_number, limit: 20)
+            Spaceship::ConnectAPI::Build.all(
+              app_id: app.id,
+              version: app_version,
+              build_number: build_number,
+              platform: "IOS",
+              sort: "-uploadedDate",
+              limit: limit
+            )
+          end
+
+          def print_builds(app, app_version, build_number)
+            builds = fetch_builds(app, app_version, build_number)
+            puts "::group::TestFlight builds"
+            if builds.empty?
+              puts "No TestFlight builds found."
             else
-              UI.message("Creating external TestFlight group: #{name}")
-              Spaceship::ConnectAPI.create_beta_group(app_id: app.id, group_name: name)
+              builds.each do |build|
+                puts(
+                  "- #{safely { build.app_version }} (#{build.version}) " \
+                  "id=#{build.id} state=#{build.processing_state} expired=#{build.expired} " \
+                  "usesNonExemptEncryption=#{build.uses_non_exempt_encryption.inspect} " \
+                  "internalReady=#{safely { build.ready_for_internal_testing? }} " \
+                  "externalReady=#{safely { build.ready_for_external_testing? }} " \
+                  "betaReviewReady=#{safely { build.ready_for_beta_submission? }} " \
+                  "missingExportCompliance=#{safely { build.missing_export_compliance? }}"
+                )
+              end
+            end
+            puts "::endgroup::"
+            builds
+          end
+
+          def print_groups(app)
+            groups = app.get_beta_groups
+            puts "::group::TestFlight groups"
+            if groups.empty?
+              puts "No TestFlight groups found."
+            else
+              groups.each do |group|
+                puts(
+                  "- #{group.name} id=#{group.id} internal=#{group.is_internal_group} " \
+                  "publicLinkEnabled=#{group.public_link_enabled} allBuilds=#{group.has_access_to_all_builds}"
+                )
+              end
+            end
+            puts "::endgroup::"
+            groups
+          end
+
+          def print_testers(app)
+            testers = app.get_beta_testers(limit: 200)
+            puts "::group::TestFlight testers"
+            if testers.empty?
+              puts "No TestFlight testers found for this app."
+            else
+              testers.each do |tester|
+                puts(
+                  "- #{redact_email(tester.email)} state=#{describe(tester.beta_tester_state)} " \
+                  "devices=#{describe(tester.number_of_installed_devices)} " \
+                  "latest=#{describe(tester.latest_expiring_cf_bundle_short_version_string)}" \
+                  "(#{describe(tester.latest_expiring_cf_bundle_version_string)})"
+                )
+              end
+            end
+            puts "::endgroup::"
+            testers
+          end
+
+          def ensure_testflight_groups(app, names)
+            existing = app.get_beta_groups
+            names.map do |name|
+              group = existing.find { |candidate| candidate.name == name }
+              if group
+                puts "TestFlight group already exists: #{name}"
+              else
+                puts "Creating external TestFlight group: #{name}"
+                group = app.create_beta_group(group_name: name)
+                raise "Failed to create TestFlight group: #{name}" unless group
+
+                existing << group
+              end
+
+              group
             end
           end
-          RUBY
-          }
 
-          echo "::group::TestFlight builds"
-          bundle exec fastlane pilot builds \
-            -a "$app_identifier" \
-            --api_key_path "$ASC_API_KEY_PATH"
-          echo "::endgroup::"
+          def select_distributable_build!(app, app_version, build_number)
+            builds = fetch_builds(app, app_version, build_number, limit: 30)
+            raise "No TestFlight build found for the requested version/build." if builds.empty?
 
-          echo "::group::TestFlight testers"
-          bundle exec fastlane pilot list \
-            -a "$app_identifier" \
-            --api_key_path "$ASC_API_KEY_PATH"
-          echo "::endgroup::"
+            build = if app_version || build_number
+                      builds.first
+                    else
+                      builds.find do |candidate|
+                        candidate.processing_state == Spaceship::ConnectAPI::Build::ProcessingState::VALID
+                      end || builds.first
+                    end
 
-          case "$OPERATION" in
-            list)
-              echo "Listed TestFlight builds and testers."
-              ;;
-            add)
-              ensure_testflight_groups
-              test -n "${TESTER_EMAILS//[[:space:],]/}" || { echo "tester_emails is required for add"; exit 1; }
-              printf '%s\n' "$TESTER_EMAILS" | tr ',[:space:]' '\n' | sed '/^$/d' > "$RUNNER_TEMP/tester_emails.txt"
-              while IFS= read -r email; do
-                echo "Adding external tester ${email} to group(s): ${groups}"
-                bundle exec fastlane pilot add "$email" \
-                  -a "$app_identifier" \
-                  -g "$groups" \
-                  --api_key_path "$ASC_API_KEY_PATH"
-              done < "$RUNNER_TEMP/tester_emails.txt"
-              ;;
-            distribute)
-              ensure_testflight_groups
-              args=(
-                -a "$app_identifier"
-                --api_key_path "$ASC_API_KEY_PATH"
-                --distribute_external true
-                --groups "$groups"
-                --notify_external_testers "$NOTIFY_EXTERNAL_TESTERS"
+            unless build.processing_state == Spaceship::ConnectAPI::Build::ProcessingState::VALID
+              raise(
+                "Selected build #{safely { build.app_version }} (#{build.version}) is " \
+                "#{build.processing_state}, not VALID yet."
               )
-              if [ -n "$APP_VERSION" ]; then
-                args+=(--app_version "$APP_VERSION")
-              fi
-              if [ -n "$BUILD_NUMBER" ]; then
-                args+=(--build_number "$BUILD_NUMBER")
-              fi
-              bundle exec fastlane pilot distribute "${args[@]}"
-              ;;
-            *)
-              echo "Unsupported operation: $OPERATION"
-              exit 1
-              ;;
-          esac
+            end
+
+            build
+          end
+
+          def mark_export_compliance!(build)
+            if build.uses_non_exempt_encryption == false
+              puts "Export compliance already set: usesNonExemptEncryption=false."
+            else
+              puts "Setting export compliance: usesNonExemptEncryption=false."
+              build.update(attributes: { uses_non_exempt_encryption: false })
+            end
+          end
+
+          def set_auto_notify!(build, notify_external_testers)
+            detail = build.build_beta_detail
+            if detail
+              Spaceship::ConnectAPI.patch_build_beta_details(
+                build_beta_details_id: detail.id,
+                attributes: { autoNotifyEnabled: notify_external_testers }
+              )
+              puts "External tester auto-notify set to #{notify_external_testers}."
+            else
+              puts "No build beta detail is available yet; auto-notify was not changed."
+            end
+          end
+
+          def submit_beta_review_if_ready!(build)
+            ready = safely { build.ready_for_beta_submission? }
+            if ready == true
+              puts "Submitting build for Beta App Review."
+              build.post_beta_app_review_submission
+            else
+              puts "Beta App Review submission skipped: ready_for_beta_submission=#{ready.inspect}."
+            end
+          end
+
+          operation = ENV.fetch("OPERATION", "list")
+          group_names = parse_group_names(ENV.fetch("TESTFLIGHT_GROUPS", "Private Trial"))
+          app_version = blank_to_nil(ENV["APP_VERSION"])
+          build_number = blank_to_nil(ENV["BUILD_NUMBER"])
+          notify_external_testers = bool_input?(ENV["NOTIFY_EXTERNAL_TESTERS"])
+
+          connect_api!
+          app = find_app!
+          puts "App Store Connect app: #{safely { app.name }} (#{APP_IDENTIFIER}, id=#{app.id})"
+
+          case operation
+          when "list"
+            print_builds(app, app_version, build_number)
+            print_groups(app)
+            print_testers(app)
+          when "add"
+            emails = parse_tester_emails(ENV["TESTER_EMAILS"])
+            raise "tester_emails is required for add" if emails.empty?
+
+            groups = ensure_testflight_groups(app, group_names)
+            tester_attrs = emails.map { |email| { email: email, firstName: "AI", lastName: "Caddie" } }
+            groups.each do |group|
+              group.post_bulk_beta_tester_assignments(beta_testers: tester_attrs.map(&:dup))
+              puts(
+                "Assigned #{emails.length} external tester(s) to group #{group.name}: " \
+                "#{emails.map { |email| redact_email(email) }.join(', ')}"
+              )
+            end
+          when "distribute"
+            groups = ensure_testflight_groups(app, group_names)
+            build = select_distributable_build!(app, app_version, build_number)
+            puts "Selected build: #{safely { build.app_version }} (#{build.version}), id=#{build.id}."
+            mark_export_compliance!(build)
+            set_auto_notify!(build, notify_external_testers)
+            submit_beta_review_if_ready!(build)
+            build.add_beta_groups(beta_groups: groups)
+            puts(
+              "Assigned build #{safely { build.app_version }} (#{build.version}) to " \
+              "group(s): #{groups.map(&:name).join(', ')}"
+            )
+          else
+            raise "Unsupported operation: #{operation}"
+          end
+          RUBY
