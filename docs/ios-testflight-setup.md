@@ -38,6 +38,9 @@ but does not create a new app record for this account.
   - `operation=distribute` assigns the latest or selected build to that external
     TestFlight group. External distribution may require Beta App Review before testers
     can install.
+  - For external distribution, provide a TestFlight feedback email with the
+    `TESTFLIGHT_FEEDBACK_EMAIL` repo secret or the workflow's `feedback_email` input.
+    Prefer the secret on a public repo.
   This workflow calls fastlane's Spaceship/App Store Connect API directly instead of the
   `pilot builds/list/add/distribute` subcommands, because Apple's current API no longer
   accepts the legacy `buildDeliveries` relationship used by those listing paths.

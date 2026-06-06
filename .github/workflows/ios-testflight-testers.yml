@@ -31,6 +31,10 @@ on:
         description: 'Optional TestFlight build number to distribute'
         required: false
         default: ''
+      feedback_email:
+        description: 'Optional feedback email for external TestFlight test info'
+        required: false
+        default: ''
       notify_external_testers:
         description: 'Notify external testers on distribute'
         required: false
@@ -99,6 +103,8 @@ jobs:
           TESTFLIGHT_GROUPS: ${{ github.event.inputs.groups }}
           APP_VERSION: ${{ github.event.inputs.app_version }}
           BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+          BETA_FEEDBACK_EMAIL: ${{ github.event.inputs.feedback_email }}
+          TESTFLIGHT_FEEDBACK_EMAIL: ${{ secrets.TESTFLIGHT_FEEDBACK_EMAIL }}
           NOTIFY_EXTERNAL_TESTERS: ${{ github.event.inputs.notify_external_testers }}
         run: |
           set -euo pipefail
@@ -305,29 +311,43 @@ jobs:
             end
           end
 
-          def ensure_beta_app_description!(app)
+          def ensure_beta_app_test_info!(app, feedback_email)
             localizations = app.get_beta_app_localizations
             localization = localizations.find { |item| item.locale == "en-US" } || localizations.first
 
+            existing_description = localization&.description.to_s.strip
+            existing_feedback_email = localization&.feedback_email.to_s.strip
+            missing_feedback_email = existing_feedback_email.empty? && feedback_email.to_s.strip.empty?
+            if missing_feedback_email
+              raise(
+                "External TestFlight distribution requires Beta App feedback email. " \
+                "Provide workflow input feedback_email or repo secret TESTFLIGHT_FEEDBACK_EMAIL."
+              )
+            end
+
+            attributes = {}
+            attributes[:description] = DEFAULT_BETA_APP_DESCRIPTION if existing_description.empty?
+            if existing_feedback_email.empty?
+              attributes[:feedbackEmail] = feedback_email.to_s.strip
+            end
+
+            if attributes.empty?
+              puts "Beta App test info already has description and feedback email."
+              return
+            end
+
             if localization
-              if localization.description.to_s.strip.empty?
-                Spaceship::ConnectAPI.patch_beta_app_localizations(
-                  localization_id: localization.id,
-                  attributes: { description: DEFAULT_BETA_APP_DESCRIPTION }
-                )
-                puts "Beta App Description set on existing #{localization.locale} localization."
-              else
-                puts "Beta App Description already exists on #{localization.locale} localization."
-              end
+              Spaceship::ConnectAPI.patch_beta_app_localizations(
+                localization_id: localization.id,
+                attributes: attributes
+              )
+              puts "Beta App test info updated on existing #{localization.locale} localization."
             else
               Spaceship::ConnectAPI.post_beta_app_localizations(
                 app_id: app.id,
-                attributes: {
-                  locale: "en-US",
-                  description: DEFAULT_BETA_APP_DESCRIPTION
-                }
+                attributes: attributes.merge(locale: "en-US")
               )
-              puts "Beta App Description created for en-US localization."
+              puts "Beta App test info created for en-US localization."
             end
           end
 
@@ -352,7 +372,7 @@ jobs:
                 raise unless beta_metadata_pending?(e.message) && attempt < 2
 
                 puts "Beta App metadata is not visible to review submission yet; retrying."
-                ensure_beta_app_description!(app)
+                ensure_beta_app_test_info!(app, blank_to_nil(ENV["BETA_FEEDBACK_EMAIL"]) || blank_to_nil(ENV["TESTFLIGHT_FEEDBACK_EMAIL"]))
                 sleep 10
               end
             end
@@ -362,6 +382,7 @@ jobs:
           group_names = parse_group_names(ENV.fetch("TESTFLIGHT_GROUPS", "Private Trial"))
           app_version = blank_to_nil(ENV["APP_VERSION"])
           build_number = blank_to_nil(ENV["BUILD_NUMBER"])
+          feedback_email = blank_to_nil(ENV["BETA_FEEDBACK_EMAIL"]) || blank_to_nil(ENV["TESTFLIGHT_FEEDBACK_EMAIL"])
           notify_external_testers = bool_input?(ENV["NOTIFY_EXTERNAL_TESTERS"])
 
           connect_api!
@@ -392,7 +413,7 @@ jobs:
             puts "Selected build: #{safely { build.app_version }} (#{build.version}), id=#{build.id}."
             mark_export_compliance!(build)
             set_auto_notify!(build, notify_external_testers)
-            ensure_beta_app_description!(app)
+            ensure_beta_app_test_info!(app, feedback_email)
             submit_beta_review_if_ready!(build, app)
             build.add_beta_groups(beta_groups: groups)
             puts(
