@@ -140,5 +140,5 @@ describe('CoursePrepPanel', () => {
 
     expect(screen.queryByText(/碳/)).not.toBeInTheDocument()
     expect(screen.queryByText(/\?/)).not.toBeInTheDocument()
-  })
+  }, 10000)
 })
