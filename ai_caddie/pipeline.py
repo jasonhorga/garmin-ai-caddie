@@ -44,11 +44,11 @@ def _ensure_auth(force_refresh: bool) -> bool:
         return False
 
 
-def _fetch_history(with_shots: bool) -> int:
+def _fetch_history(with_shots: bool, *, force_refresh_auth: bool = False) -> int:
     """Fetch summary + details (+ shots). Returns the number of rounds in the summary."""
     import fetch
 
-    session = fetch.make_session()
+    session = fetch.make_session(force_refresh_auth=force_refresh_auth)
     cards = fetch.fetch_summary(session)
     fetch.fetch_details(session, cards, with_shots=with_shots)
     return len(cards)
@@ -83,7 +83,7 @@ def sync(*, with_shots: bool = False, force_refresh: bool = False, geometry_limi
     """Run the full local sync idempotently and return a coverage summary."""
     if not _ensure_auth(force_refresh):
         return SyncResult(auth_ok=False, notes=["auth unavailable; cannot fetch"])
-    rounds = _fetch_history(with_shots)
+    rounds = _fetch_history(with_shots, force_refresh_auth=force_refresh)
     geometry = _ensure_geometry(limit=geometry_limit)
     store = course_reference.build_played_store()
     scs, shots = _on_disk()
