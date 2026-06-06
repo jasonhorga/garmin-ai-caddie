@@ -57,6 +57,45 @@ class PipelineSyncTests(unittest.TestCase):
         fetch_history.assert_called_once_with(True, force_refresh_auth=True)
         geo.assert_called_once_with(limit=50)
 
+    def test_sync_reports_geometry_and_course_reference_coverage(self) -> None:
+        coverage = {
+            "schema": "ai-caddie-course-reference-coverage-v1",
+            "total": 4,
+            "ready": 3,
+            "missing": 1,
+            "pct": 75.0,
+        }
+        with patch.object(pipeline, "_ensure_auth", return_value=True), \
+                patch.object(pipeline, "_fetch_history", return_value=12), \
+                patch.object(pipeline, "_ensure_geometry", return_value={"attempted": 2, "downloaded": 1, "failed": 1}) as geo, \
+                patch.object(pipeline.course_reference, "build_played_store", return_value={1: object(), 2: object()}), \
+                patch.object(pipeline.course_reference, "course_reference_coverage", return_value=coverage), \
+                patch.object(pipeline, "_on_disk", return_value=(12, 9)):
+            result = pipeline.sync(with_shots=True, geometry_limit=50)
+
+        geo.assert_called_once_with(limit=50)
+        self.assertTrue(result.auth_ok)
+        self.assertEqual(result.geometry_attempted, 2)
+        self.assertEqual(result.geometry_failed, 1)
+        self.assertEqual(result.course_reference_total, 4)
+        self.assertEqual(result.course_reference_ready, 3)
+        self.assertEqual(result.course_reference_missing, 1)
+        self.assertEqual(result.course_reference_coverage_pct, 75.0)
+        self.assertTrue(any("1 hole(s) missing geometry" in note for note in result.notes))
+
+    def test_sync_reports_course_reference_failure_as_degraded_note(self) -> None:
+        with patch.object(pipeline, "_ensure_auth", return_value=True), \
+                patch.object(pipeline, "_fetch_history", return_value=3), \
+                patch.object(pipeline, "_ensure_geometry", return_value={"attempted": 0, "failed": 0}), \
+                patch.object(pipeline.course_reference, "build_played_store", side_effect=RuntimeError("course ref failed")), \
+                patch.object(pipeline, "_on_disk", return_value=(3, 0)):
+            result = pipeline.sync(with_shots=False)
+
+        self.assertTrue(result.auth_ok)
+        self.assertEqual(result.course_nines, 0)
+        self.assertEqual(result.course_reference_total, 0)
+        self.assertTrue(any("course-reference ingest failed" in note for note in result.notes))
+
     def test_fetch_history_passes_force_refresh_auth_to_fetch_session(self) -> None:
         session = object()
         with patch("fetch.make_session", return_value=session) as make_session, \

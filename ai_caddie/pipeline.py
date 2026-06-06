@@ -26,6 +26,12 @@ class SyncResult:
     scorecards: int = 0
     shots: int = 0
     course_nines: int = 0
+    geometry_attempted: int = 0
+    geometry_failed: int = 0
+    course_reference_total: int = 0
+    course_reference_ready: int = 0
+    course_reference_missing: int = 0
+    course_reference_coverage_pct: float = 0.0
     notes: list[str] = field(default_factory=list)
 
 
@@ -85,9 +91,23 @@ def sync(*, with_shots: bool = False, force_refresh: bool = False, geometry_limi
         return SyncResult(auth_ok=False, notes=["auth unavailable; cannot fetch"])
     rounds = _fetch_history(with_shots, force_refresh_auth=force_refresh)
     geometry = _ensure_geometry(limit=geometry_limit)
-    store = course_reference.build_played_store()
-    scs, shots = _on_disk()
     notes: list[str] = []
+    course_nines = 0
+    course_reference_total = 0
+    course_reference_ready = 0
+    course_reference_missing = 0
+    course_reference_coverage_pct = 0.0
+    try:
+        store = course_reference.build_played_store()
+        course_nines = len(store)
+        coverage = course_reference.course_reference_coverage()
+        course_reference_total = int(coverage.get("total") or 0)
+        course_reference_ready = int(coverage.get("ready") or 0)
+        course_reference_missing = int(coverage.get("missing") or 0)
+        course_reference_coverage_pct = float(coverage.get("pct") or 0.0)
+    except Exception:
+        notes.append("course-reference ingest failed (will retry on next sync)")
+    scs, shots = _on_disk()
     if not shots:
         notes.append("shots not fetched (run with --shots for shot maps / decision evidence)")
     if geometry.get("failed"):
@@ -97,7 +117,13 @@ def sync(*, with_shots: bool = False, force_refresh: bool = False, geometry_limi
         rounds=rounds,
         scorecards=scs,
         shots=shots,
-        course_nines=len(store),
+        course_nines=course_nines,
+        geometry_attempted=int(geometry.get("attempted") or 0),
+        geometry_failed=int(geometry.get("failed") or 0),
+        course_reference_total=course_reference_total,
+        course_reference_ready=course_reference_ready,
+        course_reference_missing=course_reference_missing,
+        course_reference_coverage_pct=course_reference_coverage_pct,
         notes=notes,
     )
 
