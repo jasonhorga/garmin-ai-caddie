@@ -1,18 +1,16 @@
 # iOS + Watch → TestFlight (no Mac needed)
 
-This mirrors the sibling **gomoku** setup: GitHub `macos-15` runners + fastlane `match`
-(certs/profiles in a private git repo) + an App Store Connect API key. No local Mac, no
-interactive Apple login. Same Apple account as gomoku (**Team `6HB84897DJ`**), so the
-**existing gomoku signing secrets are reused** — you do not create a new Apple setup.
+This uses GitHub `macos-15` runners + fastlane `match` (certs/profiles in a private git
+repo) + an App Store Connect API key. No local Mac and no interactive Apple login are
+needed. Signing is isolated from other apps in `jasonhorga/garmin-ai-caddie-signing`.
 
 ## One-time turn-on (≈5 min)
 
-1. **Add the 6 signing secrets to this repo** (Settings → Secrets and variables → Actions),
-   copying the **same values already configured for gomoku** — or, cleaner, promote them to
-   **organization-level secrets** shared by both repos:
+1. **Add the signing secrets to this repo** (Settings → Secrets and variables → Actions):
    - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`  (App Store Connect API key, `.p8` content)
-   - `MATCH_GIT_URL`, `MATCH_PASSWORD`, `MATCH_KEYCHAIN_PASSWORD`  (fastlane match)
-   `match` stores multiple app identifiers in one repo, so gomoku's match repo works as-is.
+   - `MATCH_GIT_URL`, `MATCH_GIT_PRIVATE_KEY`, `MATCH_PASSWORD`, `MATCH_KEYCHAIN_PASSWORD`  (fastlane match)
+   The match repo is private and project-specific:
+   `git@github.com:jasonhorga/garmin-ai-caddie-signing.git`.
 2. **Run the `iOS Signing Bootstrap` workflow** once (Actions → iOS Signing Bootstrap → Run
    workflow). It now **auto-creates the App Store Connect app record** (via `create_app_online`
    using the API key — no manual registration) for `com.ai-caddie.mobile`, registers the app +
@@ -28,17 +26,6 @@ is ready.
   workflow manually (with optional release notes). It runs `xcodegen generate` →
   `fastlane ios beta` → archives the app (with embedded watch app) → uploads to TestFlight.
 - Install from TestFlight on your iPhone; the watch app installs alongside it.
-
-## How it maps to gomoku
-
-| | gomoku | AI Caddie |
-|---|---|---|
-| Runner | `macos-15` | `macos-15` |
-| Signing | fastlane `match` (git) + ASC API key | same secrets, same match repo |
-| Team | `6HB84897DJ` | `6HB84897DJ` |
-| Project | Godot export → `gomoku.xcodeproj` | `xcodegen` → `AICaddieNative.xcodeproj` |
-| Scheme / bundle | `gomoku` / `com.jasonhorga.gomoku` | `AICaddie` / `com.ai-caddie.mobile` (+ `.watchkitapp`) |
-| Lanes | `bootstrap_signing`, `beta` | same |
 
 ## Backend reachability (for the app to load data)
 

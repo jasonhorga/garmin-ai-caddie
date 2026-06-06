@@ -2,7 +2,7 @@ name: iOS TestFlight (CD)
 
 # Build the AI Caddie iOS app (with embedded watch app) and upload to TestFlight — on a
 # GitHub macos-15 runner, no local Mac. Signing via fastlane match (run the one-time
-# ios-signing-bootstrap workflow first). Mirrors gomoku's ios.yml.
+# ios-signing-bootstrap workflow first).
 
 on:
   workflow_dispatch:
@@ -45,8 +45,9 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
+          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
         run: |
-          for v in ASC_KEY_ID MATCH_GIT_URL MATCH_PASSWORD MATCH_KEYCHAIN_PASSWORD; do
+          for v in ASC_KEY_ID MATCH_GIT_URL MATCH_PASSWORD MATCH_KEYCHAIN_PASSWORD MATCH_GIT_PRIVATE_KEY; do
             eval "val=\${$v}"
             test -n "$val" || { echo "❌ Missing secret: $v (run ios-signing-bootstrap first)"; exit 1; }
           done
@@ -59,6 +60,7 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
+          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
           RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
         run: bundle exec fastlane ios beta
 

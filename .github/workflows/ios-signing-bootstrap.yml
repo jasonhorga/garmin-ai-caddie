@@ -1,8 +1,8 @@
 name: iOS Signing Bootstrap (one-time)
 
-# Run once (manually) after the 6 signing secrets are set, to create/register the app +
-# watch certificates and provisioning profiles into the fastlane match repo. Mirrors
-# gomoku's signing-bootstrap. Safe to re-run; it refreshes the match assets.
+# Run once (manually) after the signing secrets are set, to create/register the app +
+# watch certificates and provisioning profiles into this project's fastlane match repo.
+# Safe to re-run; it refreshes the match assets.
 
 on:
   workflow_dispatch:
@@ -36,12 +36,13 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
+          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
         run: |
-          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY MATCH_GIT_URL MATCH_PASSWORD MATCH_KEYCHAIN_PASSWORD; do
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY MATCH_GIT_URL MATCH_PASSWORD MATCH_KEYCHAIN_PASSWORD MATCH_GIT_PRIVATE_KEY; do
             eval "val=\${$v}"
             test -n "$val" || { echo "❌ Missing secret: $v"; exit 1; }
           done
-          echo "✅ all 6 signing secrets present"
+          echo "✅ all signing secrets present"
 
       - name: fastlane bootstrap_signing
         env:
@@ -51,4 +52,5 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
+          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
         run: bundle exec fastlane ios bootstrap_signing

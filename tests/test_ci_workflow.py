@@ -170,6 +170,7 @@ class CIWorkflowTests(unittest.TestCase):
             self.assertIn("workflow_dispatch", triggers)
             self.assertNotIn("push", triggers)
             self.assertIn("secrets.", text)
+            self.assertIn("MATCH_GIT_PRIVATE_KEY", text)
             self.assertNotIn("AI_CADDIE_ADMIN_TOKEN=", text)
 
     def test_testflight_fastfile_is_text_and_embeds_watch_target(self) -> None:

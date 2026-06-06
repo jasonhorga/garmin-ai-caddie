@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 #
-# AI Caddie iOS + Watch -> TestFlight, mirroring the proven gomoku setup
-# (fastlane match for certs/profiles in a private git repo + App Store Connect API key;
+# AI Caddie iOS + Watch -> TestFlight
+# (fastlane match for certs/profiles in this project's private git repo + App Store Connect API key;
 # no Mac, no interactive Apple login). Signing is injected via xcargs so the existing
 # simulator unit-test CI (xcodebuild test) is untouched.
 #
-# Reused secrets (same Apple account as gomoku, Team 6HB84897DJ):
+# Required secrets (Team 6HB84897DJ):
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY  (App Store Connect API key)
-#   MATCH_GIT_URL, MATCH_PASSWORD, MATCH_KEYCHAIN_PASSWORD  (fastlane match)
+#   MATCH_GIT_URL, MATCH_GIT_PRIVATE_KEY, MATCH_PASSWORD, MATCH_KEYCHAIN_PASSWORD  (fastlane match)
 default_platform(:ios)
 
 APP_BUNDLE_ID = "com.ai-caddie.mobile"
@@ -29,7 +29,7 @@ platform :ios do
   end
 
   def ensure_match_env!
-    missing = %w[MATCH_GIT_URL MATCH_PASSWORD MATCH_KEYCHAIN_PASSWORD].select { |k| ENV[k].to_s.strip.empty? }
+    missing = %w[MATCH_GIT_URL MATCH_PASSWORD MATCH_KEYCHAIN_PASSWORD MATCH_GIT_PRIVATE_KEY].select { |k| ENV[k].to_s.strip.empty? }
     UI.user_error!("Missing signing env vars: #{missing.join(', ')}") unless missing.empty?
   end
 
