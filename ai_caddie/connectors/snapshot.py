@@ -168,14 +168,32 @@ def _played_holes(scorecard: dict[str, Any], hole_pars: str) -> list[dict[str, A
     return holes
 
 
-def _shot_file_ready(path: Path) -> bool:
-    if not path.exists():
+def _shot_payload_has_usable_rows(payload: Any) -> bool:
+    if not isinstance(payload, dict) or payload.get("_no_data"):
         return False
+    for hole in payload.get("holeShots", []) or []:
+        if isinstance(hole, dict) and hole.get("shots"):
+            return True
+    return False
+
+
+def _shot_file_status(path: Path) -> tuple[bool, str]:
+    if not path.exists():
+        return False, "missing"
     try:
         payload = _read_json(path)
     except Exception:
-        return False
-    return not bool(isinstance(payload, dict) and payload.get("_no_data"))
+        return False, "no_data"
+    if not isinstance(payload, dict) or payload.get("_no_data"):
+        return False, "no_data"
+    if _shot_payload_has_usable_rows(payload):
+        return True, "ready"
+    return False, "pin_only"
+
+
+def _shot_file_ready(path: Path) -> bool:
+    ready, _status = _shot_file_status(path)
+    return ready
 
 
 def _normalize_scorecard(
@@ -204,7 +222,7 @@ def _normalize_scorecard(
     holes = _played_holes(scorecard, hole_pars)
     par_values = [hole.get("par") for hole in holes if isinstance(hole.get("par"), int)]
     shot_path = root / "data" / "shots" / f"{scorecard_id}.json"
-    has_shots = _shot_file_ready(shot_path)
+    has_shots, shot_status = _shot_file_status(shot_path)
     source_file = _relative(path, root)
     return {
         "id": scorecard_id,
@@ -243,7 +261,7 @@ def _normalize_scorecard(
         "slope": scorecard.get("teeBoxSlope"),
         "hasShotFile": shot_path.exists(),
         "hasShots": has_shots,
-        "shotStatus": "ready" if has_shots else "no_data" if shot_path.exists() else "missing",
+        "shotStatus": shot_status,
         "merged": False,
         "sourceFile": source_file,
         "provenance": _provenance(
