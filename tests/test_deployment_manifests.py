@@ -51,6 +51,25 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertIn("Render API URL", text)
         self.assertIn("Vercel Web URL", text)
 
+    def test_private_trial_docs_include_local_and_cloud_smoke_commands(self) -> None:
+        text = Path("docs/deployment/private-trial.md").read_text(encoding="utf-8")
+
+        for required in [
+            "uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000",
+            "ops/smoke_private_trial.sh http://127.0.0.1:9000",
+            "ops/backup_data.sh",
+            "ops/export_snapshot.py",
+            "ops/import_snapshot.py",
+            "Render API URL",
+            "Fly API URL",
+            "Vercel Web URL",
+            "AI_CADDIE_ADMIN_TOKEN",
+            "AI_CADDIE_PRIVATE_ROOT",
+        ]:
+            self.assertIn(required, text)
+        self.assertNotIn("JWT_WEB", text)
+        self.assertNotIn("connect-csrf-token", text)
+
     def test_container_manifests_define_persistent_private_runtime_root(self) -> None:
         dockerfile = Path("Dockerfile")
         compose = Path("docker-compose.yml")

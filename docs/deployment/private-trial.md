@@ -27,11 +27,41 @@ Required API environment for private staging:
 Required Web environment for private staging:
 
 - `VITE_AI_CADDIE_API_BASE_URL=<Render API URL>`
+- `VITE_AI_CADDIE_API_BASE_URL=<Fly API URL>` if Fly is the API host
 
 The Vercel Web URL must be allowed by the Render API through
 `AI_CADDIE_CORS_ORIGINS`; the Web build must point at the Render API URL through
 `VITE_AI_CADDIE_API_BASE_URL`. Without those paired settings, the static Web app
 will either request its own Vercel origin or be blocked by browser CORS.
+
+## Local Private Smoke
+
+Before using Render, Fly, or Vercel, run the private API locally with the same
+security profile and runtime root shape:
+
+```bash
+AI_CADDIE_SECURITY_PROFILE=private \
+AI_CADDIE_ADMIN_TOKEN=replace-with-random-admin-token \
+AI_CADDIE_DATA_MODE=local_or_fixture \
+AI_CADDIE_PRIVATE_ROOT=/var/lib/ai-caddie \
+uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000
+```
+
+In another shell, run the protected-route smoke:
+
+```bash
+AI_CADDIE_ADMIN_TOKEN=replace-with-random-admin-token \
+ops/smoke_private_trial.sh http://127.0.0.1:9000
+```
+
+Record a backup and prove snapshot portability before replacing private runtime
+state:
+
+```bash
+ops/backup_data.sh
+uv run python ops/export_snapshot.py --source-root . --output data/backups/private-snapshot.tar.gz
+uv run python ops/import_snapshot.py data/backups/private-snapshot.tar.gz --target-root /tmp/ai-caddie-restore-check
+```
 
 ## Container Staging
 
@@ -65,6 +95,15 @@ fly deploy
 Add AI provider keys with `fly secrets set ...` only when the corresponding
 provider is needed. Garmin CN session material should still be imported through
 the private Web/iOS flow, not committed into the image.
+
+Render, Fly, and Vercel CLI deployment commands should only run when provider
+credentials are already configured in the environment. Use the resulting
+Render API URL or Fly API URL as `VITE_AI_CADDIE_API_BASE_URL`, and allow the
+Vercel Web URL through API CORS.
+
+TestFlight signing and distribution are excluded from routine private-trial
+deployment. Run those workflows only after an explicit native release request
+and Apple credential setup.
 
 ## NAS Or Private Server
 
