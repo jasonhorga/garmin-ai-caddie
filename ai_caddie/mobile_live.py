@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 
+from ai_caddie import course_prep
 from ai_caddie.annotations import annotations_for_target, list_annotations
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
@@ -580,6 +581,29 @@ def _package_holes(
             coverage = _geometry_coverage_for_package_hole(round_row, number)
         holes.append({"number": number, "par": par, "yards": yards, "geometryCoverage": coverage or "missing"})
     return holes
+
+
+def _course_prep_package(global_id: int, holes: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not global_id:
+        return None
+    hole_numbers = [int(row["number"]) for row in holes if row.get("number")]
+    try:
+        prep_rows = course_prep.prep_nine(int(global_id), holes=hole_numbers, render=False, include_missing=True)
+    except Exception:
+        return {
+            "schema": "ai-caddie-course-prep-package-v1",
+            "globalId": int(global_id),
+            "holes": [],
+            "missingData": [{"label": "course_prep", "reason": "course prep package could not be built"}],
+        }
+    return {
+        "schema": "ai-caddie-course-prep-package-v1",
+        "globalId": int(global_id),
+        "holes": prep_rows,
+        "missingData": _dedupe_missing(
+            [row for hole in prep_rows if isinstance(hole, dict) for row in (hole.get("missingData") or []) if isinstance(row, dict)]
+        ),
+    }
 
 
 def _dedupe_strings(values: list[Any]) -> list[str]:
@@ -1570,6 +1594,8 @@ def build_live_round_package(
             ]
         )
     package_state = "ready" if not package_missing_data and all(row["state"] == "ready" for row in readiness_checks) else "degraded"
+    course_global_id = int(round_row.get("globalId") or 0)
+    course_prep_package = _course_prep_package(course_global_id, holes) if preparation_mode == "course" else None
     return {
         "schema": "ai-caddie-live-round-package-v1",
         "roundId": round_id,
@@ -1578,11 +1604,12 @@ def build_live_round_package(
         "missingData": package_missing_data,
         "playerProfile": player_profile,
         "course": {
-            "globalId": int(round_row.get("globalId") or 0),
+            "globalId": course_global_id,
             "name": str(round_row.get("course") or round_row.get("courseName") or "Unknown course"),
             "teeBox": str(tee_box or round_row.get("teeBox") or "unknown"),
         },
         "holes": holes,
+        "coursePrep": course_prep_package,
         "geometryCoverage": geometry_coverage,
         "readinessChecks": readiness_checks,
         "caddieContextSeeds": caddie_context_seeds,

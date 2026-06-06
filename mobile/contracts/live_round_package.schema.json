@@ -262,6 +262,65 @@
         }
       }
     },
+    "coursePrep": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["schema", "globalId", "holes"],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "ai-caddie-course-prep-package-v1"
+        },
+        "globalId": {
+          "type": "integer"
+        },
+        "holes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["hole", "geometryCoverage", "candidateRoutes", "carryTargets", "missingData"],
+            "properties": {
+              "hole": {
+                "type": "integer"
+              },
+              "geometryCoverage": {
+                "type": "string",
+                "enum": ["ready", "partial", "missing"]
+              },
+              "candidateRoutes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "carryTargets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "missingData": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        },
+        "missingData": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "geometryCoverage": {
       "type": "object",
       "additionalProperties": false,

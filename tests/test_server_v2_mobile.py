@@ -410,6 +410,40 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["caddieContextSeeds"][0]["sourceRef"], "live-new-course:1")
         self.assertEqual(payload["caddieContextSeeds"][0]["context"]["globalId"], 55555)
 
+    def test_mobile_course_package_includes_compact_course_prep(self) -> None:
+        client = TestClient(app)
+        prep_rows = [{
+            "globalId": 31795,
+            "localHole": 1,
+            "hole": 1,
+            "par": 4,
+            "par_source": "courseview",
+            "blue_yards": 410,
+            "route_len_m": 375.0,
+            "route": [[0.0, 0.0, 0.0], [0.0, 375.0, 375.0]],
+            "geometryCoverage": "ready",
+            "sourceRefs": ["course:31795", "geometry:31795:1"],
+            "missingData": [],
+            "candidateRoutes": [{"id": "stock", "carryM": 200.0, "riskScore": 1}],
+            "carryTargets": [{"kind": "landing", "distanceM": 200.0}],
+            "steps": [{"club": "1W", "note": "stock tee"}],
+            "cautions": [],
+            "landing_m": 200.0,
+            "tee_club": "1W",
+            "hazards": {"water_carry": [], "bunkers": []},
+        }]
+
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}), \
+                patch("ai_caddie.course_prep.prep_nine", return_value=prep_rows):
+            response = client.get("/api/v2/mobile/courses/31795/package", params={"round_id": "live-31795"})
+
+        self.assertEqual(response.status_code, 200)
+        course_prep = response.json()["coursePrep"]
+        self.assertEqual(course_prep["schema"], "ai-caddie-course-prep-package-v1")
+        self.assertEqual(course_prep["globalId"], 31795)
+        self.assertEqual(course_prep["holes"][0]["candidateRoutes"][0]["id"], "stock")
+        self.assertEqual(course_prep["holes"][0]["sourceRefs"], ["course:31795", "geometry:31795:1"])
+
     def test_mobile_round_package_endpoint_selects_weather_at_prepared_time(self) -> None:
         client = TestClient(app)
 

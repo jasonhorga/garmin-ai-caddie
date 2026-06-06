@@ -165,6 +165,20 @@ class MobileContractTests(unittest.TestCase):
             },
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
             "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
+            "coursePrep": {
+                "schema": "ai-caddie-course-prep-package-v1",
+                "globalId": 31795,
+                "holes": [
+                    {
+                        "hole": 1,
+                        "geometryCoverage": "ready",
+                        "candidateRoutes": [],
+                        "carryTargets": [],
+                        "missingData": [],
+                    }
+                ],
+                "missingData": [],
+            },
             "geometryCoverage": {"state": "partial", "readyHoles": 12, "totalHoles": 18},
             "readinessChecks": [
                 {

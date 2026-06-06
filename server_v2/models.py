@@ -772,6 +772,7 @@ class LiveRoundPackageResponse(BaseModel):
     playerProfile: dict[str, Any]
     course: dict[str, Any]
     holes: list[dict[str, Any]]
+    coursePrep: dict[str, Any] | None = None
     geometryCoverage: dict[str, Any]
     readinessChecks: list[dict[str, Any]] = Field(default_factory=list)
     caddieContextSeeds: list[dict[str, Any]]
