@@ -184,7 +184,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(["list", "add", "distribute"], inputs["operation"]["options"])
         self.assertIn("tester_emails", inputs)
         self.assertIn("groups", inputs)
-        self.assertIn("feedback_email", inputs)
+        self.assertNotIn("feedback_email", inputs)
         self.assertIn("notify_external_testers", inputs)
         for obsolete_pilot_command in [
             "bundle exec fastlane pilot builds",
@@ -204,7 +204,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("patch_build_beta_details", text)
         self.assertIn("DEFAULT_BETA_APP_DESCRIPTION", text)
         self.assertIn("TESTFLIGHT_FEEDBACK_EMAIL", text)
-        self.assertIn("BETA_FEEDBACK_EMAIL", text)
+        self.assertNotIn("BETA_FEEDBACK_EMAIL", text)
         self.assertIn("get_beta_app_localizations", text)
         self.assertIn("patch_beta_app_localizations", text)
         self.assertIn("post_beta_app_localizations", text)
@@ -216,7 +216,6 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("ASC_API_KEY_PATH", text)
         self.assertIn("ASC_PRIVATE_KEY", text)
         self.assertNotIn("@", inputs["tester_emails"]["default"])
-        self.assertNotIn("@", inputs["feedback_email"]["default"])
 
     def test_testflight_fastfile_is_text_and_embeds_watch_target(self) -> None:
         fastfile = Path("fastlane/Fastfile")

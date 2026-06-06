@@ -31,10 +31,6 @@ on:
         description: 'Optional TestFlight build number to distribute'
         required: false
         default: ''
-      feedback_email:
-        description: 'Optional feedback email for external TestFlight test info'
-        required: false
-        default: ''
       notify_external_testers:
         description: 'Notify external testers on distribute'
         required: false
@@ -103,7 +99,6 @@ jobs:
           TESTFLIGHT_GROUPS: ${{ github.event.inputs.groups }}
           APP_VERSION: ${{ github.event.inputs.app_version }}
           BUILD_NUMBER: ${{ github.event.inputs.build_number }}
-          BETA_FEEDBACK_EMAIL: ${{ github.event.inputs.feedback_email }}
           TESTFLIGHT_FEEDBACK_EMAIL: ${{ secrets.TESTFLIGHT_FEEDBACK_EMAIL }}
           NOTIFY_EXTERNAL_TESTERS: ${{ github.event.inputs.notify_external_testers }}
         run: |
@@ -372,7 +367,7 @@ jobs:
                 raise unless beta_metadata_pending?(e.message) && attempt < 2
 
                 puts "Beta App metadata is not visible to review submission yet; retrying."
-                ensure_beta_app_test_info!(app, blank_to_nil(ENV["BETA_FEEDBACK_EMAIL"]) || blank_to_nil(ENV["TESTFLIGHT_FEEDBACK_EMAIL"]))
+                ensure_beta_app_test_info!(app, blank_to_nil(ENV["TESTFLIGHT_FEEDBACK_EMAIL"]))
                 sleep 10
               end
             end
@@ -382,7 +377,7 @@ jobs:
           group_names = parse_group_names(ENV.fetch("TESTFLIGHT_GROUPS", "Private Trial"))
           app_version = blank_to_nil(ENV["APP_VERSION"])
           build_number = blank_to_nil(ENV["BUILD_NUMBER"])
-          feedback_email = blank_to_nil(ENV["BETA_FEEDBACK_EMAIL"]) || blank_to_nil(ENV["TESTFLIGHT_FEEDBACK_EMAIL"])
+          feedback_email = blank_to_nil(ENV["TESTFLIGHT_FEEDBACK_EMAIL"])
           notify_external_testers = bool_input?(ENV["NOTIFY_EXTERNAL_TESTERS"])
 
           connect_api!
