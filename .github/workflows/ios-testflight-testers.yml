@@ -331,13 +331,30 @@ jobs:
             end
           end
 
-          def submit_beta_review_if_ready!(build)
+          def beta_metadata_pending?(message)
+            message.include?("Beta App Description is missing") ||
+              message.include?("betaAppLocalizations not found")
+          end
+
+          def submit_beta_review_if_ready!(build, app)
             ready = safely { build.ready_for_beta_submission? }
-            if ready == true
-              puts "Submitting build for Beta App Review."
-              build.post_beta_app_review_submission
-            else
+            unless ready == true
               puts "Beta App Review submission skipped: ready_for_beta_submission=#{ready.inspect}."
+              return
+            end
+
+            3.times do |attempt|
+              puts "Submitting build for Beta App Review."
+              begin
+                build.post_beta_app_review_submission
+                return
+              rescue Spaceship::UnexpectedResponse => e
+                raise unless beta_metadata_pending?(e.message) && attempt < 2
+
+                puts "Beta App metadata is not visible to review submission yet; retrying."
+                ensure_beta_app_description!(app)
+                sleep 10
+              end
             end
           end
 
@@ -376,7 +393,7 @@ jobs:
             mark_export_compliance!(build)
             set_auto_notify!(build, notify_external_testers)
             ensure_beta_app_description!(app)
-            submit_beta_review_if_ready!(build)
+            submit_beta_review_if_ready!(build, app)
             build.add_beta_groups(beta_groups: groups)
             puts(
               "Assigned build #{safely { build.app_version }} (#{build.version}) to " \

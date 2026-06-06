@@ -205,6 +205,8 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("get_beta_app_localizations", text)
         self.assertIn("patch_beta_app_localizations", text)
         self.assertIn("post_beta_app_localizations", text)
+        self.assertIn("beta_metadata_pending?", text)
+        self.assertIn("sleep 10", text)
         self.assertIn("redact_email", text)
         self.assertIn('APP_IDENTIFIER = "com.ai-caddie.mobile"', text)
         self.assertIn("App.find(APP_IDENTIFIER)", text)
