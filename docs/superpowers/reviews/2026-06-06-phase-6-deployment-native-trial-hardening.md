@@ -38,6 +38,9 @@ Implemented the locally verifiable Phase 6 hardening work from
   and `com.ai-caddie.mobile.watchkitapp`.
 - `iOS TestFlight (CD)` now archives, exports, and uploads the signed iOS +
   watch IPA to App Store Connect/TestFlight.
+- `iOS TestFlight Testers` can now query App Store Connect/TestFlight through
+  direct Spaceship ConnectAPI calls without the obsolete `pilot builds/list`
+  paths.
 
 ## GitHub Actions Guardrail
 
@@ -183,6 +186,33 @@ Payload/AICaddie.app/live_round_package.fixture.json
 Both app plists include `CFBundleIconName=AppIcon`; the iOS plist includes the
 required iPad orientation declarations.
 
+```text
+GitHub Actions run 27069669571
+Workflow: iOS TestFlight Testers
+Ref: integration/v2
+Head SHA: 50b2c7f1a04b5410c41234890ec59a95c6f4c379
+Operation: list
+Conclusion: success
+Completed: 2026-06-06T17:56:24Z
+```
+
+Result: PASS. The workflow authenticated to App Store Connect, listed app
+`AI Caddie` (`com.ai-caddie.mobile`, id `6777484211`), and found build
+`0.1.0 (2)` with:
+
+```text
+state=VALID
+expired=false
+usesNonExemptEncryption=false
+internalState=IN_BETA_TESTING
+externalState=READY_FOR_BETA_SUBMISSION
+missingExportCompliance=false
+```
+
+The current TestFlight group list contains internal group `Jason's friends`
+with `allBuilds=true`. The app tester list returned 2 existing testers; workflow
+logs redact tester email addresses.
+
 ```bash
 docker run --rm --name ai-caddie-api-smoke -p 127.0.0.1:9000:9000 -e AI_CADDIE_SECURITY_PROFILE=private -e AI_CADDIE_ADMIN_TOKEN=container-smoke-token -e AI_CADDIE_DATA_MODE=fixture -e AI_CADDIE_LLM_PROVIDER=static ai-caddie-api:config-check
 curl -fsS http://127.0.0.1:9000/api/v2/health
@@ -222,5 +252,8 @@ usage remained 52% after the build.
   Linux workspace. The GitHub macOS TestFlight workflow did compile, archive,
   sign, export, and upload the release app.
 - Installation from TestFlight on the user's iPhone/watch was not verified from
-  this workspace. App Store Connect may still need a few minutes to finish build
-  processing before the build appears in TestFlight.
+  this workspace. The latest TestFlight list shows internal state
+  `IN_BETA_TESTING`, but no device-side install confirmation has been captured.
+  External distribution has not been run yet; the build is
+  `READY_FOR_BETA_SUBMISSION` and still needs explicit tester email input before
+  creating/populating an external trial group.
