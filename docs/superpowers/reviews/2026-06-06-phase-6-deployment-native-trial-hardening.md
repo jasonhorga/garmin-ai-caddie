@@ -41,6 +41,10 @@ Implemented the locally verifiable Phase 6 hardening work from
 - `iOS TestFlight Testers` can now query App Store Connect/TestFlight through
   direct Spaceship ConnectAPI calls without the obsolete `pilot builds/list`
   paths.
+- External TestFlight distribution now has an explicit secret-only feedback
+  email guard: set `TESTFLIGHT_FEEDBACK_EMAIL` before submitting Beta App
+  Review. The value is not accepted as workflow input because the repo is
+  public.
 
 ## GitHub Actions Guardrail
 
@@ -187,18 +191,18 @@ Both app plists include `CFBundleIconName=AppIcon`; the iOS plist includes the
 required iPad orientation declarations.
 
 ```text
-GitHub Actions run 27069669571
+GitHub Actions run 27069928781
 Workflow: iOS TestFlight Testers
 Ref: integration/v2
-Head SHA: 50b2c7f1a04b5410c41234890ec59a95c6f4c379
+Head SHA: 1a9fc374856e0b51e63089385a4ef0080d3b463d
 Operation: list
 Conclusion: success
-Completed: 2026-06-06T17:56:24Z
+Completed: 2026-06-06T18:08:03Z
 ```
 
-Result: PASS. The workflow authenticated to App Store Connect, listed app
-`AI Caddie` (`com.ai-caddie.mobile`, id `6777484211`), and found build
-`0.1.0 (2)` with:
+Result: PASS. The latest secret-only workflow authenticated to App Store
+Connect, listed app `AI Caddie` (`com.ai-caddie.mobile`, id `6777484211`), and
+found build `0.1.0 (2)` with:
 
 ```text
 state=VALID
@@ -206,12 +210,53 @@ expired=false
 usesNonExemptEncryption=false
 internalState=IN_BETA_TESTING
 externalState=READY_FOR_BETA_SUBMISSION
+autoNotify=false
 missingExportCompliance=false
 ```
 
 The current TestFlight group list contains internal group `Jason's friends`
-with `allBuilds=true`. The app tester list returned 2 existing testers; workflow
-logs redact tester email addresses.
+with `allBuilds=true` and external group `Private Trial`
+(`internal=false`, `publicLinkEnabled=false`). The app tester list returned
+2 existing testers; workflow logs redact tester email addresses.
+
+```text
+GitHub Actions run 27069707759
+Workflow: iOS TestFlight Testers
+Operation: distribute
+Conclusion: failure
+Completed: 2026-06-06T17:58:15Z
+```
+
+Result: FAIL, expected setup gap. App Store Connect rejected Beta App Review
+submission because the Beta App Description was missing. The workflow was then
+updated to create a minimal secret-free beta app description automatically.
+
+```text
+GitHub Actions run 27069752243
+Workflow: iOS TestFlight Testers
+Operation: distribute
+Conclusion: failure
+Completed: 2026-06-06T18:00:16Z
+```
+
+Result: FAIL, expected setup gap. The workflow created the `en-US` Beta App
+Description, but App Store Connect still rejected submission because beta app
+localization metadata was not yet accepted by the review-submission endpoint.
+The workflow was then updated to retry metadata propagation.
+
+```text
+GitHub Actions run 27069792150
+Workflow: iOS TestFlight Testers
+Operation: distribute
+Conclusion: failure
+Completed: 2026-06-06T18:02:19Z
+```
+
+Result: FAIL, expected setup gap. Retrying proved the remaining missing external
+TestFlight test-information requirement is the Beta App feedback email. The
+workflow now requires the repo secret `TESTFLIGHT_FEEDBACK_EMAIL` before
+external Beta App Review submission. GitHub secret inspection after the change
+showed this secret is not currently configured.
 
 ```bash
 docker run --rm --name ai-caddie-api-smoke -p 127.0.0.1:9000:9000 -e AI_CADDIE_SECURITY_PROFILE=private -e AI_CADDIE_ADMIN_TOKEN=container-smoke-token -e AI_CADDIE_DATA_MODE=fixture -e AI_CADDIE_LLM_PROVIDER=static ai-caddie-api:config-check
@@ -254,6 +299,7 @@ usage remained 52% after the build.
 - Installation from TestFlight on the user's iPhone/watch was not verified from
   this workspace. The latest TestFlight list shows internal state
   `IN_BETA_TESTING`, but no device-side install confirmation has been captured.
-  External distribution has not been run yet; the build is
-  `READY_FOR_BETA_SUBMISSION` and still needs explicit tester email input before
-  creating/populating an external trial group.
+  External group `Private Trial` exists, but external distribution remains
+  `READY_FOR_BETA_SUBMISSION` until `TESTFLIGHT_FEEDBACK_EMAIL` is configured
+  and Beta App Review is submitted. External tester emails are still needed
+  before populating that group.
