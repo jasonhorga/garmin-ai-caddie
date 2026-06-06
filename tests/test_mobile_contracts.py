@@ -1114,6 +1114,7 @@ class MobileContractTests(unittest.TestCase):
             "$(MARKETING_VERSION)",
             "CFBundleVersion",
             "$(CURRENT_PROJECT_VERSION)",
+            "ITSAppUsesNonExemptEncryption",
             "NSLocationWhenInUseUsageDescription",
             "NSCameraUsageDescription",
             "NSPhotoLibraryUsageDescription",
@@ -1138,6 +1139,7 @@ class MobileContractTests(unittest.TestCase):
             "$(MARKETING_VERSION)",
             "CFBundleVersion",
             "$(CURRENT_PROJECT_VERSION)",
+            "ITSAppUsesNonExemptEncryption",
             "WKApplication",
         ]:
             self.assertIn(expected, watch_plist)
