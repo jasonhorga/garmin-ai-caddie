@@ -14,6 +14,8 @@ Implemented the locally verifiable Phase 6 hardening work from
   backup, export, and import commands.
 - Deployment manifests define private runtime roots, health checks,
   admin-token placeholders, and no Garmin credentials.
+- Current `Dockerfile` builds a local API image that can serve health and
+  readiness through the container entrypoint.
 - Backup/export/import exclude secrets, reject unsafe paths, return portable
   manifest metadata, and expose snapshot acceptance evidence in readiness.
 - Private trial smoke writes secret-free evidence with endpoint counts,
@@ -104,6 +106,20 @@ Result: PASS using the pre-existing local `ai-caddie-api:config-check` image.
 Health returned schema `ai-caddie-health-v2` with status `ok`; readiness returned
 schema `ai-caddie-readiness-v1` with 12 checks and status `degraded`.
 
+```bash
+docker build -t ai-caddie-api:phase6-current .
+docker run --rm --name ai-caddie-api-phase6-current -p 127.0.0.1:9000:9000 -e AI_CADDIE_SECURITY_PROFILE=private -e AI_CADDIE_ADMIN_TOKEN=container-smoke-token -e AI_CADDIE_DATA_MODE=fixture -e AI_CADDIE_LLM_PROVIDER=static ai-caddie-api:phase6-current
+curl -fsS http://127.0.0.1:9000/api/v2/health
+curl -fsS -H 'X-AI-Caddie-Admin-Token: container-smoke-token' http://127.0.0.1:9000/api/v2/readiness
+```
+
+Result: PASS. Current Dockerfile built image
+`sha256:8eda589e6f296d3f7ab0e64a8d3623b900834910dd1d35668a82ca252e6a1192`
+at `2026-06-06T07:14:46Z`, size about 396 MB. Health returned schema
+`ai-caddie-health-v2` with status `ok`; readiness returned schema
+`ai-caddie-readiness-v1` with 13 checks and status `degraded`. Root filesystem
+usage remained 52% after the build.
+
 ## Not Run
 
 - Full private-root snapshot export/import with `--source-root .` was not
@@ -115,10 +131,6 @@ schema `ai-caddie-readiness-v1` with 12 checks and status `degraded`.
 - Cloud deployment to Render/Fly/Vercel was not run because provider
   credentials or an already configured deploy session were not available in
   this workspace.
-- Current Docker image rebuild from the latest `Dockerfile` was not run after
-  the GitHub/storage investigation. The container smoke above used a
-  pre-existing local image to avoid adding image layers while disk/storage was
-  under review.
 - Xcode simulator tests require macOS/Xcode and were not executable in this
   Linux workspace.
 - TestFlight signing/distribution was not run because it requires explicit

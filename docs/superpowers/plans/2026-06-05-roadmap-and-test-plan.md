@@ -109,7 +109,7 @@
 
 **Outcome:** The private single-user product can run unattended and ship to the user's phone/watch.
 
-- [ ] Deploy reachable backend using existing Render/Fly/container manifests.
+- [x] Deploy reachable backend using existing Render/Fly/container manifests.
 - [x] Configure admin token, backup, import/export, and redaction checks.
 - [x] Run native mobile CI only on native changes or manual dispatch.
 - [x] Run TestFlight signing/bootstrap and CD only when explicitly needed.
