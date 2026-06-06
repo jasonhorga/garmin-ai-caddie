@@ -180,6 +180,8 @@ class CIWorkflowTests(unittest.TestCase):
         text = raw.decode("utf-8")
         self.assertIn("build_app(", text)
         self.assertIn("scheme: SCHEME", text)
+        self.assertIn("Spaceship::ConnectAPI::BundleId.create", text)
+        self.assertNotIn("create_app_online", text)
 
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
         targets = project["schemes"]["AICaddie"]["build"]["targets"]
