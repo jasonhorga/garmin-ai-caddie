@@ -160,6 +160,18 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
 
+    def test_testflight_workflows_are_manual_only_and_secret_driven(self) -> None:
+        for name in ["ios-signing-bootstrap.yml", "ios-testflight.yml"]:
+            workflow_path = Path(".github/workflows") / name
+            workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+            triggers = workflow[True]
+            text = workflow_path.read_text(encoding="utf-8")
+
+            self.assertIn("workflow_dispatch", triggers)
+            self.assertNotIn("push", triggers)
+            self.assertIn("secrets.", text)
+            self.assertNotIn("AI_CADDIE_ADMIN_TOKEN=", text)
+
     def test_testflight_fastfile_is_text_and_embeds_watch_target(self) -> None:
         fastfile = Path("fastlane/Fastfile")
         raw = fastfile.read_bytes()
@@ -179,6 +191,15 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertIn("ops/write_native_build_evidence.py", workflow)
         self.assertIn("ops/write_native_build_evidence.py", readme)
+        self.assertIn("xcodegen generate --spec mobile/ios/project.yml --project-root .", readme)
+        self.assertIn(
+            'xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddie -destination "platform=iOS Simulator,name=iPhone 16,OS=latest"',
+            readme,
+        )
+        self.assertIn(
+            'xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddieWatch -destination "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest"',
+            readme,
+        )
         self.assertIn("ai-caddie-native-build-evidence-v1", writer)
         self.assertIn("PRIVATE_VALUE_MARKERS", writer)
 

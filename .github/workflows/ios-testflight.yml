@@ -5,13 +5,6 @@ name: iOS TestFlight (CD)
 # ios-signing-bootstrap workflow first). Mirrors gomoku's ios.yml.
 
 on:
-  push:
-    branches: [integration/v2, main]
-    paths:
-      - 'mobile/ios/**'
-      - 'fastlane/**'
-      - 'Gemfile'
-      - '.github/workflows/ios-testflight.yml'
   workflow_dispatch:
     inputs:
       release_notes:

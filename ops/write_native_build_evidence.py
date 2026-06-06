@@ -137,6 +137,7 @@ def build_native_build_evidence(
 
 def write_native_build_evidence(*, output_path: Path | str = DEFAULT_OUTPUT, payload: dict[str, Any]) -> Path:
     output = Path(output_path)
+    _validate_public_string("output_path", output.as_posix())
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return output

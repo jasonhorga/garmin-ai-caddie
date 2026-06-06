@@ -56,6 +56,17 @@ class NativeBuildEvidenceTests(unittest.TestCase):
                 watch_destination="platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest",
             )
 
+        with self.assertRaises(ValueError):
+            write_native_build_evidence(
+                output_path=Path("/Users/private/native_build_evidence.json"),
+                payload=build_native_build_evidence(
+                    commit="abc123",
+                    workflow_run_id="1001",
+                    ios_destination="platform=iOS Simulator,name=iPhone 16,OS=latest",
+                    watch_destination="platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest",
+                ),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
