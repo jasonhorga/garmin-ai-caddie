@@ -58,10 +58,10 @@
 
 **Outcome:** The data pipeline refreshes Garmin session material and fetches scorecards/shots without manual Claude/browser handoff.
 
-- [ ] Productize headless Garmin CN login into connector code.
-- [ ] On 401, refresh web cookie/csrf and retry once.
-- [ ] Add `--refresh-auth` and cron-compatible trigger.
-- [ ] Mock browser/auth tests assert no cookie, csrf, password, or local private path leaks.
+- [x] Productize headless Garmin CN login into connector code.
+- [x] On 401, refresh web cookie/csrf and retry once.
+- [x] Add `--refresh-auth` and cron-compatible trigger.
+- [x] Mock browser/auth tests assert no cookie, csrf, password, or local private path leaks.
 
 **Done when:** An expired Garmin session self-heals locally and the status API reports a clean refresh state.
 
