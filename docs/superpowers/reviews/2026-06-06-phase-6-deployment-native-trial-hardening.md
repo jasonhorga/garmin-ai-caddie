@@ -265,12 +265,13 @@ workflow now requires the repo secret `TESTFLIGHT_FEEDBACK_EMAIL` before
 external Beta App Review submission. GitHub secret inspection after the change
 showed this secret is not currently configured.
 
-GitHub API inspection after commit `b45e92b` showed the repo is public and the
+GitHub API inspection after commit `36e8f57` showed the repo is public and the
 currently configured secret names are `ASC_ISSUER_ID`, `ASC_KEY_ID`,
 `ASC_PRIVATE_KEY`, `MATCH_GIT_PRIVATE_KEY`, `MATCH_GIT_URL`,
 `MATCH_KEYCHAIN_PASSWORD`, and `MATCH_PASSWORD`. `MATCH_KEYCHAIN_PASSWORD` is an
 unused leftover after the workflow simplification; `TESTFLIGHT_FEEDBACK_EMAIL`
-is still absent.
+is still absent. No GitHub Actions repo variables are configured yet, so
+`AI_CADDIE_API_BASE_URL` is also absent remotely.
 
 ```bash
 uv run python -m unittest tests.test_ci_workflow -v
