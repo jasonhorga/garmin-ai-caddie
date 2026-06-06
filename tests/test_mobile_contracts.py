@@ -1114,6 +1114,8 @@ class MobileContractTests(unittest.TestCase):
             "$(MARKETING_VERSION)",
             "CFBundleVersion",
             "$(CURRENT_PROJECT_VERSION)",
+            "AICaddieAPIBaseURL",
+            "$(AI_CADDIE_API_BASE_URL)",
             "ITSAppUsesNonExemptEncryption",
             "NSLocationWhenInUseUsageDescription",
             "NSCameraUsageDescription",
@@ -1260,6 +1262,9 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("private let syncClient: SyncClient?", app_swift)
         self.assertIn("AI_CADDIE_API_BASE_URL", app_swift)
+        self.assertIn('Bundle.main.object(forInfoDictionaryKey: "AICaddieAPIBaseURL")', app_swift)
+        self.assertIn("sanitizedConfigurationValue", app_swift)
+        self.assertIn('!trimmed.contains("$(")', app_swift)
         self.assertIn("func syncPendingEvents() async", app_swift)
         self.assertIn("offlineStore.loadPendingEvents(roundId:", app_swift)
         self.assertIn("postEventBatchWithRetry", app_swift)

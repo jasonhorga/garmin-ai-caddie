@@ -352,13 +352,25 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private static func defaultAPIBaseURL() -> URL? {
-        guard
-            let rawURL = ProcessInfo.processInfo.environment["AI_CADDIE_API_BASE_URL"],
-            let resolvedAPIBaseURL = URL(string: rawURL)
-        else {
+        let candidates = [
+            ProcessInfo.processInfo.environment["AI_CADDIE_API_BASE_URL"],
+            Bundle.main.object(forInfoDictionaryKey: "AICaddieAPIBaseURL") as? String
+        ]
+        for candidate in candidates {
+            guard let rawURL = sanitizedConfigurationValue(candidate), let resolvedAPIBaseURL = URL(string: rawURL) else {
+                continue
+            }
+            return resolvedAPIBaseURL
+        }
+        return nil
+    }
+
+    private static func sanitizedConfigurationValue(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty, !trimmed.contains("$(") else {
             return nil
         }
-        return resolvedAPIBaseURL
+        return trimmed
     }
 
     private static func defaultAdminToken() -> String? {

@@ -110,6 +110,7 @@
 **Outcome:** The private single-user product can run unattended and ship to the user's phone/watch.
 
 - [x] Prepare reachable-backend deployment manifests for Render/Fly/container hosting.
+- [x] Add TestFlight build-time native API base URL wiring.
 - [ ] Deploy a phone-reachable backend host and point the native app at it.
 - [x] Configure admin token, backup, import/export, and redaction checks.
 - [x] Run native mobile CI only on native changes or manual dispatch.

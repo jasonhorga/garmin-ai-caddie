@@ -30,14 +30,21 @@ Implemented the locally verifiable Phase 6 hardening work from
   minute pressure.
 - TestFlight signing is isolated in private repo
   `jasonhorga/garmin-ai-caddie-signing`, not reused from `gomoku`.
-- The repo has the required GitHub Actions secret names for signing:
+- The TestFlight signing workflows require six long-lived GitHub Actions secret
+  names:
   `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`, `MATCH_GIT_URL`,
-  `MATCH_GIT_PRIVATE_KEY`, `MATCH_PASSWORD`, and `MATCH_KEYCHAIN_PASSWORD`.
+  `MATCH_GIT_PRIVATE_KEY`, and `MATCH_PASSWORD`. The CI keychain password is
+  generated per run; a previously configured `MATCH_KEYCHAIN_PASSWORD` may still
+  exist in GitHub settings but is no longer read by the workflows.
 - `iOS Signing Bootstrap (one-time)` succeeded on `integration/v2`, proving
   App Store distribution cert/profile generation for `com.ai-caddie.mobile`
   and `com.ai-caddie.mobile.watchkitapp`.
 - `iOS TestFlight (CD)` now archives, exports, and uploads the signed iOS +
   watch IPA to App Store Connect/TestFlight.
+- `iOS TestFlight (CD)` can bake a public native backend URL into the iOS app
+  through workflow input `api_base_url` or repo variable
+  `AI_CADDIE_API_BASE_URL`; the app reads `AICaddieAPIBaseURL` from
+  `Info.plist` and still falls back to offline/fixture mode when blank.
 - `iOS TestFlight Testers` can now query App Store Connect/TestFlight through
   direct Spaceship ConnectAPI calls without the obsolete `pilot builds/list`
   paths.
@@ -258,6 +265,26 @@ workflow now requires the repo secret `TESTFLIGHT_FEEDBACK_EMAIL` before
 external Beta App Review submission. GitHub secret inspection after the change
 showed this secret is not currently configured.
 
+GitHub API inspection after commit `b45e92b` showed the repo is public and the
+currently configured secret names are `ASC_ISSUER_ID`, `ASC_KEY_ID`,
+`ASC_PRIVATE_KEY`, `MATCH_GIT_PRIVATE_KEY`, `MATCH_GIT_URL`,
+`MATCH_KEYCHAIN_PASSWORD`, and `MATCH_PASSWORD`. `MATCH_KEYCHAIN_PASSWORD` is an
+unused leftover after the workflow simplification; `TESTFLIGHT_FEEDBACK_EMAIL`
+is still absent.
+
+```bash
+uv run python -m unittest tests.test_ci_workflow -v
+uv run python -m unittest tests.test_mobile_contracts -v
+uv run python -m py_compile tests/test_ci_workflow.py tests/test_mobile_contracts.py
+git diff --check
+```
+
+Result: PASS. `tests.test_ci_workflow` ran 17 tests in 0.159s, and
+`tests.test_mobile_contracts` ran 58 tests in 106.834s. These checks cover the
+six-secret signing boundary, TestFlight feedback-email guard, build-time native
+API URL wiring, iOS `Info.plist` key, XcodeGen build setting, and Swift fallback
+behavior.
+
 ```bash
 docker run --rm --name ai-caddie-api-smoke -p 127.0.0.1:9000:9000 -e AI_CADDIE_SECURITY_PROFILE=private -e AI_CADDIE_ADMIN_TOKEN=container-smoke-token -e AI_CADDIE_DATA_MODE=fixture -e AI_CADDIE_LLM_PROVIDER=static ai-caddie-api:config-check
 curl -fsS http://127.0.0.1:9000/api/v2/health
@@ -293,6 +320,8 @@ usage remained 52% after the build.
 - Cloud deployment to Render/Fly/Vercel was not run because provider
   credentials or an already configured deploy session were not available in
   this workspace.
+- A new TestFlight IPA was not uploaded after adding build-time native API URL
+  wiring because no phone-reachable backend URL was available yet.
 - Xcode simulator tests require macOS/Xcode and were not executable in this
   Linux workspace. The GitHub macOS TestFlight workflow did compile, archive,
   sign, export, and upload the release app.

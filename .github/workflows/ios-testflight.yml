@@ -11,6 +11,10 @@ on:
         description: 'TestFlight changelog'
         required: false
         default: 'Automated CI build'
+      api_base_url:
+        description: 'Optional public API base URL to bake into the TestFlight app'
+        required: false
+        default: ''
 
 concurrency:
   group: ios-testflight
@@ -59,6 +63,7 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+          AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || '' }}
           RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
         run: bundle exec fastlane ios beta
 

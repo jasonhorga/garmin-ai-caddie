@@ -18,3 +18,8 @@ python3 ops/write_native_build_evidence.py
 ```
 
 The iOS app should cache a live round package before play, append local events while offline, and sync the event log when network access returns.
+
+For TestFlight builds, provide a public backend URL through the `iOS TestFlight (CD)`
+workflow `api_base_url` input or the repo variable `AI_CADDIE_API_BASE_URL`. The value
+is baked into the iOS `Info.plist` as `AICaddieAPIBaseURL`; leaving it blank preserves
+the offline/fixture fallback.

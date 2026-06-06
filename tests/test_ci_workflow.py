@@ -229,6 +229,8 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("Spaceship::ConnectAPI::BundleId.create", text)
         self.assertIn('require "securerandom"', text)
         self.assertIn("SecureRandom.hex(24)", text)
+        self.assertIn('require "shellwords"', text)
+        self.assertIn("AI_CADDIE_API_BASE_URL=#{Shellwords.escape(api_base_url)}", text)
         self.assertNotIn("create_app_online", text)
 
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
@@ -236,8 +238,16 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("AICaddieWatch", targets)
         app_release = project["targets"]["AICaddie"]["settings"]["configs"]["Release"]
         watch_release = project["targets"]["AICaddieWatch"]["settings"]["configs"]["Release"]
+        app_base = project["targets"]["AICaddie"]["settings"]["base"]
+        self.assertEqual(app_base["AI_CADDIE_API_BASE_URL"], "")
         self.assertEqual(app_release["PROVISIONING_PROFILE_SPECIFIER"], "match AppStore com.ai-caddie.mobile")
         self.assertEqual(watch_release["PROVISIONING_PROFILE_SPECIFIER"], "match AppStore com.ai-caddie.mobile.watchkitapp")
+
+        workflow = yaml.safe_load(Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8"))
+        inputs = workflow[True]["workflow_dispatch"]["inputs"]
+        self.assertIn("api_base_url", inputs)
+        workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
+        self.assertIn("vars.AI_CADDIE_API_BASE_URL", workflow_text)
 
     def test_native_evidence_writer_is_documented_and_reused_by_ci(self) -> None:
         workflow = Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")

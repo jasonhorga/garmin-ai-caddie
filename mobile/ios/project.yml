@@ -28,6 +28,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile
         INFOPLIST_FILE: $(PROJECT_DIR)/AICaddie/Info.plist
+        AI_CADDIE_API_BASE_URL: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
         Release:

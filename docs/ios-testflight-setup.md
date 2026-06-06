@@ -30,8 +30,10 @@ but does not create a new app record for this account.
 ## Shipping a build
 
 - Run the `iOS TestFlight (CD)` workflow manually from `integration/v2` with
-  optional release notes. It runs `xcodegen generate` →
+  optional release notes and optional `api_base_url`. It runs `xcodegen generate` →
   `fastlane ios beta` → archives the app (with embedded watch app) → uploads to TestFlight.
+  If `api_base_url` is blank, the workflow falls back to repo variable
+  `AI_CADDIE_API_BASE_URL`; if both are blank, the app keeps the offline/fixture fallback.
 - Run the `iOS TestFlight Testers` workflow manually:
   - `operation=list` shows uploaded builds, TestFlight groups, and currently visible testers.
   - `operation=add` adds comma-separated external tester emails to the configured group
@@ -52,8 +54,10 @@ but does not create a new app record for this account.
 ## Backend reachability (for the app to load data)
 
 The phone needs the API reachable. `server_v2` ships via `fly.toml` / `render.yaml` /
-`Dockerfile` — deploy it and point the app's `VITE_AI_CADDIE_API_BASE_URL` / mobile base URL
-at the deployed host. That needs a fly.io or Render token (the only other external switch).
+`Dockerfile` — deploy it and point the TestFlight workflow `api_base_url` input or
+repo variable `AI_CADDIE_API_BASE_URL` at the deployed host. The web app separately
+uses `VITE_AI_CADDIE_API_BASE_URL`. Cloud deployment itself needs a fly.io or Render
+token (the only other external switch).
 
 ## Verification Boundary
 
