@@ -42,6 +42,11 @@ class ServerV2ReadinessTests(unittest.TestCase):
                     "createdAt": created_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
                     "baseUrl": "https://ai-caddie-api.example.test",
                     "checks": ["GET /api/v2/readiness", "POST /api/v2/caddie/decision"],
+                    "adminProtectedChecks": ["POST /api/v2/caddie/decision"],
+                    "endpointCount": 2,
+                    "adminProtectedEndpointCount": 1,
+                    "mediaRoundTrip": True,
+                    "secretFree": True,
                     "localLog": "/Users/private/tmp/smoke.log",
                 }
             ),
@@ -311,6 +316,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertTrue(operations["evidence"]["lastBackup"]["sha256Verified"])
         self.assertEqual(operations["evidence"]["lastSmoke"]["state"], "ready")
         self.assertEqual(operations["evidence"]["lastSmoke"]["checks"], ["GET /api/v2/readiness", "POST /api/v2/caddie/decision"])
+        self.assertEqual(operations["evidence"]["lastSmoke"]["endpointCount"], 2)
+        self.assertEqual(operations["evidence"]["lastSmoke"]["adminProtectedEndpointCount"], 1)
+        self.assertTrue(operations["evidence"]["lastSmoke"]["mediaRoundTrip"])
+        self.assertTrue(operations["evidence"]["lastSmoke"]["secretFree"])
 
     def test_readiness_operations_degrade_when_backup_manifest_points_to_missing_or_changed_snapshot(self) -> None:
         client = TestClient(app)

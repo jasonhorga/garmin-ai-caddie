@@ -3,7 +3,8 @@ set -euo pipefail
 
 BASE_URL="${1:-http://127.0.0.1:9000}"
 SMOKE_LOG_DIR="${AI_CADDIE_SMOKE_LOG_DIR:-logs}"
-SMOKE_EVIDENCE="${SMOKE_LOG_DIR}/private_trial_smoke_latest.json"
+DEFAULT_SMOKE_EVIDENCE="${SMOKE_LOG_DIR}/private_trial_smoke_latest.json"
+SMOKE_EVIDENCE="${AI_CADDIE_PRIVATE_SMOKE_EVIDENCE:-${DEFAULT_SMOKE_EVIDENCE}}"
 
 uv run python - "${BASE_URL}" "${AI_CADDIE_ADMIN_TOKEN:-}" "${SMOKE_EVIDENCE}" <<'PY'
 from __future__ import annotations
@@ -20,6 +21,7 @@ base_url = sys.argv[1].rstrip("/")
 admin_token = sys.argv[2]
 smoke_evidence = Path(sys.argv[3])
 checks: list[str] = []
+admin_protected_checks: list[str] = []
 
 
 def call_json(method: str, path: str, *, payload: dict[str, object] | None = None, protected: bool = False) -> dict[str, object]:
@@ -50,6 +52,8 @@ def call_json(method: str, path: str, *, payload: dict[str, object] | None = Non
     if not schema:
         raise SystemExit(f"missing schema from {path}")
     checks.append(f"{method} {path}")
+    if protected:
+        admin_protected_checks.append(f"{method} {path}")
     return payload
 
 
@@ -158,7 +162,12 @@ smoke_evidence.write_text(
             "schema": "ai-caddie-private-trial-smoke-evidence-v1",
             "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             "baseUrl": base_url,
+            "endpointCount": len(checks),
+            "adminProtectedEndpointCount": len(admin_protected_checks),
+            "mediaRoundTrip": True,
+            "secretFree": True,
             "checks": checks,
+            "adminProtectedChecks": admin_protected_checks,
         },
         indent=2,
         sort_keys=True,

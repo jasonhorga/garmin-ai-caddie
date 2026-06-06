@@ -250,18 +250,34 @@ def _latest_smoke_evidence() -> dict[str, Any]:
         return {"state": "invalid"}
     state, freshness = _freshness_state(payload.get("createdAt"), SMOKE_EVIDENCE_MAX_AGE)
     checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
+    admin_checks = payload.get("adminProtectedChecks") if isinstance(payload.get("adminProtectedChecks"), list) else []
+    endpoint_count = _int_or_none(payload.get("endpointCount"))
+    admin_endpoint_count = _int_or_none(payload.get("adminProtectedEndpointCount"))
+    secret_free = payload.get("secretFree") is True
     evidence = {
         "state": state,
         "schema": payload.get("schema"),
         "createdAt": payload.get("createdAt"),
         "baseUrl": payload.get("baseUrl"),
         "checks": [str(check) for check in checks],
+        "adminProtectedChecks": [str(check) for check in admin_checks],
+        "endpointCount": endpoint_count if endpoint_count is not None else len(checks),
+        "adminProtectedEndpointCount": admin_endpoint_count if admin_endpoint_count is not None else len(admin_checks),
+        "mediaRoundTrip": payload.get("mediaRoundTrip") is True,
+        "secretFree": secret_free,
         "maxAgeHours": int(SMOKE_EVIDENCE_MAX_AGE.total_seconds() // 3600),
         **freshness,
     }
     if payload.get("schema") != "ai-caddie-private-trial-smoke-evidence-v1":
         evidence["state"] = "invalid"
         evidence["issues"] = sorted({*evidence.get("issues", []), "schema_mismatch"})
+    if not secret_free:
+        evidence["state"] = "invalid"
+        evidence["issues"] = sorted({*evidence.get("issues", []), "secret_free_missing"})
+    if endpoint_count is None:
+        evidence["issues"] = sorted({*evidence.get("issues", []), "endpoint_count_missing"})
+    if admin_endpoint_count is None:
+        evidence["issues"] = sorted({*evidence.get("issues", []), "admin_endpoint_count_missing"})
     return evidence
 
 

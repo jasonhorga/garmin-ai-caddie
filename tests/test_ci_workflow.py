@@ -84,6 +84,15 @@ class CIWorkflowTests(unittest.TestCase):
         for forbidden_probe in ['"password="', '"secret="', '"/home/"', '"/users/"', '".garmin_tokens"']:
             self.assertIn(forbidden_probe, text)
 
+    def test_private_trial_smoke_writes_secret_free_evidence_file(self) -> None:
+        text = Path("ops/smoke_private_trial.sh").read_text(encoding="utf-8")
+
+        self.assertIn("AI_CADDIE_PRIVATE_SMOKE_EVIDENCE", text)
+        self.assertIn("ai-caddie-private-trial-smoke-evidence-v1", text)
+        self.assertIn("secretFree", text)
+        self.assertIn("endpointCount", text)
+        self.assertIn("adminProtectedEndpointCount", text)
+
     def test_backup_script_records_latest_manifest(self) -> None:
         script = Path("ops/backup_data.sh")
         text = script.read_text(encoding="utf-8")
