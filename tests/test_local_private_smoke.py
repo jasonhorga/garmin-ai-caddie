@@ -25,7 +25,7 @@ class FakeClient:
     def get(self, path: str) -> FakeResponse:
         self.paths.append(path)
         if path == "/api/v2/history/rounds":
-            return FakeResponse({"schema": "rounds", "rounds": [{"id": "round-1"}]})
+            return FakeResponse({"schema": "rounds", "groups": [{"rounds": [{"id": "round-1"}]}]})
         if path == "/api/v2/history/rounds/round-1":
             return FakeResponse({"schema": "detail", "holeDetails": []})
         return FakeResponse({"schema": path.strip("/").replace("/", "-"), "count": 1})

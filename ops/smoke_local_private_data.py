@@ -4,7 +4,12 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+import sys
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 FORBIDDEN_TERMS = (
     "cookie",
@@ -39,6 +44,26 @@ def _get_json(client: Any, path: str) -> dict[str, Any]:
     return payload
 
 
+def _first_round_id(rounds_payload: dict[str, Any]) -> str | None:
+    rounds = rounds_payload.get("rounds")
+    if isinstance(rounds, list):
+        for row in rounds:
+            if isinstance(row, dict) and str(row.get("id") or "").strip():
+                return str(row["id"])
+    groups = rounds_payload.get("groups")
+    if isinstance(groups, list):
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            group_rounds = group.get("rounds")
+            if not isinstance(group_rounds, list):
+                continue
+            for row in group_rounds:
+                if isinstance(row, dict) and str(row.get("id") or "").strip():
+                    return str(row["id"])
+    return None
+
+
 def build_smoke_evidence(client: Any, *, base_url: str) -> dict[str, Any]:
     checks: list[str] = []
     endpoints = [
@@ -54,14 +79,12 @@ def build_smoke_evidence(client: Any, *, base_url: str) -> dict[str, Any]:
         payloads[path] = _get_json(client, path)
         checks.append(f"GET {path}")
     round_detail_checked = False
-    rounds = payloads["/api/v2/history/rounds"].get("rounds")
-    if isinstance(rounds, list) and rounds:
-        round_id = str((rounds[0] or {}).get("id") or "").strip()
-        if round_id:
-            path = f"/api/v2/history/rounds/{round_id}"
-            _get_json(client, path)
-            checks.append(f"GET {path}")
-            round_detail_checked = True
+    round_id = _first_round_id(payloads["/api/v2/history/rounds"])
+    if round_id:
+        path = f"/api/v2/history/rounds/{round_id}"
+        _get_json(client, path)
+        checks.append(f"GET {path}")
+        round_detail_checked = True
     evidence = {
         "schema": "ai-caddie-local-private-smoke-evidence-v1",
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
