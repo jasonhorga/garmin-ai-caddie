@@ -98,10 +98,10 @@
 
 **Outcome:** The standalone `course_review/*.html` prototype becomes generated product UI/API data.
 
-- [ ] Promote renderer/route/hazard carry math into engine modules with tests.
-- [ ] Expose course-prep DTOs through Web and mobile APIs.
-- [ ] Add Web v2 course-prep page with interactive hole map.
-- [ ] Feed iOS/Watch course prep package fields for offline use.
+- [x] Promote renderer/route/hazard carry math into engine modules with tests.
+- [x] Expose course-prep DTOs through Web and mobile APIs.
+- [x] Add Web v2 course-prep page with interactive hole map.
+- [x] Feed iOS/Watch course prep package fields for offline use.
 
 **Done when:** Pre-round prep is browsable in `web_v2`, cached by iOS, and summarized by Watch without standalone generated HTML.
 

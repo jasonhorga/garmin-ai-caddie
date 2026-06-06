@@ -69,7 +69,7 @@ Use the Node 24 prefix above when the machine default is Node 18.
 - Modify: `ai_caddie/course_prep.py`
 - Modify: `tests/test_course_prep.py`
 
-- [ ] **Step 1: Write failing DTO test**
+- [x] **Step 1: Write failing DTO test**
 
 Add to `tests/test_course_prep.py`:
 
@@ -106,7 +106,7 @@ def test_prep_hole_returns_source_refs_route_carry_targets_and_candidate_routes(
     self.assertTrue(any(target["kind"] == "landing" for target in row["carryTargets"]))
 ```
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run:
 
@@ -116,7 +116,7 @@ uv run python -m unittest tests.test_course_prep.PureLogicTests.test_prep_hole_r
 
 Expected: FAIL because the new DTO fields do not exist.
 
-- [ ] **Step 3: Implement minimal DTO fields**
+- [x] **Step 3: Implement minimal DTO fields**
 
 In `ai_caddie/course_prep.py`:
 
@@ -186,7 +186,7 @@ def _carry_targets(landing_m: float | None, hazards: dict) -> list[dict]:
 
 Update `prep_hole()` to populate the new fields and return `prep.to_dict()` when `render=False`.
 
-- [ ] **Step 4: Run DTO test to verify GREEN**
+- [x] **Step 4: Run DTO test to verify GREEN**
 
 Run:
 
@@ -196,7 +196,7 @@ uv run python -m unittest tests.test_course_prep.PureLogicTests.test_prep_hole_r
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ai_caddie/course_prep.py tests/test_course_prep.py
@@ -210,7 +210,7 @@ git commit -m "feat: expose structured course prep dto fields"
 - Modify: `tests/test_course_prep.py`
 - Modify: `tests/test_course_prep_api.py`
 
-- [ ] **Step 1: Write failing missing-hole tests**
+- [x] **Step 1: Write failing missing-hole tests**
 
 Add to `tests/test_course_prep.py`:
 
@@ -262,7 +262,7 @@ def test_prep_endpoint_keeps_missing_geometry_rows(self) -> None:
     self.assertEqual(body["holes"][0]["missingData"][0]["label"], "geometry")
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -272,7 +272,7 @@ uv run python -m unittest tests.test_course_prep.PrepResolvesParTests.test_prep_
 
 Expected: FAIL because `include_missing` does not exist and missing holes are skipped.
 
-- [ ] **Step 3: Implement missing-hole row**
+- [x] **Step 3: Implement missing-hole row**
 
 In `ai_caddie/course_prep.py`:
 
@@ -317,7 +317,7 @@ In `server_v2/main.py`, call:
 nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True)
 ```
 
-- [ ] **Step 4: Run tests to verify GREEN**
+- [x] **Step 4: Run tests to verify GREEN**
 
 Run:
 
@@ -327,7 +327,7 @@ uv run python -m unittest tests.test_course_prep tests.test_course_prep_api -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ai_caddie/course_prep.py server_v2/main.py tests/test_course_prep.py tests/test_course_prep_api.py
@@ -342,7 +342,7 @@ git commit -m "feat: keep missing course prep holes in api"
 - Modify: `tests/test_mobile_contracts.py`
 - Modify: `tests/test_server_v2_mobile.py`
 
-- [ ] **Step 1: Write failing mobile package tests**
+- [x] **Step 1: Write failing mobile package tests**
 
 Add to `tests/test_server_v2_mobile.py`:
 
@@ -391,7 +391,7 @@ Add a schema assertion to `tests/test_mobile_contracts.py` fixture payload:
 }
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -401,7 +401,7 @@ uv run python -m unittest tests.test_server_v2_mobile.ServerV2MobileTests.test_m
 
 Expected: FAIL because `coursePrep` is not present/accepted yet.
 
-- [ ] **Step 3: Implement compact package**
+- [x] **Step 3: Implement compact package**
 
 In `ai_caddie/mobile_live.py`, import `course_prep`:
 
@@ -447,7 +447,7 @@ and include:
 
 Update JSON schema with optional `coursePrep` property of type object. Keep it optional for legacy package compatibility.
 
-- [ ] **Step 4: Run tests to verify GREEN**
+- [x] **Step 4: Run tests to verify GREEN**
 
 Run:
 
@@ -457,7 +457,7 @@ uv run python -m unittest tests.test_server_v2_mobile tests.test_mobile_contract
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ai_caddie/mobile_live.py mobile/contracts/live_round_package.schema.json tests/test_mobile_contracts.py tests/test_server_v2_mobile.py
@@ -472,7 +472,7 @@ git commit -m "feat: include course prep in mobile packages"
 - Modify: `web_v2/src/components/CoursePrepPanel.test.tsx`
 - Modify: `web_v2/src/components/coursePrepPanelLogic.ts` only if route/carry formatting needs shared helpers.
 
-- [ ] **Step 1: Write failing Web rendering test**
+- [x] **Step 1: Write failing Web rendering test**
 
 In `web_v2/src/components/CoursePrepPanel.test.tsx`, add to the response fixture:
 
@@ -506,7 +506,7 @@ expect(screen.getByText('course:31870')).toBeInTheDocument()
 expect(screen.getByText('stock')).toBeInTheDocument()
 ```
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run:
 
@@ -516,7 +516,7 @@ cd web_v2 && npm exec --yes --package=node@24 -- npm test -- --run CoursePrepPan
 
 Expected: FAIL because the new DTO fields are not typed/rendered.
 
-- [ ] **Step 3: Add types and render rows**
+- [x] **Step 3: Add types and render rows**
 
 In `web_v2/src/types.ts`, extend `CoursePrepHole`:
 
@@ -553,7 +553,7 @@ In `CoursePrepPanel.tsx`, render below the map/readout:
 ) : null}
 ```
 
-- [ ] **Step 4: Run Web tests**
+- [x] **Step 4: Run Web tests**
 
 Run:
 
@@ -563,7 +563,7 @@ cd web_v2 && npm exec --yes --package=node@24 -- npm test -- --run CoursePrepPan
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web_v2/src/types.ts web_v2/src/components/CoursePrepPanel.tsx web_v2/src/components/CoursePrepPanel.test.tsx web_v2/src/components/coursePrepPanelLogic.ts
@@ -578,7 +578,7 @@ git commit -m "feat: render product course prep dto"
 - Modify: `mobile/ios/AICaddieTests/CoursePrepTests.swift`
 - Modify: `tests/test_mobile_contracts.py`
 
-- [ ] **Step 1: Write failing source contract tests**
+- [x] **Step 1: Write failing source contract tests**
 
 In `tests/test_mobile_contracts.py`, extend `test_swift_models_define_codable_contract_types`:
 
@@ -595,7 +595,7 @@ self.assertIn("let coursePrep: CoursePrepPackage?", package_swift)
 
 In `mobile/ios/AICaddieTests/CoursePrepTests.swift`, add JSON decode assertions for the new fields.
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -605,7 +605,7 @@ uv run python -m unittest tests.test_mobile_contracts.MobileContractTests.test_s
 
 Expected: FAIL because Swift source lacks these fields.
 
-- [ ] **Step 3: Implement Swift Codable fields**
+- [x] **Step 3: Implement Swift Codable fields**
 
 In `CoursePrep.swift`:
 
@@ -640,7 +640,7 @@ public struct CoursePrepPackage: Codable, Equatable {
 
 Extend `CoursePrepHole` with optional-safe decode for the new fields. In `LiveRoundPackage.swift`, add `public let coursePrep: CoursePrepPackage?` and decode with `decodeIfPresent`.
 
-- [ ] **Step 4: Run source contract tests**
+- [x] **Step 4: Run source contract tests**
 
 Run:
 
@@ -650,7 +650,7 @@ uv run python -m unittest tests.test_mobile_contracts.MobileContractTests.test_s
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mobile/ios/AICaddie/Models/CoursePrep.swift mobile/ios/AICaddie/Models/LiveRoundPackage.swift mobile/ios/AICaddieTests/CoursePrepTests.swift tests/test_mobile_contracts.py
@@ -663,7 +663,7 @@ git commit -m "feat: extend native course prep contracts"
 - Modify: `docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md`
 - Create: `docs/superpowers/reviews/2026-06-06-phase-5-course-prep-productization.md`
 
-- [ ] **Step 1: Run backend/mobile verification**
+- [x] **Step 1: Run backend/mobile verification**
 
 Run:
 
@@ -673,7 +673,7 @@ uv run python -m unittest tests.test_course_prep tests.test_course_prep_api test
 
 Expected: PASS.
 
-- [ ] **Step 2: Run Web verification**
+- [x] **Step 2: Run Web verification**
 
 Run:
 
@@ -685,7 +685,7 @@ cd web_v2 && npm exec --yes --package=node@24 -- npm run build
 
 Expected: PASS. If a native Node 24 install is available, use plain `npm`; otherwise keep the `npm exec --package=node@24` prefix.
 
-- [ ] **Step 3: Run formatting check**
+- [x] **Step 3: Run formatting check**
 
 Run:
 
@@ -695,7 +695,7 @@ git diff --check
 
 Expected: PASS.
 
-- [ ] **Step 4: Record evidence**
+- [x] **Step 4: Record evidence**
 
 Create `docs/superpowers/reviews/2026-06-06-phase-5-course-prep-productization.md`:
 
@@ -737,11 +737,11 @@ git diff --check
 Result: PASS.
 ```
 
-- [ ] **Step 5: Mark roadmap Phase 5 complete**
+- [x] **Step 5: Mark roadmap Phase 5 complete**
 
 In `docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md`, change the four Phase 5 checkboxes to `[x]` only after the verification above is complete.
 
-- [ ] **Step 6: Commit evidence**
+- [x] **Step 6: Commit evidence**
 
 ```bash
 git add docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md docs/superpowers/reviews/2026-06-06-phase-5-course-prep-productization.md
