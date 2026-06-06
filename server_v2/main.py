@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
 from ai_caddie import course_search
-from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error
+from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
 from ai_caddie.connectors.snapshot import snapshot_to_payload
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
@@ -801,7 +801,7 @@ def sync_garmin(
         reauthRequired=result.state == "reauth_required",
         errorCode=result.error_code,
         snapshot=snapshot_to_payload(result.snapshot) if result.snapshot else None,
-        safeMeta=result.safe_meta,
+        safeMeta=sanitize_safe_meta(result.safe_meta),
     )
 
 

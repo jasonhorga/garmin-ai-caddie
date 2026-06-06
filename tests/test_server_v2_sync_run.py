@@ -88,6 +88,23 @@ class ServerV2SyncRunTests(unittest.TestCase):
         self.assertEqual(payload["safeMeta"], {"withShots": True})
         connector.sync.assert_called_once_with(with_shots=True, force_refresh_auth=False, ensure_geometry=False)
 
+    def test_sync_garmin_endpoint_passes_force_refresh_auth_query(self) -> None:
+        connector = Mock()
+        connector.sync.return_value = ConnectorRunResult(
+            connector="garmin_cn_web_session",
+            state="no_data",
+            detail="Garmin sync completed, but no scorecards were returned.",
+            safe_meta={"forceRefreshAuth": True},
+        )
+
+        with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
+            response = TestClient(app).post("/api/v2/sync/garmin?force_refresh_auth=true&with_shots=false")
+            payload = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["safeMeta"]["forceRefreshAuth"], True)
+        connector.sync.assert_called_once_with(with_shots=False, force_refresh_auth=True, ensure_geometry=False)
+
     def test_sync_garmin_endpoint_can_request_geometry_ensure(self) -> None:
         manifest = SnapshotManifest(
             snapshot_id="snap_api",
@@ -160,6 +177,29 @@ class ServerV2SyncRunTests(unittest.TestCase):
         self.assertNotIn("token", text)
         self.assertNotIn("secret", text)
         self.assertNotIn("authorization", text)
+
+    def test_sync_garmin_endpoint_redacts_secret_terms_from_safe_meta(self) -> None:
+        connector = Mock()
+        connector.sync.return_value = ConnectorRunResult(
+            connector="garmin_cn_web_session",
+            state="error",
+            detail="Failed with token abc cookie xyz csrf q secret s authorization bearer",
+            error_code="sync_failed",
+            safe_meta={
+                "cookie": "SESSIONID=abc",
+                "nested": {"csrf": "csrf-value", "path": "/home/private/.garmin_tokens/garmin_login.json"},
+                "authorizationHeader": "bearer abc",
+            },
+        )
+
+        with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
+            response = TestClient(app).post("/api/v2/sync/garmin")
+            payload = response.json()
+
+        self.assertEqual(response.status_code, 500)
+        text = str(payload).lower()
+        for term in ("cookie", "csrf", "token", "secret", "authorization", ".garmin_tokens", "/home/"):
+            self.assertNotIn(term, text)
 
     def test_sync_garmin_warms_stats_cache_on_successful_sync(self) -> None:
         manifest = SnapshotManifest(
