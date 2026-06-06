@@ -109,10 +109,19 @@
 
 **Outcome:** The private single-user product can run unattended and ship to the user's phone/watch.
 
-- [x] Deploy reachable backend using existing Render/Fly/container manifests.
+- [x] Prepare reachable-backend deployment manifests for Render/Fly/container hosting.
+- [ ] Deploy a phone-reachable backend host and point the native app at it.
 - [x] Configure admin token, backup, import/export, and redaction checks.
 - [x] Run native mobile CI only on native changes or manual dispatch.
 - [x] Run TestFlight signing/bootstrap and CD only when explicitly needed.
+- [x] Upload signed iOS + watch build `0.1.0 (2)` to TestFlight.
+- [x] Verify TestFlight build status through App Store Connect API:
+  `VALID`, `IN_BETA_TESTING`, `usesNonExemptEncryption=false`.
+- [x] Create/list external TestFlight group `Private Trial`.
+- [ ] Configure `TESTFLIGHT_FEEDBACK_EMAIL` and submit external Beta App Review.
+- [ ] Add/confirm target tester emails for the external group or confirm the
+  user is covered by the existing internal group.
+- [ ] Verify installation from TestFlight on iPhone/watch.
 
 **Done when:** Backend is reachable, mobile can install via TestFlight, and private-trial smoke/readiness evidence is current.
 
