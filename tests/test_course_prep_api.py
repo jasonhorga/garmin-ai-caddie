@@ -18,8 +18,31 @@ class CoursePrepApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
 
+    def _prep_row(self, hole: int = 3) -> dict:
+        return {
+            "globalId": 31870,
+            "localHole": hole,
+            "hole": hole,
+            "par": 3,
+            "par_source": "played",
+            "blue_yards": 151,
+            "route_len_m": 138.0,
+            "route": [[0.0, 0.0, 0.0], [0.0, 138.0, 138.0]],
+            "geometryCoverage": "ready",
+            "sourceRefs": ["course:31870", f"geometry:31870:{hole}"],
+            "missingData": [],
+            "candidateRoutes": [],
+            "carryTargets": [],
+            "steps": [{"club": "7I", "target_m": 138}],
+            "cautions": [],
+            "landing_m": None,
+            "tee_club": "7I",
+            "hazards": {"water_carry": [], "bunkers": []},
+        }
+
     def test_prep_endpoint_requires_admin_token_when_configured(self) -> None:
         with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.object(course_prep, "prep_nine", return_value=[self._prep_row()]), \
                 patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}):
             unauthorized = self.client.get("/api/v2/courses/31870/prep?render=false")
             authorized = self.client.get(
@@ -31,7 +54,8 @@ class CoursePrepApiTests(unittest.TestCase):
         self.assertEqual(authorized.status_code, 200)
 
     def test_prep_endpoint_contract(self) -> None:
-        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870):
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.object(course_prep, "prep_nine", return_value=[self._prep_row()]):
             resp = self.client.get("/api/v2/courses/31870/prep?render=false")
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -79,9 +103,11 @@ class CoursePrepApiTests(unittest.TestCase):
         self.assertTrue(prep_nine.call_args.kwargs["include_missing"])
 
     def test_holes_query_filter(self) -> None:
-        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870):
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.object(course_prep, "prep_nine", return_value=[self._prep_row(3)]) as prep_nine:
             resp = self.client.get("/api/v2/courses/31870/prep?holes=3&render=false")
         self.assertEqual(resp.status_code, 200)
+        self.assertEqual(list(prep_nine.call_args.args[1]), [3])
         holes = resp.json()["holes"]
         self.assertTrue(all(h["hole"] == 3 for h in holes))
 

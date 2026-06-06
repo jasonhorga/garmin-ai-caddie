@@ -136,9 +136,14 @@ curl -fsS -H "Authorization: Bearer $GH_TOKEN" \
   https://api.github.com/repos/jasonhorga/garmin-ai-caddie/actions/secrets
 ```
 
-Result: PASS. GitHub returned 7 signing secret names:
+Result: PASS. GitHub returned 7 configured secret names:
 `ASC_ISSUER_ID`, `ASC_KEY_ID`, `ASC_PRIVATE_KEY`, `MATCH_GIT_PRIVATE_KEY`,
 `MATCH_GIT_URL`, `MATCH_KEYCHAIN_PASSWORD`, and `MATCH_PASSWORD`.
+Only six of these are long-lived signing requirements:
+`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`, `MATCH_GIT_URL`,
+`MATCH_GIT_PRIVATE_KEY`, and `MATCH_PASSWORD`. `MATCH_KEYCHAIN_PASSWORD` is a
+legacy configured secret; the workflows no longer read it because the keychain
+password is generated per run.
 
 ```bash
 curl -fsS -H "Authorization: Bearer $GH_TOKEN" \
@@ -268,9 +273,12 @@ showed this secret is not currently configured.
 GitHub API inspection after commit `36e8f57` showed the repo is public and the
 currently configured secret names are `ASC_ISSUER_ID`, `ASC_KEY_ID`,
 `ASC_PRIVATE_KEY`, `MATCH_GIT_PRIVATE_KEY`, `MATCH_GIT_URL`,
-`MATCH_KEYCHAIN_PASSWORD`, and `MATCH_PASSWORD`. `MATCH_KEYCHAIN_PASSWORD` is an
-unused leftover after the workflow simplification; `TESTFLIGHT_FEEDBACK_EMAIL`
-is still absent. No GitHub Actions repo variables are configured yet, so
+`MATCH_KEYCHAIN_PASSWORD`, and `MATCH_PASSWORD`. The actionable long-lived
+signing set remains six secrets; `MATCH_KEYCHAIN_PASSWORD` is an unused leftover
+after the workflow simplification. `TESTFLIGHT_FEEDBACK_EMAIL` is still absent
+and is not part of signing; it is only needed for automated external Beta App
+Review submission when the feedback email is not filled manually in App Store
+Connect. No GitHub Actions repo variables are configured yet, so
 `AI_CADDIE_API_BASE_URL` is also absent remotely.
 
 ```bash
@@ -309,6 +317,34 @@ at `2026-06-06T07:14:46Z`, size about 396 MB. Health returned schema
 `ai-caddie-health-v2` with status `ok`; readiness returned schema
 `ai-caddie-readiness-v1` with 13 checks and status `degraded`. Root filesystem
 usage remained 52% after the build.
+
+```bash
+AI_CADDIE_DATA_MODE=fixture uv run python -m unittest discover -s tests -v
+```
+
+Result: PASS under a 60 minute cap after isolating local/private Garmin and
+prodgeometry tests behind explicit opt-in environment variables. The full
+deterministic fixture discovery ran 662 tests in 1670.478s with 8 intentional
+skips for local-only Garmin/prodgeometry checks.
+
+```bash
+cd web_v2 && npm exec --yes --package=node@24 -- npm test -- --run
+cd web_v2 && npx -y -p node@24 node node_modules/eslint/bin/eslint.js .
+cd web_v2 && npx -y -p node@24 node node_modules/typescript/bin/tsc -b
+cd web_v2 && npx -y -p node@24 node node_modules/vite/bin/vite.js build
+cd web_v2 && npx -y -p node@24 node node_modules/@playwright/test/cli.js test
+```
+
+Result: PASS. Vitest ran 24 files / 180 tests; ESLint, TypeScript, Vite build,
+and two Playwright browser smokes all passed under temporary Node 24.
+
+```bash
+AI_CADDIE_ADMIN_TOKEN=local-smoke-token AI_CADDIE_PRIVATE_SMOKE_EVIDENCE=/tmp/ai-caddie-private-trial-smoke-2026-06-06.json ops/smoke_private_trial.sh http://127.0.0.1:9011
+```
+
+Result: PASS. Evidence schema `ai-caddie-private-trial-smoke-evidence-v1`,
+`endpointCount=14`, `adminProtectedEndpointCount=11`, `mediaRoundTrip=true`,
+`secretFree=true`, created at `2026-06-06T23:44:51Z`.
 
 ## Not Run
 

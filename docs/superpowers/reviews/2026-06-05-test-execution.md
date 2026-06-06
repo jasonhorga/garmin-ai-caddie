@@ -1572,3 +1572,40 @@ git diff --check
 ```
 
 Result: PASS. Targeted suite ran 23 tests in 54.372s.
+
+## Follow-Up: Deterministic Full Fixture Suite
+
+The full backend discovery later found that several tests were silently using
+local private Garmin scorecards and prodgeometry caches when those files happened
+to exist in the workspace. That made the fixture suite non-deterministic and
+could make a clean environment behave differently from this private workspace.
+
+Change:
+
+- Local Garmin/prodgeometry tests in `tests/test_ai_caddie.py` now require
+  `AI_CADDIE_RUN_LOCAL_GARMIN_TESTS=1`.
+- Geometry-backed course prep tests in `tests/test_course_prep.py` now require
+  `AI_CADDIE_RUN_GEOMETRY_BACKED_TESTS=1`.
+- Course prep API contract tests mock `course_prep.prep_nine()` instead of
+  reading local geometry caches.
+- History stats data-quality coverage patches geometry coverage to a stable
+  missing state for the fixture assertion.
+
+Verification:
+
+```bash
+AI_CADDIE_DATA_MODE=fixture uv run python -m unittest discover -s tests -v
+npm exec --yes --package=node@24 -- npm test -- --run
+npx -y -p node@24 node node_modules/eslint/bin/eslint.js .
+npx -y -p node@24 node node_modules/typescript/bin/tsc -b
+npx -y -p node@24 node node_modules/vite/bin/vite.js build
+npx -y -p node@24 node node_modules/@playwright/test/cli.js test
+AI_CADDIE_ADMIN_TOKEN=local-smoke-token AI_CADDIE_PRIVATE_SMOKE_EVIDENCE=/tmp/ai-caddie-private-trial-smoke-2026-06-06.json ops/smoke_private_trial.sh http://127.0.0.1:9011
+uv run python -m py_compile $(git ls-files '*.py')
+git diff --check
+```
+
+Result: PASS. Backend discovery ran 662 tests in 1670.478s with 8 intentional
+local-only skips; Vitest ran 24 files / 180 tests; ESLint, TypeScript, Vite
+build, Playwright desktop/mobile smokes, private trial smoke, Python compile,
+and whitespace check all passed.

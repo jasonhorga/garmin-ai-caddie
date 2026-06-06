@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import unittest
 from unittest.mock import patch
 
@@ -147,11 +148,13 @@ class PureLogicTests(unittest.TestCase):
 
 
 class GeometryBackedTests(unittest.TestCase):
-    """Run only where the user's prodgeometry is cached (skipped in CI)."""
+    """Run only when explicitly requested against local/private prodgeometry."""
 
     GID, HOLE = 31870, 3  # 银杏湖 B3, a par 3
 
     def setUp(self) -> None:
+        if os.environ.get("AI_CADDIE_RUN_GEOMETRY_BACKED_TESTS") != "1":
+            self.skipTest("set AI_CADDIE_RUN_GEOMETRY_BACKED_TESTS=1 to run local prodgeometry tests")
         if not mesh_path(self.GID, self.HOLE).exists():
             self.skipTest("prodgeometry not cached in this environment")
 

@@ -1205,12 +1205,16 @@ class HistoryStatsCoreTests(unittest.TestCase):
                 root=root,
             )
 
-            stats = build_history_stats(
-                fixture_history_data(),
-                data_mode="fixture",
-                annotations_root=root,
-                reports_root=root,
-            )
+            with patch(
+                "ai_caddie.history_stats.geometry_coverage_for_hole",
+                return_value={"coverage": "missing"},
+            ):
+                stats = build_history_stats(
+                    fixture_history_data(),
+                    data_mode="fixture",
+                    annotations_root=root,
+                    reports_root=root,
+                )
 
         geometry_quality = next(row for row in stats["dataQuality"] if row["label"] == "geometry")
         self.assertEqual(geometry_quality["state"], "missing")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -25,6 +26,11 @@ from ai_caddie import geometry_sync
 from garmin_auth import CSRF_META_RE, _cookie_domain_matches
 
 
+def _require_local_garmin_tests(case: unittest.TestCase) -> None:
+    if os.environ.get("AI_CADDIE_RUN_LOCAL_GARMIN_TESTS") != "1":
+        case.skipTest("set AI_CADDIE_RUN_LOCAL_GARMIN_TESTS=1 to run local Garmin/prodgeometry tests")
+
+
 class GeoTests(unittest.TestCase):
     def test_semicircle_conversion(self) -> None:
         self.assertAlmostEqual(semicircle_to_deg(1 << 31), 180.0)
@@ -40,6 +46,7 @@ class GeoTests(unittest.TestCase):
 
 class GarminRoundTests(unittest.TestCase):
     def test_front_back_hole_mapping(self) -> None:
+        _require_local_garmin_tests(self)
         path = ROOT / "data" / "scorecards" / "15215497.json"
         if not path.exists():
             self.skipTest("local Garmin fixture not present")
@@ -75,6 +82,7 @@ class GeometrySyncTests(unittest.TestCase):
 
 class AnalysisTests(unittest.TestCase):
     def test_known_hole_analysis(self) -> None:
+        _require_local_garmin_tests(self)
         required = [
             ROOT / "data" / "scorecards" / "15215497.json",
             ROOT / "data" / "shots" / "15215497.json",
@@ -100,6 +108,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertGreaterEqual(len(strategy["labels"]), 1)
 
     def test_known_round_analysis(self) -> None:
+        _require_local_garmin_tests(self)
         required = [
             ROOT / "data" / "scorecards" / "17366866.json",
             ROOT / "data" / "shots" / "17366866.json",
@@ -114,6 +123,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertGreaterEqual(analysis["summary"]["confidenceCounts"].get("high", 0), 9)
 
     def test_overlay_does_not_rewrite_missing_tee_shot(self) -> None:
+        _require_local_garmin_tests(self)
         required = [
             ROOT / "data" / "scorecards" / "17373152.json",
             ROOT / "data" / "shots" / "17373152.json",
@@ -234,6 +244,7 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(row["shotStatus"], "pin_only")
 
     def test_history_overview_and_rounds(self) -> None:
+        _require_local_garmin_tests(self)
         if not (ROOT / "data" / "scorecards").exists():
             self.skipTest("local Garmin fixture not present")
         overview = history_overview()
@@ -244,6 +255,7 @@ class HistoryTests(unittest.TestCase):
         self.assertLessEqual(len(rounds["rounds"]), 5)
 
     def test_history_course_and_hole(self) -> None:
+        _require_local_garmin_tests(self)
         required = [
             ROOT / "data" / "scorecards",
             ROOT / "data" / "shots",
