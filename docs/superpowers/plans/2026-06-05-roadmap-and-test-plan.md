@@ -44,7 +44,7 @@
 - [x] Smoke real history endpoints and direct history functions.
 - [x] Fix pin-only shot files being reported as ready shots.
 - [x] Decode/sync geometry for played course globalIds so real shot-hole pairs overlap with CourseView geometry.
-- [ ] Add sanitized regression fixtures for real-data shapes:
+- [x] Add sanitized regression fixtures for real-data shapes:
   - pin-only shot files
   - partial/incomplete rounds
   - same-day 9-hole merge

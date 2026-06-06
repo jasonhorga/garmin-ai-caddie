@@ -1552,3 +1552,23 @@ Strict real-data smoke values:
   "releaseUnavailableGlobalIds": [31636, 31637]
 }
 ```
+
+## Sanitized Real-Data Shape Regression Fixtures
+
+Added focused sanitized regression tests that create Garmin-like raw scorecard, shot, and geometry files
+inside temporary directories. The tests cover pin-only shot files, incomplete rounds, same-day 9-hole
+merge, non-ASCII course names, and missing/partial geometry degradation without committing private Garmin
+data.
+
+The pin-only snapshot test first failed as expected because the durable snapshot loader treated any
+non-`_no_data` shot file as ready. The loader now requires at least one actual `holeShots[].shots[]` row
+before reporting `hasShots=True`; empty/pin-only files degrade to `shotStatus=pin_only`.
+
+Verification:
+
+```bash
+uv run python -m unittest tests.test_real_data_shape_regressions tests.test_connector_snapshot tests.test_history_data_quality -v
+git diff --check
+```
+
+Result: PASS. Targeted suite ran 23 tests in 54.372s.
