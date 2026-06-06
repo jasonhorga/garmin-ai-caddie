@@ -20,9 +20,11 @@ targets:
       - path: mobile/ios/AICaddie
         excludes:
           - Info.plist
+          - Assets.xcassets
           - Fixtures
     resources:
       - path: mobile/ios/AICaddie/Fixtures
+      - path: mobile/ios/AICaddie/Assets.xcassets
     dependencies:
       - target: AICaddieWatch
     info:
@@ -31,6 +33,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile
         INFOPLIST_FILE: $(PROJECT_DIR)/AICaddie/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
         Release:
           CODE_SIGN_STYLE: Manual
@@ -57,12 +60,16 @@ targets:
       - path: mobile/ios/AICaddieWatch
         excludes:
           - Info.plist
+          - Assets.xcassets
+    resources:
+      - path: mobile/ios/AICaddieWatch/Assets.xcassets
     info:
       path: AICaddieWatch/Info.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp
         INFOPLIST_FILE: $(PROJECT_DIR)/AICaddieWatch/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
         Release:
           CODE_SIGN_STYLE: Manual

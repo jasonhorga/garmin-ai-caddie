@@ -1105,6 +1105,8 @@ class MobileContractTests(unittest.TestCase):
         for expected in [
             "CFBundleExecutable",
             "$(EXECUTABLE_NAME)",
+            "CFBundleIconName",
+            "AppIcon",
             "CFBundleIdentifier",
             "com.ai-caddie.mobile",
             "CFBundleShortVersionString",
@@ -1115,12 +1117,20 @@ class MobileContractTests(unittest.TestCase):
             "NSCameraUsageDescription",
             "NSPhotoLibraryUsageDescription",
             "NSPhotoLibraryAddUsageDescription",
+            "UISupportedInterfaceOrientations",
+            "UISupportedInterfaceOrientations~ipad",
+            "UIInterfaceOrientationPortrait",
+            "UIInterfaceOrientationPortraitUpsideDown",
+            "UIInterfaceOrientationLandscapeLeft",
+            "UIInterfaceOrientationLandscapeRight",
         ]:
             self.assertIn(expected, ios_plist)
 
         for expected in [
             "CFBundleExecutable",
             "$(EXECUTABLE_NAME)",
+            "CFBundleIconName",
+            "AppIcon",
             "CFBundleIdentifier",
             "com.ai-caddie.mobile.watchkitapp",
             "CFBundleShortVersionString",
@@ -1130,6 +1140,64 @@ class MobileContractTests(unittest.TestCase):
             "WKApplication",
         ]:
             self.assertIn(expected, watch_plist)
+
+    def test_ios_and_watch_app_icons_are_packaged_for_testflight_upload(self) -> None:
+        project = _read_required_source(self, Path("mobile") / "ios" / "project.yml")
+        self.assertIn("mobile/ios/AICaddie/Assets.xcassets", project)
+        self.assertIn("mobile/ios/AICaddieWatch/Assets.xcassets", project)
+        self.assertGreaterEqual(project.count("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon"), 2)
+
+        ios_iconset = IOS_DIR / "Assets.xcassets" / "AppIcon.appiconset"
+        watch_iconset = WATCH_DIR / "Assets.xcassets" / "AppIcon.appiconset"
+        ios_manifest = json.loads(_read_required_source(self, ios_iconset / "Contents.json"))
+        watch_manifest = json.loads(_read_required_source(self, watch_iconset / "Contents.json"))
+
+        ios_required = {
+            ("iphone", "60x60", "2x", "Icon-App-60x60@2x.png"),
+            ("iphone", "60x60", "3x", "Icon-App-60x60@3x.png"),
+            ("ipad", "76x76", "2x", "Icon-App-76x76@2x.png"),
+            ("ipad", "83.5x83.5", "2x", "Icon-App-83.5x83.5@2x.png"),
+            ("ios-marketing", "1024x1024", "1x", "Icon-App-1024x1024@1x.png"),
+        }
+        watch_required = {
+            ("watch", "24x24", "2x", "Icon-Watch-24x24@2x.png"),
+            ("watch", "27.5x27.5", "2x", "Icon-Watch-27.5x27.5@2x.png"),
+            ("watch", "29x29", "3x", "Icon-Watch-29x29@3x.png"),
+            ("watch", "50x50", "2x", "Icon-Watch-50x50@2x.png"),
+            ("watch", "108x108", "2x", "Icon-Watch-108x108@2x.png"),
+            ("watch-marketing", "1024x1024", "1x", "Icon-Watch-1024x1024@1x.png"),
+        }
+
+        def manifest_entries(manifest: dict[str, object]) -> set[tuple[str, str, str, str]]:
+            images = manifest.get("images")
+            self.assertIsInstance(images, list)
+            entries = set()
+            for image in images:
+                self.assertIsInstance(image, dict)
+                filename = image.get("filename")
+                self.assertIsInstance(filename, str)
+                entries.add((str(image.get("idiom")), str(image.get("size")), str(image.get("scale")), filename))
+            return entries
+
+        def assert_png_size(path: Path, expected_size: str, scale: str) -> None:
+            data = path.read_bytes()
+            self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n", f"not a PNG: {path}")
+            expected_pixels = round(float(expected_size.split("x", 1)[0]) * int(scale.removesuffix("x")))
+            self.assertEqual(int.from_bytes(data[16:20], "big"), expected_pixels)
+            self.assertEqual(int.from_bytes(data[20:24], "big"), expected_pixels)
+
+        self.assertTrue(ios_required.issubset(manifest_entries(ios_manifest)))
+        self.assertTrue(watch_required.issubset(manifest_entries(watch_manifest)))
+        for iconset, manifest in [(ios_iconset, ios_manifest), (watch_iconset, watch_manifest)]:
+            images = manifest["images"]
+            self.assertIsInstance(images, list)
+            for image in images:
+                self.assertIsInstance(image, dict)
+                filename = image["filename"]
+                self.assertIsInstance(filename, str)
+                icon_path = iconset / filename
+                self.assertTrue(icon_path.exists(), f"missing icon asset: {icon_path}")
+                assert_png_size(icon_path, str(image["size"]), str(image["scale"]))
 
     def test_ios_start_round_prepares_selected_offline_package(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
