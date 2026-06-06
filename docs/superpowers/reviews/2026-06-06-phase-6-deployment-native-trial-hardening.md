@@ -94,6 +94,16 @@ git diff --check
 
 Result: PASS.
 
+```bash
+docker run --rm --name ai-caddie-api-smoke -p 127.0.0.1:9000:9000 -e AI_CADDIE_SECURITY_PROFILE=private -e AI_CADDIE_ADMIN_TOKEN=container-smoke-token -e AI_CADDIE_DATA_MODE=fixture -e AI_CADDIE_LLM_PROVIDER=static ai-caddie-api:config-check
+curl -fsS http://127.0.0.1:9000/api/v2/health
+curl -fsS -H 'X-AI-Caddie-Admin-Token: container-smoke-token' http://127.0.0.1:9000/api/v2/readiness
+```
+
+Result: PASS using the pre-existing local `ai-caddie-api:config-check` image.
+Health returned schema `ai-caddie-health-v2` with status `ok`; readiness returned
+schema `ai-caddie-readiness-v1` with 12 checks and status `degraded`.
+
 ## Not Run
 
 - Full private-root snapshot export/import with `--source-root .` was not
@@ -105,6 +115,10 @@ Result: PASS.
 - Cloud deployment to Render/Fly/Vercel was not run because provider
   credentials or an already configured deploy session were not available in
   this workspace.
+- Current Docker image rebuild from the latest `Dockerfile` was not run after
+  the GitHub/storage investigation. The container smoke above used a
+  pre-existing local image to avoid adding image layers while disk/storage was
+  under review.
 - Xcode simulator tests require macOS/Xcode and were not executable in this
   Linux workspace.
 - TestFlight signing/distribution was not run because it requires explicit
