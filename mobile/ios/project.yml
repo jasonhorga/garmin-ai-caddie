@@ -20,11 +20,6 @@ targets:
       - path: mobile/ios/AICaddie
         excludes:
           - Info.plist
-          - Assets.xcassets
-          - Fixtures
-    resources:
-      - path: mobile/ios/AICaddie/Fixtures
-      - path: mobile/ios/AICaddie/Assets.xcassets
     dependencies:
       - target: AICaddieWatch
     info:
@@ -60,9 +55,6 @@ targets:
       - path: mobile/ios/AICaddieWatch
         excludes:
           - Info.plist
-          - Assets.xcassets
-    resources:
-      - path: mobile/ios/AICaddieWatch/Assets.xcassets
     info:
       path: AICaddieWatch/Info.plist
     settings:

@@ -1097,6 +1097,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertGreaterEqual(project.count("- Info.plist"), 2)
         self.assertIn("xcodegen generate --spec mobile/ios/project.yml", readme)
         self.assertIn("xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj", readme)
+        self.assertNotIn("- Fixtures", project)
 
     def test_ios_and_watch_info_plists_declare_required_live_permissions(self) -> None:
         ios_plist = _read_required_source(self, IOS_DIR / "Info.plist")
@@ -1143,8 +1144,9 @@ class MobileContractTests(unittest.TestCase):
 
     def test_ios_and_watch_app_icons_are_packaged_for_testflight_upload(self) -> None:
         project = _read_required_source(self, Path("mobile") / "ios" / "project.yml")
-        self.assertIn("mobile/ios/AICaddie/Assets.xcassets", project)
-        self.assertIn("mobile/ios/AICaddieWatch/Assets.xcassets", project)
+        self.assertIn("mobile/ios/AICaddie", project)
+        self.assertIn("mobile/ios/AICaddieWatch", project)
+        self.assertNotIn("- Assets.xcassets", project)
         self.assertGreaterEqual(project.count("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon"), 2)
 
         ios_iconset = IOS_DIR / "Assets.xcassets" / "AppIcon.appiconset"
