@@ -194,6 +194,7 @@ class CIWorkflowTests(unittest.TestCase):
             self.assertNotIn(obsolete_pilot_command, text)
         self.assertIn("bundle exec ruby", text)
         self.assertIn("Spaceship::ConnectAPI::Build.all", text)
+        self.assertIn('require "spaceship/connect_api/spaceship"', text)
         self.assertIn("post_bulk_beta_tester_assignments", text)
         self.assertIn("build.add_beta_groups", text)
         self.assertIn("app.create_beta_group", text)

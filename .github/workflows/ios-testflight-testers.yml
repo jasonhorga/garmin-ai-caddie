@@ -105,6 +105,7 @@ jobs:
           bundle exec ruby - <<'RUBY'
           require "json"
           require "spaceship/connect_api"
+          require "spaceship/connect_api/spaceship"
 
           APP_IDENTIFIER = "com.ai-caddie.mobile"
 
