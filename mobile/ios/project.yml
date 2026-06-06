@@ -31,6 +31,12 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile
         INFOPLIST_FILE: $(PROJECT_DIR)/AICaddie/Info.plist
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: 6HB84897DJ
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: match AppStore com.ai-caddie.mobile
 
   AICaddieTests:
     type: bundle.unit-test
@@ -57,6 +63,12 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp
         INFOPLIST_FILE: $(PROJECT_DIR)/AICaddieWatch/Info.plist
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: 6HB84897DJ
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: match AppStore com.ai-caddie.mobile.watchkitapp
 
   AICaddieWatchTests:
     type: bundle.unit-test

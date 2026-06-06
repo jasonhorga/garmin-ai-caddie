@@ -186,6 +186,10 @@ class CIWorkflowTests(unittest.TestCase):
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
         targets = project["schemes"]["AICaddie"]["build"]["targets"]
         self.assertIn("AICaddieWatch", targets)
+        app_release = project["targets"]["AICaddie"]["settings"]["configs"]["Release"]
+        watch_release = project["targets"]["AICaddieWatch"]["settings"]["configs"]["Release"]
+        self.assertEqual(app_release["PROVISIONING_PROFILE_SPECIFIER"], "match AppStore com.ai-caddie.mobile")
+        self.assertEqual(watch_release["PROVISIONING_PROFILE_SPECIFIER"], "match AppStore com.ai-caddie.mobile.watchkitapp")
 
     def test_native_evidence_writer_is_documented_and_reused_by_ci(self) -> None:
         workflow = Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
