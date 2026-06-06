@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import tarfile
@@ -10,6 +11,24 @@ from ops.import_snapshot import import_snapshot
 
 
 class SnapshotImportExportTests(unittest.TestCase):
+    def test_export_snapshot_records_portable_manifest_without_private_paths(self) -> None:
+        with TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            (source / "data" / "scorecards").mkdir(parents=True)
+            (source / "data" / "scorecards" / "1.json").write_text("{}", encoding="utf-8")
+            tarball = Path(tmp) / "snapshot.tar.gz"
+
+            manifest = export_snapshot(source_root=source, output_path=tarball)
+
+        self.assertEqual(manifest["schema"], "ai-caddie-export-snapshot-v1")
+        self.assertGreater(manifest["sizeBytes"], 0)
+        self.assertEqual(manifest["fileCount"], 1)
+        self.assertEqual(manifest["includedRoots"], ["data"])
+        self.assertTrue(manifest["secretFree"])
+        self.assertNotIn("/home/", json.dumps(manifest).lower())
+        self.assertNotIn(".garmin_tokens", json.dumps(manifest).lower())
+
     def test_export_import_excludes_secrets_and_restores_data(self) -> None:
         with TemporaryDirectory() as tmp:
             source = Path(tmp) / "source"

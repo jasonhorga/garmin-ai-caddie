@@ -28,8 +28,11 @@ SMOKE_SCRIPT = Path("ops/smoke_private_trial.sh")
 SMOKE_EVIDENCE = Path("logs/private_trial_smoke_latest.json")
 BACKUP_SCRIPT = Path("ops/backup_data.sh")
 BACKUP_MANIFEST = Path("backups/latest.json")
+RUNTIME_ROOT = Path(".")
+PRIVATE_SNAPSHOT_ACCEPTANCE = Path("data/snapshots/accepted_private_snapshot.json")
 BACKUP_MAX_AGE = timedelta(days=7)
 SMOKE_EVIDENCE_MAX_AGE = timedelta(days=3)
+SNAPSHOT_ACCEPTANCE_MAX_AGE = timedelta(days=14)
 NATIVE_BUILD_EVIDENCE = Path("mobile/ios/native_build_evidence.json")
 NATIVE_BUILD_EVIDENCE_SCHEMA = "ai-caddie-native-build-evidence-v1"
 NATIVE_BUILD_EVIDENCE_MAX_AGE = timedelta(days=14)
@@ -118,7 +121,7 @@ def _latest_backup() -> dict[str, Any] | None:
         return {"state": "unreadable"}
     if not isinstance(payload, dict):
         return {"state": "invalid"}
-    snapshot = str(payload.get("snapshot") or "")
+    snapshot = str(payload.get("snapshotPath") or payload.get("snapshot") or "")
     snapshot_path = Path(snapshot)
     state, freshness = _freshness_state(payload.get("createdAt"), BACKUP_MAX_AGE)
     issues = list(freshness.get("issues") or [])
@@ -200,6 +203,10 @@ def _public_path(path: Path) -> str:
     return path.name if path.is_absolute() else path.as_posix()
 
 
+def _runtime_path(path: Path) -> Path:
+    return path if path.is_absolute() else RUNTIME_ROOT / path
+
+
 def _parse_utc_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -256,6 +263,54 @@ def _latest_smoke_evidence() -> dict[str, Any]:
         evidence["state"] = "invalid"
         evidence["issues"] = sorted({*evidence.get("issues", []), "schema_mismatch"})
     return evidence
+
+
+def _accepted_private_snapshot_evidence() -> dict[str, Any] | None:
+    evidence_path = _runtime_path(PRIVATE_SNAPSHOT_ACCEPTANCE)
+    if not evidence_path.exists():
+        return None
+    try:
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {
+            "state": "unreadable",
+            "evidenceStamp": _public_path(PRIVATE_SNAPSHOT_ACCEPTANCE),
+            "issues": ["evidence_unreadable"],
+        }
+    if not isinstance(payload, dict):
+        return {
+            "state": "invalid",
+            "evidenceStamp": _public_path(PRIVATE_SNAPSHOT_ACCEPTANCE),
+            "issues": ["evidence_invalid"],
+        }
+
+    state, freshness = _freshness_state(payload.get("acceptedAt"), SNAPSHOT_ACCEPTANCE_MAX_AGE)
+    issues = list(freshness.get("issues") or [])
+    schema = payload.get("schema")
+    if schema != "ai-caddie-private-snapshot-acceptance-v1":
+        state = "invalid"
+        issues.append("schema_mismatch")
+    secret_free = payload.get("secretFree") is True
+    if not secret_free:
+        state = "invalid"
+        issues.append("secret_free_missing")
+    snapshot_path = str(payload.get("snapshotPath") or "").strip()
+    if not snapshot_path:
+        state = "invalid"
+        issues.append("snapshot_path_missing")
+
+    public_snapshot_path = _public_path(Path(snapshot_path)) if snapshot_path else None
+    return {
+        "schema": schema,
+        "state": state,
+        "acceptedAt": payload.get("acceptedAt"),
+        "snapshotPath": public_snapshot_path,
+        "secretFree": secret_free,
+        "evidenceStamp": _public_path(PRIVATE_SNAPSHOT_ACCEPTANCE),
+        "maxAgeHours": int(SNAPSHOT_ACCEPTANCE_MAX_AGE.total_seconds() // 3600),
+        **freshness,
+        "issues": sorted(set(issues)),
+    }
 
 
 def _native_scheme_evidence(payload: dict[str, Any], key: str, expected_scheme: str) -> tuple[dict[str, Any], list[str]]:
@@ -523,24 +578,38 @@ def build_readiness_response() -> dict[str, Any]:
         checks.append(_check("course_reference", "error", exc.__class__.__name__))
 
     try:
-        acceptance = validate_private_snapshot_acceptance()
-        checks.append(
-            _check(
-                "private_snapshot_acceptance",
-                "ready" if acceptance.get("hardGate") else "degraded",
-                "Latest Garmin CN snapshot passes the private-data hard gate."
-                if acceptance.get("hardGate")
-                else "Latest Garmin CN snapshot does not yet pass the private-data hard gate.",
-                {
-                    "schema": acceptance.get("schema"),
-                    "state": acceptance.get("state"),
-                    "snapshotId": acceptance.get("snapshotId"),
-                    "failureLabels": acceptance.get("failureLabels"),
-                    "checks": acceptance.get("checks"),
-                    "cli": "uv run python ops/accept_private_snapshot.py",
-                },
+        accepted_evidence = _accepted_private_snapshot_evidence()
+        if accepted_evidence is not None:
+            ready = accepted_evidence.get("state") == "ready"
+            checks.append(
+                _check(
+                    "private_snapshot_acceptance",
+                    "ready" if ready else "degraded",
+                    "Latest accepted private snapshot evidence is current and secret-free."
+                    if ready
+                    else "Accepted private snapshot evidence is missing, stale, or invalid.",
+                    accepted_evidence,
+                )
             )
-        )
+        else:
+            acceptance = validate_private_snapshot_acceptance()
+            checks.append(
+                _check(
+                    "private_snapshot_acceptance",
+                    "ready" if acceptance.get("hardGate") else "degraded",
+                    "Latest Garmin CN snapshot passes the private-data hard gate."
+                    if acceptance.get("hardGate")
+                    else "Latest Garmin CN snapshot does not yet pass the private-data hard gate.",
+                    {
+                        "schema": acceptance.get("schema"),
+                        "state": acceptance.get("state"),
+                        "snapshotId": acceptance.get("snapshotId"),
+                        "failureLabels": acceptance.get("failureLabels"),
+                        "checks": acceptance.get("checks"),
+                        "cli": "uv run python ops/accept_private_snapshot.py",
+                    },
+                )
+            )
     except Exception as exc:  # pragma: no cover - defensive health surface
         checks.append(_check("private_snapshot_acceptance", "error", exc.__class__.__name__))
 

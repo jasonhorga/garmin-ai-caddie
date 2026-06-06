@@ -28,9 +28,11 @@ with snapshot.open("rb") as handle:
 payload = {
     "schema": "ai-caddie-backup-manifest-v1",
     "snapshot": snapshot.as_posix(),
+    "snapshotPath": snapshot.as_posix(),
     "createdAt": created_at,
     "sizeBytes": snapshot.stat().st_size,
     "sha256": digest.hexdigest(),
+    "secretFree": True,
 }
 manifest.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
+from server_v2.readiness import build_readiness_response
 
 
 class ServerV2ReadinessTests(unittest.TestCase):
@@ -251,6 +252,32 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["course_reference"]["evidence"]["pct"], 75.0)
         self.assertNotIn("cookie", str(response.json()).lower())
         self.assertNotIn("/home/", str(response.json()).lower())
+
+    def test_readiness_reports_private_snapshot_acceptance_state(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_dir = root / "data" / "snapshots"
+            evidence_dir.mkdir(parents=True)
+            (evidence_dir / "accepted_private_snapshot.json").write_text(
+                json.dumps({
+                    "schema": "ai-caddie-private-snapshot-acceptance-v1",
+                    "acceptedAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                    "snapshotPath": "data/backups/private-snapshot.tar.gz",
+                    "secretFree": True,
+                }),
+                encoding="utf-8",
+            )
+
+            with patch("server_v2.readiness.RUNTIME_ROOT", root):
+                payload = build_readiness_response()
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        snapshot = checks["private_snapshot_acceptance"]
+        self.assertEqual(snapshot["state"], "ready")
+        self.assertEqual(snapshot["evidence"]["state"], "ready")
+        self.assertTrue(snapshot["evidence"]["secretFree"])
+        self.assertEqual(snapshot["evidence"]["snapshotPath"], "data/backups/private-snapshot.tar.gz")
+        self.assertNotIn(str(root), str(payload))
 
     def test_readiness_operations_turn_ready_with_fresh_backup_and_smoke_evidence(self) -> None:
         client = TestClient(app)

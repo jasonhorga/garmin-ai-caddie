@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 import os
 from pathlib import Path
 import tarfile
+from typing import Any
 
 
 DATA_PATHS = [
@@ -24,6 +26,10 @@ GEOMETRY_OUTPUT_PATHS = [
     Path("output") / "prodgeometry_hazards",
     Path("output") / "prodgeometry",
 ]
+
+
+def _display_path(path: Path) -> str:
+    return path.name if path.is_absolute() else path.as_posix()
 
 
 def _iter_files(source_root: Path, include_clubs: bool) -> list[Path]:
@@ -68,14 +74,24 @@ def export_snapshot(
     source_root: Path | str = ".",
     output_path: Path | str,
     include_clubs: bool = False,
-) -> Path:
+) -> dict[str, Any]:
     root = Path(source_root)
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
+    files = _iter_files(root, include_clubs)
     with tarfile.open(output, "w:gz") as archive:
-        for relative in _iter_files(root, include_clubs):
+        for relative in files:
             archive.add(root / relative, arcname=relative.as_posix(), recursive=False)
-    return output
+    included_roots = {relative.parts[0] for relative in files if relative.parts}
+    return {
+        "schema": "ai-caddie-export-snapshot-v1",
+        "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "snapshotPath": _display_path(output),
+        "sizeBytes": output.stat().st_size,
+        "fileCount": len(files),
+        "includedRoots": sorted(included_roots),
+        "secretFree": True,
+    }
 
 
 def main() -> None:
