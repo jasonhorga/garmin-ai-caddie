@@ -84,9 +84,9 @@
 
 **Outcome:** One command runs the private single-user sync path idempotently.
 
-- [ ] Wire auth refresh -> fetch history/shots -> geometry sync -> course-reference ingest.
-- [ ] Add readiness fields for last sync, session age, data freshness, shot coverage, geometry coverage, and course-ref coverage.
-- [ ] Add a local private smoke that runs against real data without logging secrets.
+- [x] Wire auth refresh -> fetch history/shots -> geometry sync -> course-reference ingest.
+- [x] Add readiness fields for last sync, session age, data freshness, shot coverage, geometry coverage, and course-ref coverage.
+- [x] Add a local private smoke that runs against real data without logging secrets.
 
 **Done when:** The user can trigger one command and the product reflects current Garmin data with visible coverage/confidence.
 
