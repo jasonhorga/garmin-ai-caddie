@@ -10,6 +10,13 @@ public struct CoursePrepResponse: Codable, Equatable {
     public let holes: [CoursePrepHole]
 }
 
+public struct CoursePrepPackage: Codable, Equatable {
+    public let schema: String
+    public let globalId: Int
+    public let holes: [CoursePrepHole]
+    public let missingData: [CoursePrepMissingData]?
+}
+
 public struct CoursePrepClub: Codable, Equatable {
     public let name: String
     public let m: Double
@@ -19,6 +26,26 @@ public struct CoursePrepClub: Codable, Equatable {
 public struct CoursePrepStep: Codable, Equatable {
     public let club: String?
     public let note: String
+}
+
+public struct CoursePrepMissingData: Codable, Equatable {
+    public let label: String?
+    public let reason: String?
+}
+
+public struct CoursePrepCandidateRoute: Codable, Equatable {
+    public let id: String
+    public let club: String?
+    public let carryM: Double?
+    public let riskScore: Double?
+}
+
+public struct CoursePrepCarryTarget: Codable, Equatable {
+    public let kind: String
+    public let distanceM: Double?
+    public let enterM: Double?
+    public let clearM: Double?
+    public let sideM: Double?
 }
 
 public struct CoursePrepOverlay: Codable, Equatable {
@@ -91,6 +118,12 @@ public struct CoursePrepHole: Codable, Equatable {
     public let parSource: String
     public let blueYards: Int
     public let routeLenM: Double
+    public let route: [[Double]]
+    public let geometryCoverage: String
+    public let sourceRefs: [String]
+    public let missingData: [CoursePrepMissingData]
+    public let candidateRoutes: [CoursePrepCandidateRoute]
+    public let carryTargets: [CoursePrepCarryTarget]
     public let steps: [CoursePrepStep]
     public let cautions: [String]
     public let landingM: Double?
@@ -99,11 +132,32 @@ public struct CoursePrepHole: Codable, Equatable {
     public let map: CoursePrepMap?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, steps, cautions, hazards, map
+        case hole, par, route, geometryCoverage, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map
         case parSource = "par_source"
         case blueYards = "blue_yards"
         case routeLenM = "route_len_m"
         case landingM = "landing_m"
         case teeClub = "tee_club"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.hole = try container.decode(Int.self, forKey: .hole)
+        self.par = try container.decode(Int.self, forKey: .par)
+        self.parSource = try container.decode(String.self, forKey: .parSource)
+        self.blueYards = try container.decode(Int.self, forKey: .blueYards)
+        self.routeLenM = try container.decode(Double.self, forKey: .routeLenM)
+        self.route = try container.decodeIfPresent([[Double]].self, forKey: .route) ?? []
+        self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage) ?? "missing"
+        self.sourceRefs = try container.decodeIfPresent([String].self, forKey: .sourceRefs) ?? []
+        self.missingData = try container.decodeIfPresent([CoursePrepMissingData].self, forKey: .missingData) ?? []
+        self.candidateRoutes = try container.decodeIfPresent([CoursePrepCandidateRoute].self, forKey: .candidateRoutes) ?? []
+        self.carryTargets = try container.decodeIfPresent([CoursePrepCarryTarget].self, forKey: .carryTargets) ?? []
+        self.steps = try container.decode([CoursePrepStep].self, forKey: .steps)
+        self.cautions = try container.decode([String].self, forKey: .cautions)
+        self.landingM = try container.decodeIfPresent(Double.self, forKey: .landingM)
+        self.teeClub = try container.decodeIfPresent(String.self, forKey: .teeClub)
+        self.hazards = try container.decode(CoursePrepHazards.self, forKey: .hazards)
+        self.map = try container.decodeIfPresent(CoursePrepMap.self, forKey: .map)
     }
 }

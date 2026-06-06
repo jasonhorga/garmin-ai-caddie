@@ -8,6 +8,12 @@ final class CoursePrepTests: XCTestCase {
         {"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":1,
          "clubs":[{"name":"1W","m":200,"yd":219},{"name":"7I","m":128,"yd":140}],
          "holes":[{"hole":1,"par":5,"par_source":"played","blue_yards":523,"route_len_m":478.4,
+           "route":[[100.0,1000.0,0.0],[200.0,100.0,478.4]],
+           "geometryCoverage":"ready",
+           "sourceRefs":["course:31870","geometry:31870:1"],
+           "missingData":[],
+           "candidateRoutes":[{"id":"stock","club":"1W","carryM":200.0,"riskScore":1.0}],
+           "carryTargets":[{"kind":"landing","distanceM":200.0}],
            "steps":[{"club":"1W","note":"开球落点约 219y"},{"club":"7I","note":"剩约 140y 上果岭"}],
            "cautions":["果岭边沙坑（约 480y）——别短别偏"],
            "landing_m":200.0,"tee_club":"1W",
@@ -27,6 +33,10 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.teeClub, "1W")
         XCTAssertEqual(hole.steps.count, 2)
         XCTAssertEqual(hole.hazards.bunkers.first, [440.0, 12.0])
+        XCTAssertEqual(hole.geometryCoverage, "ready")
+        XCTAssertEqual(hole.sourceRefs, ["course:31870", "geometry:31870:1"])
+        XCTAssertEqual(hole.candidateRoutes.first?.id, "stock")
+        XCTAssertEqual(hole.carryTargets.first?.kind, "landing")
         let map = try XCTUnwrap(hole.map)
         XCTAssertEqual(map.overlay.route.count, 2)
         XCTAssertEqual(map.overlay.ln, 478.4, accuracy: 0.01)

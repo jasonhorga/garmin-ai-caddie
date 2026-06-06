@@ -949,6 +949,7 @@ class MobileContractTests(unittest.TestCase):
 
     def test_swift_models_define_codable_contract_types(self) -> None:
         package_swift = (IOS_DIR / "Models" / "LiveRoundPackage.swift").read_text(encoding="utf-8")
+        course_prep_swift = (IOS_DIR / "Models" / "CoursePrep.swift").read_text(encoding="utf-8")
         event_swift = (IOS_DIR / "Models" / "LiveRoundEvent.swift").read_text(encoding="utf-8")
 
         self.assertIn("struct LiveRoundPackage: Codable", package_swift)
@@ -969,6 +970,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let eventCursor: EventCursor", package_swift)
         self.assertIn("let recentHistory: RecentHistory", package_swift)
         self.assertIn("let cachedCaddieRules: CachedCaddieRules", package_swift)
+        self.assertIn("let coursePrep: CoursePrepPackage?", package_swift)
         self.assertIn("let caddieContextSeeds: [CaddieContextSeed]", package_swift)
         self.assertIn("struct CaddieContextSeed: Codable", package_swift)
         self.assertIn("let selectedOfflineOptionId: String?", package_swift)
@@ -990,6 +992,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("self.rounds = rounds ?? []", package_swift)
         self.assertIn("let lastAckedServerSequence: Int?", package_swift)
         self.assertIn("let replayEndpoint: String?", package_swift)
+        self.assertIn("struct CoursePrepPackage: Codable, Equatable", course_prep_swift)
+        self.assertIn("let geometryCoverage: String", course_prep_swift)
+        self.assertIn("let sourceRefs: [String]", course_prep_swift)
+        self.assertIn("let missingData: [CoursePrepMissingData]", course_prep_swift)
+        self.assertIn("let candidateRoutes: [CoursePrepCandidateRoute]", course_prep_swift)
+        self.assertIn("let carryTargets: [CoursePrepCarryTarget]", course_prep_swift)
         self.assertIn("struct LiveRoundEvent: Codable", event_swift)
         self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
         self.assertIn('case syncMarker = "sync_marker"', event_swift)

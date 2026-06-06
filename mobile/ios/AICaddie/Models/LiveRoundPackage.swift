@@ -22,6 +22,7 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let playerProfile: PlayerProfile
     public let course: Course
     public let holes: [Hole]
+    public let coursePrep: CoursePrepPackage?
     public let geometryCoverage: GeometryCoverage
     public let readinessChecks: [PackageReadinessCheck]
     public let caddieContextSeeds: [CaddieContextSeed]
@@ -43,6 +44,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         playerProfile: PlayerProfile,
         course: Course,
         holes: [Hole],
+        coursePrep: CoursePrepPackage? = nil,
         geometryCoverage: GeometryCoverage,
         readinessChecks: [PackageReadinessCheck],
         caddieContextSeeds: [CaddieContextSeed],
@@ -63,6 +65,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.playerProfile = playerProfile
         self.course = course
         self.holes = holes
+        self.coursePrep = coursePrep
         self.geometryCoverage = geometryCoverage
         self.readinessChecks = readinessChecks
         self.caddieContextSeeds = caddieContextSeeds
