@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -41,6 +44,39 @@ class EstimateTests(unittest.TestCase):
         self.assertEqual(cr.estimate_par_from_length(210), 4)
         self.assertEqual(cr.estimate_par_from_length(449), 4)
         self.assertEqual(cr.estimate_par_from_length(450), 5)
+
+
+class PersistenceTests(unittest.TestCase):
+    def test_save_and_load_preserves_source_confidence_provenance_and_yardage(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rec = cr.CoursePar(
+                global_id=31936,
+                par=[4, 5, 3, 4, 3, 4, 4, 5, 4],
+                par_source="courseview",
+                confidence="high",
+                provenance="courseview_release",
+                course_name="Fixture C",
+                handicap=[6, 3, 2, 1, 9, 5, 8, 7, 4],
+                yardages_m=[360, 470, 160, 380, 155, 390, 410, 455, 370],
+                yardage_source="courseview",
+                yardage_confidence="high",
+                yardage_provenance="courseview_release",
+            )
+
+            cr.save_course_par(rec, root=root)
+            loaded = cr.load_course_par(31936, root=root)
+
+        self.assertEqual(loaded, rec)
+
+    def test_load_course_par_ignores_corrupt_or_incomplete_records(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "data" / "courses" / "31936.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({"global_id": 31936, "par": "not-a-list", "par_source": "courseview"}), encoding="utf-8")
+
+            self.assertIsNone(cr.load_course_par(31936, root=root))
 
 
 class ResolveLadderTests(unittest.TestCase):

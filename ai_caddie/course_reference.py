@@ -33,6 +33,10 @@ class CoursePar:
     provenance: str | None = None
     course_name: str | None = None
     handicap: list[int] | None = None
+    yardages_m: list[float] | None = None
+    yardage_source: str | None = None
+    yardage_confidence: str | None = None
+    yardage_provenance: str | None = None
 
 
 def _digits_to_pars(value: object) -> list[int] | None:
@@ -40,6 +44,17 @@ def _digits_to_pars(value: object) -> list[int] | None:
         return None
     pars = [int(c) for c in str(value) if c.isdigit()]
     return pars or None
+
+
+def _valid_par_list(value: object) -> bool:
+    return isinstance(value, list) and bool(value) and all(isinstance(item, int) for item in value)
+
+
+def _valid_optional_number_list(value: object) -> bool:
+    return value is None or (
+        isinstance(value, list)
+        and all(isinstance(item, (int, float)) for item in value)
+    )
 
 
 def estimate_par_from_length(length_m: float) -> int:
@@ -144,7 +159,25 @@ def load_course_par(global_id: int, *, root: Path = ROOT) -> CoursePar | None:
     path = _store_path(global_id, root=root)
     if not path.exists():
         return None
-    return CoursePar(**read_json(path))
+    try:
+        payload = read_json(path)
+        if not isinstance(payload, dict):
+            return None
+        if int(payload.get("global_id")) != int(global_id):
+            return None
+        if not _valid_par_list(payload.get("par")):
+            return None
+        if not str(payload.get("par_source") or "").strip():
+            return None
+        if not str(payload.get("confidence") or "").strip():
+            return None
+        if payload.get("provenance") is None:
+            return None
+        if not _valid_optional_number_list(payload.get("yardages_m")):
+            return None
+        return CoursePar(**payload)
+    except (TypeError, ValueError, KeyError):
+        return None
 
 
 def save_course_par(record: CoursePar, *, root: Path = ROOT) -> None:
