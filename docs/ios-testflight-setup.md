@@ -51,6 +51,20 @@ but does not create a new app record for this account.
 - Install from TestFlight on your iPhone after the build is assigned to a tester/group;
   the watch app installs alongside it.
 
+## Export compliance
+
+The current iOS and Watch apps declare `ITSAppUsesNonExemptEncryption=false` in
+their `Info.plist` files. They do not ship proprietary encryption; network
+transport uses Apple/system HTTPS stacks, and the only explicit CryptoKit use is
+a local SHA-256 fingerprint for Garmin session deduplication.
+
+If App Store Connect asks which encryption algorithms the app uses, choose the
+option equivalent to **none of the algorithms listed above**. Do not select
+proprietary/custom encryption, and do not upload an export compliance document
+for the current build. The `iOS TestFlight Testers` workflow also sets
+`usesNonExemptEncryption=false` on the selected TestFlight build before external
+distribution.
+
 ## Backend reachability (for the app to load data)
 
 The phone needs the API reachable. `server_v2` ships via `fly.toml` / `render.yaml` /

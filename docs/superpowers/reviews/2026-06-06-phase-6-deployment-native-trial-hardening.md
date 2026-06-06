@@ -52,6 +52,11 @@ Implemented the locally verifiable Phase 6 hardening work from
   email guard: set `TESTFLIGHT_FEEDBACK_EMAIL` before submitting Beta App
   Review. The value is not accepted as workflow input because the repo is
   public.
+- Export compliance is configured for the current app/watch build as exempt:
+  both native `Info.plist` files declare `ITSAppUsesNonExemptEncryption=false`,
+  the TestFlight tester workflow sets `usesNonExemptEncryption=false`, and the
+  App Store Connect encryption form should use the option equivalent to none of
+  the listed encryption algorithms for this build.
 
 ## GitHub Actions Guardrail
 
@@ -293,6 +298,11 @@ Result: PASS. `tests.test_ci_workflow` ran 17 tests in 0.159s, and
 six-secret signing boundary, TestFlight feedback-email guard, build-time native
 API URL wiring, iOS `Info.plist` key, XcodeGen build setting, and Swift fallback
 behavior.
+
+Follow-up export-compliance contract checks now parse the iOS and Watch
+`Info.plist` files to verify `ITSAppUsesNonExemptEncryption=false`, and assert
+that the TestFlight setup guide documents the App Store Connect encryption-form
+selection for the current build.
 
 ```bash
 docker run --rm --name ai-caddie-api-smoke -p 127.0.0.1:9000:9000 -e AI_CADDIE_SECURITY_PROFILE=private -e AI_CADDIE_ADMIN_TOKEN=container-smoke-token -e AI_CADDIE_DATA_MODE=fixture -e AI_CADDIE_LLM_PROVIDER=static ai-caddie-api:config-check

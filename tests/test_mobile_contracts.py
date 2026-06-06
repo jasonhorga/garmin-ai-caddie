@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import plistlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -1102,6 +1103,8 @@ class MobileContractTests(unittest.TestCase):
     def test_ios_and_watch_info_plists_declare_required_live_permissions(self) -> None:
         ios_plist = _read_required_source(self, IOS_DIR / "Info.plist")
         watch_plist = _read_required_source(self, WATCH_DIR / "Info.plist")
+        ios_values = plistlib.loads((IOS_DIR / "Info.plist").read_bytes())
+        watch_values = plistlib.loads((WATCH_DIR / "Info.plist").read_bytes())
 
         for expected in [
             "CFBundleExecutable",
@@ -1145,6 +1148,8 @@ class MobileContractTests(unittest.TestCase):
             "WKApplication",
         ]:
             self.assertIn(expected, watch_plist)
+        self.assertIs(ios_values["ITSAppUsesNonExemptEncryption"], False)
+        self.assertIs(watch_values["ITSAppUsesNonExemptEncryption"], False)
 
     def test_ios_and_watch_app_icons_are_packaged_for_testflight_upload(self) -> None:
         project = _read_required_source(self, Path("mobile") / "ios" / "project.yml")

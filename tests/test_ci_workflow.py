@@ -179,6 +179,7 @@ class CIWorkflowTests(unittest.TestCase):
         workflow_path = Path(".github/workflows/ios-testflight-testers.yml")
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
         text = workflow_path.read_text(encoding="utf-8")
+        setup_doc = Path("docs/ios-testflight-setup.md").read_text(encoding="utf-8")
         triggers = workflow[True]
         inputs = triggers["workflow_dispatch"]["inputs"]
 
@@ -212,6 +213,9 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("TESTFLIGHT_FEEDBACK_EMAIL or fill Beta App feedback email", text)
         self.assertIn("beta_metadata_pending?", text)
         self.assertIn("sleep 10", text)
+        self.assertIn("uses_non_exempt_encryption: false", text)
+        self.assertIn("usesNonExemptEncryption=false", setup_doc)
+        self.assertIn("none of the algorithms listed above", setup_doc)
         self.assertIn("redact_email", text)
         self.assertIn('APP_IDENTIFIER = "com.ai-caddie.mobile"', text)
         self.assertIn("App.find(APP_IDENTIFIER)", text)
