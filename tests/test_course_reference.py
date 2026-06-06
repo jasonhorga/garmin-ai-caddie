@@ -98,6 +98,27 @@ class ResolveLadderTests(unittest.TestCase):
         self.assertEqual(rec.par, [4, 5, 3, 4, 3, 4, 4, 5, 4])
         self.assertEqual(rec.handicap, [6, 3, 2, 1, 9, 5, 8, 7, 4])
 
+    def test_courseview_record_persists_yardage_metadata(self) -> None:
+        holes = [
+            {"par": p, "handicap": h, "yardage_or_length": y}
+            for p, h, y in zip(
+                [4, 5, 3, 4, 3, 4, 4, 5, 4],
+                [6, 3, 2, 1, 9, 5, 8, 7, 4],
+                [360, 470, 160, 380, 155, 390, 410, 455, 370],
+            )
+        ]
+        saved: dict[int, cr.CoursePar] = {}
+        with patch.object(cr, "played_par_by_nine", return_value={}), \
+                patch.object(cr, "_release_holes", return_value=holes), \
+                patch.object(cr, "save_course_par", side_effect=lambda record, **_: saved.__setitem__(record.global_id, record)):
+            rec = cr.resolve_par(31936)
+
+        self.assertEqual(rec.yardages_m, [360, 470, 160, 380, 155, 390, 410, 455, 370])
+        self.assertEqual(rec.yardage_source, "courseview")
+        self.assertEqual(rec.yardage_confidence, "high")
+        self.assertEqual(rec.yardage_provenance, "courseview_release")
+        self.assertEqual(saved[31936].yardages_m, rec.yardages_m)
+
     def test_estimate_when_no_release(self) -> None:
         with patch.object(cr, "played_par_by_nine", return_value={}), \
                 patch.object(cr, "_release_holes", return_value=None), \
@@ -105,6 +126,21 @@ class ResolveLadderTests(unittest.TestCase):
             rec = cr.resolve_par(99999, lengths_m=[150, 460, 300, 300, 300, 300, 300, 300, 300])
         self.assertEqual(rec.par_source, "estimate")
         self.assertEqual(rec.par[:2], [3, 5])
+
+    def test_estimate_persists_length_yardage_metadata_without_overriding_courseview(self) -> None:
+        lengths = [150, 460, 300, 300, 300, 300, 300, 300, 300]
+        with patch.object(cr, "played_par_by_nine", return_value={}), \
+                patch.object(cr, "_release_holes", return_value=None), \
+                patch.object(cr, "save_course_par") as save:
+            rec = cr.resolve_par(99999, lengths_m=lengths)
+
+        self.assertEqual(rec.par_source, "estimate")
+        self.assertEqual(rec.confidence, "medium")
+        self.assertEqual(rec.yardages_m, lengths)
+        self.assertEqual(rec.yardage_source, "length_estimate")
+        self.assertEqual(rec.yardage_confidence, "medium")
+        self.assertEqual(rec.yardage_provenance, "length_estimate")
+        save.assert_called_once()
 
     def test_none_when_nothing(self) -> None:
         with patch.object(cr, "played_par_by_nine", return_value={}), \

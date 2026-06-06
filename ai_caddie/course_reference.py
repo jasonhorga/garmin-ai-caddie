@@ -240,6 +240,13 @@ def courseview_par(global_id: int, *, allow_fetch: bool = True, root: Path = ROO
     return pars if pars and all(isinstance(p, int) for p in pars) else None
 
 
+def _hole_yardages(holes: list[dict]) -> list[float] | None:
+    values = [hole.get("yardage_or_length") for hole in holes]
+    if values and all(isinstance(value, (int, float)) for value in values):
+        return [float(value) for value in values]
+    return None
+
+
 def _courseview_record(
     global_id: int,
     *,
@@ -256,10 +263,15 @@ def _courseview_record(
     if not (pars and all(isinstance(p, int) for p in pars)):
         return None
     hcaps = [h.get("handicap") for h in holes]
+    yardages = _hole_yardages(holes)
     rec = CoursePar(
         gid, pars, "courseview", "high",
         provenance="courseview_release", course_name=course_name,
         handicap=hcaps if all(isinstance(h, int) for h in hcaps) else None,
+        yardages_m=yardages,
+        yardage_source="courseview" if yardages else None,
+        yardage_confidence="high" if yardages else None,
+        yardage_provenance="courseview_release" if yardages else None,
     )
     save_course_par(rec, root=root)
     return rec
@@ -287,8 +299,18 @@ def resolve_par(
         return rec
     if lengths_m:
         est = [estimate_par_from_length(x) for x in lengths_m]
-        rec = CoursePar(gid, est, "estimate", "medium",
-                        provenance="length_estimate", course_name=course_name)
+        rec = CoursePar(
+            gid,
+            est,
+            "estimate",
+            "medium",
+            provenance="length_estimate",
+            course_name=course_name,
+            yardages_m=[float(x) for x in lengths_m],
+            yardage_source="length_estimate",
+            yardage_confidence="medium",
+            yardage_provenance="length_estimate",
+        )
         save_course_par(rec, root=root)
         return rec
     return None
