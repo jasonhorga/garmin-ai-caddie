@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass, field
 
 from ai_caddie import course_reference, hole_render
 from ai_caddie.data import build_club_profiles, read_json
+from ai_caddie.geometry_evidence import geometry_coverage_for_hole
 
 YARD = 1.09361
 DEFAULT_LADDER = {  # metres; overridden by the player's real club model when available
@@ -178,16 +179,27 @@ def club_for(distance_m: float, ladder, *, exclude=()):
 
 @dataclass
 class HolePrep:
+    globalId: int
+    localHole: int
     hole: int
     par: int
     par_source: str
     blue_yards: int
     route_len_m: float
+    route: list[list[float]] = field(default_factory=list)
+    geometryCoverage: str = "missing"
+    sourceRefs: list[str] = field(default_factory=list)
+    missingData: list[dict] = field(default_factory=list)
+    candidateRoutes: list[dict] = field(default_factory=list)
+    carryTargets: list[dict] = field(default_factory=list)
     steps: list[dict] = field(default_factory=list)
     cautions: list[str] = field(default_factory=list)
     landing_m: float | None = None
     tee_club: str | None = None
     hazards: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
@@ -216,6 +228,41 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
     return steps, cautions, landing, tee_club
 
 
+def _route_with_cumulative(route: list[tuple[float, float]]) -> list[list[float]]:
+    out: list[list[float]] = []
+    cumulative = 0.0
+    for index, point in enumerate(route):
+        if index:
+            previous = route[index - 1]
+            cumulative += math.hypot(point[0] - previous[0], point[1] - previous[1])
+        out.append([round(point[0], 1), round(point[1], 1), round(cumulative, 1)])
+    return out
+
+
+def _candidate_routes(ladder: list[tuple[str, int]], hazards: dict) -> list[dict]:
+    if not ladder:
+        return []
+    longest_name, longest_m = ladder[0]
+    safe_name, safe_m = next((row for row in ladder[1:] if row[1] >= 120), ladder[0])
+    risk = 3 if (hazards.get("water_carry") or hazards.get("bunkers")) else 1
+    return [
+        {"id": "safe", "club": safe_name, "carryM": float(safe_m), "riskScore": 0, "source": "course_prep"},
+        {"id": "stock", "club": longest_name, "carryM": float(longest_m), "riskScore": 1, "source": "course_prep"},
+        {"id": "attack", "club": longest_name, "carryM": float(longest_m), "riskScore": risk, "source": "course_prep"},
+    ]
+
+
+def _carry_targets(landing_m: float | None, hazards: dict) -> list[dict]:
+    rows: list[dict] = []
+    if landing_m is not None:
+        rows.append({"kind": "landing", "distanceM": round(landing_m, 1)})
+    for start, end in hazards.get("water_carry") or []:
+        rows.append({"kind": "water_clear", "enterM": float(start), "clearM": float(end)})
+    for distance, side in hazards.get("bunkers") or []:
+        rows.append({"kind": "bunker", "distanceM": float(distance), "sideM": float(side)})
+    return rows
+
+
 def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, render=True) -> HolePrep | None:
     """Compose pre-round prep for one hole. Returns None if geometry is unavailable."""
     try:
@@ -237,13 +284,32 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         par_source = "estimate"
     hazards = route_hazards(by, route)
     steps, cautions, landing, tee_club = _strategy(par, route_len, hazards, ladder)
+    try:
+        coverage = geometry_coverage_for_hole(global_id, local_hole)
+    except Exception:
+        coverage = {
+            "coverage": "missing",
+            "missingData": [{"label": "geometry", "reason": "prodgeometry geometry could not be loaded"}],
+        }
+    missing_data = [
+        row
+        for row in coverage.get("missingData", [])
+        if isinstance(row, dict)
+    ]
     prep = HolePrep(
+        globalId=int(global_id), localHole=int(local_hole),
         hole=local_hole, par=par, par_source=par_source,
         blue_yards=yd(route_len), route_len_m=round(route_len, 1),
+        route=_route_with_cumulative(route),
+        geometryCoverage=str(coverage.get("coverage") or "missing"),
+        sourceRefs=[f"course:{int(global_id)}", f"geometry:{int(global_id)}:{int(local_hole)}"],
+        missingData=missing_data,
+        candidateRoutes=_candidate_routes(ladder, hazards),
+        carryTargets=_carry_targets(landing, hazards),
         steps=steps, cautions=cautions, landing_m=(round(landing, 1) if landing else None),
         tee_club=tee_club, hazards=hazards,
     )
-    result = asdict(prep)
+    result = prep.to_dict()
     if render:
         image, meta = hole_render.render_hole(global_id, local_hole, route, route_len, landing_m=landing)
         result["map"] = {"image": image, "overlay": meta}

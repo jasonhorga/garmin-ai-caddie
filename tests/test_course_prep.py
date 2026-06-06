@@ -76,6 +76,37 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(prep.par, 5)
         self.assertEqual(prep.par_source, "estimate")
 
+    def test_prep_hole_returns_source_refs_route_carry_targets_and_candidate_routes(self) -> None:
+        md = {"hole": {
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
+            "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 320.0}]}],
+        }}
+        with patch.object(cp.hole_render, "load_mesh", return_value=(md, {})), \
+                patch("ai_caddie.course_prep.geometry_coverage_for_hole", return_value={
+                    "coverage": "ready",
+                    "evidence": [{"label": "hazards", "ref": "output/prodgeometry_hazards/gid99999_h01_hazards.json"}],
+                    "missingData": [],
+                }, create=True):
+            prep = cp.prep_hole(
+                99999,
+                1,
+                ladder=[("1W", 200), ("7I", 128)],
+                par_record=CoursePar(global_id=99999, par=[4], par_source="courseview", confidence="high"),
+                render=False,
+            )
+
+        self.assertIsNotNone(prep)
+        row = prep if isinstance(prep, dict) else prep.to_dict()
+        self.assertEqual(row["globalId"], 99999)
+        self.assertEqual(row["localHole"], 1)
+        self.assertEqual(row["geometryCoverage"], "ready")
+        self.assertEqual(row["sourceRefs"], ["course:99999", "geometry:99999:1"])
+        self.assertEqual(row["missingData"], [])
+        self.assertEqual(row["route"][0], [0.0, 0.0, 0.0])
+        self.assertEqual(row["route"][-1], [0.0, 320.0, 320.0])
+        self.assertEqual([row["id"] for row in row["candidateRoutes"]], ["safe", "stock", "attack"])
+        self.assertTrue(any(target["kind"] == "landing" for target in row["carryTargets"]))
+
     def test_par3_strategy_one_club_to_green(self) -> None:
         ladder = [("1W", 200), ("7I", 128), ("PW", 102)]
         steps, cautions, landing, tee = cp._strategy(3, 128, {"water_carry": [], "bunkers": []}, ladder)
