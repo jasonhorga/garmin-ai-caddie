@@ -62,7 +62,7 @@
 - Modify if needed: `render.yaml`, `fly.toml`, `Dockerfile`, `docker-compose.yml`, `web_v2/vercel.json`
 - Modify: `tests/test_deployment_manifests.py`
 
-- [ ] **Step 1: Write failing docs/manifest contract test**
+- [x] **Step 1: Write failing docs/manifest contract test**
 
 Add to `tests/test_deployment_manifests.py`:
 
@@ -87,7 +87,7 @@ def test_private_trial_docs_include_local_and_cloud_smoke_commands(self) -> None
     self.assertNotIn("connect-csrf-token", text)
 ```
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run:
 
@@ -97,7 +97,7 @@ uv run python -m unittest tests.test_deployment_manifests.DeploymentManifestTest
 
 Expected: FAIL if the docs omit any command or secret-safety statement.
 
-- [ ] **Step 3: Update docs/manifests**
+- [x] **Step 3: Update docs/manifests**
 
 In `docs/deployment/private-trial.md`, include these command blocks:
 
@@ -122,7 +122,7 @@ uv run python ops/import_snapshot.py data/backups/private-snapshot.tar.gz --targ
 
 Document that Render/Fly/Vercel CLI deployment is allowed only when provider credentials are already configured in the environment, and TestFlight is excluded from routine Phase 6 unless explicitly requested.
 
-- [ ] **Step 4: Run manifest suite**
+- [x] **Step 4: Run manifest suite**
 
 Run:
 
@@ -132,7 +132,7 @@ uv run python -m unittest tests.test_deployment_manifests -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/deployment/private-trial.md render.yaml fly.toml Dockerfile docker-compose.yml web_v2/vercel.json tests/test_deployment_manifests.py
@@ -147,7 +147,7 @@ git commit -m "docs: harden private trial deployment runbook"
 - Modify: `tests/test_snapshot_import_export.py`
 - Modify: `tests/test_server_v2_readiness.py`
 
-- [ ] **Step 1: Write failing evidence tests**
+- [x] **Step 1: Write failing evidence tests**
 
 Add to `tests/test_snapshot_import_export.py`:
 
@@ -193,7 +193,7 @@ def test_readiness_reports_private_snapshot_acceptance_state(self) -> None:
     self.assertEqual(checks["private_snapshot_acceptance"]["state"], "ready")
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -203,7 +203,7 @@ uv run python -m unittest tests.test_snapshot_import_export tests.test_server_v2
 
 Expected: FAIL if manifest return/evidence fields are missing.
 
-- [ ] **Step 3: Implement evidence shape**
+- [x] **Step 3: Implement evidence shape**
 
 In `ops/export_snapshot.py`, have `export_snapshot()` return:
 
@@ -233,7 +233,7 @@ In `ops/backup_data.sh`, write `latest.json` with:
 
 In `server_v2/readiness.py`, ensure the private snapshot check reads `data/snapshots/accepted_private_snapshot.json`, redacts paths, and degrades when missing or stale.
 
-- [ ] **Step 4: Run tests to verify GREEN**
+- [x] **Step 4: Run tests to verify GREEN**
 
 Run:
 
@@ -243,7 +243,7 @@ uv run python -m unittest tests.test_snapshot_import_export tests.test_server_v2
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ops/backup_data.sh ops/export_snapshot.py ops/import_snapshot.py ops/accept_private_snapshot.py server_v2/readiness.py tests/test_snapshot_import_export.py tests/test_server_v2_readiness.py
@@ -258,7 +258,7 @@ git commit -m "feat: record portable private snapshot readiness"
 - Modify: `tests/test_ci_workflow.py`
 - Modify: `tests/test_server_v2_readiness.py`
 
-- [ ] **Step 1: Write failing smoke evidence tests**
+- [x] **Step 1: Write failing smoke evidence tests**
 
 Add to `tests/test_ci_workflow.py`:
 
@@ -273,7 +273,7 @@ def test_private_trial_smoke_writes_secret_free_evidence_file(self) -> None:
     self.assertIn("adminProtectedEndpointCount", text)
 ```
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run:
 
@@ -283,7 +283,7 @@ uv run python -m unittest tests.test_ci_workflow.CIWorkflowTests.test_private_tr
 
 Expected: FAIL if smoke evidence output is not documented/implemented.
 
-- [ ] **Step 3: Implement smoke evidence**
+- [x] **Step 3: Implement smoke evidence**
 
 In `ops/smoke_private_trial.sh`, after all endpoint probes pass, write JSON to `${AI_CADDIE_PRIVATE_SMOKE_EVIDENCE:-data/smoke/private-trial-smoke.json}`:
 
@@ -313,7 +313,7 @@ csrf
 
 Update readiness to consume this evidence and degrade when stale/missing.
 
-- [ ] **Step 4: Run tests to verify GREEN**
+- [x] **Step 4: Run tests to verify GREEN**
 
 Run:
 
@@ -323,7 +323,7 @@ uv run python -m unittest tests.test_ci_workflow tests.test_server_v2_readiness 
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ops/smoke_private_trial.sh server_v2/readiness.py tests/test_ci_workflow.py tests/test_server_v2_readiness.py
@@ -339,7 +339,7 @@ git commit -m "feat: record private trial smoke evidence"
 - Modify: `tests/test_native_build_evidence.py`
 - Modify: `mobile/ios/README.md`
 
-- [ ] **Step 1: Write failing native gate tests**
+- [x] **Step 1: Write failing native gate tests**
 
 Add to `tests/test_ci_workflow.py`:
 
@@ -355,7 +355,7 @@ def test_testflight_workflows_are_manual_only_and_secret_driven(self) -> None:
         self.assertNotIn("AI_CADDIE_ADMIN_TOKEN=", text)
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -365,7 +365,7 @@ uv run python -m unittest tests.test_ci_workflow.CIWorkflowTests.test_testflight
 
 Expected: FAIL if workflows are not manual/secret-driven.
 
-- [ ] **Step 3: Harden workflows/evidence**
+- [x] **Step 3: Harden workflows/evidence**
 
 Ensure:
 
@@ -382,7 +382,7 @@ xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddieWat
 python3 ops/write_native_build_evidence.py
 ```
 
-- [ ] **Step 4: Run tests to verify GREEN**
+- [x] **Step 4: Run tests to verify GREEN**
 
 Run:
 
@@ -392,7 +392,7 @@ uv run python -m unittest tests.test_ci_workflow tests.test_native_build_evidenc
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .github/workflows/native-mobile.yml .github/workflows/ios-signing-bootstrap.yml .github/workflows/ios-testflight.yml ops/write_native_build_evidence.py tests/test_ci_workflow.py tests/test_native_build_evidence.py mobile/ios/README.md
@@ -405,7 +405,7 @@ git commit -m "test: harden native release gates"
 - Create: `docs/superpowers/reviews/2026-06-06-phase-6-deployment-native-trial-hardening.md`
 - Modify: `docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md`
 
-- [ ] **Step 1: Start local private API**
+- [x] **Step 1: Start local private API**
 
 Run in a background shell:
 
@@ -418,7 +418,7 @@ uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000
 
 Expected: server listens on `http://127.0.0.1:9000`.
 
-- [ ] **Step 2: Run private trial smoke**
+- [x] **Step 2: Run private trial smoke**
 
 Run:
 
@@ -430,7 +430,7 @@ ops/smoke_private_trial.sh http://127.0.0.1:9000
 
 Expected: PASS and evidence file exists.
 
-- [ ] **Step 3: Run backup/export/import verification**
+- [x] **Step 3: Run backup/export/import verification**
 
 Run:
 
@@ -441,7 +441,7 @@ uv run python ops/import_snapshot.py /tmp/ai-caddie-private-snapshot.tar.gz --ta
 
 Expected: PASS; no credentials, `.garmin_tokens`, local private paths, or `clubs.json` unless explicitly included.
 
-- [ ] **Step 4: Run Phase 6 target tests**
+- [x] **Step 4: Run Phase 6 target tests**
 
 Run:
 
@@ -452,7 +452,7 @@ git diff --check
 
 Expected: PASS.
 
-- [ ] **Step 5: Record evidence**
+- [x] **Step 5: Record evidence**
 
 Create `docs/superpowers/reviews/2026-06-06-phase-6-deployment-native-trial-hardening.md`:
 
@@ -495,11 +495,11 @@ Result: PASS.
 - Cloud deploy requires provider credentials or an already configured CLI session.
 ```
 
-- [ ] **Step 6: Mark roadmap Phase 6 complete**
+- [x] **Step 6: Mark roadmap Phase 6 complete**
 
 In `docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md`, mark Phase 6 checkboxes complete only after local smoke and target tests pass. If cloud deployment or TestFlight cannot run because credentials are absent, record the exact skipped item in the evidence and leave only that item unchecked.
 
-- [ ] **Step 7: Commit evidence**
+- [x] **Step 7: Commit evidence**
 
 ```bash
 git add docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md docs/superpowers/reviews/2026-06-06-phase-6-deployment-native-trial-hardening.md
