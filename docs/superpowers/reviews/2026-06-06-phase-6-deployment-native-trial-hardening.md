@@ -36,9 +36,8 @@ Implemented the locally verifiable Phase 6 hardening work from
 - `iOS Signing Bootstrap (one-time)` succeeded on `integration/v2`, proving
   App Store distribution cert/profile generation for `com.ai-caddie.mobile`
   and `com.ai-caddie.mobile.watchkitapp`.
-- `iOS TestFlight (CD)` reached archive/export and produced a signed IPA
-  artifact before upload. Upload is blocked only because App Store Connect does
-  not yet have an app record for `com.ai-caddie.mobile`.
+- `iOS TestFlight (CD)` now archives, exports, and uploads the signed iOS +
+  watch IPA to App Store Connect/TestFlight.
 
 ## GitHub Actions Guardrail
 
@@ -152,28 +151,37 @@ Result: PASS. Job `bootstrap` completed successfully. Steps
 `Validate signing secrets` and `fastlane bootstrap_signing` both succeeded.
 
 ```text
-GitHub Actions run 27068471126
+GitHub Actions run 27068933612
 Workflow: iOS TestFlight (CD)
 Ref: integration/v2
-Conclusion: failure
-Artifact: AICaddie-ipa, 1,236,710 bytes, created 2026-06-06T17:04:29Z
+Head SHA: 3a3d334888fd2ea1ffb2d6a200e7f75c922d2086
+Conclusion: success
+Artifact: AICaddie-ipa, 1,572,687 bytes, created 2026-06-06T17:26:49Z
+App Store Connect app id: 6777484211
+Version: 0.1.0
+Build: 2
 ```
 
-Result: PARTIAL PASS. The workflow installed match signing assets, archived the
-iOS + watch app, and exported a signed IPA at `build/ios/AICaddie.ipa`.
-It failed only at `upload_to_testflight` with:
+Result: PASS. The workflow installed match signing assets, archived the iOS +
+watch app, exported a signed IPA at `build/ios/AICaddie.ipa`, and uploaded it to
+App Store Connect/TestFlight. Fastlane logged:
 
 ```text
-Couldn't find app 'com.ai-caddie.mobile' on the account of '' on App Store Connect
+Successfully uploaded package to App Store Connect. It might take a few minutes until it's visible online.
+Successfully uploaded the new binary to App Store Connect
+fastlane.tools finished successfully
 ```
 
-The successful bootstrap log also showed why the app record must be created
-manually:
+The uploaded IPA artifact was inspected after download. It contains:
 
 ```text
-The resource 'apps' does not allow 'CREATE'. Allowed operations are:
-GET_COLLECTION, GET_INSTANCE, UPDATE
+Payload/AICaddie.app/Assets.car
+Payload/AICaddie.app/Watch/AICaddieWatch.app/Assets.car
+Payload/AICaddie.app/live_round_package.fixture.json
 ```
+
+Both app plists include `CFBundleIconName=AppIcon`; the iOS plist includes the
+required iPad orientation declarations.
 
 ```bash
 docker run --rm --name ai-caddie-api-smoke -p 127.0.0.1:9000:9000 -e AI_CADDIE_SECURITY_PROFILE=private -e AI_CADDIE_ADMIN_TOKEN=container-smoke-token -e AI_CADDIE_DATA_MODE=fixture -e AI_CADDIE_LLM_PROVIDER=static ai-caddie-api:config-check
@@ -211,9 +219,8 @@ usage remained 52% after the build.
   credentials or an already configured deploy session were not available in
   this workspace.
 - Xcode simulator tests require macOS/Xcode and were not executable in this
-  Linux workspace. The GitHub macOS TestFlight workflow did compile/archive the
-  release app after signing was configured.
-- TestFlight upload is blocked until a one-time App Store Connect app record
-  exists for bundle ID `com.ai-caddie.mobile`. Create it in App Store Connect,
-  then rerun `iOS TestFlight (CD)` on `integration/v2`; signing bootstrap does
-  not need to be rerun.
+  Linux workspace. The GitHub macOS TestFlight workflow did compile, archive,
+  sign, export, and upload the release app.
+- Installation from TestFlight on the user's iPhone/watch was not verified from
+  this workspace. App Store Connect may still need a few minutes to finish build
+  processing before the build appears in TestFlight.

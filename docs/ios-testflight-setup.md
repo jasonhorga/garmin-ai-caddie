@@ -28,8 +28,8 @@ but does not create a new app record for this account.
 
 ## Shipping a build
 
-- Push a change under `mobile/ios/**` to `integration/v2`, **or** run the `iOS TestFlight (CD)`
-  workflow manually (with optional release notes). It runs `xcodegen generate` →
+- Run the `iOS TestFlight (CD)` workflow manually from `integration/v2` with
+  optional release notes. It runs `xcodegen generate` →
   `fastlane ios beta` → archives the app (with embedded watch app) → uploads to TestFlight.
 - Install from TestFlight on your iPhone; the watch app installs alongside it.
 
@@ -39,9 +39,8 @@ The phone needs the API reachable. `server_v2` ships via `fly.toml` / `render.ya
 `Dockerfile` — deploy it and point the app's `VITE_AI_CADDIE_API_BASE_URL` / mobile base URL
 at the deployed host. That needs a fly.io or Render token (the only other external switch).
 
-## Not verifiable from Linux
+## Verification Boundary
 
-The fastlane lanes + workflows are a faithful mirror of gomoku's working setup, but the
-archive/sign/upload only runs on the macOS runner. Expect the **first** `iOS TestFlight` run to
-surface a small project-specific tweak (watch-app provisioning, entitlements, or build settings);
-relay that CI log and it's a quick fix.
+The archive/sign/upload path runs on the GitHub macOS runner, not in this Linux workspace.
+Run `iOS TestFlight (CD)` and use the Actions log as the source of truth for signing,
+archive, export, and App Store Connect upload status.
