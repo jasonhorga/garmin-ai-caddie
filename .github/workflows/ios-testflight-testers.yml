@@ -180,14 +180,22 @@ jobs:
               puts "No TestFlight builds found."
             else
               builds.each do |build|
+                detail = build.build_beta_detail
+                beta_detail_state = if detail
+                                      "internalState=#{detail.internal_build_state} " \
+                                      "externalState=#{detail.external_build_state} " \
+                                      "autoNotify=#{detail.auto_notify_enabled} didNotify=#{detail.did_notify}"
+                                    else
+                                      "betaDetail=missing"
+                                    end
                 puts(
                   "- #{safely { build.app_version }} (#{build.version}) " \
                   "id=#{build.id} state=#{build.processing_state} expired=#{build.expired} " \
                   "usesNonExemptEncryption=#{build.uses_non_exempt_encryption.inspect} " \
                   "internalReady=#{safely { build.ready_for_internal_testing? }} " \
-                  "externalReady=#{safely { build.ready_for_external_testing? }} " \
                   "betaReviewReady=#{safely { build.ready_for_beta_submission? }} " \
-                  "missingExportCompliance=#{safely { build.missing_export_compliance? }}"
+                  "missingExportCompliance=#{safely { build.missing_export_compliance? }} " \
+                  "#{beta_detail_state}"
                 )
               end
             end
