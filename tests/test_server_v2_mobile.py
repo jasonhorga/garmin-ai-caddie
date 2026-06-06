@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie import stats_cache
 from ai_caddie.annotations import add_annotation
 from ai_caddie.decision import list_decision_audits, store_decision_audit
 from ai_caddie.history import HistoryData
@@ -41,13 +42,31 @@ class ServerV2MobileTests(unittest.TestCase):
     def test_mobile_round_package_matches_ios_sync_client_endpoint(self) -> None:
         client = TestClient(app)
 
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with (
-                patch("server_v2.mobile.MOBILE_ROOT", root),
-                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
-            ):
-                response = client.get("/api/v2/mobile/rounds/900001/package")
+        def missing_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "coverage": "missing",
+                "hasHazards": False,
+                "hasMeshes": False,
+                "evidence": [],
+                "missingData": [{"label": "geometry", "reason": "fixture test geometry intentionally isolated"}],
+            }
+
+        stats_cache.clear()
+        try:
+            with TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                with (
+                    patch("server_v2.mobile.MOBILE_ROOT", root),
+                    patch("ai_caddie.history_stats.geometry_coverage_for_hole", side_effect=missing_geometry),
+                    patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
+                    patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                ):
+                    response = client.get("/api/v2/mobile/rounds/900001/package")
+        finally:
+            stats_cache.clear()
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()

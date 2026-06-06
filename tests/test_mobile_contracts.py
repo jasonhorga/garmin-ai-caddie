@@ -8,6 +8,7 @@ import unittest
 
 from jsonschema import Draft202012Validator
 
+from ai_caddie import stats_cache
 from ai_caddie.annotations import add_annotation
 from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.history import HistoryData
@@ -673,7 +674,27 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(seeds[3]["context"]["weatherSnapshot"]["coverage"]["ready"], 2)
 
     def test_live_round_package_includes_offline_caddie_context_seeds(self) -> None:
-        package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")
+        def missing_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "coverage": "missing",
+                "hasHazards": False,
+                "hasMeshes": False,
+                "evidence": [],
+                "missingData": [{"label": "geometry", "reason": "fixture test geometry intentionally isolated"}],
+            }
+
+        stats_cache.clear()
+        try:
+            with (
+                patch("ai_caddie.history_stats.geometry_coverage_for_hole", side_effect=missing_geometry),
+                patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
+            ):
+                package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")
+        finally:
+            stats_cache.clear()
 
         self.assertEqual(package["dataMode"], "fixture")
         self.assertEqual(package["sourceCoverage"]["state"], "ready")
