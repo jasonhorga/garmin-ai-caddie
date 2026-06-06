@@ -1,0 +1,186 @@
+name: iOS TestFlight Testers
+
+# Manage TestFlight tester visibility after a binary has uploaded. This is
+# manual-only because tester emails and external distribution are user-specific.
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'list, add, or distribute'
+        required: true
+        default: 'list'
+        type: choice
+        options:
+          - list
+          - add
+          - distribute
+      tester_emails:
+        description: 'Comma/newline-separated external tester emails for add'
+        required: false
+        default: ''
+      groups:
+        description: 'Comma-separated TestFlight group names'
+        required: false
+        default: 'Private Trial'
+      app_version:
+        description: 'Optional TestFlight app version to distribute'
+        required: false
+        default: ''
+      build_number:
+        description: 'Optional TestFlight build number to distribute'
+        required: false
+        default: ''
+      notify_external_testers:
+        description: 'Notify external testers on distribute'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ios-testflight-testers
+  cancel-in-progress: false
+
+jobs:
+  testers:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Validate App Store Connect secrets
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY; do
+            eval "val=\${$v}"
+            test -n "$val" || { echo "Missing secret: $v"; exit 1; }
+          done
+
+      - name: Write transient App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          key_path = Path(os.environ["RUNNER_TEMP"]) / "asc_api_key.json"
+          private_key = os.environ["ASC_PRIVATE_KEY"].replace("\\n", "\n").replace("\r", "").strip()
+          key_path.write_text(
+              json.dumps(
+                  {
+                      "key_id": os.environ["ASC_KEY_ID"],
+                      "issuer_id": os.environ["ASC_ISSUER_ID"],
+                      "key": private_key,
+                      "in_house": False,
+                  }
+              ),
+              encoding="utf-8",
+          )
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"ASC_API_KEY_PATH={key_path}\n")
+          PY
+
+      - name: Manage TestFlight testers
+        env:
+          OPERATION: ${{ github.event.inputs.operation }}
+          TESTER_EMAILS: ${{ github.event.inputs.tester_emails }}
+          TESTFLIGHT_GROUPS: ${{ github.event.inputs.groups }}
+          APP_VERSION: ${{ github.event.inputs.app_version }}
+          BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+          NOTIFY_EXTERNAL_TESTERS: ${{ github.event.inputs.notify_external_testers }}
+        run: |
+          set -euo pipefail
+          app_identifier="com.ai-caddie.mobile"
+          groups="${TESTFLIGHT_GROUPS:-Private Trial}"
+
+          ensure_testflight_groups() {
+          bundle exec ruby - <<'RUBY'
+          require "json"
+          require "spaceship/connect_api"
+
+          api_key = JSON.parse(File.read(ENV.fetch("ASC_API_KEY_PATH")))
+          Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+            key_id: api_key.fetch("key_id"),
+            issuer_id: api_key.fetch("issuer_id"),
+            key: api_key.fetch("key"),
+            in_house: api_key.fetch("in_house", false)
+          )
+
+          app = Spaceship::ConnectAPI::App.find("com.ai-caddie.mobile")
+          raise "App Store Connect app not found for com.ai-caddie.mobile" unless app
+
+          names = ENV.fetch("TESTFLIGHT_GROUPS", "Private Trial").split(",").map(&:strip).reject(&:empty?)
+          existing = app.get_beta_groups.map(&:name)
+          names.each do |name|
+            if existing.include?(name)
+              UI.message("TestFlight group already exists: #{name}")
+            else
+              UI.message("Creating external TestFlight group: #{name}")
+              Spaceship::ConnectAPI.create_beta_group(app_id: app.id, group_name: name)
+            end
+          end
+          RUBY
+          }
+
+          echo "::group::TestFlight builds"
+          bundle exec fastlane pilot builds \
+            -a "$app_identifier" \
+            --api_key_path "$ASC_API_KEY_PATH"
+          echo "::endgroup::"
+
+          echo "::group::TestFlight testers"
+          bundle exec fastlane pilot list \
+            -a "$app_identifier" \
+            --api_key_path "$ASC_API_KEY_PATH"
+          echo "::endgroup::"
+
+          case "$OPERATION" in
+            list)
+              echo "Listed TestFlight builds and testers."
+              ;;
+            add)
+              ensure_testflight_groups
+              test -n "${TESTER_EMAILS//[[:space:],]/}" || { echo "tester_emails is required for add"; exit 1; }
+              printf '%s\n' "$TESTER_EMAILS" | tr ',[:space:]' '\n' | sed '/^$/d' > "$RUNNER_TEMP/tester_emails.txt"
+              while IFS= read -r email; do
+                echo "Adding external tester ${email} to group(s): ${groups}"
+                bundle exec fastlane pilot add "$email" \
+                  -a "$app_identifier" \
+                  -g "$groups" \
+                  --api_key_path "$ASC_API_KEY_PATH"
+              done < "$RUNNER_TEMP/tester_emails.txt"
+              ;;
+            distribute)
+              ensure_testflight_groups
+              args=(
+                -a "$app_identifier"
+                --api_key_path "$ASC_API_KEY_PATH"
+                --distribute_external true
+                --groups "$groups"
+                --notify_external_testers "$NOTIFY_EXTERNAL_TESTERS"
+              )
+              if [ -n "$APP_VERSION" ]; then
+                args+=(--app_version "$APP_VERSION")
+              fi
+              if [ -n "$BUILD_NUMBER" ]; then
+                args+=(--build_number "$BUILD_NUMBER")
+              fi
+              bundle exec fastlane pilot distribute "${args[@]}"
+              ;;
+            *)
+              echo "Unsupported operation: $OPERATION"
+              exit 1
+              ;;
+          esac

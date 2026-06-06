@@ -31,7 +31,15 @@ but does not create a new app record for this account.
 - Run the `iOS TestFlight (CD)` workflow manually from `integration/v2` with
   optional release notes. It runs `xcodegen generate` →
   `fastlane ios beta` → archives the app (with embedded watch app) → uploads to TestFlight.
-- Install from TestFlight on your iPhone; the watch app installs alongside it.
+- Run the `iOS TestFlight Testers` workflow manually:
+  - `operation=list` shows uploaded builds and currently visible testers.
+  - `operation=add` adds comma-separated external tester emails to the configured group
+    (default `Private Trial`).
+  - `operation=distribute` assigns the latest or selected build to that external
+    TestFlight group. External distribution may require Beta App Review before testers
+    can install.
+- Install from TestFlight on your iPhone after the build is assigned to a tester/group;
+  the watch app installs alongside it.
 
 ## Backend reachability (for the app to load data)
 

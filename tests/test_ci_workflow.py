@@ -161,7 +161,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
 
     def test_testflight_workflows_are_manual_only_and_secret_driven(self) -> None:
-        for name in ["ios-signing-bootstrap.yml", "ios-testflight.yml"]:
+        for name in ["ios-signing-bootstrap.yml", "ios-testflight.yml", "ios-testflight-testers.yml"]:
             workflow_path = Path(".github/workflows") / name
             workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
             triggers = workflow[True]
@@ -170,8 +170,30 @@ class CIWorkflowTests(unittest.TestCase):
             self.assertIn("workflow_dispatch", triggers)
             self.assertNotIn("push", triggers)
             self.assertIn("secrets.", text)
-            self.assertIn("MATCH_GIT_PRIVATE_KEY", text)
+            if name != "ios-testflight-testers.yml":
+                self.assertIn("MATCH_GIT_PRIVATE_KEY", text)
             self.assertNotIn("AI_CADDIE_ADMIN_TOKEN=", text)
+
+    def test_testflight_tester_workflow_lists_adds_and_distributes_without_hardcoded_emails(self) -> None:
+        workflow_path = Path(".github/workflows/ios-testflight-testers.yml")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        text = workflow_path.read_text(encoding="utf-8")
+        triggers = workflow[True]
+        inputs = triggers["workflow_dispatch"]["inputs"]
+
+        self.assertEqual(["list", "add", "distribute"], inputs["operation"]["options"])
+        self.assertIn("tester_emails", inputs)
+        self.assertIn("groups", inputs)
+        self.assertIn("notify_external_testers", inputs)
+        self.assertIn("bundle exec fastlane pilot builds", text)
+        self.assertIn("bundle exec fastlane pilot list", text)
+        self.assertIn("bundle exec fastlane pilot add", text)
+        self.assertIn("bundle exec fastlane pilot distribute", text)
+        self.assertIn("Spaceship::ConnectAPI.create_beta_group", text)
+        self.assertIn('App.find("com.ai-caddie.mobile")', text)
+        self.assertIn("--api_key_path", text)
+        self.assertIn("ASC_PRIVATE_KEY", text)
+        self.assertNotIn("@", inputs["tester_emails"]["default"])
 
     def test_testflight_fastfile_is_text_and_embeds_watch_target(self) -> None:
         fastfile = Path("fastlane/Fastfile")
