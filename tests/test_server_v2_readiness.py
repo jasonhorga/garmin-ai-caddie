@@ -203,6 +203,55 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["course_reference"]["evidence"]["pct"], 50.0)
         self.assertEqual(checks["course_reference"]["evidence"]["missingGlobalIds"], [31936])
 
+    def test_readiness_sync_evidence_includes_freshness_and_coverage(self) -> None:
+        class Snapshot:
+            scorecardCount = 12
+            shotFileCount = 9
+            lastSuccessfulSyncAt = "2026-06-06T10:00:00Z"
+            geometryDependencyCount = 10
+            geometryReadyCount = 7
+            geometryMissingCount = 3
+
+        class Connector:
+            name = "garmin_cn_web_session"
+            state = "ready"
+
+        class LastRun:
+            state = "ready"
+            errorCode = None
+            updatedAt = "2026-06-06T10:01:00Z"
+
+        class Sync:
+            connector = Connector()
+            snapshot = Snapshot()
+            lastRun = LastRun()
+
+        with patch("server_v2.readiness.load_sync_status_response", return_value=Sync()), \
+                patch("server_v2.readiness.course_reference_coverage", return_value={
+                    "schema": "ai-caddie-course-reference-coverage-v1",
+                    "total": 4,
+                    "ready": 3,
+                    "missing": 1,
+                    "pct": 75.0,
+                    "missingGlobalIds": [31936],
+                }):
+            response = TestClient(app).get("/api/v2/readiness")
+
+        checks = {row["label"]: row for row in response.json()["checks"]}
+        sync_evidence = checks["sync"]["evidence"]
+        self.assertEqual(sync_evidence["lastSuccessfulSyncAt"], "2026-06-06T10:00:00Z")
+        self.assertEqual(sync_evidence["lastRunState"], "ready")
+        self.assertIsNone(sync_evidence["lastRunErrorCode"])
+        self.assertIn("lastRunAgeHours", sync_evidence)
+        self.assertIn("dataFreshness", sync_evidence)
+        self.assertEqual(sync_evidence["dataFreshness"]["lastSuccessfulSyncAt"], "2026-06-06T10:00:00Z")
+        self.assertIn("normalizedShotCount", sync_evidence)
+        self.assertEqual(sync_evidence["geometryCoverage"], {"ready": 7, "total": 10, "missing": 3, "pct": 70.0})
+        self.assertEqual(sync_evidence["shotCoverage"], {"scorecards": 12, "shotFiles": 9})
+        self.assertEqual(checks["course_reference"]["evidence"]["pct"], 75.0)
+        self.assertNotIn("cookie", str(response.json()).lower())
+        self.assertNotIn("/home/", str(response.json()).lower())
+
     def test_readiness_operations_turn_ready_with_fresh_backup_and_smoke_evidence(self) -> None:
         client = TestClient(app)
 

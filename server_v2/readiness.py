@@ -46,6 +46,38 @@ def _check(label: str, state: str, detail: str, evidence: dict[str, Any] | None 
     }
 
 
+def _coverage(ready: int, total: int, *, missing: int = 0) -> dict[str, Any]:
+    return {
+        "ready": ready,
+        "total": total,
+        "missing": missing,
+        "pct": round(ready * 100.0 / total, 1) if total else 0.0,
+    }
+
+
+def _age_hours(value: object) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return round((datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds() / 3600.0, 2)
+
+
+def _summary_int(stats: Any, key: str) -> int | None:
+    summary = getattr(stats, "summary", None)
+    if not isinstance(summary, dict):
+        return None
+    try:
+        return int(summary.get(key))
+    except (TypeError, ValueError):
+        return None
+
+
 def _first_round_id(stats: Any) -> str:
     drill_down = getattr(stats, "drillDown", {})
     round_ids = drill_down.get("roundIds") if isinstance(drill_down, dict) else None
@@ -447,6 +479,25 @@ def build_readiness_response() -> dict[str, Any]:
                     "connectorState": connector_state,
                     "scorecardCount": sync.snapshot.scorecardCount,
                     "shotFileCount": sync.snapshot.shotFileCount,
+                    "lastSuccessfulSyncAt": sync.snapshot.lastSuccessfulSyncAt,
+                    "lastRunState": sync.lastRun.state if sync.lastRun else None,
+                    "lastRunErrorCode": sync.lastRun.errorCode if sync.lastRun else None,
+                    "lastRunUpdatedAt": sync.lastRun.updatedAt if sync.lastRun else None,
+                    "lastRunAgeHours": _age_hours(sync.lastRun.updatedAt if sync.lastRun else None),
+                    "normalizedShotCount": _summary_int(stats, "shotCount"),
+                    "dataFreshness": {
+                        "lastSuccessfulSyncAt": sync.snapshot.lastSuccessfulSyncAt,
+                        "lastRunUpdatedAt": sync.lastRun.updatedAt if sync.lastRun else None,
+                    },
+                    "shotCoverage": {
+                        "scorecards": sync.snapshot.scorecardCount,
+                        "shotFiles": sync.snapshot.shotFileCount,
+                    },
+                    "geometryCoverage": _coverage(
+                        sync.snapshot.geometryReadyCount,
+                        sync.snapshot.geometryDependencyCount,
+                        missing=sync.snapshot.geometryMissingCount,
+                    ),
                 },
             )
         )
