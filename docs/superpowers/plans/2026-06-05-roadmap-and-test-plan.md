@@ -16,6 +16,10 @@
 - Current execution plan: `docs/superpowers/plans/2026-05-30-real-data-last-mile.md`
 - CourseView par/search design: `docs/superpowers/specs/2026-06-03-courseview-par-and-pipeline-unification-design.md`
 - On-device course prep design: `docs/superpowers/specs/2026-05-30-course-prep-on-device-design.md`
+- Phase 5 course-prep productization spec: `docs/superpowers/specs/2026-06-06-phase-5-course-prep-productization-design.md`
+- Phase 5 course-prep productization plan: `docs/superpowers/plans/2026-06-06-phase-5-course-prep-productization.md`
+- Phase 6 deployment/native trial spec: `docs/superpowers/specs/2026-06-06-phase-6-deployment-native-trial-hardening-design.md`
+- Phase 6 deployment/native trial plan: `docs/superpowers/plans/2026-06-06-phase-6-deployment-native-trial-hardening.md`
 
 ## Current State As Of 2026-06-05
 
@@ -146,6 +150,7 @@ The local real-data smoke must verify:
 ### Known Test Constraints
 
 - Do not rely on GitHub Actions for routine validation while free minutes are depleted.
+- If the local shell only has Node 18, use `npm exec --yes --package=node@24 -- npm ...` for Web verification.
 - General CI no longer runs on push. It runs on PR or `workflow_dispatch`.
 - Native mobile CI is isolated to `workflow_dispatch` and native path PRs.
 - Linux cannot run real Xcode simulator tests; native simulator verification requires macOS.
