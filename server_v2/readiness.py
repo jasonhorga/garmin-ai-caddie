@@ -13,6 +13,7 @@ from ai_caddie.media import (
     VALID_MEDIA_KINDS,
     resolve_media_content_path,
 )
+from ai_caddie.course_reference import course_reference_coverage
 from ai_caddie.connectors.snapshot import validate_private_snapshot_acceptance
 
 from .history_stats import load_history_stats_response
@@ -451,6 +452,24 @@ def build_readiness_response() -> dict[str, Any]:
         )
     except Exception as exc:  # pragma: no cover - defensive health surface
         checks.append(_check("sync", "error", exc.__class__.__name__))
+
+    try:
+        coverage = course_reference_coverage()
+        total = int(coverage.get("total") or 0)
+        ready = int(coverage.get("ready") or 0)
+        state = "ready" if total and ready == total else "degraded"
+        checks.append(
+            _check(
+                "course_reference",
+                state,
+                "Course-reference cache covers played course nines."
+                if state == "ready"
+                else "Course-reference cache is incomplete for played course nines.",
+                coverage,
+            )
+        )
+    except Exception as exc:  # pragma: no cover - defensive health surface
+        checks.append(_check("course_reference", "error", exc.__class__.__name__))
 
     try:
         acceptance = validate_private_snapshot_acceptance()

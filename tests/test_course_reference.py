@@ -178,6 +178,21 @@ class BuildStoreTests(unittest.TestCase):
         self.assertEqual(store[40590].par_source, "played")
         self.assertEqual(store[31936].par_source, "courseview")
 
+    def test_course_reference_coverage_counts_referenced_and_stored_nines(self) -> None:
+        rounds = [
+            {"front_gid": 40590, "back_gid": 31936, "hole_pars": "453444434453444544", "name": "X"},
+        ]
+        with patch.object(cr, "_rounds_from_files", return_value=rounds), \
+                patch.object(cr, "load_course_par", side_effect=lambda gid, **_: cr.CoursePar(gid, [4] * 9, "played", "high", provenance="garmin_scorecard") if gid == 40590 else None):
+            coverage = cr.course_reference_coverage()
+
+        self.assertEqual(coverage["schema"], "ai-caddie-course-reference-coverage-v1")
+        self.assertEqual(coverage["total"], 2)
+        self.assertEqual(coverage["ready"], 1)
+        self.assertEqual(coverage["missing"], 1)
+        self.assertEqual(coverage["pct"], 50.0)
+        self.assertEqual(coverage["missingGlobalIds"], [31936])
+
 
 if __name__ == "__main__":
     unittest.main()

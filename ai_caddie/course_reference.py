@@ -210,6 +210,38 @@ def build_played_store(*, root: Path = ROOT) -> dict[int, CoursePar]:
     return records
 
 
+def referenced_course_ids(*, root: Path = ROOT) -> list[int]:
+    ids: set[int] = set()
+    for rnd in _rounds_from_files(root=root):
+        for key in ("front_gid", "back_gid"):
+            gid = rnd.get(key)
+            if gid:
+                ids.add(int(gid))
+    return sorted(ids)
+
+
+def course_reference_coverage(*, root: Path = ROOT) -> dict[str, object]:
+    referenced = referenced_course_ids(root=root)
+    ready: list[int] = []
+    missing: list[int] = []
+    for gid in referenced:
+        if load_course_par(gid, root=root) is None:
+            missing.append(gid)
+        else:
+            ready.append(gid)
+    total = len(referenced)
+    pct = round(len(ready) * 100.0 / total, 1) if total else 0.0
+    return {
+        "schema": "ai-caddie-course-reference-coverage-v1",
+        "total": total,
+        "ready": len(ready),
+        "missing": len(missing),
+        "pct": pct,
+        "readyGlobalIds": ready[:25],
+        "missingGlobalIds": missing[:25],
+    }
+
+
 def _release_holes(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict] | None:
     """Per-hole records from the CourseView release protobuf (cache-first, then fetch+cache)."""
     gid = int(global_id)

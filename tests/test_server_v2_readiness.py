@@ -186,6 +186,23 @@ class ServerV2ReadinessTests(unittest.TestCase):
         )
         self.assertEqual(operations["redactionPolicy"], "no credential material or private filesystem paths in status responses")
 
+    def test_readiness_reports_course_reference_coverage(self) -> None:
+        with patch("server_v2.readiness.course_reference_coverage", return_value={
+            "schema": "ai-caddie-course-reference-coverage-v1",
+            "total": 2,
+            "ready": 1,
+            "missing": 1,
+            "pct": 50.0,
+            "missingGlobalIds": [31936],
+        }):
+            response = TestClient(app).get("/api/v2/readiness")
+
+        self.assertEqual(response.status_code, 200)
+        checks = {row["label"]: row for row in response.json()["checks"]}
+        self.assertEqual(checks["course_reference"]["state"], "degraded")
+        self.assertEqual(checks["course_reference"]["evidence"]["pct"], 50.0)
+        self.assertEqual(checks["course_reference"]["evidence"]["missingGlobalIds"], [31936])
+
     def test_readiness_operations_turn_ready_with_fresh_backup_and_smoke_evidence(self) -> None:
         client = TestClient(app)
 
