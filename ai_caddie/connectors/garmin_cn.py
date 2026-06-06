@@ -10,7 +10,7 @@ from typing import Any, Iterator
 from ai_caddie.data import ROOT
 import fetch as fetch_module
 import garmin_auth as garmin_auth_module
-from fetch import GarminAuthExpired, fetch_details, fetch_summary, make_session
+from fetch import GarminAuthExpired
 
 from .base import ConnectorRunResult
 from .redaction import sanitize_secret_text
@@ -33,22 +33,25 @@ def _snapshot_id() -> str:
 SECRET_META_KEY_TERMS = ("cookie", "csrf", "token", "secret", "authorization", "password")
 
 
-def _sanitize_safe_meta(value: Any) -> Any:
+def sanitize_safe_meta(value: Any) -> Any:
     if isinstance(value, dict):
         sanitized: dict[str, Any] = {}
         for key, item in value.items():
             safe_key = str(key)
             if any(term in safe_key.lower() for term in SECRET_META_KEY_TERMS):
                 safe_key = "redacted"
-            sanitized[safe_key] = _sanitize_safe_meta(item)
+            sanitized[safe_key] = sanitize_safe_meta(item)
         return sanitized
     if isinstance(value, list):
-        return [_sanitize_safe_meta(item) for item in value]
+        return [sanitize_safe_meta(item) for item in value]
     if isinstance(value, tuple):
-        return [_sanitize_safe_meta(item) for item in value]
+        return [sanitize_safe_meta(item) for item in value]
     if isinstance(value, str):
         return sanitize_error(value)
     return value
+
+
+_sanitize_safe_meta = sanitize_safe_meta
 
 
 @dataclass(frozen=True)
@@ -96,8 +99,33 @@ def _fetch_runtime(root: Path) -> Iterator[None]:
             setattr(garmin_auth_module, name, value)
 
 
+class GarminCnTransportAuthError(GarminAuthExpired):
+    def __init__(self, message: str, *, safe_meta: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.safe_meta = safe_meta
+
+
+class GarminCnAuthProvider:
+    def make_session(self, *, force_refresh_auth: bool):
+        return fetch_module.make_session(force_refresh_auth=force_refresh_auth)
+
+    def refresh_session(self, session) -> bool:
+        return fetch_module.refresh_session_auth(session)
+
+
+def _is_auth_failure(exc: BaseException) -> bool:
+    if isinstance(exc, GarminAuthExpired):
+        return True
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return status_code in (401, 403)
+
+
 class GarminCnFetchTransport:
     """Secret-safe adapter around the legacy Garmin CN fetch.py workflow."""
+
+    def __init__(self, *, auth_provider: GarminCnAuthProvider | None = None) -> None:
+        self.auth_provider = auth_provider or GarminCnAuthProvider()
 
     def run(
         self,
@@ -107,24 +135,58 @@ class GarminCnFetchTransport:
         force_refresh_auth: bool,
     ) -> GarminCnFetchRun:
         stdout_buffer = io.StringIO()
-        stage = "make_session"
+        safe_meta: dict[str, Any] = {
+            "transport": "fetch_py_adapter",
+            "forceRefreshAuth": force_refresh_auth,
+            "authRefreshAttempted": False,
+            "authRefreshSucceeded": False,
+            "authRetryCount": 0,
+            "lastStage": "make_session",
+        }
         with _fetch_runtime(root), redirect_stdout(stdout_buffer):
-            session = make_session(force_refresh_auth=force_refresh_auth)
-            stage = "fetch_summary"
-            cards = fetch_summary(session)
-            stage = "fetch_details"
-            fetch_details(session, cards, with_shots=with_shots)
+            session = self.auth_provider.make_session(force_refresh_auth=force_refresh_auth)
+            safe_meta["lastStage"] = "fetch_summary"
+            cards = self._run_stage(lambda: fetch_module.fetch_summary(session), session=session, safe_meta=safe_meta)
+            safe_meta["lastStage"] = "fetch_details"
+            self._run_stage(
+                lambda: fetch_module.fetch_details(session, cards, with_shots=with_shots),
+                session=session,
+                safe_meta=safe_meta,
+            )
         stdout_text = stdout_buffer.getvalue()
         line_count = len([line for line in stdout_text.splitlines() if line.strip()])
-        return GarminCnFetchRun(
-            cards=cards,
-            safe_meta={
-                "transport": "fetch_py_adapter",
-                "stdoutCaptured": bool(stdout_text),
-                "stdoutLineCount": line_count,
-                "lastStage": stage,
-            },
-        )
+        safe_meta["stdoutCaptured"] = bool(stdout_text)
+        safe_meta["stdoutLineCount"] = line_count
+        return GarminCnFetchRun(cards=cards, safe_meta=sanitize_safe_meta(safe_meta))
+
+    def _run_stage(self, operation, *, session, safe_meta: dict[str, Any]):
+        try:
+            return operation()
+        except BaseException as exc:
+            if not _is_auth_failure(exc):
+                raise
+            if safe_meta["authRefreshAttempted"]:
+                raise GarminCnTransportAuthError(
+                    "Garmin CN session still failed after one auth refresh retry.",
+                    safe_meta=safe_meta,
+                ) from exc
+            safe_meta["authRefreshAttempted"] = True
+            safe_meta["authRefreshSucceeded"] = bool(self.auth_provider.refresh_session(session))
+            if not safe_meta["authRefreshSucceeded"]:
+                raise GarminCnTransportAuthError(
+                    "Garmin CN auth refresh failed during fetch.",
+                    safe_meta=safe_meta,
+                ) from exc
+            safe_meta["authRetryCount"] = int(safe_meta["authRetryCount"]) + 1
+            try:
+                return operation()
+            except BaseException as retry_exc:
+                if _is_auth_failure(retry_exc):
+                    raise GarminCnTransportAuthError(
+                        "Garmin CN session still failed after one auth refresh retry.",
+                        safe_meta=safe_meta,
+                    ) from retry_exc
+                raise
 
 
 class GarminCnWebSessionConnector:
@@ -177,7 +239,7 @@ class GarminCnWebSessionConnector:
                 state=state,
                 detail=detail,
                 snapshot=manifest,
-                safe_meta=_sanitize_safe_meta(
+                safe_meta=sanitize_safe_meta(
                     {
                         **run.safe_meta,
                         "withShots": with_shots,
@@ -198,12 +260,14 @@ class GarminCnWebSessionConnector:
                 snapshot_id=None,
                 error_code="auth_failed",
             )
+            safe_meta = {"sourceError": sanitize_error(exc)}
+            safe_meta.update(getattr(exc, "safe_meta", {}))
             return ConnectorRunResult(
                 connector="garmin_cn_web_session",
                 state="reauth_required",
                 detail=detail,
                 error_code="auth_failed",
-                safe_meta=_sanitize_safe_meta({"sourceError": sanitize_error(exc)}),
+                safe_meta=sanitize_safe_meta(safe_meta),
             )
         except Exception as exc:
             detail = "Garmin CN sync failed before a complete snapshot was written."
@@ -219,7 +283,7 @@ class GarminCnWebSessionConnector:
                 state="error",
                 detail=detail,
                 error_code="sync_failed",
-                safe_meta=_sanitize_safe_meta({"sourceError": sanitize_error(exc)}),
+                safe_meta=sanitize_safe_meta({"sourceError": sanitize_error(exc)}),
             )
 
     def _ensure_geometry_dependencies(self, dependencies: list[dict[str, object]]) -> dict[str, int]:

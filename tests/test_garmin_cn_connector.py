@@ -9,11 +9,13 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 import fetch as fetch_module
-from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector
+from requests import HTTPError
+
+from ai_caddie.connectors.garmin_cn import GarminCnFetchTransport, GarminCnWebSessionConnector
 from fetch import GarminAuthExpired, fetch_details
 
 
-SECRET_TERMS = ("cookie", "csrf", "token", "secret", "authorization")
+SECRET_TERMS = ("cookie", "csrf", "token", "secret", "authorization", "password", ".garmin_tokens", "/home/", "/users/")
 
 
 def _write_geometry_scorecard(root: Path, scorecard_id: int = 1) -> None:
@@ -49,7 +51,120 @@ def assert_secret_free(test_case: unittest.TestCase, payload: object) -> None:
         test_case.assertNotIn(term, text)
 
 
+class AuthFailureResponse:
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+
+
+def auth_http_error(status_code: int = 401) -> HTTPError:
+    return HTTPError(
+        f"{status_code} auth failed cookie abc csrf def token ghi /home/private/.garmin_tokens",
+        response=AuthFailureResponse(status_code),
+    )
+
+
+class FakeAuthProvider:
+    def __init__(self, *, refresh_result: bool = True) -> None:
+        self.session = Mock()
+        self.make_calls: list[bool] = []
+        self.refresh_calls = 0
+        self.refresh_result = refresh_result
+
+    def make_session(self, *, force_refresh_auth: bool):
+        self.make_calls.append(force_refresh_auth)
+        return self.session
+
+    def refresh_session(self, session):
+        self.refresh_calls += 1
+        self.refreshed_session = session
+        return self.refresh_result
+
+
 class GarminCnConnectorTests(unittest.TestCase):
+    def test_transport_uses_injected_auth_provider_and_force_refresh_metadata(self) -> None:
+        provider = FakeAuthProvider()
+        transport = GarminCnFetchTransport(auth_provider=provider)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("fetch.fetch_summary", return_value=[]),
+                patch("fetch.fetch_details") as details,
+            ):
+                run = transport.run(root=root, with_shots=False, force_refresh_auth=True)
+
+        self.assertEqual(provider.make_calls, [True])
+        self.assertEqual(provider.refresh_calls, 0)
+        self.assertEqual(run.cards, [])
+        self.assertEqual(run.safe_meta["forceRefreshAuth"], True)
+        self.assertFalse(run.safe_meta["authRefreshAttempted"])
+        self.assertFalse(run.safe_meta["authRefreshSucceeded"])
+        self.assertEqual(run.safe_meta["authRetryCount"], 0)
+        self.assertEqual(run.safe_meta["lastStage"], "fetch_details")
+        details.assert_called_once_with(provider.session, [], with_shots=False)
+        assert_secret_free(self, run.safe_meta)
+
+    def test_transport_retries_summary_once_after_auth_failure(self) -> None:
+        provider = FakeAuthProvider(refresh_result=True)
+        transport = GarminCnFetchTransport(auth_provider=provider)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("fetch.fetch_summary", side_effect=[auth_http_error(401), [{"id": 1}]]) as summary,
+                patch("fetch.fetch_details") as details,
+            ):
+                run = transport.run(root=root, with_shots=True, force_refresh_auth=False)
+
+        self.assertEqual(summary.call_count, 2)
+        details.assert_called_once_with(provider.session, [{"id": 1}], with_shots=True)
+        self.assertEqual(provider.refresh_calls, 1)
+        self.assertTrue(run.safe_meta["authRefreshAttempted"])
+        self.assertTrue(run.safe_meta["authRefreshSucceeded"])
+        self.assertEqual(run.safe_meta["authRetryCount"], 1)
+        self.assertEqual(run.safe_meta["lastStage"], "fetch_details")
+        assert_secret_free(self, run.safe_meta)
+
+    def test_transport_retries_details_once_after_auth_failure(self) -> None:
+        provider = FakeAuthProvider(refresh_result=True)
+        transport = GarminCnFetchTransport(auth_provider=provider)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("fetch.fetch_summary", return_value=[{"id": 1}]),
+                patch("fetch.fetch_details", side_effect=[auth_http_error(403), None]) as details,
+            ):
+                run = transport.run(root=root, with_shots=True, force_refresh_auth=False)
+
+        self.assertEqual(details.call_count, 2)
+        self.assertEqual(provider.refresh_calls, 1)
+        self.assertTrue(run.safe_meta["authRefreshAttempted"])
+        self.assertTrue(run.safe_meta["authRefreshSucceeded"])
+        self.assertEqual(run.safe_meta["authRetryCount"], 1)
+        self.assertEqual(run.safe_meta["lastStage"], "fetch_details")
+        assert_secret_free(self, run.safe_meta)
+
+    def test_sync_refresh_failure_returns_reauth_required_with_retry_metadata(self) -> None:
+        provider = FakeAuthProvider(refresh_result=False)
+        transport = GarminCnFetchTransport(auth_provider=provider)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            connector = GarminCnWebSessionConnector(root=root, transport=transport)
+            with patch("fetch.fetch_summary", side_effect=auth_http_error(401)):
+                result = connector.sync(with_shots=False, force_refresh_auth=False)
+
+            self.assertEqual(result.state, "reauth_required")
+            self.assertEqual(result.error_code, "auth_failed")
+            self.assertIsNone(result.snapshot)
+            self.assertTrue(result.safe_meta["authRefreshAttempted"])
+            self.assertFalse(result.safe_meta["authRefreshSucceeded"])
+            self.assertEqual(result.safe_meta["authRetryCount"], 0)
+            self.assertEqual(result.safe_meta["lastStage"], "fetch_summary")
+            self.assertFalse((root / "data" / "snapshots").exists())
+            assert_secret_free(self, result.safe_meta)
+
     def test_fetch_details_raises_typed_auth_expired_after_repeated_auth_failures(self) -> None:
         class Response:
             status_code = 401
@@ -84,9 +199,9 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
-                patch("ai_caddie.connectors.garmin_cn.fetch_summary", return_value=[{"id": 1}]),
-                patch("ai_caddie.connectors.garmin_cn.fetch_details") as fetch_details,
+                patch("fetch.make_session", return_value=Mock()),
+                patch("fetch.fetch_summary", return_value=[{"id": 1}]),
+                patch("fetch.fetch_details") as fetch_details,
             ):
                 result = connector.sync(with_shots=True, force_refresh_auth=False)
 
@@ -119,9 +234,9 @@ class GarminCnConnectorTests(unittest.TestCase):
                     fetch_module.SHOT_DIR.joinpath("7.json").write_text("{}", encoding="utf-8")
 
             with (
-                patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
-                patch("ai_caddie.connectors.garmin_cn.fetch_summary", side_effect=write_summary),
-                patch("ai_caddie.connectors.garmin_cn.fetch_details", side_effect=write_details),
+                patch("fetch.make_session", return_value=Mock()),
+                patch("fetch.fetch_summary", side_effect=write_summary),
+                patch("fetch.fetch_details", side_effect=write_details),
             ):
                 result = connector.sync(with_shots=True, force_refresh_auth=False)
 
@@ -148,9 +263,9 @@ class GarminCnConnectorTests(unittest.TestCase):
 
             outer_stdout = io.StringIO()
             with (
-                patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
-                patch("ai_caddie.connectors.garmin_cn.fetch_summary", side_effect=noisy_summary),
-                patch("ai_caddie.connectors.garmin_cn.fetch_details", side_effect=noisy_details),
+                patch("fetch.make_session", return_value=Mock()),
+                patch("fetch.fetch_summary", side_effect=noisy_summary),
+                patch("fetch.fetch_details", side_effect=noisy_details),
                 redirect_stdout(outer_stdout),
             ):
                 result = connector.sync(with_shots=False, force_refresh_auth=False)
@@ -167,7 +282,7 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with patch(
-                "ai_caddie.connectors.garmin_cn.make_session",
+                "fetch.make_session",
                 side_effect=SystemExit(
                     "missing or expired Garmin web auth: secret cookie abc csrf xyz token 123 authorization bearer"
                 ),
@@ -189,10 +304,10 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
-                patch("ai_caddie.connectors.garmin_cn.fetch_summary", return_value=[{"id": 1}, {"id": 2}, {"id": 3}]),
+                patch("fetch.make_session", return_value=Mock()),
+                patch("fetch.fetch_summary", return_value=[{"id": 1}, {"id": 2}, {"id": 3}]),
                 patch(
-                    "ai_caddie.connectors.garmin_cn.fetch_details",
+                    "fetch.fetch_details",
                     side_effect=GarminAuthExpired("cookie expired csrf token secret authorization"),
                 ),
             ):
@@ -213,9 +328,9 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
-                patch("ai_caddie.connectors.garmin_cn.fetch_summary", return_value=[]),
-                patch("ai_caddie.connectors.garmin_cn.fetch_details"),
+                patch("fetch.make_session", return_value=Mock()),
+                patch("fetch.fetch_summary", return_value=[]),
+                patch("fetch.fetch_details"),
             ):
                 result = connector.sync(with_shots=False, force_refresh_auth=False)
 
@@ -232,9 +347,9 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
-                patch("ai_caddie.connectors.garmin_cn.fetch_summary", return_value=[{"id": 1}]),
-                patch("ai_caddie.connectors.garmin_cn.fetch_details"),
+                patch("fetch.make_session", return_value=Mock()),
+                patch("fetch.fetch_summary", return_value=[{"id": 1}]),
+                patch("fetch.fetch_details"),
                 patch(
                     "ai_caddie.geometry_sync.ensure_prodgeometry",
                     return_value={"status": "downloaded", "ok": True, "globalId": 31795, "localHole": 1},
@@ -259,9 +374,9 @@ class GarminCnConnectorTests(unittest.TestCase):
                 connector = GarminCnWebSessionConnector(root=root)
 
                 with (
-                    patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
-                    patch("ai_caddie.connectors.garmin_cn.fetch_summary", return_value=[{"id": 1}]),
-                    patch("ai_caddie.connectors.garmin_cn.fetch_details"),
+                    patch("fetch.make_session", return_value=Mock()),
+                    patch("fetch.fetch_summary", return_value=[{"id": 1}]),
+                    patch("fetch.fetch_details"),
                 ):
                     result = connector.sync(with_shots=False, force_refresh_auth=False)
                 self.assertEqual(result.state, "ready")
@@ -273,9 +388,9 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("ai_caddie.connectors.garmin_cn.make_session", return_value=Mock()),
+                patch("fetch.make_session", return_value=Mock()),
                 patch(
-                    "ai_caddie.connectors.garmin_cn.fetch_summary",
+                    "fetch.fetch_summary",
                     side_effect=RuntimeError("network failed token abc cookie csrf secret authorization"),
                 ),
             ):

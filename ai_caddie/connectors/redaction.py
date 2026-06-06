@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 
 SECRET_PATTERNS = [
-    re.compile(r"\b(cookie\w*|csrf\w*|token\w*|secret\w*|authorization\w*)\b[^,;\n]*", re.IGNORECASE),
+    re.compile(r"\b(cookie\w*|csrf\w*|token\w*|secret\w*|authorization\w*|password\w*)\b[^,;\n]*", re.IGNORECASE),
+    re.compile(r"(/home/[^,;\n\s]+|/Users/[^,;\n\s]+|[A-Za-z]:\\Users\\[^,;\n]+)", re.IGNORECASE),
 ]
 
 
