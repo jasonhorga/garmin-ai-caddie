@@ -115,18 +115,20 @@
 - [x] Configure admin token, backup, import/export, and redaction checks.
 - [x] Run native mobile CI only on native changes or manual dispatch.
 - [x] Run TestFlight signing/bootstrap and CD only when explicitly needed.
-- [x] Upload signed iOS + watch build `0.1.0 (2)` to TestFlight.
+- [x] Upload signed iOS + watch build `0.1.0 (3)` to TestFlight.
 - [x] Verify TestFlight build status through App Store Connect API:
   `VALID`, `IN_BETA_TESTING`, `usesNonExemptEncryption=false`.
 - [x] Create/list external TestFlight group `Private Trial`.
 - [x] Add a Phase 6 external release preflight that reports missing backend URL,
   repo variables, external-review feedback email/submission, tester coverage,
   and device install verification without printing secret values.
-- [x] Confirm App Store Connect reports build `0.1.0 (2)` ready for external
+- [x] Confirm App Store Connect reports build `0.1.0 (3)` ready for external
   Beta App Review submission: `READY_FOR_BETA_SUBMISSION`.
 - [ ] Submit external Beta App Review.
-- [ ] Add/confirm target tester emails for the external group or confirm the
+- [x] Add/confirm target tester emails for the external group or confirm the
   user is covered by the existing internal group.
+  Evidence: GitHub Actions run `27082080178` assigned 2 external testers to
+  `Private Trial`.
 - [ ] Verify installation from TestFlight on iPhone/watch.
 
 **Done when:** Backend is reachable, mobile can install via TestFlight, and private-trial smoke/readiness evidence is current.
@@ -165,7 +167,8 @@ The local real-data smoke must verify:
 
 ### Known Test Constraints
 
-- Do not rely on GitHub Actions for routine validation while free minutes are depleted.
+- Use manually dispatched GitHub Actions for heavyweight validation; keep local
+  checks targeted to touched code unless a broad local check is explicitly needed.
 - If the local shell only has Node 18, use `npm exec --yes --package=node@24 -- npm ...` for Web verification.
 - General CI no longer runs on push. It runs on PR or `workflow_dispatch`.
 - Native mobile CI is isolated to `workflow_dispatch` and native path PRs.

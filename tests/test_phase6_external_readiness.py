@@ -206,6 +206,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         log_text = """
         ##[group]TestFlight builds
         - 0.1.0 (2) id=f4f11d0f state=VALID expired=false usesNonExemptEncryption=false internalReady=false betaReviewReady=true missingExportCompliance=false internalState=IN_BETA_TESTING externalState=READY_FOR_BETA_SUBMISSION autoNotify=
+        2026-06-07T03:45:21.4372390Z \x1b[36;1m    puts "Beta App test info already has description and feedback email."\x1b[0m
         ##[group]TestFlight groups
         - Private Trial id=a2890a99 internal=false publicLinkEnabled=false allBuilds=
         ##[group]TestFlight testers
@@ -258,14 +259,14 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         rendered_payload = json.dumps(payload, sort_keys=True)
         self.assertNotIn("owner@example.test", rendered_payload)
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_beta_review_feedback"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_feedback"]["state"], "missing")
         self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],
             "github_actions_log:27069928781:READY_FOR_BETA_SUBMISSION",
         )
         self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
-        self.assertFalse(any("TESTFLIGHT_FEEDBACK_EMAIL" in row for row in payload["missingExternalActions"]))
+        self.assertTrue(any("TESTFLIGHT_FEEDBACK_EMAIL" in row for row in payload["missingExternalActions"]))
         self.assertEqual(checks["external_testers"]["state"], "manual_required")
         self.assertEqual(checks["external_testers"]["evidence"]["observedAppTesterCount"], 2)
         self.assertTrue(checks["external_testers"]["evidence"]["privateTrialGroupObserved"])
@@ -273,6 +274,58 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertIn(
             "confirm target testers are assigned to Private Trial",
             checks["external_testers"]["reason"],
+        )
+
+    def test_github_actions_log_can_prove_beta_feedback_metadata_without_leaking_email(self) -> None:
+        log_text = """
+        ##[group]TestFlight builds
+        - 0.1.0 (2) id=f4f11d0f state=VALID expired=false usesNonExemptEncryption=false internalReady=false betaReviewReady=true missingExportCompliance=false internalState=IN_BETA_TESTING externalState=READY_FOR_BETA_SUBMISSION autoNotify=
+        2026-06-07T03:45:23.7128330Z Beta App test info already has description and feedback email.
+        """
+
+        def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
+            if path == "":
+                return {"private": False, "default_branch": "integration/v2"}
+            if path == "/actions/secrets":
+                return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
+            if path == "/actions/variables":
+                return {"variables": []}
+            if path.startswith("/actions/runs?"):
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 27069928781,
+                            "name": "iOS TestFlight Testers",
+                            "conclusion": "success",
+                            "created_at": "2026-06-06T18:07:36Z",
+                            "logs_url": "https://api.github.test/logs/27069928781",
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected GitHub path: {path}")
+
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", side_effect=github_get),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", return_value=_zip_log(log_text)),
+        ):
+            snapshot = fetch_github_snapshot(token="gh-token")
+
+        actions = snapshot["testflightActions"]
+        self.assertTrue(actions["feedbackEmailConfigured"])
+        self.assertEqual(actions["feedbackEmailSource"], "github_actions_log:27069928781:beta_app_test_info")
+
+        payload = build_phase6_external_readiness(
+            env={},
+            github_snapshot=snapshot,
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_beta_review_feedback"]["state"], "ready")
+        self.assertTrue(checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailConfirmed"])
+        self.assertEqual(
+            checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
+            "github_actions_log:27069928781:beta_app_test_info",
         )
 
     def test_github_actions_group_assignment_counts_as_tester_coverage(self) -> None:

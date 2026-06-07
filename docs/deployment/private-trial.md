@@ -203,9 +203,9 @@ labels; the preflight redacts those values before printing JSON.
 `Private Trial` or otherwise covered internally; do not pass app-level
 `observedAppTesterCount` here. `--beta-review-ready` records
 `READY_FOR_BETA_SUBMISSION` when the GitHub log summary is unavailable; it does
-not replace `--beta-review-submitted`.
-After `READY_FOR_BETA_SUBMISSION` is known, the remaining review action is only
-to submit external Beta App Review.
+not prove the Beta App feedback email is configured and does not replace `--beta-review-submitted`.
+After `READY_FOR_BETA_SUBMISSION` is known and the feedback-email gate is ready,
+the remaining review action is only to submit external Beta App Review.
 Manual confirmations are recorded with a confirmation source in the JSON
 evidence so they are distinguishable from GitHub secrets, repo variables, and
 backend probe results. A numeric `AI_CADDIE_TESTFLIGHT_TESTER_COUNT` is treated

@@ -38,6 +38,8 @@ EXPECTED_HEALTH_SCHEMA = "ai-caddie-health-v2"
 EXPECTED_READINESS_SCHEMA = "ai-caddie-readiness-v1"
 TESTFLIGHT_TESTERS_WORKFLOW_NAME = "iOS TestFlight Testers"
 TESTFLIGHT_READY_EXTERNAL_STATE = "READY_FOR_BETA_SUBMISSION"
+GITHUB_LOG_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T[^\s]+Z\s+")
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 API_URL_ENV_PRIORITY = (
     "AI_CADDIE_API_BASE_URL",
     "PHASE6_API_BASE_URL",
@@ -198,6 +200,11 @@ def _value_after(label: str, text: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _github_log_message(line: str) -> str:
+    without_timestamp = GITHUB_LOG_TIMESTAMP_RE.sub("", line.strip())
+    return ANSI_ESCAPE_RE.sub("", without_timestamp).strip()
+
+
 def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | None:
     run_id = str(run.get("id") or "").strip()
     if not run_id:
@@ -212,6 +219,7 @@ def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | 
     in_tester_group = False
     app_tester_count = 0
     for line in text.splitlines():
+        message = _github_log_message(line)
         if (
             f"externalState={TESTFLIGHT_READY_EXTERNAL_STATE}" in line
             and "state=VALID" in line
@@ -229,6 +237,14 @@ def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | 
                     "source": f"{source_prefix}:{TESTFLIGHT_READY_EXTERNAL_STATE}",
                 }
             )
+
+        if (
+            message == "Beta App test info already has description and feedback email."
+            or message.startswith("Beta App test info updated on existing ")
+            or message.startswith("Beta App test info created for ")
+        ):
+            summary["feedbackEmailConfigured"] = True
+            summary["feedbackEmailSource"] = f"{source_prefix}:beta_app_test_info"
 
         if "##[group]TestFlight testers" in line:
             in_tester_group = True
@@ -322,6 +338,8 @@ def fetch_testflight_actions_summary(
                 "privateTrialAssignedTesterSource",
                 "observedAppTesterCount",
                 "observedAppTesterCountSource",
+                "feedbackEmailConfigured",
+                "feedbackEmailSource",
             ):
                 if key in summary and key not in aggregate:
                     aggregate[key] = summary[key]
@@ -521,6 +539,16 @@ def _github_beta_review_ready_source(github_snapshot: dict[str, Any] | None) -> 
     return True, source or "github_actions_log"
 
 
+def _github_feedback_email_source(github_snapshot: dict[str, Any] | None) -> tuple[bool, str | None]:
+    actions = (github_snapshot or {}).get("testflightActions")
+    if not isinstance(actions, dict):
+        return False, None
+    if actions.get("feedbackEmailConfigured") is not True:
+        return False, None
+    source = str(actions.get("feedbackEmailSource") or "").strip()
+    return True, source or "github_actions_log:beta_app_test_info"
+
+
 def _github_testflight_tester_observations(github_snapshot: dict[str, Any] | None) -> dict[str, Any]:
     actions = (github_snapshot or {}).get("testflightActions")
     if not isinstance(actions, dict):
@@ -563,6 +591,7 @@ def build_phase6_external_readiness(
     beta_review_ready = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY")
     beta_review_submitted = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED")
     github_beta_review_ready, github_beta_review_ready_source = _github_beta_review_ready_source(github_snapshot)
+    github_feedback_email_filled, github_feedback_email_source = _github_feedback_email_source(github_snapshot)
     beta_review_ready_source = _confirmation_source(
         env,
         value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY",
@@ -581,14 +610,14 @@ def build_phase6_external_readiness(
     )
     feedback_email_filled = (
         _bool_env(env, "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED")
-        or beta_review_ready
+        or github_feedback_email_filled
         or beta_review_submitted
     )
     feedback_email_source = _confirmation_source(
         env,
         value_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED",
         source_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE",
-    ) or beta_review_ready_source
+    ) or github_feedback_email_source or beta_review_submission_source
     checks = _github_checks(
         github_snapshot,
         native_api_url_configured=native_api_url_configured,
