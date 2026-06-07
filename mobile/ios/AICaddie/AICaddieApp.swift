@@ -17,6 +17,7 @@ public struct AICaddieApp: App {
                         syncStatus: model.syncStatus,
                         apiBaseURL: model.apiBaseURL,
                         adminToken: model.adminToken,
+                        adminTokenConfigured: model.adminTokenConfigured,
                         offlineStore: model.offlineStore,
                         sessionStore: model.garminSessionStore,
                         watchBridge: model.watchBridge,
@@ -38,6 +39,16 @@ public struct AICaddieApp: App {
                             Task {
                                 await model.syncPendingEvents()
                             }
+                        },
+                        onSaveBackendConfiguration: { apiBaseURLText, adminTokenText in
+                            Task {
+                                await model.saveBackendConfiguration(apiBaseURLText: apiBaseURLText, adminTokenText: adminTokenText)
+                            }
+                        },
+                        onClearBackendConfiguration: {
+                            Task {
+                                await model.clearBackendConfiguration()
+                            }
                         }
                     )
                 } else {
@@ -47,6 +58,8 @@ public struct AICaddieApp: App {
                             courseOptions: model.courseOptions,
                             syncStatus: model.syncStatus,
                             isPreparing: model.isPreparingRound,
+                            apiBaseURL: model.apiBaseURL,
+                            adminTokenConfigured: model.adminTokenConfigured,
                             onPrepareRound: { roundId in
                                 Task {
                                     await model.prepareRound(roundId: roundId)
@@ -55,6 +68,16 @@ public struct AICaddieApp: App {
                             onPrepareCourseRound: { globalId, roundId, teeBox in
                                 Task {
                                     await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox)
+                                }
+                            },
+                            onSaveBackendConfiguration: { apiBaseURLText, adminTokenText in
+                                Task {
+                                    await model.saveBackendConfiguration(apiBaseURLText: apiBaseURLText, adminTokenText: adminTokenText)
+                                }
+                            },
+                            onClearBackendConfiguration: {
+                                Task {
+                                    await model.clearBackendConfiguration()
                                 }
                             }
                         )
@@ -82,8 +105,8 @@ public final class LiveRoundAppModel: ObservableObject {
     public let offlineStore: OfflineStore
     public let garminSessionStore: GarminSessionStore?
 
-    private let syncClient: SyncClient?
-    private let mediaUploadClient: MediaUploadClient?
+    private var syncClient: SyncClient?
+    private var mediaUploadClient: MediaUploadClient?
     private let preferredRoundId: String
 
     public convenience init(
@@ -137,6 +160,10 @@ public final class LiveRoundAppModel: ObservableObject {
         preferredRoundId
     }
 
+    public var adminTokenConfigured: Bool {
+        adminToken?.isEmpty == false
+    }
+
     public func bootstrap() async {
         do {
             await refreshCourseOptions()
@@ -181,6 +208,34 @@ public final class LiveRoundAppModel: ObservableObject {
         } catch {
             courseOptions = []
         }
+    }
+
+    public func saveBackendConfiguration(apiBaseURLText: String, adminTokenText: String?) async {
+        guard let resolvedAPIBaseURL = BackendConfigurationStore.normalizedAPIBaseURL(from: apiBaseURLText) else {
+            syncStatus = "API origin must be https with no path"
+            return
+        }
+        BackendConfigurationStore.saveAPIBaseURL(resolvedAPIBaseURL)
+        let nextAdminToken: String?
+        if let adminTokenText, let sanitizedAdminToken = Self.sanitizedConfigurationValue(adminTokenText) {
+            BackendConfigurationStore.saveAdminToken(sanitizedAdminToken)
+            nextAdminToken = sanitizedAdminToken
+        } else {
+            nextAdminToken = adminToken ?? Self.defaultAdminToken()
+        }
+        applyBackendConfiguration(apiBaseURL: resolvedAPIBaseURL, adminToken: nextAdminToken)
+        syncStatus = "Backend configuration saved"
+        await refreshCourseOptions()
+    }
+
+    public func clearBackendConfiguration() async {
+        BackendConfigurationStore.saveAPIBaseURL(nil)
+        BackendConfigurationStore.saveAdminToken(nil)
+        let resolvedAPIBaseURL = Self.defaultAPIBaseURL(includePersisted: false)
+        let resolvedAdminToken = Self.defaultAdminToken(includePersisted: false)
+        applyBackendConfiguration(apiBaseURL: resolvedAPIBaseURL, adminToken: resolvedAdminToken)
+        syncStatus = resolvedAPIBaseURL == nil ? "Offline backend cleared" : "Build backend restored"
+        await refreshCourseOptions()
     }
 
     public func prepareRound(roundId: String) async {
@@ -351,13 +406,25 @@ public final class LiveRoundAppModel: ObservableObject {
         return "image/jpeg"
     }
 
-    private static func defaultAPIBaseURL() -> URL? {
-        let candidates = [
+    private func applyBackendConfiguration(apiBaseURL: URL?, adminToken: String?, preserveInjectedSyncClient: Bool = false) {
+        self.apiBaseURL = apiBaseURL
+        self.adminToken = adminToken
+        if !preserveInjectedSyncClient {
+            self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken) }
+        }
+        self.mediaUploadClient = apiBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
+    }
+
+    private static func defaultAPIBaseURL(includePersisted: Bool = true) -> URL? {
+        var candidates: [String?] = [
             ProcessInfo.processInfo.environment["AI_CADDIE_API_BASE_URL"],
-            Bundle.main.object(forInfoDictionaryKey: "AICaddieAPIBaseURL") as? String
         ]
+        if includePersisted {
+            candidates.append(BackendConfigurationStore.loadAPIBaseURL()?.absoluteString)
+        }
+        candidates.append(Bundle.main.object(forInfoDictionaryKey: "AICaddieAPIBaseURL") as? String)
         for candidate in candidates {
-            guard let rawURL = sanitizedConfigurationValue(candidate), let resolvedAPIBaseURL = URL(string: rawURL) else {
+            guard let resolvedAPIBaseURL = BackendConfigurationStore.normalizedAPIBaseURL(from: candidate) else {
                 continue
             }
             return resolvedAPIBaseURL
@@ -373,9 +440,12 @@ public final class LiveRoundAppModel: ObservableObject {
         return trimmed
     }
 
-    private static func defaultAdminToken() -> String? {
-        let token = ProcessInfo.processInfo.environment["AI_CADDIE_ADMIN_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return token?.isEmpty == false ? token : nil
+    private static func defaultAdminToken(includePersisted: Bool = true) -> String? {
+        let token = sanitizedConfigurationValue(ProcessInfo.processInfo.environment["AI_CADDIE_ADMIN_TOKEN"])
+        if let token {
+            return token
+        }
+        return includePersisted ? BackendConfigurationStore.loadAdminToken() : nil
     }
 
     private static func defaultLiveRoundId() -> String {

@@ -5,8 +5,12 @@ public struct StartRoundView: View {
     public let courseOptions: [MobileCourseOption]
     public let syncStatus: String
     public let isPreparing: Bool
+    public let apiBaseURL: URL?
+    public let adminTokenConfigured: Bool
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String) -> Void
+    public let onSaveBackendConfiguration: (String, String?) -> Void
+    public let onClearBackendConfiguration: () -> Void
 
     @State private var roundId: String
     @State private var courseGlobalIdText: String
@@ -19,15 +23,23 @@ public struct StartRoundView: View {
         courseOptions: [MobileCourseOption] = [],
         syncStatus: String = "Offline ready",
         isPreparing: Bool = false,
+        apiBaseURL: URL? = nil,
+        adminTokenConfigured: Bool = false,
         onPrepareRound: @escaping (String) -> Void = { _ in },
-        onPrepareCourseRound: @escaping (Int, String, String) -> Void = { _, _, _ in }
+        onPrepareCourseRound: @escaping (Int, String, String) -> Void = { _, _, _ in },
+        onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
+        onClearBackendConfiguration: @escaping () -> Void = {}
     ) {
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
         self.syncStatus = syncStatus
         self.isPreparing = isPreparing
+        self.apiBaseURL = apiBaseURL
+        self.adminTokenConfigured = adminTokenConfigured
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
+        self.onSaveBackendConfiguration = onSaveBackendConfiguration
+        self.onClearBackendConfiguration = onClearBackendConfiguration
         self._roundId = State(initialValue: defaultRoundId)
         self._courseGlobalIdText = State(initialValue: defaultCourseGlobalId.map(String.init) ?? "")
         self._teeBox = State(initialValue: defaultTeeBox)
@@ -35,6 +47,20 @@ public struct StartRoundView: View {
 
     public var body: some View {
         Form {
+            Section("Connection") {
+                NavigationLink {
+                    BackendSettingsView(
+                        apiBaseURL: apiBaseURL,
+                        adminTokenConfigured: adminTokenConfigured,
+                        syncStatus: syncStatus,
+                        onSave: onSaveBackendConfiguration,
+                        onClear: onClearBackendConfiguration
+                    )
+                } label: {
+                    Label(apiBaseURL?.host ?? "Backend", systemImage: "server.rack")
+                }
+            }
+
             Section("Start Round") {
                 if !courseOptions.isEmpty {
                     Picker("Recent course", selection: $courseGlobalIdText) {

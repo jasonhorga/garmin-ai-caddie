@@ -23,3 +23,10 @@ For TestFlight builds, provide a public backend URL through the `iOS TestFlight 
 workflow `api_base_url` input or the repo variable `AI_CADDIE_API_BASE_URL`. The value
 is baked into the iOS `Info.plist` as `AICaddieAPIBaseURL`; leaving it blank preserves
 the offline/fixture fallback.
+
+If the backend URL or private admin token is not known at build time, use the
+runtime Backend screen in the iPhone app. It accepts an origin-only `https://`
+API URL, rejects paths/query strings/URL credentials, saves the URL in
+UserDefaults, and the admin token is saved in Keychain. This lets a TestFlight
+tester point the same build at a newly deployed backend without another
+TestFlight upload.

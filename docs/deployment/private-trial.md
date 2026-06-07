@@ -136,7 +136,9 @@ The preflight stays `incomplete` until all external gates are actually true:
 
 - the six long-lived signing secrets are configured
 - repo variable `AI_CADDIE_API_BASE_URL` points at the deployed API origin, or
-  the TestFlight workflow `api_base_url` input is provided for that build
+  the TestFlight workflow `api_base_url` input is provided for that build, or
+  the iPhone app runtime Backend screen is confirmed configured for the deployed
+  API origin
 - the backend probe can reach `/api/v2/health` and authenticated
   `/api/v2/readiness`
 - `TESTFLIGHT_FEEDBACK_EMAIL` is set or the Beta App feedback email is filled
@@ -150,8 +152,8 @@ The preflight stays `incomplete` until all external gates are actually true:
 
 `VITE_AI_CADDIE_API_BASE_URL` only proves the Web build can target the deployed
 API. It does not satisfy native TestFlight configuration; the iOS/watch build
-must use `AI_CADDIE_API_BASE_URL` or the TestFlight workflow `api_base_url`
-input.
+must use `AI_CADDIE_API_BASE_URL`, the TestFlight workflow `api_base_url`
+input, or the iPhone app runtime Backend screen.
 
 Use an origin-only API URL such as `https://api.example.com`, with no path,
 query string, fragment, or URL credentials. The preflight rejects values such as
@@ -178,15 +180,18 @@ provided; public `/api/v2/readiness` alone is not enough for the external
 release gate. The probed API must also return the expected
 `ai-caddie-health-v2` and `ai-caddie-readiness-v1` schemas.
 
-If feedback email or tester coverage is completed manually outside GitHub
-secrets, record that in the preflight run with `--feedback-email-filled`,
+If feedback email, native runtime backend setup, or tester coverage is completed
+manually outside GitHub secrets/variables, record that in the preflight run with
+`--feedback-email-filled`, `--native-runtime-api-configured`,
 `--beta-review-ready`, `--beta-review-submitted`,
 `--assigned-tester-count <count>`, and `--tester-coverage-confirmed`.
 Use the matching source-label flags (`--feedback-email-source`,
-`--beta-review-ready-source`, `--beta-review-source`,
-`--assigned-tester-source`, `--tester-coverage-source`, and
-`--install-source`) to identify safe evidence such as
-`app_store_connect_beta_review_submitted` or `testflight_iphone_watch_install`.
+`--native-runtime-api-source`, `--beta-review-ready-source`,
+`--beta-review-source`, `--assigned-tester-source`,
+`--tester-coverage-source`, and `--install-source`) to identify safe evidence
+such as `testflight_backend_screen`,
+`app_store_connect_beta_review_submitted`, or
+`testflight_iphone_watch_install`.
 Do not put tester email addresses, tokens, or local filesystem paths in source
 labels; the preflight redacts those values before printing JSON.
 `--assigned-tester-count` is only for target testers confirmed assigned to

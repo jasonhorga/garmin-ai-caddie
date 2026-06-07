@@ -107,7 +107,12 @@ class ServerV2ReadinessTests(unittest.TestCase):
             {
                 "label": "native_api_base_url_configuration",
                 "state": "ready",
-                "evidence": {"repoVariableConfigured": True, "workflowInputProvided": False},
+                "evidence": {
+                    "repoVariableConfigured": True,
+                    "workflowInputProvided": False,
+                    "runtimeBackendConfigured": True,
+                    "runtimeBackendSource": "testflight_backend_screen",
+                },
             },
             {
                 "label": "external_beta_review_feedback",
@@ -727,6 +732,11 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(evidence["issues"], [])
         summaries = {row["label"]: row for row in evidence["checks"]}
         self.assertEqual(summaries["signing_secrets"]["total"], 6)
+        self.assertTrue(summaries["native_api_base_url_configuration"]["evidence"]["runtimeBackendConfigured"])
+        self.assertEqual(
+            summaries["native_api_base_url_configuration"]["evidence"]["runtimeBackendSource"],
+            "testflight_backend_screen",
+        )
         self.assertEqual(summaries["phone_reachable_backend_url"]["evidence"]["host"], "api.example.test")
         self.assertEqual(summaries["backend_probe"]["evidence"]["readinessSchema"], "ai-caddie-readiness-v1")
         self.assertNotIn("adminTokenProvided", summaries["backend_probe"]["evidence"])

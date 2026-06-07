@@ -427,6 +427,8 @@ def _github_checks(
     *,
     native_api_url_configured: bool,
     native_api_source: str | None,
+    native_runtime_api_configured: bool,
+    native_runtime_api_source: str | None,
     feedback_email_filled: bool,
     feedback_email_source: str | None,
 ) -> list[dict[str, Any]]:
@@ -451,7 +453,7 @@ def _github_checks(
         REQUIRED_NATIVE_API_VARIABLE in variable_names
         and native_api_variable_summary["validPublicHttps"] is True
     )
-    native_api_ready = repo_variable_ready or native_api_url_configured
+    native_api_ready = repo_variable_ready or native_api_url_configured or native_runtime_api_configured
     feedback_ready = OPTIONAL_EXTERNAL_REVIEW_SECRET in secret_names or feedback_email_filled
 
     return [
@@ -482,7 +484,7 @@ def _github_checks(
             "state": "ready" if native_api_ready else "missing",
             "reason": None
             if native_api_ready
-            else "set repo variable AI_CADDIE_API_BASE_URL or pass api_base_url when uploading a connected TestFlight build",
+            else "set repo variable AI_CADDIE_API_BASE_URL, pass api_base_url when uploading, or confirm the iPhone Backend screen is configured",
             "evidence": {
                 "repoVariableConfigured": REQUIRED_NATIVE_API_VARIABLE in variable_names,
                 "repoVariableValidPublicHttps": repo_variable_ready,
@@ -490,6 +492,8 @@ def _github_checks(
                 "workflowInputProvided": native_api_source == "PHASE6_API_BASE_URL" and native_api_url_configured,
                 "nativeEnvProvided": native_api_source == "AI_CADDIE_API_BASE_URL" and native_api_url_configured,
                 "githubVariableProvided": native_api_source == GITHUB_NATIVE_API_SOURCE and native_api_url_configured,
+                "runtimeBackendConfigured": native_runtime_api_configured,
+                "runtimeBackendSource": native_runtime_api_source,
             },
         },
         {
@@ -550,6 +554,12 @@ def build_phase6_external_readiness(
         api_summary["validPublicHttps"]
         and api_url_source in {*NATIVE_API_URL_SOURCES, GITHUB_NATIVE_API_SOURCE}
     )
+    native_runtime_api_configured = _bool_env(env, "AI_CADDIE_NATIVE_RUNTIME_API_CONFIGURED")
+    native_runtime_api_source = _confirmation_source(
+        env,
+        value_key="AI_CADDIE_NATIVE_RUNTIME_API_CONFIGURED",
+        source_key="AI_CADDIE_NATIVE_RUNTIME_API_SOURCE",
+    )
     beta_review_ready = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY")
     beta_review_submitted = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED")
     github_beta_review_ready, github_beta_review_ready_source = _github_beta_review_ready_source(github_snapshot)
@@ -583,6 +593,8 @@ def build_phase6_external_readiness(
         github_snapshot,
         native_api_url_configured=native_api_url_configured,
         native_api_source=api_url_source,
+        native_runtime_api_configured=native_runtime_api_configured,
+        native_runtime_api_source=native_runtime_api_source,
         feedback_email_filled=feedback_email_filled,
         feedback_email_source=feedback_email_source,
     )
@@ -797,6 +809,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Record external Beta App Review submission or external testing readiness.",
     )
     parser.add_argument("--beta-review-source", help="Safe evidence label for --beta-review-submitted.")
+    parser.add_argument(
+        "--native-runtime-api-configured",
+        action="store_true",
+        help="Record that the TestFlight app Backend screen is configured with the deployed API origin.",
+    )
+    parser.add_argument("--native-runtime-api-source", help="Safe evidence label for --native-runtime-api-configured.")
     parser.add_argument("--tester-coverage-confirmed", action="store_true", help="Record internal or external tester coverage.")
     parser.add_argument("--tester-coverage-source", help="Safe evidence label for --tester-coverage-confirmed.")
     parser.add_argument("--install-verified", action="store_true", help="Record that iPhone/watch install was verified.")
@@ -826,6 +844,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.beta_review_submitted:
         env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED"] = "1"
         env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE"] = args.beta_review_source or "cli_flag"
+    if args.native_runtime_api_configured:
+        env["AI_CADDIE_NATIVE_RUNTIME_API_CONFIGURED"] = "1"
+        env["AI_CADDIE_NATIVE_RUNTIME_API_SOURCE"] = args.native_runtime_api_source or "cli_flag"
     if args.tester_coverage_confirmed:
         env["AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED"] = "1"
         env["AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_SOURCE"] = args.tester_coverage_source or "cli_flag"

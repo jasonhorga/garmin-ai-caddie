@@ -1265,7 +1265,7 @@ class MobileContractTests(unittest.TestCase):
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
 
-        self.assertIn("private let syncClient: SyncClient?", app_swift)
+        self.assertIn("private var syncClient: SyncClient?", app_swift)
         self.assertIn("AI_CADDIE_API_BASE_URL", app_swift)
         self.assertIn('Bundle.main.object(forInfoDictionaryKey: "AICaddieAPIBaseURL")', app_swift)
         self.assertIn("sanitizedConfigurationValue", app_swift)
@@ -1437,7 +1437,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@Published public private(set) var apiBaseURL: URL?", app_swift)
         self.assertIn("defaultAPIBaseURL", app_swift)
         self.assertIn("apiBaseURL: model.apiBaseURL", app_swift)
-        self.assertIn("resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }", app_swift)
+        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken)", app_swift)
+        self.assertIn("self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken) }", app_swift)
+        self.assertIn("BackendConfigurationStore.normalizedAPIBaseURL", app_swift)
 
         self.assertIn("public let apiBaseURL: URL?", round_home)
         self.assertIn("apiBaseURL: URL? = nil", round_home)
@@ -1487,6 +1489,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@Published public private(set) var adminToken: String?", app_swift)
         self.assertIn("adminToken: model.adminToken", app_swift)
         self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken)", app_swift)
+        self.assertIn("SyncClient(baseURL: $0, adminToken: adminToken)", app_swift)
 
         self.assertIn("public let adminToken: String?", round_home)
         self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken", round_home)
@@ -1498,6 +1501,56 @@ class MobileContractTests(unittest.TestCase):
         for source in [sync_client, caddie_client, media_client]:
             self.assertIn("private let adminToken: String?", source)
             self.assertIn('request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")', source)
+
+    def test_ios_backend_settings_allow_testflight_runtime_api_configuration(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        backend_store = _read_required_source(self, IOS_DIR / "Services" / "BackendConfigurationStore.swift")
+        backend_view = _read_required_source(self, IOS_DIR / "Views" / "BackendSettingsView.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        start_view = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        readme = _read_required_source(self, IOS_DIR.parent / "README.md")
+
+        self.assertIn("public func saveBackendConfiguration(apiBaseURLText: String, adminTokenText: String?) async", app_swift)
+        self.assertIn("public func clearBackendConfiguration() async", app_swift)
+        self.assertIn("BackendConfigurationStore.saveAPIBaseURL(resolvedAPIBaseURL)", app_swift)
+        self.assertIn("BackendConfigurationStore.saveAdminToken(sanitizedAdminToken)", app_swift)
+        self.assertIn("applyBackendConfiguration(apiBaseURL: resolvedAPIBaseURL, adminToken: nextAdminToken)", app_swift)
+        self.assertIn("public var adminTokenConfigured: Bool", app_swift)
+        self.assertIn("adminTokenConfigured: model.adminTokenConfigured", app_swift)
+
+        self.assertIn("public struct BackendConfigurationStore", backend_store)
+        self.assertIn("UserDefaults.standard.set(url.absoluteString", backend_store)
+        self.assertIn("import Security", backend_store)
+        self.assertIn("kSecClassGenericPassword", backend_store)
+        self.assertIn("kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly", backend_store)
+        self.assertIn("SecItemAdd", backend_store)
+        self.assertIn("SecItemCopyMatching", backend_store)
+        self.assertIn("SecItemDelete", backend_store)
+        self.assertIn('components.scheme?.lowercased() == "https"', backend_store)
+        self.assertIn("components.user == nil", backend_store)
+        self.assertIn("components.password == nil", backend_store)
+        self.assertIn("components.query == nil", backend_store)
+        self.assertIn("components.fragment == nil", backend_store)
+        self.assertIn("components.percentEncodedPath.isEmpty || components.percentEncodedPath == \"/\"", backend_store)
+        self.assertNotIn("admin-token\".", backend_store)
+
+        self.assertIn("public struct BackendSettingsView: View", backend_view)
+        self.assertIn('TextField("API origin"', backend_view)
+        self.assertIn("SecureField", backend_view)
+        self.assertIn('Label("Save backend"', backend_view)
+        self.assertIn('Label("Clear saved backend"', backend_view)
+        self.assertNotIn("Text(adminToken", backend_view)
+
+        for source in [round_home, start_view]:
+            self.assertIn("BackendSettingsView(", source)
+            self.assertIn("onSaveBackendConfiguration", source)
+            self.assertIn("onClearBackendConfiguration", source)
+            self.assertIn('systemImage: "server.rack"', source)
+
+        self.assertIn("runtime Backend screen", readme)
+        self.assertIn("admin token is saved in Keychain", readme)
+        self.assertIn("without another", readme)
+        self.assertIn("TestFlight upload", readme)
 
     def test_ios_app_activates_watch_bridge_for_live_round(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -1655,7 +1708,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("contentBase64: data.base64EncodedString()", media_view)
         self.assertIn("eventId: mediaEventId", media_view)
 
-        self.assertIn("private let mediaUploadClient: MediaUploadClient?", app_swift)
+        self.assertIn("private var mediaUploadClient: MediaUploadClient?", app_swift)
         self.assertIn("func syncPendingMedia(roundId: String) async throws -> Int", app_swift)
         self.assertIn("offlineStore.loadPendingMedia(roundId:", app_swift)
         self.assertIn("Data(contentsOf: media.fileURL)", app_swift)

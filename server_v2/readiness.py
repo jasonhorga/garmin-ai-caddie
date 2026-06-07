@@ -515,6 +515,8 @@ def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
                 "workflowInputProvided": evidence.get("workflowInputProvided") is True,
                 "nativeEnvProvided": evidence.get("nativeEnvProvided") is True,
                 "githubVariableProvided": evidence.get("githubVariableProvided") is True,
+                "runtimeBackendConfigured": evidence.get("runtimeBackendConfigured") is True,
+                "runtimeBackendSource": evidence.get("runtimeBackendSource"),
             }
         elif label == "external_beta_review_feedback":
             safe_evidence = {

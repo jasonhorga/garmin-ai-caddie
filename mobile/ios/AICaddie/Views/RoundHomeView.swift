@@ -7,6 +7,7 @@ public struct RoundHomeView: View {
     public let syncStatus: String
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let adminTokenConfigured: Bool
     public let offlineStore: OfflineStore?
     public let sessionStore: GarminSessionStore?
     public let watchBridge: WatchEventBridge?
@@ -17,6 +18,8 @@ public struct RoundHomeView: View {
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String) -> Void
     public let onSync: () -> Void
+    public let onSaveBackendConfiguration: (String, String?) -> Void
+    public let onClearBackendConfiguration: () -> Void
 
     public init(
         package: LiveRoundPackage,
@@ -24,6 +27,7 @@ public struct RoundHomeView: View {
         syncStatus: String = "Offline ready",
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
+        adminTokenConfigured: Bool = false,
         offlineStore: OfflineStore? = nil,
         sessionStore: GarminSessionStore? = GarminSessionStore(),
         watchBridge: WatchEventBridge? = nil,
@@ -33,13 +37,16 @@ public struct RoundHomeView: View {
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String) -> Void = { _, _, _ in },
-        onSync: @escaping () -> Void = {}
+        onSync: @escaping () -> Void = {},
+        onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
+        onClearBackendConfiguration: @escaping () -> Void = {}
     ) {
         self.package = package
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.adminTokenConfigured = adminTokenConfigured
         self.offlineStore = offlineStore
         self.sessionStore = sessionStore
         self.watchBridge = watchBridge
@@ -50,6 +57,8 @@ public struct RoundHomeView: View {
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onSync = onSync
+        self.onSaveBackendConfiguration = onSaveBackendConfiguration
+        self.onClearBackendConfiguration = onClearBackendConfiguration
     }
 
     public var body: some View {
@@ -81,6 +90,17 @@ public struct RoundHomeView: View {
                         Label("Garmin Session", systemImage: "key")
                     }
                     NavigationLink {
+                        BackendSettingsView(
+                            apiBaseURL: apiBaseURL,
+                            adminTokenConfigured: adminTokenConfigured,
+                            syncStatus: syncStatus,
+                            onSave: onSaveBackendConfiguration,
+                            onClear: onClearBackendConfiguration
+                        )
+                    } label: {
+                        Label("Backend", systemImage: "server.rack")
+                    }
+                    NavigationLink {
                         StartRoundView(
                             defaultRoundId: package.roundId,
                             defaultCourseGlobalId: package.course.globalId == 0 ? nil : package.course.globalId,
@@ -88,8 +108,12 @@ public struct RoundHomeView: View {
                             courseOptions: courseOptions,
                             syncStatus: syncStatus,
                             isPreparing: isPreparingRound,
+                            apiBaseURL: apiBaseURL,
+                            adminTokenConfigured: adminTokenConfigured,
                             onPrepareRound: onPrepareRound,
-                            onPrepareCourseRound: onPrepareCourseRound
+                            onPrepareCourseRound: onPrepareCourseRound,
+                            onSaveBackendConfiguration: onSaveBackendConfiguration,
+                            onClearBackendConfiguration: onClearBackendConfiguration
                         )
                     } label: {
                         Label("Start Round", systemImage: "flag.checkered")

@@ -435,6 +435,34 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["workflowInputProvided"])
         self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["nativeEnvProvided"])
 
+    def test_runtime_backend_screen_confirmation_counts_as_native_configuration(self) -> None:
+        payload = build_phase6_external_readiness(
+            env={
+                "PHASE6_API_BASE_URL": "https://api.example.test",
+                "AI_CADDIE_NATIVE_RUNTIME_API_CONFIGURED": "1",
+                "AI_CADDIE_NATIVE_RUNTIME_API_SOURCE": "Backend screen owner@example.test /Users/me/backend.png",
+            },
+            github_snapshot=_github_snapshot(
+                secrets=[*REQUIRED_SIGNING_SECRETS],
+                variables=[],
+            ),
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["native_api_base_url_configuration"]["state"], "ready")
+        self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["repoVariableConfigured"])
+        self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["workflowInputProvided"])
+        self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["runtimeBackendConfigured"])
+        self.assertEqual(
+            checks["native_api_base_url_configuration"]["evidence"]["runtimeBackendSource"],
+            "Backend screen [redacted_email] [redacted_path]",
+        )
+        self.assertEqual(checks["phone_reachable_backend_url"]["state"], "ready")
+        self.assertEqual(checks["backend_probe"]["state"], "missing")
+        self.assertNotIn("owner@example.test", json.dumps(payload))
+        self.assertNotIn("/Users/me", json.dumps(payload))
+
     def test_beta_review_ready_does_not_count_as_submission(self) -> None:
         payload = build_phase6_external_readiness(
             env={
@@ -534,6 +562,9 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
                     "--beta-review-submitted",
                     "--beta-review-source",
                     "app_store_connect_beta_review_submitted",
+                    "--native-runtime-api-configured",
+                    "--native-runtime-api-source",
+                    "testflight_backend_screen",
                     "--tester-coverage-confirmed",
                     "--tester-coverage-source",
                     "internal_testflight_group",
@@ -568,6 +599,12 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],
             "github_actions_log:27069928781",
+        )
+        self.assertEqual(checks["native_api_base_url_configuration"]["state"], "ready")
+        self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["runtimeBackendConfigured"])
+        self.assertEqual(
+            checks["native_api_base_url_configuration"]["evidence"]["runtimeBackendSource"],
+            "testflight_backend_screen",
         )
         self.assertEqual(checks["device_install"]["state"], "ready")
         self.assertTrue(checks["device_install"]["evidence"]["installVerified"])

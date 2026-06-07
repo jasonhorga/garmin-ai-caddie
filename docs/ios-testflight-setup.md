@@ -45,6 +45,9 @@ but does not create a new app record for this account.
   watch app) → uploads to TestFlight.
   If `api_base_url` is blank, the workflow falls back to repo variable
   `AI_CADDIE_API_BASE_URL`; if both are blank, the app keeps the offline/fixture fallback.
+  The iPhone app also has a runtime Backend screen for an origin-only `https://`
+  API URL and private admin token, so a tester can point an already uploaded
+  TestFlight build at a deployed backend without another upload.
 - Run the `iOS TestFlight Testers` workflow manually:
   - `operation=list` shows uploaded builds, TestFlight groups, and currently visible testers.
   - `operation=add` adds comma-separated external tester emails to the configured group
@@ -87,7 +90,10 @@ native build setting.
 
 Set `AI_CADDIE_API_BASE_URL` / `api_base_url` to the API origin only, for example
 `https://api.example.com`; do not include a path, query string, fragment, or URL
-credentials.
+credentials. If the URL is supplied after upload through the runtime Backend
+screen, record the manual evidence with
+`ops/phase6_external_readiness.py --native-runtime-api-configured
+--native-runtime-api-source testflight_backend_screen`.
 
 ## Verification Boundary
 
