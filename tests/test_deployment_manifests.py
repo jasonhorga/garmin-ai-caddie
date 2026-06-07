@@ -89,6 +89,8 @@ class DeploymentManifestTests(unittest.TestCase):
             "AI_CADDIE_API_BASE_URL",
             "api_base_url",
             "TESTFLIGHT_FEEDBACK_EMAIL",
+            "repo variable value as the probe URL",
+            "reports only",
             "VITE_AI_CADDIE_API_BASE_URL",
             "only proves the Web build",
             "does not satisfy native TestFlight configuration",

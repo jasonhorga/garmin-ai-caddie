@@ -39,6 +39,7 @@ API_URL_ENV_PRIORITY = (
     "VITE_AI_CADDIE_API_BASE_URL",
 )
 NATIVE_API_URL_SOURCES = {"AI_CADDIE_API_BASE_URL", "PHASE6_API_BASE_URL"}
+GITHUB_NATIVE_API_SOURCE = f"github_variable:{REQUIRED_NATIVE_API_VARIABLE}"
 
 
 def _utc_now() -> str:
@@ -105,6 +106,13 @@ def _configured_api_url(env: dict[str, str]) -> tuple[str, str | None]:
     return "", None
 
 
+def _github_variable_value(github_snapshot: dict[str, Any] | None, name: str) -> str:
+    values = (github_snapshot or {}).get("variableValues")
+    if not isinstance(values, dict):
+        return ""
+    return str(values.get(name) or "").strip()
+
+
 def _redacted_url_summary(raw_url: str, *, source: str | None = None) -> dict[str, Any]:
     if not raw_url.strip():
         return {
@@ -160,6 +168,11 @@ def fetch_github_snapshot(
         "defaultBranch": str(repo_payload.get("default_branch") or ""),
         "secretNames": sorted(str(row.get("name")) for row in secrets_payload.get("secrets", []) if row.get("name")),
         "variableNames": sorted(str(row.get("name")) for row in variables_payload.get("variables", []) if row.get("name")),
+        "variableValues": {
+            str(row.get("name")): str(row.get("value") or "").strip()
+            for row in variables_payload.get("variables", [])
+            if row.get("name")
+        },
     }
 
 
@@ -232,9 +245,17 @@ def _github_checks(
 
     secret_names = set(github_snapshot.get("secretNames") or [])
     variable_names = set(github_snapshot.get("variableNames") or [])
+    native_api_variable_summary = _redacted_url_summary(
+        _github_variable_value(github_snapshot, REQUIRED_NATIVE_API_VARIABLE),
+        source=GITHUB_NATIVE_API_SOURCE,
+    )
     missing_signing = [name for name in REQUIRED_SIGNING_SECRETS if name not in secret_names]
     unused_configured = [name for name in LEGACY_UNUSED_SECRETS if name in secret_names]
-    native_api_ready = REQUIRED_NATIVE_API_VARIABLE in variable_names or native_api_url_configured
+    repo_variable_ready = (
+        REQUIRED_NATIVE_API_VARIABLE in variable_names
+        and native_api_variable_summary["validPublicHttps"] is True
+    )
+    native_api_ready = repo_variable_ready or native_api_url_configured
     feedback_ready = OPTIONAL_EXTERNAL_REVIEW_SECRET in secret_names or feedback_email_filled
 
     return [
@@ -268,8 +289,11 @@ def _github_checks(
             else "set repo variable AI_CADDIE_API_BASE_URL or pass api_base_url when uploading a connected TestFlight build",
             "evidence": {
                 "repoVariableConfigured": REQUIRED_NATIVE_API_VARIABLE in variable_names,
+                "repoVariableValidPublicHttps": repo_variable_ready,
+                "repoVariableHost": native_api_variable_summary["host"],
                 "workflowInputProvided": native_api_source == "PHASE6_API_BASE_URL" and native_api_url_configured,
                 "nativeEnvProvided": native_api_source == "AI_CADDIE_API_BASE_URL" and native_api_url_configured,
+                "githubVariableProvided": native_api_source == GITHUB_NATIVE_API_SOURCE and native_api_url_configured,
             },
         },
         {
@@ -296,9 +320,13 @@ def build_phase6_external_readiness(
 ) -> dict[str, Any]:
     env = dict(env or os.environ)
     raw_api_url, api_url_source = _configured_api_url(env)
+    if not raw_api_url:
+        raw_api_url = _github_variable_value(github_snapshot, REQUIRED_NATIVE_API_VARIABLE)
+        api_url_source = GITHUB_NATIVE_API_SOURCE if raw_api_url else None
     api_summary = _redacted_url_summary(raw_api_url, source=api_url_source)
     native_api_url_configured = bool(
-        api_summary["validPublicHttps"] and api_url_source in NATIVE_API_URL_SOURCES
+        api_summary["validPublicHttps"]
+        and api_url_source in {*NATIVE_API_URL_SOURCES, GITHUB_NATIVE_API_SOURCE}
     )
     checks = _github_checks(
         github_snapshot,

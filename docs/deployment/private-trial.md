@@ -145,6 +145,11 @@ API. It does not satisfy native TestFlight configuration; the iOS/watch build
 must use `AI_CADDIE_API_BASE_URL` or the TestFlight workflow `api_base_url`
 input.
 
+When `GH_TOKEN` can read GitHub Actions variables, the preflight uses the
+`AI_CADDIE_API_BASE_URL` repo variable value as the probe URL and reports only
+its host. If that value is unavailable to the GitHub API, pass the same URL with
+`--api-base-url` for the preflight run.
+
 The backend probe does not count as ready unless `AI_CADDIE_ADMIN_TOKEN` is
 provided; public `/api/v2/readiness` alone is not enough for the external
 release gate. The probed API must also return the expected

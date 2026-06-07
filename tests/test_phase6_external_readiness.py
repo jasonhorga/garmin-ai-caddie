@@ -23,6 +23,7 @@ def _github_snapshot(
     *,
     secrets: list[str] | None = None,
     variables: list[str] | None = None,
+    variable_values: dict[str, str] | None = None,
     private: bool = False,
     default_branch: str = "integration/v2",
 ) -> dict[str, object]:
@@ -32,6 +33,7 @@ def _github_snapshot(
         "defaultBranch": default_branch,
         "secretNames": secrets or [],
         "variableNames": variables or [],
+        "variableValues": variable_values or {},
     }
 
 
@@ -178,6 +180,71 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["external_testers"]["evidence"]["internalCoverageSource"], "environment")
         self.assertEqual(checks["backend_probe"]["state"], "manual_required")
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["source"], "PHASE6_API_BASE_URL")
+
+    def test_github_native_api_variable_value_can_drive_backend_probe(self) -> None:
+        calls: list[tuple[str, str | None]] = []
+
+        def backend_probe(url: str, admin_token: str | None) -> dict[str, object]:
+            calls.append((url, admin_token))
+            return {
+                "state": "ready",
+                "healthStatus": 200,
+                "healthSchema": "ai-caddie-health-v2",
+                "readinessStatus": 200,
+                "readinessSchema": "ai-caddie-readiness-v1",
+                "readinessState": "ready",
+            }
+
+        payload = build_phase6_external_readiness(
+            env={
+                "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+                "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED": "1",
+                "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED": "1",
+                "AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED": "1",
+                "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED": "1",
+            },
+            github_snapshot=_github_snapshot(
+                secrets=[*REQUIRED_SIGNING_SECRETS],
+                variables=[REQUIRED_NATIVE_API_VARIABLE],
+                variable_values={REQUIRED_NATIVE_API_VARIABLE: "https://api.example.test/private?token=redacted"},
+            ),
+            backend_probe=backend_probe,
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        self.assertEqual(calls, [("https://api.example.test/private?token=redacted", "admin-secret")])
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["native_api_base_url_configuration"]["state"], "ready")
+        self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["repoVariableConfigured"])
+        self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["repoVariableValidPublicHttps"])
+        self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["githubVariableProvided"])
+        self.assertEqual(
+            checks["native_api_base_url_configuration"]["evidence"]["repoVariableHost"],
+            "api.example.test",
+        )
+        self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["host"], "api.example.test")
+        self.assertEqual(
+            checks["phone_reachable_backend_url"]["evidence"]["source"],
+            "github_variable:AI_CADDIE_API_BASE_URL",
+        )
+        self.assertNotIn("token=redacted", json.dumps(payload))
+
+    def test_github_native_api_variable_name_without_valid_value_is_not_ready(self) -> None:
+        payload = build_phase6_external_readiness(
+            env={},
+            github_snapshot=_github_snapshot(
+                secrets=[*REQUIRED_SIGNING_SECRETS],
+                variables=[REQUIRED_NATIVE_API_VARIABLE],
+            ),
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["native_api_base_url_configuration"]["state"], "missing")
+        self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["repoVariableConfigured"])
+        self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["repoVariableValidPublicHttps"])
+        self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["githubVariableProvided"])
+        self.assertEqual(checks["phone_reachable_backend_url"]["state"], "missing")
 
     def test_backend_probe_requires_admin_token_even_when_probe_is_available(self) -> None:
         calls: list[tuple[str, str | None]] = []
