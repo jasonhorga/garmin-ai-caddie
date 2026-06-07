@@ -78,6 +78,8 @@ class DeploymentManifestTests(unittest.TestCase):
             "ops/phase6_external_readiness.py",
             "--api-base-url https://<Render API URL or Fly API URL>",
             "--probe-backend",
+            "--output logs/phase6_external_readiness_latest.json",
+            "external_release",
             "AI_CADDIE_TESTFLIGHT_TESTER_COUNT",
             "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED",
             "--feedback-email-filled",

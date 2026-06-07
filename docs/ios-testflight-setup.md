@@ -30,8 +30,13 @@ but does not create a new app record for this account.
 ## Shipping a build
 
 - Before uploading a connected build, run the external release preflight from
-  `docs/deployment/private-trial.md`:
-  `uv run python ops/phase6_external_readiness.py --api-base-url https://<api-host> --probe-backend`.
+  `docs/deployment/private-trial.md` and keep the generated evidence file:
+  ```bash
+  uv run python ops/phase6_external_readiness.py \
+    --api-base-url https://<api-host> \
+    --probe-backend \
+    --output logs/phase6_external_readiness_latest.json
+  ```
   A fully connected external trial should not be considered ready until this
   reports `state=ready`.
 - Run the `iOS TestFlight (CD)` workflow manually from `integration/v2` with

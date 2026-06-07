@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from ops.phase6_external_readiness import (
     LEGACY_UNUSED_SECRETS,
@@ -9,6 +14,7 @@ from ops.phase6_external_readiness import (
     REQUIRED_NATIVE_API_VARIABLE,
     REQUIRED_SIGNING_SECRETS,
     build_phase6_external_readiness,
+    main,
 )
 
 
@@ -147,6 +153,24 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["backend_probe"]["state"], "manual_required")
         self.assertIn("--probe-backend", checks["backend_probe"]["reason"])
         self.assertEqual(payload["state"], "incomplete")
+
+    def test_cli_can_write_latest_evidence_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "logs" / "phase6_external_readiness_latest.json"
+            stdout = io.StringIO()
+            with (
+                patch.dict("os.environ", {}, clear=True),
+                contextlib.redirect_stdout(stdout),
+            ):
+                code = main(["--no-github", "--no-fail", "--output", output.as_posix()])
+
+            self.assertEqual(code, 0)
+            printed = json.loads(stdout.getvalue())
+            written = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(written["schema"], "ai-caddie-phase6-external-readiness-v1")
+        self.assertEqual(written, printed)
+        self.assertEqual(written["state"], "incomplete")
 
 
 if __name__ == "__main__":

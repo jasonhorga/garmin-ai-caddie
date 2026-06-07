@@ -80,11 +80,108 @@ class ServerV2ReadinessTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def _write_external_release_evidence(
+        self,
+        path: Path,
+        created_at: datetime,
+        *,
+        state: str = "ready",
+        missing_actions: list[str] | None = None,
+    ) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        checks = [
+            {
+                "label": "github_repo",
+                "state": "ready",
+                "evidence": {"public": True, "defaultBranch": "integration/v2"},
+            },
+            {
+                "label": "signing_secrets",
+                "state": "ready",
+                "ready": 6,
+                "total": 6,
+                "missing": [],
+                "unusedConfigured": ["MATCH_KEYCHAIN_PASSWORD"],
+            },
+            {
+                "label": "native_api_base_url_configuration",
+                "state": "ready",
+                "evidence": {"repoVariableConfigured": True, "workflowInputProvided": False},
+            },
+            {
+                "label": "external_beta_review_feedback",
+                "state": "ready",
+                "evidence": {
+                    "repoSecretConfigured": False,
+                    "manualFeedbackEmailConfirmed": True,
+                    "email": "owner@example.test",
+                },
+            },
+            {
+                "label": "phone_reachable_backend_url",
+                "state": "ready",
+                "evidence": {
+                    "configured": True,
+                    "validPublicHttps": True,
+                    "host": "api.example.test",
+                    "rawUrl": "https://api.example.test/private?token=super-secret",
+                },
+            },
+            {
+                "label": "backend_probe",
+                "state": "ready",
+                "evidence": {
+                    "host": "api.example.test",
+                    "healthStatus": 200,
+                    "healthSchema": "ai-caddie-health-v2",
+                    "readinessStatus": 200,
+                    "readinessSchema": "ai-caddie-readiness-v1",
+                    "readinessState": "ready",
+                    "adminTokenProvided": True,
+                    "localLog": "/Users/private/tmp/phase6.log",
+                },
+            },
+            {
+                "label": "external_testers",
+                "state": "ready",
+                "evidence": {
+                    "configuredTesterCount": 2,
+                    "internalCoverageConfirmed": False,
+                    "testerEmails": ["owner@example.test"],
+                },
+            },
+            {"label": "device_install", "state": "ready"},
+        ]
+        if state != "ready":
+            checks[-1] = {
+                "label": "device_install",
+                "state": "manual_required",
+                "reason": "install the TestFlight build on iPhone/watch and record verification",
+            }
+
+        path.write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-phase6-external-readiness-v1",
+                    "createdAt": created_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                    "state": state,
+                    "checks": checks,
+                    "missingExternalActions": missing_actions or [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def test_readiness_endpoint_reports_private_trial_checks_without_secrets(self) -> None:
         client = TestClient(app)
 
-        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
-            response = client.get("/api/v2/readiness")
+        with TemporaryDirectory() as tmp:
+            missing_external_evidence = Path(tmp) / "logs" / "phase6_external_readiness_latest.json"
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.EXTERNAL_RELEASE_EVIDENCE", missing_external_evidence),
+            ):
+                response = client.get("/api/v2/readiness")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -94,7 +191,16 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertGreaterEqual(labels, {"service", "history", "sync", "mobile", "secret_handling"})
         self.assertGreaterEqual(
             labels,
-            {"mobile_package", "mobile_events", "media_context", "reports", "operations", "native_mobile", "private_snapshot_acceptance"},
+            {
+                "mobile_package",
+                "mobile_events",
+                "media_context",
+                "reports",
+                "operations",
+                "native_mobile",
+                "external_release",
+                "private_snapshot_acceptance",
+            },
         )
         self.assertNotIn("cookie", str(payload).lower())
         self.assertNotIn("csrf", str(payload).lower())
@@ -108,6 +214,8 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["reports"]["state"], "ready")
         self.assertEqual(checks["operations"]["state"], "degraded")
         self.assertEqual(checks["native_mobile"]["state"], "degraded")
+        self.assertEqual(checks["external_release"]["state"], "degraded")
+        self.assertEqual(checks["external_release"]["evidence"]["externalRelease"], "missing_evidence")
         self.assertEqual(checks["private_snapshot_acceptance"]["state"], "degraded")
         self.assertEqual(checks["private_snapshot_acceptance"]["evidence"]["state"], "blocked")
         self.assertIn("snapshot_manifest", checks["private_snapshot_acceptance"]["evidence"]["failureLabels"])
@@ -518,6 +626,84 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(native_mobile["state"], "degraded")
         self.assertEqual(native_mobile["evidence"]["nativeBuild"], "stale_evidence")
         self.assertEqual(native_mobile["evidence"]["issues"], ["stale"])
+
+    def test_readiness_external_release_turns_ready_with_fresh_preflight_evidence(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_path = root / "logs" / "phase6_external_readiness_latest.json"
+            self._write_external_release_evidence(evidence_path, datetime.now(UTC))
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.EXTERNAL_RELEASE_EVIDENCE", evidence_path),
+            ):
+                response = client.get("/api/v2/readiness")
+
+            serialized = str(response.json())
+            self.assertNotIn(str(root), serialized)
+            self.assertNotIn("/Users/private", serialized)
+            self.assertNotIn("owner@example.test", serialized)
+            self.assertNotIn("token", serialized.lower())
+
+        self.assertEqual(response.status_code, 200)
+        checks = {check["label"]: check for check in response.json()["checks"]}
+        external = checks["external_release"]
+        self.assertEqual(external["state"], "ready")
+        evidence = external["evidence"]
+        self.assertEqual(evidence["externalRelease"], "ready")
+        self.assertEqual(evidence["state"], "ready")
+        self.assertEqual(evidence["evidenceStamp"], "phase6_external_readiness_latest.json")
+        self.assertEqual(evidence["missingExternalActions"], [])
+        self.assertEqual(evidence["issues"], [])
+        summaries = {row["label"]: row for row in evidence["checks"]}
+        self.assertEqual(summaries["signing_secrets"]["total"], 6)
+        self.assertEqual(summaries["phone_reachable_backend_url"]["evidence"]["host"], "api.example.test")
+        self.assertEqual(summaries["backend_probe"]["evidence"]["readinessSchema"], "ai-caddie-readiness-v1")
+        self.assertNotIn("adminTokenProvided", summaries["backend_probe"]["evidence"])
+
+    def test_readiness_external_release_degrades_with_incomplete_or_stale_preflight_evidence(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_path = root / "logs" / "phase6_external_readiness_latest.json"
+            self._write_external_release_evidence(
+                evidence_path,
+                datetime.now(UTC),
+                state="incomplete",
+                missing_actions=["run with --probe-backend and AI_CADDIE_ADMIN_TOKEN to prove readiness"],
+            )
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.EXTERNAL_RELEASE_EVIDENCE", evidence_path),
+            ):
+                incomplete_response = client.get("/api/v2/readiness")
+
+            self._write_external_release_evidence(evidence_path, datetime.now(UTC) - timedelta(days=30))
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.EXTERNAL_RELEASE_EVIDENCE", evidence_path),
+            ):
+                stale_response = client.get("/api/v2/readiness")
+
+            self.assertNotIn(str(root), str(incomplete_response.json()) + str(stale_response.json()))
+
+        incomplete = {check["label"]: check for check in incomplete_response.json()["checks"]}["external_release"]
+        self.assertEqual(incomplete["state"], "degraded")
+        self.assertEqual(incomplete["evidence"]["externalRelease"], "incomplete")
+        self.assertEqual(incomplete["evidence"]["state"], "incomplete")
+        self.assertIn("phase6_state_incomplete", incomplete["evidence"]["issues"])
+        self.assertEqual(
+            incomplete["evidence"]["missingExternalActions"],
+            ["run with --probe-backend and admin credential to prove readiness"],
+        )
+        self.assertNotIn("token", str(incomplete).lower())
+
+        stale = {check["label"]: check for check in stale_response.json()["checks"]}["external_release"]
+        self.assertEqual(stale["state"], "degraded")
+        self.assertEqual(stale["evidence"]["externalRelease"], "stale_evidence")
+        self.assertIn("stale", stale["evidence"]["issues"])
 
     def test_service_index_and_smoke_script_advertise_readiness(self) -> None:
         client = TestClient(app)

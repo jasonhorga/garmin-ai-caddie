@@ -119,8 +119,11 @@ AI_CADDIE_TESTFLIGHT_TESTER_COUNT=<number-of-target-testers> \
 AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=0 \
 uv run python ops/phase6_external_readiness.py \
   --api-base-url https://<Render API URL or Fly API URL> \
-  --probe-backend
+  --probe-backend \
+  --output logs/phase6_external_readiness_latest.json
 ```
+
+The API readiness endpoint reports this file as the `external_release` check.
 
 The preflight stays `incomplete` until all external gates are actually true:
 

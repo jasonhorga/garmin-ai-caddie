@@ -36,6 +36,9 @@ SNAPSHOT_ACCEPTANCE_MAX_AGE = timedelta(days=14)
 NATIVE_BUILD_EVIDENCE = Path("mobile/ios/native_build_evidence.json")
 NATIVE_BUILD_EVIDENCE_SCHEMA = "ai-caddie-native-build-evidence-v1"
 NATIVE_BUILD_EVIDENCE_MAX_AGE = timedelta(days=14)
+EXTERNAL_RELEASE_EVIDENCE = Path("logs/phase6_external_readiness_latest.json")
+EXTERNAL_RELEASE_EVIDENCE_SCHEMA = "ai-caddie-phase6-external-readiness-v1"
+EXTERNAL_RELEASE_EVIDENCE_MAX_AGE = timedelta(days=3)
 
 VISION_CONFIRMATION_STATES = ["unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"]
 
@@ -449,6 +452,174 @@ def _native_mobile_check() -> dict[str, Any]:
     )
 
 
+def _credential_safe_text(value: Any) -> str:
+    text = str(value or "").strip()
+    replacements = (
+        ("AI_CADDIE_ADMIN_TOKEN", "admin credential"),
+        ("GH_TOKEN or GITHUB_TOKEN", "GitHub metadata credential"),
+        ("GITHUB_TOKEN", "GitHub metadata credential"),
+        ("GH_TOKEN", "GitHub metadata credential"),
+        ("TOKEN", "CREDENTIAL"),
+        ("Token", "Credential"),
+        ("token", "credential"),
+    )
+    for source, replacement in replacements:
+        text = text.replace(source, replacement)
+    return text
+
+
+def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    label = str(raw.get("label") or "").strip()
+    state = str(raw.get("state") or "").strip()
+    if not label or not state:
+        return None
+
+    summary: dict[str, Any] = {
+        "label": label,
+        "state": state,
+    }
+    for key in ("ready", "total"):
+        value = _int_or_none(raw.get(key))
+        if value is not None:
+            summary[key] = value
+    for key in ("missing", "unusedConfigured"):
+        values = raw.get(key)
+        if isinstance(values, list):
+            summary[key] = [str(value) for value in values if str(value).strip()]
+
+    evidence = raw.get("evidence")
+    safe_evidence: dict[str, Any] = {}
+    if isinstance(evidence, dict):
+        if label == "github_repo":
+            safe_evidence = {
+                "public": evidence.get("public") is True,
+                "defaultBranch": evidence.get("defaultBranch"),
+            }
+        elif label == "native_api_base_url_configuration":
+            safe_evidence = {
+                "repoVariableConfigured": evidence.get("repoVariableConfigured") is True,
+                "workflowInputProvided": evidence.get("workflowInputProvided") is True,
+            }
+        elif label == "external_beta_review_feedback":
+            safe_evidence = {
+                "repoSecretConfigured": evidence.get("repoSecretConfigured") is True,
+                "manualFeedbackEmailConfirmed": evidence.get("manualFeedbackEmailConfirmed") is True,
+            }
+        elif label == "phone_reachable_backend_url":
+            safe_evidence = {
+                "configured": evidence.get("configured") is True,
+                "validPublicHttps": evidence.get("validPublicHttps") is True,
+                "host": evidence.get("host"),
+                "reason": _credential_safe_text(evidence.get("reason")),
+            }
+        elif label == "backend_probe":
+            safe_evidence = {
+                "host": evidence.get("host"),
+                "healthStatus": evidence.get("healthStatus"),
+                "healthSchema": evidence.get("healthSchema"),
+                "readinessStatus": evidence.get("readinessStatus"),
+                "readinessSchema": evidence.get("readinessSchema"),
+                "readinessState": evidence.get("readinessState"),
+            }
+        elif label == "external_testers":
+            safe_evidence = {
+                "configuredTesterCount": _int_or_none(evidence.get("configuredTesterCount")) or 0,
+                "internalCoverageConfirmed": evidence.get("internalCoverageConfirmed") is True,
+            }
+    if safe_evidence:
+        summary["evidence"] = {key: value for key, value in safe_evidence.items() if value not in (None, "")}
+    return summary
+
+
+def _external_release_evidence() -> tuple[str, dict[str, Any]]:
+    base: dict[str, Any] = {
+        "externalRelease": "missing_evidence",
+        "evidenceStamp": _public_path(EXTERNAL_RELEASE_EVIDENCE),
+        "evidenceSchema": EXTERNAL_RELEASE_EVIDENCE_SCHEMA,
+        "maxAgeHours": int(EXTERNAL_RELEASE_EVIDENCE_MAX_AGE.total_seconds() // 3600),
+        "command": "uv run python ops/phase6_external_readiness.py --output logs/phase6_external_readiness_latest.json",
+        "issues": ["evidence_missing"],
+    }
+    if not EXTERNAL_RELEASE_EVIDENCE.exists():
+        return "degraded", base
+
+    try:
+        payload = json.loads(EXTERNAL_RELEASE_EVIDENCE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "degraded", {
+            **base,
+            "externalRelease": "invalid_evidence",
+            "issues": ["evidence_unreadable"],
+        }
+    if not isinstance(payload, dict):
+        return "degraded", {
+            **base,
+            "externalRelease": "invalid_evidence",
+            "issues": ["evidence_invalid"],
+        }
+
+    freshness_state, freshness = _freshness_state(payload.get("createdAt"), EXTERNAL_RELEASE_EVIDENCE_MAX_AGE)
+    issues = list(freshness.get("issues") or [])
+    if payload.get("schema") != EXTERNAL_RELEASE_EVIDENCE_SCHEMA:
+        issues.append("schema_mismatch")
+
+    payload_state = str(payload.get("state") or "unknown").strip()
+    if payload_state != "ready":
+        issues.append(f"phase6_state_{payload_state or 'unknown'}")
+
+    raw_missing_actions = payload.get("missingExternalActions")
+    raw_checks = payload.get("checks")
+    missing_action_values = raw_missing_actions if isinstance(raw_missing_actions, list) else []
+    check_values = raw_checks if isinstance(raw_checks, list) else []
+    missing_actions = [
+        action
+        for action in (_credential_safe_text(value) for value in missing_action_values)
+        if action
+    ]
+    check_summaries = [
+        summary
+        for summary in (_external_release_check_summary(row) for row in check_values)
+        if summary is not None
+    ]
+    evidence = {
+        **base,
+        "schema": payload.get("schema"),
+        "createdAt": payload.get("createdAt"),
+        "state": payload_state,
+        "missingExternalActions": list(dict.fromkeys(missing_actions)),
+        "checks": check_summaries,
+        **freshness,
+        "issues": sorted(set(issues)),
+    }
+
+    if payload.get("schema") != EXTERNAL_RELEASE_EVIDENCE_SCHEMA or freshness_state == "invalid":
+        evidence["externalRelease"] = "invalid_evidence"
+        return "degraded", evidence
+    if freshness_state == "stale":
+        evidence["externalRelease"] = "stale_evidence"
+        return "degraded", evidence
+    if payload_state != "ready":
+        evidence["externalRelease"] = payload_state
+        return "degraded", evidence
+
+    evidence["externalRelease"] = "ready"
+    return "ready", evidence
+
+
+def _external_release_check() -> dict[str, Any]:
+    state, evidence = _external_release_evidence()
+    return _check(
+        "external_release",
+        state,
+        "External Phase 6 release preflight is current and ready."
+        if state == "ready"
+        else "External Phase 6 release preflight is missing, stale, or incomplete.",
+        evidence,
+    )
+
+
 def _offline_seed_quality(package: Any) -> dict[str, Any]:
     seeds = [seed for seed in package.caddieContextSeeds if isinstance(seed, dict)]
     option_count = 0
@@ -715,6 +886,7 @@ def build_readiness_response() -> dict[str, Any]:
         )
     )
     checks.append(_native_mobile_check())
+    checks.append(_external_release_check())
     try:
         report = load_trend_report_response("recent_10")
         checks.append(

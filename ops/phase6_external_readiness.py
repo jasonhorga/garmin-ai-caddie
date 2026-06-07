@@ -355,10 +355,19 @@ def _dump(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def _write_output(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check AI Caddie Phase 6 external release readiness.")
     parser.add_argument("--repo", default=DEFAULT_REPO, help="GitHub owner/repo to inspect.")
     parser.add_argument("--api-base-url", help="Public deployed API URL to check without printing secrets.")
+    parser.add_argument("--output", type=Path, help="Write the JSON evidence to this path after printing it.")
     parser.add_argument("--tester-count", type=int, help="Number of configured TestFlight testers to record.")
     parser.add_argument("--feedback-email-filled", action="store_true", help="Record manual Beta App feedback email setup.")
     parser.add_argument("--tester-coverage-confirmed", action="store_true", help="Record internal or external tester coverage.")
@@ -388,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
         backend_probe=backend_probe,
     )
     _dump(payload)
+    if args.output:
+        _write_output(args.output, payload)
     return 0 if args.no_fail or payload["state"] == "ready" else 2
 
 
