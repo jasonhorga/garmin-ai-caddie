@@ -246,6 +246,11 @@ def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | 
             message == "Beta App test info already has description and feedback email."
             or message.startswith("Beta App test info updated on existing ")
             or message.startswith("Beta App test info created for ")
+            or (
+                message.startswith("- locale=")
+                and "descriptionConfigured=true" in message
+                and "feedbackEmailConfigured=true" in message
+            )
         ):
             summary["feedbackEmailConfigured"] = True
             summary["feedbackEmailSource"] = f"{source_prefix}:beta_app_test_info"

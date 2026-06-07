@@ -340,6 +340,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         log_text = """
         ##[group]TestFlight builds
         - 0.1.0 (2) id=f4f11d0f state=VALID expired=false usesNonExemptEncryption=false internalReady=false betaReviewReady=true missingExportCompliance=false internalState=IN_BETA_TESTING externalState=READY_FOR_BETA_SUBMISSION autoNotify=
+        ##[group]Beta App test info
+        - locale=en-US descriptionConfigured=true feedbackEmailConfigured=true
         2026-06-07T03:45:23.7128330Z Beta App test info already has description and feedback email.
         """
 
@@ -387,6 +389,79 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
             "github_actions_log:27069928781:beta_app_test_info",
         )
+
+    def test_github_actions_beta_app_state_line_can_prove_feedback_metadata(self) -> None:
+        log_text = """
+        ##[group]Beta App test info
+        - locale=en-US descriptionConfigured=true feedbackEmailConfigured=true
+        """
+
+        def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
+            if path == "":
+                return {"private": False, "default_branch": "integration/v2"}
+            if path == "/actions/secrets":
+                return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
+            if path == "/actions/variables":
+                return {"variables": []}
+            if path.startswith("/actions/runs?"):
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 27069928782,
+                            "name": "iOS TestFlight Testers",
+                            "conclusion": "success",
+                            "created_at": "2026-06-06T18:07:36Z",
+                            "logs_url": "https://api.github.test/logs/27069928782",
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected GitHub path: {path}")
+
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", side_effect=github_get),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", return_value=_zip_log(log_text)),
+        ):
+            snapshot = fetch_github_snapshot(token="gh-token")
+
+        actions = snapshot["testflightActions"]
+        self.assertTrue(actions["feedbackEmailConfigured"])
+        self.assertEqual(actions["feedbackEmailSource"], "github_actions_log:27069928782:beta_app_test_info")
+
+    def test_github_actions_beta_app_state_line_requires_feedback_email(self) -> None:
+        log_text = """
+        ##[group]Beta App test info
+        - locale=en-US descriptionConfigured=true feedbackEmailConfigured=false
+        """
+
+        def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
+            if path == "":
+                return {"private": False, "default_branch": "integration/v2"}
+            if path == "/actions/secrets":
+                return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
+            if path == "/actions/variables":
+                return {"variables": []}
+            if path.startswith("/actions/runs?"):
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 27069928783,
+                            "name": "iOS TestFlight Testers",
+                            "conclusion": "success",
+                            "created_at": "2026-06-06T18:07:36Z",
+                            "logs_url": "https://api.github.test/logs/27069928783",
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected GitHub path: {path}")
+
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", side_effect=github_get),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", return_value=_zip_log(log_text)),
+        ):
+            snapshot = fetch_github_snapshot(token="gh-token")
+
+        actions = snapshot["testflightActions"]
+        self.assertNotIn("feedbackEmailConfigured", actions)
 
     def test_github_actions_group_assignment_counts_as_tester_coverage(self) -> None:
         payload = build_phase6_external_readiness(

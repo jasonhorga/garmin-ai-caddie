@@ -245,6 +245,28 @@ jobs:
             testers
           end
 
+          def print_beta_app_test_info(app)
+            localizations = app.get_beta_app_localizations
+            localization = localizations.find { |item| item.locale == "en-US" } || localizations.first
+            description_configured = !localization&.description.to_s.strip.empty?
+            feedback_email_configured = !localization&.feedback_email.to_s.strip.empty?
+
+            puts "::group::Beta App test info"
+            if localization
+              puts(
+                "- locale=#{localization.locale} " \
+                "descriptionConfigured=#{description_configured} " \
+                "feedbackEmailConfigured=#{feedback_email_configured}"
+              )
+              if description_configured && feedback_email_configured
+                puts "Beta App test info already has description and feedback email."
+              end
+            else
+              puts "No Beta App localization found."
+            end
+            puts "::endgroup::"
+          end
+
           def create_tester_assignments!(groups, emails)
             raise "No TestFlight tester emails are available for assignment" if emails.empty?
 
@@ -263,21 +285,43 @@ jobs:
             end
           end
 
+          def tester_assignment_blocked?(error)
+            error.message.include?("Tester(s) cannot be assigned")
+          end
+
           def assign_existing_testers_to_groups!(groups, testers)
             raise "No existing app-level TestFlight testers were found for assignment" if testers.empty?
 
             tester_ids = testers.map(&:id).map(&:to_s).reject(&:empty?).uniq
             raise "Existing app-level TestFlight testers did not include usable tester ids" if tester_ids.empty?
 
+            assignment_failures = []
             emails = testers.map { |tester| tester.email.to_s.strip }.reject(&:empty?).uniq
             groups.each do |group|
-              Spaceship::ConnectAPI.add_beta_tester_to_group(
-                beta_group_id: group.id,
-                beta_tester_ids: tester_ids
-              )
+              begin
+                Spaceship::ConnectAPI.add_beta_tester_to_group(
+                  beta_group_id: group.id,
+                  beta_tester_ids: tester_ids
+                )
+              rescue Spaceship::UnexpectedResponse => e
+                raise unless tester_assignment_blocked?(e)
+
+                assignment_failures << group.name
+                puts(
+                  "Tester assignment blocked for group #{group.name}: " \
+                  "App Store Connect reported testers cannot be assigned."
+                )
+                next
+              end
               puts(
                 "Assigned #{tester_ids.length} external tester(s) to group #{group.name}: " \
                 "#{emails.map { |email| redact_email(email) }.join(', ')}"
+              )
+            end
+            if assignment_failures.any?
+              raise(
+                "Existing tester assignment blocked for group(s): " \
+                "#{assignment_failures.join(', ')}. Run list to inspect build, group, and tester state."
               )
             end
           end
@@ -427,6 +471,7 @@ jobs:
             print_builds(app, app_version, build_number)
             print_groups(app)
             print_testers(app)
+            print_beta_app_test_info(app)
           when "add"
             emails = parse_tester_emails(ENV["TESTER_EMAILS"])
             raise "tester_emails is required for add" if emails.empty?
