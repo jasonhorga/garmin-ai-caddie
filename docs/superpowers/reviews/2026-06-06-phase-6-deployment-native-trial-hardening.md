@@ -274,11 +274,11 @@ Conclusion: failure
 Completed: 2026-06-06T18:02:19Z
 ```
 
-Result: FAIL, expected setup gap. Retrying proved the remaining missing external
-TestFlight test-information requirement is the Beta App feedback email. The
-workflow now requires the repo secret `TESTFLIGHT_FEEDBACK_EMAIL` before
-external Beta App Review submission. GitHub secret inspection after the change
-showed this secret is not currently configured.
+Result: FAIL, expected setup gap. This run used an older workflow revision that
+retried Beta App Description propagation before the workflow learned to check
+feedback email explicitly. Later App Store Connect list evidence shows the build
+became `READY_FOR_BETA_SUBMISSION`, so the remaining external-review gap is
+submission, not another signing secret.
 
 GitHub API inspection after commit `36e8f57` showed the repo is public and the
 currently configured secret names are `ASC_ISSUER_ID`, `ASC_KEY_ID`,
@@ -287,7 +287,7 @@ currently configured secret names are `ASC_ISSUER_ID`, `ASC_KEY_ID`,
 signing set remains six secrets; `MATCH_KEYCHAIN_PASSWORD` is an unused leftover
 after the workflow simplification. `TESTFLIGHT_FEEDBACK_EMAIL` is still absent
 and is not part of signing; it is only needed for automated external Beta App
-Review submission when the feedback email is not filled manually in App Store
+test-info updates when the feedback email is not filled manually in App Store
 Connect. No GitHub Actions repo variables are configured yet, so
 `AI_CADDIE_API_BASE_URL` is also absent remotely.
 
@@ -395,9 +395,9 @@ Result: PASS. Evidence schema `ai-caddie-private-trial-smoke-evidence-v1`,
 - A new TestFlight IPA was not uploaded after adding build-time native API URL
   wiring because no phone-reachable backend URL was available yet.
 - The Phase 6 external preflight cannot report `state=ready` yet because the
-  deployed backend URL, repo variable `AI_CADDIE_API_BASE_URL`,
-  `TESTFLIGHT_FEEDBACK_EMAIL` or manual feedback email, tester coverage, and
-  device-install verification are still missing external state.
+  deployed backend URL, repo variable `AI_CADDIE_API_BASE_URL`, external Beta
+  Review submission, tester coverage, and device-install verification are still
+  missing external state.
 - Xcode simulator tests require macOS/Xcode and were not executable in this
   Linux workspace. The GitHub macOS TestFlight workflow did compile, archive,
   sign, export, and upload the release app.
@@ -405,6 +405,5 @@ Result: PASS. Evidence schema `ai-caddie-private-trial-smoke-evidence-v1`,
   this workspace. The latest TestFlight list shows internal state
   `IN_BETA_TESTING`, but no device-side install confirmation has been captured.
   External group `Private Trial` exists, but external distribution remains
-  `READY_FOR_BETA_SUBMISSION` until `TESTFLIGHT_FEEDBACK_EMAIL` is configured
-  and Beta App Review is submitted. External tester emails are still needed
-  before populating that group.
+  `READY_FOR_BETA_SUBMISSION` until Beta App Review is submitted. Existing
+  app-level tester records do not prove target group coverage or device install.

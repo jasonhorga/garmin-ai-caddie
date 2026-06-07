@@ -17,7 +17,7 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
         self.assertEqual(
             [
                 "Deploy a phone-reachable backend host and point the native app at it.",
-                "Configure `TESTFLIGHT_FEEDBACK_EMAIL` and submit external Beta App Review.",
+                "Submit external Beta App Review.",
                 "Add/confirm target tester emails for the external group or confirm the",
                 "Verify installation from TestFlight on iPhone/watch.",
             ],
@@ -32,7 +32,7 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "Older detailed implementation plans",
             "historical planning artifacts",
             "Deploy a phone-reachable backend host",
-            "Configure `TESTFLIGHT_FEEDBACK_EMAIL`",
+            "Submit external Beta App Review",
             "external Beta App Review submission",
             "Add/confirm target tester emails",
             "Verify installation from TestFlight on iPhone/watch",
@@ -47,6 +47,7 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "0.1.0 (2)",
             "usesNonExemptEncryption=false",
             "READY_FOR_BETA_SUBMISSION",
+            "to submit for external Beta Review",
             "External group `Private Trial` exists",
             "not strong enough to prove target tester coverage",
             "The active goal is not complete yet.",

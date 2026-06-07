@@ -122,7 +122,9 @@
 - [x] Add a Phase 6 external release preflight that reports missing backend URL,
   repo variables, external-review feedback email/submission, tester coverage,
   and device install verification without printing secret values.
-- [ ] Configure `TESTFLIGHT_FEEDBACK_EMAIL` and submit external Beta App Review.
+- [x] Confirm App Store Connect reports build `0.1.0 (2)` ready for external
+  Beta App Review submission: `READY_FOR_BETA_SUBMISSION`.
+- [ ] Submit external Beta App Review.
 - [ ] Add/confirm target tester emails for the external group or confirm the
   user is covered by the existing internal group.
 - [ ] Verify installation from TestFlight on iPhone/watch.

@@ -28,7 +28,7 @@ Phase 6 is locally hardened and partially externally complete. The remaining
 unchecked roadmap items are all external-state items:
 
 - Deploy a phone-reachable backend host and point the native app at it.
-- Configure `TESTFLIGHT_FEEDBACK_EMAIL` and submit external Beta App Review.
+- Submit external Beta App Review.
 - Add/confirm target tester emails for the external group or confirm the user is
   covered by the existing internal group.
 - Verify installation from TestFlight on iPhone/watch.
@@ -62,9 +62,9 @@ unchecked roadmap items are all external-state items:
   `mediaRoundTrip=true`, and `secretFree=true`.
 - Phase 6 external readiness preflight currently reports `incomplete` in
   `logs/phase6_external_readiness_latest.json`: public repo and six required
-  signing secrets are ready; backend URL, native API URL configuration, feedback
-  email or manual confirmation, external Beta App Review submission, tester
-  coverage, and iPhone/watch install verification remain external.
+  signing secrets are ready; backend URL, native API URL configuration,
+  external Beta App Review submission, tester coverage, and iPhone/watch install
+  verification remain external.
 
 ## No-Quota External Audit
 
@@ -84,6 +84,9 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   `0.1.0 (2)` as `VALID`, `usesNonExemptEncryption=false`,
   `internalState=IN_BETA_TESTING`, and
   `externalState=READY_FOR_BETA_SUBMISSION`.
+- `READY_FOR_BETA_SUBMISSION` proves App Store Connect considers the build ready
+  to submit for external Beta Review; it does not prove the review submission
+  has happened.
 - External group `Private Trial` exists. The app tester list shows two
   redacted tester records, but their device/latest-build state is `unknown`;
   that is not strong enough to prove target tester coverage or install
@@ -93,7 +96,7 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
 ## Completion Decision
 
 The active goal is not complete yet. Current evidence proves the roadmap is
-implemented and tested up to the external release boundary, but it does not prove
-that a phone-reachable backend is deployed, that external Beta Review has been
-submitted, that tester coverage is configured, or that iPhone/watch installation
-works from TestFlight.
+implemented and tested up to the external release boundary, but it does not
+prove that a phone-reachable backend is deployed, that external Beta Review has
+been submitted, that tester coverage is configured, or that iPhone/watch
+installation works from TestFlight.
