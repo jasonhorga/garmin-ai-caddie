@@ -52,7 +52,9 @@ unchecked roadmap items are all external-state items:
   `/api/v2/readiness` as the `external_release` check.
 - Machine-readable completion summary:
   `uv run python ops/roadmap_completion_status.py --no-fail`, which reads the
-  authoritative roadmap and latest Phase 6 evidence without network access.
+  authoritative roadmap and latest Phase 6 evidence without network access and
+  emits grouped `phase6Gates` for backend reachability, Beta Review submission,
+  target tester coverage, and device install.
 
 ## Latest Verification Summary
 

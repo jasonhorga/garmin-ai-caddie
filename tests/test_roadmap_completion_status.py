@@ -40,6 +40,11 @@ class RoadmapCompletionStatusTests(unittest.TestCase):
                         ],
                         "checks": [
                             {
+                                "label": "signing_secrets",
+                                "state": "ready",
+                                "reason": None,
+                            },
+                            {
                                 "label": "device_install",
                                 "state": "manual_required",
                                 "reason": "install screenshot /Users/me/Desktop/install.png",
@@ -62,6 +67,15 @@ class RoadmapCompletionStatusTests(unittest.TestCase):
                 "user is covered by the existing internal group."
             ),
         )
+        check_labels = {row["label"] for row in payload["externalRelease"]["checks"]}
+        self.assertIn("signing_secrets", check_labels)
+        gates = {row["key"]: row for row in payload["phase6Gates"]}
+        self.assertEqual(gates["device_install"]["state"], "incomplete")
+        self.assertEqual(
+            gates["device_install"]["remainingActions"],
+            ["install screenshot [redacted_path]"],
+        )
+        self.assertEqual(gates["phone_reachable_backend"]["checks"][0]["state"], "missing")
         rendered = json.dumps(payload, sort_keys=True)
         self.assertIn("submit external Beta App Review", rendered)
         self.assertIn("[redacted_email] [redacted_path]", rendered)
@@ -85,7 +99,15 @@ class RoadmapCompletionStatusTests(unittest.TestCase):
                         "createdAt": "2026-06-07T00:00:00Z",
                         "state": "ready",
                         "missingExternalActions": [],
-                        "checks": [{"label": "external_release", "state": "ready", "reason": None}],
+                        "checks": [
+                            {"label": "native_api_base_url_configuration", "state": "ready", "reason": None},
+                            {"label": "phone_reachable_backend_url", "state": "ready", "reason": None},
+                            {"label": "backend_probe", "state": "ready", "reason": None},
+                            {"label": "external_beta_review_submission_ready", "state": "ready", "reason": None},
+                            {"label": "external_beta_review_submission", "state": "ready", "reason": None},
+                            {"label": "external_testers", "state": "ready", "reason": None},
+                            {"label": "device_install", "state": "ready", "reason": None},
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -96,6 +118,7 @@ class RoadmapCompletionStatusTests(unittest.TestCase):
         self.assertTrue(payload["completionReady"])
         self.assertEqual(payload["state"], "ready")
         self.assertEqual(payload["remainingRequirements"], [])
+        self.assertTrue(all(gate["state"] == "ready" for gate in payload["phase6Gates"]))
 
     def test_cli_writes_output_and_preserves_incomplete_exit_code(self) -> None:
         with TemporaryDirectory() as tmp:

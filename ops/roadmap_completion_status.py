@@ -13,6 +13,38 @@ SCHEMA = "ai-caddie-roadmap-completion-status-v1"
 ROADMAP = Path("docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md")
 EXTERNAL_RELEASE_EVIDENCE = Path("logs/phase6_external_readiness_latest.json")
 EXTERNAL_RELEASE_SCHEMA = "ai-caddie-phase6-external-readiness-v1"
+PHASE6_GATES = (
+    {
+        "key": "phone_reachable_backend",
+        "roadmapItem": "Deploy a phone-reachable backend host and point the native app at it.",
+        "checks": (
+            "native_api_base_url_configuration",
+            "phone_reachable_backend_url",
+            "backend_probe",
+        ),
+    },
+    {
+        "key": "external_beta_review_submission",
+        "roadmapItem": "Submit external Beta App Review.",
+        "checks": (
+            "external_beta_review_submission_ready",
+            "external_beta_review_submission",
+        ),
+    },
+    {
+        "key": "target_tester_coverage",
+        "roadmapItem": (
+            "Add/confirm target tester emails for the external group or confirm the "
+            "user is covered by the existing internal group."
+        ),
+        "checks": ("external_testers",),
+    },
+    {
+        "key": "device_install",
+        "roadmapItem": "Verify installation from TestFlight on iPhone/watch.",
+        "checks": ("device_install",),
+    },
+)
 
 
 def _utc_now() -> str:
@@ -40,6 +72,12 @@ def _safe_text(value: Any) -> str:
     ):
         return "redacted_text"
     return text
+
+
+def _safe_label(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[^A-Za-z0-9_.:-]+", "_", text)[:120]
+    return text or "unknown"
 
 
 def _open_checklist_items(text: str) -> list[str]:
@@ -94,8 +132,8 @@ def _external_release_summary(path: Path) -> dict[str, Any]:
             continue
         checks.append(
             {
-                "label": _safe_text(row.get("label")),
-                "state": _safe_text(row.get("state")),
+                "label": _safe_label(row.get("label")),
+                "state": _safe_label(row.get("state")),
                 "reason": _safe_text(row.get("reason")),
             }
         )
@@ -113,6 +151,41 @@ def _external_release_summary(path: Path) -> dict[str, Any]:
     }
 
 
+def _phase6_gate_summary(external_release: dict[str, Any]) -> list[dict[str, Any]]:
+    checks = {
+        str(row.get("label") or ""): row
+        for row in external_release.get("checks", [])
+        if isinstance(row, dict)
+    }
+    gates: list[dict[str, Any]] = []
+    for gate in PHASE6_GATES:
+        gate_checks = []
+        for label in gate["checks"]:
+            row = checks.get(label)
+            gate_checks.append(
+                {
+                    "label": label,
+                    "state": row.get("state") if row else "missing",
+                    "reason": row.get("reason") if row else "check missing from external release evidence",
+                }
+            )
+        ready = bool(gate_checks) and all(row["state"] == "ready" for row in gate_checks)
+        gates.append(
+            {
+                "key": gate["key"],
+                "state": "ready" if ready else "incomplete",
+                "roadmapItem": gate["roadmapItem"],
+                "checks": gate_checks,
+                "remainingActions": [
+                    row["reason"]
+                    for row in gate_checks
+                    if row["state"] != "ready" and str(row.get("reason") or "").strip()
+                ],
+            }
+        )
+    return gates
+
+
 def build_status(
     *,
     roadmap_path: Path = ROADMAP,
@@ -122,10 +195,12 @@ def build_status(
     roadmap_text = roadmap_path.read_text(encoding="utf-8")
     open_items = _open_checklist_items(roadmap_text)
     external_release = _external_release_summary(external_release_path)
+    phase6_gates = _phase6_gate_summary(external_release)
     external_ready = (
         external_release.get("available") is True
         and external_release.get("schema") == EXTERNAL_RELEASE_SCHEMA
         and external_release.get("state") == "ready"
+        and all(gate["state"] == "ready" for gate in phase6_gates)
     )
     completion_ready = not open_items and external_ready
     return {
@@ -137,6 +212,7 @@ def build_status(
             "openItems": open_items,
         },
         "externalRelease": external_release,
+        "phase6Gates": phase6_gates,
         "completionReady": completion_ready,
         "state": "ready" if completion_ready else "incomplete",
         "remainingRequirements": [
