@@ -192,7 +192,7 @@ class CIWorkflowTests(unittest.TestCase):
         triggers = workflow[True]
         inputs = triggers["workflow_dispatch"]["inputs"]
 
-        self.assertEqual(["list", "add", "distribute"], inputs["operation"]["options"])
+        self.assertEqual(["list", "add", "assign_existing", "distribute"], inputs["operation"]["options"])
         self.assertIn("tester_emails", inputs)
         self.assertIn("groups", inputs)
         self.assertNotIn("feedback_email", inputs)
@@ -210,6 +210,9 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("internal_build_state", text)
         self.assertIn("external_build_state", text)
         self.assertIn("post_bulk_beta_tester_assignments", text)
+        self.assertIn("assign_tester_emails_to_groups!", text)
+        self.assertIn("app.get_beta_testers(limit: 200)", text)
+        self.assertIn('when "assign_existing"', text)
         self.assertIn("build.add_beta_groups", text)
         self.assertIn("app.create_beta_group", text)
         self.assertIn("patch_build_beta_details", text)

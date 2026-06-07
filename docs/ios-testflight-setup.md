@@ -52,6 +52,9 @@ but does not create a new app record for this account.
   - `operation=list` shows uploaded builds, TestFlight groups, and currently visible testers.
   - `operation=add` adds comma-separated external tester emails to the configured group
     (default `Private Trial`).
+  - `operation=assign_existing` assigns currently visible app-level TestFlight testers
+    to the configured group without printing raw email addresses. Use this when the
+    testers already exist in App Store Connect and only group membership is missing.
   - `operation=distribute` assigns the latest or selected build to that external
     TestFlight group. External distribution may require Beta App Review before testers
     can install.

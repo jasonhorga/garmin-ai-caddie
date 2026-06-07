@@ -174,6 +174,11 @@ The same log summary can record that app-level TestFlight tester records and the
 `Private Trial` group exist, but app-level tester records alone do not satisfy
 target tester coverage; the gate stays open until group assignment or internal
 coverage is confirmed.
+If the target testers already exist at the app level, run the GitHub
+`iOS TestFlight Testers` workflow with `operation=assign_existing` and
+`groups=Private Trial`. Its successful log records the group assignment count
+without exposing raw tester email addresses, and that count can satisfy target
+tester coverage.
 
 The backend probe does not count as ready unless `AI_CADDIE_ADMIN_TOKEN` is
 provided; public `/api/v2/readiness` alone is not enough for the external
