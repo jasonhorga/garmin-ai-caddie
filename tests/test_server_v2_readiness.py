@@ -210,9 +210,13 @@ class ServerV2ReadinessTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             missing_external_evidence = Path(tmp) / "logs" / "phase6_external_readiness_latest.json"
+            missing_smoke_evidence = Path(tmp) / "logs" / "private_trial_smoke_latest.json"
+            missing_backup_manifest = Path(tmp) / "backups" / "latest.json"
             with (
                 patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
                 patch("server_v2.readiness.EXTERNAL_RELEASE_EVIDENCE", missing_external_evidence),
+                patch("server_v2.readiness.SMOKE_EVIDENCE", missing_smoke_evidence),
+                patch("server_v2.readiness.BACKUP_MANIFEST", missing_backup_manifest),
             ):
                 response = client.get("/api/v2/readiness")
 
@@ -321,7 +325,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         operations = checks["operations"]["evidence"]
         self.assertEqual(operations["smokeCommand"], "ops/smoke_private_trial.sh")
         self.assertEqual(operations["backupCommand"], "ops/backup_data.sh")
-        self.assertEqual(operations["backupManifest"], "backups/latest.json")
+        self.assertEqual(operations["backupManifest"], missing_backup_manifest.name)
         self.assertIn("lastBackup", operations)
         self.assertEqual(operations["lastBackup"]["state"], "missing")
         self.assertEqual(operations["lastSmoke"]["state"], "missing")

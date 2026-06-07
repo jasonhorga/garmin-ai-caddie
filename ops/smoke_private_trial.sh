@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 from datetime import UTC, datetime
 import json
+import os
 from pathlib import Path
 import sys
 from uuid import uuid4
@@ -20,17 +21,26 @@ from urllib.request import Request, urlopen
 base_url = sys.argv[1].rstrip("/")
 admin_token = sys.argv[2]
 smoke_evidence = Path(sys.argv[3])
+DEFAULT_REQUEST_TIMEOUT_SECONDS = float(os.environ.get("AI_CADDIE_SMOKE_TIMEOUT_SECONDS", "10"))
+READINESS_TIMEOUT_SECONDS = float(os.environ.get("AI_CADDIE_SMOKE_READINESS_TIMEOUT_SECONDS", "60"))
 checks: list[str] = []
 admin_protected_checks: list[str] = []
 
 
-def call_json(method: str, path: str, *, payload: dict[str, object] | None = None, protected: bool = False) -> dict[str, object]:
+def call_json(
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, object] | None = None,
+    protected: bool = False,
+    timeout_s: float | None = None,
+) -> dict[str, object]:
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {"Content-Type": "application/json"} if body is not None else {}
     if protected and admin_token:
         headers["X-AI-Caddie-Admin-Token"] = admin_token
     request = Request(f"{base_url}{path}", data=body, headers=headers, method=method)
-    with urlopen(request, timeout=10) as response:
+    with urlopen(request, timeout=timeout_s or DEFAULT_REQUEST_TIMEOUT_SECONDS) as response:
         payload = json.loads(response.read().decode("utf-8"))
     text = json.dumps(payload).lower()
     for forbidden in (
@@ -57,16 +67,16 @@ def call_json(method: str, path: str, *, payload: dict[str, object] | None = Non
     return payload
 
 
-for path, protected in [
-    ("/api/v2/health", False),
-    ("/api/v2/readiness", False),
-    ("/api/v2/sync/status", False),
-    ("/api/v2/history/overview", True),
-    ("/api/v2/mobile/rounds/900001/package", True),
-    ("/api/v2/reports/trend/recent_10", True),
-    ("/api/v2/media/target/round/900001", True),
+for path, protected, timeout_s in [
+    ("/api/v2/health", False, None),
+    ("/api/v2/readiness", False, READINESS_TIMEOUT_SECONDS),
+    ("/api/v2/sync/status", False, None),
+    ("/api/v2/history/overview", True, None),
+    ("/api/v2/mobile/rounds/900001/package", True, None),
+    ("/api/v2/reports/trend/recent_10", True, None),
+    ("/api/v2/media/target/round/900001", True, None),
 ]:
-    call_json("GET", path, protected=protected)
+    call_json("GET", path, protected=protected, timeout_s=timeout_s)
 
 call_json(
     "POST",

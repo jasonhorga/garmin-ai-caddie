@@ -54,6 +54,11 @@ AI_CADDIE_ADMIN_TOKEN=replace-with-random-admin-token \
 ops/smoke_private_trial.sh http://127.0.0.1:9000
 ```
 
+The smoke keeps ordinary endpoint requests on a short timeout. If the first
+`/api/v2/readiness` call is cold on a small host, raise only that budget with
+`AI_CADDIE_SMOKE_READINESS_TIMEOUT_SECONDS=90`; `AI_CADDIE_SMOKE_TIMEOUT_SECONDS`
+controls the default per-request timeout.
+
 Record a backup and prove snapshot portability before replacing private runtime
 state:
 

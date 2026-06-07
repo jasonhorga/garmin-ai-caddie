@@ -59,6 +59,15 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("X-AI-Caddie-Admin-Token", text)
         self.assertIn("/api/v2/mobile/rounds/900001/package", text)
 
+    def test_private_trial_smoke_gives_readiness_cold_start_a_longer_timeout(self) -> None:
+        script = Path("ops/smoke_private_trial.sh")
+        text = script.read_text(encoding="utf-8")
+
+        self.assertIn("AI_CADDIE_SMOKE_TIMEOUT_SECONDS", text)
+        self.assertIn("AI_CADDIE_SMOKE_READINESS_TIMEOUT_SECONDS", text)
+        self.assertIn('("/api/v2/readiness", False, READINESS_TIMEOUT_SECONDS)', text)
+        self.assertIn("timeout=timeout_s or DEFAULT_REQUEST_TIMEOUT_SECONDS", text)
+
     def test_private_trial_smoke_exercises_media_roundtrip_and_redaction(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
         text = script.read_text(encoding="utf-8")
@@ -75,7 +84,7 @@ class CIWorkflowTests(unittest.TestCase):
         script = Path("ops/smoke_private_trial.sh")
         text = script.read_text(encoding="utf-8")
 
-        self.assertIn('("/api/v2/history/overview", True)', text)
+        self.assertIn('("/api/v2/history/overview", True, None)', text)
 
     def test_private_trial_smoke_rejects_private_paths_and_assignment_secrets(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
