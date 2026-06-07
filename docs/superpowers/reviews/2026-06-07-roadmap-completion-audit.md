@@ -78,8 +78,9 @@ group.
   ready, and the NAS VM backend URL plus authenticated backend probe are ready.
   Beta App feedback email, external Beta App Review submission, and
   iPhone/watch install verification remain external.
-- Latest GitHub evidence on commit `eb23f14`: CI run `27088479379` passed, and
-  Phase 6 Readiness run `27088479370` passed with `fail_when_incomplete=false`
+- Latest GitHub evidence on commit `80a3d53`: CI run `27088735570` passed,
+  `iOS TestFlight Testers` list run `27088735595` passed, and Phase 6
+  Readiness run `27088735593` passed with `fail_when_incomplete=false`
   while reporting `state=incomplete`.
 
 ## Latest Local Continuation Evidence
@@ -99,7 +100,7 @@ sanity:
 - Targeted workflow/readiness regression verification after the TestFlight
   evidence hardening passed:
   `uv run python -m unittest tests.test_ci_workflow tests.test_phase6_external_readiness tests.test_roadmap_completion_status tests.test_roadmap_completion_audit -v`
-  reported 54 tests OK.
+  reported 56 tests OK.
 - The roadmap completion audit test now parses multiline checklist items, so
   open Phase 6 items are not truncated when proving what remains open.
 - The Phase 6 preflight parser now ignores GitHub Actions script-source echo
@@ -111,6 +112,12 @@ sanity:
 - The `Phase 6 Readiness` workflow now passes safe secret-presence booleans for
   the required signing secrets and `TESTFLIGHT_FEEDBACK_EMAIL`, so a limited
   `github.token` no longer turns those checks into ambiguous `unknown` states.
+- The `iOS TestFlight Testers` workflow now has `operation=submit_review`, a
+  focused Beta Review path that selects the build, sets export compliance,
+  ensures Beta App test info from the `TESTFLIGHT_FEEDBACK_EMAIL` secret, and
+  submits Beta App Review without changing tester/group membership. Its success
+  log line is parsed as `betaReviewSubmitted` evidence, while script-source echo
+  is explicitly ignored.
 - The manual `Backend Fly Deploy` GitHub workflow now covers the next backend
   release step once `FLY_API_TOKEN` and `AI_CADDIE_ADMIN_TOKEN` exist: create
   the Fly app/volume if needed, deploy the container, update
