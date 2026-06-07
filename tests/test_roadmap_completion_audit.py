@@ -67,6 +67,8 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "docs/superpowers/reviews/2026-06-06-phase-6-deployment-native-trial-hardening.md",
             "logs/phase6_external_readiness_latest.json",
             "external_release",
+            "uv run python ops/roadmap_completion_status.py --no-fail",
+            "without network access",
             "Latest Local Continuation Evidence",
             "cold `/api/v2/readiness` startup",
             "endpointCount=14",
