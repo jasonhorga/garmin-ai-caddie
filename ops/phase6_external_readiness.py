@@ -195,6 +195,10 @@ def _github_api_get_bytes(url: str, token: str, *, timeout_s: float = 20.0) -> b
         return response.read()
 
 
+def _github_error_reason(label: str, exc: BaseException) -> str:
+    return f"{label} unavailable: {exc.__class__.__name__}"
+
+
 def _value_after(label: str, text: str) -> str:
     match = re.search(rf"\b{re.escape(label)}=([^\s]+)", text)
     return match.group(1).strip() if match else ""
@@ -362,31 +366,51 @@ def fetch_github_snapshot(
         return {"available": False, "reason": "GH_TOKEN or GITHUB_TOKEN is not configured"}
     try:
         repo_payload = _github_api_get(repo, "", token, timeout_s=timeout_s)
-        secrets_payload = _github_api_get(repo, "/actions/secrets", token, timeout_s=timeout_s)
-        variables_payload = _github_api_get(repo, "/actions/variables", token, timeout_s=timeout_s)
     except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         return {"available": False, "reason": f"GitHub API unavailable: {exc.__class__.__name__}"}
+
+    partial_reasons: dict[str, str] = {}
+    try:
+        secrets_payload = _github_api_get(repo, "/actions/secrets", token, timeout_s=timeout_s)
+        secret_names = sorted(str(row.get("name")) for row in secrets_payload.get("secrets", []) if row.get("name"))
+    except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        secret_names = []
+        partial_reasons["secretNames"] = _github_error_reason("GitHub Actions secrets metadata", exc)
+
+    try:
+        variables_payload = _github_api_get(repo, "/actions/variables", token, timeout_s=timeout_s)
+        variable_names = sorted(str(row.get("name")) for row in variables_payload.get("variables", []) if row.get("name"))
+        variable_values = {
+            str(row.get("name")): str(row.get("value") or "").strip()
+            for row in variables_payload.get("variables", [])
+            if row.get("name")
+        }
+    except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        variable_names = []
+        variable_values = {}
+        partial_reasons["variableNames"] = _github_error_reason("GitHub Actions variables metadata", exc)
+
     try:
         testflight_actions = fetch_testflight_actions_summary(repo=repo, token=token, timeout_s=timeout_s)
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         testflight_actions = {
             "available": False,
             "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
             "readyForBetaSubmission": False,
             "reason": f"GitHub Actions logs unavailable: {exc.__class__.__name__}",
         }
+        partial_reasons["testflightActions"] = testflight_actions["reason"]
     return {
         "available": True,
         "repoPrivate": bool(repo_payload.get("private")),
         "defaultBranch": str(repo_payload.get("default_branch") or ""),
-        "secretNames": sorted(str(row.get("name")) for row in secrets_payload.get("secrets", []) if row.get("name")),
-        "variableNames": sorted(str(row.get("name")) for row in variables_payload.get("variables", []) if row.get("name")),
-        "variableValues": {
-            str(row.get("name")): str(row.get("value") or "").strip()
-            for row in variables_payload.get("variables", [])
-            if row.get("name")
-        },
+        "secretNames": secret_names,
+        "secretNamesUnavailableReason": partial_reasons.get("secretNames"),
+        "variableNames": variable_names,
+        "variableNamesUnavailableReason": partial_reasons.get("variableNames"),
+        "variableValues": variable_values,
         "testflightActions": testflight_actions,
+        "partialReasons": partial_reasons,
     }
 
 
@@ -461,6 +485,8 @@ def _github_checks(
 
     secret_names = set(github_snapshot.get("secretNames") or [])
     variable_names = set(github_snapshot.get("variableNames") or [])
+    secret_names_unavailable_reason = str(github_snapshot.get("secretNamesUnavailableReason") or "").strip()
+    variable_names_unavailable_reason = str(github_snapshot.get("variableNamesUnavailableReason") or "").strip()
     native_api_variable_summary = _redacted_url_summary(
         _github_variable_value(github_snapshot, REQUIRED_NATIVE_API_VARIABLE),
         source=GITHUB_NATIVE_API_SOURCE,
@@ -473,6 +499,33 @@ def _github_checks(
     )
     native_api_ready = repo_variable_ready or native_api_url_configured or native_runtime_api_configured
     feedback_ready = OPTIONAL_EXTERNAL_REVIEW_SECRET in secret_names or feedback_email_filled
+    if secret_names_unavailable_reason:
+        signing_state = "unknown"
+        signing_reason = secret_names_unavailable_reason
+    else:
+        signing_state = "ready" if not missing_signing else "missing"
+        signing_reason = None if not missing_signing else "required signing secret names are missing"
+    if native_api_ready:
+        native_api_state = "ready"
+        native_api_reason = None
+    elif variable_names_unavailable_reason:
+        native_api_state = "unknown"
+        native_api_reason = variable_names_unavailable_reason
+    else:
+        native_api_state = "missing"
+        native_api_reason = (
+            "set repo variable AI_CADDIE_API_BASE_URL, pass api_base_url when uploading, "
+            "or confirm the iPhone Backend screen is configured"
+        )
+    if feedback_ready:
+        feedback_state = "ready"
+        feedback_reason = None
+    elif secret_names_unavailable_reason:
+        feedback_state = "unknown"
+        feedback_reason = secret_names_unavailable_reason
+    else:
+        feedback_state = "missing"
+        feedback_reason = "set TESTFLIGHT_FEEDBACK_EMAIL or fill Beta App feedback email manually in App Store Connect"
 
     return [
         {
@@ -490,23 +543,22 @@ def _github_checks(
         },
         {
             "label": "signing_secrets",
-            "state": "ready" if not missing_signing else "missing",
-            "reason": None if not missing_signing else "required signing secret names are missing",
-            "ready": len(REQUIRED_SIGNING_SECRETS) - len(missing_signing),
+            "state": signing_state,
+            "reason": signing_reason,
+            "ready": None if secret_names_unavailable_reason else len(REQUIRED_SIGNING_SECRETS) - len(missing_signing),
             "total": len(REQUIRED_SIGNING_SECRETS),
-            "missing": missing_signing,
-            "unusedConfigured": unused_configured,
+            "missing": [] if secret_names_unavailable_reason else missing_signing,
+            "unusedConfigured": [] if secret_names_unavailable_reason else unused_configured,
         },
         {
             "label": "native_api_base_url_configuration",
-            "state": "ready" if native_api_ready else "missing",
-            "reason": None
-            if native_api_ready
-            else "set repo variable AI_CADDIE_API_BASE_URL, pass api_base_url when uploading, or confirm the iPhone Backend screen is configured",
+            "state": native_api_state,
+            "reason": native_api_reason,
             "evidence": {
                 "repoVariableConfigured": REQUIRED_NATIVE_API_VARIABLE in variable_names,
                 "repoVariableValidPublicHttps": repo_variable_ready,
                 "repoVariableHost": native_api_variable_summary["host"],
+                "repoVariableMetadataUnavailable": bool(variable_names_unavailable_reason),
                 "workflowInputProvided": native_api_source == "PHASE6_API_BASE_URL" and native_api_url_configured,
                 "nativeEnvProvided": native_api_source == "AI_CADDIE_API_BASE_URL" and native_api_url_configured,
                 "githubVariableProvided": native_api_source == GITHUB_NATIVE_API_SOURCE and native_api_url_configured,
@@ -516,12 +568,11 @@ def _github_checks(
         },
         {
             "label": "external_beta_review_feedback",
-            "state": "ready" if feedback_ready else "missing",
-            "reason": None
-            if feedback_ready
-            else "set TESTFLIGHT_FEEDBACK_EMAIL or fill Beta App feedback email manually in App Store Connect",
+            "state": feedback_state,
+            "reason": feedback_reason,
             "evidence": {
                 "repoSecretConfigured": OPTIONAL_EXTERNAL_REVIEW_SECRET in secret_names,
+                "repoSecretMetadataUnavailable": bool(secret_names_unavailable_reason),
                 "manualFeedbackEmailConfirmed": feedback_email_filled,
                 "manualFeedbackEmailSource": feedback_email_source,
             },

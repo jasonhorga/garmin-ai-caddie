@@ -73,6 +73,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "Phase 6 Readiness",
             "roadmap_completion_status.json",
             "fail_when_incomplete",
+            "PHASE6_GH_TOKEN",
         ]:
             self.assertIn(required, text)
         self.assertNotIn("JWT_WEB", text)

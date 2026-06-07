@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+from urllib import error
 import zipfile
 
 from ops.phase6_external_readiness import (
@@ -275,6 +276,65 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             "confirm target testers are assigned to Private Trial",
             checks["external_testers"]["reason"],
         )
+
+    def test_partial_github_metadata_keeps_testflight_log_evidence(self) -> None:
+        log_text = """
+        ##[group]TestFlight builds
+        - 0.1.0 (3) id=9bd24a04 state=VALID expired=false usesNonExemptEncryption=false internalReady=false betaReviewReady=true missingExportCompliance=false internalState=IN_BETA_TESTING externalState=READY_FOR_BETA_SUBMISSION autoNotify=
+        Assigned 2 external tester(s) to group Private Trial: ja***@gmail.com, 23***@qq.com
+        """
+
+        def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
+            if path == "":
+                return {"private": False, "default_branch": "integration/v2"}
+            if path == "/actions/secrets":
+                raise error.HTTPError(
+                    url="https://api.github.test/actions/secrets",
+                    code=403,
+                    msg="forbidden",
+                    hdrs={},
+                    fp=None,
+                )
+            if path == "/actions/variables":
+                return {"variables": []}
+            if path.startswith("/actions/runs?"):
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 27069928781,
+                            "name": "iOS TestFlight Testers",
+                            "conclusion": "success",
+                            "created_at": "2026-06-06T18:07:36Z",
+                            "logs_url": "https://api.github.test/logs/27069928781",
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected GitHub path: {path}")
+
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", side_effect=github_get),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", return_value=_zip_log(log_text)),
+        ):
+            snapshot = fetch_github_snapshot(token="github-actions-token")
+
+        self.assertTrue(snapshot["available"])
+        self.assertIn("HTTPError", snapshot["secretNamesUnavailableReason"])
+        actions = snapshot["testflightActions"]
+        self.assertTrue(actions["readyForBetaSubmission"])
+        self.assertEqual(actions["privateTrialAssignedTesterCount"], 2)
+
+        payload = build_phase6_external_readiness(
+            env={},
+            github_snapshot=snapshot,
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertNotIn("github_metadata", checks)
+        self.assertEqual(checks["signing_secrets"]["state"], "unknown")
+        self.assertEqual(checks["external_beta_review_feedback"]["state"], "unknown")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["state"], "ready")
 
     def test_github_actions_log_can_prove_beta_feedback_metadata_without_leaking_email(self) -> None:
         log_text = """

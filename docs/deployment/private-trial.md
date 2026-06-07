@@ -154,6 +154,10 @@ configured, falls back to repo variable `AI_CADDIE_API_BASE_URL` when no
 `phase6_external_readiness_latest.json` plus `roadmap_completion_status.json` as
 evidence artifacts. Leave `fail_when_incomplete=false` for audits while gates
 are still open; set it to true only for the final release gate.
+For full GitHub metadata evidence from that workflow, configure optional secret
+`PHASE6_GH_TOKEN` with repository metadata and Actions read access; otherwise
+the default workflow token may produce partial evidence when repository secrets
+metadata is not readable.
 
 The preflight stays `incomplete` until all external gates are actually true:
 
