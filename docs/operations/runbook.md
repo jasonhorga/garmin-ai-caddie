@@ -34,6 +34,10 @@ runtime directories from that root into `/app` before starting FastAPI. Use this
 for NAS/Fly/VPS deployments so downloaded Garmin data and session material are
 kept on persistent storage instead of inside the image.
 
+For a home-only NAS VM, use `docs/deployment/nas-vm-tunnel.md`: keep the API on
+`127.0.0.1:9000`, publish it through Cloudflare Tunnel or Tailscale Funnel, and
+set GitHub `AI_CADDIE_API_BASE_URL` to the public HTTPS origin.
+
 ## Stop Services
 
 Stop foreground dev servers with `Ctrl-C`. For background processes, find and stop the process explicitly:

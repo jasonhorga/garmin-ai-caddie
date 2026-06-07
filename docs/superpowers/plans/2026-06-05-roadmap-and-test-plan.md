@@ -110,6 +110,9 @@
 **Outcome:** The private single-user product can run unattended and ship to the user's phone/watch.
 
 - [x] Prepare reachable-backend deployment manifests for Render/Fly/container hosting.
+- [x] Add a home-only NAS VM runbook using outbound Cloudflare Tunnel or
+  Tailscale Funnel so the backend can be phone-reachable without exposing SSH
+  or opening home-router inbound ports.
 - [x] Add manual GitHub Fly deploy workflow that can deploy the backend, set
   `AI_CADDIE_API_BASE_URL`, run remote private-trial smoke, and emit Phase 6
   preflight artifacts after `FLY_API_TOKEN` and `AI_CADDIE_ADMIN_TOKEN` are

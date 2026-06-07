@@ -51,6 +51,30 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertIn("Render API URL", text)
         self.assertIn("Vercel Web URL", text)
 
+    def test_private_trial_docs_cover_home_only_nas_vm_tunnel(self) -> None:
+        private_trial = Path("docs/deployment/private-trial.md").read_text(encoding="utf-8")
+        runbook = Path("docs/deployment/nas-vm-tunnel.md")
+        self.assertTrue(runbook.exists(), "missing NAS VM tunnel runbook")
+        text = runbook.read_text(encoding="utf-8")
+
+        for required in [
+            "reachable only from the home LAN",
+            "Do not expose SSH through a home proxy",
+            "Cloudflare Tunnel",
+            "Tailscale Funnel",
+            "127.0.0.1:9000",
+            "AI_CADDIE_API_BASE_URL",
+            "AI_CADDIE_ADMIN_TOKEN",
+            "Phase 6 Readiness",
+            "iOS TestFlight (CD)",
+            "origin only",
+            "docker compose up -d --build api",
+            "ops/smoke_private_trial.sh http://127.0.0.1:9000",
+        ]:
+            self.assertIn(required, text)
+        self.assertIn("docs/deployment/nas-vm-tunnel.md", private_trial)
+        self.assertIn("Cloudflare Tunnel or Tailscale Funnel", private_trial)
+
     def test_private_trial_docs_include_local_and_cloud_smoke_commands(self) -> None:
         text = Path("docs/deployment/private-trial.md").read_text(encoding="utf-8")
 

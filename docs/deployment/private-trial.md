@@ -254,6 +254,10 @@ A NAS or private server is suitable once local use is stable:
 - Keep `data/`, `.garmin_tokens/`, and backups on encrypted storage when possible.
 - Use `ops/backup_data.sh` before changing sync or import workflows.
 - Expose only HTTPS if using a public IP or port forwarding.
+- If the VM is reachable only from the home LAN, do not expose SSH through a
+  home proxy. Use the outbound Cloudflare Tunnel or Tailscale Funnel runbook in
+  `docs/deployment/nas-vm-tunnel.md` to publish `127.0.0.1:9000` as a stable
+  HTTPS API origin, then set `AI_CADDIE_API_BASE_URL` to that origin.
 
 ## SSH Tunnel Development
 
