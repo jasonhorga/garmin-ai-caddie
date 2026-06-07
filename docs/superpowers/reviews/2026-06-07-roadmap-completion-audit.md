@@ -66,6 +66,26 @@ unchecked roadmap items are all external-state items:
   external Beta App Review submission, tester coverage, and iPhone/watch install
   verification remain external.
 
+## Latest Local Continuation Evidence
+
+The 2026-06-07 continuation work kept validation local and avoided GitHub
+Actions minute usage:
+
+- The private-trial smoke was hardened for cold `/api/v2/readiness` startup by
+  giving only that endpoint a longer configurable timeout. A fresh local fixture
+  smoke then passed with `endpointCount=14`,
+  `adminProtectedEndpointCount=11`, `mediaRoundTrip=true`, and
+  `secretFree=true`.
+- Targeted local verification passed:
+  `uv run python -m unittest tests.test_ci_workflow tests.test_deployment_manifests tests.test_server_v2_readiness -v`
+  reported 39 tests OK, and
+  `uv run python -m unittest tests.test_phase6_external_readiness tests.test_roadmap_completion_audit -v`
+  reported 20 tests OK.
+- The roadmap completion audit test now parses multiline checklist items, so
+  the target-tester open item is not truncated when proving what remains open.
+- These local checks improve evidence quality and keep private-trial readiness
+  current, but they do not replace the four external Phase 6 gates listed above.
+
 ## No-Quota External Audit
 
 Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
@@ -91,7 +111,9 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   redacted tester records, but their device/latest-build state is `unknown`;
   that is not strong enough to prove target tester coverage or install
   verification.
-- No new GitHub Actions run was triggered by the latest local audit/doc commits.
+- No new GitHub Actions run was triggered by the latest local continuation
+  commits; the latest observed Actions runs remain 2026-06-06
+  `workflow_dispatch` runs.
 
 ## Completion Decision
 
