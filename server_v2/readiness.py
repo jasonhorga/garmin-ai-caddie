@@ -517,6 +517,11 @@ def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
                 "submittedOrExternallyReady": evidence.get("submittedOrExternallyReady") is True,
                 "source": evidence.get("source"),
             }
+        elif label == "external_beta_review_submission_ready":
+            safe_evidence = {
+                "readyForSubmission": evidence.get("readyForSubmission") is True,
+                "source": evidence.get("source"),
+            }
         elif label == "phone_reachable_backend_url":
             safe_evidence = {
                 "configured": evidence.get("configured") is True,

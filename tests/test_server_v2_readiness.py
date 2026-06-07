@@ -137,6 +137,15 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 },
             },
             {
+                "label": "external_beta_review_submission_ready",
+                "state": "ready",
+                "evidence": {
+                    "readyForSubmission": True,
+                    "source": "github_actions_log:27069928781:READY_FOR_BETA_SUBMISSION",
+                    "rawLog": "/Users/private/owner@example.test?token=super-secret",
+                },
+            },
+            {
                 "label": "backend_probe",
                 "state": "ready",
                 "evidence": {
@@ -684,6 +693,13 @@ class ServerV2ReadinessTests(unittest.TestCase):
             "cli_flag",
         )
         self.assertEqual(summaries["external_beta_review_submission"]["evidence"]["source"], "cli_flag")
+        self.assertEqual(
+            summaries["external_beta_review_submission_ready"]["evidence"]["source"],
+            "github_actions_log:27069928781:READY_FOR_BETA_SUBMISSION",
+        )
+        self.assertTrue(
+            summaries["external_beta_review_submission_ready"]["evidence"]["readyForSubmission"]
+        )
         self.assertEqual(
             summaries["external_testers"]["evidence"]["configuredTesterCountSource"],
             "cli_arg",

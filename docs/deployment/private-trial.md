@@ -159,6 +159,11 @@ When `GH_TOKEN` can read GitHub Actions variables, the preflight uses the
 its host. If that value is unavailable to the GitHub API, pass the same URL with
 `--api-base-url` for the preflight run.
 
+With the same read-only GitHub metadata token, the preflight also inspects recent
+`iOS TestFlight Testers` workflow logs and records a safe summary when App Store
+Connect reports `READY_FOR_BETA_SUBMISSION`. It stores only build/status enums
+and a run-id source, never tester email addresses or raw log lines.
+
 The backend probe does not count as ready unless `AI_CADDIE_ADMIN_TOKEN` is
 provided; public `/api/v2/readiness` alone is not enough for the external
 release gate. The probed API must also return the expected
@@ -168,7 +173,8 @@ If feedback email or tester coverage is completed manually outside GitHub
 secrets, record that in the preflight run with `--feedback-email-filled`,
 `--beta-review-ready`, `--beta-review-submitted`, and
 `--tester-coverage-confirmed`. `--beta-review-ready` records
-`READY_FOR_BETA_SUBMISSION`; it does not replace `--beta-review-submitted`.
+`READY_FOR_BETA_SUBMISSION` when the GitHub log summary is unavailable; it does
+not replace `--beta-review-submitted`.
 Manual confirmations are recorded with a confirmation source in the JSON
 evidence so they are distinguishable from GitHub secrets, repo variables, and
 backend probe results. A numeric `AI_CADDIE_TESTFLIGHT_TESTER_COUNT` is also

@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+import zipfile
 
 from ops.phase6_external_readiness import (
     LEGACY_UNUSED_SECRETS,
@@ -14,6 +15,7 @@ from ops.phase6_external_readiness import (
     REQUIRED_NATIVE_API_VARIABLE,
     REQUIRED_SIGNING_SECRETS,
     build_phase6_external_readiness,
+    fetch_github_snapshot,
     main,
     probe_backend_url,
 )
@@ -24,6 +26,7 @@ def _github_snapshot(
     secrets: list[str] | None = None,
     variables: list[str] | None = None,
     variable_values: dict[str, str] | None = None,
+    testflight_actions: dict[str, object] | None = None,
     private: bool = False,
     default_branch: str = "integration/v2",
 ) -> dict[str, object]:
@@ -34,7 +37,15 @@ def _github_snapshot(
         "secretNames": secrets or [],
         "variableNames": variables or [],
         "variableValues": variable_values or {},
+        "testflightActions": testflight_actions or {},
     }
+
+
+def _zip_log(text: str) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("job.txt", text)
+    return output.getvalue()
 
 
 class Phase6ExternalReadinessTests(unittest.TestCase):
@@ -186,6 +197,66 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["external_testers"]["evidence"]["internalCoverageSource"], "environment")
         self.assertEqual(checks["backend_probe"]["state"], "manual_required")
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["source"], "PHASE6_API_BASE_URL")
+
+    def test_github_actions_log_can_prove_beta_review_ready_without_leaking_email(self) -> None:
+        log_text = """
+        ##[group]TestFlight builds
+        - 0.1.0 (2) id=f4f11d0f state=VALID expired=false usesNonExemptEncryption=false internalReady=false betaReviewReady=true missingExportCompliance=false internalState=IN_BETA_TESTING externalState=READY_FOR_BETA_SUBMISSION autoNotify=
+        ##[group]TestFlight testers
+        - owner@example.test state=unknown devices=unknown latest=unknown(unknown)
+        """
+
+        def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
+            self.assertEqual(token, "gh-token")
+            if path == "":
+                return {"private": False, "default_branch": "integration/v2"}
+            if path == "/actions/secrets":
+                return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
+            if path == "/actions/variables":
+                return {"variables": []}
+            if path.startswith("/actions/runs?"):
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 27069928781,
+                            "name": "iOS TestFlight Testers",
+                            "conclusion": "success",
+                            "created_at": "2026-06-06T18:07:36Z",
+                            "logs_url": "https://api.github.test/logs/27069928781",
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected GitHub path: {path}")
+
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", side_effect=github_get),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", return_value=_zip_log(log_text)),
+        ):
+            snapshot = fetch_github_snapshot(token="gh-token")
+
+        rendered_snapshot = json.dumps(snapshot, sort_keys=True)
+        self.assertNotIn("owner@example.test", rendered_snapshot)
+        actions = snapshot["testflightActions"]
+        self.assertTrue(actions["readyForBetaSubmission"])
+        self.assertEqual(actions["source"], "github_actions_log:27069928781:READY_FOR_BETA_SUBMISSION")
+        self.assertEqual(actions["build"], "0.1.0 (2)")
+
+        payload = build_phase6_external_readiness(
+            env={},
+            github_snapshot=snapshot,
+            created_at="2026-06-06T00:00:00Z",
+        )
+        rendered_payload = json.dumps(payload, sort_keys=True)
+        self.assertNotIn("owner@example.test", rendered_payload)
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_beta_review_feedback"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(
+            checks["external_beta_review_submission_ready"]["evidence"]["source"],
+            "github_actions_log:27069928781:READY_FOR_BETA_SUBMISSION",
+        )
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
+        self.assertFalse(any("TESTFLIGHT_FEEDBACK_EMAIL" in row for row in payload["missingExternalActions"]))
 
     def test_github_native_api_variable_value_can_drive_backend_probe(self) -> None:
         calls: list[tuple[str, str | None]] = []

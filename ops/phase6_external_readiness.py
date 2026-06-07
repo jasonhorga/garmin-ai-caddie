@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import argparse
 from datetime import UTC, datetime
+import io
 import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any, Callable
 from urllib import error, parse, request
+import zipfile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +36,8 @@ REQUIRED_NATIVE_API_VARIABLE = "AI_CADDIE_API_BASE_URL"
 OPTIONAL_EXTERNAL_REVIEW_SECRET = "TESTFLIGHT_FEEDBACK_EMAIL"
 EXPECTED_HEALTH_SCHEMA = "ai-caddie-health-v2"
 EXPECTED_READINESS_SCHEMA = "ai-caddie-readiness-v1"
+TESTFLIGHT_TESTERS_WORKFLOW_NAME = "iOS TestFlight Testers"
+TESTFLIGHT_READY_EXTERNAL_STATE = "READY_FOR_BETA_SUBMISSION"
 API_URL_ENV_PRIORITY = (
     "AI_CADDIE_API_BASE_URL",
     "PHASE6_API_BASE_URL",
@@ -151,6 +156,99 @@ def _github_api_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0
         return json.loads(response.read().decode("utf-8"))
 
 
+def _github_api_get_bytes(url: str, token: str, *, timeout_s: float = 20.0) -> bytes:
+    req = request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "ai-caddie-phase6-readiness",
+        },
+    )
+    with request.urlopen(req, timeout=timeout_s) as response:
+        return response.read()
+
+
+def _value_after(label: str, text: str) -> str:
+    match = re.search(rf"\b{re.escape(label)}=([^\s]+)", text)
+    return match.group(1).strip() if match else ""
+
+
+def _testflight_build_summary_from_log(run: dict[str, Any], text: str) -> dict[str, Any] | None:
+    for line in text.splitlines():
+        if f"externalState={TESTFLIGHT_READY_EXTERNAL_STATE}" not in line:
+            continue
+        if "state=VALID" not in line or "betaReviewReady=true" not in line:
+            continue
+        build_match = re.search(r"-\s+([^\s]+)\s+\(([^)]+)\)", line)
+        run_id = str(run.get("id") or "").strip()
+        if not run_id:
+            return None
+        return {
+            "available": True,
+            "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
+            "runId": run_id,
+            "runCreatedAt": str(run.get("created_at") or ""),
+            "build": f"{build_match.group(1)} ({build_match.group(2)})" if build_match else None,
+            "processingState": _value_after("state", line),
+            "externalState": _value_after("externalState", line),
+            "betaReviewReady": _value_after("betaReviewReady", line) == "true",
+            "usesNonExemptEncryption": _value_after("usesNonExemptEncryption", line) == "false",
+            "readyForBetaSubmission": True,
+            "source": f"github_actions_log:{run_id}:{TESTFLIGHT_READY_EXTERNAL_STATE}",
+        }
+    return None
+
+
+def _testflight_summary_from_log_zip(run: dict[str, Any], payload: bytes) -> dict[str, Any] | None:
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        for name in archive.namelist():
+            if not name.endswith(".txt"):
+                continue
+            text = archive.read(name).decode("utf-8", errors="replace")
+            summary = _testflight_build_summary_from_log(run, text)
+            if summary is not None:
+                return summary
+    return None
+
+
+def fetch_testflight_actions_summary(
+    *,
+    repo: str = DEFAULT_REPO,
+    token: str,
+    timeout_s: float = 20.0,
+) -> dict[str, Any]:
+    runs_payload = _github_api_get(
+        repo,
+        f"/actions/runs?branch={parse.quote(DEFAULT_BRANCH)}&per_page=30",
+        token,
+        timeout_s=timeout_s,
+    )
+    runs = [row for row in runs_payload.get("workflow_runs", []) if isinstance(row, dict)]
+    relevant_runs = [
+        run
+        for run in runs
+        if run.get("name") == TESTFLIGHT_TESTERS_WORKFLOW_NAME
+        and run.get("conclusion") == "success"
+        and str(run.get("logs_url") or "").strip()
+    ]
+    for run in relevant_runs[:5]:
+        try:
+            logs = _github_api_get_bytes(str(run["logs_url"]), token, timeout_s=timeout_s)
+            summary = _testflight_summary_from_log_zip(run, logs)
+        except (OSError, error.URLError, TimeoutError, zipfile.BadZipFile):
+            summary = None
+        if summary is not None:
+            return summary
+    return {
+        "available": bool(runs),
+        "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
+        "readyForBetaSubmission": False,
+        "reason": "no successful TestFlight tester log proved READY_FOR_BETA_SUBMISSION",
+    }
+
+
 def fetch_github_snapshot(
     *,
     repo: str = DEFAULT_REPO,
@@ -166,6 +264,15 @@ def fetch_github_snapshot(
         variables_payload = _github_api_get(repo, "/actions/variables", token, timeout_s=timeout_s)
     except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         return {"available": False, "reason": f"GitHub API unavailable: {exc.__class__.__name__}"}
+    try:
+        testflight_actions = fetch_testflight_actions_summary(repo=repo, token=token, timeout_s=timeout_s)
+    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        testflight_actions = {
+            "available": False,
+            "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
+            "readyForBetaSubmission": False,
+            "reason": f"GitHub Actions logs unavailable: {exc.__class__.__name__}",
+        }
     return {
         "available": True,
         "repoPrivate": bool(repo_payload.get("private")),
@@ -177,6 +284,7 @@ def fetch_github_snapshot(
             for row in variables_payload.get("variables", [])
             if row.get("name")
         },
+        "testflightActions": testflight_actions,
     }
 
 
@@ -315,6 +423,16 @@ def _github_checks(
     ]
 
 
+def _github_beta_review_ready_source(github_snapshot: dict[str, Any] | None) -> tuple[bool, str | None]:
+    actions = (github_snapshot or {}).get("testflightActions")
+    if not isinstance(actions, dict):
+        return False, None
+    if actions.get("readyForBetaSubmission") is not True:
+        return False, None
+    source = str(actions.get("source") or "").strip()
+    return True, source or "github_actions_log"
+
+
 def build_phase6_external_readiness(
     *,
     env: dict[str, str] | None = None,
@@ -332,19 +450,9 @@ def build_phase6_external_readiness(
         api_summary["validPublicHttps"]
         and api_url_source in {*NATIVE_API_URL_SOURCES, GITHUB_NATIVE_API_SOURCE}
     )
-    checks = _github_checks(
-        github_snapshot,
-        native_api_url_configured=native_api_url_configured,
-        native_api_source=api_url_source,
-        feedback_email_filled=_bool_env(env, "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED"),
-        feedback_email_source=_confirmation_source(
-            env,
-            value_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED",
-            source_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE",
-        ),
-    )
     beta_review_ready = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY")
     beta_review_submitted = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED")
+    github_beta_review_ready, github_beta_review_ready_source = _github_beta_review_ready_source(github_snapshot)
     beta_review_ready_source = _confirmation_source(
         env,
         value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY",
@@ -354,6 +462,29 @@ def build_phase6_external_readiness(
         env,
         value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED",
         source_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE",
+    )
+    beta_review_ready = beta_review_ready or beta_review_submitted or github_beta_review_ready
+    beta_review_ready_source = (
+        beta_review_ready_source
+        or beta_review_submission_source
+        or github_beta_review_ready_source
+    )
+    feedback_email_filled = (
+        _bool_env(env, "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED")
+        or beta_review_ready
+        or beta_review_submitted
+    )
+    feedback_email_source = _confirmation_source(
+        env,
+        value_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED",
+        source_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE",
+    ) or beta_review_ready_source
+    checks = _github_checks(
+        github_snapshot,
+        native_api_url_configured=native_api_url_configured,
+        native_api_source=api_url_source,
+        feedback_email_filled=feedback_email_filled,
+        feedback_email_source=feedback_email_source,
     )
     checks.append(
         {
