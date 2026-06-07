@@ -54,7 +54,8 @@ unchecked roadmap items are all external-state items:
   `uv run python ops/roadmap_completion_status.py --no-fail`, which reads the
   authoritative roadmap and latest Phase 6 evidence without network access and
   emits grouped `phase6Gates` for backend reachability, Beta Review submission,
-  target tester coverage, and device install.
+  target tester coverage, and device install, plus `roadmapGateAlignment` to
+  catch roadmap/evidence drift.
 
 ## Latest Verification Summary
 

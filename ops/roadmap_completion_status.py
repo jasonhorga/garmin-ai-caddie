@@ -186,6 +186,48 @@ def _phase6_gate_summary(external_release: dict[str, Any]) -> list[dict[str, Any
     return gates
 
 
+def _roadmap_gate_alignment(open_items: list[str], phase6_gates: list[dict[str, Any]]) -> dict[str, Any]:
+    open_set = set(open_items)
+    gate_items = {str(gate.get("roadmapItem") or "") for gate in phase6_gates}
+    issues: list[dict[str, str]] = []
+
+    for item in sorted(open_set - gate_items):
+        issues.append(
+            {
+                "type": "open_item_without_phase6_gate",
+                "roadmapItem": item,
+            }
+        )
+
+    for gate in phase6_gates:
+        item = str(gate.get("roadmapItem") or "")
+        gate_key = str(gate.get("key") or "unknown")
+        gate_state = str(gate.get("state") or "unknown")
+        if gate_state == "ready" and item in open_set:
+            issues.append(
+                {
+                    "type": "roadmap_item_open_but_gate_ready",
+                    "gate": gate_key,
+                    "roadmapItem": item,
+                }
+            )
+        if gate_state != "ready" and item and item not in open_set:
+            issues.append(
+                {
+                    "type": "gate_incomplete_but_roadmap_item_closed",
+                    "gate": gate_key,
+                    "roadmapItem": item,
+                }
+            )
+
+    return {
+        "state": "ready" if not issues else "mismatch",
+        "openItemsCoveredByPhase6Gates": len(open_set & gate_items),
+        "phase6GateCount": len(phase6_gates),
+        "issues": issues,
+    }
+
+
 def build_status(
     *,
     roadmap_path: Path = ROADMAP,
@@ -196,13 +238,18 @@ def build_status(
     open_items = _open_checklist_items(roadmap_text)
     external_release = _external_release_summary(external_release_path)
     phase6_gates = _phase6_gate_summary(external_release)
+    roadmap_gate_alignment = _roadmap_gate_alignment(open_items, phase6_gates)
     external_ready = (
         external_release.get("available") is True
         and external_release.get("schema") == EXTERNAL_RELEASE_SCHEMA
         and external_release.get("state") == "ready"
         and all(gate["state"] == "ready" for gate in phase6_gates)
     )
-    completion_ready = not open_items and external_ready
+    completion_ready = (
+        not open_items
+        and external_ready
+        and roadmap_gate_alignment.get("state") == "ready"
+    )
     return {
         "schema": SCHEMA,
         "createdAt": created_at or _utc_now(),
@@ -213,6 +260,7 @@ def build_status(
         },
         "externalRelease": external_release,
         "phase6Gates": phase6_gates,
+        "roadmapGateAlignment": roadmap_gate_alignment,
         "completionReady": completion_ready,
         "state": "ready" if completion_ready else "incomplete",
         "remainingRequirements": [

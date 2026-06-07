@@ -76,6 +76,11 @@ class RoadmapCompletionStatusTests(unittest.TestCase):
             ["install screenshot [redacted_path]"],
         )
         self.assertEqual(gates["phone_reachable_backend"]["checks"][0]["state"], "missing")
+        self.assertEqual(payload["roadmapGateAlignment"]["state"], "mismatch")
+        self.assertIn(
+            "gate_incomplete_but_roadmap_item_closed",
+            {issue["type"] for issue in payload["roadmapGateAlignment"]["issues"]},
+        )
         rendered = json.dumps(payload, sort_keys=True)
         self.assertIn("submit external Beta App Review", rendered)
         self.assertIn("[redacted_email] [redacted_path]", rendered)
@@ -119,6 +124,107 @@ class RoadmapCompletionStatusTests(unittest.TestCase):
         self.assertEqual(payload["state"], "ready")
         self.assertEqual(payload["remainingRequirements"], [])
         self.assertTrue(all(gate["state"] == "ready" for gate in payload["phase6Gates"]))
+        self.assertEqual(payload["roadmapGateAlignment"]["state"], "ready")
+
+    def test_alignment_ready_when_open_items_match_incomplete_phase6_gates(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            roadmap = root / "roadmap.md"
+            evidence = root / "phase6.json"
+            roadmap.write_text(
+                "\n".join(
+                    [
+                        "- [ ] Deploy a phone-reachable backend host and point the native app at it.",
+                        "- [ ] Submit external Beta App Review.",
+                        "- [ ] Add/confirm target tester emails for the external group or confirm the",
+                        "  user is covered by the existing internal group.",
+                        "- [ ] Verify installation from TestFlight on iPhone/watch.",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            evidence.write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-phase6-external-readiness-v1",
+                        "createdAt": "2026-06-07T00:00:00Z",
+                        "state": "incomplete",
+                        "missingExternalActions": [],
+                        "checks": [
+                            {"label": "native_api_base_url_configuration", "state": "missing", "reason": "set API URL"},
+                            {"label": "phone_reachable_backend_url", "state": "missing", "reason": "deploy API"},
+                            {"label": "backend_probe", "state": "missing", "reason": "probe API"},
+                            {"label": "external_beta_review_submission_ready", "state": "ready", "reason": None},
+                            {
+                                "label": "external_beta_review_submission",
+                                "state": "manual_required",
+                                "reason": "submit external Beta App Review",
+                            },
+                            {"label": "external_testers", "state": "manual_required", "reason": "confirm tester coverage"},
+                            {"label": "device_install", "state": "manual_required", "reason": "verify install"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_status(roadmap_path=roadmap, external_release_path=evidence, created_at="now")
+
+        self.assertFalse(payload["completionReady"])
+        self.assertEqual(payload["roadmapGateAlignment"]["state"], "ready")
+        self.assertEqual(payload["roadmapGateAlignment"]["issues"], [])
+        self.assertEqual(payload["roadmapGateAlignment"]["openItemsCoveredByPhase6Gates"], 4)
+
+    def test_alignment_mismatch_when_roadmap_closes_incomplete_gate(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            roadmap = root / "roadmap.md"
+            evidence = root / "phase6.json"
+            roadmap.write_text(
+                "\n".join(
+                    [
+                        "- [ ] Deploy a phone-reachable backend host and point the native app at it.",
+                        "- [ ] Submit external Beta App Review.",
+                        "- [ ] Add/confirm target tester emails for the external group or confirm the",
+                        "  user is covered by the existing internal group.",
+                        "- [x] Verify installation from TestFlight on iPhone/watch.",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            evidence.write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-phase6-external-readiness-v1",
+                        "createdAt": "2026-06-07T00:00:00Z",
+                        "state": "incomplete",
+                        "missingExternalActions": [],
+                        "checks": [
+                            {"label": "native_api_base_url_configuration", "state": "missing", "reason": "set API URL"},
+                            {"label": "phone_reachable_backend_url", "state": "missing", "reason": "deploy API"},
+                            {"label": "backend_probe", "state": "missing", "reason": "probe API"},
+                            {"label": "external_beta_review_submission_ready", "state": "ready", "reason": None},
+                            {
+                                "label": "external_beta_review_submission",
+                                "state": "manual_required",
+                                "reason": "submit external Beta App Review",
+                            },
+                            {"label": "external_testers", "state": "manual_required", "reason": "confirm tester coverage"},
+                            {"label": "device_install", "state": "manual_required", "reason": "verify install"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_status(roadmap_path=roadmap, external_release_path=evidence, created_at="now")
+
+        self.assertFalse(payload["completionReady"])
+        self.assertEqual(payload["roadmapGateAlignment"]["state"], "mismatch")
+        self.assertIn(
+            "gate_incomplete_but_roadmap_item_closed",
+            {issue["type"] for issue in payload["roadmapGateAlignment"]["issues"]},
+        )
 
     def test_cli_writes_output_and_preserves_incomplete_exit_code(self) -> None:
         with TemporaryDirectory() as tmp:

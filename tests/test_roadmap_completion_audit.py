@@ -70,6 +70,8 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "uv run python ops/roadmap_completion_status.py --no-fail",
             "without network access",
             "grouped `phase6Gates`",
+            "`roadmapGateAlignment`",
+            "roadmap/evidence drift",
             "backend reachability",
             "Beta Review submission",
             "Latest Local Continuation Evidence",
