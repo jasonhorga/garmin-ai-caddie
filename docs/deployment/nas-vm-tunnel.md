@@ -26,7 +26,9 @@ Internally, it runs `docker compose up -d --build api` and
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl git openssl docker.io docker-compose-plugin
+sudo apt-get install -y ca-certificates curl git openssl docker.io
+# Depending on the Ubuntu/Debian source, the Compose v2 package can be either:
+sudo apt-get install -y docker-compose-plugin || sudo apt-get install -y docker-compose-v2
 sudo systemctl enable --now docker
 
 curl -fsSL https://raw.githubusercontent.com/jasonhorga/garmin-ai-caddie/integration/v2/ops/bootstrap_nas_vm_api.sh \

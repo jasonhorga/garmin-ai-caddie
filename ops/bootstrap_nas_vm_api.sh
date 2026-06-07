@@ -77,7 +77,10 @@ if [ "$install_system" -eq 1 ]; then
     exit 2
   fi
   run_root apt-get update
-  run_root apt-get install -y ca-certificates curl git openssl docker.io docker-compose-plugin
+  run_root apt-get install -y ca-certificates curl git openssl docker.io
+  if ! run_root apt-get install -y docker-compose-plugin; then
+    run_root apt-get install -y docker-compose-v2
+  fi
   run_root systemctl enable --now docker
 fi
 

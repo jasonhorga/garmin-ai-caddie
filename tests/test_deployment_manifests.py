@@ -214,6 +214,7 @@ class DeploymentManifestTests(unittest.TestCase):
             self.assertIn(required, docker_text)
         self.assertIn("AI_CADDIE_PRIVATE_ROOT: /var/lib/ai-caddie", compose_text)
         self.assertIn("ai-caddie-private:/var/lib/ai-caddie", compose_text)
+        self.assertIn("restart: unless-stopped", compose_text)
         self.assertIn("VITE_AI_CADDIE_API_BASE_URL", compose_text)
         self.assertIn("${AI_CADDIE_API_PUBLISH_HOST:-127.0.0.1}:9000:9000", compose_text)
         self.assertIn("AI_CADDIE_PRIVATE_ROOT", entrypoint_text)
