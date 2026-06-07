@@ -29,9 +29,11 @@ unchecked roadmap items are all external-state items:
 
 - Deploy a phone-reachable backend host and point the native app at it.
 - Submit external Beta App Review.
-- Add/confirm target tester emails for the external group or confirm the user is
-  covered by the existing internal group.
 - Verify installation from TestFlight on iPhone/watch.
+
+Target tester coverage is now closed in the authoritative roadmap: GitHub
+Actions run `27082080178` assigned 2 external testers to the `Private Trial`
+group.
 
 ## Evidence Map
 
@@ -68,14 +70,16 @@ unchecked roadmap items are all external-state items:
   `mediaRoundTrip=true`, and `secretFree=true`.
 - Phase 6 external readiness preflight currently reports `incomplete` in
   `logs/phase6_external_readiness_latest.json`: public repo and six required
-  signing secrets are ready; backend URL, native API URL configuration,
-  external Beta App Review submission, tester coverage, and iPhone/watch install
-  verification remain external.
+  signing secrets are ready, `READY_FOR_BETA_SUBMISSION` is proven, and
+  `Private Trial` tester coverage is ready; backend URL, native API URL
+  configuration, Beta App feedback email, external Beta App Review submission,
+  and iPhone/watch install verification remain external.
 
 ## Latest Local Continuation Evidence
 
-The 2026-06-07 continuation work kept validation local and avoided GitHub
-Actions minute usage:
+The 2026-06-07 continuation work keeps heavyweight validation on manual GitHub
+Actions dispatch while using targeted local checks for quick code-review
+sanity:
 
 - The private-trial smoke was hardened for cold `/api/v2/readiness` startup by
   giving only that endpoint a longer configurable timeout. A fresh local fixture
@@ -83,14 +87,16 @@ Actions minute usage:
   `adminProtectedEndpointCount=11`, `mediaRoundTrip=true`, and
   `secretFree=true`.
 - Targeted local verification passed:
-  `uv run python -m unittest tests.test_ci_workflow tests.test_deployment_manifests tests.test_server_v2_readiness -v`
-  reported 39 tests OK, and
-  `uv run python -m unittest tests.test_phase6_external_readiness tests.test_roadmap_completion_audit -v`
-  reported 20 tests OK.
+  `uv run python -m unittest tests.test_phase6_external_readiness tests.test_server_v2_readiness tests.test_deployment_manifests tests.test_roadmap_completion_status -v`
+  reported 49 tests OK.
 - The roadmap completion audit test now parses multiline checklist items, so
-  the target-tester open item is not truncated when proving what remains open.
+  open Phase 6 items are not truncated when proving what remains open.
+- The Phase 6 preflight parser now ignores GitHub Actions script-source echo
+  lines and only treats real `Beta App test info...` output as evidence that
+  feedback email metadata is configured.
 - These local checks improve evidence quality and keep private-trial readiness
-  current, but they do not replace the four external Phase 6 gates listed above.
+  current, but they do not replace the three remaining external Phase 6 gates
+  listed above.
 
 ## No-Quota External Audit
 
@@ -104,27 +110,27 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   by the current workflows.
 - GitHub Actions variables are empty, so `AI_CADDIE_API_BASE_URL` is not yet
   configured for connected native builds.
+- `TESTFLIGHT_FEEDBACK_EMAIL` is not configured as a repo secret, and current
+  successful Actions logs do not prove the Beta App feedback email is filled.
 - The latest successful `iOS TestFlight (CD)` run uploaded and processed build
-  `0.1.0 (2)`.
+  `0.1.0 (3)`.
 - The latest successful `iOS TestFlight Testers` list run shows build
-  `0.1.0 (2)` as `VALID`, `usesNonExemptEncryption=false`,
+  `0.1.0 (3)` as `VALID`, `usesNonExemptEncryption=false`,
   `internalState=IN_BETA_TESTING`, and
   `externalState=READY_FOR_BETA_SUBMISSION`.
 - `READY_FOR_BETA_SUBMISSION` proves App Store Connect considers the build ready
   to submit for external Beta Review; it does not prove the review submission
   has happened.
-- External group `Private Trial` exists. The app tester list shows two
-  redacted tester records, but their device/latest-build state is `unknown`;
-  that is not strong enough to prove target tester coverage or install
-  verification.
-- No new GitHub Actions run was triggered by the latest local continuation
-  commits; the latest observed Actions runs remain 2026-06-06
-  `workflow_dispatch` runs.
+- External group `Private Trial` exists, and run `27082080178` assigned 2
+  external testers to that group. That is strong enough to prove target tester
+  coverage, but it does not prove iPhone/watch installation.
+- A later distribute attempt failed before external distribution because the
+  Beta App feedback email was not proven configured.
 
 ## Completion Decision
 
 The active goal is not complete yet. Current evidence proves the roadmap is
 implemented and tested up to the external release boundary, but it does not
 prove that a phone-reachable backend is deployed, that external Beta Review has
-been submitted, that tester coverage is configured, or that iPhone/watch
-installation works from TestFlight.
+been submitted, that Beta App feedback email metadata is configured, or that
+iPhone/watch installation works from TestFlight.
