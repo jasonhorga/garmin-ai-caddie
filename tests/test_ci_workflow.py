@@ -207,6 +207,48 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertNotIn("replace-with-random-admin-token", text)
         self.assertNotIn("connect-csrf-token", text)
 
+    def test_phase6_readiness_workflow_is_manual_and_uploads_evidence(self) -> None:
+        workflow_path = Path(".github/workflows/phase6-readiness.yml")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        text = workflow_path.read_text(encoding="utf-8")
+        triggers = workflow[True]
+        inputs = triggers["workflow_dispatch"]["inputs"]
+        readiness = workflow["jobs"]["readiness"]
+
+        self.assertIn("workflow_dispatch", triggers)
+        self.assertNotIn("push", triggers)
+        self.assertEqual({"contents": "read", "actions": "read"}, workflow["permissions"])
+        for name in [
+            "api_base_url",
+            "probe_backend",
+            "feedback_email_filled",
+            "beta_review_ready",
+            "beta_review_submitted",
+            "native_runtime_api_configured",
+            "assigned_tester_count",
+            "tester_coverage_confirmed",
+            "install_verified",
+            "fail_when_incomplete",
+        ]:
+            self.assertIn(name, inputs)
+
+        env = readiness["env"]
+        self.assertEqual("${{ secrets.AI_CADDIE_ADMIN_TOKEN }}", env["AI_CADDIE_ADMIN_TOKEN"])
+        self.assertIn("PHASE6_GH_TOKEN", env["GH_TOKEN"])
+        self.assertIn("github.token", env["GH_TOKEN"])
+        self.assertIn("ops/phase6_external_readiness.py", text)
+        self.assertIn("--probe-backend", text)
+        self.assertIn("--feedback-email-filled", text)
+        self.assertIn("--beta-review-submitted", text)
+        self.assertIn("--install-verified", text)
+        self.assertIn("--no-fail", text)
+        self.assertIn("ops/roadmap_completion_status.py", text)
+        self.assertIn("phase6_external_readiness_latest.json", text)
+        self.assertIn("roadmap_completion_status.json", text)
+        self.assertIn("actions/upload-artifact@v4", text)
+        self.assertNotIn("replace-with-random-admin-token", text)
+        self.assertNotIn("connect-csrf-token", text)
+
     def test_testflight_workflows_are_manual_only_and_secret_driven(self) -> None:
         for name in ["ios-signing-bootstrap.yml", "ios-testflight.yml", "ios-testflight-testers.yml"]:
             workflow_path = Path(".github/workflows") / name

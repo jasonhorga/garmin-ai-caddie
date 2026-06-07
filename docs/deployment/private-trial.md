@@ -146,6 +146,15 @@ uv run python ops/phase6_external_readiness.py \
 
 The API readiness endpoint reports this file as the `external_release` check.
 
+For GitHub-side verification, run the manual `Phase 6 Readiness` workflow. It
+accepts the same external confirmations as workflow inputs, uses
+`AI_CADDIE_ADMIN_TOKEN` for the authenticated backend probe when that secret is
+configured, falls back to repo variable `AI_CADDIE_API_BASE_URL` when no
+`api_base_url` input is supplied, and uploads
+`phase6_external_readiness_latest.json` plus `roadmap_completion_status.json` as
+evidence artifacts. Leave `fail_when_incomplete=false` for audits while gates
+are still open; set it to true only for the final release gate.
+
 The preflight stays `incomplete` until all external gates are actually true:
 
 - the six long-lived signing secrets are configured

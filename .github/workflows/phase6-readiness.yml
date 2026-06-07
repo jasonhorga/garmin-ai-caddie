@@ -1,0 +1,157 @@
+name: Phase 6 Readiness
+
+# Manual-only external release audit. It is designed for rerunning Phase 6
+# evidence after backend deployment, Beta Review changes, or device install
+# verification without relying on a local machine.
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Optional deployed API origin; falls back to repo variable AI_CADDIE_API_BASE_URL'
+        required: false
+        default: ''
+      probe_backend:
+        description: 'Probe deployed /health and authenticated /readiness'
+        required: true
+        default: true
+        type: boolean
+      feedback_email_filled:
+        description: 'Beta App feedback email is filled in App Store Connect'
+        required: true
+        default: false
+        type: boolean
+      beta_review_ready:
+        description: 'App Store Connect shows READY_FOR_BETA_SUBMISSION'
+        required: true
+        default: false
+        type: boolean
+      beta_review_submitted:
+        description: 'External Beta App Review has been submitted or external testing is reviewable'
+        required: true
+        default: false
+        type: boolean
+      native_runtime_api_configured:
+        description: 'The TestFlight app Backend screen is configured with the deployed API origin'
+        required: true
+        default: false
+        type: boolean
+      assigned_tester_count:
+        description: 'Optional confirmed target tester count assigned to Private Trial'
+        required: false
+        default: ''
+      tester_coverage_confirmed:
+        description: 'Internal/external tester coverage has been independently confirmed'
+        required: true
+        default: false
+        type: boolean
+      install_verified:
+        description: 'iPhone/watch TestFlight install has been verified'
+        required: true
+        default: false
+        type: boolean
+      fail_when_incomplete:
+        description: 'Fail this workflow when Phase 6 readiness is incomplete'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase6-readiness-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+      GH_TOKEN: ${{ secrets.PHASE6_GH_TOKEN || github.token }}
+      PHASE6_API_BASE_URL_INPUT: ${{ github.event.inputs.api_base_url }}
+      PROBE_BACKEND: ${{ github.event.inputs.probe_backend }}
+      FEEDBACK_EMAIL_FILLED: ${{ github.event.inputs.feedback_email_filled }}
+      BETA_REVIEW_READY: ${{ github.event.inputs.beta_review_ready }}
+      BETA_REVIEW_SUBMITTED: ${{ github.event.inputs.beta_review_submitted }}
+      NATIVE_RUNTIME_API_CONFIGURED: ${{ github.event.inputs.native_runtime_api_configured }}
+      ASSIGNED_TESTER_COUNT: ${{ github.event.inputs.assigned_tester_count }}
+      TESTER_COVERAGE_CONFIRMED: ${{ github.event.inputs.tester_coverage_confirmed }}
+      INSTALL_VERIFIED: ${{ github.event.inputs.install_verified }}
+      FAIL_WHEN_INCOMPLETE: ${{ github.event.inputs.fail_when_incomplete }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          prune-cache: false
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Run Phase 6 external readiness
+        run: |
+          set -euo pipefail
+          args=(ops/phase6_external_readiness.py)
+          if [ -n "$PHASE6_API_BASE_URL_INPUT" ]; then
+            args+=(--api-base-url "$PHASE6_API_BASE_URL_INPUT")
+          fi
+          if [ "$PROBE_BACKEND" = "true" ]; then
+            args+=(--probe-backend)
+          fi
+          if [ "$FEEDBACK_EMAIL_FILLED" = "true" ]; then
+            args+=(--feedback-email-filled --feedback-email-source workflow_dispatch:feedback_email_filled)
+          fi
+          if [ "$BETA_REVIEW_READY" = "true" ]; then
+            args+=(--beta-review-ready --beta-review-ready-source workflow_dispatch:beta_review_ready)
+          fi
+          if [ "$BETA_REVIEW_SUBMITTED" = "true" ]; then
+            args+=(--beta-review-submitted --beta-review-source workflow_dispatch:beta_review_submitted)
+          fi
+          if [ "$NATIVE_RUNTIME_API_CONFIGURED" = "true" ]; then
+            args+=(--native-runtime-api-configured --native-runtime-api-source workflow_dispatch:native_runtime_api_configured)
+          fi
+          if [ -n "$ASSIGNED_TESTER_COUNT" ]; then
+            python3 - "$ASSIGNED_TESTER_COUNT" <<'PY'
+          import sys
+
+          value = sys.argv[1].strip()
+          if not value.isdecimal() or int(value) < 0:
+              raise SystemExit("assigned_tester_count must be a non-negative integer")
+          PY
+            args+=(--assigned-tester-count "$ASSIGNED_TESTER_COUNT" --assigned-tester-source workflow_dispatch:assigned_tester_count)
+          fi
+          if [ "$TESTER_COVERAGE_CONFIRMED" = "true" ]; then
+            args+=(--tester-coverage-confirmed --tester-coverage-source workflow_dispatch:tester_coverage_confirmed)
+          fi
+          if [ "$INSTALL_VERIFIED" = "true" ]; then
+            args+=(--install-verified --install-source workflow_dispatch:install_verified)
+          fi
+          args+=(--output "$RUNNER_TEMP/phase6_external_readiness_latest.json")
+          if [ "$FAIL_WHEN_INCOMPLETE" != "true" ]; then
+            args+=(--no-fail)
+          fi
+          uv run python "${args[@]}"
+
+      - name: Summarize roadmap completion
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/phase6_external_readiness_latest.json" ]; then
+            uv run python ops/roadmap_completion_status.py \
+              --external-release-evidence "$RUNNER_TEMP/phase6_external_readiness_latest.json" \
+              --output "$RUNNER_TEMP/roadmap_completion_status.json" \
+              --no-fail
+          fi
+
+      - name: Upload readiness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase6-readiness-evidence
+          path: |
+            ${{ runner.temp }}/phase6_external_readiness_latest.json
+            ${{ runner.temp }}/roadmap_completion_status.json
+          if-no-files-found: ignore

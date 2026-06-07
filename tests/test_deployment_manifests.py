@@ -70,6 +70,9 @@ class DeploymentManifestTests(unittest.TestCase):
             "flyctl deploy --remote-only",
             "AI_CADDIE_API_BASE_URL",
             "phase6_external_readiness_latest.json",
+            "Phase 6 Readiness",
+            "roadmap_completion_status.json",
+            "fail_when_incomplete",
         ]:
             self.assertIn(required, text)
         self.assertNotIn("JWT_WEB", text)

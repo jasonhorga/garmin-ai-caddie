@@ -99,6 +99,9 @@ sanity:
   the Fly app/volume if needed, deploy the container, update
   `AI_CADDIE_API_BASE_URL`, run remote private-trial smoke, and upload Phase 6
   preflight artifacts.
+- The manual `Phase 6 Readiness` workflow now reruns external preflight and
+  roadmap completion evidence from GitHub after backend, review, or device
+  install state changes.
 - These local checks improve evidence quality and keep private-trial readiness
   current, but they do not replace the three remaining external Phase 6 gates
   listed above.

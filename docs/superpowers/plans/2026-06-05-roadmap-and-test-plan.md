@@ -114,6 +114,9 @@
   `AI_CADDIE_API_BASE_URL`, run remote private-trial smoke, and emit Phase 6
   preflight artifacts after `FLY_API_TOKEN` and `AI_CADDIE_ADMIN_TOKEN` are
   configured.
+- [x] Add manual GitHub Phase 6 readiness workflow that reruns external
+  preflight and roadmap completion evidence after backend, review, or install
+  state changes.
 - [x] Add TestFlight build-time native API base URL wiring.
 - [ ] Deploy a phone-reachable backend host and point the native app at it.
 - [x] Configure admin token, backup, import/export, and redaction checks.
