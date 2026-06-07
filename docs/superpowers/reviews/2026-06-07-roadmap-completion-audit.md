@@ -24,10 +24,13 @@ Phases 1-5 are complete in the authoritative roadmap:
 - Phase 4 end-to-end private pipeline.
 - Phase 5 course prep productization.
 
-Phase 6 is locally hardened and partially externally complete. The remaining
-unchecked roadmap items are all external-state items:
+Phase 6 is locally hardened and partially externally complete. The
+phone-reachable backend gate is now proven through the NAS VM and Cloudflare
+Quick Tunnel, but that URL is temporary and should be replaced by a named
+Cloudflare Tunnel or Tailscale Funnel before relying on a long-lived connected
+TestFlight build. The remaining unchecked roadmap items are external-state
+items:
 
-- Deploy a phone-reachable backend host and point the native app at it.
 - Submit external Beta App Review.
 - Verify installation from TestFlight on iPhone/watch.
 
@@ -70,10 +73,11 @@ group.
   `mediaRoundTrip=true`, and `secretFree=true`.
 - Phase 6 external readiness preflight currently reports `incomplete` in
   `logs/phase6_external_readiness_latest.json`: public repo and six required
-  signing secrets are ready, `READY_FOR_BETA_SUBMISSION` is proven, and
-  `Private Trial` tester coverage is ready; backend URL, native API URL
-  configuration, Beta App feedback email, external Beta App Review submission,
-  and iPhone/watch install verification remain external.
+  signing secrets are ready, native API base URL configuration is ready,
+  `READY_FOR_BETA_SUBMISSION` is proven, `Private Trial` tester coverage is
+  ready, and the NAS VM backend URL plus authenticated backend probe are ready.
+  Beta App feedback email, external Beta App Review submission, and
+  iPhone/watch install verification remain external.
 
 ## Latest Local Continuation Evidence
 
@@ -103,8 +107,39 @@ sanity:
   roadmap completion evidence from GitHub after backend, review, or device
   install state changes.
 - These local checks improve evidence quality and keep private-trial readiness
-  current, but they do not replace the three remaining external Phase 6 gates
-  listed above.
+  current, but they do not replace the remaining external Phase 6 gates listed
+  above.
+
+## NAS VM Backend Evidence
+
+The 2026-06-07 VM continuation moved the backend gate from missing to ready:
+
+- Connected to the isolated NAS VM through a temporary `tmate` session as the
+  restricted `codex` user, not through the NAS host SSH service.
+- Installed Docker and Compose v2 in the VM. The Ubuntu source uses
+  `docker-compose-v2`, so `ops/bootstrap_nas_vm_api.sh` was updated to fall
+  back from `docker-compose-plugin` to `docker-compose-v2`.
+- Bootstrapped the API from `integration/v2` in
+  `/home/codex/garmin-ai-caddie`.
+- Verified the container is healthy and bound only to `127.0.0.1:9000`.
+- Ran the local private-trial smoke from the VM container:
+  `private trial smoke ok: http://127.0.0.1:9000`.
+- Started a Cloudflare Quick Tunnel and verified public health from outside the
+  VM at `https://track-commercial-add-phd.trycloudflare.com/api/v2/health`.
+- Set GitHub repo variable `AI_CADDIE_API_BASE_URL` to that HTTPS origin and
+  updated `AI_CADDIE_ADMIN_TOKEN` to match the VM `.env` token without printing
+  the token in repo artifacts.
+- GitHub CI run `27087967058` on commit `598d8c4` completed successfully.
+- GitHub Phase 6 Readiness run `27088005933` completed successfully and its
+  artifact reports:
+  `native_api_base_url_configuration=ready`,
+  `phone_reachable_backend_url=ready`, `backend_probe=ready`, and
+  `external_testers=ready`.
+
+The Quick Tunnel URL is evidence that the backend gate is technically reachable
+from the phone/GitHub side, not a durable production endpoint. A named
+Cloudflare Tunnel or Tailscale Funnel remains the correct next operational step
+before a stable connected TestFlight build.
 
 ## No-Quota External Audit
 
@@ -116,10 +151,14 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   `MATCH_GIT_PRIVATE_KEY`, and `MATCH_PASSWORD`.
 - `MATCH_KEYCHAIN_PASSWORD` is still configured remotely but is legacy unused
   by the current workflows.
-- GitHub Actions variables are empty, so `AI_CADDIE_API_BASE_URL` is not yet
-  configured for connected native builds.
-- `TESTFLIGHT_FEEDBACK_EMAIL` is not configured as a repo secret, and current
-  successful Actions logs do not prove the Beta App feedback email is filled.
+- GitHub Actions variable `AI_CADDIE_API_BASE_URL` is configured to the current
+  Cloudflare Quick Tunnel origin. This satisfies the Phase 6 backend probe but
+  should be replaced with a stable named tunnel origin before long-lived
+  connected native distribution.
+- `TESTFLIGHT_FEEDBACK_EMAIL` is not proven configured in current GitHub
+  evidence. The latest workflow artifacts still report feedback-email metadata
+  unavailable or missing, so this remains open unless manually filled in App
+  Store Connect.
 - The latest successful `iOS TestFlight (CD)` run uploaded and processed build
   `0.1.0 (3)`.
 - The latest successful `iOS TestFlight Testers` list run shows build
@@ -138,7 +177,8 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
 ## Completion Decision
 
 The active goal is not complete yet. Current evidence proves the roadmap is
-implemented and tested up to the external release boundary, but it does not
-prove that a phone-reachable backend is deployed, that external Beta Review has
-been submitted, that Beta App feedback email metadata is configured, or that
-iPhone/watch installation works from TestFlight.
+implemented and tested through the phone-reachable backend gate, but it does not
+prove that Beta App feedback email metadata is configured, that external Beta
+Review has been submitted, or that iPhone/watch installation works from
+TestFlight. The temporary Quick Tunnel should also be replaced with a stable
+named tunnel before relying on a long-lived connected TestFlight backend.

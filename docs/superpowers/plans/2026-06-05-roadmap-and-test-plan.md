@@ -121,7 +121,13 @@
   preflight and roadmap completion evidence after backend, review, or install
   state changes.
 - [x] Add TestFlight build-time native API base URL wiring.
-- [ ] Deploy a phone-reachable backend host and point the native app at it.
+- [x] Deploy a phone-reachable backend host and point the native app at it.
+  Evidence: NAS VM Docker API is healthy on `127.0.0.1:9000`, repo variable
+  `AI_CADDIE_API_BASE_URL` points at a Cloudflare Quick Tunnel HTTPS origin,
+  and GitHub Actions run `27088005933` proved `phone_reachable_backend_url`
+  plus authenticated `backend_probe` ready. The Quick Tunnel is temporary; use
+  a named Cloudflare Tunnel or Tailscale Funnel before relying on a long-lived
+  connected TestFlight backend.
 - [x] Configure admin token, backup, import/export, and redaction checks.
 - [x] Run native mobile CI only on native changes or manual dispatch.
 - [x] Run TestFlight signing/bootstrap and CD only when explicitly needed.
