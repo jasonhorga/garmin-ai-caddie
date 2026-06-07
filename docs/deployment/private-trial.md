@@ -116,6 +116,7 @@ addresses.
 GH_TOKEN=<github-token-with-repo-metadata-read> \
 AI_CADDIE_ADMIN_TOKEN=<deployed-api-admin-token> \
 AI_CADDIE_TESTFLIGHT_TESTER_COUNT=<number-of-target-testers> \
+AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY=0 \
 AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED=0 \
 AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=0 \
 uv run python ops/phase6_external_readiness.py \
@@ -135,6 +136,8 @@ The preflight stays `incomplete` until all external gates are actually true:
   `/api/v2/readiness`
 - `TESTFLIGHT_FEEDBACK_EMAIL` is set or the Beta App feedback email is filled
   manually in App Store Connect
+- App Store Connect reports the build as ready for external Beta Review
+  submission (`READY_FOR_BETA_SUBMISSION`)
 - external Beta App Review has been submitted or the build is already
   externally reviewable
 - target testers are added or internal tester coverage is confirmed
@@ -163,12 +166,14 @@ release gate. The probed API must also return the expected
 
 If feedback email or tester coverage is completed manually outside GitHub
 secrets, record that in the preflight run with `--feedback-email-filled`,
-`--beta-review-submitted`, and `--tester-coverage-confirmed`. Manual
-confirmations are recorded with a confirmation source in the JSON evidence so
-they are distinguishable from GitHub secrets, repo variables, and backend probe
-results. A numeric `AI_CADDIE_TESTFLIGHT_TESTER_COUNT` is also recorded with a
-source so the evidence distinguishes CLI-entered counts from environment-provided
-counts.
+`--beta-review-ready`, `--beta-review-submitted`, and
+`--tester-coverage-confirmed`. `--beta-review-ready` records
+`READY_FOR_BETA_SUBMISSION`; it does not replace `--beta-review-submitted`.
+Manual confirmations are recorded with a confirmation source in the JSON
+evidence so they are distinguishable from GitHub secrets, repo variables, and
+backend probe results. A numeric `AI_CADDIE_TESTFLIGHT_TESTER_COUNT` is also
+recorded with a source so the evidence distinguishes CLI-entered counts from
+environment-provided counts.
 
 When the phone/watch install has been verified, rerun with
 `AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=1` or `--install-verified` and record the

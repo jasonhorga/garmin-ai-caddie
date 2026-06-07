@@ -112,6 +112,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["signing_secrets"]["state"], "ready")
         self.assertEqual(checks["signing_secrets"]["total"], 6)
         self.assertEqual(checks["signing_secrets"]["unusedConfigured"], ["MATCH_KEYCHAIN_PASSWORD"])
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertTrue(checks["external_beta_review_submission_ready"]["evidence"]["readyForSubmission"])
         self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
         self.assertTrue(checks["external_beta_review_submission"]["evidence"]["submittedOrExternallyReady"])
         self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCountSource"], "environment")
@@ -137,6 +139,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["signing_secrets"]["state"], "ready")
         self.assertEqual(checks["native_api_base_url_configuration"]["state"], "missing")
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "missing")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertEqual(checks["phone_reachable_backend_url"]["state"], "missing")
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["reason"], "not configured")
@@ -145,6 +148,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["device_install"]["state"], "manual_required")
         self.assertTrue(any("AI_CADDIE_API_BASE_URL" in row for row in payload["missingExternalActions"]))
         self.assertTrue(any("TESTFLIGHT_FEEDBACK_EMAIL" in row for row in payload["missingExternalActions"]))
+        self.assertTrue(any("READY_FOR_BETA_SUBMISSION" in row for row in payload["missingExternalActions"]))
         self.assertTrue(any("Beta App Review" in row for row in payload["missingExternalActions"]))
 
     def test_workflow_input_manual_feedback_and_internal_tester_confirmation_count_as_ready(self) -> None:
@@ -175,6 +179,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
         self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
         self.assertEqual(checks["external_beta_review_submission"]["evidence"]["source"], "environment")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["evidence"]["source"], "environment")
         self.assertEqual(checks["external_testers"]["state"], "ready")
         self.assertTrue(checks["external_testers"]["evidence"]["internalCoverageConfirmed"])
         self.assertEqual(checks["external_testers"]["evidence"]["internalCoverageSource"], "environment")
@@ -320,6 +326,30 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["workflowInputProvided"])
         self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["nativeEnvProvided"])
 
+    def test_beta_review_ready_does_not_count_as_submission(self) -> None:
+        payload = build_phase6_external_readiness(
+            env={
+                "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY": "1",
+                "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY_SOURCE": "github_actions_log:27069928781",
+            },
+            github_snapshot=_github_snapshot(
+                secrets=[*REQUIRED_SIGNING_SECRETS],
+                variables=[],
+            ),
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertTrue(checks["external_beta_review_submission_ready"]["evidence"]["readyForSubmission"])
+        self.assertEqual(
+            checks["external_beta_review_submission_ready"]["evidence"]["source"],
+            "github_actions_log:27069928781",
+        )
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
+        self.assertFalse(checks["external_beta_review_submission"]["evidence"]["submittedOrExternallyReady"])
+        self.assertEqual(payload["state"], "incomplete")
+
     def test_public_backend_url_must_be_https_and_not_localhost(self) -> None:
         for raw_url in ["http://api.example.test", "https://127.0.0.1:9000", "https://localhost:9000"]:
             with self.subTest(raw_url=raw_url):
@@ -382,6 +412,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
                     "--tester-count",
                     "3",
                     "--feedback-email-filled",
+                    "--beta-review-ready",
                     "--beta-review-submitted",
                     "--tester-coverage-confirmed",
                     "--install-verified",
@@ -403,6 +434,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCountSource"], "cli_arg")
         self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
         self.assertEqual(checks["external_beta_review_submission"]["evidence"]["source"], "cli_flag")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["evidence"]["source"], "cli_flag")
         self.assertEqual(checks["device_install"]["state"], "ready")
         self.assertTrue(checks["device_install"]["evidence"]["installVerified"])
         self.assertEqual(checks["device_install"]["evidence"]["installVerificationSource"], "cli_flag")

@@ -343,7 +343,31 @@ def build_phase6_external_readiness(
             source_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE",
         ),
     )
+    beta_review_ready = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY")
     beta_review_submitted = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED")
+    beta_review_ready_source = _confirmation_source(
+        env,
+        value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY",
+        source_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY_SOURCE",
+    )
+    beta_review_submission_source = _confirmation_source(
+        env,
+        value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED",
+        source_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE",
+    )
+    checks.append(
+        {
+            "label": "external_beta_review_submission_ready",
+            "state": "ready" if beta_review_ready or beta_review_submitted else "manual_required",
+            "reason": None
+            if beta_review_ready or beta_review_submitted
+            else "confirm App Store Connect shows READY_FOR_BETA_SUBMISSION before external Beta App Review",
+            "evidence": {
+                "readyForSubmission": beta_review_ready or beta_review_submitted,
+                "source": beta_review_ready_source or beta_review_submission_source,
+            },
+        }
+    )
     checks.append(
         {
             "label": "external_beta_review_submission",
@@ -353,11 +377,7 @@ def build_phase6_external_readiness(
             else "submit external Beta App Review or confirm the build is already externally reviewable",
             "evidence": {
                 "submittedOrExternallyReady": beta_review_submitted,
-                "source": _confirmation_source(
-                    env,
-                    value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED",
-                    source_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE",
-                ),
+                "source": beta_review_submission_source,
             },
         }
     )
@@ -509,6 +529,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tester-count", type=int, help="Number of configured TestFlight testers to record.")
     parser.add_argument("--feedback-email-filled", action="store_true", help="Record manual Beta App feedback email setup.")
     parser.add_argument(
+        "--beta-review-ready",
+        action="store_true",
+        help="Record that App Store Connect shows READY_FOR_BETA_SUBMISSION.",
+    )
+    parser.add_argument(
         "--beta-review-submitted",
         action="store_true",
         help="Record external Beta App Review submission or external testing readiness.",
@@ -529,6 +554,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.feedback_email_filled:
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED"] = "1"
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE"] = "cli_flag"
+    if args.beta_review_ready:
+        env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY"] = "1"
+        env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY_SOURCE"] = "cli_flag"
     if args.beta_review_submitted:
         env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED"] = "1"
         env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE"] = "cli_flag"
