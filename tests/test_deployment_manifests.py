@@ -76,7 +76,7 @@ class DeploymentManifestTests(unittest.TestCase):
 
         for required in [
             "ops/phase6_external_readiness.py",
-            "--api-base-url https://<Render API URL or Fly API URL>",
+            "--api-base-url https://<Render API URL or Fly API URL origin>",
             "--probe-backend",
             "--output logs/phase6_external_readiness_latest.json",
             "external_release",
@@ -100,10 +100,16 @@ class DeploymentManifestTests(unittest.TestCase):
             "confirmation source",
             "CLI-entered counts",
             "external Beta App Review has been submitted",
+            "origin-only API URL",
+            "with no path",
+            "query string",
+            "URL credentials",
         ]:
             self.assertIn(required, text)
         self.assertIn("ops/phase6_external_readiness.py", ios_setup)
         self.assertIn("state=ready", ios_setup)
+        self.assertIn("origin-only `api_base_url`", ios_setup)
+        self.assertIn("API origin only", ios_setup)
         self.assertNotIn("JWT_WEB", text + ios_setup)
         self.assertNotIn("connect-csrf-token", text + ios_setup)
 

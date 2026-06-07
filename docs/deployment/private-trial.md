@@ -119,7 +119,7 @@ AI_CADDIE_TESTFLIGHT_TESTER_COUNT=<number-of-target-testers> \
 AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED=0 \
 AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=0 \
 uv run python ops/phase6_external_readiness.py \
-  --api-base-url https://<Render API URL or Fly API URL> \
+  --api-base-url https://<Render API URL or Fly API URL origin> \
   --probe-backend \
   --output logs/phase6_external_readiness_latest.json
 ```
@@ -129,8 +129,8 @@ The API readiness endpoint reports this file as the `external_release` check.
 The preflight stays `incomplete` until all external gates are actually true:
 
 - the six long-lived signing secrets are configured
-- repo variable `AI_CADDIE_API_BASE_URL` points at the deployed API, or the
-  TestFlight workflow `api_base_url` input is provided for that build
+- repo variable `AI_CADDIE_API_BASE_URL` points at the deployed API origin, or
+  the TestFlight workflow `api_base_url` input is provided for that build
 - the backend probe can reach `/api/v2/health` and authenticated
   `/api/v2/readiness`
 - `TESTFLIGHT_FEEDBACK_EMAIL` is set or the Beta App feedback email is filled
@@ -144,6 +144,12 @@ The preflight stays `incomplete` until all external gates are actually true:
 API. It does not satisfy native TestFlight configuration; the iOS/watch build
 must use `AI_CADDIE_API_BASE_URL` or the TestFlight workflow `api_base_url`
 input.
+
+Use an origin-only API URL such as `https://api.example.com`, with no path,
+query string, fragment, or URL credentials. The preflight rejects values such as
+`https://api.example.com/private`, `https://api.example.com?token=...`, and
+`https://user:pass@api.example.com` so secret-bearing URLs cannot leak into
+build settings or readiness evidence.
 
 When `GH_TOKEN` can read GitHub Actions variables, the preflight uses the
 `AI_CADDIE_API_BASE_URL` repo variable value as the probe URL and reports only

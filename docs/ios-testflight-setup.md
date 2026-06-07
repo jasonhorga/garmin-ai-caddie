@@ -40,8 +40,9 @@ but does not create a new app record for this account.
   A fully connected external trial should not be considered ready until this
   reports `state=ready`.
 - Run the `iOS TestFlight (CD)` workflow manually from `integration/v2` with
-  optional release notes and optional `api_base_url`. It runs `xcodegen generate` →
-  `fastlane ios beta` → archives the app (with embedded watch app) → uploads to TestFlight.
+  optional release notes and optional origin-only `api_base_url`. It runs
+  `xcodegen generate` → `fastlane ios beta` → archives the app (with embedded
+  watch app) → uploads to TestFlight.
   If `api_base_url` is blank, the workflow falls back to repo variable
   `AI_CADDIE_API_BASE_URL`; if both are blank, the app keeps the offline/fixture fallback.
 - Run the `iOS TestFlight Testers` workflow manually:
@@ -83,6 +84,10 @@ repo variable `AI_CADDIE_API_BASE_URL` at the deployed host. The web app separat
 uses `VITE_AI_CADDIE_API_BASE_URL`. Cloud deployment itself needs a fly.io or Render
 token (the only other external switch). `VITE_AI_CADDIE_API_BASE_URL` is not a
 native build setting.
+
+Set `AI_CADDIE_API_BASE_URL` / `api_base_url` to the API origin only, for example
+`https://api.example.com`; do not include a path, query string, fragment, or URL
+credentials.
 
 ## Verification Boundary
 

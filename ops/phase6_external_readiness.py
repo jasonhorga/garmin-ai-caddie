@@ -87,6 +87,10 @@ def _safe_host(raw_url: str) -> tuple[str | None, str | None]:
     host = (parsed.hostname or "").strip().lower()
     if not host:
         return None, "missing URL host"
+    if parsed.username or parsed.password:
+        return None, "must not include URL credentials"
+    if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        return None, "must be an API origin URL without path, query, or fragment"
     if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".local"):
         return None, "host is local-only and not phone-reachable"
     try:
