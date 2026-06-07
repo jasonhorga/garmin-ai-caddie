@@ -87,6 +87,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
                 "AI_CADDIE_ADMIN_TOKEN": "super-secret-admin-token",
                 "AI_CADDIE_TESTFLIGHT_TESTER_COUNT": "2",
                 "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED": "1",
+                "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED": "1",
                 "TESTFLIGHT_FEEDBACK_EMAIL": "owner@example.test",
             },
             github_snapshot=_github_snapshot(
@@ -109,6 +110,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["signing_secrets"]["state"], "ready")
         self.assertEqual(checks["signing_secrets"]["total"], 6)
         self.assertEqual(checks["signing_secrets"]["unusedConfigured"], ["MATCH_KEYCHAIN_PASSWORD"])
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertTrue(checks["external_beta_review_submission"]["evidence"]["submittedOrExternallyReady"])
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["host"], "api.example.test")
         self.assertEqual(checks["backend_probe"]["evidence"]["readinessSchema"], "ai-caddie-readiness-v1")
 
@@ -131,6 +134,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["signing_secrets"]["state"], "ready")
         self.assertEqual(checks["native_api_base_url_configuration"]["state"], "missing")
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "missing")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertEqual(checks["phone_reachable_backend_url"]["state"], "missing")
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["reason"], "not configured")
         self.assertEqual(checks["backend_probe"]["state"], "missing")
@@ -138,6 +142,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["device_install"]["state"], "manual_required")
         self.assertTrue(any("AI_CADDIE_API_BASE_URL" in row for row in payload["missingExternalActions"]))
         self.assertTrue(any("TESTFLIGHT_FEEDBACK_EMAIL" in row for row in payload["missingExternalActions"]))
+        self.assertTrue(any("Beta App Review" in row for row in payload["missingExternalActions"]))
 
     def test_workflow_input_manual_feedback_and_internal_tester_confirmation_count_as_ready(self) -> None:
         payload = build_phase6_external_readiness(
@@ -145,6 +150,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
                 "PHASE6_API_BASE_URL": "https://api.example.test",
                 "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
                 "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED": "1",
+                "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED": "1",
                 "AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED": "1",
             },
             github_snapshot=_github_snapshot(
@@ -160,7 +166,12 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["nativeEnvProvided"])
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "ready")
         self.assertTrue(checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailConfirmed"])
-        self.assertEqual(checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"], "environment")
+        self.assertEqual(
+            checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
+            "environment",
+        )
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["evidence"]["source"], "environment")
         self.assertEqual(checks["external_testers"]["state"], "ready")
         self.assertTrue(checks["external_testers"]["evidence"]["internalCoverageConfirmed"])
         self.assertEqual(checks["external_testers"]["evidence"]["internalCoverageSource"], "environment")
@@ -276,6 +287,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
                 [
                     "--no-fail",
                     "--feedback-email-filled",
+                    "--beta-review-submitted",
                     "--tester-coverage-confirmed",
                     "--install-verified",
                 ]
@@ -292,6 +304,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             checks["external_testers"]["evidence"]["internalCoverageSource"],
             "cli_flag",
         )
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["evidence"]["source"], "cli_flag")
         self.assertEqual(checks["device_install"]["state"], "ready")
         self.assertTrue(checks["device_install"]["evidence"]["installVerified"])
         self.assertEqual(checks["device_install"]["evidence"]["installVerificationSource"], "cli_flag")

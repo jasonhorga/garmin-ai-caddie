@@ -129,6 +129,14 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 },
             },
             {
+                "label": "external_beta_review_submission",
+                "state": "ready",
+                "evidence": {
+                    "submittedOrExternallyReady": True,
+                    "source": "cli_flag",
+                },
+            },
+            {
                 "label": "backend_probe",
                 "state": "ready",
                 "evidence": {
@@ -674,6 +682,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             summaries["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
             "cli_flag",
         )
+        self.assertEqual(summaries["external_beta_review_submission"]["evidence"]["source"], "cli_flag")
         self.assertEqual(summaries["device_install"]["evidence"]["installVerificationSource"], "cli_flag")
 
     def test_readiness_external_release_degrades_with_incomplete_or_stale_preflight_evidence(self) -> None:

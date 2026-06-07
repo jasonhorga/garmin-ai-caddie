@@ -81,8 +81,10 @@ class DeploymentManifestTests(unittest.TestCase):
             "--output logs/phase6_external_readiness_latest.json",
             "external_release",
             "AI_CADDIE_TESTFLIGHT_TESTER_COUNT",
+            "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED",
             "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED",
             "--feedback-email-filled",
+            "--beta-review-submitted",
             "--tester-coverage-confirmed",
             "AI_CADDIE_API_BASE_URL",
             "api_base_url",
@@ -94,6 +96,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "ai-caddie-health-v2",
             "ai-caddie-readiness-v1",
             "confirmation source",
+            "external Beta App Review has been submitted",
         ]:
             self.assertIn(required, text)
         self.assertIn("ops/phase6_external_readiness.py", ios_setup)

@@ -304,6 +304,24 @@ def build_phase6_external_readiness(
             source_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE",
         ),
     )
+    beta_review_submitted = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED")
+    checks.append(
+        {
+            "label": "external_beta_review_submission",
+            "state": "ready" if beta_review_submitted else "manual_required",
+            "reason": None
+            if beta_review_submitted
+            else "submit external Beta App Review or confirm the build is already externally reviewable",
+            "evidence": {
+                "submittedOrExternallyReady": beta_review_submitted,
+                "source": _confirmation_source(
+                    env,
+                    value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED",
+                    source_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE",
+                ),
+            },
+        }
+    )
     if not api_summary["configured"]:
         api_check = {
             "label": "phone_reachable_backend_url",
@@ -446,6 +464,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, help="Write the JSON evidence to this path after printing it.")
     parser.add_argument("--tester-count", type=int, help="Number of configured TestFlight testers to record.")
     parser.add_argument("--feedback-email-filled", action="store_true", help="Record manual Beta App feedback email setup.")
+    parser.add_argument(
+        "--beta-review-submitted",
+        action="store_true",
+        help="Record external Beta App Review submission or external testing readiness.",
+    )
     parser.add_argument("--tester-coverage-confirmed", action="store_true", help="Record internal or external tester coverage.")
     parser.add_argument("--install-verified", action="store_true", help="Record that iPhone/watch install was verified.")
     parser.add_argument("--probe-backend", action="store_true", help="Probe /api/v2/health and /api/v2/readiness.")
@@ -461,6 +484,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.feedback_email_filled:
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED"] = "1"
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE"] = "cli_flag"
+    if args.beta_review_submitted:
+        env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED"] = "1"
+        env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE"] = "cli_flag"
     if args.tester_coverage_confirmed:
         env["AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED"] = "1"
         env["AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_SOURCE"] = "cli_flag"

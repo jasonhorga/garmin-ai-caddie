@@ -120,8 +120,8 @@
   `VALID`, `IN_BETA_TESTING`, `usesNonExemptEncryption=false`.
 - [x] Create/list external TestFlight group `Private Trial`.
 - [x] Add a Phase 6 external release preflight that reports missing backend URL,
-  repo variables, external-review feedback email, tester coverage, and device
-  install verification without printing secret values.
+  repo variables, external-review feedback email/submission, tester coverage,
+  and device install verification without printing secret values.
 - [ ] Configure `TESTFLIGHT_FEEDBACK_EMAIL` and submit external Beta App Review.
 - [ ] Add/confirm target tester emails for the external group or confirm the
   user is covered by the existing internal group.

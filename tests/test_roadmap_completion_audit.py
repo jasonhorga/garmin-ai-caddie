@@ -33,6 +33,7 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "historical planning artifacts",
             "Deploy a phone-reachable backend host",
             "Configure `TESTFLIGHT_FEEDBACK_EMAIL`",
+            "external Beta App Review submission",
             "Add/confirm target tester emails",
             "Verify installation from TestFlight on iPhone/watch",
             "docs/superpowers/reviews/2026-06-05-test-execution.md",

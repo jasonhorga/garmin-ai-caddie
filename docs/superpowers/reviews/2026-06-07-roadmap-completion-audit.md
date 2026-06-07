@@ -63,8 +63,8 @@ unchecked roadmap items are all external-state items:
 - Phase 6 external readiness preflight currently reports `incomplete` in
   `logs/phase6_external_readiness_latest.json`: public repo and six required
   signing secrets are ready; backend URL, native API URL configuration, feedback
-  email or manual confirmation, tester coverage, and iPhone/watch install
-  verification remain external.
+  email or manual confirmation, external Beta App Review submission, tester
+  coverage, and iPhone/watch install verification remain external.
 
 ## Completion Decision
 

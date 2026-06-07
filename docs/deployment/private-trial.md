@@ -116,6 +116,7 @@ addresses.
 GH_TOKEN=<github-token-with-repo-metadata-read> \
 AI_CADDIE_ADMIN_TOKEN=<deployed-api-admin-token> \
 AI_CADDIE_TESTFLIGHT_TESTER_COUNT=<number-of-target-testers> \
+AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED=0 \
 AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=0 \
 uv run python ops/phase6_external_readiness.py \
   --api-base-url https://<Render API URL or Fly API URL> \
@@ -134,6 +135,8 @@ The preflight stays `incomplete` until all external gates are actually true:
   `/api/v2/readiness`
 - `TESTFLIGHT_FEEDBACK_EMAIL` is set or the Beta App feedback email is filled
   manually in App Store Connect
+- external Beta App Review has been submitted or the build is already
+  externally reviewable
 - target testers are added or internal tester coverage is confirmed
 - iPhone/watch TestFlight installation has been verified
 
@@ -148,10 +151,11 @@ release gate. The probed API must also return the expected
 `ai-caddie-health-v2` and `ai-caddie-readiness-v1` schemas.
 
 If feedback email or tester coverage is completed manually outside GitHub
-secrets, record that in the preflight run with `--feedback-email-filled` and
-`--tester-coverage-confirmed`. Manual confirmations are recorded with a
-confirmation source in the JSON evidence so they are distinguishable from
-GitHub secrets, repo variables, and backend probe results.
+secrets, record that in the preflight run with `--feedback-email-filled`,
+`--beta-review-submitted`, and `--tester-coverage-confirmed`. Manual
+confirmations are recorded with a confirmation source in the JSON evidence so
+they are distinguishable from GitHub secrets, repo variables, and backend probe
+results.
 
 When the phone/watch install has been verified, rerun with
 `AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=1` or `--install-verified` and record the
