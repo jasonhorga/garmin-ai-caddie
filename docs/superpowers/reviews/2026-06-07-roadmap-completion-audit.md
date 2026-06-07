@@ -81,10 +81,11 @@ group.
   `Beta App Review submission requested`, and Phase 6 Readiness run
   `27091323640` reports `external_beta_review_submission=ready`. The remaining
   external blocker is iPhone/watch install verification.
-- Recent GitHub evidence on commit `3ba4fb8`: `iOS TestFlight Testers` runs
-  `27091281932` and `27091302402` completed successfully, and Phase 6 Readiness
-  run `27091323640` completed successfully with `fail_when_incomplete=false`
-  while reporting only `device_install=manual_required`.
+- Recent GitHub evidence on commit `71c58b1`: `iOS TestFlight Testers` run
+  `27091501698` completed successfully, Phase 6 Readiness run `27091642937`
+  completed successfully with `fail_when_incomplete=false` while reporting only
+  `device_install=manual_required`, and CI run `27091661099` completed
+  successfully.
 
 ## Latest Local Continuation Evidence
 
@@ -152,9 +153,10 @@ sanity:
   Its success log line is parsed as `betaReviewSubmitted` evidence, while
   script-source echo is explicitly ignored.
 - The TestFlight Actions log scan now reads up to 100 recent workflow runs and
-  scans the first 10 successful tester workflow logs, preserving older
-  `Private Trial` assignment evidence after repeated CI/readiness dispatches.
-  Phase 6 Readiness run `27088887896` confirms `external_testers=ready` again.
+  scans the first 50 successful tester workflow logs, preserving older
+  `Private Trial` assignment evidence after repeated review/list/distribute
+  dispatches. Phase 6 Readiness run `27091642937` confirms
+  `external_testers=ready` again.
 - The manual `Backend Fly Deploy` GitHub workflow now covers the next backend
   release step once `FLY_API_TOKEN` and `AI_CADDIE_ADMIN_TOKEN` exist: create
   the Fly app/volume if needed, deploy the container, update
@@ -247,7 +249,7 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   `externalState=WAITING_FOR_BETA_REVIEW`.
 - `iOS TestFlight Testers` run `27091501698` assigned build `0.1.0 (3)` to
   external group `Private Trial` with tester notifications disabled.
-- Phase 6 Readiness run `27091323640` proves the current external gate state:
+- Phase 6 Readiness run `27091642937` proves the current external gate state:
   `external_beta_review_feedback=ready`,
   `external_beta_review_submission_ready=ready`,
   `external_beta_review_submission=ready`, `external_testers=ready`, and
