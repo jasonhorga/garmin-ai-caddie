@@ -501,6 +501,7 @@ def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
             safe_evidence = {
                 "repoVariableConfigured": evidence.get("repoVariableConfigured") is True,
                 "workflowInputProvided": evidence.get("workflowInputProvided") is True,
+                "nativeEnvProvided": evidence.get("nativeEnvProvided") is True,
             }
         elif label == "external_beta_review_feedback":
             safe_evidence = {
@@ -512,6 +513,7 @@ def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
                 "configured": evidence.get("configured") is True,
                 "validPublicHttps": evidence.get("validPublicHttps") is True,
                 "host": evidence.get("host"),
+                "source": evidence.get("source"),
                 "reason": _credential_safe_text(evidence.get("reason")),
             }
         elif label == "backend_probe":

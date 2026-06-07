@@ -31,6 +31,12 @@ REQUIRED_SIGNING_SECRETS = (
 LEGACY_UNUSED_SECRETS = ("MATCH_KEYCHAIN_PASSWORD",)
 REQUIRED_NATIVE_API_VARIABLE = "AI_CADDIE_API_BASE_URL"
 OPTIONAL_EXTERNAL_REVIEW_SECRET = "TESTFLIGHT_FEEDBACK_EMAIL"
+API_URL_ENV_PRIORITY = (
+    "AI_CADDIE_API_BASE_URL",
+    "PHASE6_API_BASE_URL",
+    "VITE_AI_CADDIE_API_BASE_URL",
+)
+NATIVE_API_URL_SOURCES = {"AI_CADDIE_API_BASE_URL", "PHASE6_API_BASE_URL"}
 
 
 def _utc_now() -> str:
@@ -75,12 +81,29 @@ def _safe_host(raw_url: str) -> tuple[str | None, str | None]:
     return host, None
 
 
-def _redacted_url_summary(raw_url: str) -> dict[str, Any]:
+def _configured_api_url(env: dict[str, str]) -> tuple[str, str | None]:
+    for source in API_URL_ENV_PRIORITY:
+        value = env.get(source, "").strip()
+        if value:
+            return value, source
+    return "", None
+
+
+def _redacted_url_summary(raw_url: str, *, source: str | None = None) -> dict[str, Any]:
+    if not raw_url.strip():
+        return {
+            "configured": False,
+            "validPublicHttps": False,
+            "host": None,
+            "source": source,
+            "reason": "not configured",
+        }
     host, reason = _safe_host(raw_url)
     return {
         "configured": bool(raw_url.strip()),
         "validPublicHttps": reason is None,
         "host": host,
+        "source": source,
         "reason": reason,
     }
 
@@ -166,6 +189,7 @@ def _github_checks(
     github_snapshot: dict[str, Any] | None,
     *,
     native_api_url_configured: bool,
+    native_api_source: str | None,
     feedback_email_filled: bool,
 ) -> list[dict[str, Any]]:
     if not github_snapshot or not github_snapshot.get("available"):
@@ -215,7 +239,8 @@ def _github_checks(
             else "set repo variable AI_CADDIE_API_BASE_URL or pass api_base_url when uploading a connected TestFlight build",
             "evidence": {
                 "repoVariableConfigured": REQUIRED_NATIVE_API_VARIABLE in variable_names,
-                "workflowInputProvided": native_api_url_configured,
+                "workflowInputProvided": native_api_source == "PHASE6_API_BASE_URL" and native_api_url_configured,
+                "nativeEnvProvided": native_api_source == "AI_CADDIE_API_BASE_URL" and native_api_url_configured,
             },
         },
         {
@@ -240,16 +265,15 @@ def build_phase6_external_readiness(
     created_at: str | None = None,
 ) -> dict[str, Any]:
     env = dict(env or os.environ)
-    raw_api_url = (
-        env.get("AI_CADDIE_API_BASE_URL")
-        or env.get("VITE_AI_CADDIE_API_BASE_URL")
-        or env.get("PHASE6_API_BASE_URL")
-        or ""
-    ).strip()
-    api_summary = _redacted_url_summary(raw_api_url)
+    raw_api_url, api_url_source = _configured_api_url(env)
+    api_summary = _redacted_url_summary(raw_api_url, source=api_url_source)
+    native_api_url_configured = bool(
+        api_summary["validPublicHttps"] and api_url_source in NATIVE_API_URL_SOURCES
+    )
     checks = _github_checks(
         github_snapshot,
-        native_api_url_configured=bool(api_summary["validPublicHttps"]),
+        native_api_url_configured=native_api_url_configured,
+        native_api_source=api_url_source,
         feedback_email_filled=_bool_env(env, "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED"),
     )
     if not api_summary["configured"]:

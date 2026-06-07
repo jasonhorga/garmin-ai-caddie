@@ -87,6 +87,9 @@ class DeploymentManifestTests(unittest.TestCase):
             "AI_CADDIE_API_BASE_URL",
             "api_base_url",
             "TESTFLIGHT_FEEDBACK_EMAIL",
+            "VITE_AI_CADDIE_API_BASE_URL",
+            "only proves the Web build",
+            "does not satisfy native TestFlight configuration",
         ]:
             self.assertIn(required, text)
         self.assertIn("ops/phase6_external_readiness.py", ios_setup)

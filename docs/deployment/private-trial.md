@@ -137,6 +137,11 @@ The preflight stays `incomplete` until all external gates are actually true:
 - target testers are added or internal tester coverage is confirmed
 - iPhone/watch TestFlight installation has been verified
 
+`VITE_AI_CADDIE_API_BASE_URL` only proves the Web build can target the deployed
+API. It does not satisfy native TestFlight configuration; the iOS/watch build
+must use `AI_CADDIE_API_BASE_URL` or the TestFlight workflow `api_base_url`
+input.
+
 If feedback email or tester coverage is completed manually outside GitHub
 secrets, record that in the preflight run with `--feedback-email-filled` and
 `--tester-coverage-confirmed`.

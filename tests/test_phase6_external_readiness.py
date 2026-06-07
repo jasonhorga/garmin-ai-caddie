@@ -100,6 +100,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["native_api_base_url_configuration"]["state"], "missing")
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "missing")
         self.assertEqual(checks["phone_reachable_backend_url"]["state"], "missing")
+        self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["reason"], "not configured")
         self.assertEqual(checks["backend_probe"]["state"], "missing")
         self.assertEqual(checks["external_testers"]["state"], "manual_required")
         self.assertEqual(checks["device_install"]["state"], "manual_required")
@@ -123,11 +124,31 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         checks = {row["label"]: row for row in payload["checks"]}
         self.assertEqual(checks["native_api_base_url_configuration"]["state"], "ready")
         self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["workflowInputProvided"])
+        self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["nativeEnvProvided"])
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "ready")
         self.assertTrue(checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailConfirmed"])
         self.assertEqual(checks["external_testers"]["state"], "ready")
         self.assertTrue(checks["external_testers"]["evidence"]["internalCoverageConfirmed"])
         self.assertEqual(checks["backend_probe"]["state"], "manual_required")
+        self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["source"], "PHASE6_API_BASE_URL")
+
+    def test_web_api_base_url_does_not_count_as_native_testflight_configuration(self) -> None:
+        payload = build_phase6_external_readiness(
+            env={"VITE_AI_CADDIE_API_BASE_URL": "https://api.example.test"},
+            github_snapshot=_github_snapshot(
+                secrets=[*REQUIRED_SIGNING_SECRETS],
+                variables=[],
+            ),
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["phone_reachable_backend_url"]["state"], "ready")
+        self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["source"], "VITE_AI_CADDIE_API_BASE_URL")
+        self.assertEqual(checks["native_api_base_url_configuration"]["state"], "missing")
+        self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["repoVariableConfigured"])
+        self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["workflowInputProvided"])
+        self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["nativeEnvProvided"])
 
     def test_public_backend_url_must_be_https_and_not_localhost(self) -> None:
         for raw_url in ["http://api.example.test", "https://127.0.0.1:9000", "https://localhost:9000"]:

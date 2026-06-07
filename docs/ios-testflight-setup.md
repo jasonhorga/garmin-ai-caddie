@@ -81,7 +81,8 @@ The phone needs the API reachable. `server_v2` ships via `fly.toml` / `render.ya
 `Dockerfile` — deploy it and point the TestFlight workflow `api_base_url` input or
 repo variable `AI_CADDIE_API_BASE_URL` at the deployed host. The web app separately
 uses `VITE_AI_CADDIE_API_BASE_URL`. Cloud deployment itself needs a fly.io or Render
-token (the only other external switch).
+token (the only other external switch). `VITE_AI_CADDIE_API_BASE_URL` is not a
+native build setting.
 
 ## Verification Boundary
 
