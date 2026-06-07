@@ -90,6 +90,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "VITE_AI_CADDIE_API_BASE_URL",
             "only proves the Web build",
             "does not satisfy native TestFlight configuration",
+            "backend probe does not count as ready unless `AI_CADDIE_ADMIN_TOKEN`",
         ]:
             self.assertIn(required, text)
         self.assertIn("ops/phase6_external_readiness.py", ios_setup)

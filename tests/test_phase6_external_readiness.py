@@ -111,6 +111,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         payload = build_phase6_external_readiness(
             env={
                 "PHASE6_API_BASE_URL": "https://api.example.test",
+                "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
                 "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED": "1",
                 "AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED": "1",
             },
@@ -131,6 +132,37 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertTrue(checks["external_testers"]["evidence"]["internalCoverageConfirmed"])
         self.assertEqual(checks["backend_probe"]["state"], "manual_required")
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["source"], "PHASE6_API_BASE_URL")
+
+    def test_backend_probe_requires_admin_token_even_when_probe_is_available(self) -> None:
+        calls: list[tuple[str, str | None]] = []
+
+        def backend_probe(url: str, admin_token: str | None) -> dict[str, object]:
+            calls.append((url, admin_token))
+            return {
+                "state": "ready",
+                "healthStatus": 200,
+                "healthSchema": "ai-caddie-health-v2",
+                "readinessStatus": 200,
+                "readinessSchema": "ai-caddie-readiness-v1",
+                "readinessState": "ready",
+            }
+
+        payload = build_phase6_external_readiness(
+            env={"PHASE6_API_BASE_URL": "https://api.example.test"},
+            github_snapshot=_github_snapshot(
+                secrets=[*REQUIRED_SIGNING_SECRETS],
+                variables=[],
+            ),
+            backend_probe=backend_probe,
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        self.assertEqual(calls, [])
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["phone_reachable_backend_url"]["state"], "ready")
+        self.assertEqual(checks["backend_probe"]["state"], "missing")
+        self.assertIn("AI_CADDIE_ADMIN_TOKEN", checks["backend_probe"]["reason"])
+        self.assertFalse(checks["backend_probe"]["evidence"]["adminTokenProvided"])
 
     def test_web_api_base_url_does_not_count_as_native_testflight_configuration(self) -> None:
         payload = build_phase6_external_readiness(
@@ -164,7 +196,10 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
 
     def test_backend_probe_must_run_before_reachability_is_proven(self) -> None:
         payload = build_phase6_external_readiness(
-            env={"AI_CADDIE_API_BASE_URL": "https://api.example.test"},
+            env={
+                "AI_CADDIE_API_BASE_URL": "https://api.example.test",
+                "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+            },
             github_snapshot=_github_snapshot(),
             created_at="2026-06-06T00:00:00Z",
         )

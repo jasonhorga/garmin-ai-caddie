@@ -307,6 +307,15 @@ def build_phase6_external_readiness(
                 "reason": "backend probe requires a public https API URL",
             }
         )
+    elif not env.get("AI_CADDIE_ADMIN_TOKEN", "").strip():
+        checks.append(
+            {
+                "label": "backend_probe",
+                "state": "missing",
+                "reason": "AI_CADDIE_ADMIN_TOKEN is required to prove authenticated /api/v2/readiness",
+                "evidence": {"host": api_summary["host"], "adminTokenProvided": False},
+            }
+        )
     elif backend_probe is None:
         checks.append(
             {
