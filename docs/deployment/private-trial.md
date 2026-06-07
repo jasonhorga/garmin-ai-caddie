@@ -175,6 +175,8 @@ secrets, record that in the preflight run with `--feedback-email-filled`,
 `--tester-coverage-confirmed`. `--beta-review-ready` records
 `READY_FOR_BETA_SUBMISSION` when the GitHub log summary is unavailable; it does
 not replace `--beta-review-submitted`.
+After `READY_FOR_BETA_SUBMISSION` is known, the remaining review action is only
+to submit external Beta App Review.
 Manual confirmations are recorded with a confirmation source in the JSON
 evidence so they are distinguishable from GitHub secrets, repo variables, and
 backend probe results. A numeric `AI_CADDIE_TESTFLIGHT_TESTER_COUNT` is also

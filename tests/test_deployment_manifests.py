@@ -93,6 +93,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "iOS TestFlight Testers",
             "never tester email addresses or raw log lines",
             "not replace `--beta-review-submitted`",
+            "remaining review action is only",
             "AI_CADDIE_API_BASE_URL",
             "api_base_url",
             "TESTFLIGHT_FEEDBACK_EMAIL",

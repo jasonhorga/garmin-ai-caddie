@@ -161,6 +161,10 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertTrue(any("TESTFLIGHT_FEEDBACK_EMAIL" in row for row in payload["missingExternalActions"]))
         self.assertTrue(any("READY_FOR_BETA_SUBMISSION" in row for row in payload["missingExternalActions"]))
         self.assertTrue(any("Beta App Review" in row for row in payload["missingExternalActions"]))
+        self.assertIn(
+            "confirm READY_FOR_BETA_SUBMISSION, then submit external Beta App Review",
+            payload["missingExternalActions"],
+        )
 
     def test_workflow_input_manual_feedback_and_internal_tester_confirmation_count_as_ready(self) -> None:
         payload = build_phase6_external_readiness(
@@ -418,7 +422,10 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             "github_actions_log:27069928781",
         )
         self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
+        self.assertEqual(checks["external_beta_review_submission"]["reason"], "submit external Beta App Review")
         self.assertFalse(checks["external_beta_review_submission"]["evidence"]["submittedOrExternallyReady"])
+        self.assertIn("submit external Beta App Review", payload["missingExternalActions"])
+        self.assertFalse(any("confirm READY_FOR_BETA_SUBMISSION" in row for row in payload["missingExternalActions"]))
         self.assertEqual(payload["state"], "incomplete")
 
     def test_public_backend_url_must_be_https_and_not_localhost(self) -> None:

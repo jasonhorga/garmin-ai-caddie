@@ -505,7 +505,11 @@ def build_phase6_external_readiness(
             "state": "ready" if beta_review_submitted else "manual_required",
             "reason": None
             if beta_review_submitted
-            else "submit external Beta App Review or confirm the build is already externally reviewable",
+            else (
+                "submit external Beta App Review"
+                if beta_review_ready
+                else "confirm READY_FOR_BETA_SUBMISSION, then submit external Beta App Review"
+            ),
             "evidence": {
                 "submittedOrExternallyReady": beta_review_submitted,
                 "source": beta_review_submission_source,
