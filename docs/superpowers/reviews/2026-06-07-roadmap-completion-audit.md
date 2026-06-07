@@ -28,10 +28,10 @@ Phase 6 is locally hardened and partially externally complete. The
 phone-reachable backend gate is now proven through the NAS VM and Cloudflare
 Quick Tunnel, but that URL is temporary and should be replaced by a named
 Cloudflare Tunnel or Tailscale Funnel before relying on a long-lived connected
-TestFlight build. The remaining unchecked roadmap items are external-state
-items:
+TestFlight build. External Beta App Review has now been submitted, so the
+`Submit external Beta App Review.` roadmap item is closed. The remaining
+unchecked roadmap item is external-state device verification:
 
-- Submit external Beta App Review.
 - Verify installation from TestFlight on iPhone/watch.
 
 Target tester coverage is now closed in the authoritative roadmap: GitHub
@@ -76,14 +76,15 @@ group.
   signing secrets are ready, native API base URL configuration is ready,
   `READY_FOR_BETA_SUBMISSION` is proven, `Private Trial` tester coverage is
   ready, and the NAS VM backend URL plus authenticated backend probe are ready.
-  Beta App feedback email is now configured, but external Beta App Review submission
-  and iPhone/watch install verification remain external.
-  `iOS TestFlight Testers` run `27091094309` proves the current submission
-  blocker is empty Beta App Review Detail contact metadata, not the Beta App
-  localization feedback email.
-- Recent GitHub evidence on commit `8d91233`: CI run `27088887899` passed, and
-  Phase 6 Readiness run `27088887896` passed with `fail_when_incomplete=false`
-  while reporting `state=incomplete`.
+  Beta App feedback email is configured and external Beta App Review submission
+  is now proven. `iOS TestFlight Testers` run `27091302402` logged
+  `Beta App Review submission requested`, and Phase 6 Readiness run
+  `27091323640` reports `external_beta_review_submission=ready`. The remaining
+  external blocker is iPhone/watch install verification.
+- Recent GitHub evidence on commit `3ba4fb8`: `iOS TestFlight Testers` runs
+  `27091281932` and `27091302402` completed successfully, and Phase 6 Readiness
+  run `27091323640` completed successfully with `fail_when_incomplete=false`
+  while reporting only `device_install=manual_required`.
 
 ## Latest Local Continuation Evidence
 
@@ -120,6 +121,19 @@ sanity:
   `contactFirstNameConfigured=false`, `contactLastNameConfigured=false`,
   `contactEmailConfigured=false`, `contactPhoneConfigured=false`,
   `demoAccountRequired=nil`, and `notesConfigured=false`.
+- After the review contact secrets were configured, `iOS TestFlight Testers` run
+  `27091281932` updated the Beta App Review Detail fields and confirmed
+  `contactFirstNameConfigured=true`, `contactLastNameConfigured=true`,
+  `contactEmailConfigured=true`, `contactPhoneConfigured=true`,
+  `demoAccountRequired=false`, and `notesConfigured=true`.
+- `iOS TestFlight Testers` run `27091302402` selected build `0.1.0 (3)`,
+  confirmed export compliance and review details, and logged
+  `Beta App Review submission requested`.
+- Phase 6 Readiness run `27091323640` now reports
+  `external_beta_review_feedback=ready`,
+  `external_beta_review_submission_ready=ready`, and
+  `external_beta_review_submission=ready`; its only missing external action is
+  iPhone/watch install verification.
 - The `Phase 6 Readiness` workflow now passes safe secret-presence booleans for
   the required signing secrets and `TESTFLIGHT_FEEDBACK_EMAIL`, so a limited
   `github.token` no longer turns those checks into ambiguous `unknown` states.
@@ -194,11 +208,14 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   App Store Connect now has Beta App localization feedback metadata:
   `iOS TestFlight Testers` run `27090974230` reports
   `descriptionConfigured=true` and `feedbackEmailConfigured=true`.
-- App Store Connect is still missing Beta App Review Detail contact metadata:
-  `iOS TestFlight Testers` run `27091094309` reports
+- App Store Connect previously had empty Beta App Review Detail contact
+  metadata: `iOS TestFlight Testers` run `27091094309` reports
   `contactFirstNameConfigured=false`, `contactLastNameConfigured=false`,
   `contactEmailConfigured=false`, `contactPhoneConfigured=false`,
   `demoAccountRequired=nil`, and `notesConfigured=false`.
+- That metadata was then filled by `iOS TestFlight Testers` run `27091281932`,
+  which reports all four contact fields configured, `demoAccountRequired=false`,
+  and `notesConfigured=true`.
 - The latest successful `iOS TestFlight (CD)` run uploaded and processed build
   `0.1.0 (3)`.
 - The latest successful `iOS TestFlight Testers` list run shows build
@@ -214,15 +231,22 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
 - A `submit_review` attempt, run `27090920249`, selected build `0.1.0 (3)`,
   confirmed export compliance, updated Beta App test info, and then failed with
   Apple's `Missing required information to submit for external testing` response.
-  The follow-up list run above identifies the still-empty Beta App Review Detail
+  The follow-up list run above identified the then-empty Beta App Review Detail
   contact fields as the next data to provide.
+- After those fields were configured, `iOS TestFlight Testers` run `27091302402`
+  successfully submitted external Beta App Review for build `0.1.0 (3)`.
+- Phase 6 Readiness run `27091323640` proves the current external gate state:
+  `external_beta_review_feedback=ready`,
+  `external_beta_review_submission_ready=ready`,
+  `external_beta_review_submission=ready`, `external_testers=ready`, and
+  `device_install=manual_required`.
 
 ## Completion Decision
 
 The active goal is not complete yet. Current evidence proves the roadmap is
 implemented and tested through the phone-reachable backend gate, and it now
-proves that Beta App localization feedback metadata is configured. It does not
-yet prove that Beta App Review Detail contact fields are configured, that
-external Beta Review has been submitted, or that iPhone/watch installation works
-from TestFlight. The temporary Quick Tunnel should also be replaced with a stable
+proves that Beta App localization feedback metadata is configured, Beta App
+Review Detail contact fields are configured, and external Beta Review has been
+submitted. It does not yet prove that iPhone/watch installation works from
+TestFlight. The temporary Quick Tunnel should also be replaced with a stable
 named tunnel before relying on a long-lived connected TestFlight backend.

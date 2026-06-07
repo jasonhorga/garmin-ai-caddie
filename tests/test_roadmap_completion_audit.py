@@ -40,7 +40,6 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
 
         self.assertEqual(
             [
-                "Submit external Beta App Review.",
                 "Verify installation from TestFlight on iPhone/watch.",
             ],
             open_items,
@@ -54,6 +53,7 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "Older detailed implementation plans",
             "historical planning artifacts",
             "phone-reachable backend gate is now proven",
+            "External Beta App Review has now been submitted",
             "Submit external Beta App Review",
             "external Beta App Review submission",
             "Target tester coverage is now closed",
@@ -84,7 +84,13 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "feedbackEmailConfigured=true",
             "Beta App Review Detail",
             "contactPhoneConfigured=false",
+            "contactPhoneConfigured=true",
             "operation=configure_review",
+            "27091281932",
+            "27091302402",
+            "27091323640",
+            "Beta App Review submission requested",
+            "device_install=manual_required",
             "safe secret-presence booleans",
             "operation=submit_review",
             "focused Beta Review path",

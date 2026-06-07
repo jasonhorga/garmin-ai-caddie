@@ -141,7 +141,11 @@
 - [x] Confirm App Store Connect reports build `0.1.0 (3)` ready for external
   Beta App Review submission: `READY_FOR_BETA_SUBMISSION`. Evidence:
   `iOS TestFlight Testers` run `27088348501`.
-- [ ] Submit external Beta App Review.
+- [x] Submit external Beta App Review.
+  Evidence: `iOS TestFlight Testers` run `27091302402` selected build
+  `0.1.0 (3)` and logged `Beta App Review submission requested`; Phase 6
+  Readiness run `27091323640` reports
+  `external_beta_review_submission=ready`.
 - [x] Add/confirm target tester emails for the external group or confirm the
   user is covered by the existing internal group.
   Evidence: GitHub Actions run `27082080178` assigned 2 external testers to
