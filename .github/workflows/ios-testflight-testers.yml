@@ -245,14 +245,38 @@ jobs:
             testers
           end
 
-          def assign_tester_emails_to_groups!(groups, emails)
+          def create_tester_assignments!(groups, emails)
             raise "No TestFlight tester emails are available for assignment" if emails.empty?
 
-            tester_attrs = emails.map { |email| { email: email, firstName: "AI", lastName: "Caddie" } }
+            group_ids = groups.map(&:id)
+            emails.each do |email|
+              Spaceship::ConnectAPI.post_beta_tester_assignment(
+                beta_group_ids: group_ids,
+                attributes: { email: email, firstName: "AI", lastName: "Caddie" }
+              )
+            end
             groups.each do |group|
-              group.post_bulk_beta_tester_assignments(beta_testers: tester_attrs.map(&:dup))
               puts(
                 "Assigned #{emails.length} external tester(s) to group #{group.name}: " \
+                "#{emails.map { |email| redact_email(email) }.join(', ')}"
+              )
+            end
+          end
+
+          def assign_existing_testers_to_groups!(groups, testers)
+            raise "No existing app-level TestFlight testers were found for assignment" if testers.empty?
+
+            tester_ids = testers.map(&:id).map(&:to_s).reject(&:empty?).uniq
+            raise "Existing app-level TestFlight testers did not include usable tester ids" if tester_ids.empty?
+
+            emails = testers.map { |tester| tester.email.to_s.strip }.reject(&:empty?).uniq
+            groups.each do |group|
+              Spaceship::ConnectAPI.add_beta_tester_to_group(
+                beta_group_id: group.id,
+                beta_tester_ids: tester_ids
+              )
+              puts(
+                "Assigned #{tester_ids.length} external tester(s) to group #{group.name}: " \
                 "#{emails.map { |email| redact_email(email) }.join(', ')}"
               )
             end
@@ -408,14 +432,11 @@ jobs:
             raise "tester_emails is required for add" if emails.empty?
 
             groups = ensure_testflight_groups(app, group_names)
-            assign_tester_emails_to_groups!(groups, emails)
+            create_tester_assignments!(groups, emails)
           when "assign_existing"
             groups = ensure_testflight_groups(app, group_names)
             testers = app.get_beta_testers(limit: 200)
-            emails = testers.map { |tester| tester.email.to_s.strip }.reject(&:empty?).uniq
-            raise "No existing app-level TestFlight testers were found for assignment" if emails.empty?
-
-            assign_tester_emails_to_groups!(groups, emails)
+            assign_existing_testers_to_groups!(groups, testers)
           when "distribute"
             groups = ensure_testflight_groups(app, group_names)
             build = select_distributable_build!(app, app_version, build_number)
