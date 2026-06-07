@@ -14,12 +14,15 @@ Machine-readable starting points are committed:
 - Local container stack: `docker-compose.yml`
 - Web: `web_v2/vercel.json`
 - Local/private env template: `.env.example`
+- Home-only NAS VM bootstrap: `ops/bootstrap_nas_vm_api.sh`
 
 Required API environment for private staging:
 
 - `AI_CADDIE_SECURITY_PROFILE=private`
 - `AI_CADDIE_ADMIN_TOKEN=<random private token>`
 - `AI_CADDIE_DATA_MODE=local_or_fixture`
+- `AI_CADDIE_API_PUBLISH_HOST=127.0.0.1` when publishing through an outbound
+  tunnel instead of exposing the Docker API port on the LAN
 - `AI_CADDIE_CORS_ORIGINS=<Vercel Web URL>`
 - Optional for Vercel preview URLs: `AI_CADDIE_CORS_ORIGIN_REGEX=https://.*\.vercel\.app`
 - Optional AI provider: `AI_CADDIE_LLM_PROVIDER=gemini_api_key` with `GEMINI_API_KEY`, or internal-only `AI_CADDIE_LLM_PROVIDER=gemini_cli_oauth` with `GEMINI_OAUTH_CREDENTIALS_B64` and `GOOGLE_CLOUD_PROJECT`. Gemini CLI OAuth refresh requires the credential payload to include its own OAuth client id and client credential fields.

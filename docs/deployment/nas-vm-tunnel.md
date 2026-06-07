@@ -17,26 +17,21 @@ resulting public HTTPS API origin.
 ## VM API Service
 
 Run these commands on the VM, not on the NAS host. Keep the VM isolated from
-important NAS shares until the deployment is proven.
+important NAS shares until the deployment is proven. The bootstrap script keeps
+the Docker API port bound to `127.0.0.1`, creates `.env`, generates
+`AI_CADDIE_ADMIN_TOKEN` when needed, starts the API, and runs the local private
+smoke.
+Internally, it runs `docker compose up -d --build api` and
+`ops/smoke_private_trial.sh http://127.0.0.1:9000`.
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl git openssl docker.io docker-compose-plugin
 sudo systemctl enable --now docker
 
-git clone https://github.com/<owner>/garmin-ai-caddie.git
-cd garmin-ai-caddie
-git checkout integration/v2
-
-cp .env.example .env
-admin_token="$(openssl rand -hex 32)"
-perl -0pi -e "s/AI_CADDIE_ADMIN_TOKEN=replace-with-random-admin-token/AI_CADDIE_ADMIN_TOKEN=${admin_token}/" .env
-perl -0pi -e "s#VITE_AI_CADDIE_API_BASE_URL=.*#VITE_AI_CADDIE_API_BASE_URL=https://<api-host>#" .env
-chmod 600 .env
-
-docker compose up -d --build api
-curl -fsS http://127.0.0.1:9000/api/v2/health
-docker compose exec api sh -lc 'ops/smoke_private_trial.sh http://127.0.0.1:9000'
+curl -fsSL https://raw.githubusercontent.com/jasonhorga/garmin-ai-caddie/integration/v2/ops/bootstrap_nas_vm_api.sh \
+  -o /tmp/bootstrap_nas_vm_api.sh
+bash /tmp/bootstrap_nas_vm_api.sh --install-system
 ```
 
 The compose API stores private runtime state in the `ai-caddie-private` Docker
@@ -44,8 +39,9 @@ volume mounted at `/var/lib/ai-caddie`. That volume contains downloaded Garmin
 data, session material, generated output, logs, and backups. Do not put `.env`
 or that volume into git.
 
-Save the generated `admin_token` in a password manager and configure the same
-value as the GitHub repo secret `AI_CADDIE_ADMIN_TOKEN`. Do not send it in chat.
+Save the generated `AI_CADDIE_ADMIN_TOKEN` in a password manager and configure
+the same value as the GitHub repo secret `AI_CADDIE_ADMIN_TOKEN`. Do not send it
+in chat.
 
 ## Cloudflare Tunnel
 

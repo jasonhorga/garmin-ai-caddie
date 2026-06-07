@@ -63,6 +63,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "Cloudflare Tunnel",
             "Tailscale Funnel",
             "127.0.0.1:9000",
+            "ops/bootstrap_nas_vm_api.sh",
             "AI_CADDIE_API_BASE_URL",
             "AI_CADDIE_ADMIN_TOKEN",
             "Phase 6 Readiness",
@@ -74,6 +75,24 @@ class DeploymentManifestTests(unittest.TestCase):
             self.assertIn(required, text)
         self.assertIn("docs/deployment/nas-vm-tunnel.md", private_trial)
         self.assertIn("Cloudflare Tunnel or Tailscale Funnel", private_trial)
+
+    def test_nas_vm_bootstrap_script_keeps_api_local_and_secret_safe(self) -> None:
+        script = Path("ops/bootstrap_nas_vm_api.sh")
+        self.assertTrue(script.exists(), "missing NAS VM bootstrap script")
+        text = script.read_text(encoding="utf-8")
+
+        for required in [
+            "AI_CADDIE_API_PUBLISH_HOST 127.0.0.1",
+            "openssl rand -hex 32",
+            "docker compose",
+            "compose up -d --build api",
+            "curl -fsS http://127.0.0.1:9000/api/v2/health",
+            "ops/smoke_private_trial.sh http://127.0.0.1:9000",
+            "Do not paste AI_CADDIE_ADMIN_TOKEN into chat",
+        ]:
+            self.assertIn(required, text)
+        self.assertNotIn("echo $AI_CADDIE_ADMIN_TOKEN", text)
+        self.assertNotIn("9000:9000", text)
 
     def test_private_trial_docs_include_local_and_cloud_smoke_commands(self) -> None:
         text = Path("docs/deployment/private-trial.md").read_text(encoding="utf-8")
@@ -196,6 +215,7 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertIn("AI_CADDIE_PRIVATE_ROOT: /var/lib/ai-caddie", compose_text)
         self.assertIn("ai-caddie-private:/var/lib/ai-caddie", compose_text)
         self.assertIn("VITE_AI_CADDIE_API_BASE_URL", compose_text)
+        self.assertIn("${AI_CADDIE_API_PUBLISH_HOST:-127.0.0.1}:9000:9000", compose_text)
         self.assertIn("AI_CADDIE_PRIVATE_ROOT", entrypoint_text)
         self.assertIn(".garmin_tokens", entrypoint_text)
         self.assertNotIn("JWT_WEB", docker_text + compose_text)
@@ -224,6 +244,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "AI_CADDIE_SECURITY_PROFILE=private",
             "AI_CADDIE_ADMIN_TOKEN=replace-with-random-admin-token",
             "AI_CADDIE_DATA_MODE=local_or_fixture",
+            "AI_CADDIE_API_PUBLISH_HOST=127.0.0.1",
             "VITE_AI_CADDIE_API_BASE_URL=http://127.0.0.1:9000",
             "AI_CADDIE_LLM_PROVIDER=static",
         ]:

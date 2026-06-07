@@ -37,6 +37,8 @@ kept on persistent storage instead of inside the image.
 For a home-only NAS VM, use `docs/deployment/nas-vm-tunnel.md`: keep the API on
 `127.0.0.1:9000`, publish it through Cloudflare Tunnel or Tailscale Funnel, and
 set GitHub `AI_CADDIE_API_BASE_URL` to the public HTTPS origin.
+The helper `ops/bootstrap_nas_vm_api.sh --install-system` performs the VM-side
+API bootstrap and keeps `AI_CADDIE_API_PUBLISH_HOST=127.0.0.1`.
 
 ## Stop Services
 

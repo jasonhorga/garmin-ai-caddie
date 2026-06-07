@@ -18,7 +18,7 @@ services:
       NVIDIA_NIM_MODEL: ${NVIDIA_NIM_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
-      - "9000:9000"
+      - "${AI_CADDIE_API_PUBLISH_HOST:-127.0.0.1}:9000:9000"
     volumes:
       - ai-caddie-private:/var/lib/ai-caddie
     healthcheck:
