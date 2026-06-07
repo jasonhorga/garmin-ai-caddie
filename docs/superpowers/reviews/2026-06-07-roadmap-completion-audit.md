@@ -76,8 +76,11 @@ group.
   signing secrets are ready, native API base URL configuration is ready,
   `READY_FOR_BETA_SUBMISSION` is proven, `Private Trial` tester coverage is
   ready, and the NAS VM backend URL plus authenticated backend probe are ready.
-  Beta App feedback email, external Beta App Review submission, and
-  iPhone/watch install verification remain external.
+  Beta App feedback email is now configured, but external Beta App Review submission
+  and iPhone/watch install verification remain external.
+  `iOS TestFlight Testers` run `27091094309` proves the current submission
+  blocker is empty Beta App Review Detail contact metadata, not the Beta App
+  localization feedback email.
 - Recent GitHub evidence on commit `8d91233`: CI run `27088887899` passed, and
   Phase 6 Readiness run `27088887896` passed with `fail_when_incomplete=false`
   while reporting `state=incomplete`.
@@ -108,15 +111,24 @@ sanity:
 - The `iOS TestFlight Testers` list workflow now prints safe Beta App metadata
   booleans. Run `27088348501` proves the current ASC localization has
   `descriptionConfigured=true` and `feedbackEmailConfigured=false`.
+- After `TESTFLIGHT_FEEDBACK_EMAIL` was configured, run `27090974230` proved the
+  localization now has `descriptionConfigured=true` and
+  `feedbackEmailConfigured=true`.
+- The TestFlight tester workflow now also prints safe Beta App Review Detail
+  booleans and has `operation=configure_review` for filling review metadata
+  without submitting a build. Run `27091094309` shows
+  `contactFirstNameConfigured=false`, `contactLastNameConfigured=false`,
+  `contactEmailConfigured=false`, `contactPhoneConfigured=false`,
+  `demoAccountRequired=nil`, and `notesConfigured=false`.
 - The `Phase 6 Readiness` workflow now passes safe secret-presence booleans for
   the required signing secrets and `TESTFLIGHT_FEEDBACK_EMAIL`, so a limited
   `github.token` no longer turns those checks into ambiguous `unknown` states.
 - The `iOS TestFlight Testers` workflow now has `operation=submit_review`, a
   focused Beta Review path that selects the build, sets export compliance,
-  ensures Beta App test info from the `TESTFLIGHT_FEEDBACK_EMAIL` secret, and
-  submits Beta App Review without changing tester/group membership. Its success
-  log line is parsed as `betaReviewSubmitted` evidence, while script-source echo
-  is explicitly ignored.
+  ensures Beta App test info and Beta App Review Detail metadata from configured
+  secrets, and submits Beta App Review without changing tester/group membership.
+  Its success log line is parsed as `betaReviewSubmitted` evidence, while
+  script-source echo is explicitly ignored.
 - The TestFlight Actions log scan now reads up to 100 recent workflow runs and
   scans the first 10 successful tester workflow logs, preserving older
   `Private Trial` assignment evidence after repeated CI/readiness dispatches.
@@ -178,11 +190,15 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   Cloudflare Quick Tunnel origin. This satisfies the Phase 6 backend probe but
   should be replaced with a stable named tunnel origin before long-lived
   connected native distribution.
-- `TESTFLIGHT_FEEDBACK_EMAIL` is now proven not configured in GitHub Actions by
-  the safe secret-presence boolean in Phase 6 Readiness run `27088479370`.
-  App Store Connect is also missing the Beta App feedback email:
-  `iOS TestFlight Testers` run `27088348501` reports
-  `descriptionConfigured=true` and `feedbackEmailConfigured=false`.
+- `TESTFLIGHT_FEEDBACK_EMAIL` has since been configured in GitHub Actions, and
+  App Store Connect now has Beta App localization feedback metadata:
+  `iOS TestFlight Testers` run `27090974230` reports
+  `descriptionConfigured=true` and `feedbackEmailConfigured=true`.
+- App Store Connect is still missing Beta App Review Detail contact metadata:
+  `iOS TestFlight Testers` run `27091094309` reports
+  `contactFirstNameConfigured=false`, `contactLastNameConfigured=false`,
+  `contactEmailConfigured=false`, `contactPhoneConfigured=false`,
+  `demoAccountRequired=nil`, and `notesConfigured=false`.
 - The latest successful `iOS TestFlight (CD)` run uploaded and processed build
   `0.1.0 (3)`.
 - The latest successful `iOS TestFlight Testers` list run shows build
@@ -195,15 +211,18 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
 - External group `Private Trial` exists, and run `27082080178` assigned 2
   external testers to that group. That is strong enough to prove target tester
   coverage, but it does not prove iPhone/watch installation.
-- A later distribute attempt failed before external distribution because the
-  Beta App feedback email was not configured.
+- A `submit_review` attempt, run `27090920249`, selected build `0.1.0 (3)`,
+  confirmed export compliance, updated Beta App test info, and then failed with
+  Apple's `Missing required information to submit for external testing` response.
+  The follow-up list run above identifies the still-empty Beta App Review Detail
+  contact fields as the next data to provide.
 
 ## Completion Decision
 
 The active goal is not complete yet. Current evidence proves the roadmap is
-implemented and tested through the phone-reachable backend gate, but it does not
-prove that Beta App feedback email metadata is configured; in fact, the latest
-GitHub and ASC evidence proves it is missing. It also does not prove that
+implemented and tested through the phone-reachable backend gate, and it now
+proves that Beta App localization feedback metadata is configured. It does not
+yet prove that Beta App Review Detail contact fields are configured, that
 external Beta Review has been submitted, or that iPhone/watch installation works
-from TestFlight. The temporary Quick Tunnel should also be replaced with a
-stable named tunnel before relying on a long-lived connected TestFlight backend.
+from TestFlight. The temporary Quick Tunnel should also be replaced with a stable
+named tunnel before relying on a long-lived connected TestFlight backend.
