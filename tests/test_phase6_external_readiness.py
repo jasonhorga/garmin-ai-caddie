@@ -206,8 +206,11 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         log_text = """
         ##[group]TestFlight builds
         - 0.1.0 (2) id=f4f11d0f state=VALID expired=false usesNonExemptEncryption=false internalReady=false betaReviewReady=true missingExportCompliance=false internalState=IN_BETA_TESTING externalState=READY_FOR_BETA_SUBMISSION autoNotify=
+        ##[group]TestFlight groups
+        - Private Trial id=a2890a99 internal=false publicLinkEnabled=false allBuilds=
         ##[group]TestFlight testers
         - owner@example.test state=unknown devices=unknown latest=unknown(unknown)
+        - second@example.test state=unknown devices=unknown latest=unknown(unknown)
         """
 
         def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
@@ -244,6 +247,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertTrue(actions["readyForBetaSubmission"])
         self.assertEqual(actions["source"], "github_actions_log:27069928781:READY_FOR_BETA_SUBMISSION")
         self.assertEqual(actions["build"], "0.1.0 (2)")
+        self.assertEqual(actions["observedAppTesterCount"], 2)
+        self.assertTrue(actions["privateTrialGroupObserved"])
 
         payload = build_phase6_external_readiness(
             env={},
@@ -261,6 +266,35 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
         self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertFalse(any("TESTFLIGHT_FEEDBACK_EMAIL" in row for row in payload["missingExternalActions"]))
+        self.assertEqual(checks["external_testers"]["state"], "manual_required")
+        self.assertEqual(checks["external_testers"]["evidence"]["observedAppTesterCount"], 2)
+        self.assertTrue(checks["external_testers"]["evidence"]["privateTrialGroupObserved"])
+        self.assertEqual(checks["external_testers"]["evidence"]["privateTrialAssignedTesterCount"], 0)
+        self.assertIn(
+            "confirm target testers are assigned to Private Trial",
+            checks["external_testers"]["reason"],
+        )
+
+    def test_github_actions_group_assignment_counts_as_tester_coverage(self) -> None:
+        payload = build_phase6_external_readiness(
+            env={},
+            github_snapshot=_github_snapshot(
+                secrets=[*REQUIRED_SIGNING_SECRETS],
+                testflight_actions={
+                    "privateTrialAssignedTesterCount": 2,
+                    "privateTrialAssignedTesterSource": "github_actions_log:123:private_trial_assignment",
+                },
+            ),
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["evidence"]["privateTrialAssignedTesterCount"], 2)
+        self.assertEqual(
+            checks["external_testers"]["evidence"]["privateTrialAssignedTesterSource"],
+            "github_actions_log:123:private_trial_assignment",
+        )
 
     def test_github_native_api_variable_value_can_drive_backend_probe(self) -> None:
         calls: list[tuple[str, str | None]] = []

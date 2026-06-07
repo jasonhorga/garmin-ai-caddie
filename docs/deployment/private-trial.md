@@ -163,6 +163,10 @@ With the same read-only GitHub metadata token, the preflight also inspects recen
 `iOS TestFlight Testers` workflow logs and records a safe summary when App Store
 Connect reports `READY_FOR_BETA_SUBMISSION`. It stores only build/status enums
 and a run-id source, never tester email addresses or raw log lines.
+The same log summary can record that app-level TestFlight tester records and the
+`Private Trial` group exist, but app-level tester records alone do not satisfy
+target tester coverage; the gate stays open until group assignment or internal
+coverage is confirmed.
 
 The backend probe does not count as ready unless `AI_CADDIE_ADMIN_TOKEN` is
 provided; public `/api/v2/readiness` alone is not enough for the external

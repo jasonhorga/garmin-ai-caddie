@@ -545,6 +545,12 @@ def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
                 "configuredTesterCountSource": evidence.get("configuredTesterCountSource"),
                 "internalCoverageConfirmed": evidence.get("internalCoverageConfirmed") is True,
                 "internalCoverageSource": evidence.get("internalCoverageSource"),
+                "observedAppTesterCount": _int_or_none(evidence.get("observedAppTesterCount")) or 0,
+                "observedAppTesterCountSource": evidence.get("observedAppTesterCountSource"),
+                "privateTrialGroupObserved": evidence.get("privateTrialGroupObserved") is True,
+                "privateTrialGroupSource": evidence.get("privateTrialGroupSource"),
+                "privateTrialAssignedTesterCount": _int_or_none(evidence.get("privateTrialAssignedTesterCount")) or 0,
+                "privateTrialAssignedTesterSource": evidence.get("privateTrialAssignedTesterSource"),
             }
         elif label == "device_install":
             safe_evidence = {

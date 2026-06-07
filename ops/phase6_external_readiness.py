@@ -175,30 +175,60 @@ def _value_after(label: str, text: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def _testflight_build_summary_from_log(run: dict[str, Any], text: str) -> dict[str, Any] | None:
+def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | None:
+    run_id = str(run.get("id") or "").strip()
+    if not run_id:
+        return None
+    source_prefix = f"github_actions_log:{run_id}"
+    summary: dict[str, Any] = {
+        "available": True,
+        "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
+        "runId": run_id,
+        "runCreatedAt": str(run.get("created_at") or ""),
+    }
+    in_tester_group = False
+    app_tester_count = 0
     for line in text.splitlines():
-        if f"externalState={TESTFLIGHT_READY_EXTERNAL_STATE}" not in line:
+        if (
+            f"externalState={TESTFLIGHT_READY_EXTERNAL_STATE}" in line
+            and "state=VALID" in line
+            and "betaReviewReady=true" in line
+        ):
+            build_match = re.search(r"-\s+([^\s]+)\s+\(([^)]+)\)", line)
+            summary.update(
+                {
+                    "build": f"{build_match.group(1)} ({build_match.group(2)})" if build_match else None,
+                    "processingState": _value_after("state", line),
+                    "externalState": _value_after("externalState", line),
+                    "betaReviewReady": _value_after("betaReviewReady", line) == "true",
+                    "usesNonExemptEncryption": _value_after("usesNonExemptEncryption", line) == "false",
+                    "readyForBetaSubmission": True,
+                    "source": f"{source_prefix}:{TESTFLIGHT_READY_EXTERNAL_STATE}",
+                }
+            )
+
+        if "##[group]TestFlight testers" in line:
+            in_tester_group = True
             continue
-        if "state=VALID" not in line or "betaReviewReady=true" not in line:
+        if in_tester_group and "##[endgroup]" in line:
+            in_tester_group = False
             continue
-        build_match = re.search(r"-\s+([^\s]+)\s+\(([^)]+)\)", line)
-        run_id = str(run.get("id") or "").strip()
-        if not run_id:
-            return None
-        return {
-            "available": True,
-            "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
-            "runId": run_id,
-            "runCreatedAt": str(run.get("created_at") or ""),
-            "build": f"{build_match.group(1)} ({build_match.group(2)})" if build_match else None,
-            "processingState": _value_after("state", line),
-            "externalState": _value_after("externalState", line),
-            "betaReviewReady": _value_after("betaReviewReady", line) == "true",
-            "usesNonExemptEncryption": _value_after("usesNonExemptEncryption", line) == "false",
-            "readyForBetaSubmission": True,
-            "source": f"github_actions_log:{run_id}:{TESTFLIGHT_READY_EXTERNAL_STATE}",
-        }
-    return None
+        if in_tester_group and re.search(r"-\s+\S+\s+state=.*\sdevices=", line):
+            app_tester_count += 1
+
+        if re.search(r"-\s+Private Trial\b", line) and "internal=false" in line:
+            summary["privateTrialGroupObserved"] = True
+            summary["privateTrialGroupSource"] = f"{source_prefix}:private_trial_group"
+
+        assignment = re.search(r"Assigned\s+(\d+)\s+external tester\(s\) to group ([^:]+):", line)
+        if assignment and assignment.group(2).strip() == "Private Trial":
+            summary["privateTrialAssignedTesterCount"] = int(assignment.group(1))
+            summary["privateTrialAssignedTesterSource"] = f"{source_prefix}:private_trial_assignment"
+
+    if app_tester_count:
+        summary["observedAppTesterCount"] = app_tester_count
+        summary["observedAppTesterCountSource"] = f"{source_prefix}:app_testers"
+    return summary if len(summary) > 4 else None
 
 
 def _testflight_summary_from_log_zip(run: dict[str, Any], payload: bytes) -> dict[str, Any] | None:
@@ -207,7 +237,7 @@ def _testflight_summary_from_log_zip(run: dict[str, Any], payload: bytes) -> dic
             if not name.endswith(".txt"):
                 continue
             text = archive.read(name).decode("utf-8", errors="replace")
-            summary = _testflight_build_summary_from_log(run, text)
+            summary = _testflight_log_summary(run, text)
             if summary is not None:
                 return summary
     return None
@@ -233,6 +263,11 @@ def fetch_testflight_actions_summary(
         and run.get("conclusion") == "success"
         and str(run.get("logs_url") or "").strip()
     ]
+    aggregate: dict[str, Any] = {
+        "available": bool(runs),
+        "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
+        "readyForBetaSubmission": False,
+    }
     for run in relevant_runs[:5]:
         try:
             logs = _github_api_get_bytes(str(run["logs_url"]), token, timeout_s=timeout_s)
@@ -240,11 +275,37 @@ def fetch_testflight_actions_summary(
         except (OSError, error.URLError, TimeoutError, zipfile.BadZipFile):
             summary = None
         if summary is not None:
-            return summary
+            if summary.get("readyForBetaSubmission") is True and aggregate.get("readyForBetaSubmission") is not True:
+                aggregate.update({
+                    key: value
+                    for key, value in summary.items()
+                    if key
+                    in {
+                        "runId",
+                        "runCreatedAt",
+                        "build",
+                        "processingState",
+                        "externalState",
+                        "betaReviewReady",
+                        "usesNonExemptEncryption",
+                        "readyForBetaSubmission",
+                        "source",
+                    }
+                })
+            for key in (
+                "privateTrialGroupObserved",
+                "privateTrialGroupSource",
+                "privateTrialAssignedTesterCount",
+                "privateTrialAssignedTesterSource",
+                "observedAppTesterCount",
+                "observedAppTesterCountSource",
+            ):
+                if key in summary and key not in aggregate:
+                    aggregate[key] = summary[key]
+    if any(key in aggregate for key in ("source", "privateTrialGroupObserved", "observedAppTesterCount")):
+        return aggregate
     return {
-        "available": bool(runs),
-        "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
-        "readyForBetaSubmission": False,
+        **aggregate,
         "reason": "no successful TestFlight tester log proved READY_FOR_BETA_SUBMISSION",
     }
 
@@ -433,6 +494,22 @@ def _github_beta_review_ready_source(github_snapshot: dict[str, Any] | None) -> 
     return True, source or "github_actions_log"
 
 
+def _github_testflight_tester_observations(github_snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    actions = (github_snapshot or {}).get("testflightActions")
+    if not isinstance(actions, dict):
+        return {}
+    observed_count = _int_env({"value": str(actions.get("observedAppTesterCount") or "")}, "value")
+    assigned_count = _int_env({"value": str(actions.get("privateTrialAssignedTesterCount") or "")}, "value")
+    return {
+        "observedAppTesterCount": observed_count,
+        "observedAppTesterCountSource": actions.get("observedAppTesterCountSource"),
+        "privateTrialGroupObserved": actions.get("privateTrialGroupObserved") is True,
+        "privateTrialGroupSource": actions.get("privateTrialGroupSource"),
+        "privateTrialAssignedTesterCount": assigned_count,
+        "privateTrialAssignedTesterSource": actions.get("privateTrialAssignedTesterSource"),
+    }
+
+
 def build_phase6_external_readiness(
     *,
     env: dict[str, str] | None = None,
@@ -586,18 +663,25 @@ def build_phase6_external_readiness(
 
     tester_count = _int_env(env, "AI_CADDIE_TESTFLIGHT_TESTER_COUNT")
     tester_coverage_confirmed = _bool_env(env, "AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED")
+    tester_observations = _github_testflight_tester_observations(github_snapshot)
+    assigned_tester_count = int(tester_observations.get("privateTrialAssignedTesterCount") or 0)
     tester_coverage_source = _confirmation_source(
         env,
         value_key="AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED",
         source_key="AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_SOURCE",
     )
+    testers_ready = tester_count > 0 or tester_coverage_confirmed or assigned_tester_count > 0
     checks.append(
         {
             "label": "external_testers",
-            "state": "ready" if tester_count > 0 or tester_coverage_confirmed else "manual_required",
+            "state": "ready" if testers_ready else "manual_required",
             "reason": None
-            if tester_count > 0 or tester_coverage_confirmed
-            else "add external testers or confirm internal tester coverage",
+            if testers_ready
+            else (
+                "confirm target testers are assigned to Private Trial or confirm internal tester coverage"
+                if tester_observations.get("observedAppTesterCount")
+                else "add external testers or confirm internal tester coverage"
+            ),
             "evidence": {
                 "configuredTesterCount": tester_count,
                 "configuredTesterCountSource": _configured_value_source(
@@ -607,6 +691,7 @@ def build_phase6_external_readiness(
                 ),
                 "internalCoverageConfirmed": tester_coverage_confirmed,
                 "internalCoverageSource": tester_coverage_source,
+                **tester_observations,
             },
         }
     )

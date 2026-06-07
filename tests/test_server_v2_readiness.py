@@ -167,6 +167,12 @@ class ServerV2ReadinessTests(unittest.TestCase):
                     "configuredTesterCountSource": "cli_arg",
                     "internalCoverageConfirmed": False,
                     "internalCoverageSource": None,
+                    "observedAppTesterCount": 2,
+                    "observedAppTesterCountSource": "github_actions_log:27069928781:app_testers",
+                    "privateTrialGroupObserved": True,
+                    "privateTrialGroupSource": "github_actions_log:27069928781:private_trial_group",
+                    "privateTrialAssignedTesterCount": 0,
+                    "privateTrialAssignedTesterSource": None,
                     "testerEmails": ["owner@example.test"],
                 },
             },
@@ -703,6 +709,16 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(
             summaries["external_testers"]["evidence"]["configuredTesterCountSource"],
             "cli_arg",
+        )
+        self.assertEqual(summaries["external_testers"]["evidence"]["observedAppTesterCount"], 2)
+        self.assertEqual(
+            summaries["external_testers"]["evidence"]["observedAppTesterCountSource"],
+            "github_actions_log:27069928781:app_testers",
+        )
+        self.assertTrue(summaries["external_testers"]["evidence"]["privateTrialGroupObserved"])
+        self.assertEqual(
+            summaries["external_testers"]["evidence"]["privateTrialGroupSource"],
+            "github_actions_log:27069928781:private_trial_group",
         )
         self.assertEqual(summaries["device_install"]["evidence"]["installVerificationSource"], "cli_flag")
 
