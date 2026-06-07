@@ -15,6 +15,7 @@ from ops.phase6_external_readiness import (
     REQUIRED_SIGNING_SECRETS,
     build_phase6_external_readiness,
     main,
+    probe_backend_url,
 )
 
 
@@ -35,6 +36,37 @@ def _github_snapshot(
 
 
 class Phase6ExternalReadinessTests(unittest.TestCase):
+    def test_backend_probe_degrades_when_backend_schema_does_not_match(self) -> None:
+        class Response:
+            def __init__(self, status: int, payload: dict[str, object]) -> None:
+                self.status = status
+                self._payload = payload
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps(self._payload).encode("utf-8")
+
+        def urlopen(req: object, timeout: float) -> Response:
+            url = getattr(req, "full_url")
+            if url.endswith("/api/v2/health"):
+                return Response(200, {"schema": "wrong-health-schema"})
+            if url.endswith("/api/v2/readiness"):
+                return Response(200, {"schema": "ai-caddie-readiness-v1", "status": "ready"})
+            raise AssertionError(f"unexpected URL: {url}")
+
+        with patch("ops.phase6_external_readiness.request.urlopen", side_effect=urlopen):
+            payload = probe_backend_url("https://api.example.test", "admin-secret")
+
+        self.assertEqual(payload["state"], "degraded")
+        self.assertEqual(payload["reason"], "unexpected backend schema")
+        self.assertEqual(payload["healthSchema"], "wrong-health-schema")
+        self.assertEqual(payload["readinessSchema"], "ai-caddie-readiness-v1")
+
     def test_ready_when_github_backend_review_testers_and_install_are_verified(self) -> None:
         calls: list[tuple[str, str | None]] = []
 

@@ -144,7 +144,8 @@ input.
 
 The backend probe does not count as ready unless `AI_CADDIE_ADMIN_TOKEN` is
 provided; public `/api/v2/readiness` alone is not enough for the external
-release gate.
+release gate. The probed API must also return the expected
+`ai-caddie-health-v2` and `ai-caddie-readiness-v1` schemas.
 
 If feedback email or tester coverage is completed manually outside GitHub
 secrets, record that in the preflight run with `--feedback-email-filled` and

@@ -31,6 +31,8 @@ REQUIRED_SIGNING_SECRETS = (
 LEGACY_UNUSED_SECRETS = ("MATCH_KEYCHAIN_PASSWORD",)
 REQUIRED_NATIVE_API_VARIABLE = "AI_CADDIE_API_BASE_URL"
 OPTIONAL_EXTERNAL_REVIEW_SECRET = "TESTFLIGHT_FEEDBACK_EMAIL"
+EXPECTED_HEALTH_SCHEMA = "ai-caddie-health-v2"
+EXPECTED_READINESS_SCHEMA = "ai-caddie-readiness-v1"
 API_URL_ENV_PRIORITY = (
     "AI_CADDIE_API_BASE_URL",
     "PHASE6_API_BASE_URL",
@@ -173,9 +175,21 @@ def probe_backend_url(
             "healthStatus": None,
             "readinessStatus": None,
         }
+    schemas_match = (
+        health.get("schema") == EXPECTED_HEALTH_SCHEMA
+        and readiness.get("schema") == EXPECTED_READINESS_SCHEMA
+    )
+    ready = health_status == 200 and readiness_status == 200 and schemas_match
+    reason = None
+    if not ready:
+        reason = (
+            "unexpected backend schema"
+            if health_status == 200 and readiness_status == 200
+            else "unexpected backend status"
+        )
     return {
-        "state": "ready" if health_status == 200 and readiness_status == 200 else "degraded",
-        "reason": None if health_status == 200 and readiness_status == 200 else "unexpected backend status",
+        "state": "ready" if ready else "degraded",
+        "reason": reason,
         "healthStatus": health_status,
         "healthSchema": health.get("schema"),
         "readinessStatus": readiness_status,
