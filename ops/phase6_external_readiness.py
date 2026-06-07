@@ -255,6 +255,10 @@ def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | 
             summary["feedbackEmailConfigured"] = True
             summary["feedbackEmailSource"] = f"{source_prefix}:beta_app_test_info"
 
+        if message == "Beta App Review submission requested.":
+            summary["betaReviewSubmitted"] = True
+            summary["betaReviewSubmittedSource"] = f"{source_prefix}:beta_review_submission"
+
         if "##[group]TestFlight testers" in line:
             in_tester_group = True
             continue
@@ -349,10 +353,15 @@ def fetch_testflight_actions_summary(
                 "observedAppTesterCountSource",
                 "feedbackEmailConfigured",
                 "feedbackEmailSource",
+                "betaReviewSubmitted",
+                "betaReviewSubmittedSource",
             ):
                 if key in summary and key not in aggregate:
                     aggregate[key] = summary[key]
-    if any(key in aggregate for key in ("source", "privateTrialGroupObserved", "observedAppTesterCount")):
+    if any(
+        key in aggregate
+        for key in ("source", "privateTrialGroupObserved", "observedAppTesterCount", "betaReviewSubmitted")
+    ):
         return aggregate
     return {
         **aggregate,
@@ -631,6 +640,16 @@ def _github_feedback_email_source(github_snapshot: dict[str, Any] | None) -> tup
     return True, source or "github_actions_log:beta_app_test_info"
 
 
+def _github_beta_review_submission_source(github_snapshot: dict[str, Any] | None) -> tuple[bool, str | None]:
+    actions = (github_snapshot or {}).get("testflightActions")
+    if not isinstance(actions, dict):
+        return False, None
+    if actions.get("betaReviewSubmitted") is not True:
+        return False, None
+    source = str(actions.get("betaReviewSubmittedSource") or "").strip()
+    return True, source or "github_actions_log:beta_review_submission"
+
+
 def _github_testflight_tester_observations(github_snapshot: dict[str, Any] | None) -> dict[str, Any]:
     actions = (github_snapshot or {}).get("testflightActions")
     if not isinstance(actions, dict):
@@ -694,6 +713,9 @@ def build_phase6_external_readiness(
     beta_review_submitted = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED")
     github_beta_review_ready, github_beta_review_ready_source = _github_beta_review_ready_source(github_snapshot)
     github_feedback_email_filled, github_feedback_email_source = _github_feedback_email_source(github_snapshot)
+    github_beta_review_submitted, github_beta_review_submission_source = (
+        _github_beta_review_submission_source(github_snapshot)
+    )
     beta_review_ready_source = _confirmation_source(
         env,
         value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY",
@@ -703,7 +725,8 @@ def build_phase6_external_readiness(
         env,
         value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED",
         source_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE",
-    )
+    ) or github_beta_review_submission_source
+    beta_review_submitted = beta_review_submitted or github_beta_review_submitted
     beta_review_ready = beta_review_ready or beta_review_submitted or github_beta_review_ready
     beta_review_ready_source = (
         beta_review_ready_source

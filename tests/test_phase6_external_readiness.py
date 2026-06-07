@@ -514,6 +514,95 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         actions = snapshot["testflightActions"]
         self.assertNotIn("feedbackEmailConfigured", actions)
 
+    def test_successful_github_actions_log_can_prove_beta_review_submission(self) -> None:
+        log_text = """
+        2026-06-07T03:45:23.7128330Z     puts "Beta App Review submission requested."
+        2026-06-07T03:45:24.7128330Z Beta App Review submission requested.
+        """
+
+        def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
+            if path == "":
+                return {"private": False, "default_branch": "integration/v2"}
+            if path == "/actions/secrets":
+                return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
+            if path == "/actions/variables":
+                return {"variables": []}
+            if path.startswith("/actions/runs?"):
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 27090000001,
+                            "name": "iOS TestFlight Testers",
+                            "conclusion": "success",
+                            "created_at": "2026-06-07T18:07:36Z",
+                            "logs_url": "https://api.github.test/logs/27090000001",
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected GitHub path: {path}")
+
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", side_effect=github_get),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", return_value=_zip_log(log_text)),
+        ):
+            snapshot = fetch_github_snapshot(token="gh-token")
+
+        actions = snapshot["testflightActions"]
+        self.assertTrue(actions["betaReviewSubmitted"])
+        self.assertEqual(
+            actions["betaReviewSubmittedSource"],
+            "github_actions_log:27090000001:beta_review_submission",
+        )
+
+        payload = build_phase6_external_readiness(
+            env={},
+            github_snapshot=snapshot,
+            created_at="2026-06-07T18:10:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(
+            checks["external_beta_review_submission"]["evidence"]["source"],
+            "github_actions_log:27090000001:beta_review_submission",
+        )
+
+    def test_github_actions_script_echo_does_not_prove_beta_review_submission(self) -> None:
+        log_text = """
+        2026-06-07T03:45:23.7128330Z     puts "Beta App Review submission requested."
+        """
+
+        def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
+            if path == "":
+                return {"private": False, "default_branch": "integration/v2"}
+            if path == "/actions/secrets":
+                return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
+            if path == "/actions/variables":
+                return {"variables": []}
+            if path.startswith("/actions/runs?"):
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 27090000002,
+                            "name": "iOS TestFlight Testers",
+                            "conclusion": "success",
+                            "created_at": "2026-06-07T18:07:36Z",
+                            "logs_url": "https://api.github.test/logs/27090000002",
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected GitHub path: {path}")
+
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", side_effect=github_get),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", return_value=_zip_log(log_text)),
+        ):
+            snapshot = fetch_github_snapshot(token="gh-token")
+
+        actions = snapshot["testflightActions"]
+        self.assertNotIn("betaReviewSubmitted", actions)
+
     def test_github_actions_group_assignment_counts_as_tester_coverage(self) -> None:
         payload = build_phase6_external_readiness(
             env={},

@@ -283,7 +283,10 @@ class CIWorkflowTests(unittest.TestCase):
         triggers = workflow[True]
         inputs = triggers["workflow_dispatch"]["inputs"]
 
-        self.assertEqual(["list", "add", "assign_existing", "distribute"], inputs["operation"]["options"])
+        self.assertEqual(
+            ["list", "add", "assign_existing", "submit_review", "distribute"],
+            inputs["operation"]["options"],
+        )
         self.assertIn("tester_emails", inputs)
         self.assertIn("groups", inputs)
         self.assertNotIn("feedback_email", inputs)
@@ -307,6 +310,8 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("assign_existing_testers_to_groups!", text)
         self.assertIn("app.get_beta_testers(limit: 200)", text)
         self.assertIn('when "assign_existing"', text)
+        self.assertIn('when "submit_review"', text)
+        self.assertIn("Beta App Review submission requested.", text)
         self.assertIn("print_beta_app_test_info(app)", text)
         self.assertIn("descriptionConfigured", text)
         self.assertIn("feedbackEmailConfigured", text)

@@ -55,13 +55,16 @@ but does not create a new app record for this account.
   - `operation=assign_existing` assigns currently visible app-level TestFlight testers
     to the configured group without printing raw email addresses. Use this when the
     testers already exist in App Store Connect and only group membership is missing.
-  - `operation=distribute` assigns the latest or selected build to that external
-    TestFlight group. External distribution may require Beta App Review before testers
-    can install.
   - For automated external Beta App Review submission, set the
     `TESTFLIGHT_FEEDBACK_EMAIL` repo secret. It is intentionally secret-only
     because this repo is public. If you fill the Beta App feedback email
     manually in App Store Connect, this secret is not needed.
+  - `operation=submit_review` sets export compliance, fills the Beta App test
+    info when `TESTFLIGHT_FEEDBACK_EMAIL` is configured, and submits the selected
+    build for external Beta App Review without changing tester/group membership.
+  - `operation=distribute` assigns the latest or selected build to that external
+    TestFlight group. External distribution may require Beta App Review before testers
+    can install.
   This workflow calls fastlane's Spaceship/App Store Connect API directly instead of the
   `pilot builds/list/add/distribute` subcommands, because Apple's current API no longer
   accepts the legacy `buildDeliveries` relationship used by those listing paths.

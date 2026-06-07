@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'list, add, assign_existing, or distribute'
+        description: 'list, add, assign_existing, submit_review, or distribute'
         required: true
         default: 'list'
         type: choice
@@ -15,6 +15,7 @@ on:
           - list
           - add
           - assign_existing
+          - submit_review
           - distribute
       tester_emails:
         description: 'Comma/newline-separated external tester emails for add'
@@ -444,6 +445,7 @@ jobs:
               puts "Submitting build for Beta App Review."
               begin
                 build.post_beta_app_review_submission
+                puts "Beta App Review submission requested."
                 return
               rescue Spaceship::UnexpectedResponse => e
                 raise unless beta_metadata_pending?(e.message) && attempt < 2
@@ -482,6 +484,12 @@ jobs:
             groups = ensure_testflight_groups(app, group_names)
             testers = app.get_beta_testers(limit: 200)
             assign_existing_testers_to_groups!(groups, testers)
+          when "submit_review"
+            build = select_distributable_build!(app, app_version, build_number)
+            puts "Selected build: #{safely { build.app_version }} (#{build.version}), id=#{build.id}."
+            mark_export_compliance!(build)
+            ensure_beta_app_test_info!(app, feedback_email)
+            submit_beta_review_if_ready!(build, app)
           when "distribute"
             groups = ensure_testflight_groups(app, group_names)
             build = select_distributable_build!(app, app_version, build_number)
