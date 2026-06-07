@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 import unittest
 
@@ -9,16 +8,44 @@ ROADMAP = Path("docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md")
 AUDIT = Path("docs/superpowers/reviews/2026-06-07-roadmap-completion-audit.md")
 
 
+def _open_checklist_items(text: str) -> list[str]:
+    items: list[str] = []
+    current: list[str] | None = None
+    for line in text.splitlines():
+        if line.startswith("- [ ] "):
+            if current is not None:
+                items.append(" ".join(current))
+            current = [line.removeprefix("- [ ] ").strip()]
+            continue
+        if line.startswith("- [x] ") or line.startswith("### "):
+            if current is not None:
+                items.append(" ".join(current))
+                current = None
+            continue
+        if current is not None and line.startswith("  ") and line.strip():
+            current.append(line.strip())
+            continue
+        if current is not None and not line.strip():
+            items.append(" ".join(current))
+            current = None
+    if current is not None:
+        items.append(" ".join(current))
+    return items
+
+
 class RoadmapCompletionAuditTests(unittest.TestCase):
     def test_authoritative_roadmap_has_only_expected_external_phase6_open_items(self) -> None:
         text = ROADMAP.read_text(encoding="utf-8")
-        open_items = re.findall(r"^- \[ \] (.+)$", text, flags=re.MULTILINE)
+        open_items = _open_checklist_items(text)
 
         self.assertEqual(
             [
                 "Deploy a phone-reachable backend host and point the native app at it.",
                 "Submit external Beta App Review.",
-                "Add/confirm target tester emails for the external group or confirm the",
+                (
+                    "Add/confirm target tester emails for the external group or confirm the "
+                    "user is covered by the existing internal group."
+                ),
                 "Verify installation from TestFlight on iPhone/watch.",
             ],
             open_items,
