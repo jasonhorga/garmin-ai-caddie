@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,8 @@ NATIVE_BUILD_EVIDENCE_MAX_AGE = timedelta(days=14)
 EXTERNAL_RELEASE_EVIDENCE = Path("logs/phase6_external_readiness_latest.json")
 EXTERNAL_RELEASE_EVIDENCE_SCHEMA = "ai-caddie-phase6-external-readiness-v1"
 EXTERNAL_RELEASE_EVIDENCE_MAX_AGE = timedelta(days=3)
+ROADMAP_COMPLETION_PLAN = Path("docs/superpowers/plans/2026-06-05-roadmap-and-test-plan.md")
+ROADMAP_COMPLETION_STATUS_SCHEMA = "ai-caddie-roadmap-completion-status-v1"
 
 VISION_CONFIRMATION_STATES = ["unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"]
 
@@ -465,7 +468,14 @@ def _credential_safe_text(value: Any) -> str:
     )
     for source, replacement in replacements:
         text = text.replace(source, replacement)
+    text = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[redacted_email]", text)
+    text = re.sub(r"(?<![:/\w])/(?:[^\s:/]+/)*[^\s:]*", "[redacted_path]", text)
     return text
+
+
+def _roadmap_completion_safe_text(value: Any) -> str:
+    text = _credential_safe_text(value)
+    return text[:240]
 
 
 def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
@@ -645,6 +655,204 @@ def _external_release_check() -> dict[str, Any]:
         "External Phase 6 release preflight is current and ready."
         if state == "ready"
         else "External Phase 6 release preflight is missing, stale, or incomplete.",
+        evidence,
+    )
+
+
+def _roadmap_completion_gate_summary(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    key = str(raw.get("key") or "").strip()
+    state = str(raw.get("state") or "").strip()
+    if not key or not state:
+        return None
+
+    raw_checks = raw.get("checks") if isinstance(raw.get("checks"), list) else []
+    checks = []
+    for row in raw_checks:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or "").strip()
+        check_state = str(row.get("state") or "").strip()
+        if not label or not check_state:
+            continue
+        checks.append(
+            {
+                "label": label,
+                "state": check_state,
+                "reason": _roadmap_completion_safe_text(row.get("reason")),
+            }
+        )
+
+    raw_actions = raw.get("remainingActions")
+    actions = raw_actions if isinstance(raw_actions, list) else []
+    remaining_actions = [
+        action
+        for action in (_roadmap_completion_safe_text(value) for value in actions)
+        if action
+    ]
+    return {
+        "key": key,
+        "state": state,
+        "roadmapItem": _roadmap_completion_safe_text(raw.get("roadmapItem")),
+        "checks": checks,
+        "remainingActions": list(dict.fromkeys(remaining_actions)),
+    }
+
+
+def _roadmap_gate_alignment_summary(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {"state": "missing", "issues": ["alignment_missing"]}
+    raw_issues = raw.get("issues")
+    issues = raw_issues if isinstance(raw_issues, list) else []
+    safe_issues = []
+    for row in issues:
+        if not isinstance(row, dict):
+            continue
+        safe_issues.append(
+            {
+                key: _roadmap_completion_safe_text(value)
+                for key, value in row.items()
+                if key in {"type", "gate", "roadmapItem"}
+            }
+        )
+    return {
+        "state": str(raw.get("state") or "unknown"),
+        "openItemsCoveredByPhase6Gates": _int_or_none(raw.get("openItemsCoveredByPhase6Gates")) or 0,
+        "phase6GateCount": _int_or_none(raw.get("phase6GateCount")) or 0,
+        "issues": safe_issues,
+    }
+
+
+def _roadmap_completion_evidence() -> tuple[str, dict[str, Any]]:
+    base: dict[str, Any] = {
+        "roadmapCompletion": "status_unavailable",
+        "evidenceSchema": ROADMAP_COMPLETION_STATUS_SCHEMA,
+        "roadmap": {
+            "plan": _public_path(ROADMAP_COMPLETION_PLAN),
+            "openItemCount": None,
+            "openItems": [],
+        },
+        "externalRelease": {
+            "evidenceStamp": _public_path(EXTERNAL_RELEASE_EVIDENCE),
+            "state": "unknown",
+        },
+        "phase6Gates": [],
+        "roadmapGateAlignment": {"state": "unknown", "issues": []},
+        "remainingRequirementCount": 0,
+        "remainingRequirements": [],
+        "command": "uv run python ops/roadmap_completion_status.py --no-fail",
+        "issues": [],
+    }
+
+    try:
+        from ops.roadmap_completion_status import build_status
+
+        payload = build_status(
+            roadmap_path=ROADMAP_COMPLETION_PLAN,
+            external_release_path=EXTERNAL_RELEASE_EVIDENCE,
+        )
+    except FileNotFoundError:
+        return "degraded", {
+            **base,
+            "roadmapCompletion": "missing_evidence",
+            "issues": ["roadmap_missing"],
+        }
+    except Exception as exc:  # pragma: no cover - defensive health surface
+        return "degraded", {
+            **base,
+            "roadmapCompletion": "status_error",
+            "issues": [exc.__class__.__name__],
+        }
+    if not isinstance(payload, dict):
+        return "degraded", {
+            **base,
+            "roadmapCompletion": "invalid_evidence",
+            "issues": ["status_invalid"],
+        }
+
+    schema = payload.get("schema")
+    state = str(payload.get("state") or "unknown").strip()
+    completion_ready = payload.get("completionReady") is True
+    roadmap = payload.get("roadmap") if isinstance(payload.get("roadmap"), dict) else {}
+    external_release = (
+        payload.get("externalRelease")
+        if isinstance(payload.get("externalRelease"), dict)
+        else {}
+    )
+    raw_phase6_gates = payload.get("phase6Gates")
+    phase6_gate_values = raw_phase6_gates if isinstance(raw_phase6_gates, list) else []
+    phase6_gates = [
+        gate
+        for gate in (_roadmap_completion_gate_summary(row) for row in phase6_gate_values)
+        if gate is not None
+    ]
+    raw_requirements = payload.get("remainingRequirements")
+    requirements = raw_requirements if isinstance(raw_requirements, list) else []
+    remaining_requirements = [
+        requirement
+        for requirement in (_roadmap_completion_safe_text(value) for value in requirements)
+        if requirement
+    ]
+    issues: list[str] = []
+    if schema != ROADMAP_COMPLETION_STATUS_SCHEMA:
+        issues.append("schema_mismatch")
+    if not completion_ready:
+        issues.append(f"roadmap_completion_state_{state or 'unknown'}")
+
+    evidence = {
+        **base,
+        "schema": schema,
+        "createdAt": payload.get("createdAt"),
+        "state": state,
+        "completionReady": completion_ready,
+        "roadmapCompletion": "ready" if completion_ready else state,
+        "roadmap": {
+            "plan": _public_path(ROADMAP_COMPLETION_PLAN),
+            "openItemCount": _int_or_none(roadmap.get("openItemCount")) or 0,
+            "openItems": [
+                item
+                for item in (
+                    _roadmap_completion_safe_text(value)
+                    for value in (
+                        roadmap.get("openItems")
+                        if isinstance(roadmap.get("openItems"), list)
+                        else []
+                    )
+                )
+                if item
+            ],
+        },
+        "externalRelease": {
+            "evidenceStamp": _public_path(EXTERNAL_RELEASE_EVIDENCE),
+            "available": external_release.get("available") is True,
+            "schema": external_release.get("schema"),
+            "createdAt": external_release.get("createdAt"),
+            "state": _roadmap_completion_safe_text(external_release.get("state") or "unknown"),
+            "missingExternalActionCount": len(external_release.get("missingExternalActions", []))
+            if isinstance(external_release.get("missingExternalActions"), list)
+            else 0,
+        },
+        "phase6Gates": phase6_gates,
+        "roadmapGateAlignment": _roadmap_gate_alignment_summary(payload.get("roadmapGateAlignment")),
+        "remainingRequirementCount": len(remaining_requirements),
+        "remainingRequirements": list(dict.fromkeys(remaining_requirements)),
+        "issues": sorted(set(issues)),
+    }
+    if evidence["roadmapGateAlignment"].get("state") != "ready":
+        evidence["issues"] = sorted({*evidence["issues"], "roadmap_gate_alignment_mismatch"})
+
+    return "ready" if completion_ready and not evidence["issues"] else "degraded", evidence
+
+
+def _roadmap_completion_check() -> dict[str, Any]:
+    state, evidence = _roadmap_completion_evidence()
+    return _check(
+        "roadmap_completion",
+        state,
+        "Roadmap completion gates are closed and externally proven."
+        if state == "ready"
+        else "Roadmap completion still has open or externally unproven Phase 6 gates.",
         evidence,
     )
 
@@ -916,6 +1124,7 @@ def build_readiness_response() -> dict[str, Any]:
     )
     checks.append(_native_mobile_check())
     checks.append(_external_release_check())
+    checks.append(_roadmap_completion_check())
     try:
         report = load_trend_report_response("recent_10")
         checks.append(

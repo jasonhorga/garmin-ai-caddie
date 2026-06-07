@@ -87,6 +87,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         *,
         state: str = "ready",
         missing_actions: list[str] | None = None,
+        incomplete_labels: set[str] | None = None,
     ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         checks = [
@@ -185,12 +186,22 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 },
             },
         ]
-        if state != "ready":
-            checks[-1] = {
-                "label": "device_install",
-                "state": "manual_required",
-                "reason": "install the TestFlight build on iPhone/watch and record verification",
-            }
+        if incomplete_labels is None and state != "ready":
+            incomplete_labels = {"device_install"}
+        reasons = {
+            "native_api_base_url_configuration": "set repo variable AI_CADDIE_API_BASE_URL",
+            "phone_reachable_backend_url": "deploy a phone-reachable backend URL",
+            "backend_probe": "run with --probe-backend and AI_CADDIE_ADMIN_TOKEN to prove readiness",
+            "external_beta_review_submission_ready": "upload a processed TestFlight build",
+            "external_beta_review_submission": "submit external Beta App Review",
+            "external_testers": "assign target testers to Private Trial",
+            "device_install": "install the TestFlight build on iPhone/watch and record verification",
+        }
+        if incomplete_labels:
+            for check in checks:
+                if check.get("label") in incomplete_labels:
+                    check["state"] = "manual_required"
+                    check["reason"] = reasons.get(str(check.get("label")), "complete the external gate")
 
         path.write_text(
             json.dumps(
@@ -201,6 +212,24 @@ class ServerV2ReadinessTests(unittest.TestCase):
                     "checks": checks,
                     "missingExternalActions": missing_actions or [],
                 }
+            ),
+            encoding="utf-8",
+        )
+
+    def _write_roadmap_plan(self, path: Path, *, open_items: list[str]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        checklist = "\n".join(f"- [ ] {item}" for item in open_items)
+        if not checklist:
+            checklist = "- [x] Phase 6 external gates are complete."
+        path.write_text(
+            "\n".join(
+                [
+                    "# Roadmap",
+                    "",
+                    "### Phase 6",
+                    checklist,
+                    "",
+                ]
             ),
             encoding="utf-8",
         )
@@ -236,6 +265,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 "operations",
                 "native_mobile",
                 "external_release",
+                "roadmap_completion",
                 "private_snapshot_acceptance",
             },
         )
@@ -253,6 +283,8 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["native_mobile"]["state"], "degraded")
         self.assertEqual(checks["external_release"]["state"], "degraded")
         self.assertEqual(checks["external_release"]["evidence"]["externalRelease"], "missing_evidence")
+        self.assertEqual(checks["roadmap_completion"]["state"], "degraded")
+        self.assertFalse(checks["roadmap_completion"]["evidence"]["completionReady"])
         self.assertEqual(checks["private_snapshot_acceptance"]["state"], "degraded")
         self.assertEqual(checks["private_snapshot_acceptance"]["evidence"]["state"], "blocked")
         self.assertIn("snapshot_manifest", checks["private_snapshot_acceptance"]["evidence"]["failureLabels"])
@@ -768,6 +800,105 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(stale["state"], "degraded")
         self.assertEqual(stale["evidence"]["externalRelease"], "stale_evidence")
         self.assertIn("stale", stale["evidence"]["issues"])
+
+    def test_readiness_roadmap_completion_degrades_with_open_phase6_gates_without_secrets(self) -> None:
+        client = TestClient(app)
+        open_items = [
+            "Deploy a phone-reachable backend host and point the native app at it.",
+            "Submit external Beta App Review.",
+            (
+                "Add/confirm target tester emails for the external group or confirm the "
+                "user is covered by the existing internal group."
+            ),
+            "Verify installation from TestFlight on iPhone/watch.",
+        ]
+        incomplete_labels = {
+            "native_api_base_url_configuration",
+            "phone_reachable_backend_url",
+            "backend_probe",
+            "external_beta_review_submission_ready",
+            "external_beta_review_submission",
+            "external_testers",
+            "device_install",
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            roadmap_path = root / "docs" / "roadmap.md"
+            evidence_path = root / "logs" / "phase6_external_readiness_latest.json"
+            self._write_roadmap_plan(roadmap_path, open_items=open_items)
+            self._write_external_release_evidence(
+                evidence_path,
+                datetime.now(UTC),
+                state="incomplete",
+                missing_actions=[
+                    f"run {root}/phase6.log for owner@example.test with AI_CADDIE_ADMIN_TOKEN",
+                ],
+                incomplete_labels=incomplete_labels,
+            )
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.ROADMAP_COMPLETION_PLAN", roadmap_path),
+                patch("server_v2.readiness.EXTERNAL_RELEASE_EVIDENCE", evidence_path),
+            ):
+                response = client.get("/api/v2/readiness")
+
+            serialized = str(response.json())
+            self.assertNotIn(str(root), serialized)
+            self.assertNotIn("owner@example.test", serialized)
+            self.assertNotIn("token", serialized.lower())
+
+        self.assertEqual(response.status_code, 200)
+        roadmap = {check["label"]: check for check in response.json()["checks"]}["roadmap_completion"]
+        self.assertEqual(roadmap["state"], "degraded")
+        evidence = roadmap["evidence"]
+        self.assertEqual(evidence["schema"], "ai-caddie-roadmap-completion-status-v1")
+        self.assertFalse(evidence["completionReady"])
+        self.assertEqual(evidence["roadmapCompletion"], "incomplete")
+        self.assertEqual(evidence["roadmap"]["plan"], "roadmap.md")
+        self.assertEqual(evidence["roadmap"]["openItemCount"], 4)
+        self.assertEqual(len(evidence["phase6Gates"]), 4)
+        self.assertTrue(all(gate["state"] == "incomplete" for gate in evidence["phase6Gates"]))
+        self.assertEqual(evidence["roadmapGateAlignment"]["state"], "ready")
+        self.assertEqual(evidence["roadmapGateAlignment"]["openItemsCoveredByPhase6Gates"], 4)
+        self.assertGreaterEqual(evidence["remainingRequirementCount"], 4)
+        self.assertIn("admin credential", str(evidence["remainingRequirements"]))
+
+    def test_readiness_roadmap_completion_turns_ready_with_closed_roadmap_and_ready_external_gates(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            roadmap_path = root / "docs" / "roadmap.md"
+            evidence_path = root / "logs" / "phase6_external_readiness_latest.json"
+            self._write_roadmap_plan(roadmap_path, open_items=[])
+            self._write_external_release_evidence(evidence_path, datetime.now(UTC))
+            with (
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+                patch("server_v2.readiness.ROADMAP_COMPLETION_PLAN", roadmap_path),
+                patch("server_v2.readiness.EXTERNAL_RELEASE_EVIDENCE", evidence_path),
+            ):
+                response = client.get("/api/v2/readiness")
+
+            serialized = str(response.json())
+            self.assertNotIn(str(root), serialized)
+            self.assertNotIn("/Users/private", serialized)
+            self.assertNotIn("owner@example.test", serialized)
+            self.assertNotIn("token", serialized.lower())
+
+        self.assertEqual(response.status_code, 200)
+        roadmap = {check["label"]: check for check in response.json()["checks"]}["roadmap_completion"]
+        self.assertEqual(roadmap["state"], "ready")
+        evidence = roadmap["evidence"]
+        self.assertTrue(evidence["completionReady"])
+        self.assertEqual(evidence["roadmapCompletion"], "ready")
+        self.assertEqual(evidence["roadmap"]["openItemCount"], 0)
+        self.assertEqual(evidence["externalRelease"]["state"], "ready")
+        self.assertEqual(evidence["remainingRequirementCount"], 0)
+        self.assertEqual(evidence["remainingRequirements"], [])
+        self.assertTrue(all(gate["state"] == "ready" for gate in evidence["phase6Gates"]))
+        self.assertEqual(evidence["roadmapGateAlignment"]["state"], "ready")
+        self.assertEqual(evidence["issues"], [])
 
     def test_service_index_and_smoke_script_advertise_readiness(self) -> None:
         client = TestClient(app)
