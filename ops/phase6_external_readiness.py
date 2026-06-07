@@ -65,6 +65,13 @@ def _int_env(env: dict[str, str], key: str) -> int:
         return 0
 
 
+def _confirmation_source(env: dict[str, str], *, value_key: str, source_key: str) -> str | None:
+    if not _bool_env(env, value_key):
+        return None
+    source = env.get(source_key, "").strip()
+    return source or "environment"
+
+
 def _safe_host(raw_url: str) -> tuple[str | None, str | None]:
     parsed = parse.urlparse(raw_url.strip())
     if parsed.scheme != "https":
@@ -205,6 +212,7 @@ def _github_checks(
     native_api_url_configured: bool,
     native_api_source: str | None,
     feedback_email_filled: bool,
+    feedback_email_source: str | None,
 ) -> list[dict[str, Any]]:
     if not github_snapshot or not github_snapshot.get("available"):
         return [
@@ -266,6 +274,7 @@ def _github_checks(
             "evidence": {
                 "repoSecretConfigured": OPTIONAL_EXTERNAL_REVIEW_SECRET in secret_names,
                 "manualFeedbackEmailConfirmed": feedback_email_filled,
+                "manualFeedbackEmailSource": feedback_email_source,
             },
         },
     ]
@@ -289,6 +298,11 @@ def build_phase6_external_readiness(
         native_api_url_configured=native_api_url_configured,
         native_api_source=api_url_source,
         feedback_email_filled=_bool_env(env, "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED"),
+        feedback_email_source=_confirmation_source(
+            env,
+            value_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED",
+            source_key="AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE",
+        ),
     )
     if not api_summary["configured"]:
         api_check = {
@@ -360,6 +374,11 @@ def build_phase6_external_readiness(
 
     tester_count = _int_env(env, "AI_CADDIE_TESTFLIGHT_TESTER_COUNT")
     tester_coverage_confirmed = _bool_env(env, "AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED")
+    tester_coverage_source = _confirmation_source(
+        env,
+        value_key="AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED",
+        source_key="AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_SOURCE",
+    )
     checks.append(
         {
             "label": "external_testers",
@@ -370,16 +389,26 @@ def build_phase6_external_readiness(
             "evidence": {
                 "configuredTesterCount": tester_count,
                 "internalCoverageConfirmed": tester_coverage_confirmed,
+                "internalCoverageSource": tester_coverage_source,
             },
         }
     )
+    install_verified = _bool_env(env, "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED")
     checks.append(
         {
             "label": "device_install",
-            "state": "ready" if _bool_env(env, "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED") else "manual_required",
+            "state": "ready" if install_verified else "manual_required",
             "reason": None
-            if _bool_env(env, "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED")
+            if install_verified
             else "install the TestFlight build on iPhone/watch and record verification",
+            "evidence": {
+                "installVerified": install_verified,
+                "installVerificationSource": _confirmation_source(
+                    env,
+                    value_key="AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED",
+                    source_key="AI_CADDIE_TESTFLIGHT_INSTALL_SOURCE",
+                ),
+            },
         }
     )
 
@@ -431,10 +460,13 @@ def main(argv: list[str] | None = None) -> int:
         env["AI_CADDIE_TESTFLIGHT_TESTER_COUNT"] = str(args.tester_count)
     if args.feedback_email_filled:
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED"] = "1"
+        env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE"] = "cli_flag"
     if args.tester_coverage_confirmed:
         env["AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED"] = "1"
+        env["AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_SOURCE"] = "cli_flag"
     if args.install_verified:
         env["AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED"] = "1"
+        env["AI_CADDIE_TESTFLIGHT_INSTALL_SOURCE"] = "cli_flag"
 
     github_snapshot = None if args.no_github else fetch_github_snapshot(repo=args.repo)
     backend_probe = probe_backend_url if args.probe_backend else None

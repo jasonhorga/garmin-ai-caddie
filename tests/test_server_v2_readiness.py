@@ -114,6 +114,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 "evidence": {
                     "repoSecretConfigured": False,
                     "manualFeedbackEmailConfirmed": True,
+                    "manualFeedbackEmailSource": "cli_flag",
                     "email": "owner@example.test",
                 },
             },
@@ -147,10 +148,18 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 "evidence": {
                     "configuredTesterCount": 2,
                     "internalCoverageConfirmed": False,
+                    "internalCoverageSource": None,
                     "testerEmails": ["owner@example.test"],
                 },
             },
-            {"label": "device_install", "state": "ready"},
+            {
+                "label": "device_install",
+                "state": "ready",
+                "evidence": {
+                    "installVerified": True,
+                    "installVerificationSource": "cli_flag",
+                },
+            },
         ]
         if state != "ready":
             checks[-1] = {
@@ -661,6 +670,11 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(summaries["phone_reachable_backend_url"]["evidence"]["host"], "api.example.test")
         self.assertEqual(summaries["backend_probe"]["evidence"]["readinessSchema"], "ai-caddie-readiness-v1")
         self.assertNotIn("adminTokenProvided", summaries["backend_probe"]["evidence"])
+        self.assertEqual(
+            summaries["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
+            "cli_flag",
+        )
+        self.assertEqual(summaries["device_install"]["evidence"]["installVerificationSource"], "cli_flag")
 
     def test_readiness_external_release_degrades_with_incomplete_or_stale_preflight_evidence(self) -> None:
         client = TestClient(app)

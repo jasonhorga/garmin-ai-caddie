@@ -149,7 +149,9 @@ release gate. The probed API must also return the expected
 
 If feedback email or tester coverage is completed manually outside GitHub
 secrets, record that in the preflight run with `--feedback-email-filled` and
-`--tester-coverage-confirmed`.
+`--tester-coverage-confirmed`. Manual confirmations are recorded with a
+confirmation source in the JSON evidence so they are distinguishable from
+GitHub secrets, repo variables, and backend probe results.
 
 When the phone/watch install has been verified, rerun with
 `AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=1` or `--install-verified` and record the

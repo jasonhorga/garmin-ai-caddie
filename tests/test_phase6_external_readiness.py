@@ -160,8 +160,10 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertFalse(checks["native_api_base_url_configuration"]["evidence"]["nativeEnvProvided"])
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "ready")
         self.assertTrue(checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailConfirmed"])
+        self.assertEqual(checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"], "environment")
         self.assertEqual(checks["external_testers"]["state"], "ready")
         self.assertTrue(checks["external_testers"]["evidence"]["internalCoverageConfirmed"])
+        self.assertEqual(checks["external_testers"]["evidence"]["internalCoverageSource"], "environment")
         self.assertEqual(checks["backend_probe"]["state"], "manual_required")
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["source"], "PHASE6_API_BASE_URL")
 
@@ -259,6 +261,40 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(written["schema"], "ai-caddie-phase6-external-readiness-v1")
         self.assertEqual(written, printed)
         self.assertEqual(written["state"], "incomplete")
+
+    def test_cli_records_manual_confirmation_sources(self) -> None:
+        stdout = io.StringIO()
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch(
+                "ops.phase6_external_readiness.fetch_github_snapshot",
+                return_value=_github_snapshot(secrets=[*REQUIRED_SIGNING_SECRETS]),
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
+            code = main(
+                [
+                    "--no-fail",
+                    "--feedback-email-filled",
+                    "--tester-coverage-confirmed",
+                    "--install-verified",
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout.getvalue())
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(
+            checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
+            "cli_flag",
+        )
+        self.assertEqual(
+            checks["external_testers"]["evidence"]["internalCoverageSource"],
+            "cli_flag",
+        )
+        self.assertEqual(checks["device_install"]["state"], "ready")
+        self.assertTrue(checks["device_install"]["evidence"]["installVerified"])
+        self.assertEqual(checks["device_install"]["evidence"]["installVerificationSource"], "cli_flag")
 
 
 if __name__ == "__main__":

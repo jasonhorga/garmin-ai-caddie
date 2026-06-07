@@ -93,6 +93,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "backend probe does not count as ready unless `AI_CADDIE_ADMIN_TOKEN`",
             "ai-caddie-health-v2",
             "ai-caddie-readiness-v1",
+            "confirmation source",
         ]:
             self.assertIn(required, text)
         self.assertIn("ops/phase6_external_readiness.py", ios_setup)

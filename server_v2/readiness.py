@@ -507,6 +507,7 @@ def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
             safe_evidence = {
                 "repoSecretConfigured": evidence.get("repoSecretConfigured") is True,
                 "manualFeedbackEmailConfirmed": evidence.get("manualFeedbackEmailConfirmed") is True,
+                "manualFeedbackEmailSource": evidence.get("manualFeedbackEmailSource"),
             }
         elif label == "phone_reachable_backend_url":
             safe_evidence = {
@@ -529,6 +530,12 @@ def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
             safe_evidence = {
                 "configuredTesterCount": _int_or_none(evidence.get("configuredTesterCount")) or 0,
                 "internalCoverageConfirmed": evidence.get("internalCoverageConfirmed") is True,
+                "internalCoverageSource": evidence.get("internalCoverageSource"),
+            }
+        elif label == "device_install":
+            safe_evidence = {
+                "installVerified": evidence.get("installVerified") is True,
+                "installVerificationSource": evidence.get("installVerificationSource"),
             }
     if safe_evidence:
         summary["evidence"] = {key: value for key, value in safe_evidence.items() if value not in (None, "")}
