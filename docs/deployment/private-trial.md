@@ -155,7 +155,9 @@ secrets, record that in the preflight run with `--feedback-email-filled`,
 `--beta-review-submitted`, and `--tester-coverage-confirmed`. Manual
 confirmations are recorded with a confirmation source in the JSON evidence so
 they are distinguishable from GitHub secrets, repo variables, and backend probe
-results.
+results. A numeric `AI_CADDIE_TESTFLIGHT_TESTER_COUNT` is also recorded with a
+source so the evidence distinguishes CLI-entered counts from environment-provided
+counts.
 
 When the phone/watch install has been verified, rerun with
 `AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=1` or `--install-verified` and record the

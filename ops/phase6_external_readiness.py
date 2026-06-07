@@ -72,6 +72,13 @@ def _confirmation_source(env: dict[str, str], *, value_key: str, source_key: str
     return source or "environment"
 
 
+def _configured_value_source(env: dict[str, str], *, value_key: str, source_key: str) -> str | None:
+    if not env.get(value_key, "").strip():
+        return None
+    source = env.get(source_key, "").strip()
+    return source or "environment"
+
+
 def _safe_host(raw_url: str) -> tuple[str | None, str | None]:
     parsed = parse.urlparse(raw_url.strip())
     if parsed.scheme != "https":
@@ -406,6 +413,11 @@ def build_phase6_external_readiness(
             else "add external testers or confirm internal tester coverage",
             "evidence": {
                 "configuredTesterCount": tester_count,
+                "configuredTesterCountSource": _configured_value_source(
+                    env,
+                    value_key="AI_CADDIE_TESTFLIGHT_TESTER_COUNT",
+                    source_key="AI_CADDIE_TESTFLIGHT_TESTER_COUNT_SOURCE",
+                ),
                 "internalCoverageConfirmed": tester_coverage_confirmed,
                 "internalCoverageSource": tester_coverage_source,
             },
@@ -481,6 +493,7 @@ def main(argv: list[str] | None = None) -> int:
         env["PHASE6_API_BASE_URL"] = args.api_base_url
     if args.tester_count is not None:
         env["AI_CADDIE_TESTFLIGHT_TESTER_COUNT"] = str(args.tester_count)
+        env["AI_CADDIE_TESTFLIGHT_TESTER_COUNT_SOURCE"] = "cli_arg"
     if args.feedback_email_filled:
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED"] = "1"
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE"] = "cli_flag"

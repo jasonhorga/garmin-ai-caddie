@@ -96,6 +96,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "ai-caddie-health-v2",
             "ai-caddie-readiness-v1",
             "confirmation source",
+            "CLI-entered counts",
             "external Beta App Review has been submitted",
         ]:
             self.assertIn(required, text)

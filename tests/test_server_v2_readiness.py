@@ -155,6 +155,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 "state": "ready",
                 "evidence": {
                     "configuredTesterCount": 2,
+                    "configuredTesterCountSource": "cli_arg",
                     "internalCoverageConfirmed": False,
                     "internalCoverageSource": None,
                     "testerEmails": ["owner@example.test"],
@@ -683,6 +684,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
             "cli_flag",
         )
         self.assertEqual(summaries["external_beta_review_submission"]["evidence"]["source"], "cli_flag")
+        self.assertEqual(
+            summaries["external_testers"]["evidence"]["configuredTesterCountSource"],
+            "cli_arg",
+        )
         self.assertEqual(summaries["device_install"]["evidence"]["installVerificationSource"], "cli_flag")
 
     def test_readiness_external_release_degrades_with_incomplete_or_stale_preflight_evidence(self) -> None:

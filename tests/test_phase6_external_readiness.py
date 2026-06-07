@@ -112,6 +112,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["signing_secrets"]["unusedConfigured"], ["MATCH_KEYCHAIN_PASSWORD"])
         self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
         self.assertTrue(checks["external_beta_review_submission"]["evidence"]["submittedOrExternallyReady"])
+        self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCountSource"], "environment")
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["host"], "api.example.test")
         self.assertEqual(checks["backend_probe"]["evidence"]["readinessSchema"], "ai-caddie-readiness-v1")
 
@@ -286,6 +287,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             code = main(
                 [
                     "--no-fail",
+                    "--tester-count",
+                    "3",
                     "--feedback-email-filled",
                     "--beta-review-submitted",
                     "--tester-coverage-confirmed",
@@ -304,6 +307,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             checks["external_testers"]["evidence"]["internalCoverageSource"],
             "cli_flag",
         )
+        self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCount"], 3)
+        self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCountSource"], "cli_arg")
         self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
         self.assertEqual(checks["external_beta_review_submission"]["evidence"]["source"], "cli_flag")
         self.assertEqual(checks["device_install"]["state"], "ready")

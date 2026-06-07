@@ -534,6 +534,7 @@ def _external_release_check_summary(raw: Any) -> dict[str, Any] | None:
         elif label == "external_testers":
             safe_evidence = {
                 "configuredTesterCount": _int_or_none(evidence.get("configuredTesterCount")) or 0,
+                "configuredTesterCountSource": evidence.get("configuredTesterCountSource"),
                 "internalCoverageConfirmed": evidence.get("internalCoverageConfirmed") is True,
                 "internalCoverageSource": evidence.get("internalCoverageSource"),
             }
