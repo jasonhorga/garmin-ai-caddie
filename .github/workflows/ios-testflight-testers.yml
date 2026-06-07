@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'list, add, assign_existing, submit_review, or distribute'
+        description: 'list, add, assign_existing, configure_review, submit_review, or distribute'
         required: true
         default: 'list'
         type: choice
@@ -15,6 +15,7 @@ on:
           - list
           - add
           - assign_existing
+          - configure_review
           - submit_review
           - distribute
       tester_emails:
@@ -102,6 +103,10 @@ jobs:
           APP_VERSION: ${{ github.event.inputs.app_version }}
           BUILD_NUMBER: ${{ github.event.inputs.build_number }}
           TESTFLIGHT_FEEDBACK_EMAIL: ${{ secrets.TESTFLIGHT_FEEDBACK_EMAIL }}
+          TESTFLIGHT_REVIEW_CONTACT_EMAIL: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_EMAIL }}
+          TESTFLIGHT_REVIEW_CONTACT_FIRST_NAME: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_FIRST_NAME }}
+          TESTFLIGHT_REVIEW_CONTACT_LAST_NAME: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_LAST_NAME }}
+          TESTFLIGHT_REVIEW_CONTACT_PHONE: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_PHONE }}
           NOTIFY_EXTERNAL_TESTERS: ${{ github.event.inputs.notify_external_testers }}
         run: |
           set -euo pipefail
@@ -114,6 +119,10 @@ jobs:
           DEFAULT_BETA_APP_DESCRIPTION = (
             "Private TestFlight build for validating AI Caddie golf history, " \
             "course prep, and iOS/watchOS trial flows."
+          )
+          DEFAULT_BETA_APP_REVIEW_NOTES = (
+            "No demo account is required. This private trial validates AI Caddie " \
+            "golf history, course prep, and iOS/watchOS trial flows."
           )
 
           def blank_to_nil(value)
@@ -266,6 +275,39 @@ jobs:
               puts "No Beta App localization found."
             end
             puts "::endgroup::"
+          end
+
+          def fetch_beta_app_review_detail(app)
+            response = Spaceship::ConnectAPI.get_beta_app_review_detail(
+              filter: { app: app.id },
+              limit: 1
+            )
+            response.all_pages.flat_map(&:to_models).first
+          end
+
+          def field_configured?(value)
+            !value.to_s.strip.empty?
+          end
+
+          def print_beta_app_review_detail(app)
+            detail = fetch_beta_app_review_detail(app)
+
+            puts "::group::Beta App review detail"
+            if detail
+              puts(
+                "- id=#{detail.id} " \
+                "contactFirstNameConfigured=#{field_configured?(detail.contact_first_name)} " \
+                "contactLastNameConfigured=#{field_configured?(detail.contact_last_name)} " \
+                "contactEmailConfigured=#{field_configured?(detail.contact_email)} " \
+                "contactPhoneConfigured=#{field_configured?(detail.contact_phone)} " \
+                "demoAccountRequired=#{detail.demo_account_required.inspect} " \
+                "notesConfigured=#{field_configured?(detail.notes)}"
+              )
+            else
+              puts "No Beta App review detail found."
+            end
+            puts "::endgroup::"
+            detail
           end
 
           def create_tester_assignments!(groups, emails)
@@ -429,9 +471,64 @@ jobs:
             end
           end
 
+          def review_contact_inputs(feedback_email)
+            {
+              contactEmail: blank_to_nil(ENV["TESTFLIGHT_REVIEW_CONTACT_EMAIL"]) || feedback_email,
+              contactFirstName: blank_to_nil(ENV["TESTFLIGHT_REVIEW_CONTACT_FIRST_NAME"]),
+              contactLastName: blank_to_nil(ENV["TESTFLIGHT_REVIEW_CONTACT_LAST_NAME"]),
+              contactPhone: blank_to_nil(ENV["TESTFLIGHT_REVIEW_CONTACT_PHONE"])
+            }
+          end
+
+          def ensure_beta_app_review_detail!(app, feedback_email)
+            detail = fetch_beta_app_review_detail(app)
+            inputs = review_contact_inputs(feedback_email)
+            contact_email = detail&.contact_email
+            contact_first_name = detail&.contact_first_name
+            contact_last_name = detail&.contact_last_name
+            contact_phone = detail&.contact_phone
+
+            missing = []
+            missing << "contactEmail / TESTFLIGHT_REVIEW_CONTACT_EMAIL or TESTFLIGHT_FEEDBACK_EMAIL" if !field_configured?(contact_email) && inputs[:contactEmail].nil?
+            missing << "contactFirstName / TESTFLIGHT_REVIEW_CONTACT_FIRST_NAME" if !field_configured?(contact_first_name) && inputs[:contactFirstName].nil?
+            missing << "contactLastName / TESTFLIGHT_REVIEW_CONTACT_LAST_NAME" if !field_configured?(contact_last_name) && inputs[:contactLastName].nil?
+            missing << "contactPhone / TESTFLIGHT_REVIEW_CONTACT_PHONE" if !field_configured?(contact_phone) && inputs[:contactPhone].nil?
+
+            if missing.any?
+              raise(
+                "External TestFlight distribution requires Beta App Review contact fields: " \
+                "#{missing.join(', ')}. Set repo secrets or fill Beta App Review Information in App Store Connect."
+              )
+            end
+
+            attributes = {}
+            attributes[:contactEmail] = inputs[:contactEmail] if !field_configured?(contact_email)
+            attributes[:contactFirstName] = inputs[:contactFirstName] if !field_configured?(contact_first_name)
+            attributes[:contactLastName] = inputs[:contactLastName] if !field_configured?(contact_last_name)
+            attributes[:contactPhone] = inputs[:contactPhone] if !field_configured?(contact_phone)
+            attributes[:demoAccountRequired] = false if detail&.demo_account_required.nil?
+            attributes[:notes] = DEFAULT_BETA_APP_REVIEW_NOTES unless field_configured?(detail&.notes)
+
+            if attributes.empty?
+              puts "Beta App Review details already have required contact info."
+              return detail
+            end
+
+            Spaceship::ConnectAPI.patch_beta_app_review_detail(
+              app_id: detail&.id || app.id,
+              attributes: attributes
+            )
+            puts(
+              "Beta App Review details updated: " \
+              "#{attributes.keys.map(&:to_s).join(', ')}."
+            )
+            fetch_beta_app_review_detail(app)
+          end
+
           def beta_metadata_pending?(message)
             message.include?("Beta App Description is missing") ||
-              message.include?("betaAppLocalizations not found")
+              message.include?("betaAppLocalizations not found") ||
+              message.include?("Missing required information to submit for external testing")
           end
 
           def submit_beta_review_if_ready!(build, app)
@@ -452,6 +549,7 @@ jobs:
 
                 puts "Beta App metadata is not visible to review submission yet; retrying."
                 ensure_beta_app_test_info!(app, blank_to_nil(ENV["TESTFLIGHT_FEEDBACK_EMAIL"]))
+                ensure_beta_app_review_detail!(app, blank_to_nil(ENV["TESTFLIGHT_FEEDBACK_EMAIL"]))
                 sleep 10
               end
             end
@@ -474,6 +572,7 @@ jobs:
             print_groups(app)
             print_testers(app)
             print_beta_app_test_info(app)
+            print_beta_app_review_detail(app)
           when "add"
             emails = parse_tester_emails(ENV["TESTER_EMAILS"])
             raise "tester_emails is required for add" if emails.empty?
@@ -484,11 +583,17 @@ jobs:
             groups = ensure_testflight_groups(app, group_names)
             testers = app.get_beta_testers(limit: 200)
             assign_existing_testers_to_groups!(groups, testers)
+          when "configure_review"
+            ensure_beta_app_test_info!(app, feedback_email)
+            ensure_beta_app_review_detail!(app, feedback_email)
+            print_beta_app_test_info(app)
+            print_beta_app_review_detail(app)
           when "submit_review"
             build = select_distributable_build!(app, app_version, build_number)
             puts "Selected build: #{safely { build.app_version }} (#{build.version}), id=#{build.id}."
             mark_export_compliance!(build)
             ensure_beta_app_test_info!(app, feedback_email)
+            ensure_beta_app_review_detail!(app, feedback_email)
             submit_beta_review_if_ready!(build, app)
           when "distribute"
             groups = ensure_testflight_groups(app, group_names)
@@ -497,6 +602,7 @@ jobs:
             mark_export_compliance!(build)
             set_auto_notify!(build, notify_external_testers)
             ensure_beta_app_test_info!(app, feedback_email)
+            ensure_beta_app_review_detail!(app, feedback_email)
             submit_beta_review_if_ready!(build, app)
             build.add_beta_groups(beta_groups: groups)
             puts(

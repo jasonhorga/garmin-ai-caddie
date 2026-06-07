@@ -59,9 +59,21 @@ but does not create a new app record for this account.
     `TESTFLIGHT_FEEDBACK_EMAIL` repo secret. It is intentionally secret-only
     because this repo is public. If you fill the Beta App feedback email
     manually in App Store Connect, this secret is not needed.
+  - Apple also requires Beta App Review contact details for external testing.
+    The workflow reads existing App Store Connect values first and only fills
+    blanks from `TESTFLIGHT_REVIEW_CONTACT_EMAIL`,
+    `TESTFLIGHT_REVIEW_CONTACT_FIRST_NAME`,
+    `TESTFLIGHT_REVIEW_CONTACT_LAST_NAME`, and
+    `TESTFLIGHT_REVIEW_CONTACT_PHONE`. The contact email falls back to
+    `TESTFLIGHT_FEEDBACK_EMAIL`; the other fields can also be filled manually
+    in App Store Connect instead of storing more repo secrets.
+  - `operation=configure_review` fills Beta App test info and Beta App Review
+    details without submitting a build. Its log prints only configured/not
+    configured booleans, not raw contact values.
   - `operation=submit_review` sets export compliance, fills the Beta App test
-    info when `TESTFLIGHT_FEEDBACK_EMAIL` is configured, and submits the selected
-    build for external Beta App Review without changing tester/group membership.
+    info and Beta App Review details from configured secrets when needed, and
+    submits the selected build for external Beta App Review without changing
+    tester/group membership.
   - `operation=distribute` assigns the latest or selected build to that external
     TestFlight group. External distribution may require Beta App Review before testers
     can install.
