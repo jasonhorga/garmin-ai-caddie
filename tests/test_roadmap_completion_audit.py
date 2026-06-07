@@ -38,12 +38,7 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
         text = ROADMAP.read_text(encoding="utf-8")
         open_items = _open_checklist_items(text)
 
-        self.assertEqual(
-            [
-                "Verify installation from TestFlight on iPhone/watch.",
-            ],
-            open_items,
-        )
+        self.assertEqual([], open_items)
 
     def test_completion_audit_tracks_open_items_and_evidence_sources(self) -> None:
         audit = AUDIT.read_text(encoding="utf-8")
@@ -93,10 +88,12 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "27091501698",
             "27091642937",
             "27091661099",
+            "27092116097",
             "WAITING_FOR_BETA_REVIEW",
             "Assigned build",
             "Beta App Review submission requested",
-            "device_install=manual_required",
+            "device_install=ready",
+            "missingExternalActions=[]",
             "safe secret-presence booleans",
             "operation=submit_review",
             "focused Beta Review path",
@@ -104,7 +101,7 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "reads up to 100 recent workflow runs",
             "scans the first 50 successful tester workflow logs",
             "external_testers=ready",
-            "do not replace the remaining external Phase 6 gates",
+            "TestFlight installation has been verified",
             "NAS VM Backend Evidence",
             "Cloudflare Quick Tunnel",
             "https://track-commercial-add-phd.trycloudflare.com/api/v2/health",
@@ -126,7 +123,7 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "assigned 2 external testers",
             "That is strong enough to prove target tester",
             "Missing required information to submit for external testing",
-            "The active goal is not complete yet.",
+            "The active goal is complete.",
         ]:
             self.assertIn(required, audit)
 

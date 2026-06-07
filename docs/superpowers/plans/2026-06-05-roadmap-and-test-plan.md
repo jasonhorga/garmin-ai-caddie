@@ -150,7 +150,10 @@
   user is covered by the existing internal group.
   Evidence: GitHub Actions run `27082080178` assigned 2 external testers to
   `Private Trial`.
-- [ ] Verify installation from TestFlight on iPhone/watch.
+- [x] Verify installation from TestFlight on iPhone/watch.
+  Evidence: user confirmed the app was installed through TestFlight, and Phase 6
+  Readiness run `27092116097` reports `device_install=ready` with
+  `fail_when_incomplete=true`.
 
 **Done when:** Backend is reachable, mobile can install via TestFlight, and private-trial smoke/readiness evidence is current.
 

@@ -24,15 +24,14 @@ Phases 1-5 are complete in the authoritative roadmap:
 - Phase 4 end-to-end private pipeline.
 - Phase 5 course prep productization.
 
-Phase 6 is locally hardened and partially externally complete. The
-phone-reachable backend gate is now proven through the NAS VM and Cloudflare
-Quick Tunnel, but that URL is temporary and should be replaced by a named
-Cloudflare Tunnel or Tailscale Funnel before relying on a long-lived connected
-TestFlight build. External Beta App Review has now been submitted, so the
-`Submit external Beta App Review.` roadmap item is closed. The remaining
-unchecked roadmap item is external-state device verification:
+Phase 6 is complete in the authoritative roadmap. The phone-reachable backend gate is now proven through the NAS VM and Cloudflare Quick Tunnel, but that URL is
+temporary and should be replaced by a named Cloudflare Tunnel or Tailscale Funnel
+before relying on a long-lived connected TestFlight build. External Beta App Review has now been submitted, the build is assigned to `Private Trial`, and
+TestFlight installation has been verified by the user and by the latest Phase 6
+readiness run.
 
-- Verify installation from TestFlight on iPhone/watch.
+Closed Phase 6 roadmap items include `Submit external Beta App Review` and
+`Verify installation from TestFlight on iPhone/watch`.
 
 Target tester coverage is now closed in the authoritative roadmap: GitHub
 Actions run `27082080178` assigned 2 external testers to the `Private Trial`
@@ -71,21 +70,24 @@ group.
 - Private trial smoke passed against a local fixture/private API with
   `endpointCount=14`, `adminProtectedEndpointCount=11`,
   `mediaRoundTrip=true`, and `secretFree=true`.
-- Phase 6 external readiness preflight currently reports `incomplete` in
+- Phase 6 external readiness preflight now reports `ready` in
   `logs/phase6_external_readiness_latest.json`: public repo and six required
   signing secrets are ready, native API base URL configuration is ready,
   `READY_FOR_BETA_SUBMISSION` is proven, `Private Trial` tester coverage is
   ready, and the NAS VM backend URL plus authenticated backend probe are ready.
   Beta App feedback email is configured and external Beta App Review submission
-  is now proven. `iOS TestFlight Testers` run `27091302402` logged
-  `Beta App Review submission requested`, and Phase 6 Readiness run
-  `27091323640` reports `external_beta_review_submission=ready`. The remaining
-  external blocker is iPhone/watch install verification.
+  is proven. `iOS TestFlight Testers` run `27091302402` logged
+  `Beta App Review submission requested`, the user confirmed TestFlight install,
+  and Phase 6 Readiness run `27092116097` reports `device_install=ready` with
+  `fail_when_incomplete=true`.
 - Recent GitHub evidence on commit `71c58b1`: `iOS TestFlight Testers` run
   `27091501698` completed successfully, Phase 6 Readiness run `27091642937`
   completed successfully with `fail_when_incomplete=false` while reporting only
   `device_install=manual_required`, and CI run `27091661099` completed
   successfully.
+- Latest completion evidence on commit `9eb63e2`: Phase 6 Readiness run
+  `27092116097` completed successfully with `fail_when_incomplete=true`,
+  reporting every Phase 6 gate ready and no missing external actions.
 
 ## Latest Local Continuation Evidence
 
@@ -143,6 +145,9 @@ sanity:
   `external_beta_review_submission_ready=ready`, and
   `external_beta_review_submission=ready`; its only missing external action is
   iPhone/watch install verification.
+- The user then confirmed the app was installed through TestFlight. Phase 6
+  Readiness run `27092116097` records this as `device_install=ready`,
+  `state=ready`, and `missingExternalActions=[]`.
 - The `Phase 6 Readiness` workflow now passes safe secret-presence booleans for
   the required signing secrets and `TESTFLIGHT_FEEDBACK_EMAIL`, so a limited
   `github.token` no longer turns those checks into ambiguous `unknown` states.
@@ -254,13 +259,20 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   `external_beta_review_submission_ready=ready`,
   `external_beta_review_submission=ready`, `external_testers=ready`, and
   `device_install=manual_required`.
+- User-confirmed TestFlight installation closed the final device install gate.
+  Phase 6 Readiness run `27092116097` proves the final external gate state:
+  `external_beta_review_feedback=ready`,
+  `external_beta_review_submission_ready=ready`,
+  `external_beta_review_submission=ready`, `external_testers=ready`,
+  `backend_probe=ready`, and `device_install=ready`.
 
 ## Completion Decision
 
-The active goal is not complete yet. Current evidence proves the roadmap is
-implemented and tested through the phone-reachable backend gate, and it now
-proves that Beta App localization feedback metadata is configured, Beta App
-Review Detail contact fields are configured, and external Beta Review has been
-submitted. It does not yet prove that iPhone/watch installation works from
-TestFlight. The temporary Quick Tunnel should also be replaced with a stable
-named tunnel before relying on a long-lived connected TestFlight backend.
+The active goal is complete. Current evidence proves the roadmap is implemented,
+the test plan is documented, the relevant local and GitHub tests have executed,
+the phone-reachable backend gate is ready, Beta App localization and review
+metadata are configured, external Beta Review has been submitted, tester coverage
+is ready, and TestFlight installation has been verified. The temporary Quick
+Tunnel should still be replaced with a stable named tunnel before relying on a
+long-lived connected TestFlight backend, but that is an operational hardening
+follow-up rather than an open roadmap completion gate.
