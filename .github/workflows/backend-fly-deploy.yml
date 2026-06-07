@@ -1,0 +1,229 @@
+name: Backend Fly Deploy
+
+# Manual-only backend deployment for the private trial. It deploys the FastAPI
+# container to Fly.io, probes the deployed API, and emits Phase 6 readiness
+# artifacts without printing secret values.
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Fly app name'
+        required: true
+        default: 'ai-caddie-api'
+      fly_region:
+        description: 'Fly primary region for first volume'
+        required: true
+        default: 'sin'
+      fly_org:
+        description: 'Fly organization slug for app creation'
+        required: true
+        default: 'personal'
+      volume_size_gb:
+        description: 'Private runtime volume size in GB'
+        required: true
+        default: '3'
+      api_base_url:
+        description: 'Optional deployed API origin; defaults to https://<app_name>.fly.dev'
+        required: false
+        default: ''
+      update_github_variable:
+        description: 'Update repo variable AI_CADDIE_API_BASE_URL after deploy'
+        required: true
+        default: true
+        type: boolean
+      run_smoke:
+        description: 'Run remote private-trial smoke after deploy'
+        required: true
+        default: true
+        type: boolean
+      run_phase6_preflight:
+        description: 'Run Phase 6 external readiness preflight after deploy'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: backend-fly-deploy-${{ github.event.inputs.app_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+      FLY_APP_NAME: ${{ github.event.inputs.app_name }}
+      FLY_REGION: ${{ github.event.inputs.fly_region }}
+      FLY_ORG: ${{ github.event.inputs.fly_org }}
+      FLY_VOLUME_SIZE_GB: ${{ github.event.inputs.volume_size_gb }}
+      API_BASE_URL_INPUT: ${{ github.event.inputs.api_base_url }}
+      UPDATE_GITHUB_VARIABLE: ${{ github.event.inputs.update_github_variable }}
+      RUN_SMOKE: ${{ github.event.inputs.run_smoke }}
+      RUN_PHASE6_PREFLIGHT: ${{ github.event.inputs.run_phase6_preflight }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          prune-cache: false
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Validate deployment secrets
+        run: |
+          set -euo pipefail
+          for v in FLY_API_TOKEN AI_CADDIE_ADMIN_TOKEN; do
+            eval "value=\${$v}"
+            test -n "$value" || { echo "Missing secret: $v"; exit 1; }
+          done
+
+      - name: Prepare API URL
+        run: |
+          set -euo pipefail
+          if [ -n "$API_BASE_URL_INPUT" ]; then
+            api_base_url="$API_BASE_URL_INPUT"
+          else
+            api_base_url="https://${FLY_APP_NAME}.fly.dev"
+          fi
+          python3 - "$api_base_url" <<'PY'
+          from urllib.parse import urlparse
+          import sys
+
+          value = sys.argv[1].strip()
+          parsed = urlparse(value)
+          if parsed.scheme != "https" or not parsed.hostname:
+              raise SystemExit("api_base_url must be a public https origin")
+          if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+              raise SystemExit("api_base_url must not include path, query, or fragment")
+          if parsed.username or parsed.password:
+              raise SystemExit("api_base_url must not include credentials")
+          PY
+          echo "AI_CADDIE_API_BASE_URL=$api_base_url" >> "$GITHUB_ENV"
+          echo "AI_CADDIE_API_HOST=${api_base_url#https://}" >> "$GITHUB_ENV"
+          echo "Prepared API host: ${api_base_url#https://}"
+
+      - name: Ensure Fly app exists
+        run: |
+          set -euo pipefail
+          if flyctl status --app "$FLY_APP_NAME" >/dev/null 2>&1; then
+            echo "Fly app already exists: $FLY_APP_NAME"
+          else
+            flyctl apps create "$FLY_APP_NAME" --org "$FLY_ORG"
+          fi
+
+      - name: Ensure private runtime volume exists
+        run: |
+          set -euo pipefail
+          volumes_json="$RUNNER_TEMP/fly-volumes.json"
+          flyctl volumes list --app "$FLY_APP_NAME" --json > "$volumes_json"
+          python3 - "$volumes_json" <<'PY' > "$RUNNER_TEMP/volume-exists"
+          import json
+          import sys
+
+          try:
+              volumes = json.loads(open(sys.argv[1], encoding="utf-8").read())
+          except json.JSONDecodeError:
+              volumes = []
+          exists = any(str(row.get("name") or "") == "ai_caddie_private" for row in volumes)
+          print("yes" if exists else "no")
+          PY
+          if [ "$(cat "$RUNNER_TEMP/volume-exists")" = "yes" ]; then
+            echo "Fly volume already exists: ai_caddie_private"
+          else
+            flyctl volumes create ai_caddie_private \
+              --app "$FLY_APP_NAME" \
+              --region "$FLY_REGION" \
+              --size "$FLY_VOLUME_SIZE_GB" \
+              --yes
+          fi
+
+      - name: Configure Fly runtime secrets
+        run: |
+          set -euo pipefail
+          flyctl secrets set \
+            --app "$FLY_APP_NAME" \
+            AI_CADDIE_ADMIN_TOKEN="$AI_CADDIE_ADMIN_TOKEN" \
+            AI_CADDIE_SECURITY_PROFILE=private \
+            AI_CADDIE_DATA_MODE=local_or_fixture \
+            AI_CADDIE_LLM_PROVIDER=static
+
+      - name: Deploy API container
+        run: |
+          set -euo pipefail
+          flyctl deploy --remote-only --config fly.toml --app "$FLY_APP_NAME"
+
+      - name: Update GitHub API URL variable
+        if: ${{ github.event.inputs.update_github_variable == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body="$(python3 - <<'PY'
+          import json
+          import os
+
+          print(json.dumps({"name": "AI_CADDIE_API_BASE_URL", "value": os.environ["AI_CADDIE_API_BASE_URL"]}))
+          PY
+          )"
+          repo_api="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/variables"
+          status="$(curl -fsS -o "$RUNNER_TEMP/update-variable-response.json" -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${repo_api}/AI_CADDIE_API_BASE_URL" \
+            -d "$body" || true)"
+          if [ "$status" = "404" ]; then
+            status="$(curl -fsS -o "$RUNNER_TEMP/create-variable-response.json" -w "%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$repo_api" \
+              -d "$body")"
+          fi
+          case "$status" in
+            201|204) echo "AI_CADDIE_API_BASE_URL variable updated." ;;
+            *) echo "Failed to update AI_CADDIE_API_BASE_URL variable; status=$status"; exit 1 ;;
+          esac
+
+      - name: Run remote private-trial smoke
+        if: ${{ github.event.inputs.run_smoke == 'true' }}
+        env:
+          AI_CADDIE_PRIVATE_SMOKE_EVIDENCE: ${{ runner.temp }}/private-trial-smoke.json
+          AI_CADDIE_SMOKE_READINESS_TIMEOUT_SECONDS: '120'
+        run: |
+          set -euo pipefail
+          uv sync --frozen
+          ops/smoke_private_trial.sh "$AI_CADDIE_API_BASE_URL"
+
+      - name: Run Phase 6 external preflight
+        if: ${{ github.event.inputs.run_phase6_preflight == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv sync --frozen
+          uv run python ops/phase6_external_readiness.py \
+            --api-base-url "$AI_CADDIE_API_BASE_URL" \
+            --probe-backend \
+            --output "$RUNNER_TEMP/phase6_external_readiness_latest.json" \
+            --no-fail
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-fly-deploy-evidence
+          path: |
+            ${{ runner.temp }}/private-trial-smoke.json
+            ${{ runner.temp }}/phase6_external_readiness_latest.json
+          if-no-files-found: ignore

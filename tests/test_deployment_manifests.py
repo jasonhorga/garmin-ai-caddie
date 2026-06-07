@@ -65,6 +65,11 @@ class DeploymentManifestTests(unittest.TestCase):
             "Vercel Web URL",
             "AI_CADDIE_ADMIN_TOKEN",
             "AI_CADDIE_PRIVATE_ROOT",
+            "Backend Fly Deploy",
+            "FLY_API_TOKEN",
+            "flyctl deploy --remote-only",
+            "AI_CADDIE_API_BASE_URL",
+            "phase6_external_readiness_latest.json",
         ]:
             self.assertIn(required, text)
         self.assertNotIn("JWT_WEB", text)

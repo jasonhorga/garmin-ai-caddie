@@ -101,6 +101,20 @@ Add AI provider keys with `fly secrets set ...` only when the corresponding
 provider is needed. Garmin CN session material should still be imported through
 the private Web/iOS flow, not committed into the image.
 
+The same Fly deployment can run from GitHub after these repo secrets exist:
+
+- `FLY_API_TOKEN`
+- `AI_CADDIE_ADMIN_TOKEN`
+
+Run the manual `Backend Fly Deploy` workflow with the target `app_name`. It
+creates the Fly app if needed using the selected `fly_org`, creates the
+`ai_caddie_private` volume if needed,
+sets the private runtime secrets, runs `flyctl deploy --remote-only`, updates
+the repo variable `AI_CADDIE_API_BASE_URL` to the deployed HTTPS origin, then
+runs the remote private-trial smoke and Phase 6 preflight. The workflow uploads
+`private-trial-smoke.json` and `phase6_external_readiness_latest.json` as
+evidence artifacts and does not print secret values.
+
 Render, Fly, and Vercel CLI deployment commands should only run when provider
 credentials are already configured in the environment. Use the resulting
 Render API URL or Fly API URL as `VITE_AI_CADDIE_API_BASE_URL`, and allow the

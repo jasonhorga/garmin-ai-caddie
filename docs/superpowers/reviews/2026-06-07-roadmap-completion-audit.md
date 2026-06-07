@@ -94,6 +94,11 @@ sanity:
 - The Phase 6 preflight parser now ignores GitHub Actions script-source echo
   lines and only treats real `Beta App test info...` output as evidence that
   feedback email metadata is configured.
+- The manual `Backend Fly Deploy` GitHub workflow now covers the next backend
+  release step once `FLY_API_TOKEN` and `AI_CADDIE_ADMIN_TOKEN` exist: create
+  the Fly app/volume if needed, deploy the container, update
+  `AI_CADDIE_API_BASE_URL`, run remote private-trial smoke, and upload Phase 6
+  preflight artifacts.
 - These local checks improve evidence quality and keep private-trial readiness
   current, but they do not replace the three remaining external Phase 6 gates
   listed above.

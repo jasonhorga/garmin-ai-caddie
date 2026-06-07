@@ -110,6 +110,10 @@
 **Outcome:** The private single-user product can run unattended and ship to the user's phone/watch.
 
 - [x] Prepare reachable-backend deployment manifests for Render/Fly/container hosting.
+- [x] Add manual GitHub Fly deploy workflow that can deploy the backend, set
+  `AI_CADDIE_API_BASE_URL`, run remote private-trial smoke, and emit Phase 6
+  preflight artifacts after `FLY_API_TOKEN` and `AI_CADDIE_ADMIN_TOKEN` are
+  configured.
 - [x] Add TestFlight build-time native API base URL wiring.
 - [ ] Deploy a phone-reachable backend host and point the native app at it.
 - [x] Configure admin token, backup, import/export, and redaction checks.

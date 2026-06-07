@@ -169,6 +169,44 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
 
+    def test_backend_fly_deploy_workflow_is_manual_secret_driven_and_runs_remote_preflight(self) -> None:
+        workflow_path = Path(".github/workflows/backend-fly-deploy.yml")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        text = workflow_path.read_text(encoding="utf-8")
+        triggers = workflow[True]
+        inputs = triggers["workflow_dispatch"]["inputs"]
+        deploy = workflow["jobs"]["deploy"]
+
+        self.assertIn("workflow_dispatch", triggers)
+        self.assertNotIn("push", triggers)
+        self.assertEqual({"contents": "read", "actions": "write"}, workflow["permissions"])
+        self.assertIn("app_name", inputs)
+        self.assertIn("fly_org", inputs)
+        self.assertIn("api_base_url", inputs)
+        self.assertIn("update_github_variable", inputs)
+        self.assertIn("run_smoke", inputs)
+        self.assertIn("run_phase6_preflight", inputs)
+        self.assertEqual("ubuntu-latest", deploy["runs-on"])
+
+        env = deploy["env"]
+        self.assertEqual("${{ secrets.FLY_API_TOKEN }}", env["FLY_API_TOKEN"])
+        self.assertEqual("${{ secrets.AI_CADDIE_ADMIN_TOKEN }}", env["AI_CADDIE_ADMIN_TOKEN"])
+        self.assertIn("superfly/flyctl-actions/setup-flyctl@master", text)
+        self.assertIn("flyctl apps create", text)
+        self.assertIn('--org "$FLY_ORG"', text)
+        self.assertIn("flyctl volumes create ai_caddie_private", text)
+        self.assertIn("flyctl secrets set", text)
+        self.assertIn("flyctl deploy --remote-only --config fly.toml", text)
+        self.assertIn("AI_CADDIE_API_BASE_URL", text)
+        self.assertIn("Content-Type: application/json", text)
+        self.assertIn("/actions/variables", text)
+        self.assertIn("ops/smoke_private_trial.sh", text)
+        self.assertIn("ops/phase6_external_readiness.py", text)
+        self.assertIn("--probe-backend", text)
+        self.assertIn("actions/upload-artifact@v4", text)
+        self.assertNotIn("replace-with-random-admin-token", text)
+        self.assertNotIn("connect-csrf-token", text)
+
     def test_testflight_workflows_are_manual_only_and_secret_driven(self) -> None:
         for name in ["ios-signing-bootstrap.yml", "ios-testflight.yml", "ios-testflight-testers.yml"]:
             workflow_path = Path(".github/workflows") / name
