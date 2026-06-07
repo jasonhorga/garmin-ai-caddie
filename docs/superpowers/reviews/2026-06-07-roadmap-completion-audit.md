@@ -66,6 +66,30 @@ unchecked roadmap items are all external-state items:
   email or manual confirmation, external Beta App Review submission, tester
   coverage, and iPhone/watch install verification remain external.
 
+## No-Quota External Audit
+
+Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
+
+- Repository visibility is public and the default branch is `integration/v2`.
+- The six long-lived signing secrets are present:
+  `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`, `MATCH_GIT_URL`,
+  `MATCH_GIT_PRIVATE_KEY`, and `MATCH_PASSWORD`.
+- `MATCH_KEYCHAIN_PASSWORD` is still configured remotely but is legacy unused
+  by the current workflows.
+- GitHub Actions variables are empty, so `AI_CADDIE_API_BASE_URL` is not yet
+  configured for connected native builds.
+- The latest successful `iOS TestFlight (CD)` run uploaded and processed build
+  `0.1.0 (2)`.
+- The latest successful `iOS TestFlight Testers` list run shows build
+  `0.1.0 (2)` as `VALID`, `usesNonExemptEncryption=false`,
+  `internalState=IN_BETA_TESTING`, and
+  `externalState=READY_FOR_BETA_SUBMISSION`.
+- External group `Private Trial` exists. The app tester list shows two
+  redacted tester records, but their device/latest-build state is `unknown`;
+  that is not strong enough to prove target tester coverage or install
+  verification.
+- No new GitHub Actions run was triggered by the latest local audit/doc commits.
+
 ## Completion Decision
 
 The active goal is not complete yet. Current evidence proves the roadmap is

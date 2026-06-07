@@ -40,6 +40,15 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "docs/superpowers/reviews/2026-06-06-phase-6-deployment-native-trial-hardening.md",
             "logs/phase6_external_readiness_latest.json",
             "external_release",
+            "No-Quota External Audit",
+            "The six long-lived signing secrets are present",
+            "GitHub Actions variables are empty",
+            "AI_CADDIE_API_BASE_URL",
+            "0.1.0 (2)",
+            "usesNonExemptEncryption=false",
+            "READY_FOR_BETA_SUBMISSION",
+            "External group `Private Trial` exists",
+            "not strong enough to prove target tester coverage",
             "The active goal is not complete yet.",
         ]:
             self.assertIn(required, audit)
