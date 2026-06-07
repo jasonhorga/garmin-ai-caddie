@@ -37,9 +37,18 @@ class RoadmapCompletionAuditTests(unittest.TestCase):
             "Verify installation from TestFlight on iPhone/watch",
             "docs/superpowers/reviews/2026-06-05-test-execution.md",
             "docs/superpowers/reviews/2026-06-06-phase-6-deployment-native-trial-hardening.md",
+            "logs/phase6_external_readiness_latest.json",
+            "external_release",
             "The active goal is not complete yet.",
         ]:
             self.assertIn(required, audit)
+
+    def test_roadmap_phase6_preflight_writes_readiness_evidence(self) -> None:
+        roadmap = ROADMAP.read_text(encoding="utf-8")
+
+        self.assertIn("ops/phase6_external_readiness.py", roadmap)
+        self.assertIn("--probe-backend", roadmap)
+        self.assertIn("--output logs/phase6_external_readiness_latest.json", roadmap)
 
 
 if __name__ == "__main__":

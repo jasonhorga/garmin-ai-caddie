@@ -47,6 +47,9 @@ unchecked roadmap items are all external-state items:
   `docs/superpowers/reviews/2026-06-06-phase-5-course-prep-productization.md`
 - Phase 6 deployment/native trial evidence:
   `docs/superpowers/reviews/2026-06-06-phase-6-deployment-native-trial-hardening.md`
+- Latest external release readiness evidence:
+  `logs/phase6_external_readiness_latest.json`, surfaced through
+  `/api/v2/readiness` as the `external_release` check.
 
 ## Latest Verification Summary
 
@@ -57,10 +60,11 @@ unchecked roadmap items are all external-state items:
 - Private trial smoke passed against a local fixture/private API with
   `endpointCount=14`, `adminProtectedEndpointCount=11`,
   `mediaRoundTrip=true`, and `secretFree=true`.
-- Phase 6 external readiness preflight currently reports `incomplete`: public
-  repo and six required signing secrets are ready; backend URL, native API URL
-  configuration, feedback email or manual confirmation, tester coverage, and
-  iPhone/watch install verification remain external.
+- Phase 6 external readiness preflight currently reports `incomplete` in
+  `logs/phase6_external_readiness_latest.json`: public repo and six required
+  signing secrets are ready; backend URL, native API URL configuration, feedback
+  email or manual confirmation, tester coverage, and iPhone/watch install
+  verification remain external.
 
 ## Completion Decision
 
