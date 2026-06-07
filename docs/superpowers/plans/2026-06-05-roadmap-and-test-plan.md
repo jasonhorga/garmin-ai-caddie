@@ -124,7 +124,7 @@
 - [x] Deploy a phone-reachable backend host and point the native app at it.
   Evidence: NAS VM Docker API is healthy on `127.0.0.1:9000`, repo variable
   `AI_CADDIE_API_BASE_URL` points at a Cloudflare Quick Tunnel HTTPS origin,
-  and GitHub Actions run `27088005933` proved `phone_reachable_backend_url`
+  and GitHub Actions run `27088479370` proved `phone_reachable_backend_url`
   plus authenticated `backend_probe` ready. The Quick Tunnel is temporary; use
   a named Cloudflare Tunnel or Tailscale Funnel before relying on a long-lived
   connected TestFlight backend.
@@ -139,7 +139,8 @@
   repo variables, external-review feedback email/submission, tester coverage,
   and device install verification without printing secret values.
 - [x] Confirm App Store Connect reports build `0.1.0 (3)` ready for external
-  Beta App Review submission: `READY_FOR_BETA_SUBMISSION`.
+  Beta App Review submission: `READY_FOR_BETA_SUBMISSION`. Evidence:
+  `iOS TestFlight Testers` run `27088348501`.
 - [ ] Submit external Beta App Review.
 - [x] Add/confirm target tester emails for the external group or confirm the
   user is covered by the existing internal group.

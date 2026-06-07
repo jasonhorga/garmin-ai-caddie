@@ -78,6 +78,9 @@ group.
   ready, and the NAS VM backend URL plus authenticated backend probe are ready.
   Beta App feedback email, external Beta App Review submission, and
   iPhone/watch install verification remain external.
+- Latest GitHub evidence on commit `eb23f14`: CI run `27088479379` passed, and
+  Phase 6 Readiness run `27088479370` passed with `fail_when_incomplete=false`
+  while reporting `state=incomplete`.
 
 ## Latest Local Continuation Evidence
 
@@ -93,11 +96,21 @@ sanity:
 - Targeted local verification passed:
   `uv run python -m unittest tests.test_phase6_external_readiness tests.test_server_v2_readiness tests.test_deployment_manifests tests.test_roadmap_completion_status -v`
   reported 49 tests OK.
+- Targeted workflow/readiness regression verification after the TestFlight
+  evidence hardening passed:
+  `uv run python -m unittest tests.test_ci_workflow tests.test_phase6_external_readiness tests.test_roadmap_completion_status tests.test_roadmap_completion_audit -v`
+  reported 54 tests OK.
 - The roadmap completion audit test now parses multiline checklist items, so
   open Phase 6 items are not truncated when proving what remains open.
 - The Phase 6 preflight parser now ignores GitHub Actions script-source echo
   lines and only treats real `Beta App test info...` output as evidence that
   feedback email metadata is configured.
+- The `iOS TestFlight Testers` list workflow now prints safe Beta App metadata
+  booleans. Run `27088348501` proves the current ASC localization has
+  `descriptionConfigured=true` and `feedbackEmailConfigured=false`.
+- The `Phase 6 Readiness` workflow now passes safe secret-presence booleans for
+  the required signing secrets and `TESTFLIGHT_FEEDBACK_EMAIL`, so a limited
+  `github.token` no longer turns those checks into ambiguous `unknown` states.
 - The manual `Backend Fly Deploy` GitHub workflow now covers the next backend
   release step once `FLY_API_TOKEN` and `AI_CADDIE_ADMIN_TOKEN` exist: create
   the Fly app/volume if needed, deploy the container, update
@@ -130,7 +143,7 @@ The 2026-06-07 VM continuation moved the backend gate from missing to ready:
   updated `AI_CADDIE_ADMIN_TOKEN` to match the VM `.env` token without printing
   the token in repo artifacts.
 - GitHub CI run `27087967058` on commit `598d8c4` completed successfully.
-- GitHub Phase 6 Readiness run `27088005933` completed successfully and its
+- GitHub Phase 6 Readiness run `27088479370` completed successfully and its
   artifact reports:
   `native_api_base_url_configuration=ready`,
   `phone_reachable_backend_url=ready`, `backend_probe=ready`, and
@@ -155,10 +168,11 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   Cloudflare Quick Tunnel origin. This satisfies the Phase 6 backend probe but
   should be replaced with a stable named tunnel origin before long-lived
   connected native distribution.
-- `TESTFLIGHT_FEEDBACK_EMAIL` is not proven configured in current GitHub
-  evidence. The latest workflow artifacts still report feedback-email metadata
-  unavailable or missing, so this remains open unless manually filled in App
-  Store Connect.
+- `TESTFLIGHT_FEEDBACK_EMAIL` is now proven not configured in GitHub Actions by
+  the safe secret-presence boolean in Phase 6 Readiness run `27088479370`.
+  App Store Connect is also missing the Beta App feedback email:
+  `iOS TestFlight Testers` run `27088348501` reports
+  `descriptionConfigured=true` and `feedbackEmailConfigured=false`.
 - The latest successful `iOS TestFlight (CD)` run uploaded and processed build
   `0.1.0 (3)`.
 - The latest successful `iOS TestFlight Testers` list run shows build
@@ -172,13 +186,14 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   external testers to that group. That is strong enough to prove target tester
   coverage, but it does not prove iPhone/watch installation.
 - A later distribute attempt failed before external distribution because the
-  Beta App feedback email was not proven configured.
+  Beta App feedback email was not configured.
 
 ## Completion Decision
 
 The active goal is not complete yet. Current evidence proves the roadmap is
 implemented and tested through the phone-reachable backend gate, but it does not
-prove that Beta App feedback email metadata is configured, that external Beta
-Review has been submitted, or that iPhone/watch installation works from
-TestFlight. The temporary Quick Tunnel should also be replaced with a stable
-named tunnel before relying on a long-lived connected TestFlight backend.
+prove that Beta App feedback email metadata is configured; in fact, the latest
+GitHub and ASC evidence proves it is missing. It also does not prove that
+external Beta Review has been submitted, or that iPhone/watch installation works
+from TestFlight. The temporary Quick Tunnel should also be replaced with a
+stable named tunnel before relying on a long-lived connected TestFlight backend.
