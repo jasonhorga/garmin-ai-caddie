@@ -521,7 +521,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             code = main(
                 [
                     "--no-fail",
-                    "--tester-count",
+                    "--assigned-tester-count",
                     "3",
                     "--feedback-email-filled",
                     "--beta-review-ready",
@@ -543,7 +543,10 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             "cli_flag",
         )
         self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCount"], 3)
-        self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCountSource"], "cli_arg")
+        self.assertEqual(
+            checks["external_testers"]["evidence"]["configuredTesterCountSource"],
+            "cli_arg:assigned_tester_count",
+        )
         self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
         self.assertEqual(checks["external_beta_review_submission"]["evidence"]["source"], "cli_flag")
         self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
@@ -551,6 +554,28 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["device_install"]["state"], "ready")
         self.assertTrue(checks["device_install"]["evidence"]["installVerified"])
         self.assertEqual(checks["device_install"]["evidence"]["installVerificationSource"], "cli_flag")
+
+    def test_cli_tester_count_alias_records_confirmed_target_source(self) -> None:
+        stdout = io.StringIO()
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch(
+                "ops.phase6_external_readiness.fetch_github_snapshot",
+                return_value=_github_snapshot(secrets=[*REQUIRED_SIGNING_SECRETS]),
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
+            code = main(["--no-fail", "--tester-count", "2"])
+
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout.getvalue())
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCount"], 2)
+        self.assertEqual(
+            checks["external_testers"]["evidence"]["configuredTesterCountSource"],
+            "cli_arg:tester_count_confirmed_target",
+        )
 
 
 if __name__ == "__main__":

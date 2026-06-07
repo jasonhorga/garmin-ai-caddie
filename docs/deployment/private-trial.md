@@ -115,7 +115,7 @@ addresses.
 ```bash
 GH_TOKEN=<github-token-with-repo-metadata-read> \
 AI_CADDIE_ADMIN_TOKEN=<deployed-api-admin-token> \
-AI_CADDIE_TESTFLIGHT_TESTER_COUNT=<number-of-target-testers> \
+AI_CADDIE_TESTFLIGHT_TESTER_COUNT=<confirmed-target-tester-count> \
 AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY=0 \
 AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED=0 \
 AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=0 \
@@ -175,17 +175,22 @@ release gate. The probed API must also return the expected
 
 If feedback email or tester coverage is completed manually outside GitHub
 secrets, record that in the preflight run with `--feedback-email-filled`,
-`--beta-review-ready`, `--beta-review-submitted`, and
-`--tester-coverage-confirmed`. `--beta-review-ready` records
+`--beta-review-ready`, `--beta-review-submitted`,
+`--assigned-tester-count <count>`, and `--tester-coverage-confirmed`.
+`--assigned-tester-count` is only for target testers confirmed assigned to
+`Private Trial` or otherwise covered internally; do not pass app-level
+`observedAppTesterCount` here. `--beta-review-ready` records
 `READY_FOR_BETA_SUBMISSION` when the GitHub log summary is unavailable; it does
 not replace `--beta-review-submitted`.
 After `READY_FOR_BETA_SUBMISSION` is known, the remaining review action is only
 to submit external Beta App Review.
 Manual confirmations are recorded with a confirmation source in the JSON
 evidence so they are distinguishable from GitHub secrets, repo variables, and
-backend probe results. A numeric `AI_CADDIE_TESTFLIGHT_TESTER_COUNT` is also
-recorded with a source so the evidence distinguishes CLI-entered counts from
-environment-provided counts.
+backend probe results. A numeric `AI_CADDIE_TESTFLIGHT_TESTER_COUNT` is treated
+as a confirmed target tester count and recorded with a source so the evidence
+distinguishes CLI-entered counts from environment-provided counts. The older
+`--tester-count` flag remains a compatibility alias for this confirmed-target
+meaning, not for app-level tester records.
 
 When the phone/watch install has been verified, rerun with
 `AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=1` or `--install-verified` and record the

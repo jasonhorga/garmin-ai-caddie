@@ -746,7 +746,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", default=DEFAULT_REPO, help="GitHub owner/repo to inspect.")
     parser.add_argument("--api-base-url", help="Public deployed API URL to check without printing secrets.")
     parser.add_argument("--output", type=Path, help="Write the JSON evidence to this path after printing it.")
-    parser.add_argument("--tester-count", type=int, help="Number of configured TestFlight testers to record.")
+    parser.add_argument(
+        "--assigned-tester-count",
+        type=int,
+        help="Number of target testers confirmed assigned to Private Trial or covered internally.",
+    )
+    parser.add_argument(
+        "--tester-count",
+        type=int,
+        help="Compatibility alias for --assigned-tester-count; do not use app-level tester record counts.",
+    )
     parser.add_argument("--feedback-email-filled", action="store_true", help="Record manual Beta App feedback email setup.")
     parser.add_argument(
         "--beta-review-ready",
@@ -768,9 +777,14 @@ def main(argv: list[str] | None = None) -> int:
     env = dict(os.environ)
     if args.api_base_url:
         env["PHASE6_API_BASE_URL"] = args.api_base_url
-    if args.tester_count is not None:
-        env["AI_CADDIE_TESTFLIGHT_TESTER_COUNT"] = str(args.tester_count)
-        env["AI_CADDIE_TESTFLIGHT_TESTER_COUNT_SOURCE"] = "cli_arg"
+    assigned_tester_count = args.assigned_tester_count
+    assigned_tester_source = "cli_arg:assigned_tester_count"
+    if assigned_tester_count is None and args.tester_count is not None:
+        assigned_tester_count = args.tester_count
+        assigned_tester_source = "cli_arg:tester_count_confirmed_target"
+    if assigned_tester_count is not None:
+        env["AI_CADDIE_TESTFLIGHT_TESTER_COUNT"] = str(assigned_tester_count)
+        env["AI_CADDIE_TESTFLIGHT_TESTER_COUNT_SOURCE"] = assigned_tester_source
     if args.feedback_email_filled:
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED"] = "1"
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE"] = "cli_flag"
