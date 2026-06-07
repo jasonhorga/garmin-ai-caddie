@@ -71,18 +71,41 @@ def _int_env(env: dict[str, str], key: str) -> int:
         return 0
 
 
+def _safe_source_label(raw: Any, *, default: str) -> str:
+    source = str(raw or "").strip()
+    if not source:
+        return default
+    source = re.sub(r"\s+", " ", source)[:160]
+    source = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[redacted_email]", source)
+    source = re.sub(r"(?<!\w)/(?:[^\s:/]+/)*[^\s:]*", "[redacted_path]", source)
+    if any(
+        term in source.lower()
+        for term in (
+            "access_token",
+            "refresh_token",
+            "private_key",
+            "password",
+            "secret",
+            "cookie",
+            "csrf",
+            ".env",
+            ".garmin_tokens",
+        )
+    ):
+        return "redacted_source"
+    return source
+
+
 def _confirmation_source(env: dict[str, str], *, value_key: str, source_key: str) -> str | None:
     if not _bool_env(env, value_key):
         return None
-    source = env.get(source_key, "").strip()
-    return source or "environment"
+    return _safe_source_label(env.get(source_key), default="environment")
 
 
 def _configured_value_source(env: dict[str, str], *, value_key: str, source_key: str) -> str | None:
     if not env.get(value_key, "").strip():
         return None
-    source = env.get(source_key, "").strip()
-    return source or "environment"
+    return _safe_source_label(env.get(source_key), default="environment")
 
 
 def _safe_host(raw_url: str) -> tuple[str | None, str | None]:
@@ -752,23 +775,32 @@ def main(argv: list[str] | None = None) -> int:
         help="Number of target testers confirmed assigned to Private Trial or covered internally.",
     )
     parser.add_argument(
+        "--assigned-tester-source",
+        help="Safe evidence label for --assigned-tester-count, for example app_store_connect_private_trial_group.",
+    )
+    parser.add_argument(
         "--tester-count",
         type=int,
         help="Compatibility alias for --assigned-tester-count; do not use app-level tester record counts.",
     )
     parser.add_argument("--feedback-email-filled", action="store_true", help="Record manual Beta App feedback email setup.")
+    parser.add_argument("--feedback-email-source", help="Safe evidence label for --feedback-email-filled.")
     parser.add_argument(
         "--beta-review-ready",
         action="store_true",
         help="Record that App Store Connect shows READY_FOR_BETA_SUBMISSION.",
     )
+    parser.add_argument("--beta-review-ready-source", help="Safe evidence label for --beta-review-ready.")
     parser.add_argument(
         "--beta-review-submitted",
         action="store_true",
         help="Record external Beta App Review submission or external testing readiness.",
     )
+    parser.add_argument("--beta-review-source", help="Safe evidence label for --beta-review-submitted.")
     parser.add_argument("--tester-coverage-confirmed", action="store_true", help="Record internal or external tester coverage.")
+    parser.add_argument("--tester-coverage-source", help="Safe evidence label for --tester-coverage-confirmed.")
     parser.add_argument("--install-verified", action="store_true", help="Record that iPhone/watch install was verified.")
+    parser.add_argument("--install-source", help="Safe evidence label for --install-verified.")
     parser.add_argument("--probe-backend", action="store_true", help="Probe /api/v2/health and /api/v2/readiness.")
     parser.add_argument("--no-github", action="store_true", help="Skip GitHub API metadata lookup.")
     parser.add_argument("--no-fail", action="store_true", help="Exit 0 even when readiness is incomplete.")
@@ -778,28 +810,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.api_base_url:
         env["PHASE6_API_BASE_URL"] = args.api_base_url
     assigned_tester_count = args.assigned_tester_count
-    assigned_tester_source = "cli_arg:assigned_tester_count"
+    assigned_tester_source = args.assigned_tester_source or "cli_arg:assigned_tester_count"
     if assigned_tester_count is None and args.tester_count is not None:
         assigned_tester_count = args.tester_count
-        assigned_tester_source = "cli_arg:tester_count_confirmed_target"
+        assigned_tester_source = args.assigned_tester_source or "cli_arg:tester_count_confirmed_target"
     if assigned_tester_count is not None:
         env["AI_CADDIE_TESTFLIGHT_TESTER_COUNT"] = str(assigned_tester_count)
         env["AI_CADDIE_TESTFLIGHT_TESTER_COUNT_SOURCE"] = assigned_tester_source
     if args.feedback_email_filled:
         env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_FILLED"] = "1"
-        env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE"] = "cli_flag"
+        env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SOURCE"] = args.feedback_email_source or "cli_flag"
     if args.beta_review_ready:
         env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY"] = "1"
-        env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY_SOURCE"] = "cli_flag"
+        env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY_SOURCE"] = args.beta_review_ready_source or "cli_flag"
     if args.beta_review_submitted:
         env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED"] = "1"
-        env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE"] = "cli_flag"
+        env["AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SOURCE"] = args.beta_review_source or "cli_flag"
     if args.tester_coverage_confirmed:
         env["AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_CONFIRMED"] = "1"
-        env["AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_SOURCE"] = "cli_flag"
+        env["AI_CADDIE_TESTFLIGHT_TESTER_COVERAGE_SOURCE"] = args.tester_coverage_source or "cli_flag"
     if args.install_verified:
         env["AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED"] = "1"
-        env["AI_CADDIE_TESTFLIGHT_INSTALL_SOURCE"] = "cli_flag"
+        env["AI_CADDIE_TESTFLIGHT_INSTALL_SOURCE"] = args.install_source or "cli_flag"
 
     github_snapshot = None if args.no_github else fetch_github_snapshot(repo=args.repo)
     backend_probe = probe_backend_url if args.probe_backend else None

@@ -523,11 +523,23 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
                     "--no-fail",
                     "--assigned-tester-count",
                     "3",
+                    "--assigned-tester-source",
+                    "app_store_connect_private_trial_group",
                     "--feedback-email-filled",
+                    "--feedback-email-source",
+                    "app_store_connect_beta_test_info",
                     "--beta-review-ready",
+                    "--beta-review-ready-source",
+                    "github_actions_log:27069928781",
                     "--beta-review-submitted",
+                    "--beta-review-source",
+                    "app_store_connect_beta_review_submitted",
                     "--tester-coverage-confirmed",
+                    "--tester-coverage-source",
+                    "internal_testflight_group",
                     "--install-verified",
+                    "--install-source",
+                    "testflight_iphone_watch_install",
                 ]
             )
 
@@ -536,24 +548,79 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         checks = {row["label"]: row for row in payload["checks"]}
         self.assertEqual(
             checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
-            "cli_flag",
+            "app_store_connect_beta_test_info",
         )
         self.assertEqual(
             checks["external_testers"]["evidence"]["internalCoverageSource"],
-            "cli_flag",
+            "internal_testflight_group",
         )
         self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCount"], 3)
         self.assertEqual(
             checks["external_testers"]["evidence"]["configuredTesterCountSource"],
-            "cli_arg:assigned_tester_count",
+            "app_store_connect_private_trial_group",
         )
         self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
-        self.assertEqual(checks["external_beta_review_submission"]["evidence"]["source"], "cli_flag")
+        self.assertEqual(
+            checks["external_beta_review_submission"]["evidence"]["source"],
+            "app_store_connect_beta_review_submitted",
+        )
         self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
-        self.assertEqual(checks["external_beta_review_submission_ready"]["evidence"]["source"], "cli_flag")
+        self.assertEqual(
+            checks["external_beta_review_submission_ready"]["evidence"]["source"],
+            "github_actions_log:27069928781",
+        )
         self.assertEqual(checks["device_install"]["state"], "ready")
         self.assertTrue(checks["device_install"]["evidence"]["installVerified"])
-        self.assertEqual(checks["device_install"]["evidence"]["installVerificationSource"], "cli_flag")
+        self.assertEqual(
+            checks["device_install"]["evidence"]["installVerificationSource"],
+            "testflight_iphone_watch_install",
+        )
+
+    def test_cli_manual_source_labels_are_redacted_before_printing(self) -> None:
+        stdout = io.StringIO()
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch(
+                "ops.phase6_external_readiness.fetch_github_snapshot",
+                return_value=_github_snapshot(secrets=[*REQUIRED_SIGNING_SECRETS]),
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
+            code = main(
+                [
+                    "--no-fail",
+                    "--feedback-email-filled",
+                    "--feedback-email-source",
+                    "owner@example.test /home/user/secret-note.txt",
+                    "--install-verified",
+                    "--install-source",
+                    "access_token=abc123",
+                    "--beta-review-submitted",
+                    "--beta-review-source",
+                    "App Store Connect screenshot /Users/me/Desktop/review.png",
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        rendered = stdout.getvalue()
+        payload = json.loads(rendered)
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(
+            checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
+            "[redacted_email] [redacted_path]",
+        )
+        self.assertEqual(
+            checks["device_install"]["evidence"]["installVerificationSource"],
+            "redacted_source",
+        )
+        self.assertEqual(
+            checks["external_beta_review_submission"]["evidence"]["source"],
+            "App Store Connect screenshot [redacted_path]",
+        )
+        self.assertNotIn("owner@example.test", rendered)
+        self.assertNotIn("/home/user", rendered)
+        self.assertNotIn("/Users/me", rendered)
+        self.assertNotIn("abc123", rendered)
 
     def test_cli_tester_count_alias_records_confirmed_target_source(self) -> None:
         stdout = io.StringIO()

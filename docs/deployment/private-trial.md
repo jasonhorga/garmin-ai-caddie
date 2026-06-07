@@ -182,6 +182,13 @@ If feedback email or tester coverage is completed manually outside GitHub
 secrets, record that in the preflight run with `--feedback-email-filled`,
 `--beta-review-ready`, `--beta-review-submitted`,
 `--assigned-tester-count <count>`, and `--tester-coverage-confirmed`.
+Use the matching source-label flags (`--feedback-email-source`,
+`--beta-review-ready-source`, `--beta-review-source`,
+`--assigned-tester-source`, `--tester-coverage-source`, and
+`--install-source`) to identify safe evidence such as
+`app_store_connect_beta_review_submitted` or `testflight_iphone_watch_install`.
+Do not put tester email addresses, tokens, or local filesystem paths in source
+labels; the preflight redacts those values before printing JSON.
 `--assigned-tester-count` is only for target testers confirmed assigned to
 `Private Trial` or otherwise covered internally; do not pass app-level
 `observedAppTesterCount` here. `--beta-review-ready` records
