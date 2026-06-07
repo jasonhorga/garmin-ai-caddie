@@ -38,6 +38,8 @@ EXPECTED_HEALTH_SCHEMA = "ai-caddie-health-v2"
 EXPECTED_READINESS_SCHEMA = "ai-caddie-readiness-v1"
 TESTFLIGHT_TESTERS_WORKFLOW_NAME = "iOS TestFlight Testers"
 TESTFLIGHT_READY_EXTERNAL_STATE = "READY_FOR_BETA_SUBMISSION"
+TESTFLIGHT_ACTIONS_RUNS_PER_PAGE = 100
+TESTFLIGHT_ACTIONS_LOG_SCAN_LIMIT = 10
 GITHUB_LOG_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T[^\s]+Z\s+")
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 API_URL_ENV_PRIORITY = (
@@ -303,7 +305,7 @@ def fetch_testflight_actions_summary(
 ) -> dict[str, Any]:
     runs_payload = _github_api_get(
         repo,
-        f"/actions/runs?branch={parse.quote(DEFAULT_BRANCH)}&per_page=30",
+        f"/actions/runs?branch={parse.quote(DEFAULT_BRANCH)}&per_page={TESTFLIGHT_ACTIONS_RUNS_PER_PAGE}",
         token,
         timeout_s=timeout_s,
     )
@@ -320,7 +322,7 @@ def fetch_testflight_actions_summary(
         "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
         "readyForBetaSubmission": False,
     }
-    for run in relevant_runs[:5]:
+    for run in relevant_runs[:TESTFLIGHT_ACTIONS_LOG_SCAN_LIMIT]:
         try:
             logs = _github_api_get_bytes(str(run["logs_url"]), token, timeout_s=timeout_s)
             summary = _testflight_summary_from_log_zip(run, logs)

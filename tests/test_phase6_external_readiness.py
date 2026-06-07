@@ -387,6 +387,80 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
         self.assertEqual(checks["external_testers"]["state"], "ready")
 
+    def test_github_actions_log_scan_keeps_older_assignment_evidence(self) -> None:
+        latest_list_log = """
+        ##[group]TestFlight builds
+        - 0.1.0 (3) id=9bd24a04 state=VALID expired=false usesNonExemptEncryption=false internalReady=false betaReviewReady=true missingExportCompliance=false internalState=IN_BETA_TESTING externalState=READY_FOR_BETA_SUBMISSION autoNotify=
+        ##[group]TestFlight groups
+        - Private Trial id=a2890a99 internal=false publicLinkEnabled=false allBuilds=
+        ##[group]TestFlight testers
+        - ja***@gmail.com state=unknown devices=unknown latest=unknown(unknown)
+        - 23***@qq.com state=unknown devices=unknown latest=unknown(unknown)
+        """
+        older_assignment_log = """
+        Assigned 2 external tester(s) to group Private Trial: ja***@gmail.com, 23***@qq.com
+        """
+
+        def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
+            if path == "":
+                return {"private": False, "default_branch": "integration/v2"}
+            if path == "/actions/secrets":
+                return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
+            if path == "/actions/variables":
+                return {"variables": []}
+            if path.startswith("/actions/runs?"):
+                self.assertIn("per_page=100", path)
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 27088735595,
+                            "name": "iOS TestFlight Testers",
+                            "conclusion": "success",
+                            "created_at": "2026-06-07T09:32:42Z",
+                            "logs_url": "https://api.github.test/logs/latest-list",
+                        },
+                        {
+                            "id": 27082080178,
+                            "name": "iOS TestFlight Testers",
+                            "conclusion": "success",
+                            "created_at": "2026-06-07T03:58:23Z",
+                            "logs_url": "https://api.github.test/logs/older-assignment",
+                        },
+                    ]
+                }
+            raise AssertionError(f"unexpected GitHub path: {path}")
+
+        def github_get_bytes(url: str, token: str, *, timeout_s: float = 20.0) -> bytes:
+            if url.endswith("/latest-list"):
+                return _zip_log(latest_list_log)
+            if url.endswith("/older-assignment"):
+                return _zip_log(older_assignment_log)
+            raise AssertionError(f"unexpected logs URL: {url}")
+
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", side_effect=github_get),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", side_effect=github_get_bytes),
+        ):
+            snapshot = fetch_github_snapshot(token="github-actions-token")
+
+        actions = snapshot["testflightActions"]
+        self.assertEqual(actions["observedAppTesterCount"], 2)
+        self.assertTrue(actions["privateTrialGroupObserved"])
+        self.assertEqual(actions["privateTrialAssignedTesterCount"], 2)
+
+        payload = build_phase6_external_readiness(
+            env={},
+            github_snapshot=snapshot,
+            created_at="2026-06-07T10:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(
+            checks["external_testers"]["evidence"]["privateTrialAssignedTesterSource"],
+            "github_actions_log:27082080178:private_trial_assignment",
+        )
+
     def test_github_actions_log_can_prove_beta_feedback_metadata_without_leaking_email(self) -> None:
         log_text = """
         ##[group]TestFlight builds
