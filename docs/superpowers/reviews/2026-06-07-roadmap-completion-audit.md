@@ -78,9 +78,8 @@ group.
   ready, and the NAS VM backend URL plus authenticated backend probe are ready.
   Beta App feedback email, external Beta App Review submission, and
   iPhone/watch install verification remain external.
-- Latest GitHub evidence on commit `80a3d53`: CI run `27088735570` passed,
-  `iOS TestFlight Testers` list run `27088735595` passed, and Phase 6
-  Readiness run `27088735593` passed with `fail_when_incomplete=false`
+- Recent GitHub evidence on commit `8d91233`: CI run `27088887899` passed, and
+  Phase 6 Readiness run `27088887896` passed with `fail_when_incomplete=false`
   while reporting `state=incomplete`.
 
 ## Latest Local Continuation Evidence
@@ -100,7 +99,7 @@ sanity:
 - Targeted workflow/readiness regression verification after the TestFlight
   evidence hardening passed:
   `uv run python -m unittest tests.test_ci_workflow tests.test_phase6_external_readiness tests.test_roadmap_completion_status tests.test_roadmap_completion_audit -v`
-  reported 56 tests OK.
+  reported 57 tests OK.
 - The roadmap completion audit test now parses multiline checklist items, so
   open Phase 6 items are not truncated when proving what remains open.
 - The Phase 6 preflight parser now ignores GitHub Actions script-source echo
@@ -118,6 +117,10 @@ sanity:
   submits Beta App Review without changing tester/group membership. Its success
   log line is parsed as `betaReviewSubmitted` evidence, while script-source echo
   is explicitly ignored.
+- The TestFlight Actions log scan now reads up to 100 recent workflow runs and
+  scans the first 10 successful tester workflow logs, preserving older
+  `Private Trial` assignment evidence after repeated CI/readiness dispatches.
+  Phase 6 Readiness run `27088887896` confirms `external_testers=ready` again.
 - The manual `Backend Fly Deploy` GitHub workflow now covers the next backend
   release step once `FLY_API_TOKEN` and `AI_CADDIE_ADMIN_TOKEN` exist: create
   the Fly app/volume if needed, deploy the container, update
