@@ -129,6 +129,14 @@ sanity:
 - `iOS TestFlight Testers` run `27091302402` selected build `0.1.0 (3)`,
   confirmed export compliance and review details, and logged
   `Beta App Review submission requested`.
+- `iOS TestFlight Testers` list run `27091440783` shows the submitted build is
+  now `externalState=WAITING_FOR_BETA_REVIEW`, which means Apple has the build
+  in the Beta Review queue.
+- `iOS TestFlight Testers` distribute run `27091501698` set external tester
+  auto-notify to false and logged
+  `Assigned build 0.1.0 (3) to group(s): Private Trial`; it skipped
+  resubmission because `ready_for_beta_submission=false` after the first
+  submission.
 - Phase 6 Readiness run `27091323640` now reports
   `external_beta_review_feedback=ready`,
   `external_beta_review_submission_ready=ready`, and
@@ -235,6 +243,10 @@ Read-only GitHub API and existing Actions-log checks on 2026-06-07 confirm:
   contact fields as the next data to provide.
 - After those fields were configured, `iOS TestFlight Testers` run `27091302402`
   successfully submitted external Beta App Review for build `0.1.0 (3)`.
+- Follow-up `iOS TestFlight Testers` run `27091440783` reports
+  `externalState=WAITING_FOR_BETA_REVIEW`.
+- `iOS TestFlight Testers` run `27091501698` assigned build `0.1.0 (3)` to
+  external group `Private Trial` with tester notifications disabled.
 - Phase 6 Readiness run `27091323640` proves the current external gate state:
   `external_beta_review_feedback=ready`,
   `external_beta_review_submission_ready=ready`,

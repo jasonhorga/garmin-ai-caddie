@@ -412,13 +412,16 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
                 self.assertIn("per_page=100", path)
                 return {
                     "workflow_runs": [
-                        {
-                            "id": 27088735595,
-                            "name": "iOS TestFlight Testers",
-                            "conclusion": "success",
-                            "created_at": "2026-06-07T09:32:42Z",
-                            "logs_url": "https://api.github.test/logs/latest-list",
-                        },
+                        *[
+                            {
+                                "id": 27088735595 + index,
+                                "name": "iOS TestFlight Testers",
+                                "conclusion": "success",
+                                "created_at": "2026-06-07T09:32:42Z",
+                                "logs_url": f"https://api.github.test/logs/latest-list-{index}",
+                            }
+                            for index in range(10)
+                        ],
                         {
                             "id": 27082080178,
                             "name": "iOS TestFlight Testers",
@@ -431,7 +434,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             raise AssertionError(f"unexpected GitHub path: {path}")
 
         def github_get_bytes(url: str, token: str, *, timeout_s: float = 20.0) -> bytes:
-            if url.endswith("/latest-list"):
+            if "/latest-list-" in url:
                 return _zip_log(latest_list_log)
             if url.endswith("/older-assignment"):
                 return _zip_log(older_assignment_log)
