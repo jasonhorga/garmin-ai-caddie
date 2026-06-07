@@ -105,6 +105,43 @@ TestFlight signing and distribution are excluded from routine private-trial
 deployment. Run those workflows only after an explicit native release request
 and Apple credential setup.
 
+## Phase 6 External Release Preflight
+
+After a backend host exists and before uploading a connected TestFlight build,
+run the external release preflight. It prints only configuration state, host
+names, status codes, and counts; it does not print secret values or tester email
+addresses.
+
+```bash
+GH_TOKEN=<github-token-with-repo-metadata-read> \
+AI_CADDIE_ADMIN_TOKEN=<deployed-api-admin-token> \
+AI_CADDIE_TESTFLIGHT_TESTER_COUNT=<number-of-target-testers> \
+AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=0 \
+uv run python ops/phase6_external_readiness.py \
+  --api-base-url https://<Render API URL or Fly API URL> \
+  --probe-backend
+```
+
+The preflight stays `incomplete` until all external gates are actually true:
+
+- the six long-lived signing secrets are configured
+- repo variable `AI_CADDIE_API_BASE_URL` points at the deployed API, or the
+  TestFlight workflow `api_base_url` input is provided for that build
+- the backend probe can reach `/api/v2/health` and authenticated
+  `/api/v2/readiness`
+- `TESTFLIGHT_FEEDBACK_EMAIL` is set or the Beta App feedback email is filled
+  manually in App Store Connect
+- target testers are added or internal tester coverage is confirmed
+- iPhone/watch TestFlight installation has been verified
+
+If feedback email or tester coverage is completed manually outside GitHub
+secrets, record that in the preflight run with `--feedback-email-filled` and
+`--tester-coverage-confirmed`.
+
+When the phone/watch install has been verified, rerun with
+`AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED=1` or `--install-verified` and record the
+JSON output in the Phase 6 evidence.
+
 ## NAS Or Private Server
 
 A NAS or private server is suitable once local use is stable:

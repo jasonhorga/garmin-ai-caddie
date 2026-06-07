@@ -70,6 +70,28 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertNotIn("JWT_WEB", text)
         self.assertNotIn("connect-csrf-token", text)
 
+    def test_private_trial_docs_include_phase6_external_preflight(self) -> None:
+        text = Path("docs/deployment/private-trial.md").read_text(encoding="utf-8")
+        ios_setup = Path("docs/ios-testflight-setup.md").read_text(encoding="utf-8")
+
+        for required in [
+            "ops/phase6_external_readiness.py",
+            "--api-base-url https://<Render API URL or Fly API URL>",
+            "--probe-backend",
+            "AI_CADDIE_TESTFLIGHT_TESTER_COUNT",
+            "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED",
+            "--feedback-email-filled",
+            "--tester-coverage-confirmed",
+            "AI_CADDIE_API_BASE_URL",
+            "api_base_url",
+            "TESTFLIGHT_FEEDBACK_EMAIL",
+        ]:
+            self.assertIn(required, text)
+        self.assertIn("ops/phase6_external_readiness.py", ios_setup)
+        self.assertIn("state=ready", ios_setup)
+        self.assertNotIn("JWT_WEB", text + ios_setup)
+        self.assertNotIn("connect-csrf-token", text + ios_setup)
+
     def test_container_manifests_define_persistent_private_runtime_root(self) -> None:
         dockerfile = Path("Dockerfile")
         compose = Path("docker-compose.yml")

@@ -57,6 +57,11 @@ Implemented the locally verifiable Phase 6 hardening work from
   the TestFlight tester workflow sets `usesNonExemptEncryption=false`, and the
   App Store Connect encryption form should use the option equivalent to none of
   the listed encryption algorithms for this build.
+- `ops/phase6_external_readiness.py` now provides a secret-free external release
+  preflight for the remaining Phase 6 gates: six signing secrets, repo variable
+  `AI_CADDIE_API_BASE_URL` or TestFlight `api_base_url` workflow input, public
+  HTTPS backend URL, backend health/readiness probe, external Beta Review
+  feedback email, tester coverage, and iPhone/watch install verification.
 
 ## GitHub Actions Guardrail
 
@@ -305,6 +310,26 @@ that the TestFlight setup guide documents the App Store Connect encryption-form
 selection for the current build.
 
 ```bash
+uv run python -m unittest tests.test_phase6_external_readiness tests.test_deployment_manifests -v
+```
+
+Result: PASS. These checks cover the external preflight state machine, secret
+value redaction, public HTTPS backend URL validation, backend-probe requirement,
+and runbook/TestFlight setup documentation.
+
+```bash
+uv run python ops/phase6_external_readiness.py --no-fail
+```
+
+Result: PASS as an inspection command, with overall preflight state
+`incomplete`. Current ready checks: public repo on `integration/v2`, six required
+signing secrets configured. Current missing/manual checks: repo variable
+`AI_CADDIE_API_BASE_URL` or TestFlight `api_base_url` workflow input,
+`TESTFLIGHT_FEEDBACK_EMAIL` or manually filled Beta App feedback email, public
+backend URL, backend health/readiness probe, tester coverage, and iPhone/watch
+TestFlight install verification.
+
+```bash
 docker run --rm --name ai-caddie-api-smoke -p 127.0.0.1:9000:9000 -e AI_CADDIE_SECURITY_PROFILE=private -e AI_CADDIE_ADMIN_TOKEN=container-smoke-token -e AI_CADDIE_DATA_MODE=fixture -e AI_CADDIE_LLM_PROVIDER=static ai-caddie-api:config-check
 curl -fsS http://127.0.0.1:9000/api/v2/health
 curl -fsS -H 'X-AI-Caddie-Admin-Token: container-smoke-token' http://127.0.0.1:9000/api/v2/readiness
@@ -369,6 +394,10 @@ Result: PASS. Evidence schema `ai-caddie-private-trial-smoke-evidence-v1`,
   this workspace.
 - A new TestFlight IPA was not uploaded after adding build-time native API URL
   wiring because no phone-reachable backend URL was available yet.
+- The Phase 6 external preflight cannot report `state=ready` yet because the
+  deployed backend URL, repo variable `AI_CADDIE_API_BASE_URL`,
+  `TESTFLIGHT_FEEDBACK_EMAIL` or manual feedback email, tester coverage, and
+  device-install verification are still missing external state.
 - Xcode simulator tests require macOS/Xcode and were not executable in this
   Linux workspace. The GitHub macOS TestFlight workflow did compile, archive,
   sign, export, and upload the release app.

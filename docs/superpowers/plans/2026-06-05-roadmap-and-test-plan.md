@@ -119,6 +119,9 @@
 - [x] Verify TestFlight build status through App Store Connect API:
   `VALID`, `IN_BETA_TESTING`, `usesNonExemptEncryption=false`.
 - [x] Create/list external TestFlight group `Private Trial`.
+- [x] Add a Phase 6 external release preflight that reports missing backend URL,
+  repo variables, external-review feedback email, tester coverage, and device
+  install verification without printing secret values.
 - [ ] Configure `TESTFLIGHT_FEEDBACK_EMAIL` and submit external Beta App Review.
 - [ ] Add/confirm target tester emails for the external group or confirm the
   user is covered by the existing internal group.
@@ -141,6 +144,7 @@
 | Frontend build | TypeScript/Vite production build | `npm run build` in `web_v2` | Node 24 | Required for Web changes |
 | Frontend visual smoke | Playwright browser smoke | `npm run test:e2e` in `web_v2` | Node 24 + Chromium | Required before Web release or visual claims |
 | Private trial smoke | Fixture/private API security and redaction | `ops/smoke_private_trial.sh http://127.0.0.1:<port>` | API running with admin token | Required before deploy/trial |
+| Phase 6 external preflight | GitHub config, public backend URL, backend probe, tester/review/install gates | `uv run python ops/phase6_external_readiness.py --api-base-url https://<api-host> --probe-backend` | deployed API + GH token + admin token | Required before connected TestFlight trial |
 | Native source/contracts | iOS/Watch contracts and source expectations | Python tests under `tests/test_mobile_contracts.py`, `tests/test_native_build_evidence.py` | local Linux / CI | Required for mobile contract changes |
 | Native simulator | Actual iOS/Watch build and tests | `xcodegen generate ...` then `xcodebuild test ...` | macOS/Xcode only | Required for native source release |
 | CI workflow contract | GitHub Actions minute controls and path filters | `uv run python -m unittest tests.test_ci_workflow -v` | local Linux / CI | Required for workflow changes |

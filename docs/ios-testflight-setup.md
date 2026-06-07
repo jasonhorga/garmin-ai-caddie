@@ -29,6 +29,11 @@ but does not create a new app record for this account.
 
 ## Shipping a build
 
+- Before uploading a connected build, run the external release preflight from
+  `docs/deployment/private-trial.md`:
+  `uv run python ops/phase6_external_readiness.py --api-base-url https://<api-host> --probe-backend`.
+  A fully connected external trial should not be considered ready until this
+  reports `state=ready`.
 - Run the `iOS TestFlight (CD)` workflow manually from `integration/v2` with
   optional release notes and optional `api_base_url`. It runs `xcodegen generate` →
   `fastlane ios beta` → archives the app (with embedded watch app) → uploads to TestFlight.
