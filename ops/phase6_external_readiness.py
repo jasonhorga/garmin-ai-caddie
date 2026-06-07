@@ -472,10 +472,16 @@ def probe_backend_url(
 def _github_checks(
     github_snapshot: dict[str, Any] | None,
     *,
+    signing_secrets_configured: bool,
+    signing_secrets_known: bool,
+    signing_secrets_source: str | None,
     native_api_url_configured: bool,
     native_api_source: str | None,
     native_runtime_api_configured: bool,
     native_runtime_api_source: str | None,
+    feedback_email_secret_configured: bool,
+    feedback_email_secret_known: bool,
+    feedback_email_secret_source: str | None,
     feedback_email_filled: bool,
     feedback_email_source: str | None,
 ) -> list[dict[str, Any]]:
@@ -496,17 +502,28 @@ def _github_checks(
         _github_variable_value(github_snapshot, REQUIRED_NATIVE_API_VARIABLE),
         source=GITHUB_NATIVE_API_SOURCE,
     )
-    missing_signing = [name for name in REQUIRED_SIGNING_SECRETS if name not in secret_names]
+    missing_signing = [] if signing_secrets_configured else [
+        name for name in REQUIRED_SIGNING_SECRETS if name not in secret_names
+    ]
     unused_configured = [name for name in LEGACY_UNUSED_SECRETS if name in secret_names]
     repo_variable_ready = (
         REQUIRED_NATIVE_API_VARIABLE in variable_names
         and native_api_variable_summary["validPublicHttps"] is True
     )
     native_api_ready = repo_variable_ready or native_api_url_configured or native_runtime_api_configured
-    feedback_ready = OPTIONAL_EXTERNAL_REVIEW_SECRET in secret_names or feedback_email_filled
-    if secret_names_unavailable_reason:
+    repo_feedback_secret_configured = (
+        OPTIONAL_EXTERNAL_REVIEW_SECRET in secret_names or feedback_email_secret_configured
+    )
+    feedback_ready = repo_feedback_secret_configured or feedback_email_filled
+    if signing_secrets_configured:
+        signing_state = "ready"
+        signing_reason = None
+    elif secret_names_unavailable_reason and not signing_secrets_known:
         signing_state = "unknown"
         signing_reason = secret_names_unavailable_reason
+    elif signing_secrets_known:
+        signing_state = "missing"
+        signing_reason = "workflow environment reported one or more required signing secrets are missing"
     else:
         signing_state = "ready" if not missing_signing else "missing"
         signing_reason = None if not missing_signing else "required signing secret names are missing"
@@ -525,7 +542,7 @@ def _github_checks(
     if feedback_ready:
         feedback_state = "ready"
         feedback_reason = None
-    elif secret_names_unavailable_reason:
+    elif secret_names_unavailable_reason and not feedback_email_secret_known:
         feedback_state = "unknown"
         feedback_reason = secret_names_unavailable_reason
     else:
@@ -550,10 +567,17 @@ def _github_checks(
             "label": "signing_secrets",
             "state": signing_state,
             "reason": signing_reason,
-            "ready": None if secret_names_unavailable_reason else len(REQUIRED_SIGNING_SECRETS) - len(missing_signing),
+            "ready": len(REQUIRED_SIGNING_SECRETS)
+            if signing_secrets_configured
+            else (None if secret_names_unavailable_reason else len(REQUIRED_SIGNING_SECRETS) - len(missing_signing)),
             "total": len(REQUIRED_SIGNING_SECRETS),
             "missing": [] if secret_names_unavailable_reason else missing_signing,
             "unusedConfigured": [] if secret_names_unavailable_reason else unused_configured,
+            "evidence": {
+                "workflowPresenceKnown": signing_secrets_known,
+                "workflowPresenceConfigured": signing_secrets_configured,
+                "workflowPresenceSource": signing_secrets_source,
+            },
         },
         {
             "label": "native_api_base_url_configuration",
@@ -576,8 +600,10 @@ def _github_checks(
             "state": feedback_state,
             "reason": feedback_reason,
             "evidence": {
-                "repoSecretConfigured": OPTIONAL_EXTERNAL_REVIEW_SECRET in secret_names,
+                "repoSecretConfigured": repo_feedback_secret_configured,
                 "repoSecretMetadataUnavailable": bool(secret_names_unavailable_reason),
+                "repoSecretPresenceKnown": feedback_email_secret_known or not secret_names_unavailable_reason,
+                "repoSecretPresenceSource": feedback_email_secret_source,
                 "manualFeedbackEmailConfirmed": feedback_email_filled,
                 "manualFeedbackEmailSource": feedback_email_source,
             },
@@ -644,6 +670,26 @@ def build_phase6_external_readiness(
         value_key="AI_CADDIE_NATIVE_RUNTIME_API_CONFIGURED",
         source_key="AI_CADDIE_NATIVE_RUNTIME_API_SOURCE",
     )
+    signing_secrets_known = "AI_CADDIE_SIGNING_SECRETS_CONFIGURED" in env
+    signing_secrets_configured = _bool_env(env, "AI_CADDIE_SIGNING_SECRETS_CONFIGURED")
+    signing_secrets_source = (
+        _safe_source_label(env.get("AI_CADDIE_SIGNING_SECRETS_SOURCE"), default="environment")
+        if signing_secrets_known
+        else None
+    )
+    feedback_email_secret_known = "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_CONFIGURED" in env
+    feedback_email_secret_configured = _bool_env(
+        env,
+        "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_CONFIGURED",
+    )
+    feedback_email_secret_source = (
+        _safe_source_label(
+            env.get("AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_SOURCE"),
+            default="environment",
+        )
+        if feedback_email_secret_known
+        else None
+    )
     beta_review_ready = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY")
     beta_review_submitted = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED")
     github_beta_review_ready, github_beta_review_ready_source = _github_beta_review_ready_source(github_snapshot)
@@ -676,10 +722,16 @@ def build_phase6_external_readiness(
     ) or github_feedback_email_source or beta_review_submission_source
     checks = _github_checks(
         github_snapshot,
+        signing_secrets_configured=signing_secrets_configured,
+        signing_secrets_known=signing_secrets_known,
+        signing_secrets_source=signing_secrets_source,
         native_api_url_configured=native_api_url_configured,
         native_api_source=api_url_source,
         native_runtime_api_configured=native_runtime_api_configured,
         native_runtime_api_source=native_runtime_api_source,
+        feedback_email_secret_configured=feedback_email_secret_configured,
+        feedback_email_secret_known=feedback_email_secret_known,
+        feedback_email_secret_source=feedback_email_secret_source,
         feedback_email_filled=feedback_email_filled,
         feedback_email_source=feedback_email_source,
     )

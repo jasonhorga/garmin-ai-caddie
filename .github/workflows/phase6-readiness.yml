@@ -71,6 +71,10 @@ jobs:
     env:
       AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
       GH_TOKEN: ${{ secrets.PHASE6_GH_TOKEN || github.token }}
+      AI_CADDIE_SIGNING_SECRETS_CONFIGURED: ${{ secrets.ASC_KEY_ID != '' && secrets.ASC_ISSUER_ID != '' && secrets.ASC_PRIVATE_KEY != '' && secrets.MATCH_GIT_URL != '' && secrets.MATCH_GIT_PRIVATE_KEY != '' && secrets.MATCH_PASSWORD != '' }}
+      AI_CADDIE_SIGNING_SECRETS_SOURCE: github_actions_env:required_signing_presence
+      AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_CONFIGURED: ${{ secrets.TESTFLIGHT_FEEDBACK_EMAIL != '' }}
+      AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_SOURCE: github_actions_env:testflight_feedback_email_presence
       PHASE6_API_BASE_URL_INPUT: ${{ github.event.inputs.api_base_url }}
       PROBE_BACKEND: ${{ github.event.inputs.probe_backend }}
       FEEDBACK_EMAIL_FILLED: ${{ github.event.inputs.feedback_email_filled }}

@@ -236,6 +236,17 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual("${{ secrets.AI_CADDIE_ADMIN_TOKEN }}", env["AI_CADDIE_ADMIN_TOKEN"])
         self.assertIn("PHASE6_GH_TOKEN", env["GH_TOKEN"])
         self.assertIn("github.token", env["GH_TOKEN"])
+        self.assertIn("ASC_KEY_ID", env["AI_CADDIE_SIGNING_SECRETS_CONFIGURED"])
+        self.assertIn("MATCH_PASSWORD", env["AI_CADDIE_SIGNING_SECRETS_CONFIGURED"])
+        self.assertIn("TESTFLIGHT_FEEDBACK_EMAIL", env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_CONFIGURED"])
+        self.assertEqual(
+            "github_actions_env:required_signing_presence",
+            env["AI_CADDIE_SIGNING_SECRETS_SOURCE"],
+        )
+        self.assertEqual(
+            "github_actions_env:testflight_feedback_email_presence",
+            env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_SOURCE"],
+        )
         self.assertIn("ops/phase6_external_readiness.py", text)
         self.assertIn("--probe-backend", text)
         self.assertIn("--feedback-email-filled", text)

@@ -167,6 +167,57 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             payload["missingExternalActions"],
         )
 
+    def test_workflow_secret_presence_booleans_cover_limited_github_token_metadata(self) -> None:
+        snapshot = _github_snapshot()
+        snapshot["secretNamesUnavailableReason"] = "GitHub Actions secrets metadata unavailable: HTTPError"
+
+        payload = build_phase6_external_readiness(
+            env={
+                "AI_CADDIE_SIGNING_SECRETS_CONFIGURED": "true",
+                "AI_CADDIE_SIGNING_SECRETS_SOURCE": "github_actions_env:required_signing_presence",
+                "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_CONFIGURED": "false",
+                "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_SOURCE": (
+                    "github_actions_env:testflight_feedback_email_presence"
+                ),
+            },
+            github_snapshot=snapshot,
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["signing_secrets"]["state"], "ready")
+        self.assertTrue(checks["signing_secrets"]["evidence"]["workflowPresenceKnown"])
+        self.assertEqual(
+            checks["signing_secrets"]["evidence"]["workflowPresenceSource"],
+            "github_actions_env:required_signing_presence",
+        )
+        self.assertEqual(checks["external_beta_review_feedback"]["state"], "missing")
+        self.assertFalse(checks["external_beta_review_feedback"]["evidence"]["repoSecretConfigured"])
+        self.assertTrue(checks["external_beta_review_feedback"]["evidence"]["repoSecretPresenceKnown"])
+        self.assertEqual(
+            checks["external_beta_review_feedback"]["evidence"]["repoSecretPresenceSource"],
+            "github_actions_env:testflight_feedback_email_presence",
+        )
+
+    def test_feedback_email_secret_presence_boolean_counts_as_review_feedback_ready(self) -> None:
+        snapshot = _github_snapshot()
+        snapshot["secretNamesUnavailableReason"] = "GitHub Actions secrets metadata unavailable: HTTPError"
+
+        payload = build_phase6_external_readiness(
+            env={
+                "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_CONFIGURED": "true",
+                "AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_SOURCE": (
+                    "github_actions_env:testflight_feedback_email_presence"
+                ),
+            },
+            github_snapshot=snapshot,
+            created_at="2026-06-06T00:00:00Z",
+        )
+
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_beta_review_feedback"]["state"], "ready")
+        self.assertTrue(checks["external_beta_review_feedback"]["evidence"]["repoSecretConfigured"])
+
     def test_workflow_input_manual_feedback_and_internal_tester_confirmation_count_as_ready(self) -> None:
         payload = build_phase6_external_readiness(
             env={
