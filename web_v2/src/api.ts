@@ -36,6 +36,7 @@ import type {
   MobileReconciliationResponse,
   MobileCoursePackageParams,
   MobileRoundPackageParams,
+  PrepTipsResponse,
   ProductSettingsResponse,
   ReadinessResponse,
   ReviewReportIndexResponse,
@@ -108,14 +109,19 @@ export function fetchHistoryOverview(adminToken?: string): Promise<HistoryOvervi
 
 export function fetchCoursePrep(
   globalId: number,
-  opts?: { holes?: number[]; render?: boolean },
+  opts?: { holes?: number[]; render?: boolean; includeShots?: boolean },
   adminToken?: string,
 ): Promise<CoursePrepResponse> {
   const params = new URLSearchParams()
   for (const hole of opts?.holes ?? []) params.append('holes', String(hole))
   if (opts?.render === false) params.set('render', 'false')
+  if (opts?.includeShots === true) params.set('include_shots', 'true')
   const query = params.toString()
   return getJson<CoursePrepResponse>(`/api/v2/courses/${globalId}/prep${query ? `?${query}` : ''}`, adminToken)
+}
+
+export function fetchPrepTips(globalId: number, adminToken?: string): Promise<PrepTipsResponse> {
+  return getJson<PrepTipsResponse>(`/api/v2/courses/${globalId}/prep-tips`, adminToken)
 }
 
 export function fetchCaddieDecision(request: CaddieDecisionRequest, adminToken?: string): Promise<CaddieDecisionResponse> {

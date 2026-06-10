@@ -957,6 +957,14 @@ export interface CoursePrepCarryTarget {
   sideM?: number
 }
 
+export interface CoursePrepShotDot {
+  x: number
+  y: number
+  club: string | null
+  shotType: string
+  roundId: string
+}
+
 export interface CoursePrepHole {
   hole: number
   par: number
@@ -975,6 +983,7 @@ export interface CoursePrepHole {
   tee_club: string | null
   hazards: { water_carry: Array<[number, number]>; bunkers: Array<[number, number]> }
   map?: { image: string; overlay: CoursePrepOverlay }
+  yourShots?: CoursePrepShotDot[]
 }
 
 export interface CoursePrepClub {
@@ -1006,4 +1015,18 @@ export interface CourseSearchResponse {
   schema: 'ai-caddie-course-search-v1'
   query: string
   matches: CourseSearchMatch[]
+}
+
+export interface PrepTip {
+  priority: number
+  severity: 'high' | 'medium' | 'info'
+  text: string
+  basis: string
+  sourceRefs: string[]
+}
+
+export interface PrepTipsResponse {
+  schema: 'ai-caddie-prep-tips-v1'
+  courseKey: string | null
+  tips: PrepTip[]
 }
