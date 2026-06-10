@@ -10,9 +10,9 @@ interface SubNavProps {
 
 export function SubNav({ items, activePage, onNavigate, variant = 'tabs', label }: SubNavProps) {
   return (
-    <nav className={variant === 'inner' ? 'subnav subnav--inner' : 'subnav'} aria-label={label ?? 'Secondary'}>
+    <nav className={variant === 'inner' ? 'subnav subnav--inner' : 'subnav'} aria-label={label ?? '辅助导航'}>
       {items.map((item) => {
-        const active = item.page === activePage || Boolean(item.activeFor?.includes(activePage))
+        const active = item.page === activePage || (item.activeFor?.includes(activePage) ?? false)
         return (
           <button
             key={item.page}

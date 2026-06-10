@@ -20,4 +20,9 @@ describe('SubNav', () => {
     await userEvent.click(screen.getByRole('button', { name: '报告' }))
     expect(onNavigate).toHaveBeenCalledWith('reports')
   })
+
+  it('applies the inner variant class', () => {
+    const { container } = render(<SubNav items={HISTORY_SUBNAV} activePage="history" onNavigate={() => undefined} variant="inner" />)
+    expect(container.firstChild).toHaveClass('subnav--inner')
+  })
 })

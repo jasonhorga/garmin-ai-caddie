@@ -16,7 +16,7 @@ export function AppShell({ activePage, onNavigate, children }: AppShellProps) {
       <AppSidebar activePage={activePage} onNavigate={onNavigate} />
       <div className="app-main">
         <header className="app-topbar">
-          <h2 className="app-topbar-title">{SECTION_LABELS[PAGE_TO_SECTION[activePage]]}</h2>
+          <h1 className="app-topbar-title">{SECTION_LABELS[PAGE_TO_SECTION[activePage]]}</h1>
         </header>
         {subnav ? <SubNav items={subnav} activePage={activePage} onNavigate={onNavigate} /> : null}
         <div className="app-content">

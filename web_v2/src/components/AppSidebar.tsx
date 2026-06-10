@@ -59,7 +59,7 @@ interface AppSidebarProps {
 export function AppSidebar({ activePage, onNavigate }: AppSidebarProps) {
   const activeSection = PAGE_TO_SECTION[activePage]
   return (
-    <nav className="app-sidebar" aria-label="Primary">
+    <nav className="app-sidebar" aria-label="主导航">
       <div className="sidebar-brand">
         <span className="sidebar-logo" aria-hidden="true" />
         AI Caddie
