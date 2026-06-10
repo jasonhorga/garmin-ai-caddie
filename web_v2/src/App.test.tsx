@@ -1066,7 +1066,6 @@ describe('App navigation', () => {
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(await screen.findByRole('button', { name: '强弱分析' }))
-    await userEvent.click(screen.getByRole('button', { name: '按杆' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
 
     expect(await screen.findByRole('button', { name: 'Retry source detail' })).toBeInTheDocument()
@@ -1136,10 +1135,12 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
 
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    await userEvent.click(screen.getByRole('button', { name: '按杆' }))
 
+    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
     expect(screen.getByText('1D')).toBeInTheDocument()
+    expect(screen.getByText('missing_shots')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
 
     expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
@@ -1153,10 +1154,8 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    await userEvent.click(screen.getByRole('button', { name: '问题' }))
 
     expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
-    expect(screen.getByText('missing_shots')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(1)
   })
@@ -1996,7 +1995,6 @@ describe('App navigation', () => {
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    await userEvent.click(screen.getByRole('button', { name: '按杆' }))
     expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900002:5:4' }))
 

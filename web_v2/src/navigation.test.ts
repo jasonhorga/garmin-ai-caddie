@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ANALYSIS_TABS,
   HISTORY_SUBNAV,
   PAGE_TO_SECTION,
   SECTION_DEFAULT_PAGE,
@@ -31,10 +30,9 @@ describe('navigation map', () => {
     expect(subnavForPage('caddie')).toBeNull()
   })
 
-  it('marks 强弱分析 active for holes/clubs/issues and exposes the three analysis tabs', () => {
+  it('marks 强弱分析 active for holes/clubs/issues', () => {
     const analysis = HISTORY_SUBNAV.find((item) => item.label === '强弱分析')
     expect(analysis?.page).toBe('holes')
     expect(analysis?.activeFor).toEqual(['holes', 'clubs', 'issues'])
-    expect(ANALYSIS_TABS.map((tab) => tab.page)).toEqual(['holes', 'clubs', 'issues'])
   })
 })

@@ -15,7 +15,7 @@ export function HoleStats({ data, onSelectRef }: HoleStatsProps) {
       <div className="section-head stats-head">
         <div>
           <p className="eyebrow">Hole Patterns</p>
-          <h1>Hole Stats</h1>
+          <h2>Hole Stats</h2>
           <p>Repeated hole outcomes and source scorecard refs.</p>
         </div>
         <StatsQualityChips data={data} labels={['geometry']} />

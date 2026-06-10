@@ -457,9 +457,8 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   }
 
   await page.getByRole('button', { name: '强弱分析' }).click()
-  await page.getByRole('button', { name: '按杆' }).click()
+  await expect(page.getByRole('heading', { name: 'Hole Stats', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Club Stats', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '问题' }).click()
   await expect(page.getByRole('heading', { name: 'Issue Stats', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
 

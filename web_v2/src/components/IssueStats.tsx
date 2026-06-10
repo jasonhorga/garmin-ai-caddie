@@ -47,7 +47,7 @@ export function IssueStats({ data, onSelectRef }: IssueStatsProps) {
       <div className="section-head stats-head">
         <div>
           <p className="eyebrow">Scoring Loss</p>
-          <h1>Issue Stats</h1>
+          <h2>Issue Stats</h2>
           <p>Detected issue counts with drill-down references.</p>
         </div>
       </div>

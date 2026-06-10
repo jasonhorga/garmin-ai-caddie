@@ -65,8 +65,6 @@ import {
   type MobilePackagePrepState,
 } from './components/MobilePackagePrepPanel'
 import { AppShell } from './components/AppShell'
-import { SubNav } from './components/SubNav'
-import { ANALYSIS_TABS } from './navigation'
 import { CoursePrepPanel } from './components/CoursePrepPanel'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
@@ -569,18 +567,11 @@ export default function App() {
   function renderStatsContent(data: HistoryStatsResponse) {
     if (activePage === 'courses') return <CourseStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
     if (activePage === 'holes' || activePage === 'clubs' || activePage === 'issues') {
-      const stats =
-        activePage === 'holes' ? (
-          <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        ) : activePage === 'clubs' ? (
-          <ClubStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        ) : (
-          <IssueStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        )
       return (
         <>
-          <SubNav items={ANALYSIS_TABS} activePage={activePage} onNavigate={navigate} variant="inner" label="分析维度" />
-          {stats}
+          <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+          <ClubStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+          <IssueStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
         </>
       )
     }

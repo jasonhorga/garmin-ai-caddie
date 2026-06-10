@@ -69,12 +69,6 @@ export const SETTINGS_SUBNAV: SubNavItem[] = [
   { page: 'settings', label: '后端配置' },
 ]
 
-export const ANALYSIS_TABS: SubNavItem[] = [
-  { page: 'holes', label: '按洞' },
-  { page: 'clubs', label: '按杆' },
-  { page: 'issues', label: '问题' },
-]
-
 export function subnavForPage(page: ProductPage): SubNavItem[] | null {
   const section = PAGE_TO_SECTION[page]
   if (section === 'history') return HISTORY_SUBNAV
