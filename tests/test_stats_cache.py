@@ -101,6 +101,34 @@ class StatsCacheTests(unittest.TestCase):
             self.assertEqual(r2, {"course": "cb"})  # not d1's cached result
             self.assertEqual(calls, ["ca", "cb"])
 
+    def test_window_variants_cached_independently(self) -> None:
+        # Three properties at once, each killed a real mutant in review:
+        #   1. the build must receive the WINDOWED data, not the full dataset
+        #      (11 dated rounds -> the last10 build sees exactly 10);
+        #   2. each window gets its own cache key: computing last10 must NOT evict
+        #      the all-window result, so switching back is a hit (same object);
+        #   3. windowed results are cached too: a SECOND last10 request is a hit
+        #      (same object, still only 2 builds), not a silent recompute.
+        calls = {"n": 0}
+
+        def fake_build(data, **kwargs):  # returns what it SAW, not just a counter
+            calls["n"] += 1
+            return {"build_number": calls["n"], "rounds_seen": len(data.rounds)}
+
+        rounds = [{"id": f"r{i}", "date": f"2026-01-{i:02d}"} for i in range(1, 12)]  # 11 dated rounds
+        data = HistoryData(raw_rounds=[dict(row) for row in rounds], rounds=rounds, shots=[])
+        with patch.object(stats_cache, "_build_history_stats", fake_build), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)):
+            first = stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            last10 = stats_cache.cached_build_history_stats(data, data_mode="local", window="last10", **self.roots)
+            again = stats_cache.cached_build_history_stats(data, data_mode="local", window="all", **self.roots)
+            last10_again = stats_cache.cached_build_history_stats(data, data_mode="local", window="last10", **self.roots)
+            self.assertEqual(first, {"build_number": 1, "rounds_seen": 11})  # all -> full data
+            self.assertEqual(last10, {"build_number": 2, "rounds_seen": 10})  # own key, WINDOWED input
+            self.assertIs(again, first)  # default window == "all"; switching back hits
+            self.assertIs(last10_again, last10)  # windowed result was cached, not just computed
+            self.assertEqual(calls["n"], 2)
+
     def test_load_cache_hits_then_invalidates_on_new_file(self) -> None:
         calls = {"n": 0}
 

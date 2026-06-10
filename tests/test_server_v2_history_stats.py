@@ -8,8 +8,10 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie import stats_cache
 from ai_caddie.config import get_settings
 from ai_caddie.decision import store_decision_audit
+from ai_caddie.history import HistoryData
 from server_v2.main import app
 
 
@@ -27,6 +29,13 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-history-stats-v1")
         self.assertEqual(payload["dataMode"], "fixture")
         self.assertEqual(payload["summary"]["totalRounds"], 3)
+        # handicap fields ride along in the summary; with only 3 fixture rounds
+        # (<5 rated) the estimate is None, but the keys must be present
+        self.assertIn("handicapEstimate", payload["summary"])
+        self.assertIn("handicapTrend", payload["summary"])
+        for key in ("handicapEstimate", "handicapTrend"):
+            value = payload["summary"][key]
+            self.assertTrue(value is None or isinstance(value, float), key)
         self.assertGreater(len(payload["courses"]), 0)
         self.assertGreater(len(payload["clubs"]), 0)
         hole = next(row for row in payload["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
@@ -58,6 +67,53 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
 
         self.assertEqual(payload["schema"], "ai-caddie-history-stats-v1")
         self.assertNotIn("schema_", payload)
+
+    def test_history_stats_window_param_validates_and_filters(self) -> None:
+        # The fixture's 3 rounds are <=10 and within 365 days, so EVERY window maps
+        # them to the same 3 rounds — a route that silently dropped the window would
+        # still pass (a mutant proved exactly that). Use a synthetic dataset where
+        # the three windows give three DIFFERENT counts: 12 rounds, 11 of them within
+        # 365 days of the newest (2026-06-01), 1 older -> all=12, 12m=11, last10=10.
+        newest = ["2026-06-01", "2026-05-01", "2026-04-01", "2026-03-01", "2026-02-01", "2026-01-01"]
+        older = ["2025-12-01", "2025-11-01", "2025-10-01", "2025-09-01", "2025-08-01"]
+        beyond_12m = ["2025-01-01"]
+        rounds = [
+            {
+                "id": f"w{index + 1}",
+                "date": day,
+                "course": "Window Course",
+                "courseKey": "window_course",
+                "holesCompleted": 18,
+                "strokes": 90,
+                "par": 72,
+                "holes": [],
+                "hasShots": False,
+            }
+            for index, day in enumerate(newest + older + beyond_12m)
+        ]
+        data = HistoryData(
+            raw_rounds=[{"id": row["id"], "hasShots": False} for row in rounds],
+            rounds=rounds,
+            shots=[],
+        )
+        stats_cache.clear()
+        self.addCleanup(stats_cache.clear)
+        with patch("server_v2.history_stats.load_history_data_for_mode", return_value=(data, "local")):
+            client = TestClient(app)
+            unwindowed = client.get("/api/v2/history/stats")
+            last10 = client.get("/api/v2/history/stats?window=last10")
+            twelve = client.get("/api/v2/history/stats?window=12m")
+            invalid = client.get("/api/v2/history/stats?window=bogus")
+
+        self.assertEqual(unwindowed.status_code, 200)
+        self.assertEqual(unwindowed.json()["summary"]["totalRounds"], 12)
+        self.assertEqual(last10.status_code, 200)
+        payload = last10.json()
+        self.assertEqual(payload["schema"], "ai-caddie-history-stats-v1")
+        self.assertEqual(payload["summary"]["totalRounds"], 10)
+        self.assertEqual(twelve.status_code, 200)
+        self.assertEqual(twelve.json()["summary"]["totalRounds"], 11)
+        self.assertEqual(invalid.status_code, 422)
 
     def test_history_stats_endpoint_includes_decision_audit_diagnosis(self) -> None:
         with TemporaryDirectory() as tmp:

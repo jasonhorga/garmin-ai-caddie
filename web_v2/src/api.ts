@@ -11,6 +11,7 @@ import type {
   CaddieDecisionAuditStoreResponse,
   CaddieDecisionResponse,
   CoursePrepResponse,
+  CourseSearchResponse,
   HistoryOverviewResponse,
   HistoryDrilldownResponse,
   HistoryRoundDetailResponse,
@@ -39,6 +40,7 @@ import type {
   ReadinessResponse,
   ReviewReportIndexResponse,
   ReviewReportResponse,
+  StatsWindow,
   SyncRunResponse,
   SyncStatusResponse,
   WeatherSnapshotParams,
@@ -233,8 +235,13 @@ export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): 
   return getJson<HistoryRoundDetailResponse>(`/api/v2/history/rounds/${encodeURIComponent(roundRef)}`, adminToken)
 }
 
-export function fetchHistoryStats(adminToken?: string): Promise<HistoryStatsResponse> {
-  return getJson<HistoryStatsResponse>('/api/v2/history/stats', adminToken)
+export function fetchHistoryStats(adminToken?: string, window: StatsWindow = 'all'): Promise<HistoryStatsResponse> {
+  const qs = window !== 'all' ? `?window=${window}` : ''
+  return getJson<HistoryStatsResponse>(`/api/v2/history/stats${qs}`, adminToken)
+}
+
+export function fetchCourseSearch(name: string, adminToken?: string): Promise<CourseSearchResponse> {
+  return getJson<CourseSearchResponse>(`/api/v2/courses/search?name=${encodeURIComponent(name)}`, adminToken)
 }
 
 export function fetchHistoryDrilldown(sourceRef: string, adminToken?: string): Promise<HistoryDrilldownResponse> {

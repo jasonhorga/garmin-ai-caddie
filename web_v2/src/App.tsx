@@ -24,6 +24,7 @@ import {
   fetchMobileReconciliation,
   fetchMobileRoundPackage,
   fetchProductSettings,
+  fetchCourseSearch,
   fetchCourseReport,
   fetchReportIndex,
   fetchRoundReport,
@@ -48,7 +49,7 @@ import { ClubStats } from './components/ClubStats'
 import { CorrectionsPage, type CorrectionTarget } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
-import { HistoryOverview } from './components/HistoryOverview'
+import { HomeOverview } from './components/HomeOverview'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
@@ -65,14 +66,12 @@ import {
   type MobilePackagePrepState,
 } from './components/MobilePackagePrepPanel'
 import { AppShell } from './components/AppShell'
-import { SubNav } from './components/SubNav'
-import { ANALYSIS_TABS } from './navigation'
 import { CoursePrepPanel } from './components/CoursePrepPanel'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
-import { StatsOverview } from './components/StatsOverview'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
+import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
 import type {
   AnnotationCreateRequest,
@@ -101,6 +100,7 @@ import type {
   MobileReconciliationApplyResponse,
   MobileReconciliationResponse,
   ProductSettingsResponse,
+  StatsWindow,
   SyncStatusResponse,
   WeatherSnapshotParams,
   WeatherSnapshotResponse,
@@ -124,6 +124,12 @@ export default function App() {
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
   const [roundsFilters, setRoundsFilters] = useState<RoundsFilters>({})
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
+  const [trendsWindow, setTrendsWindow] = useState<StatsWindow>('last10')
+  const [trendsState, setTrendsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
+  // Mirrors HomeOverview's searchSeq guard: stale trends responses are discarded,
+  // and refreshes always read the window the user most recently selected.
+  const trendsSeq = useRef(0)
+  const trendsWindowRef = useRef<StatsWindow>('last10')
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
@@ -140,6 +146,7 @@ export default function App() {
   const [mediaState, setMediaState] = useState<MediaContextState>({ status: 'idle' })
   const [selectedCaddieSourceRef, setSelectedCaddieSourceRef] = useState('900001:7')
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
+  const [prepGlobalId, setPrepGlobalId] = useState<number | null>(null)
   const [roundDetailState, setRoundDetailState] = useState<HistoryRoundDetailPanelState>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
@@ -162,6 +169,26 @@ export default function App() {
       })
       .catch((error: unknown) => {
         if (!cancelled) setOverviewState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+      })
+
+    // The landing 概览 page composes all-window stats (近期状态/本周该练) and
+    // mobile course options (常打球场 globalIds) on top of the overview payload.
+    setStatsState({ status: 'loading' })
+    fetchHistoryStats()
+      .then((data) => {
+        if (!cancelled) setStatsState({ status: 'ready', data })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setStatsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+      })
+
+    setMobileCourseOptionsState({ status: 'loading' })
+    fetchMobileCourseOptions()
+      .then((data) => {
+        if (!cancelled) setMobileCourseOptionsState({ status: 'ready', data })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setMobileCourseOptionsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
       })
 
     fetchSyncStatus()
@@ -188,6 +215,11 @@ export default function App() {
 
   function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Unknown error'
+  }
+
+  // zh surfaces (W1b 概览/趋势) fall back to a Chinese string; legacy English panels keep errorMessage.
+  function zhErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : '未知错误'
   }
 
   async function refreshOverviewState(adminTokenOverride: string | undefined = currentAdminToken()) {
@@ -237,6 +269,37 @@ export default function App() {
     }
   }
 
+  async function loadTrendsState(window: StatsWindow = trendsWindowRef.current, adminTokenOverride: string | undefined = currentAdminToken()) {
+    const seq = ++trendsSeq.current
+    setTrendsState({ status: 'loading' })
+    try {
+      const data = await fetchHistoryStats(adminTokenOverride, window)
+      if (trendsSeq.current !== seq) return
+      setTrendsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      if (trendsSeq.current !== seq) return
+      setTrendsState({ status: 'error', message: zhErrorMessage(error) })
+    }
+  }
+
+  async function refreshTrendsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+    const seq = ++trendsSeq.current
+    try {
+      const data = await fetchHistoryStats(adminTokenOverride, trendsWindowRef.current)
+      if (trendsSeq.current !== seq) return
+      setTrendsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      if (trendsSeq.current !== seq) return
+      setTrendsState((current) => (current.status === 'ready' ? current : { status: 'error', message: zhErrorMessage(error) }))
+    }
+  }
+
+  function handleTrendsWindowChange(window: StatsWindow) {
+    trendsWindowRef.current = window
+    setTrendsWindow(window)
+    void loadTrendsState(window)
+  }
+
   async function loadReadinessState() {
     setReadinessState({ status: 'loading' })
     try {
@@ -276,12 +339,22 @@ export default function App() {
     }
   }
 
+  async function refreshMobileCourseOptionsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+    try {
+      const data = await fetchMobileCourseOptions(adminTokenOverride)
+      setMobileCourseOptionsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setMobileCourseOptionsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
+    }
+  }
+
   function refreshLoadedHistorySurfaces(adminTokenOverride: string | undefined = currentAdminToken()) {
     void refreshOverviewState(adminTokenOverride)
     if (roundsState.status !== 'idle') void refreshRoundsState(adminTokenOverride)
     if (statsState.status !== 'idle') void refreshStatsState(adminTokenOverride)
+    if (trendsState.status !== 'idle') void refreshTrendsState(adminTokenOverride)
     if (readinessState.status !== 'idle') void refreshReadinessState()
-    if (mobileCourseOptionsState.status !== 'idle') void loadMobileCourseOptionsState(adminTokenOverride)
+    if (mobileCourseOptionsState.status !== 'idle') void refreshMobileCourseOptionsState(adminTokenOverride)
     if (reportIndexState.status !== 'idle') loadReportIndex()
   }
 
@@ -305,11 +378,21 @@ export default function App() {
       setCorrectionTarget(null)
     }
     setActivePage(page)
+    if (page === 'overview') {
+      // 概览 composes stats + course options on boot; if either failed at boot
+      // (e.g. backend briefly down), returning to 概览 retries instead of
+      // leaving the dash-cards stuck on the stale error forever.
+      if (statsState.status === 'idle' || statsState.status === 'error') void loadStatsState()
+      if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
+    }
     if (page === 'rounds' && roundsState.status === 'idle') {
       void loadRoundsState()
     }
     if (statsPages.includes(page) && statsState.status === 'idle') {
       void loadStatsState()
+    }
+    if (page === 'history' && trendsState.status === 'idle') {
+      void loadTrendsState()
     }
     if (page === 'sync-quality' && readinessState.status === 'idle') {
       void loadReadinessState()
@@ -362,6 +445,11 @@ export default function App() {
   function handleCreateAnnotationForSource(target: CorrectionTarget) {
     setCorrectionTarget(target)
     navigate('corrections')
+  }
+
+  function handlePrepCourse(globalId: number) {
+    setPrepGlobalId(globalId)
+    navigate('prep')
   }
 
   async function handleSelectSourceRef(sourceRef: string): Promise<HistoryDrilldownResponse | null> {
@@ -538,18 +626,11 @@ export default function App() {
   function renderStatsContent(data: HistoryStatsResponse) {
     if (activePage === 'courses') return <CourseStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
     if (activePage === 'holes' || activePage === 'clubs' || activePage === 'issues') {
-      const stats =
-        activePage === 'holes' ? (
-          <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        ) : activePage === 'clubs' ? (
-          <ClubStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        ) : (
-          <IssueStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        )
       return (
         <>
-          <SubNav items={ANALYSIS_TABS} activePage={activePage} onNavigate={navigate} variant="inner" label="分析维度" />
-          {stats}
+          <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+          <ClubStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+          <IssueStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
         </>
       )
     }
@@ -573,7 +654,7 @@ export default function App() {
         />
       )
     }
-    return <StatsOverview data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+    return null
   }
 
   function renderSyncQualityWorkspace() {
@@ -992,6 +1073,43 @@ export default function App() {
       )
     }
 
+    if (activePage === 'history') {
+      // The trends page gates on its own windowed trendsState so it is usable as
+      // soon as trends data arrives; the app-wide statsState (window=all) only
+      // feeds the optional vs-全部 deltas and may lag without blocking the page.
+      if (trendsState.status === 'ready') {
+        return (
+          <>
+            <TrendsOverview
+              stats={trendsState.data}
+              allStats={statsState.status === 'ready' ? statsState.data : null}
+              window={trendsWindow}
+              onWindowChange={handleTrendsWindowChange}
+              recentRounds={overviewState.status === 'ready' ? overviewState.data.recentRounds : []}
+              onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+            />
+            {renderDrilldownPanels()}
+          </>
+        )
+      }
+      if (trendsState.status === 'error') {
+        return (
+          <section className="panel empty-state">
+            <h2>趋势总览加载失败</h2>
+            <p>{trendsState.message}</p>
+            <button type="button" onClick={() => void loadTrendsState()}>
+              重试
+            </button>
+          </section>
+        )
+      }
+      return (
+        <section className="panel empty-state">
+          <h2>趋势总览加载中</h2>
+        </section>
+      )
+    }
+
     if (statsPages.includes(activePage)) {
       if (statsState.status === 'ready') {
         return (
@@ -1036,7 +1154,7 @@ export default function App() {
     }
 
     if (activePage === 'prep') {
-      return <CoursePrepPanel />
+      return <CoursePrepPanel key={prepGlobalId ?? 'default'} defaultGlobalId={prepGlobalId ?? undefined} />
     }
 
     if (activePage === 'caddie') {
@@ -1123,10 +1241,15 @@ export default function App() {
 
     return (
       <>
-        <HistoryOverview
-          data={overviewState.data}
-          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+        <HomeOverview
+          overview={overviewState.data}
+          stats={statsState.status === 'ready' ? statsState.data : null}
+          courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
+          onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
+          onPrepCourse={handlePrepCourse}
           onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+          onNavigateHistory={() => navigate('history')}
+          onNavigateAnalysis={() => navigate('holes')}
         />
         {renderDrilldownPanels()}
       </>

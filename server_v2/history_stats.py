@@ -14,9 +14,11 @@ DECISION_AUDIT_ROOT = Path(".")
 logger = logging.getLogger(__name__)
 
 
-def load_history_stats_response() -> HistoryStatsResponse:
+def load_history_stats_response(window: str = "all") -> HistoryStatsResponse:
     data, mode = load_history_data_for_mode()
-    return HistoryStatsResponse(**cached_build_history_stats(data, data_mode=mode, decision_audit_root=DECISION_AUDIT_ROOT))
+    return HistoryStatsResponse(
+        **cached_build_history_stats(data, data_mode=mode, decision_audit_root=DECISION_AUDIT_ROOT, window=window)
+    )
 
 
 def warm_stats_cache() -> None:
@@ -24,8 +26,12 @@ def warm_stats_cache() -> None:
 
     Calls the same cached accessors the request path uses: ``cached_load_history_data``
     (the ~2s read) and ``load_history_stats_response`` (the ~10s build, via
-    ``cached_build_history_stats``). After this runs, ``/api/v2/history/stats`` and the
-    other consumers of the stats cache return instantly until the inputs change again.
+    ``cached_build_history_stats``). Exactly TWO windows are pre-warmed: ``all`` (the
+    default for /history/stats, /caddie/context and the mobile packages) and ``last10``
+    (趋势总览's default range — its windowed build only sees 10 rounds, ~0.1s extra).
+    ``12m`` is NOT pre-warmed; the first 12m request pays its own build. After this
+    runs, the warmed windows and the other consumers of the stats cache return
+    instantly until the inputs change again.
 
     This is purely a pre-population: it never changes the data or the response any
     endpoint would produce. Any failure is swallowed -- a warm must NEVER break the sync
@@ -34,6 +40,7 @@ def warm_stats_cache() -> None:
     try:
         cached_load_history_data()
         load_history_stats_response()
+        load_history_stats_response(window="last10")
     except Exception:  # noqa: BLE001 - warming is best-effort and must not propagate
         logger.exception("stats cache warm failed")
 

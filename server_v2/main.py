@@ -346,8 +346,8 @@ def history_round_detail(round_ref: str) -> HistoryRoundDetailResponse:
 
 
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)
-def history_stats() -> HistoryStatsResponse:
-    return load_history_stats_response()
+def history_stats(window: str = Query("all", pattern="^(all|12m|last10)$")) -> HistoryStatsResponse:
+    return load_history_stats_response(window=window)
 
 
 @app.get("/api/v2/history/drilldown/{source_ref}", response_model=HistoryDrilldownResponse)

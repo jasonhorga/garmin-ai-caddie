@@ -47,14 +47,18 @@ class CacheWarmupTests(unittest.TestCase):
         ) as build_spy:
             warm_stats_cache()
             warmed_calls = build_spy.call_count
-            self.assertGreaterEqual(warmed_calls, 1, "warm should have done a cold build")
+            self.assertEqual(
+                warmed_calls, 2, "warm should cold-build BOTH pre-warmed windows (all + last10)"
+            )
 
-            # The real user path after a warm must NOT recompute.
+            # The real user path after a warm must NOT recompute — for the default
+            # window AND for last10 (趋势总览's default range, warmed deliberately).
             load_history_stats_response()
+            load_history_stats_response(window="last10")
             self.assertEqual(
                 build_spy.call_count,
                 warmed_calls,
-                "request after warm should be a cache hit (no extra build)",
+                "all/last10 requests after warm should be cache hits (no extra build)",
             )
 
     def test_warm_populates_load_history_data_cache(self) -> None:

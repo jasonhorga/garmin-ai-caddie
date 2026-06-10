@@ -10,6 +10,7 @@ import {
   fetchAnnotationsForTarget,
   fetchCourseGeometryCoverage,
   fetchCourseReport,
+  fetchCourseSearch,
   ensureHoleGeometry,
   fetchHistoryOverview,
   fetchHistoryDrilldown,
@@ -343,6 +344,81 @@ describe('fetchHistoryStats', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
+  })
+
+  it('omits window query param when window is all (default)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-stats-v1',
+        dataMode: 'fixture',
+        summary: { totalRounds: 3, average18: 82 },
+        time: { byMonth: [] },
+        scoring: { scoreBands: [] },
+        courseDistribution: [],
+        records: {},
+        courses: [],
+        holes: [],
+        clubs: [],
+        issues: [],
+        dataQuality: [],
+        drillDown: { roundIds: [] },
+      }),
+    })))
+
+    await fetchHistoryStats(undefined, 'all')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/stats')
+  })
+
+  it('appends ?window=last10 when window is last10', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-stats-v1',
+        dataMode: 'fixture',
+        summary: { totalRounds: 3, average18: 82 },
+        time: { byMonth: [] },
+        scoring: { scoreBands: [] },
+        courseDistribution: [],
+        records: {},
+        courses: [],
+        holes: [],
+        clubs: [],
+        issues: [],
+        dataQuality: [],
+        drillDown: { roundIds: [] },
+      }),
+    })))
+
+    await fetchHistoryStats(undefined, 'last10')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/stats?window=last10')
+  })
+
+  it('appends ?window=12m when window is 12m', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-stats-v1',
+        dataMode: 'fixture',
+        summary: { totalRounds: 3, average18: 82 },
+        time: { byMonth: [] },
+        scoring: { scoreBands: [] },
+        courseDistribution: [],
+        records: {},
+        courses: [],
+        holes: [],
+        clubs: [],
+        issues: [],
+        dataQuality: [],
+        drillDown: { roundIds: [] },
+      }),
+    })))
+
+    await fetchHistoryStats(undefined, '12m')
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/stats?window=12m')
   })
 })
 
@@ -1993,6 +2069,59 @@ describe('annotation API helpers', () => {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/annotations/target/hole/round-1%3A7', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+})
+
+describe('fetchCourseSearch', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('URL-encodes CJK course name and passes response through', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-course-search-v1',
+        query: '观澜湖',
+        matches: [
+          {
+            globalId: 12345,
+            name: '观澜湖高尔夫球会',
+            holes: 18,
+            city: '深圳',
+            province: '广东',
+            ratio: 0.92,
+          },
+        ],
+      }),
+    })))
+
+    const result = await fetchCourseSearch('观澜湖')
+
+    expect(fetch).toHaveBeenCalledWith(`/api/v2/courses/search?name=${encodeURIComponent('观澜湖')}`)
+    expect(result.schema).toBe('ai-caddie-course-search-v1')
+    expect(result.query).toBe('观澜湖')
+    expect(result.matches[0].globalId).toBe(12345)
+    expect(result.matches[0].ratio).toBe(0.92)
+    expect(result.matches[0].city).toBe('深圳')
+  })
+
+  it('sends admin token for protected course search reads', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-course-search-v1',
+        query: 'black knight',
+        matches: [],
+      }),
+    })))
+
+    await fetchCourseSearch('black knight', 'admin-secret')
+
+    expect(fetch).toHaveBeenCalledWith(`/api/v2/courses/search?name=${encodeURIComponent('black knight')}`, {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })

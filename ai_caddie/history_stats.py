@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import date, timedelta
 from pathlib import Path
 from statistics import median
 from typing import Any, Literal
@@ -438,6 +439,81 @@ def _hole_geometry_coverage(pairs: list[tuple[dict[str, Any], dict[str, Any]]], 
         return "missing"
 
 
+def _round_differential_or_par(row: dict[str, Any]) -> float | None:
+    """``_round_differential`` when rating/slope allow it; else ``score18 - par``.
+
+    Real Garmin rounds often lack course rating/slope; without a fallback the
+    差点(估算) KPI would be permanently None on such data. The label is 估算 (an
+    estimate), so score-over-par is an acceptable stand-in for the HANDICAP fields
+    only — byMonth ``averageDifferential`` (the chart line) stays rated-only
+    because mixing the two scales in one curve would mislead.
+
+    A rated differential is trusted only when the rating is plausible for the 18
+    holes ``_score18`` guarantees (>= 50). Merged 18-hole rounds often keep the
+    front NINE's tee rating (e.g. 35.2): pricing 18 holes of strokes against a
+    9-hole rating yields ~94 where the honest score-par value is ~43, silently
+    poisoning 差点(估算) whenever such a round enters the last-20 window — so a
+    sub-50 rating is treated as unrated and falls through to score-par. Nine-hole
+    rounds are unaffected: without an 18-hole score they never had a differential
+    of either kind.
+    """
+    differential = _round_differential(row)
+    if differential is not None:
+        rating = _float_field(row, "rating")
+        if rating is not None and rating >= 50:
+            return differential
+    score = _score18(row)
+    par = _float_field(row, "par")
+    if score is None or par is None or par <= 0:
+        return None
+    return round(float(score) - par, 1)
+
+
+def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
+    """WHS-style handicap estimate; the UI labels it 估算 (never an official index).
+
+    Over rounds that HAVE a differential (``_round_differential_or_par``: rated
+    when possible, score-par for unrated rounds, rounds with neither are skipped),
+    sorted by date desc, take the most recent ``min(20, N)``; needs at least 5;
+    average the LOWEST ``ceil(0.4 * min(20, N))`` differentials, multiply by 0.96
+    (the WHS bonus factor), round to 1 decimal.
+    """
+    rated = [
+        (str(row.get("date") or ""), differential)
+        for row in rounds
+        if (differential := _round_differential_or_par(row)) is not None
+    ]
+    if len(rated) < 5:
+        return None
+    rated.sort(key=lambda item: item[0], reverse=True)
+    recent = [differential for _day, differential in rated[:20]]
+    take = math.ceil(0.4 * len(recent))
+    lowest = sorted(recent)[:take]
+    return round(sum(lowest) / len(lowest) * 0.96, 1)
+
+
+def _handicap_trend(rounds: list[dict[str, Any]]) -> float | None:
+    """Estimate now minus the estimate from rounds dated <= anchor - 90 days.
+
+    The anchor is the newest round date in the data (never the wall clock, so the
+    value is deterministic and cacheable). None when either side lacks the 5
+    differential-bearing rounds an estimate needs (rated or score-par fallback,
+    via ``_handicap_estimate``). Negative = improving.
+    """
+    anchor = max((day for row in rounds if (day := _round_window_date(row)) is not None), default=None)
+    if anchor is None:
+        return None
+    current = _handicap_estimate(rounds)
+    if current is None:
+        return None
+    cutoff = anchor - timedelta(days=90)
+    older = [row for row in rounds if (day := _round_window_date(row)) is not None and day <= cutoff]
+    baseline = _handicap_estimate(older)
+    if baseline is None:
+        return None
+    return round(current - baseline, 1)
+
+
 def _summary(data: HistoryData) -> dict[str, Any]:
     rounds18 = [row for row in data.rounds if _score18(row) is not None]
     scores18 = [score for row in rounds18 if (score := _score18(row)) is not None]
@@ -463,6 +539,8 @@ def _summary(data: HistoryData) -> dict[str, Any]:
             "recent20Average": average(recent_scores18[:20]),
             "bestScore": min(scores18) if scores18 else None,
             "worstScore": max(scores18) if scores18 else None,
+            "handicapEstimate": _handicap_estimate(data.rounds),
+            "handicapTrend": _handicap_trend(data.rounds),
             "averageDifferential": difficulty["averageDifferential"],
             "bestDifferential": difficulty["bestDifferential"],
             "recent10AverageDifferential": difficulty["recent10AverageDifferential"],
@@ -3440,6 +3518,57 @@ def _data_quality(
         _report_quality(data, report_records),
         _weather_quality(data, weather_snapshots),
     ]
+
+
+def _round_window_date(row: dict[str, Any]) -> date | None:
+    raw = str(row.get("date") or "")[:10]
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
+    """Filter ``data`` to the requested stats window. Pure — never mutates the input.
+
+    - ``all``: the input object itself (identity, zero cost).
+    - ``last10``: the 10 most recent rounds by date (ISO-string sort desc, ties keep
+      input order); merged rounds count as one.
+    - ``12m``: rounds dated within 365 days of the NEWEST round in the data. Anchoring
+      on the data instead of the wall clock keeps the result deterministic for a given
+      dataset (and cacheable by fingerprint).
+
+    ``shots`` and ``raw_rounds`` are filtered to the surviving rounds. Merged rounds
+    (``id="merged_<a>_<b>"``) list their member ids in ``ids`` while their shots and
+    raw_rounds reference the RAW member ids, so the surviving-id set includes both;
+    ids are compared as strings because sources mix ints and strings.
+    """
+    if window == "all":
+        return data
+    if window == "last10":
+        order = sorted(range(len(data.rounds)), key=lambda i: str(data.rounds[i].get("date") or ""), reverse=True)
+        keep_indexes = set(order[:10])
+        rounds = [row for index, row in enumerate(data.rounds) if index in keep_indexes]
+    elif window == "12m":
+        dated = [(row, _round_window_date(row)) for row in data.rounds]
+        anchor = max((day for _, day in dated if day is not None), default=None)
+        if anchor is None:
+            rounds = list(data.rounds)
+        else:
+            cutoff = anchor - timedelta(days=365)
+            rounds = [row for row, day in dated if day is not None and day >= cutoff]
+    else:
+        raise ValueError(f"invalid stats window: {window}")
+    keep_ids: set[str] = set()
+    for row in rounds:
+        keep_ids.add(_round_id(row))
+        for member in row.get("ids") or []:
+            keep_ids.add(str(member))
+    return HistoryData(
+        raw_rounds=[row for row in data.raw_rounds if _round_id(row) in keep_ids],
+        rounds=rounds,
+        shots=[shot for shot in data.shots if _shot_round_id(shot) in keep_ids],
+    )
 
 
 def build_history_stats(

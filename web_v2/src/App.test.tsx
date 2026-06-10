@@ -963,7 +963,8 @@ describe('App navigation', () => {
         ok: true,
         json: async () => {
           if (path === '/api/v2/history/rounds') return roundsPayload()
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
         },
@@ -973,7 +974,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '概览' })).toHaveAttribute('aria-current', 'page')
     ;['概览', '历史', '备战', '实战', '设置'].forEach(
       (label) => expect(screen.getByRole('button', { name: label })).toBeEnabled(),
@@ -1028,7 +1029,7 @@ describe('App navigation', () => {
     await userEvent.type(await screen.findByLabelText('Admin token'), 'admin-secret')
     await userEvent.click(screen.getByRole('button', { name: 'Retry history' }))
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
@@ -1053,7 +1054,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
         },
@@ -1063,10 +1064,9 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(await screen.findByRole('button', { name: '强弱分析' }))
-    await userEvent.click(screen.getByRole('button', { name: '按杆' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
 
     expect(await screen.findByRole('button', { name: 'Retry source detail' })).toBeInTheDocument()
@@ -1102,7 +1102,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.type(await screen.findByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
     await userEvent.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
@@ -1117,7 +1117,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/history/drilldown/900001%3A1%3A0') return drilldownPayload()
         if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1128,17 +1128,20 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
 
-    expect(await screen.findByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats?window=last10')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
 
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    await userEvent.click(screen.getByRole('button', { name: '按杆' }))
 
+    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
     expect(screen.getByText('1D')).toBeInTheDocument()
+    expect(screen.getByText('missing_shots')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
 
     expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
@@ -1152,20 +1155,145 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    await userEvent.click(screen.getByRole('button', { name: '问题' }))
 
     expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
-    expect(screen.getByText('missing_shots')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(1)
+  })
+
+  it('refetches trends with the newly selected window', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || String(path).startsWith('/api/v2/history/stats?')) return statsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats?window=last10')
+    // The boot 概览 composition already loaded the all-window stats exactly once.
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
+
+    await userEvent.click(screen.getByRole('button', { name: '近12个月' }))
+
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats?window=12m')
+
+    await userEvent.click(screen.getByRole('button', { name: '全部' }))
+
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
+  })
+
+  it('去备战 hands the clicked course globalId to the prep panel', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: '去备战 Black Knight B/C' }))
+
+    expect(await screen.findByRole('heading', { name: '赛前球场攻略' })).toBeInTheDocument()
+    // CoursePrepPanel seeds its global-id input from the handed-off defaultGlobalId.
+    expect(screen.getByDisplayValue('31795')).toBeInTheDocument()
+  })
+
+  it('discards a stale trends refresh that resolves after the window changed', async () => {
+    const twelveMonthStats = {
+      ...statsPayload(),
+      summary: { totalRounds: 9, average18: 95, bestScore: 81, shotCount: 6 },
+    }
+    let last10Calls = 0
+    let resolveStaleRefresh!: () => void
+    const staleRefresh = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+      resolveStaleRefresh = () => resolve({ ok: true, json: async () => statsPayload() })
+    })
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === '/api/v2/history/stats?window=last10') {
+        last10Calls += 1
+        // The second last10 request is the background refresh kicked off by the
+        // sync run; keep it pending so it can resolve after the window changes.
+        if (last10Calls > 1) return staleRefresh
+        return Promise.resolve({ ok: true, json: async () => statsPayload() })
+      }
+      if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => syncRunPayload() })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats?window=12m') return twelveMonthStats
+          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/readiness') return readinessPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusCanSyncPayload()
+          return overviewPayload()
+        },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+
+    // Kick off a background trends refresh (window=last10) that stays in flight.
+    await userEvent.click(screen.getByRole('button', { name: '设置' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(2),
+    )
+
+    // Switch to 近12个月 while the last10 refresh is still pending.
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+    await userEvent.click(screen.getByRole('button', { name: '近12个月' }))
+    const averageCard = (await screen.findByText('均杆(18洞)')).closest('article') as HTMLElement
+    expect(within(averageCard).getByText('95')).toBeInTheDocument()
+
+    // The stale last10 refresh resolves late — it must not clobber the 12m view.
+    await act(async () => {
+      resolveStaleRefresh()
+      await staleRefresh
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByRole('button', { name: '近12个月' })).toHaveAttribute('aria-pressed', 'true')
+    const averageCardAfter = screen.getByText('均杆(18洞)').closest('article') as HTMLElement
+    expect(within(averageCardAfter).getByText('95')).toBeInTheDocument()
+    expect(within(averageCardAfter).queryByText('82')).not.toBeInTheDocument()
   })
 
   it('renders loading and error states for deferred history stats', async () => {
+    let statsAvailable = false
     let rejectStats: (error: Error) => void = () => {}
     const statsPromise = new Promise<never>((_, reject) => {
       rejectStats = reject
     })
     const fetchMock = vi.fn((path: string) => {
-      if (path === '/api/v2/history/stats') return statsPromise
+      if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') {
+        if (!statsAvailable) return statsPromise
+        return Promise.resolve({ ok: true, json: async () => statsPayload() })
+      }
       return Promise.resolve({
         ok: true,
         json: async () => {
@@ -1178,17 +1306,32 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
 
-    expect(await screen.findByRole('heading', { name: 'Loading history stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '趋势总览加载中' })).toBeInTheDocument()
 
     await act(async () => {
       rejectStats(new Error('GET /api/v2/history/stats failed: 500 Internal Server Error'))
     })
 
-    expect(await screen.findByRole('heading', { name: 'History stats unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '趋势总览加载失败' })).toBeInTheDocument()
     expect(screen.getByText('GET /api/v2/history/stats failed: 500 Internal Server Error')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+    // The trends page keeps recovery plain — the 去设置 hint lives on the other stats pages.
+    expect(screen.queryByText('如需配置访问密钥，请前往 设置 → 同步与数据健康。')).not.toBeInTheDocument()
+
+    // 重试 refetches the windowed stats and renders the trends page.
+    statsAvailable = true
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
+
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(2)
+
+    await userEvent.click(screen.getByRole('button', { name: '球场' }))
+
+    expect(await screen.findByRole('heading', { name: 'History stats unavailable' })).toBeInTheDocument()
     expect(screen.getByText('如需配置访问密钥，请前往 设置 → 同步与数据健康。')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
@@ -1204,7 +1347,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
         },
@@ -1214,7 +1357,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
 
@@ -1234,7 +1377,8 @@ describe('App navigation', () => {
         ok: true,
         json: async () => {
           if (path === '/api/v2/history/rounds') return roundsPayload()
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
         },
@@ -1266,7 +1410,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '备战' }))
 
     expect(await screen.findByRole('heading', { name: '赛前球场攻略' })).toBeInTheDocument()
@@ -1283,7 +1427,8 @@ describe('App navigation', () => {
         if (path === '/api/v2/reports/round/1/generate') return roundReportPayload('1')
         if (path === '/api/v2/history/drilldown/1%3A1') return overviewHoleDrilldownPayload()
         if (path === '/api/v2/history/drilldown/1') return overviewRoundDrilldownPayload()
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayloadWithRoundRefs()
       },
@@ -1292,8 +1437,8 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
 
     expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
     expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(0)
@@ -1335,7 +1480,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(await screen.findByRole('button', { name: '订正' }))
 
@@ -1379,6 +1524,8 @@ describe('App navigation', () => {
       ok: true,
       json: async () => {
         if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
+        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
         if (path === '/api/v2/annotations') return annotationsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/annotations' && init?.method === 'POST') return createdAnnotationPayload()
@@ -1389,8 +1536,8 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
     expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Add correction for round 1' }))
@@ -1417,7 +1564,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(await screen.findByRole('button', { name: '后端配置' }))
 
@@ -1433,7 +1580,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/annotations' && init?.method === 'POST') return createdAnnotationPayload()
           if (path === '/api/v2/annotations') return annotationsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1445,9 +1592,9 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
-    expect(await screen.findByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
@@ -1470,7 +1617,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/reports') return reportIndexPayload()
         if (path === '/api/v2/reports/trend/recent_10') return trendReportPayload()
         if (path === '/api/v2/reports/course/black_knight') return courseReportPayload()
@@ -1484,7 +1631,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '报告' }))
 
@@ -1517,7 +1664,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/reports') return reportIndexPayload()
         if (path === '/api/v2/reports/trend/recent_10') return trendReportPayload()
         if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()
@@ -1529,7 +1676,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '报告' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Load trend report' }))
@@ -1544,7 +1691,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/readiness') return readinessPayload()
         if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&ensure_geometry=true') return mobilePackagePayload()
@@ -1559,7 +1706,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
 
     expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
@@ -1610,7 +1757,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/readiness') return readinessPayload()
           if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true') return mobilePackagePayload()
           return overviewPayload()
@@ -1621,7 +1768,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
 
     expect(await screen.findByRole('heading', { name: 'Mobile Package Prep' })).toBeInTheDocument()
@@ -1646,7 +1793,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           if (path === '/api/v2/readiness') return readinessPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
@@ -1658,7 +1805,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
 
@@ -1679,7 +1826,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusCanSyncPayload()
           if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') return syncRunPayload()
           return overviewPayload()
@@ -1690,9 +1837,9 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
-    expect(await screen.findByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
@@ -1706,7 +1853,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
         if (path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7') return holeGeometryEvidencePayload()
         if (path === '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7') return holeMapPayload()
@@ -1718,7 +1865,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
@@ -1739,7 +1886,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') {
           return {
             ...statsPayload(),
             holes: [{ courseKey: 'split_geometry', hole: 10, sampleCount: 1, averageToPar: 0, worstToPar: 0, refs: ['900001:10'] }],
@@ -1756,7 +1903,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
@@ -1772,7 +1919,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
         if (path === '/api/v2/geometry/hole/31795/7/ensure' && init?.method === 'POST') {
           ensured = true
@@ -1790,7 +1937,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
@@ -1822,7 +1969,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
           if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()
           if (path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7') {
@@ -1838,7 +1985,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
@@ -1883,7 +2030,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
     expect(screen.queryByText('赛前球场攻略')).not.toBeInTheDocument()
@@ -1973,7 +2120,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/history/drilldown/900002%3A5%3A4') return selectedShotDrilldownPayload()
         if (String(path).startsWith('/api/v2/caddie/context')) return caddieContextPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1984,10 +2131,9 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('History Overview')).toBeInTheDocument()
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    await userEvent.click(screen.getByRole('button', { name: '按杆' }))
     expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900002:5:4' }))
 

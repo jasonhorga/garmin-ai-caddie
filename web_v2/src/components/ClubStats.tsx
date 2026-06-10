@@ -19,7 +19,7 @@ export function ClubStats({ data, onSelectRef }: ClubStatsProps) {
       <div className="section-head stats-head">
         <div>
           <p className="eyebrow">Club Model</p>
-          <h1>Club Stats</h1>
+          <h2>Club Stats</h2>
           <p>Personal distance samples, dispersion range, and confidence.</p>
         </div>
         <StatsQualityChips data={data} labels={['shots', 'shot_rows']} />
