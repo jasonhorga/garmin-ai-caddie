@@ -71,8 +71,8 @@ import { CoursePrepPanel } from './components/CoursePrepPanel'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
-import { StatsOverview } from './components/StatsOverview'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
+import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
 import type {
   AnnotationCreateRequest,
@@ -101,6 +101,7 @@ import type {
   MobileReconciliationApplyResponse,
   MobileReconciliationResponse,
   ProductSettingsResponse,
+  StatsWindow,
   SyncStatusResponse,
   WeatherSnapshotParams,
   WeatherSnapshotResponse,
@@ -124,6 +125,8 @@ export default function App() {
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
   const [roundsFilters, setRoundsFilters] = useState<RoundsFilters>({})
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
+  const [trendsWindow, setTrendsWindow] = useState<StatsWindow>('last10')
+  const [trendsState, setTrendsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
@@ -237,6 +240,30 @@ export default function App() {
     }
   }
 
+  async function loadTrendsState(window: StatsWindow = trendsWindow, adminTokenOverride: string | undefined = currentAdminToken()) {
+    setTrendsState({ status: 'loading' })
+    try {
+      const data = await fetchHistoryStats(adminTokenOverride, window)
+      setTrendsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setTrendsState({ status: 'error', message: errorMessage(error) })
+    }
+  }
+
+  async function refreshTrendsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+    try {
+      const data = await fetchHistoryStats(adminTokenOverride, trendsWindow)
+      setTrendsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setTrendsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
+    }
+  }
+
+  function handleTrendsWindowChange(window: StatsWindow) {
+    setTrendsWindow(window)
+    void loadTrendsState(window)
+  }
+
   async function loadReadinessState() {
     setReadinessState({ status: 'loading' })
     try {
@@ -280,6 +307,7 @@ export default function App() {
     void refreshOverviewState(adminTokenOverride)
     if (roundsState.status !== 'idle') void refreshRoundsState(adminTokenOverride)
     if (statsState.status !== 'idle') void refreshStatsState(adminTokenOverride)
+    if (trendsState.status !== 'idle') void refreshTrendsState(adminTokenOverride)
     if (readinessState.status !== 'idle') void refreshReadinessState()
     if (mobileCourseOptionsState.status !== 'idle') void loadMobileCourseOptionsState(adminTokenOverride)
     if (reportIndexState.status !== 'idle') loadReportIndex()
@@ -310,6 +338,9 @@ export default function App() {
     }
     if (statsPages.includes(page) && statsState.status === 'idle') {
       void loadStatsState()
+    }
+    if (page === 'history' && trendsState.status === 'idle') {
+      void loadTrendsState()
     }
     if (page === 'sync-quality' && readinessState.status === 'idle') {
       void loadReadinessState()
@@ -573,7 +604,7 @@ export default function App() {
         />
       )
     }
-    return <StatsOverview data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+    return null
   }
 
   function renderSyncQualityWorkspace() {
@@ -989,6 +1020,43 @@ export default function App() {
             />
           )}
         </>
+      )
+    }
+
+    if (activePage === 'history') {
+      // The trends page gates on its own windowed trendsState so it is usable as
+      // soon as trends data arrives; the app-wide statsState (window=all) only
+      // feeds the optional vs-全部 deltas and may lag without blocking the page.
+      if (trendsState.status === 'ready') {
+        return (
+          <>
+            <TrendsOverview
+              stats={trendsState.data}
+              allStats={statsState.status === 'ready' ? statsState.data : null}
+              window={trendsWindow}
+              onWindowChange={handleTrendsWindowChange}
+              recentRounds={overviewState.status === 'ready' ? overviewState.data.recentRounds : []}
+              onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+            />
+            {renderDrilldownPanels()}
+          </>
+        )
+      }
+      if (trendsState.status === 'error') {
+        return (
+          <section className="panel empty-state">
+            <h1>趋势总览加载失败</h1>
+            <p>{trendsState.message}</p>
+            <button type="button" onClick={() => void loadTrendsState()}>
+              重试
+            </button>
+          </section>
+        )
+      }
+      return (
+        <section className="panel empty-state">
+          <h1>趋势总览加载中</h1>
+        </section>
       )
     }
 

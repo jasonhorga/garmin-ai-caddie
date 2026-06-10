@@ -963,7 +963,7 @@ describe('App navigation', () => {
         ok: true,
         json: async () => {
           if (path === '/api/v2/history/rounds') return roundsPayload()
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
         },
@@ -1053,7 +1053,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
         },
@@ -1117,7 +1117,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/history/drilldown/900001%3A1%3A0') return drilldownPayload()
         if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1131,7 +1131,8 @@ describe('App navigation', () => {
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
 
-    expect(await screen.findByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats?window=last10')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
 
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
@@ -1157,6 +1158,7 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
     expect(screen.getByText('missing_shots')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(1)
   })
 
   it('renders loading and error states for deferred history stats', async () => {
@@ -1165,7 +1167,7 @@ describe('App navigation', () => {
       rejectStats = reject
     })
     const fetchMock = vi.fn((path: string) => {
-      if (path === '/api/v2/history/stats') return statsPromise
+      if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPromise
       return Promise.resolve({
         ok: true,
         json: async () => {
@@ -1181,14 +1183,21 @@ describe('App navigation', () => {
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
 
-    expect(await screen.findByRole('heading', { name: 'Loading history stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '趋势总览加载中' })).toBeInTheDocument()
 
     await act(async () => {
       rejectStats(new Error('GET /api/v2/history/stats failed: 500 Internal Server Error'))
     })
 
-    expect(await screen.findByRole('heading', { name: 'History stats unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '趋势总览加载失败' })).toBeInTheDocument()
     expect(screen.getByText('GET /api/v2/history/stats failed: 500 Internal Server Error')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+    // The trends page keeps recovery plain — the 去设置 hint lives on the other stats pages.
+    expect(screen.queryByText('如需配置访问密钥，请前往 设置 → 同步与数据健康。')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '球场' }))
+
+    expect(await screen.findByRole('heading', { name: 'History stats unavailable' })).toBeInTheDocument()
     expect(screen.getByText('如需配置访问密钥，请前往 设置 → 同步与数据健康。')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
@@ -1204,7 +1213,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
         },
@@ -1234,7 +1243,7 @@ describe('App navigation', () => {
         ok: true,
         json: async () => {
           if (path === '/api/v2/history/rounds') return roundsPayload()
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
         },
@@ -1283,7 +1292,7 @@ describe('App navigation', () => {
         if (path === '/api/v2/reports/round/1/generate') return roundReportPayload('1')
         if (path === '/api/v2/history/drilldown/1%3A1') return overviewHoleDrilldownPayload()
         if (path === '/api/v2/history/drilldown/1') return overviewRoundDrilldownPayload()
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayloadWithRoundRefs()
       },
@@ -1433,7 +1442,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/annotations' && init?.method === 'POST') return createdAnnotationPayload()
           if (path === '/api/v2/annotations') return annotationsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1447,7 +1456,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
-    expect(await screen.findByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
@@ -1470,7 +1479,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/reports') return reportIndexPayload()
         if (path === '/api/v2/reports/trend/recent_10') return trendReportPayload()
         if (path === '/api/v2/reports/course/black_knight') return courseReportPayload()
@@ -1517,7 +1526,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/reports') return reportIndexPayload()
         if (path === '/api/v2/reports/trend/recent_10') return trendReportPayload()
         if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()
@@ -1544,7 +1553,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/readiness') return readinessPayload()
         if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&ensure_geometry=true') return mobilePackagePayload()
@@ -1610,7 +1619,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/readiness') return readinessPayload()
           if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true') return mobilePackagePayload()
           return overviewPayload()
@@ -1646,7 +1655,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           if (path === '/api/v2/readiness') return readinessPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
@@ -1679,7 +1688,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusCanSyncPayload()
           if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') return syncRunPayload()
           return overviewPayload()
@@ -1692,7 +1701,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('History Overview')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
-    expect(await screen.findByRole('heading', { name: 'Statistics Overview' })).toBeInTheDocument()
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
@@ -1706,7 +1715,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
         if (path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7') return holeGeometryEvidencePayload()
         if (path === '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7') return holeMapPayload()
@@ -1739,7 +1748,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') {
           return {
             ...statsPayload(),
             holes: [{ courseKey: 'split_geometry', hole: 10, sampleCount: 1, averageToPar: 0, worstToPar: 0, refs: ['900001:10'] }],
@@ -1772,7 +1781,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
         if (path === '/api/v2/geometry/hole/31795/7/ensure' && init?.method === 'POST') {
           ensured = true
@@ -1822,7 +1831,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
           if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()
           if (path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7') {
@@ -1973,7 +1982,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/history/drilldown/900002%3A5%3A4') return selectedShotDrilldownPayload()
         if (String(path).startsWith('/api/v2/caddie/context')) return caddieContextPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()

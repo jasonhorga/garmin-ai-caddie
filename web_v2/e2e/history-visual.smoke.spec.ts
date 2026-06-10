@@ -444,7 +444,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
 
   await page.getByRole('button', { name: '历史' }).click()
   for (const [tab, heading] of [
-    ['趋势总览', 'Statistics Overview'],
+    ['趋势总览', '成绩走势'],
     ['球局', 'Rounds'],
     ['强弱分析', 'Hole Stats'],
     ['球场', 'Course Stats'],
