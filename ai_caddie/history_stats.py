@@ -439,18 +439,38 @@ def _hole_geometry_coverage(pairs: list[tuple[dict[str, Any], dict[str, Any]]], 
         return "missing"
 
 
+def _round_differential_or_par(row: dict[str, Any]) -> float | None:
+    """``_round_differential`` when rating/slope allow it; else ``score18 - par``.
+
+    Real Garmin rounds often lack course rating/slope; without a fallback the
+    差点(估算) KPI would be permanently None on such data. The label is 估算 (an
+    estimate), so score-over-par is an acceptable stand-in for the HANDICAP fields
+    only — byMonth ``averageDifferential`` (the chart line) stays rated-only
+    because mixing the two scales in one curve would mislead.
+    """
+    differential = _round_differential(row)
+    if differential is not None:
+        return differential
+    score = _score18(row)
+    par = _float_field(row, "par")
+    if score is None or par is None or par <= 0:
+        return None
+    return round(float(score) - par, 1)
+
+
 def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
     """WHS-style handicap estimate; the UI labels it 估算 (never an official index).
 
-    Over rounds that HAVE a differential (``_round_differential``; rounds without
-    one are skipped), sorted by date desc, take the most recent ``min(20, N)``;
-    needs at least 5; average the LOWEST ``ceil(0.4 * min(20, N))`` differentials,
-    multiply by 0.96 (the WHS bonus factor), round to 1 decimal.
+    Over rounds that HAVE a differential (``_round_differential_or_par``: rated
+    when possible, score-par for unrated rounds, rounds with neither are skipped),
+    sorted by date desc, take the most recent ``min(20, N)``; needs at least 5;
+    average the LOWEST ``ceil(0.4 * min(20, N))`` differentials, multiply by 0.96
+    (the WHS bonus factor), round to 1 decimal.
     """
     rated = [
         (str(row.get("date") or ""), differential)
         for row in rounds
-        if (differential := _round_differential(row)) is not None
+        if (differential := _round_differential_or_par(row)) is not None
     ]
     if len(rated) < 5:
         return None
@@ -466,7 +486,8 @@ def _handicap_trend(rounds: list[dict[str, Any]]) -> float | None:
 
     The anchor is the newest round date in the data (never the wall clock, so the
     value is deterministic and cacheable). None when either side lacks the 5
-    rated rounds an estimate needs. Negative = improving.
+    differential-bearing rounds an estimate needs (rated or score-par fallback,
+    via ``_handicap_estimate``). Negative = improving.
     """
     anchor = max((day for row in rounds if (day := _round_window_date(row)) is not None), default=None)
     if anchor is None:

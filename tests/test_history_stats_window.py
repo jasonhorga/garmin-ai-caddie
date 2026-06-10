@@ -196,10 +196,13 @@ class WindowedHistoryDataTests(unittest.TestCase):
 class HandicapEstimateTests(unittest.TestCase):
     """summary.handicapEstimate / summary.handicapTrend (UI: 差点(估算)).
 
-    Formula: over rounds that HAVE a differential (rounds without one are
-    skipped), sorted by date desc, take the most recent ``min(20, N)``; if
-    ``N < 5`` -> None; else average the LOWEST ``ceil(0.4 * min(20, N))``
-    differentials, multiply by 0.96, round to 1 decimal.
+    Formula: over rounds that HAVE a differential — rated ``(score-rating)*113/slope``
+    or, when rating/slope are missing, the ``score18 - par`` fallback (the label is
+    估算, an approximation is acceptable; rounds with neither are skipped) — sorted
+    by date desc, take the most recent ``min(20, N)``; if ``N < 5`` -> None; else
+    average the LOWEST ``ceil(0.4 * min(20, N))`` differentials, multiply by 0.96,
+    round to 1 decimal. The fallback feeds ONLY the handicap KPI; the byMonth
+    ``averageDifferential`` chart line stays rated-only.
     """
 
     def test_estimate_uses_best_40pct_of_last_20(self) -> None:
@@ -217,20 +220,26 @@ class HandicapEstimateTests(unittest.TestCase):
             _rated_round(f"recent-{index + 1}", f"2025-02-{index + 1:02d}", 72 + diff)
             for index, diff in enumerate(diffs)
         )
-        # The newest round has no rating/slope -> no differential -> skipped; it
-        # must NOT displace a rated round from the 20-round window.
+        # The newest round has no rating/slope -> score-par fallback 90-72 = 18.0;
+        # it enters the 20-round window and displaces the oldest rated round
+        # (diff 29) — neither value is in the lowest-8, so the estimate holds.
         rounds.append(_unrated_round("unrated-newest", "2025-03-01", 90))
 
         stats = build_history_stats(_history(rounds), data_mode="fixture")
 
-        # N=22 rated rounds -> most recent min(20, 22)=20 -> differentials 10..29;
+        # N=23 -> most recent min(20, 23)=20 -> diffs 10..28 plus fallback 18.0;
         # lowest ceil(0.4*20)=8 -> 10..17, mean 13.5; 13.5*0.96 = 12.96 -> 13.0
         self.assertEqual(stats["summary"]["handicapEstimate"], 13.0)
 
     def test_estimate_null_under_5_rounds(self) -> None:
-        # 4 rated rounds + 2 unrated (skipped, do NOT count toward N) -> N=4 -> None
+        # 4 rated rounds + 2 rounds with NO differential of any kind: no rating/
+        # slope AND no par, so even the score-par fallback cannot price them ->
+        # they do NOT count toward N -> N=4 -> None
         rounds = [_rated_round(f"r{i}", f"2026-01-{i:02d}", 80 + i) for i in range(1, 5)]
-        rounds += [_unrated_round(f"u{i}", f"2026-01-{i:02d}", 90) for i in (5, 6)]
+        unpriceable = [_unrated_round(f"u{i}", f"2026-01-{i:02d}", 90) for i in (5, 6)]
+        for row in unpriceable:
+            del row["par"]
+        rounds += unpriceable
 
         stats = build_history_stats(_history(rounds), data_mode="fixture")
 
@@ -279,6 +288,57 @@ class HandicapEstimateTests(unittest.TestCase):
         stats_thin = build_history_stats(_history(older[1:] + recent), data_mode="fixture")
         self.assertEqual(stats_thin["summary"]["handicapEstimate"], 11.0)
         self.assertIsNone(stats_thin["summary"]["handicapTrend"])
+
+    def test_estimate_falls_back_to_score_minus_par_when_unrated(self) -> None:
+        # No round carries rating/slope (real Garmin exports often don't), but all
+        # have strokes + par -> the score-par fallback keeps 差点(估算) alive
+        # instead of pinning the headline KPI to '—' forever.
+        strokes = [88, 90, 92, 94, 96, 98]  # score - par(72): 16, 18, 20, 22, 24, 26
+        rounds = [
+            _unrated_round(f"u{index + 1}", f"2026-01-{index + 1:02d}", value)
+            for index, value in enumerate(strokes)
+        ]
+
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+
+        # N=6 -> lowest ceil(0.4*6)=3 of [16,18,20,22,24,26] -> 16,18,20 -> mean
+        # 18.0; 18.0*0.96 = 17.28 -> 17.3
+        self.assertEqual(stats["summary"]["handicapEstimate"], 17.3)
+
+    def test_estimate_mixes_rated_and_unrated_rounds(self) -> None:
+        # Rated rounds keep the (score-rating)*113/slope differential: slope 226
+        # halves (score-70), so if the implementation wrongly used score-par for
+        # them too (18/22/26) the result would be 13.4, not 10.6. Unrated rounds
+        # contribute score-par; both kinds share one window.
+        rounds = [
+            _rated_round("a", "2026-01-01", 90, rating=70.0, slope=226),  # diff 10.0
+            _rated_round("b", "2026-01-02", 94, rating=70.0, slope=226),  # diff 12.0
+            _rated_round("c", "2026-01-03", 98, rating=70.0, slope=226),  # diff 14.0
+            _unrated_round("d", "2026-01-04", 83),  # fallback 83-72 = 11.0
+            _unrated_round("e", "2026-01-05", 85),  # fallback 85-72 = 13.0
+            _unrated_round("f", "2026-01-06", 95),  # fallback 95-72 = 23.0
+        ]
+
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+
+        # N=6 -> lowest ceil(0.4*6)=3 of [10,12,14,11,13,23] -> 10.0 (rated),
+        # 11.0 (unrated), 12.0 (rated) -> mean 11.0; 11.0*0.96 = 10.56 -> 10.6
+        self.assertEqual(stats["summary"]["handicapEstimate"], 10.6)
+
+    def test_by_month_average_differential_stays_rated_only(self) -> None:
+        # The KPI tolerates the score-par approximation; the byMonth chart line
+        # does not (mixing scales would mislead). One rated + one unrated round
+        # in the SAME month -> averageDifferential reflects ONLY the rated one.
+        rounds = [
+            _rated_round("rated", "2026-05-03", 82),  # diff 10.0
+            _unrated_round("unrated", "2026-05-21", 100),  # fallback would be 28.0
+        ]
+
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+
+        by_month = {row["key"]: row for row in stats["time"]["byMonth"]}
+        # mean of [10.0] -> 10.0; a leaked fallback would give mean(10, 28) = 19.0
+        self.assertEqual(by_month["2026-05"]["averageDifferential"], 10.0)
 
 
 class TimeStatsTests(unittest.TestCase):
