@@ -50,6 +50,7 @@ from .mobile import (
     reconcile_mobile_round_response,
     replay_mobile_events_response,
 )
+from .prep_tips import load_prep_tips_response
 from .weather import load_weather_snapshot_response
 from .models import (
     AnnotationCreateRequest,
@@ -207,6 +208,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or path == "/api/v2/mobile/courses/options"
             or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
+            or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
             or path == "/api/v2/courses/search"
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/replay"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
@@ -417,6 +419,15 @@ def course_prep_nine(
         "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
         "holes": nine,
     }
+
+
+@app.get("/api/v2/courses/{global_id}/prep-tips")
+def course_prep_tips(global_id: int) -> dict:
+    """Deterministic pre-round tips (zh, with sourceRefs) assembled from the player's
+    EXISTING per-course tendencies (teeDirection/approachMiss/parScoring + playerProfile
+    caddie biases) crossed with this course's prep hole features. Never-played courses
+    degrade to global-profile tips plus a length-based informational tip."""
+    return load_prep_tips_response(global_id)
 
 
 @app.get("/api/v2/courses/search")
