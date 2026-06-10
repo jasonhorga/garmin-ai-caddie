@@ -325,6 +325,44 @@ class HandicapEstimateTests(unittest.TestCase):
         # 11.0 (unrated), 12.0 (rated) -> mean 11.0; 11.0*0.96 = 10.56 -> 10.6
         self.assertEqual(stats["summary"]["handicapEstimate"], 10.6)
 
+    def test_nine_hole_rating_on_18_hole_round_uses_score_minus_par_fallback(self) -> None:
+        # Real merged rounds (two 9-hole halves joined into one 18) often keep the
+        # front NINE's tee rating: 18 holes of strokes priced against a 9-hole
+        # rating. The rated formula then yields (129 - 35.2) * 113 / 113 = 93.8
+        # where the honest score-par differential is 129 - 86 = 43.0 — silently
+        # poisoning 差点(估算) whenever such a round enters the last-20 window.
+        # An 18-hole-equivalent round whose rating is implausible for 18 holes
+        # (< 50) must be treated as UNRATED, i.e. take the score-par fallback.
+        def merged_with_nine_hole_rating(rid, day, strokes):
+            row = _rated_round(rid, day, strokes, rating=35.2, slope=113)
+            row["par"] = 86
+            row["merged"] = True
+            return row
+
+        strokes = [129, 127, 125, 123, 121]  # score - par(86): 43, 41, 39, 37, 35
+        rounds = [
+            merged_with_nine_hole_rating(f"m{index + 1}", f"2026-04-{index + 1:02d}", value)
+            for index, value in enumerate(strokes)
+        ]
+
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+
+        # N=5 -> lowest ceil(0.4*5)=2 of [43, 41, 39, 37, 35] -> 35, 37 -> mean
+        # 36.0; 36.0*0.96 = 34.56 -> 34.6. If the 9-hole rating leaked into the
+        # rated path the differentials would be [93.8 .. 85.8] -> estimate 83.3.
+        self.assertEqual(stats["summary"]["handicapEstimate"], 34.6)
+
+        # A genuine 18-hole rating (>= 50) keeps the rated path. Slope 145 shrinks
+        # (score - rating) by 113/145, so a fallback leak would be visible: rated
+        # diffs [13.9, 15.5, 17.1, 18.6, 20.2] -> lowest 2 -> mean 14.7 -> *0.96
+        # = 14.112 -> 14.1, where score-par (18, 20, ...) would give 18.2.
+        genuine = [
+            _rated_round(f"g{index + 1}", f"2026-05-{index + 1:02d}", value, rating=72.1, slope=145)
+            for index, value in enumerate([90, 92, 94, 96, 98])
+        ]
+        stats_genuine = build_history_stats(_history(genuine), data_mode="fixture")
+        self.assertEqual(stats_genuine["summary"]["handicapEstimate"], 14.1)
+
     def test_by_month_average_differential_stays_rated_only(self) -> None:
         # The KPI tolerates the score-par approximation; the byMonth chart line
         # does not (mixing scales would mislead). One rated + one unrated round

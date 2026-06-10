@@ -447,10 +447,21 @@ def _round_differential_or_par(row: dict[str, Any]) -> float | None:
     estimate), so score-over-par is an acceptable stand-in for the HANDICAP fields
     only — byMonth ``averageDifferential`` (the chart line) stays rated-only
     because mixing the two scales in one curve would mislead.
+
+    A rated differential is trusted only when the rating is plausible for the 18
+    holes ``_score18`` guarantees (>= 50). Merged 18-hole rounds often keep the
+    front NINE's tee rating (e.g. 35.2): pricing 18 holes of strokes against a
+    9-hole rating yields ~94 where the honest score-par value is ~43, silently
+    poisoning 差点(估算) whenever such a round enters the last-20 window — so a
+    sub-50 rating is treated as unrated and falls through to score-par. Nine-hole
+    rounds are unaffected: without an 18-hole score they never had a differential
+    of either kind.
     """
     differential = _round_differential(row)
     if differential is not None:
-        return differential
+        rating = _float_field(row, "rating")
+        if rating is not None and rating >= 50:
+            return differential
     score = _score18(row)
     par = _float_field(row, "par")
     if score is None or par is None or par <= 0:
