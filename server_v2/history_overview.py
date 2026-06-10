@@ -205,7 +205,8 @@ def build_history_overview_response(data: HistoryData) -> HistoryOverviewRespons
     rounds18 = [r for r in rounds if r.get("holesCompleted") == 18 and r.get("strokes")]
     scores18 = [int(r["strokes"]) for r in rounds18]
     recent10_scores = [int(r["strokes"]) for r in sorted(rounds18, key=lambda row: row.get("date") or "")[-10:]]
-    recent_rounds = sorted(rounds, key=lambda row: row.get("date") or "", reverse=True)[:6]
+    # 近10场: the 概览/趋势总览 surfaces promise the 10 most recent rounds.
+    recent_rounds = sorted(rounds, key=lambda row: row.get("date") or "", reverse=True)[:10]
     return HistoryOverviewResponse(
         schema="ai-caddie-history-overview-v2",
         metrics=HistoryMetricSet(

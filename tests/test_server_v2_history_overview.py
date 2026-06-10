@@ -98,6 +98,35 @@ class ServerV2HistoryOverviewTests(unittest.TestCase):
         self.assertGreaterEqual(payload["metrics"]["totalRounds"], 3)
         self.assertIsNone(payload["emptyState"])
 
+    def test_history_overview_returns_ten_recent_rounds_newest_first(self) -> None:
+        # The 概览/趋势总览 surfaces promise 近10场 — a 12-round history must yield
+        # exactly the 10 newest cards, newest first (was capped at 6).
+        rounds = [
+            {
+                "id": i,
+                "date": f"2026-05-{i:02d}",
+                "course": "Card Course",
+                "courseKey": "card_course",
+                "holesCompleted": 18,
+                "strokes": 90,
+                "par": 72,
+                "holePars": "4" * 18,
+                "holes": [{"number": n, "strokes": 5} for n in range(1, 19)],
+                "hasShots": False,
+            }
+            for i in range(1, 13)  # dates 2026-05-01 .. 2026-05-12 (i == day -> id 12 newest)
+        ]
+        data = HistoryData(
+            raw_rounds=[{"id": row["id"], "hasShots": False} for row in rounds],
+            rounds=rounds,
+            shots=[],
+        )
+
+        payload = build_history_overview_response(data).model_dump()
+
+        self.assertEqual(len(payload["recentRounds"]), 10)
+        self.assertEqual([card["id"] for card in payload["recentRounds"]], [str(i) for i in range(12, 2, -1)])
+
     def test_history_overview_builds_metrics_rounds_distribution_and_quality(self) -> None:
         data = HistoryData(
             raw_rounds=[
