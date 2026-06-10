@@ -914,29 +914,6 @@ export default function App() {
   }
 
   function renderActivePage() {
-    if (overviewState.status === 'loading') {
-      return (
-        <section className="panel empty-state">
-          <h1>Loading history</h1>
-        </section>
-      )
-    }
-
-    if (overviewState.status === 'error') {
-      return (
-        <>
-          {renderSyncPanel()}
-          <section className="panel empty-state">
-            <h1>History API unavailable</h1>
-            <p>{overviewState.message}</p>
-            <button type="button" onClick={() => void refreshOverviewState()}>
-              Retry history
-            </button>
-          </section>
-        </>
-      )
-    }
-
     if (activePage === 'rounds') {
       if (roundsState.status === 'ready') {
         return (
@@ -962,6 +939,10 @@ export default function App() {
             <p>{roundsState.message}</p>
             <button type="button" onClick={() => void loadRoundsState()}>
               Retry rounds
+            </button>
+            <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
+            <button type="button" onClick={() => navigate('sync-quality')}>
+              去设置
             </button>
           </section>
         )
@@ -1001,6 +982,10 @@ export default function App() {
             <p>{statsState.message}</p>
             <button type="button" onClick={() => void loadStatsState()}>
               Retry history stats
+            </button>
+            <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
+            <button type="button" onClick={() => navigate('sync-quality')}>
+              去设置
             </button>
           </section>
         )
@@ -1072,6 +1057,29 @@ export default function App() {
         <section className="panel empty-state">
           <h1>Loading corrections</h1>
         </section>
+      )
+    }
+
+    if (overviewState.status === 'loading') {
+      return (
+        <section className="panel empty-state">
+          <h1>Loading history</h1>
+        </section>
+      )
+    }
+
+    if (overviewState.status === 'error') {
+      return (
+        <>
+          {renderSyncPanel()}
+          <section className="panel empty-state">
+            <h1>History API unavailable</h1>
+            <p>{overviewState.message}</p>
+            <button type="button" onClick={() => void refreshOverviewState()}>
+              Retry history
+            </button>
+          </section>
+        </>
       )
     }
 

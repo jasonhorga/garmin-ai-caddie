@@ -18,7 +18,6 @@ export function HistoryOverview({ data, onSelectRef, onOpenRoundDetail }: Histor
 
   return (
     <>
-
       <section className="overview-hero">
         <div>
           <p className="eyebrow">History Intelligence</p>

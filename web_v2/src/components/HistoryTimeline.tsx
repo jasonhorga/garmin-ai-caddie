@@ -20,7 +20,6 @@ function monthSummary(group: MonthRoundGroup) {
 export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, onOpenRoundDetail }: HistoryTimelineProps) {
   return (
     <>
-
       <section className="overview-hero">
         <div>
           <p className="eyebrow">Round Archive</p>
