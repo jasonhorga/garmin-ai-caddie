@@ -439,6 +439,49 @@ def _hole_geometry_coverage(pairs: list[tuple[dict[str, Any], dict[str, Any]]], 
         return "missing"
 
 
+def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
+    """WHS-style handicap estimate; the UI labels it 估算 (never an official index).
+
+    Over rounds that HAVE a differential (``_round_differential``; rounds without
+    one are skipped), sorted by date desc, take the most recent ``min(20, N)``;
+    needs at least 5; average the LOWEST ``ceil(0.4 * min(20, N))`` differentials,
+    multiply by 0.96 (the WHS bonus factor), round to 1 decimal.
+    """
+    rated = [
+        (str(row.get("date") or ""), differential)
+        for row in rounds
+        if (differential := _round_differential(row)) is not None
+    ]
+    if len(rated) < 5:
+        return None
+    rated.sort(key=lambda item: item[0], reverse=True)
+    recent = [differential for _day, differential in rated[:20]]
+    take = math.ceil(0.4 * len(recent))
+    lowest = sorted(recent)[:take]
+    return round(sum(lowest) / len(lowest) * 0.96, 1)
+
+
+def _handicap_trend(rounds: list[dict[str, Any]]) -> float | None:
+    """Estimate now minus the estimate from rounds dated <= anchor - 90 days.
+
+    The anchor is the newest round date in the data (never the wall clock, so the
+    value is deterministic and cacheable). None when either side lacks the 5
+    rated rounds an estimate needs. Negative = improving.
+    """
+    anchor = max((day for row in rounds if (day := _round_window_date(row)) is not None), default=None)
+    if anchor is None:
+        return None
+    current = _handicap_estimate(rounds)
+    if current is None:
+        return None
+    cutoff = anchor - timedelta(days=90)
+    older = [row for row in rounds if (day := _round_window_date(row)) is not None and day <= cutoff]
+    baseline = _handicap_estimate(older)
+    if baseline is None:
+        return None
+    return round(current - baseline, 1)
+
+
 def _summary(data: HistoryData) -> dict[str, Any]:
     rounds18 = [row for row in data.rounds if _score18(row) is not None]
     scores18 = [score for row in rounds18 if (score := _score18(row)) is not None]
@@ -464,6 +507,8 @@ def _summary(data: HistoryData) -> dict[str, Any]:
             "recent20Average": average(recent_scores18[:20]),
             "bestScore": min(scores18) if scores18 else None,
             "worstScore": max(scores18) if scores18 else None,
+            "handicapEstimate": _handicap_estimate(data.rounds),
+            "handicapTrend": _handicap_trend(data.rounds),
             "averageDifferential": difficulty["averageDifferential"],
             "bestDifferential": difficulty["bestDifferential"],
             "recent10AverageDifferential": difficulty["recent10AverageDifferential"],

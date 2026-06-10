@@ -1,9 +1,11 @@
-"""Tests for windowed_history_data — the round filter behind ``?window=``.
+"""Tests for the windowed-stats additions: windowed_history_data + handicap fields.
 
 ``/api/v2/history/stats`` gains a window parameter (all|12m|last10) that must narrow
 the round set BEFORE build_history_stats runs. The filter is pure (never mutates the
 input HistoryData) and deterministic: ``12m`` anchors on the newest round date in the
-data, never the wall clock.
+data, never the wall clock. The summary additionally gains ``handicapEstimate`` /
+``handicapTrend`` (UI labels them 估算) and ``time.byMonth`` rows carry
+``averageDifferential`` — all anchored on round dates, never the wall clock.
 
 Round-id reality this locks in:
   - real shots carry ``scorecardId`` while fixture shots carry ``roundId`` — both keys
@@ -22,7 +24,7 @@ import unittest
 from datetime import date, timedelta
 
 from ai_caddie.history import HistoryData
-from ai_caddie.history_stats import windowed_history_data
+from ai_caddie.history_stats import build_history_stats, windowed_history_data
 
 
 def _round(rid, day):
@@ -31,6 +33,43 @@ def _round(rid, day):
 
 def _shot(rid):
     return {"scorecardId": rid}
+
+
+def _rated_round(rid, day, strokes, *, rating=72.0, slope=113):
+    """A scored 18-hole round with an exactly known differential.
+
+    ``_round_differential = round((strokes - rating) * 113 / slope, 1)``; with
+    slope=113 the slope factor is exactly 1, so differential == strokes - rating
+    (rating defaults to 72.0 -> differential == strokes - 72).
+    """
+    return {
+        "id": rid,
+        "date": day,
+        "course": "Handicap Course",
+        "courseKey": "handicap_course",
+        "holesCompleted": 18,
+        "strokes": strokes,
+        "par": 72,
+        "rating": rating,
+        "slope": slope,
+        "holes": [],
+        "hasShots": False,
+    }
+
+
+def _unrated_round(rid, day, strokes):
+    """An 18-hole round WITHOUT rating/slope -> no differential -> skipped."""
+    row = _rated_round(rid, day, strokes)
+    del row["rating"], row["slope"]
+    return row
+
+
+def _history(rounds):
+    return HistoryData(
+        raw_rounds=[{"id": row["id"], "hasShots": False} for row in rounds],
+        rounds=rounds,
+        shots=[],
+    )
 
 
 class WindowedHistoryDataTests(unittest.TestCase):
@@ -101,10 +140,161 @@ class WindowedHistoryDataTests(unittest.TestCase):
         self.assertEqual({row["id"] for row in result.raw_rounds}, {"new", "mid"})
         self.assertEqual([s["scorecardId"] for s in result.shots], ["new"])
 
+    def test_12m_excludes_unparsable_dates_when_anchor_exists(self) -> None:
+        rounds = [
+            _round("new", "2026-06-01"),
+            _round("garbled", "not-a-date"),
+            _round("undated", None),
+        ]
+        data = HistoryData(
+            raw_rounds=[dict(row) for row in rounds],
+            rounds=rounds,
+            shots=[_shot("new"), _shot("garbled"), _shot("undated")],
+        )
+
+        result = windowed_history_data(data, "12m")
+
+        # once any round provides an anchor, rounds whose dates cannot be parsed
+        # cannot be placed inside the window -> they drop, with their shots
+        self.assertEqual([row["id"] for row in result.rounds], ["new"])
+        self.assertEqual([row["id"] for row in result.raw_rounds], ["new"])
+        self.assertEqual([s["scorecardId"] for s in result.shots], ["new"])
+
+    def test_12m_keeps_all_when_no_parsable_dates(self) -> None:
+        rounds = [_round("a", None), _round("b", ""), _round("c", "someday")]
+        data = HistoryData(
+            raw_rounds=[dict(row) for row in rounds],
+            rounds=rounds,
+            shots=[_shot("b")],
+        )
+
+        result = windowed_history_data(data, "12m")
+
+        # no anchor exists -> nothing can be aged out -> keep everything
+        self.assertEqual([row["id"] for row in result.rounds], ["a", "b", "c"])
+        self.assertEqual([row["id"] for row in result.raw_rounds], ["a", "b", "c"])
+        self.assertEqual([s["scorecardId"] for s in result.shots], ["b"])
+
+    def test_last10_tie_dates_keep_input_order(self) -> None:
+        # r1-r3 share the newest day, r4-r11 share an older day: the date sort is
+        # stable, so the tie group keeps input order and r11 (the LAST tied round
+        # in the input) is the one that drops.
+        rounds = [_round(f"r{i}", "2026-01-02") for i in range(1, 4)]
+        rounds += [_round(f"r{i}", "2026-01-01") for i in range(4, 12)]
+        data = HistoryData(raw_rounds=[dict(row) for row in rounds], rounds=rounds, shots=[])
+
+        result = windowed_history_data(data, "last10")
+
+        self.assertEqual([row["id"] for row in result.rounds], [f"r{i}" for i in range(1, 11)])
+
     def test_invalid_window_raises(self) -> None:
         data = HistoryData(raw_rounds=[], rounds=[], shots=[])
         with self.assertRaisesRegex(ValueError, "invalid stats window: bogus"):
             windowed_history_data(data, "bogus")
+
+
+class HandicapEstimateTests(unittest.TestCase):
+    """summary.handicapEstimate / summary.handicapTrend (UI: 差点(估算)).
+
+    Formula: over rounds that HAVE a differential (rounds without one are
+    skipped), sorted by date desc, take the most recent ``min(20, N)``; if
+    ``N < 5`` -> None; else average the LOWEST ``ceil(0.4 * min(20, N))``
+    differentials, multiply by 0.96, round to 1 decimal.
+    """
+
+    def test_estimate_uses_best_40pct_of_last_20(self) -> None:
+        # The 2 oldest rounds have differential -10 (strokes 62 - rating 72):
+        # they MUST fall outside the most-recent-20 window, otherwise they would
+        # dominate the lowest-8 pick and drag the estimate way down.
+        rounds = [
+            _rated_round("old-1", "2025-01-01", 62),
+            _rated_round("old-2", "2025-01-02", 62),
+        ]
+        # 20 newer rounds with differentials 10..29, interleaved so the lowest
+        # values are NOT simply the most recent ones (proves "lowest", not "latest").
+        diffs = [29, 10, 28, 11, 27, 12, 26, 13, 25, 14, 24, 15, 23, 16, 22, 17, 21, 18, 20, 19]
+        rounds.extend(
+            _rated_round(f"recent-{index + 1}", f"2025-02-{index + 1:02d}", 72 + diff)
+            for index, diff in enumerate(diffs)
+        )
+        # The newest round has no rating/slope -> no differential -> skipped; it
+        # must NOT displace a rated round from the 20-round window.
+        rounds.append(_unrated_round("unrated-newest", "2025-03-01", 90))
+
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+
+        # N=22 rated rounds -> most recent min(20, 22)=20 -> differentials 10..29;
+        # lowest ceil(0.4*20)=8 -> 10..17, mean 13.5; 13.5*0.96 = 12.96 -> 13.0
+        self.assertEqual(stats["summary"]["handicapEstimate"], 13.0)
+
+    def test_estimate_null_under_5_rounds(self) -> None:
+        # 4 rated rounds + 2 unrated (skipped, do NOT count toward N) -> N=4 -> None
+        rounds = [_rated_round(f"r{i}", f"2026-01-{i:02d}", 80 + i) for i in range(1, 5)]
+        rounds += [_unrated_round(f"u{i}", f"2026-01-{i:02d}", 90) for i in (5, 6)]
+
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+
+        self.assertIsNone(stats["summary"]["handicapEstimate"])
+        self.assertIsNone(stats["summary"]["handicapTrend"])
+
+        # 5 rated rounds is the boundary: differentials [9..13], lowest
+        # ceil(0.4*5)=2 -> 9, 10 -> mean 9.5; 9.5*0.96 = 9.12 -> 9.1
+        five = [_rated_round(f"f{i}", f"2026-02-{i:02d}", 80 + i) for i in range(1, 6)]
+        stats_five = build_history_stats(_history(five), data_mode="fixture")
+        self.assertEqual(stats_five["summary"]["handicapEstimate"], 9.1)
+
+    def test_trend_compares_90_day_anchor(self) -> None:
+        # anchor = newest round date = 2026-06-01; baseline cutoff = anchor - 90d
+        # = 2026-03-03 (INCLUSIVE: the round dated exactly on the cutoff is what
+        # gives the baseline its 5th round).
+        anchor = date(2026, 6, 1)
+        cutoff = anchor - timedelta(days=90)  # 2026-03-03
+        older = [
+            _rated_round("o1", "2026-01-05", 92),  # diff 20
+            _rated_round("o2", "2026-01-15", 93),  # diff 21
+            _rated_round("o3", "2026-02-01", 94),  # diff 22
+            _rated_round("o4", "2026-02-15", 95),  # diff 23
+            _rated_round("o5", cutoff.isoformat(), 96),  # diff 24, exactly on cutoff
+        ]
+        recent = [
+            _rated_round("n1", "2026-04-01", 82),  # diff 10
+            _rated_round("n2", "2026-04-15", 83),  # diff 11
+            _rated_round("n3", "2026-05-01", 84),  # diff 12
+            _rated_round("n4", "2026-05-15", 85),  # diff 13
+            _rated_round("n5", anchor.isoformat(), 86),  # diff 14
+        ]
+
+        stats = build_history_stats(_history(older + recent), data_mode="fixture")
+
+        # estimate(all 10): lowest ceil(0.4*10)=4 of [10..14, 20..24] -> 10,11,12,13
+        #   -> mean 11.5 -> *0.96 = 11.04 -> 11.0
+        # estimate(baseline, date <= cutoff -> o1..o5): lowest ceil(0.4*5)=2 of
+        #   [20..24] -> 20,21 -> mean 20.5 -> *0.96 = 19.68 -> 19.7
+        # trend = 11.0 - 19.7 = -8.7 (negative = improving)
+        self.assertEqual(stats["summary"]["handicapEstimate"], 11.0)
+        self.assertEqual(stats["summary"]["handicapTrend"], -8.7)
+
+        # drop one baseline round -> the <=cutoff subset has 4 (<5) -> trend None,
+        # while the estimate itself stays available (lowest ceil(0.4*9)=4 unchanged)
+        stats_thin = build_history_stats(_history(older[1:] + recent), data_mode="fixture")
+        self.assertEqual(stats_thin["summary"]["handicapEstimate"], 11.0)
+        self.assertIsNone(stats_thin["summary"]["handicapTrend"])
+
+
+class TimeStatsTests(unittest.TestCase):
+    def test_by_month_includes_average_differential(self) -> None:
+        rounds = [
+            _rated_round("m1", "2026-03-05", 82),  # diff 10.0
+            _rated_round("m2", "2026-03-20", 85),  # diff 13.0
+            _unrated_round("m3", "2026-04-02", 90),  # no differential
+        ]
+
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+
+        by_month = {row["key"]: row for row in stats["time"]["byMonth"]}
+        # 2026-03: mean of [10.0, 13.0] -> 11.5; 2026-04 has no rated rounds -> None
+        self.assertEqual(by_month["2026-03"]["averageDifferential"], 11.5)
+        self.assertIsNone(by_month["2026-04"]["averageDifferential"])
 
 
 if __name__ == "__main__":

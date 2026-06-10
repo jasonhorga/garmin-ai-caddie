@@ -27,6 +27,13 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-history-stats-v1")
         self.assertEqual(payload["dataMode"], "fixture")
         self.assertEqual(payload["summary"]["totalRounds"], 3)
+        # handicap fields ride along in the summary; with only 3 fixture rounds
+        # (<5 rated) the estimate is None, but the keys must be present
+        self.assertIn("handicapEstimate", payload["summary"])
+        self.assertIn("handicapTrend", payload["summary"])
+        for key in ("handicapEstimate", "handicapTrend"):
+            value = payload["summary"][key]
+            self.assertTrue(value is None or isinstance(value, float), key)
         self.assertGreater(len(payload["courses"]), 0)
         self.assertGreater(len(payload["clubs"]), 0)
         hole = next(row for row in payload["holes"] if row["courseKey"] == "black_knight" and row["hole"] == 7)
