@@ -4740,3 +4740,88 @@ button.round-detail-cell:hover {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 }
+
+/* ===== W2 prep page ===== */
+.prep-page {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.prep-entry {
+  max-width: 640px;
+  border-top: 3px solid var(--green);
+}
+
+.prep-entry h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.prep-course-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 3px solid var(--green);
+}
+
+.prep-course-info {
+  min-width: 0;
+}
+
+.prep-course-header h2 {
+  margin: 0;
+  font-size: 19px;
+  letter-spacing: -.3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prep-course-meta {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.prep-course-record {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--green-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.prep-change-course {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.prep-change-course:hover {
+  border-color: var(--green);
+  color: var(--green-text);
+}
+
+.prep-page .subnav--inner {
+  margin-bottom: 0;
+}
+
+.prep-tab-panel {
+  min-height: 96px;
+}
+
+.prep-tab-placeholder,
+.prep-holes-count {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}

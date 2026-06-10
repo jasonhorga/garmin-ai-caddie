@@ -1,14 +1,12 @@
-import { useRef, useState, type FormEvent } from 'react'
 import type {
-  CourseSearchMatch,
   CourseSearchResponse,
   HistoryOverviewResponse,
   HistoryStatsResponse,
-  MobileCourseOption,
   MobileCourseOptionsResponse,
   RoundCard as RoundCardType,
 } from '../types'
 import { issueLabel } from '../issueLabels'
+import { CourseFinder } from './CourseFinder'
 
 interface HomeOverviewProps {
   overview: HistoryOverviewResponse
@@ -20,12 +18,6 @@ interface HomeOverviewProps {
   onNavigateHistory: () => void
   onNavigateAnalysis: () => void
 }
-
-type SearchState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'ready'; matches: CourseSearchMatch[] }
-  | { status: 'error'; message: string }
 
 function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -63,25 +55,6 @@ function dateLabel(value: string | null): string {
   return typeof value === 'string' && value.length >= 10 ? value.slice(5, 10) : '—'
 }
 
-function frequentCourses(courseOptions: MobileCourseOptionsResponse | null): MobileCourseOption[] {
-  if (!courseOptions || !Array.isArray(courseOptions.courses)) return []
-  return courseOptions.courses
-    .filter(
-      (course): course is MobileCourseOption =>
-        course !== null &&
-        typeof course === 'object' &&
-        typeof course.globalId === 'number' &&
-        typeof course.name === 'string',
-    )
-    .sort((a, b) => (asNumber(b.roundCount) ?? 0) - (asNumber(a.roundCount) ?? 0))
-    .slice(0, 3)
-}
-
-function matchMeta(match: CourseSearchMatch): string {
-  const holes = asNumber(match.holes)
-  return [asString(match.city), holes === null ? null : `${holes}洞`].filter(Boolean).join(' · ')
-}
-
 function Sparkline({ values }: { values: number[] }) {
   const width = 220
   const height = 44
@@ -109,29 +82,8 @@ export function HomeOverview({
   onNavigateHistory,
   onNavigateAnalysis,
 }: HomeOverviewProps) {
-  const [query, setQuery] = useState('')
-  const [search, setSearch] = useState<SearchState>({ status: 'idle' })
-  const searchSeq = useRef(0)
-
-  async function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const name = query.trim()
-    if (!name) return
-    const seq = ++searchSeq.current
-    setSearch({ status: 'loading' })
-    try {
-      const data = await onSearchCourses(name)
-      if (searchSeq.current !== seq) return
-      setSearch({ status: 'ready', matches: Array.isArray(data.matches) ? data.matches : [] })
-    } catch (error: unknown) {
-      if (searchSeq.current !== seq) return
-      setSearch({ status: 'error', message: error instanceof Error ? error.message : '未知错误' })
-    }
-  }
-
   const recentRounds: RoundCardType[] = Array.isArray(overview.recentRounds) ? overview.recentRounds : []
   const lastRound = recentRounds[0] ?? null
-  const frequents = frequentCourses(courseOptions)
   const emptyState = overview.emptyState ?? null
 
   if (emptyState || overview.metrics.totalRounds === 0) {
@@ -172,49 +124,7 @@ export function HomeOverview({
 
       <div className="home-grid">
         <section className="panel home-card home-prep" aria-label="备战入口">
-          <h2>想备哪场?</h2>
-          <p className="home-prep-sub">搜索球场,或从常打球场直接开备战。</p>
-          <form className="home-search" onSubmit={(event) => void handleSearchSubmit(event)}>
-            <input
-              type="text"
-              aria-label="搜索球场"
-              placeholder="球场名,如:观澜湖"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <button type="submit">搜索</button>
-          </form>
-          {search.status === 'loading' ? <p className="home-search-state">搜索中…</p> : null}
-          {search.status === 'error' ? <p className="home-search-state">搜索失败:{search.message}</p> : null}
-          {search.status === 'ready' && search.matches.length === 0 ? <p className="home-search-state">没有找到球场</p> : null}
-          {search.status === 'ready' && search.matches.length > 0 ? (
-            <ul className="home-search-results">
-              {search.matches.map((match) => (
-                <li key={match.globalId}>
-                  <button type="button" className="home-search-match" onClick={() => onPrepCourse(match.globalId)}>
-                    <span className="home-search-match-name">{match.name}</span>
-                    <span className="home-search-match-meta">{matchMeta(match)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {frequents.length > 0 ? (
-            <div className="home-frequent">
-              <span className="home-frequent-label">常打球场</span>
-              <div className="home-frequent-cards">
-                {frequents.map((course) => (
-                  <article key={course.globalId} className="home-course-card">
-                    <b className="home-course-name">{course.name}</b>
-                    <span className="home-course-meta">打过 {asNumber(course.roundCount) ?? 0} 次</span>
-                    <button type="button" aria-label={`去备战 ${course.name}`} onClick={() => onPrepCourse(course.globalId)}>
-                      去备战
-                    </button>
-                  </article>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          <CourseFinder courseOptions={courseOptions} onSearchCourses={onSearchCourses} onSelectCourse={onPrepCourse} />
         </section>
 
         <section className="panel home-card home-last" aria-label="上一场">

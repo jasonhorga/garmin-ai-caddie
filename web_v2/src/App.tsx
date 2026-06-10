@@ -66,7 +66,7 @@ import {
   type MobilePackagePrepState,
 } from './components/MobilePackagePrepPanel'
 import { AppShell } from './components/AppShell'
-import { CoursePrepPanel } from './components/CoursePrepPanel'
+import { PrepPage } from './components/PrepPage'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
@@ -378,10 +378,10 @@ export default function App() {
       setCorrectionTarget(null)
     }
     setActivePage(page)
-    if (page === 'overview') {
-      // 概览 composes stats + course options on boot; if either failed at boot
-      // (e.g. backend briefly down), returning to 概览 retries instead of
-      // leaving the dash-cards stuck on the stale error forever.
+    if (page === 'overview' || page === 'prep') {
+      // 概览/备战 compose stats + course options on boot; if either failed at
+      // boot (e.g. backend briefly down), returning here retries instead of
+      // leaving the joined cards stuck on the stale error forever.
       if (statsState.status === 'idle' || statsState.status === 'error') void loadStatsState()
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
     }
@@ -1154,7 +1154,17 @@ export default function App() {
     }
 
     if (activePage === 'prep') {
-      return <CoursePrepPanel key={prepGlobalId ?? 'default'} defaultGlobalId={prepGlobalId ?? undefined} />
+      return (
+        <PrepPage
+          globalId={prepGlobalId}
+          courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
+          allStats={statsState.status === 'ready' ? statsState.data : null}
+          adminToken={currentAdminToken()}
+          onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
+          onSelectCourse={handlePrepCourse}
+          onChangeCourse={() => setPrepGlobalId(null)}
+        />
+      )
     }
 
     if (activePage === 'caddie') {

@@ -469,8 +469,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: 'Issue Stats', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
 
+  // prepGlobalId is null on a fresh visit, so 备战 lands on the PrepPage entry
+  // state (course finder); the full prep walk is covered when B5 extends e2e.
   await page.getByRole('button', { name: '备战' }).click()
-  await expect(page.getByRole('heading', { name: '赛前球场攻略' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
   await assertNoViewportOverflow(page)
 
   await page.getByRole('button', { name: '实战' }).click()
