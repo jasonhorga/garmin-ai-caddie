@@ -111,6 +111,27 @@ class CoursePrepApiTests(unittest.TestCase):
         holes = resp.json()["holes"]
         self.assertTrue(all(h["hole"] == 3 for h in holes))
 
+    def test_include_shots_forwarded_and_your_shots_rows_pass_through(self) -> None:
+        row = self._prep_row()
+        row["yourShots"] = [{"x": 430, "y": 560, "club": "1W", "shotType": "TEE", "roundId": "9001"}]
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.object(course_prep, "prep_nine", return_value=[row]) as prep_nine:
+            resp = self.client.get("/api/v2/courses/31870/prep?include_shots=true")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIs(prep_nine.call_args.kwargs["include_shots"], True)
+        self.assertEqual(
+            resp.json()["holes"][0]["yourShots"],
+            [{"x": 430, "y": 560, "club": "1W", "shotType": "TEE", "roundId": "9001"}],
+        )
+
+    def test_include_shots_defaults_false_and_rows_lack_your_shots(self) -> None:
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.object(course_prep, "prep_nine", return_value=[self._prep_row()]) as prep_nine:
+            resp = self.client.get("/api/v2/courses/31870/prep?render=false")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIs(prep_nine.call_args.kwargs["include_shots"], False)
+        self.assertNotIn("yourShots", resp.json()["holes"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

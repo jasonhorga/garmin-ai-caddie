@@ -403,15 +403,19 @@ def course_prep_nine(
     global_id: int,
     holes: list[int] | None = Query(default=None),
     render: bool = True,
+    include_shots: bool = False,
 ) -> dict:
     """Pre-round prep for a nine: per-hole par (labelled source) + route + hazard carries +
     strategy from the player's club ladder + (when render=true) a styled map image + overlay.
-    Holes without cached geometry are skipped. render=false returns facts only (lightweight)."""
+    Holes without cached geometry are skipped. render=false returns facts only (lightweight).
+    include_shots=true additionally projects the player's past TEE/APPROACH end positions
+    into overlay px (``yourShots``) on rendered holes they have history for."""
     from ai_caddie import course_prep
 
     requested = holes or list(range(1, 10))
     ladder = course_prep.club_ladder()
-    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True)
+    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
+                                 include_shots=include_shots)
     return {
         "schema": "ai-caddie-course-prep-v1",
         "globalId": int(global_id),

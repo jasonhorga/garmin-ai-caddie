@@ -1,0 +1,96 @@
+{
+  "_comment": "Synthetic Garmin shots-file fixture (real field shape, fabricated values). lat/lon are raw 32-bit semicircles (degrees = value * 180 / 2^31) around an invented course area near 31.7515N 118.6225E — deliberately shifted away from any real course/round.",
+  "clubDetails": [
+    {
+      "id": 9101,
+      "clubTypeId": 1,
+      "shaftLength": 0.0,
+      "flexTypeId": "REGULAR",
+      "averageDistance": 0,
+      "adviceDistance": 0,
+      "retired": false,
+      "deleted": false,
+      "lastModifiedTime": "2026-05-01T00:00:00.000Z"
+    },
+    {
+      "id": 9102,
+      "clubTypeId": 18,
+      "name": "PW",
+      "shaftLength": 0.0,
+      "flexTypeId": "REGULAR",
+      "averageDistance": 0,
+      "adviceDistance": 0,
+      "retired": false,
+      "deleted": false,
+      "lastModifiedTime": "2026-05-01T00:00:00.000Z"
+    }
+  ],
+  "holeShots": [
+    {
+      "holeNumber": 1,
+      "holeImageUrl": "https://birdseye.example.invalid/gid0777001/hole1.jpg",
+      "pinPosition": {
+        "lat": 378810150,
+        "lon": 1415221550,
+        "x": 320,
+        "y": 96
+      },
+      "shots": [
+        {
+          "id": 910001,
+          "scorecardId": 9001,
+          "playerProfileId": 1,
+          "holeNumber": 1,
+          "shotOrder": 1,
+          "shotType": "TEE",
+          "autoShotType": "TEE",
+          "shotSource": "DEVICE_AUTO",
+          "clubId": 9101,
+          "meters": 201.4,
+          "excludeFromStats": false,
+          "shotTime": "2026-05-02T08:10:00.000Z",
+          "shotTimeZoneOffset": 28800000,
+          "startLoc": {
+            "lat": 378780324,
+            "lon": 1415215585,
+            "lie": "TEE_BOX",
+            "lieSource": "PLATFORM"
+          },
+          "endLoc": {
+            "lat": 378801799,
+            "lon": 1415217971,
+            "lie": "ROUGH",
+            "lieSource": "PLATFORM"
+          }
+        },
+        {
+          "id": 910002,
+          "scorecardId": 9001,
+          "playerProfileId": 1,
+          "holeNumber": 1,
+          "shotOrder": 2,
+          "shotType": "APPROACH",
+          "autoShotType": "APPROACH",
+          "shotSource": "DEVICE_AUTO",
+          "clubId": 9102,
+          "meters": 78.2,
+          "excludeFromStats": false,
+          "shotTime": "2026-05-02T08:16:00.000Z",
+          "shotTimeZoneOffset": 28800000,
+          "startLoc": {
+            "lat": 378801799,
+            "lon": 1415217971,
+            "lie": "ROUGH",
+            "lieSource": "PLATFORM"
+          },
+          "endLoc": {
+            "lat": 378809912,
+            "lon": 1415221312,
+            "lie": "GREEN",
+            "lieSource": "PLATFORM"
+          }
+        }
+      ]
+    }
+  ]
+}
