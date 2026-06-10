@@ -29,6 +29,7 @@ from ai_caddie.data import HAZARD_DIR, MANUAL_DIR, MESH_DIR, SCORECARD_DIR, SHOT
 from ai_caddie.decision import decision_audit_file
 from ai_caddie.history import load_history_data as _load_history_data
 from ai_caddie.history_stats import build_history_stats as _build_history_stats
+from ai_caddie.history_stats import windowed_history_data as _windowed_history_data
 from ai_caddie.reports import report_store_file
 from ai_caddie.weather_context import weather_snapshot_file
 
@@ -132,23 +133,31 @@ def cached_build_history_stats(
     weather_root: Path | str | None = None,
     reports_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
+    window: str = "all",
 ):
-    """Drop-in replacement for build_history_stats that caches by input fingerprint."""
+    """Drop-in replacement for build_history_stats that caches by input fingerprint.
+
+    ``window`` (all|12m|last10) narrows the round set via ``windowed_history_data``
+    BEFORE the build. Each window has its own cache key, so variants coexist and
+    switching windows never evicts another window's result; the fingerprint is still
+    computed on the FULL data, so all variants invalidate together when inputs change.
+    """
     roots = {
         "annotations_root": annotations_root,
         "weather_root": weather_root,
         "reports_root": reports_root,
         "decision_audit_root": decision_audit_root,
     }
-    # Key by caller (data_mode + roots); the fingerprint (data signature + input-file
-    # state) decides hit vs recompute, so distinct datasets and any file change are
-    # both handled.
+    # Key by caller (data_mode + roots + window); the fingerprint (data signature +
+    # input-file state) decides hit vs recompute, so distinct datasets and any file
+    # change are both handled.
     key = (
         data_mode,
         str(annotations_root),
         str(weather_root),
         str(reports_root),
         str(decision_audit_root),
+        window,
     )
     fingerprint = _fingerprint(data, roots)
     with _lock:
@@ -157,7 +166,7 @@ def cached_build_history_stats(
             return hit[1]
     # Compute outside the lock so concurrent distinct requests don't serialize on a
     # ~10s build (a rare double-compute on a cold cache is acceptable).
-    value = _build_history_stats(data, data_mode=data_mode, **roots)
+    value = _build_history_stats(_windowed_history_data(data, window), data_mode=data_mode, **roots)
     with _lock:
         _cache[key] = (fingerprint, value)
     return value

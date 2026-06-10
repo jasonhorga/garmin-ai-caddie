@@ -101,6 +101,21 @@ class StatsCacheTests(unittest.TestCase):
             self.assertEqual(r2, {"course": "cb"})  # not d1's cached result
             self.assertEqual(calls, ["ca", "cb"])
 
+    def test_window_variants_cached_independently(self) -> None:
+        # Each stats window gets its own cache key: computing last10 must NOT evict the
+        # all-window result, so switching back is a hit (same object, no recompute).
+        calls = {"n": 0}
+        with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)):
+            data = _dummy_data()
+            first = stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            last10 = stats_cache.cached_build_history_stats(data, data_mode="local", window="last10", **self.roots)
+            again = stats_cache.cached_build_history_stats(data, data_mode="local", window="all", **self.roots)
+            self.assertEqual(first, {"build_number": 1})
+            self.assertEqual(last10, {"build_number": 2})  # own key -> own compute
+            self.assertIs(again, first)  # default window == "all"; switching back hits
+            self.assertEqual(calls["n"], 2)
+
     def test_load_cache_hits_then_invalidates_on_new_file(self) -> None:
         calls = {"n": 0}
 

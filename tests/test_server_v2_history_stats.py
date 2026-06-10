@@ -59,6 +59,23 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-history-stats-v1")
         self.assertNotIn("schema_", payload)
 
+    def test_history_stats_window_param_validates_and_filters(self) -> None:
+        with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
+            get_settings.cache_clear()
+            client = TestClient(app)
+            last10 = client.get("/api/v2/history/stats?window=last10")
+            twelve = client.get("/api/v2/history/stats?window=12m")
+            invalid = client.get("/api/v2/history/stats?window=bogus")
+
+        self.assertEqual(last10.status_code, 200)
+        payload = last10.json()
+        self.assertEqual(payload["schema"], "ai-caddie-history-stats-v1")
+        # fixture has 3 rounds (<=10, all within 365 days) -> both windows keep all 3
+        self.assertEqual(payload["summary"]["totalRounds"], 3)
+        self.assertEqual(twelve.status_code, 200)
+        self.assertEqual(twelve.json()["summary"]["totalRounds"], 3)
+        self.assertEqual(invalid.status_code, 422)
+
     def test_history_stats_endpoint_includes_decision_audit_diagnosis(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

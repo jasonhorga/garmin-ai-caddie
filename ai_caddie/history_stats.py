@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import date, timedelta
 from pathlib import Path
 from statistics import median
 from typing import Any, Literal
@@ -3440,6 +3441,57 @@ def _data_quality(
         _report_quality(data, report_records),
         _weather_quality(data, weather_snapshots),
     ]
+
+
+def _round_window_date(row: dict[str, Any]) -> date | None:
+    raw = str(row.get("date") or "")[:10]
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
+    """Filter ``data`` to the requested stats window. Pure — never mutates the input.
+
+    - ``all``: the input object itself (identity, zero cost).
+    - ``last10``: the 10 most recent rounds by date (ISO-string sort desc, ties keep
+      input order); merged rounds count as one.
+    - ``12m``: rounds dated within 365 days of the NEWEST round in the data. Anchoring
+      on the data instead of the wall clock keeps the result deterministic for a given
+      dataset (and cacheable by fingerprint).
+
+    ``shots`` and ``raw_rounds`` are filtered to the surviving rounds. Merged rounds
+    (``id="merged_<a>_<b>"``) list their member ids in ``ids`` while their shots and
+    raw_rounds reference the RAW member ids, so the surviving-id set includes both;
+    ids are compared as strings because sources mix ints and strings.
+    """
+    if window == "all":
+        return data
+    if window == "last10":
+        order = sorted(range(len(data.rounds)), key=lambda i: str(data.rounds[i].get("date") or ""), reverse=True)
+        keep_indexes = set(order[:10])
+        rounds = [row for index, row in enumerate(data.rounds) if index in keep_indexes]
+    elif window == "12m":
+        dated = [(row, _round_window_date(row)) for row in data.rounds]
+        anchor = max((day for _, day in dated if day is not None), default=None)
+        if anchor is None:
+            rounds = list(data.rounds)
+        else:
+            cutoff = anchor - timedelta(days=365)
+            rounds = [row for row, day in dated if day is not None and day >= cutoff]
+    else:
+        raise ValueError(f"invalid stats window: {window}")
+    keep_ids: set[str] = set()
+    for row in rounds:
+        keep_ids.add(_round_id(row))
+        for member in row.get("ids") or []:
+            keep_ids.add(str(member))
+    return HistoryData(
+        raw_rounds=[row for row in data.raw_rounds if _round_id(row) in keep_ids],
+        rounds=rounds,
+        shots=[shot for shot in data.shots if _shot_round_id(shot) in keep_ids],
+    )
 
 
 def build_history_stats(

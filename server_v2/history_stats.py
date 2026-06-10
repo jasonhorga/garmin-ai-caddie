@@ -14,9 +14,11 @@ DECISION_AUDIT_ROOT = Path(".")
 logger = logging.getLogger(__name__)
 
 
-def load_history_stats_response() -> HistoryStatsResponse:
+def load_history_stats_response(window: str = "all") -> HistoryStatsResponse:
     data, mode = load_history_data_for_mode()
-    return HistoryStatsResponse(**cached_build_history_stats(data, data_mode=mode, decision_audit_root=DECISION_AUDIT_ROOT))
+    return HistoryStatsResponse(
+        **cached_build_history_stats(data, data_mode=mode, decision_audit_root=DECISION_AUDIT_ROOT, window=window)
+    )
 
 
 def warm_stats_cache() -> None:
