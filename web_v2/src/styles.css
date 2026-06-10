@@ -4510,10 +4510,23 @@ button.round-detail-cell:hover {
   gap: 15px;
 }
 
-.home-greeting h1 {
+.home-greeting h2 {
   margin: 0;
   font-size: 24px;
   letter-spacing: -.4px;
+}
+
+.home-empty-state h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.home-empty-state p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 56ch;
 }
 
 .home-greeting p {

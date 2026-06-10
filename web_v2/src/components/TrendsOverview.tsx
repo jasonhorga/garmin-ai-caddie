@@ -151,6 +151,11 @@ export function TrendsOverview({
   const allAverage18 = allSummary ? asNumber(allSummary.average18) : null
   const allBestScore = allSummary ? asNumber(allSummary.bestScore) : null
   const allWorstScore = allSummary ? asNumber(allSummary.worstScore) : null
+  const allHandicapEstimate = allSummary ? asNumber(allSummary.handicapEstimate) : null
+  // Short windows (e.g. last10) often have <5 differential-bearing rounds and no
+  // windowed estimate; fall back to the all-window value rather than showing —.
+  // The trend sub stays gated on the windowed estimate so no meaningless delta renders.
+  const displayHandicapEstimate = handicapEstimate ?? allHandicapEstimate
   const showDeltas = statsWindow !== 'all' && allStats !== null
 
   const averageDelta = showDeltas && average18 !== null && allAverage18 !== null ? Number((average18 - allAverage18).toFixed(1)) : null
@@ -200,7 +205,7 @@ export function TrendsOverview({
         </article>
         <article className="trends-kpi">
           <span className="trends-kpi-label">差点(估算)</span>
-          <b className="trends-kpi-value">{handicapEstimate === null ? '—' : formatNumber(handicapEstimate)}</b>
+          <b className="trends-kpi-value">{displayHandicapEstimate === null ? '—' : formatNumber(displayHandicapEstimate)}</b>
           {handicapEstimate !== null && handicapTrend !== null && handicapTrend !== 0 ? (
             <span className="trends-kpi-sub">
               <em className={handicapTrend < 0 ? 'trends-delta good' : 'trends-delta bad'}>

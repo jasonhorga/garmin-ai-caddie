@@ -138,6 +138,25 @@ describe('TrendsOverview', () => {
     expect(within(handicap).queryByText(/▼|▲/)).not.toBeInTheDocument()
   })
 
+  it('falls back to the all-window 差点 when the windowed estimate is null', () => {
+    // Real-data case: last10 often has <5 differential-bearing rounds → windowed
+    // handicapEstimate is null while the all-window estimate exists.
+    renderTrends({
+      stats: statsFixture({
+        summary: { totalRounds: 3, average18: 90, bestScore: 82, worstScore: 98, handicapEstimate: null, handicapTrend: null },
+      }),
+      allStats: statsFixture({
+        summary: { totalRounds: 40, average18: 92, bestScore: 78, worstScore: 103, handicapEstimate: 17.2, handicapTrend: -0.3 },
+      }),
+    })
+
+    const handicap = screen.getByText('差点(估算)').closest('article') as HTMLElement
+    expect(within(handicap).getByText('17.2')).toBeInTheDocument()
+    expect(within(handicap).queryByText('—')).not.toBeInTheDocument()
+    // The delta/trend sub stays suppressed — it would compare a value against itself.
+    expect(within(handicap).queryByText(/▼|▲/)).not.toBeInTheDocument()
+  })
+
   it('shows vs-全部 deltas only when allStats is present', () => {
     renderTrends({ allStats: allStatsFixture() })
 

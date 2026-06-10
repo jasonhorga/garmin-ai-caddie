@@ -271,4 +271,57 @@ describe('HomeOverview', () => {
     renderHome({ stats: statsFixture({ issues: [] }) })
     expect(screen.queryByLabelText('本周该练')).not.toBeInTheDocument()
   })
+
+  it('renders the empty state title and detail instead of dash-cards', () => {
+    renderHome({
+      overview: overviewFixture({
+        metrics: {
+          totalRounds: 0,
+          eighteenHoleRounds: 0,
+          nineHoleRounds: 0,
+          courseCount: 0,
+          shotCount: 0,
+          average18: null,
+          recent10Average: null,
+          bestScore: null,
+        },
+        recentRounds: [],
+        emptyState: {
+          kind: 'no_rounds',
+          title: 'No local Garmin data loaded',
+          detail:
+            'The v2 UI is connected, but this remote workspace has 0 rounds and 0 shot rows. Sync Garmin data into data/scorecards and data/shots, or run the fetch workflow, then refresh.',
+        },
+      }),
+    })
+
+    expect(screen.getByText('你好 👋')).toBeInTheDocument()
+    expect(screen.getByText('No local Garmin data loaded')).toBeInTheDocument()
+    expect(screen.getByText(/this remote workspace has 0 rounds and 0 shot rows/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('上一场')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('近期状态')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('搜索球场')).not.toBeInTheDocument()
+  })
+
+  it('falls back to a zh empty state when totalRounds is 0 without an emptyState payload', () => {
+    renderHome({
+      overview: overviewFixture({
+        metrics: {
+          totalRounds: 0,
+          eighteenHoleRounds: 0,
+          nineHoleRounds: 0,
+          courseCount: 0,
+          shotCount: 0,
+          average18: null,
+          recent10Average: null,
+          bestScore: null,
+        },
+        recentRounds: [],
+        emptyState: null,
+      }),
+    })
+
+    expect(screen.getByText('还没有球局数据')).toBeInTheDocument()
+    expect(screen.queryByLabelText('近期状态')).not.toBeInTheDocument()
+  })
 })

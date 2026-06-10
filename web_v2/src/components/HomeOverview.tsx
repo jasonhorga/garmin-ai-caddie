@@ -125,13 +125,29 @@ export function HomeOverview({
       setSearch({ status: 'ready', matches: Array.isArray(data.matches) ? data.matches : [] })
     } catch (error: unknown) {
       if (searchSeq.current !== seq) return
-      setSearch({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+      setSearch({ status: 'error', message: error instanceof Error ? error.message : '未知错误' })
     }
   }
 
   const recentRounds: RoundCardType[] = Array.isArray(overview.recentRounds) ? overview.recentRounds : []
   const lastRound = recentRounds[0] ?? null
   const frequents = frequentCourses(courseOptions)
+  const emptyState = overview.emptyState ?? null
+
+  if (emptyState || overview.metrics.totalRounds === 0) {
+    return (
+      <section className="home-page" aria-label="概览">
+        <header className="home-greeting">
+          <h2>你好 👋</h2>
+          <p>你的近况一眼看完</p>
+        </header>
+        <section className="panel home-empty-state" aria-label="暂无球局数据">
+          <h2>{emptyState ? emptyState.title : '还没有球局数据'}</h2>
+          <p>{emptyState ? emptyState.detail : '同步 Garmin 数据后,这里会展示你的近况。'}</p>
+        </section>
+      </section>
+    )
+  }
 
   const summary = stats ? asRecord(stats.summary) : {}
   const handicapEstimate = asNumber(summary.handicapEstimate)
@@ -150,7 +166,7 @@ export function HomeOverview({
   return (
     <section className="home-page" aria-label="概览">
       <header className="home-greeting">
-        <h1>你好 👋</h1>
+        <h2>你好 👋</h2>
         <p>你的近况一眼看完</p>
       </header>
 

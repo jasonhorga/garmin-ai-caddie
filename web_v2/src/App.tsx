@@ -126,6 +126,10 @@ export default function App() {
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   const [trendsWindow, setTrendsWindow] = useState<StatsWindow>('last10')
   const [trendsState, setTrendsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
+  // Mirrors HomeOverview's searchSeq guard: stale trends responses are discarded,
+  // and refreshes always read the window the user most recently selected.
+  const trendsSeq = useRef(0)
+  const trendsWindowRef = useRef<StatsWindow>('last10')
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
@@ -213,6 +217,11 @@ export default function App() {
     return error instanceof Error ? error.message : 'Unknown error'
   }
 
+  // zh surfaces (W1b 概览/趋势) fall back to a Chinese string; legacy English panels keep errorMessage.
+  function zhErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : '未知错误'
+  }
+
   async function refreshOverviewState(adminTokenOverride: string | undefined = currentAdminToken()) {
     try {
       const data = await fetchHistoryOverview(adminTokenOverride)
@@ -260,26 +269,33 @@ export default function App() {
     }
   }
 
-  async function loadTrendsState(window: StatsWindow = trendsWindow, adminTokenOverride: string | undefined = currentAdminToken()) {
+  async function loadTrendsState(window: StatsWindow = trendsWindowRef.current, adminTokenOverride: string | undefined = currentAdminToken()) {
+    const seq = ++trendsSeq.current
     setTrendsState({ status: 'loading' })
     try {
       const data = await fetchHistoryStats(adminTokenOverride, window)
+      if (trendsSeq.current !== seq) return
       setTrendsState({ status: 'ready', data })
     } catch (error: unknown) {
-      setTrendsState({ status: 'error', message: errorMessage(error) })
+      if (trendsSeq.current !== seq) return
+      setTrendsState({ status: 'error', message: zhErrorMessage(error) })
     }
   }
 
   async function refreshTrendsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+    const seq = ++trendsSeq.current
     try {
-      const data = await fetchHistoryStats(adminTokenOverride, trendsWindow)
+      const data = await fetchHistoryStats(adminTokenOverride, trendsWindowRef.current)
+      if (trendsSeq.current !== seq) return
       setTrendsState({ status: 'ready', data })
     } catch (error: unknown) {
-      setTrendsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
+      if (trendsSeq.current !== seq) return
+      setTrendsState((current) => (current.status === 'ready' ? current : { status: 'error', message: zhErrorMessage(error) }))
     }
   }
 
   function handleTrendsWindowChange(window: StatsWindow) {
+    trendsWindowRef.current = window
     setTrendsWindow(window)
     void loadTrendsState(window)
   }
@@ -323,13 +339,22 @@ export default function App() {
     }
   }
 
+  async function refreshMobileCourseOptionsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+    try {
+      const data = await fetchMobileCourseOptions(adminTokenOverride)
+      setMobileCourseOptionsState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setMobileCourseOptionsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
+    }
+  }
+
   function refreshLoadedHistorySurfaces(adminTokenOverride: string | undefined = currentAdminToken()) {
     void refreshOverviewState(adminTokenOverride)
     if (roundsState.status !== 'idle') void refreshRoundsState(adminTokenOverride)
     if (statsState.status !== 'idle') void refreshStatsState(adminTokenOverride)
     if (trendsState.status !== 'idle') void refreshTrendsState(adminTokenOverride)
     if (readinessState.status !== 'idle') void refreshReadinessState()
-    if (mobileCourseOptionsState.status !== 'idle') void loadMobileCourseOptionsState(adminTokenOverride)
+    if (mobileCourseOptionsState.status !== 'idle') void refreshMobileCourseOptionsState(adminTokenOverride)
     if (reportIndexState.status !== 'idle') loadReportIndex()
   }
 
@@ -354,8 +379,11 @@ export default function App() {
     }
     setActivePage(page)
     if (page === 'overview') {
-      if (statsState.status === 'idle') void loadStatsState()
-      if (mobileCourseOptionsState.status === 'idle') void loadMobileCourseOptionsState()
+      // 概览 composes stats + course options on boot; if either failed at boot
+      // (e.g. backend briefly down), returning to 概览 retries instead of
+      // leaving the dash-cards stuck on the stale error forever.
+      if (statsState.status === 'idle' || statsState.status === 'error') void loadStatsState()
+      if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
     }
     if (page === 'rounds' && roundsState.status === 'idle') {
       void loadRoundsState()
@@ -1067,7 +1095,7 @@ export default function App() {
       if (trendsState.status === 'error') {
         return (
           <section className="panel empty-state">
-            <h1>趋势总览加载失败</h1>
+            <h2>趋势总览加载失败</h2>
             <p>{trendsState.message}</p>
             <button type="button" onClick={() => void loadTrendsState()}>
               重试
@@ -1077,7 +1105,7 @@ export default function App() {
       }
       return (
         <section className="panel empty-state">
-          <h1>趋势总览加载中</h1>
+          <h2>趋势总览加载中</h2>
         </section>
       )
     }
