@@ -26,4 +26,11 @@ describe('AppSidebar', () => {
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(onNavigate).toHaveBeenCalledWith('sync-quality')
   })
+
+  it('navigates back to 概览 from another section', async () => {
+    const onNavigate = vi.fn()
+    render(<AppSidebar activePage="clubs" onNavigate={onNavigate} />)
+    await userEvent.click(screen.getByRole('button', { name: '概览' }))
+    expect(onNavigate).toHaveBeenCalledWith('overview')
+  })
 })
