@@ -427,6 +427,127 @@ const annotationsPayload = {
   ],
 }
 
+// 备战 walk fixtures for globalId 31795 ('Black Knight B/C' in the mobile
+// course options above). Hole 1 carries a rendered map (real, valid 1x1 JPEG so
+// the browser raises no decode errors) plus a two-dot shot scatter; holes 2/7
+// degrade without geometry. Hole 7 matches the stats.holes black_knight row so
+// 关键洞 and the 逐洞速览 chip pick up 平均+1.1.
+const tinyHoleJpeg =
+  'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k='
+
+const prepHoleOneOverlay = {
+  w: 360,
+  h: 360,
+  ppm: 0.85,
+  ln: 393,
+  route: [
+    [180, 330, 0],
+    [176, 150, 212],
+    [184, 40, 393],
+  ],
+}
+
+const coursePrepPayload = {
+  schema: 'ai-caddie-course-prep-v1',
+  globalId: 31795,
+  holeCount: 3,
+  clubs: [
+    { name: '1D', m: 220, yd: 241 },
+    { name: '8I', m: 131, yd: 143 },
+  ],
+  holes: [
+    {
+      hole: 1,
+      par: 4,
+      par_source: 'courseview',
+      blue_yards: 430,
+      route_len_m: 393,
+      route: prepHoleOneOverlay.route,
+      geometryCoverage: 'ready',
+      sourceRefs: [],
+      missingData: [],
+      candidateRoutes: [],
+      carryTargets: [],
+      steps: [
+        { club: '1D', note: '开球瞄球道左侧,避开右侧沙坑' },
+        { club: '8I', note: '第二杆攻果岭中部' },
+      ],
+      cautions: ['右侧长草密集,宁左勿右'],
+      landing_m: 215,
+      tee_club: '1D',
+      hazards: { water_carry: [[120, 180]], bunkers: [[260, 8]] },
+      map: { image: tinyHoleJpeg, overlay: prepHoleOneOverlay },
+      yourShots: [
+        { x: 168, y: 150, club: '1D', shotType: 'TEE', roundId: '900001' },
+        { x: 188, y: 60, club: '8I', shotType: 'APPROACH', roundId: '900002' },
+      ],
+    },
+    {
+      hole: 2,
+      par: 3,
+      par_source: 'courseview',
+      blue_yards: 180,
+      route_len_m: 165,
+      route: [
+        [0, 0, 0],
+        [0, 140, 165],
+      ],
+      geometryCoverage: 'missing',
+      sourceRefs: [],
+      missingData: [{ label: 'geometry', reason: 'prodgeometry geometry is missing for this hole' }],
+      candidateRoutes: [],
+      carryTargets: [],
+      steps: [{ club: null, note: '一杆上果岭,宁长勿短' }],
+      cautions: [],
+      landing_m: null,
+      tee_club: null,
+      hazards: { water_carry: [], bunkers: [] },
+    },
+    {
+      hole: 7,
+      par: 4,
+      par_source: 'played',
+      blue_yards: 410,
+      route_len_m: 375,
+      route: [
+        [0, 0, 0],
+        [0, 300, 375],
+      ],
+      geometryCoverage: 'missing',
+      sourceRefs: [],
+      missingData: [{ label: 'geometry', reason: 'prodgeometry geometry is missing for this hole' }],
+      candidateRoutes: [],
+      carryTargets: [],
+      steps: [{ club: '1D', note: '历史失分洞,稳住开球' }],
+      cautions: ['连续两轮 +2,别贪长'],
+      landing_m: null,
+      tee_club: '1D',
+      hazards: { water_carry: [], bunkers: [] },
+    },
+  ],
+}
+
+const prepTipsPayload = {
+  schema: 'ai-caddie-prep-tips-v1',
+  courseKey: 'black_knight',
+  tips: [
+    {
+      priority: 1,
+      severity: 'high',
+      text: '开球偏右(58%),第1洞、第7洞尤其要瞄球道左侧',
+      basis: '开球方向:右 58% · 近20轮',
+      sourceRefs: ['stats:black_knight:teeDirection'],
+    },
+    {
+      priority: 2,
+      severity: 'info',
+      text: '三杆洞稳(平均+0.2),按部就班拿帕',
+      basis: 'Par3 平均 +0.2 · 近20轮',
+      sourceRefs: ['stats:black_knight:parScoring:par3'],
+    },
+  ],
+}
+
 test('major product screens render with stable Garmin Pro layout', async ({ page }, testInfo) => {
   const browserErrors: string[] = []
   const failedResponses: string[] = []
@@ -470,7 +591,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
 
   // prepGlobalId is null on a fresh visit, so 备战 lands on the PrepPage entry
-  // state (course finder); the full prep walk is covered when B5 extends e2e.
+  // state (course finder); the full prep walk runs at the end of this test.
   await page.getByRole('button', { name: '备战' }).click()
   await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
   await assertNoViewportOverflow(page)
@@ -489,9 +610,49 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await page.getByRole('button', { name: '后端配置' }).click()
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
+  await captureSmokeScreenshot(page, testInfo, 'settings')
+
+  // 备战 full walk: 概览 finder → course header → 三页签 → scatter legend.
+  await page.getByRole('button', { name: '概览', exact: true }).click()
+  await expect(page.getByText('想备哪场?')).toBeVisible()
+  await page.getByRole('button', { name: '去备战 Black Knight B/C' }).click()
+
+  // Course header joins courseOptions (name) + prep totals + stats record.
+  await expect(page.getByRole('heading', { name: 'Black Knight B/C' })).toBeVisible()
+  await expect(page.getByText('Par 11 · 总码数 1020 码')).toBeVisible()
+  await expect(page.getByText('你的战绩:打过 5 次 · 均杆 80.5')).toBeVisible()
+
+  // 概览 tab is active by default: 关键洞 (stats-backed hole 7) + 逐洞速览 chips.
+  const prepTabs = page.getByRole('navigation', { name: '备战页签' })
+  await expect(prepTabs.getByRole('button', { name: '概览' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('heading', { name: '关键洞' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '第7洞 · Par4' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '逐洞速览' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '第7洞 Par4 平均+1.1' })).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await captureSmokeScreenshot(page, testInfo, 'prep-overview')
+
+  // 速览 chip jumps into 逐洞攻略; hole 1 card carries the mocked shot scatter.
+  await page.getByRole('button', { name: '第1洞 Par4 未打过' }).click()
+  await expect(prepTabs.getByRole('button', { name: '逐洞攻略' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByText('1 洞', { exact: true })).toBeVisible()
+  await expect(page.getByText('你的落点:')).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await captureSmokeScreenshot(page, testInfo, 'prep-holes')
+
+  // 针对你 renders both mocked tips verbatim.
+  await prepTabs.getByRole('button', { name: '针对你' }).click()
+  await expect(page.getByText('开球偏右(58%),第1洞、第7洞尤其要瞄球道左侧')).toBeVisible()
+  await expect(page.getByText('三杆洞稳(平均+0.2),按部就班拿帕')).toBeVisible()
+  await assertNoViewportOverflow(page)
+
+  // 换球场 returns to the entry finder.
+  await page.getByRole('button', { name: '换球场' }).click()
+  await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
+  await assertNoViewportOverflow(page)
+
   await expect(failedResponses).toEqual([])
   await expect(browserErrors).toEqual([])
-  await captureSmokeScreenshot(page, testInfo, 'settings')
 })
 
 async function mockApi(page: Page) {
@@ -504,6 +665,10 @@ async function mockApi(page: Page) {
     if (path === '/api/v2/sync/status') return route.fulfill({ json: syncStatusPayload })
     if (path === '/api/v2/mobile/courses/options') return route.fulfill({ json: mobileCourseOptionsPayload })
     if (path === '/api/v2/courses/search') return route.fulfill({ json: courseSearchPayload })
+    // PrepPage course fetches carry the globalId in the path (and the prep
+    // request a ?include_shots=true query), so match by prefix + suffix.
+    if (path.startsWith('/api/v2/courses/') && path.endsWith('/prep')) return route.fulfill({ json: coursePrepPayload })
+    if (path.startsWith('/api/v2/courses/') && path.endsWith('/prep-tips')) return route.fulfill({ json: prepTipsPayload })
     if (path === '/api/v2/readiness') return route.fulfill({ json: readinessPayload })
     if (path === '/api/v2/reports') return route.fulfill({ json: reportIndexPayload })
     if (path === '/api/v2/settings/product') return route.fulfill({ json: productSettingsPayload })

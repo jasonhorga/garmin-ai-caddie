@@ -2085,7 +2085,8 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
-    expect(screen.queryByText('赛前球场攻略')).not.toBeInTheDocument()
+    // The 备战 page (entry finder heading) must not leak into the 实战 workspace.
+    expect(screen.queryByRole('heading', { name: '选择球场开始备战' })).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
     expect(await screen.findByText('5.4 m/s')).toBeInTheDocument()
