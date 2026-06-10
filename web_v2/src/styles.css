@@ -17,7 +17,7 @@
   --par: #2f8f5f;
   --bogey: #d9a441;
   --double: #c2553f;
-  --bogey-text: #9a6a16;
+  --bogey-text: #8a5e12; /* 4.97:1 on the bogey chip tint, 5.69:1 on white (WCAG AA) */
   --double-text: #a23f2c;
   --line-strong: #b9c3bb;
   --text: var(--ink);
@@ -168,7 +168,6 @@ p {
 }
 
 .panel,
-.metric-card,
 .round-card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -182,33 +181,6 @@ p {
 
 .empty-state {
   margin-bottom: 16px;
-}
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.metric-card {
-  min-height: 86px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-width: 0;
-}
-
-.metric-card span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.metric-card b {
-  color: var(--ink);
-  font-size: 28px;
-  line-height: 1;
 }
 
 .content-grid {
@@ -317,8 +289,7 @@ p {
 }
 
 .round-card h3,
-.round-card p,
-.metric-card span {
+.round-card p {
   overflow-wrap: anywhere;
 }
 
@@ -450,56 +421,6 @@ p {
 .quality-missing {
   color: #8f3028;
   background: #f8e5e2;
-}
-
-.distribution-grid {
-  display: grid;
-  gap: 14px;
-}
-
-.pyramid,
-.histogram {
-  display: grid;
-  gap: 8px;
-}
-
-.pyramid-row,
-.histogram-row {
-  display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) 34px;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.distribution-panel--refs .pyramid-row,
-.distribution-panel--refs .histogram-row {
-  grid-template-columns: 54px minmax(0, 1fr) 34px minmax(0, 1fr);
-}
-
-.pyramid-row span,
-.histogram-row span {
-  overflow-wrap: anywhere;
-}
-
-.pyramid-track,
-.histogram-row i {
-  height: 16px;
-  border-radius: 999px;
-  background: #e8ede9;
-  overflow: hidden;
-}
-
-.pyramid-track i,
-.histogram-row i {
-  display: block;
-  height: 16px;
-  border-radius: 999px;
-}
-
-.histogram-row i {
-  background: var(--green);
 }
 
 .sync-panel {
@@ -932,43 +853,6 @@ p {
   gap: 14px;
 }
 
-.profile-signal-column {
-  min-width: 0;
-  display: grid;
-  align-content: start;
-  gap: 8px;
-}
-
-.mini-metric-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.mini-metric {
-  min-width: 0;
-  min-height: 62px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #f8faf7;
-  padding: 10px;
-}
-
-.mini-metric span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.mini-metric b {
-  color: var(--ink);
-  font-size: 22px;
-  line-height: 1;
-}
-
 .compact-panel {
   min-width: 0;
 }
@@ -1000,29 +884,12 @@ p {
   color: var(--ink);
 }
 
-.record-evidence,
-.aggregate-meta,
-.period-detail {
+.aggregate-meta {
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   align-items: center;
-}
-
-.period-detail .score-eagle,
-.period-detail .score-birdie,
-.period-detail .score-par,
-.period-detail .score-bogey,
-.period-detail .score-double {
-  border-color: transparent;
-  color: #ffffff;
-}
-
-.score-outcome-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
 }
 
 .score-outcome {
@@ -3871,18 +3738,6 @@ button.round-detail-cell:hover {
     justify-content: flex-start;
   }
 
-  .metric-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .mini-metric-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .score-outcome-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .round-detail-facts,
   .round-phase-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3905,15 +3760,6 @@ button.round-detail-cell:hover {
     padding-bottom: 10px;
   }
 
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .mini-metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .score-outcome-grid,
   .course-distribution-row {
     grid-template-columns: 1fr;
   }
@@ -4596,8 +4442,12 @@ button.round-detail-cell:hover {
 }
 
 .home-search input:focus {
-  outline: 2px solid color-mix(in srgb, var(--green) 35%, transparent);
+  outline: 2px solid var(--green);
   outline-offset: 1px;
+}
+
+.home-search input::placeholder {
+  color: var(--muted);
 }
 
 .home-search button {
