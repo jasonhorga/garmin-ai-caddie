@@ -1161,13 +1161,139 @@ describe('App navigation', () => {
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(1)
   })
 
+  it('refetches trends with the newly selected window', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || String(path).startsWith('/api/v2/history/stats?')) return statsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats?window=last10')
+    // The boot 概览 composition already loaded the all-window stats exactly once.
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
+
+    await userEvent.click(screen.getByRole('button', { name: '近12个月' }))
+
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats?window=12m')
+
+    await userEvent.click(screen.getByRole('button', { name: '全部' }))
+
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
+  })
+
+  it('去备战 hands the clicked course globalId to the prep panel', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: '去备战 Black Knight B/C' }))
+
+    expect(await screen.findByRole('heading', { name: '赛前球场攻略' })).toBeInTheDocument()
+    // CoursePrepPanel seeds its global-id input from the handed-off defaultGlobalId.
+    expect(screen.getByDisplayValue('31795')).toBeInTheDocument()
+  })
+
+  it('discards a stale trends refresh that resolves after the window changed', async () => {
+    const twelveMonthStats = {
+      ...statsPayload(),
+      summary: { totalRounds: 9, average18: 95, bestScore: 81, shotCount: 6 },
+    }
+    let last10Calls = 0
+    let resolveStaleRefresh!: () => void
+    const staleRefresh = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+      resolveStaleRefresh = () => resolve({ ok: true, json: async () => statsPayload() })
+    })
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === '/api/v2/history/stats?window=last10') {
+        last10Calls += 1
+        // The second last10 request is the background refresh kicked off by the
+        // sync run; keep it pending so it can resolve after the window changes.
+        if (last10Calls > 1) return staleRefresh
+        return Promise.resolve({ ok: true, json: async () => statsPayload() })
+      }
+      if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => syncRunPayload() })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats?window=12m') return twelveMonthStats
+          if (path === '/api/v2/history/stats') return statsPayload()
+          if (path === '/api/v2/readiness') return readinessPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusCanSyncPayload()
+          return overviewPayload()
+        },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+
+    // Kick off a background trends refresh (window=last10) that stays in flight.
+    await userEvent.click(screen.getByRole('button', { name: '设置' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(2),
+    )
+
+    // Switch to 近12个月 while the last10 refresh is still pending.
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+    await userEvent.click(screen.getByRole('button', { name: '近12个月' }))
+    const averageCard = (await screen.findByText('均杆(18洞)')).closest('article') as HTMLElement
+    expect(within(averageCard).getByText('95')).toBeInTheDocument()
+
+    // The stale last10 refresh resolves late — it must not clobber the 12m view.
+    await act(async () => {
+      resolveStaleRefresh()
+      await staleRefresh
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByRole('button', { name: '近12个月' })).toHaveAttribute('aria-pressed', 'true')
+    const averageCardAfter = screen.getByText('均杆(18洞)').closest('article') as HTMLElement
+    expect(within(averageCardAfter).getByText('95')).toBeInTheDocument()
+    expect(within(averageCardAfter).queryByText('82')).not.toBeInTheDocument()
+  })
+
   it('renders loading and error states for deferred history stats', async () => {
+    let statsAvailable = false
     let rejectStats: (error: Error) => void = () => {}
     const statsPromise = new Promise<never>((_, reject) => {
       rejectStats = reject
     })
     const fetchMock = vi.fn((path: string) => {
-      if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPromise
+      if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') {
+        if (!statsAvailable) return statsPromise
+        return Promise.resolve({ ok: true, json: async () => statsPayload() })
+      }
       return Promise.resolve({
         ok: true,
         json: async () => {
@@ -1194,6 +1320,14 @@ describe('App navigation', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
     // The trends page keeps recovery plain — the 去设置 hint lives on the other stats pages.
     expect(screen.queryByText('如需配置访问密钥，请前往 设置 → 同步与数据健康。')).not.toBeInTheDocument()
+
+    // 重试 refetches the windowed stats and renders the trends page.
+    statsAvailable = true
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
+
+    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(2)
 
     await userEvent.click(screen.getByRole('button', { name: '球场' }))
 
