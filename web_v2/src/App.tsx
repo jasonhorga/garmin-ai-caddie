@@ -573,50 +573,67 @@ export default function App() {
         />
       )
     }
-    if (activePage === 'sync-quality') {
-      return (
-        <section className="sync-quality-workspace" aria-label="Sync and data quality workspace">
-          <div className="section-head stats-head">
-            <div>
-              <p className="eyebrow">Evidence Coverage</p>
-              <h1>Sync & Data Quality</h1>
-              <p>Garmin connector state, local snapshot coverage, and confidence-impacting gaps.</p>
-            </div>
+    return <StatsOverview data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+  }
+
+  function renderSyncQualityWorkspace() {
+    return (
+      <section className="sync-quality-workspace" aria-label="Sync and data quality workspace">
+        <div className="section-head stats-head">
+          <div>
+            <p className="eyebrow">Evidence Coverage</p>
+            <h1>Sync & Data Quality</h1>
+            <p>Garmin connector state, local snapshot coverage, and confidence-impacting gaps.</p>
           </div>
-          {syncStatus ? (
-            <SyncStatusPanel
-              status={syncStatus}
-              onSync={handleRunSync}
-              syncState={syncRunState}
-              onSaveSession={handleSaveGarminSession}
-              sessionSaveState={sessionSaveState}
-              sessionSaveError={sessionSaveError}
-              adminTokenValue={adminToken}
-              onAdminTokenChange={handleAdminTokenChange}
-            />
-          ) : null}
-          <MobilePackagePrepPanel
-            state={mobilePackagePrepState}
-            courseOptionsState={mobileCourseOptionsState}
-            onPrepareRound={(roundId, params) => void handlePrepareMobileRoundPackage(roundId, params)}
-            onPrepareCourse={(globalId, params) => void handlePrepareMobileCoursePackage(globalId, params)}
-            showAdminTokenInput={!syncStatus}
+        </div>
+        {syncStatus ? (
+          <SyncStatusPanel
+            status={syncStatus}
+            onSync={handleRunSync}
+            syncState={syncRunState}
+            onSaveSession={handleSaveGarminSession}
+            sessionSaveState={sessionSaveState}
+            sessionSaveError={sessionSaveError}
             adminTokenValue={adminToken}
             onAdminTokenChange={handleAdminTokenChange}
           />
-          <MobileReconciliationPanel
-            state={mobileReconciliationState}
-            applyState={mobileReconciliationApplyState}
-            onLoad={(roundId) => void handleLoadMobileReconciliation(roundId)}
-            onApply={(roundId, suggestionIds) => void handleApplyMobileReconciliation(roundId, suggestionIds)}
-          />
-          {readinessState.status === 'ready' ? <ReadinessPanel readiness={readinessState.data} /> : null}
-          {readinessState.status === 'error' ? <ReadinessPanel readiness={null} error={readinessState.message} /> : null}
-          <DataQualityPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        </section>
-      )
-    }
-    return <StatsOverview data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+        ) : null}
+        <MobilePackagePrepPanel
+          state={mobilePackagePrepState}
+          courseOptionsState={mobileCourseOptionsState}
+          onPrepareRound={(roundId, params) => void handlePrepareMobileRoundPackage(roundId, params)}
+          onPrepareCourse={(globalId, params) => void handlePrepareMobileCoursePackage(globalId, params)}
+          showAdminTokenInput={!syncStatus}
+          adminTokenValue={adminToken}
+          onAdminTokenChange={handleAdminTokenChange}
+        />
+        <MobileReconciliationPanel
+          state={mobileReconciliationState}
+          applyState={mobileReconciliationApplyState}
+          onLoad={(roundId) => void handleLoadMobileReconciliation(roundId)}
+          onApply={(roundId, suggestionIds) => void handleApplyMobileReconciliation(roundId, suggestionIds)}
+        />
+        {readinessState.status === 'ready' ? <ReadinessPanel readiness={readinessState.data} /> : null}
+        {readinessState.status === 'error' ? <ReadinessPanel readiness={null} error={readinessState.message} /> : null}
+        {statsState.status === 'ready' ? (
+          <DataQualityPage data={statsState.data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+        ) : null}
+        {statsState.status === 'loading' ? (
+          <section className="panel empty-state">
+            <h2>Loading data quality</h2>
+          </section>
+        ) : null}
+        {statsState.status === 'error' ? (
+          <section className="panel empty-state">
+            <h2>Data quality unavailable</h2>
+            <p>{statsState.message}</p>
+            <button type="button" onClick={() => void loadStatsState()}>
+              Retry history stats
+            </button>
+          </section>
+        ) : null}
+      </section>
+    )
   }
 
   async function loadReport(loader: () => Promise<ReviewReportResponse>, refreshIndex = false) {
@@ -951,6 +968,27 @@ export default function App() {
         <section className="panel empty-state">
           <h1>Loading rounds</h1>
         </section>
+      )
+    }
+
+    if (activePage === 'sync-quality') {
+      return (
+        <>
+          {renderSyncQualityWorkspace()}
+          <HistoryDrilldownPanel
+            state={drilldownState}
+            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onCreateAnnotationForSource={handleCreateAnnotationForSource}
+          />
+          {holeEvidenceState.status === 'idle' ? null : (
+            <HoleEvidencePanel
+              state={holeEvidenceState}
+              ensureState={geometryEnsureState}
+              onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
+            />
+          )}
+        </>
       )
     }
 
