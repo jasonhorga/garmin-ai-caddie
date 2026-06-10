@@ -990,3 +990,20 @@ export interface CoursePrepResponse {
   clubs: CoursePrepClub[]
   holes: CoursePrepHole[]
 }
+
+export type StatsWindow = 'all' | '12m' | 'last10'
+
+export interface CourseSearchMatch {
+  globalId: number
+  name: string
+  holes: number | null
+  city: string | null
+  province: string | null
+  ratio: number
+}
+
+export interface CourseSearchResponse {
+  schema: 'ai-caddie-course-search-v1'
+  query: string
+  matches: CourseSearchMatch[]
+}
