@@ -4824,3 +4824,164 @@ button.round-detail-cell:hover {
   font-size: 13px;
   color: var(--muted);
 }
+
+/* 概览: 关键洞 + 逐洞速览 */
+.prep-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.prep-section-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.prep-key-holes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.prep-key-hole {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  padding: 10px 12px;
+}
+
+.prep-key-hole h4 {
+  margin: 0;
+  font-size: 13.5px;
+  letter-spacing: -.2px;
+}
+
+.prep-key-hole-stats {
+  margin: 6px 0 0;
+  display: flex;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.prep-key-hole-warn {
+  color: var(--bogey-text);
+  font-weight: 600;
+}
+
+.prep-quick-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.prep-quick-chip {
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 50px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.prep-quick-chip:hover {
+  border-color: var(--green);
+}
+
+.prep-quick-hole {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.prep-quick-par {
+  font-size: 10px;
+}
+
+.prep-quick-avg {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Bucket colors mirror .trends-pchip (under/over/bigover/none). */
+.prep-quick-chip.under {
+  background: var(--green-tint);
+  color: var(--green-text);
+}
+
+.prep-quick-chip.over {
+  background: color-mix(in srgb, var(--bogey) 18%, var(--panel));
+  color: var(--bogey-text);
+}
+
+.prep-quick-chip.bigover {
+  background: var(--double-soft);
+  color: var(--double-text);
+}
+
+.prep-quick-chip.none {
+  background: var(--bg);
+  color: var(--muted);
+}
+
+/* 针对你: personalized tips */
+.prep-tips-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.prep-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.prep-tip-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 5px;
+  background: var(--muted);
+}
+
+.prep-tip-dot.high {
+  background: var(--double-text);
+}
+
+.prep-tip-dot.medium {
+  background: var(--bogey-text);
+}
+
+.prep-tip-dot.info {
+  background: var(--muted);
+}
+
+.prep-tip-text {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.prep-tip-basis {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.prep-load-error h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
