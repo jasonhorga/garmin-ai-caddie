@@ -64,14 +64,16 @@ import {
   MobilePackagePrepPanel,
   type MobilePackagePrepState,
 } from './components/MobilePackagePrepPanel'
-import { ProductNav } from './components/ProductNav'
+import { AppShell } from './components/AppShell'
+import { SubNav } from './components/SubNav'
+import { ANALYSIS_TABS } from './navigation'
 import { CoursePrepPanel } from './components/CoursePrepPanel'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { StatsOverview } from './components/StatsOverview'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
-import type { ProductPage } from './components/ProductNav'
+import type { ProductPage } from './navigation'
 import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
@@ -488,7 +490,7 @@ export default function App() {
 
   function renderSyncPanel() {
     return syncStatus ? (
-      <div className="app-shell sync-panel-shell">
+      <div className="sync-panel-shell">
         <SyncStatusPanel
           status={syncStatus}
           onSync={handleRunSync}
@@ -506,7 +508,7 @@ export default function App() {
   function renderDrilldownPanels() {
     if (roundDetailState.status === 'idle' && drilldownState.status === 'idle' && holeEvidenceState.status === 'idle') return null
     return (
-      <div className="app-shell">
+      <>
         <HistoryRoundDetailPanel
           state={roundDetailState}
           reportState={reportState}
@@ -529,15 +531,28 @@ export default function App() {
             onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
           />
         )}
-      </div>
+      </>
     )
   }
 
   function renderStatsContent(data: HistoryStatsResponse) {
     if (activePage === 'courses') return <CourseStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-    if (activePage === 'holes') return <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-    if (activePage === 'clubs') return <ClubStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-    if (activePage === 'issues') return <IssueStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+    if (activePage === 'holes' || activePage === 'clubs' || activePage === 'issues') {
+      const stats =
+        activePage === 'holes' ? (
+          <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+        ) : activePage === 'clubs' ? (
+          <ClubStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+        ) : (
+          <IssueStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+        )
+      return (
+        <>
+          <SubNav items={ANALYSIS_TABS} activePage={activePage} onNavigate={navigate} variant="inner" label="分析维度" />
+          {stats}
+        </>
+      )
+    }
     if (activePage === 'reports') {
       return (
         <ReportsPage
@@ -898,21 +913,19 @@ export default function App() {
     }
   }
 
-  if (overviewState.status === 'loading') {
-    return (
-      <main className="app-shell">
+  function renderActivePage() {
+    if (overviewState.status === 'loading') {
+      return (
         <section className="panel empty-state">
           <h1>Loading history</h1>
         </section>
-      </main>
-    )
-  }
+      )
+    }
 
-  if (overviewState.status === 'error') {
-    return (
-      <>
-        {renderSyncPanel()}
-        <main className="app-shell">
+    if (overviewState.status === 'error') {
+      return (
+        <>
+          {renderSyncPanel()}
           <section className="panel empty-state">
             <h1>History API unavailable</h1>
             <p>{overviewState.message}</p>
@@ -920,65 +933,50 @@ export default function App() {
               Retry history
             </button>
           </section>
-        </main>
-      </>
-    )
-  }
-
-  if (activePage === 'rounds') {
-    if (roundsState.status === 'ready') {
-      return (
-        <>
-          {renderSyncPanel()}
-          <HistoryTimeline
-            data={roundsState.data}
-            filters={roundsFilters}
-            onFilterChange={(next) => {
-              setRoundsFilters(next)
-              void loadRoundsState(next)
-            }}
-            onNavigate={navigate}
-            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-            onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
-          />
-          {renderDrilldownPanels()}
         </>
       )
     }
 
-    if (roundsState.status === 'error') {
+    if (activePage === 'rounds') {
+      if (roundsState.status === 'ready') {
+        return (
+          <>
+            <HistoryTimeline
+              data={roundsState.data}
+              filters={roundsFilters}
+              onFilterChange={(next) => {
+                setRoundsFilters(next)
+                void loadRoundsState(next)
+              }}
+              onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+              onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+            />
+            {renderDrilldownPanels()}
+          </>
+        )
+      }
+      if (roundsState.status === 'error') {
+        return (
+          <section className="panel empty-state">
+            <h1>Rounds unavailable</h1>
+            <p>{roundsState.message}</p>
+            <button type="button" onClick={() => void loadRoundsState()}>
+              Retry rounds
+            </button>
+          </section>
+        )
+      }
       return (
-        <>
-          {renderSyncPanel()}
-          <main className="app-shell">
-            <section className="panel empty-state">
-              <h1>Rounds unavailable</h1>
-              <p>{roundsState.message}</p>
-              <button type="button" onClick={() => void loadRoundsState()}>
-                Retry rounds
-              </button>
-            </section>
-          </main>
-        </>
-      )
-    }
-
-    return (
-      <main className="app-shell">
         <section className="panel empty-state">
           <h1>Loading rounds</h1>
         </section>
-      </main>
-    )
-  }
+      )
+    }
 
-  if (statsPages.includes(activePage)) {
-    if (statsState.status === 'ready') {
-      return (
-        <>
-          {activePage === 'sync-quality' ? null : renderSyncPanel()}
-          <main className="app-shell">
-            <ProductNav activePage={activePage} onNavigate={navigate} />
+    if (statsPages.includes(activePage)) {
+      if (statsState.status === 'ready') {
+        return (
+          <>
             {renderStatsContent(statsState.data)}
             <HistoryDrilldownPanel
               state={drilldownState}
@@ -993,136 +991,106 @@ export default function App() {
                 onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
               />
             )}
-          </main>
-        </>
-      )
-    }
-
-    if (statsState.status === 'error') {
+          </>
+        )
+      }
+      if (statsState.status === 'error') {
+        return (
+          <section className="panel empty-state">
+            <h1>History stats unavailable</h1>
+            <p>{statsState.message}</p>
+            <button type="button" onClick={() => void loadStatsState()}>
+              Retry history stats
+            </button>
+          </section>
+        )
+      }
       return (
-        <>
-          {renderSyncPanel()}
-          <main className="app-shell">
-            <ProductNav activePage={activePage} onNavigate={navigate} />
-            <section className="panel empty-state">
-              <h1>History stats unavailable</h1>
-              <p>{statsState.message}</p>
-              <button type="button" onClick={() => void loadStatsState()}>
-                Retry history stats
-              </button>
-            </section>
-          </main>
-        </>
-      )
-    }
-
-    return (
-      <main className="app-shell">
-        <ProductNav activePage={activePage} onNavigate={navigate} />
         <section className="panel empty-state">
           <h1>Loading history stats</h1>
         </section>
-      </main>
-    )
-  }
-
-  if (activePage === 'caddie') {
-    return (
-      <>
-        {renderSyncPanel()}
-        <main className="app-shell">
-          <ProductNav activePage={activePage} onNavigate={navigate} />
-          <CaddiePage
-            decisionState={decisionState}
-            auditState={decisionAuditState}
-            weatherState={weatherState}
-            contextState={caddieContextState}
-            mediaState={mediaState}
-            onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
-            onCreateAudit={(decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot)}
-            onLoadWeather={(params) => void handleLoadWeather(params)}
-            onLoadCaddieContext={(params) => void handleLoadCaddieContext(params)}
-            onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
-            onAttachMedia={handleAttachMedia}
-            onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}
-            onRedactMedia={(mediaId) => void handleRedactMedia(mediaId)}
-            onConfirmVisionFinding={(findingId, confirmationState) => void handleConfirmVisionFinding(findingId, confirmationState)}
-            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-            selectedSourceRef={selectedCaddieSourceRef}
-          />
-          <CoursePrepPanel />
-        </main>
-      </>
-    )
-  }
-
-  if (activePage === 'settings') {
-    return (
-      <>
-        {renderSyncPanel()}
-        <main className="app-shell">
-          <ProductNav activePage={activePage} onNavigate={navigate} />
-          <SettingsPage
-            onNavigate={navigate}
-            settings={productSettingsState.status === 'ready' ? productSettingsState.data : null}
-            settingsError={productSettingsState.status === 'error' ? productSettingsState.message : null}
-          />
-        </main>
-      </>
-    )
-  }
-
-  if (activePage === 'corrections') {
-    if (annotationsState.status === 'ready') {
-      return (
-        <>
-          {renderSyncPanel()}
-          <main className="app-shell">
-            <ProductNav activePage={activePage} onNavigate={navigate} />
-            <CorrectionsPage
-              key={correctionTarget ? `${correctionTarget.targetType}:${correctionTarget.targetId}` : 'manual-corrections'}
-              data={annotationsState.data}
-              initialTarget={correctionTarget ?? undefined}
-              onCreateAnnotation={handleCreateAnnotation}
-            />
-          </main>
-        </>
       )
     }
 
-    if (annotationsState.status === 'error') {
+    if (activePage === 'prep') {
+      return <CoursePrepPanel />
+    }
+
+    if (activePage === 'caddie') {
       return (
-        <main className="app-shell">
-          <ProductNav activePage={activePage} onNavigate={navigate} />
+        <CaddiePage
+          decisionState={decisionState}
+          auditState={decisionAuditState}
+          weatherState={weatherState}
+          contextState={caddieContextState}
+          mediaState={mediaState}
+          onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
+          onCreateAudit={(decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot)}
+          onLoadWeather={(params) => void handleLoadWeather(params)}
+          onLoadCaddieContext={(params) => void handleLoadCaddieContext(params)}
+          onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
+          onAttachMedia={handleAttachMedia}
+          onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}
+          onRedactMedia={(mediaId) => void handleRedactMedia(mediaId)}
+          onConfirmVisionFinding={(findingId, confirmationState) => void handleConfirmVisionFinding(findingId, confirmationState)}
+          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+          selectedSourceRef={selectedCaddieSourceRef}
+        />
+      )
+    }
+
+    if (activePage === 'settings') {
+      return (
+        <SettingsPage
+          onNavigate={navigate}
+          settings={productSettingsState.status === 'ready' ? productSettingsState.data : null}
+          settingsError={productSettingsState.status === 'error' ? productSettingsState.message : null}
+        />
+      )
+    }
+
+    if (activePage === 'corrections') {
+      if (annotationsState.status === 'ready') {
+        return (
+          <CorrectionsPage
+            key={correctionTarget ? `${correctionTarget.targetType}:${correctionTarget.targetId}` : 'manual-corrections'}
+            data={annotationsState.data}
+            initialTarget={correctionTarget ?? undefined}
+            onCreateAnnotation={handleCreateAnnotation}
+          />
+        )
+      }
+      if (annotationsState.status === 'error') {
+        return (
           <section className="panel empty-state">
             <h1>Corrections unavailable</h1>
             <p>{annotationsState.message}</p>
           </section>
-        </main>
+        )
+      }
+      return (
+        <section className="panel empty-state">
+          <h1>Loading corrections</h1>
+        </section>
       )
     }
 
     return (
-      <main className="app-shell">
-        <ProductNav activePage={activePage} onNavigate={navigate} />
-        <section className="panel empty-state">
-          <h1>Loading corrections</h1>
-        </section>
-      </main>
+      <>
+        <HistoryOverview
+          data={overviewState.data}
+          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+          onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+        />
+        {renderDrilldownPanels()}
+      </>
     )
   }
 
   return (
-    <>
-      {renderSyncPanel()}
-      <HistoryOverview
-        data={overviewState.data}
-        onNavigate={navigate}
-        onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-        onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
-      />
-      {renderDrilldownPanels()}
-    </>
+    <AppShell activePage={activePage} onNavigate={navigate}>
+      {renderActivePage()}
+    </AppShell>
   )
 }
 

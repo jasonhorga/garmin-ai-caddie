@@ -1,12 +1,10 @@
 import type { HistoryRoundsResponse, MonthRoundGroup, RoundsFilters } from '../types'
-import { ProductNav, type ProductPage } from './ProductNav'
 import { RoundCard } from './RoundCard'
 
 interface HistoryTimelineProps {
   data: HistoryRoundsResponse
   filters?: RoundsFilters
   onFilterChange?: (filters: RoundsFilters) => void
-  onNavigate: (page: ProductPage) => void
   onSelectRef?: (sourceRef: string) => void
   onOpenRoundDetail?: (roundRef: string) => void
 }
@@ -19,10 +17,9 @@ function monthSummary(group: MonthRoundGroup) {
   return `${group.count} ${group.count === 1 ? 'round' : 'rounds'}`
 }
 
-export function HistoryTimeline({ data, filters, onFilterChange, onNavigate, onSelectRef, onOpenRoundDetail }: HistoryTimelineProps) {
+export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, onOpenRoundDetail }: HistoryTimelineProps) {
   return (
-    <main className="app-shell">
-      <ProductNav activePage="rounds" onNavigate={onNavigate} />
+    <>
 
       <section className="overview-hero">
         <div>
@@ -105,6 +102,6 @@ export function HistoryTimeline({ data, filters, onFilterChange, onNavigate, onS
           </section>
         ))}
       </section>
-    </main>
+    </>
   )
 }
