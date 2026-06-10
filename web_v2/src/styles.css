@@ -4819,8 +4819,7 @@ button.round-detail-cell:hover {
   min-height: 96px;
 }
 
-.prep-tab-placeholder,
-.prep-holes-count {
+.prep-tab-placeholder {
   margin: 0;
   font-size: 13px;
   color: var(--muted);

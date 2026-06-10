@@ -180,7 +180,7 @@ describe('PrepPage course state', () => {
     expect(screen.queryByText(/你的战绩/)).not.toBeInTheDocument()
   })
 
-  it('switches the three local tabs: 概览/针对你 placeholders, 逐洞攻略 shows loaded hole count', async () => {
+  it('switches the three local tabs: 概览/针对你 placeholders, 逐洞攻略 shows the hole cards', async () => {
     renderPrep()
     await screen.findByText('Par 9 · 总码数 900 码')
 
@@ -191,11 +191,27 @@ describe('PrepPage course state', () => {
     await userEvent.click(within(tabs).getByRole('button', { name: '逐洞攻略' }))
     expect(within(tabs).getByRole('button', { name: '逐洞攻略' })).toHaveAttribute('aria-current', 'page')
     expect(within(tabs).getByRole('button', { name: '概览' })).not.toHaveAttribute('aria-current')
-    expect(screen.getByText('已加载 2 洞')).toBeInTheDocument()
+    expect(screen.getByText('1 洞')).toBeInTheDocument()
 
     await userEvent.click(within(tabs).getByRole('button', { name: '针对你' }))
     expect(screen.getByText('…')).toBeInTheDocument()
-    expect(screen.queryByText('已加载 2 洞')).not.toBeInTheDocument()
+    expect(screen.queryByText('1 洞')).not.toBeInTheDocument()
+  })
+
+  it('逐洞攻略 renders a PrepHoleCard per hole, in order, wrapped in prep-hole-{n} anchors', async () => {
+    const { view } = renderPrep()
+    await screen.findByText('Par 9 · 总码数 900 码')
+    const tabs = screen.getByRole('navigation', { name: '备战页签' })
+
+    await userEvent.click(within(tabs).getByRole('button', { name: '逐洞攻略' }))
+
+    expect(screen.queryByText(/已加载/)).not.toBeInTheDocument()
+    const anchors = Array.from(view.container.querySelectorAll('[id^="prep-hole-"]'))
+    expect(anchors.map((anchor) => anchor.id)).toEqual(['prep-hole-1', 'prep-hole-2'])
+    expect(within(anchors[0] as HTMLElement).getByText('1 洞')).toBeInTheDocument()
+    expect(within(anchors[0] as HTMLElement).getByText('Par 4')).toBeInTheDocument()
+    expect(within(anchors[1] as HTMLElement).getByText('2 洞')).toBeInTheDocument()
+    expect(within(anchors[1] as HTMLElement).getByText('Par 5')).toBeInTheDocument()
   })
 
   it('换球场 notifies onChangeCourse', async () => {

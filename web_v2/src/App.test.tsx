@@ -1259,7 +1259,8 @@ describe('App navigation', () => {
     // 你的战绩 joins stats.courses through the option's courseKey.
     expect(screen.getByText('你的战绩:打过 2 次 · 均杆 82')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '逐洞攻略' }))
-    expect(screen.getByText('已加载 2 洞')).toBeInTheDocument()
+    expect(screen.getByText('1 洞')).toBeInTheDocument()
+    expect(screen.getByText('2 洞')).toBeInTheDocument()
   })
 
   it('discards a stale trends refresh that resolves after the window changed', async () => {

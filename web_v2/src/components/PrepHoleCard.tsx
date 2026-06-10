@@ -1,13 +1,6 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import type { CoursePrepClub, CoursePrepHole, CoursePrepOverlay, CoursePrepResponse } from '../types'
-import { fetchCoursePrep } from '../api'
+import type { CoursePrepClub, CoursePrepHole, CoursePrepOverlay } from '../types'
 import { routeIntervalReadout, routeYardageReadout } from './coursePrepPanelLogic'
-
-type LoadState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'ready'; data: CoursePrepResponse }
-  | { status: 'error'; message: string }
 
 const PAR_CLASS: Record<number, string> = { 3: '#4aa3d6', 4: '#3fae6b', 5: '#caa14a' }
 const SOURCE_LABEL: Record<string, string> = { played: '记分卡', courseview: 'CourseView', estimate: '推算' }
@@ -36,6 +29,10 @@ function routeOptionLabel(route: { id: string; carryM?: number }): string {
 
 function missingLabel(row: { label?: string }): string {
   return `${row.label ?? 'data'} missing`
+}
+
+function shotDotFill(shotType: string): string {
+  return shotType === 'TEE' ? 'var(--green)' : 'var(--birdie)'
 }
 
 function atCum(route: CoursePrepOverlay['route'], cum: number): { x: number; y: number } {
@@ -73,7 +70,12 @@ function nearestCum(route: CoursePrepOverlay['route'], px: number, py: number): 
   return best
 }
 
-function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub[] }): React.ReactElement {
+export interface PrepHoleCardProps {
+  hole: CoursePrepHole
+  clubs: CoursePrepClub[]
+}
+
+export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactElement {
   const map = hole.map
   const overlay = map?.overlay
   const ln = overlay?.ln ?? hole.route_len_m
@@ -83,6 +85,7 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
   const candidateRoutes = hole.candidateRoutes ?? []
   const missingData = hole.missingData ?? []
   const sourceRefs = hole.sourceRefs ?? []
+  const yourShots = hole.yourShots ?? []
 
   const parColor = PAR_CLASS[hole.par] ?? '#3fae6b'
   const header = (
@@ -131,6 +134,11 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
         <polyline points={route.map((p) => `${p[0]},${p[1]}`).join(' ')} fill="none" stroke="#fff" strokeOpacity={0.85} strokeWidth={3} strokeDasharray="6 5" />
         <circle cx={tee.x} cy={tee.y} r={9} fill="#4aa3d6" stroke="#fff" strokeWidth={3} />
         <circle cx={green.x} cy={green.y} r={7} fill="#fff" stroke="#333" strokeWidth={2} />
+        {yourShots.map((shot, i) => (
+          <circle key={i} cx={shot.x} cy={shot.y} r={3} fill={shotDotFill(shot.shotType)} fillOpacity={0.7}>
+            <title>{`${shot.club ?? '未知杆'} · ${shot.roundId}`}</title>
+          </circle>
+        ))}
         {haz.map((h, i) => {
           const p = atCum(route, h.cum)
           return (
@@ -161,6 +169,15 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
         <div style={{ color: '#8a8f98', fontSize: 13 }}>（此洞暂无几何图）</div>
       )}
       {map ? <div style={{ textAlign: 'center', fontSize: 13, color: '#445', margin: '6px 0' }}>{readout} · 拖动橙点查看码数</div> : null}
+      {overlay && yourShots.length > 0 ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, color: '#445', margin: '2px 0 6px' }}>
+          <span>你的落点:</span>
+          <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 8, background: 'var(--green)', display: 'inline-block' }} />
+          <span>开球(落点)</span>
+          <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 8, background: 'var(--birdie)', display: 'inline-block' }} />
+          <span>攻果岭</span>
+        </div>
+      ) : null}
       {candidateRoutes.length > 0 ? (
         <div aria-label={`Hole ${hole.hole} route options`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', margin: '6px 0' }}>
           {candidateRoutes.map((route) => (
@@ -213,46 +230,5 @@ function HoleCard({ hole, clubs }: { hole: CoursePrepHole; clubs: CoursePrepClub
         </ul>
       ) : null}
     </div>
-  )
-}
-
-export function CoursePrepPanel({ adminToken, defaultGlobalId = 31870 }: { adminToken?: string; defaultGlobalId?: number }): React.ReactElement {
-  const [globalId, setGlobalId] = useState<string>(String(defaultGlobalId))
-  const [state, setState] = useState<LoadState>({ status: 'idle' })
-
-  const load = async (): Promise<void> => {
-    const id = Number(globalId)
-    if (!Number.isFinite(id)) {
-      setState({ status: 'error', message: '请输入有效的球场 globalId' })
-      return
-    }
-    setState({ status: 'loading' })
-    try {
-      const data = await fetchCoursePrep(id, undefined, adminToken)
-      setState({ status: 'ready', data })
-    } catch (error) {
-      setState({ status: 'error', message: error instanceof Error ? error.message : String(error) })
-    }
-  }
-
-  return (
-    <section style={{ marginTop: 16 }}>
-      <h2 style={{ fontSize: 16 }}>赛前球场攻略</h2>
-      <p style={{ fontSize: 12, color: '#667', margin: '2px 0 8px' }}>
-        默认蓝T；每洞显示 Par 来源、球洞图、路线码数和水障碍/沙坑距离，并结合你的真实杆距生成打法。
-      </p>
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10 }}>
-        <label style={{ fontSize: 13 }}>球场 globalId</label>
-        <input value={globalId} onChange={(e) => setGlobalId(e.target.value)} style={{ width: 100, padding: '3px 6px' }} />
-        <button type="button" onClick={() => void load()} disabled={state.status === 'loading'}>
-          {state.status === 'loading' ? '加载中…' : '加载'}
-        </button>
-        {state.status === 'ready' ? <span style={{ fontSize: 12, color: '#667' }}>{state.data.holeCount} 洞</span> : null}
-      </div>
-      {state.status === 'error' ? <div style={{ color: '#b4533a', fontSize: 13 }}>加载失败：{state.message}</div> : null}
-      {state.status === 'ready'
-        ? state.data.holes.map((hole) => <HoleCard key={hole.hole} hole={hole} clubs={state.data.clubs} />)
-        : null}
-    </section>
   )
 }

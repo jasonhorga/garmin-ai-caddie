@@ -9,6 +9,7 @@ import type {
   PrepTipsResponse,
 } from '../types'
 import { CourseFinder } from './CourseFinder'
+import { PrepHoleCard } from './PrepHoleCard'
 
 interface PrepPageProps {
   globalId: number | null // null → entry state (course finder)
@@ -156,10 +157,16 @@ export function PrepPage({
   const record = courseRecord(allStats, option)
   const totals = holeTotals(prepData)
 
-  // B2 shell: 逐洞攻略 reports the loaded hole count (B3 renders hole cards);
-  // 概览/针对你 stay placeholders until B4.
+  // 逐洞攻略: one PrepHoleCard per hole, each wrapped in a prep-hole-{n} anchor
+  // (概览's 逐洞速览 jumps here in B4). 概览/针对你 stay placeholders until B4.
   const holesTabContent = prepData ? (
-    <p className="prep-holes-count">已加载 {Array.isArray(prepData.holes) ? prepData.holes.length : 0} 洞</p>
+    <>
+      {(Array.isArray(prepData.holes) ? prepData.holes : []).map((hole) => (
+        <div key={hole.hole} id={`prep-hole-${hole.hole}`}>
+          <PrepHoleCard hole={hole} clubs={Array.isArray(prepData.clubs) ? prepData.clubs : []} />
+        </div>
+      ))}
+    </>
   ) : prepError ? (
     <p className="prep-tab-placeholder">…</p>
   ) : (
