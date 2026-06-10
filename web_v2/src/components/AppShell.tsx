@@ -19,9 +19,9 @@ export function AppShell({ activePage, onNavigate, children }: AppShellProps) {
           <h1 className="app-topbar-title">{SECTION_LABELS[PAGE_TO_SECTION[activePage]]}</h1>
         </header>
         {subnav ? <SubNav items={subnav} activePage={activePage} onNavigate={onNavigate} /> : null}
-        <div className="app-content">
+        <main className="app-content">
           <div className="app-shell">{children}</div>
-        </div>
+        </main>
       </div>
     </div>
   )

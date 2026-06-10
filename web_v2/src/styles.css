@@ -500,14 +500,6 @@ p {
   background: var(--green);
 }
 
-.sync-panel-shell {
-  padding-bottom: 0;
-}
-
-.sync-panel-shell .sync-panel {
-  margin: 0;
-}
-
 .sync-panel {
   display: flex;
   flex-wrap: wrap;
@@ -3999,6 +3991,8 @@ button.round-detail-cell:hover {
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
 }
 
 .sidebar-brand {
@@ -4093,6 +4087,7 @@ button.round-detail-cell:hover {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   padding: 0 14px;
+  overflow-x: auto;
 }
 
 .subnav-tab {
@@ -4104,6 +4099,8 @@ button.round-detail-cell:hover {
   border-bottom: 2px solid transparent;
   cursor: pointer;
   font-family: inherit;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .subnav-tab.active {
