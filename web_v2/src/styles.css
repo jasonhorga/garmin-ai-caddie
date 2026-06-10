@@ -15,8 +15,10 @@
   --eagle: #184a90;
   --birdie: #5aa8d8;
   --par: #2f8f5f;
-  --bogey: #d39a45;
-  --double: #b55349;
+  --bogey: #d9a441;
+  --double: #c2553f;
+  --bogey-text: #9a6a16;
+  --double-text: #a23f2c;
   --line-strong: #b9c3bb;
   --text: var(--ink);
   --accent: var(--green);
@@ -643,12 +645,12 @@ p {
 
 .sync-connector .quality-missing {
   background: #f7e2dd;
-  color: var(--double);
+  color: var(--double-text);
 }
 
 .sync-guidance {
   margin-top: 6px;
-  color: var(--double);
+  color: var(--double-text);
   font-weight: 750;
 }
 
@@ -806,7 +808,7 @@ p {
 }
 
 .sync-session-error {
-  color: var(--double);
+  color: var(--double-text);
 }
 
 .readiness-panel {
@@ -897,7 +899,7 @@ p {
 
 .readiness-error {
   background: #f7e2dd;
-  color: var(--double);
+  color: var(--double-text);
 }
 
 .stats-page {
@@ -1289,7 +1291,7 @@ p {
 .stats-item-facts .approach-right,
 .stats-item-facts .confidence-low {
   background: #f7e2dd;
-  color: var(--double);
+  color: var(--double-text);
 }
 
 .stats-item-main {
@@ -1444,7 +1446,7 @@ p {
 }
 
 .course-insight-row em {
-  color: var(--double);
+  color: var(--double-text);
   font-style: normal;
 }
 
@@ -1552,7 +1554,7 @@ p {
 }
 
 .hole-issue-row em {
-  color: var(--double);
+  color: var(--double-text);
   font-style: normal;
 }
 
@@ -1960,12 +1962,12 @@ button.round-detail-cell:hover {
 
 .package-state-missing {
   background: #f8ead8;
-  color: var(--bogey);
+  color: var(--bogey-text);
 }
 
 .package-state-expired {
   background: #f7e2dd;
-  color: var(--double);
+  color: var(--double-text);
 }
 
 .mobile-package-form {
@@ -2887,7 +2889,7 @@ button.round-detail-cell:hover {
 }
 
 .confidence-pill.low {
-  color: var(--double);
+  color: var(--double-text);
   background: var(--double-soft);
 }
 
@@ -2977,7 +2979,7 @@ button.round-detail-cell:hover {
 
 .fact-chip.confidence-low {
   background: #f7e2dd;
-  color: var(--double);
+  color: var(--double-text);
 }
 
 .caddie-workspace {
@@ -3025,7 +3027,7 @@ button.round-detail-cell:hover {
 
 .caddie-context-required {
   grid-column: 1 / -1;
-  color: var(--double);
+  color: var(--double-text);
   font-size: 12px;
   font-weight: 800;
 }
@@ -3233,7 +3235,7 @@ button.round-detail-cell:hover {
 }
 
 .media-context-error {
-  color: var(--double);
+  color: var(--double-text);
   font-weight: 750;
 }
 
@@ -3732,7 +3734,7 @@ button.round-detail-cell:hover {
 
 .audit-criterion-fail {
   background: #f9e1db;
-  color: var(--double);
+  color: var(--double-text);
 }
 
 .audit-criterion-review,
@@ -4286,7 +4288,7 @@ button.round-detail-cell:hover {
 }
 
 .trends-delta.bad {
-  color: color-mix(in srgb, var(--double) 78%, var(--ink));
+  color: var(--double-text);
 }
 
 .trends-grid {
@@ -4478,12 +4480,12 @@ button.round-detail-cell:hover {
 
 .trends-pchip.over {
   background: color-mix(in srgb, var(--bogey) 18%, var(--panel));
-  color: color-mix(in srgb, var(--bogey) 62%, var(--ink));
+  color: var(--bogey-text);
 }
 
 .trends-pchip.bigover {
   background: var(--double-soft);
-  color: color-mix(in srgb, var(--double) 72%, var(--ink));
+  color: var(--double-text);
 }
 
 .trends-pchip.none {
@@ -4736,12 +4738,12 @@ button.round-detail-cell:hover {
 
 .home-pchip.over {
   background: color-mix(in srgb, var(--bogey) 18%, var(--panel));
-  color: color-mix(in srgb, var(--bogey) 62%, var(--ink));
+  color: var(--bogey-text);
 }
 
 .home-pchip.bigover {
   background: var(--double-soft);
-  color: color-mix(in srgb, var(--double) 72%, var(--ink));
+  color: var(--double-text);
 }
 
 .home-pchip.none {
@@ -4813,7 +4815,7 @@ button.round-detail-cell:hover {
 }
 
 .home-delta.bad {
-  color: color-mix(in srgb, var(--double) 78%, var(--ink));
+  color: var(--double-text);
 }
 
 .home-sparkline {
