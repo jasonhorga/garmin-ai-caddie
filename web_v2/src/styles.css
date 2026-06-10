@@ -24,6 +24,7 @@
   --double-soft: #f7e2dd;
   --green-bright: #22c55e;
   --green-tint: #e7f3ec;
+  --green-text: #166534;
   --radius-card: 14px;
 }
 
@@ -111,7 +112,7 @@ a {
 }
 
 .topbar nav span[aria-current="page"] {
-  color: var(--green);
+  color: var(--green-text);
   background: #e9f2ea;
 }
 
@@ -644,7 +645,7 @@ p {
 
 .sync-connector .quality-good {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .sync-connector .quality-missing {
@@ -893,7 +894,7 @@ p {
 
 .readiness-ready {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .readiness-degraded {
@@ -1257,7 +1258,7 @@ p {
 .stats-item-facts .approach-none,
 .stats-item-facts .confidence-high {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .stats-quality-chips .quality-partial,
@@ -1955,7 +1956,7 @@ button.round-detail-cell:hover {
 
 .package-state-ready {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .package-state-degraded {
@@ -2972,7 +2973,7 @@ button.round-detail-cell:hover {
 
 .fact-chip.confidence-high {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .fact-chip.confidence-medium {
@@ -3732,7 +3733,7 @@ button.round-detail-cell:hover {
 
 .audit-criterion-pass {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .audit-criterion-fail {
@@ -3761,7 +3762,7 @@ button.round-detail-cell:hover {
 
 .audit-execution {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .audit-strategy {
@@ -4117,7 +4118,6 @@ button.round-detail-cell:hover {
   background: var(--bg);
   width: fit-content;
   margin-bottom: 14px;
-  border-bottom: 1px solid var(--line);
 }
 
 .subnav--inner .subnav-tab {
