@@ -73,7 +73,7 @@ export function ReadinessPanel({ readiness, error }: ReadinessPanelProps) {
         </article>
       ) : (
         <div className="readiness-grid">
-          {readiness.checks.map((check) => {
+          {(readiness.checks ?? []).map((check) => {
             const evidence = evidenceItems(check)
             return (
               <article key={check.label} className="readiness-check">

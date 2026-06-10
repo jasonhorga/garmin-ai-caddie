@@ -1,4 +1,4 @@
-import type { ProductPage } from './ProductNav'
+import type { ProductPage } from '../navigation'
 import type { ProductSettingsResponse } from '../types'
 
 interface SettingsPageProps {

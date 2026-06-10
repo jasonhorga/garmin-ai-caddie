@@ -36,11 +36,10 @@ const payload: HistoryRoundsResponse = {
 
 describe('HistoryTimeline', () => {
   it('renders month-grouped round cards and month summary stats', () => {
-    render(<HistoryTimeline data={payload} onNavigate={() => undefined} />)
+    render(<HistoryTimeline data={payload} />)
 
     expect(screen.getByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
     expect(screen.queryByText('AI Caddie v2')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Overview' })).toBeEnabled()
     expect(screen.getByText('May 2026')).toBeInTheDocument()
     expect(screen.getByText('2 rounds')).toBeInTheDocument()
     expect(screen.getByText('avg 82')).toBeInTheDocument()
@@ -61,7 +60,6 @@ describe('HistoryTimeline', () => {
             detail: 'The History timeline is ready, but this remote workspace has 0 rounds.',
           },
         }}
-        onNavigate={() => undefined}
       />,
     )
 
@@ -73,7 +71,7 @@ describe('HistoryTimeline', () => {
     const onSelectRef = vi.fn()
     const onOpenRoundDetail = vi.fn()
 
-    render(<HistoryTimeline data={payload} onNavigate={() => undefined} onSelectRef={onSelectRef} onOpenRoundDetail={onOpenRoundDetail} />)
+    render(<HistoryTimeline data={payload} onSelectRef={onSelectRef} onOpenRoundDetail={onOpenRoundDetail} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 1' }))
@@ -94,7 +92,7 @@ describe('HistoryTimeline', () => {
   }
 
   it('renders year and course filter options when filtering is enabled', () => {
-    render(<HistoryTimeline data={filterData} filters={{}} onFilterChange={() => undefined} onNavigate={() => undefined} />)
+    render(<HistoryTimeline data={filterData} filters={{}} onFilterChange={() => undefined} />)
 
     expect(screen.getByRole('option', { name: '2026' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Course A' })).toBeInTheDocument()
@@ -102,7 +100,7 @@ describe('HistoryTimeline', () => {
 
   it('emits filter changes for the year select and the has-shots toggle', async () => {
     const onFilterChange = vi.fn()
-    render(<HistoryTimeline data={filterData} filters={{}} onFilterChange={onFilterChange} onNavigate={() => undefined} />)
+    render(<HistoryTimeline data={filterData} filters={{}} onFilterChange={onFilterChange} />)
 
     await userEvent.selectOptions(screen.getByLabelText('Year'), '2026')
     expect(onFilterChange).toHaveBeenCalledWith({ year: '2026' })
@@ -112,7 +110,7 @@ describe('HistoryTimeline', () => {
   })
 
   it('omits the filter bar when filtering is not enabled', () => {
-    render(<HistoryTimeline data={filterData} onNavigate={() => undefined} />)
+    render(<HistoryTimeline data={filterData} />)
     expect(screen.queryByLabelText('Year')).toBeNull()
   })
 })

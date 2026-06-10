@@ -1,12 +1,10 @@
 import type { HistoryOverviewResponse } from '../types'
 import { DataQualityChips } from './DataQualityChips'
 import { DistributionPanel } from './DistributionPanel'
-import { ProductNav, type ProductPage } from './ProductNav'
 import { RoundCard } from './RoundCard'
 
 interface HistoryOverviewProps {
   data: HistoryOverviewResponse
-  onNavigate?: (page: ProductPage) => void
   onSelectRef?: (sourceRef: string) => void
   onOpenRoundDetail?: (roundRef: string) => void
 }
@@ -15,13 +13,11 @@ function metricValue(value: number | null) {
   return value === null ? '-' : String(value)
 }
 
-export function HistoryOverview({ data, onNavigate = () => undefined, onSelectRef, onOpenRoundDetail }: HistoryOverviewProps) {
+export function HistoryOverview({ data, onSelectRef, onOpenRoundDetail }: HistoryOverviewProps) {
   const metrics = data.metrics
 
   return (
-    <main className="app-shell">
-      <ProductNav activePage="overview" onNavigate={onNavigate} />
-
+    <>
       <section className="overview-hero">
         <div>
           <p className="eyebrow">History Intelligence</p>
@@ -86,6 +82,6 @@ export function HistoryOverview({ data, onNavigate = () => undefined, onSelectRe
 
         <DistributionPanel distribution={data.distribution} onSelectRef={onSelectRef} />
       </section>
-    </main>
+    </>
   )
 }

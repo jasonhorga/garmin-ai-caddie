@@ -1,17 +1,17 @@
 :root {
-  color: #18231f;
-  background: #f4f6f2;
+  color: #0f1720;
+  background: #f6f7f8;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --bg: #f4f6f2;
+  --bg: #f6f7f8;
   --panel: #ffffff;
-  --ink: #18231f;
-  --muted: #66736d;
-  --line: #d9ded7;
-  --green: #1f6b4c;
+  --ink: #0f1720;
+  --muted: #6b7280;
+  --line: #e7e9ec;
+  --green: #15803d;
   --eagle: #184a90;
   --birdie: #5aa8d8;
   --par: #2f8f5f;
@@ -22,6 +22,10 @@
   --accent: var(--green);
   --par-soft: #e4f2e8;
   --double-soft: #f7e2dd;
+  --green-bright: #22c55e;
+  --green-tint: #e7f3ec;
+  --green-text: #166534;
+  --radius-card: 14px;
 }
 
 * {
@@ -108,7 +112,7 @@ a {
 }
 
 .topbar nav span[aria-current="page"] {
-  color: var(--green);
+  color: var(--green-text);
   background: #e9f2ea;
 }
 
@@ -296,6 +300,7 @@ p {
 .round-card-action:hover {
   border-color: var(--green);
   background: #e9f2ea;
+  color: var(--green-text);
 }
 
 .round-card-head {
@@ -495,14 +500,6 @@ p {
   background: var(--green);
 }
 
-.sync-panel-shell {
-  padding-bottom: 0;
-}
-
-.sync-panel-shell .sync-panel {
-  margin: 0;
-}
-
 .sync-panel {
   display: flex;
   flex-wrap: wrap;
@@ -641,7 +638,7 @@ p {
 
 .sync-connector .quality-good {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .sync-connector .quality-missing {
@@ -890,7 +887,7 @@ p {
 
 .readiness-ready {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .readiness-degraded {
@@ -1254,7 +1251,7 @@ p {
 .stats-item-facts .approach-none,
 .stats-item-facts .confidence-high {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .stats-quality-chips .quality-partial,
@@ -1589,6 +1586,7 @@ p {
 .source-ref-button:hover {
   border-color: var(--green);
   background: #e9f2ea;
+  color: var(--green-text);
 }
 
 .source-refs-empty {
@@ -1952,7 +1950,7 @@ button.round-detail-cell:hover {
 
 .package-state-ready {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .package-state-degraded {
@@ -2969,7 +2967,7 @@ button.round-detail-cell:hover {
 
 .fact-chip.confidence-high {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .fact-chip.confidence-medium {
@@ -3729,7 +3727,7 @@ button.round-detail-cell:hover {
 
 .audit-criterion-pass {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .audit-criterion-fail {
@@ -3758,7 +3756,7 @@ button.round-detail-cell:hover {
 
 .audit-execution {
   background: #e4f2e8;
-  color: var(--green);
+  color: var(--green-text);
 }
 
 .audit-strategy {
@@ -3973,4 +3971,207 @@ button.round-detail-cell:hover {
   .correction-impact-metrics {
     grid-template-columns: 1fr;
   }
+}
+
+/* ===== W1a app shell: sidebar + topbar + subnav ===== */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  width: 218px;
+  flex: 0 0 218px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 4px 8px 16px;
+  color: var(--ink);
+}
+
+.sidebar-logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--green), var(--green-bright));
+  flex: 0 0 26px;
+}
+
+.sidebar-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--muted);
+  font-size: 13.5px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+}
+
+.sidebar-item:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.sidebar-item.active {
+  background: var(--green-tint);
+  color: var(--green-text);
+  font-weight: 600;
+}
+
+.sidebar-item--footer {
+  margin-top: auto;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.app-topbar {
+  min-height: 54px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.app-topbar-title {
+  margin: 0;
+  font-size: 17px;
+  color: var(--ink);
+}
+
+.subnav {
+  display: flex;
+  gap: 4px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: 0 14px;
+  overflow-x: auto;
+}
+
+.subnav-tab {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 11px 12px;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.subnav-tab.active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+  font-weight: 600;
+}
+
+.subnav--inner {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+  background: var(--bg);
+  width: fit-content;
+  margin-bottom: 14px;
+}
+
+.subnav--inner .subnav-tab {
+  border-bottom: none;
+  border-radius: 7px;
+  padding: 7px 14px;
+}
+
+.subnav--inner .subnav-tab.active {
+  background: var(--green);
+  color: #fff;
+}
+
+.app-content {
+  flex: 1;
+}
+
+/* Inside the new layout the legacy .app-shell width clamp (100vw-based) would
+   overflow horizontally next to the sidebar — neutralize it within .app-content. */
+.app-content .app-shell {
+  width: auto;
+  max-width: 1100px;
+  margin: 0;
+  padding: 18px 18px 32px;
+}
+
+@media (max-width: 900px) {
+  .app-sidebar {
+    width: 64px;
+    flex-basis: 64px;
+    padding: 16px 8px;
+  }
+
+  .app-sidebar .sidebar-brand {
+    justify-content: center;
+    padding-bottom: 16px;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .app-sidebar .sidebar-item {
+    justify-content: center;
+    font-size: 0;
+    gap: 0;
+    padding: 11px 0;
+  }
+
+  .app-sidebar .sidebar-icon {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.empty-state-hint {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 10px;
 }
