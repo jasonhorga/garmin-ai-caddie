@@ -24,6 +24,7 @@ import {
   fetchMobileReconciliation,
   fetchMobileRoundPackage,
   fetchProductSettings,
+  fetchCourseSearch,
   fetchCourseReport,
   fetchReportIndex,
   fetchRoundReport,
@@ -48,7 +49,7 @@ import { ClubStats } from './components/ClubStats'
 import { CorrectionsPage, type CorrectionTarget } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
-import { HistoryOverview } from './components/HistoryOverview'
+import { HomeOverview } from './components/HomeOverview'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
@@ -141,6 +142,7 @@ export default function App() {
   const [mediaState, setMediaState] = useState<MediaContextState>({ status: 'idle' })
   const [selectedCaddieSourceRef, setSelectedCaddieSourceRef] = useState('900001:7')
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
+  const [prepGlobalId, setPrepGlobalId] = useState<number | null>(null)
   const [roundDetailState, setRoundDetailState] = useState<HistoryRoundDetailPanelState>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
@@ -163,6 +165,26 @@ export default function App() {
       })
       .catch((error: unknown) => {
         if (!cancelled) setOverviewState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+      })
+
+    // The landing 概览 page composes all-window stats (近期状态/本周该练) and
+    // mobile course options (常打球场 globalIds) on top of the overview payload.
+    setStatsState({ status: 'loading' })
+    fetchHistoryStats()
+      .then((data) => {
+        if (!cancelled) setStatsState({ status: 'ready', data })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setStatsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+      })
+
+    setMobileCourseOptionsState({ status: 'loading' })
+    fetchMobileCourseOptions()
+      .then((data) => {
+        if (!cancelled) setMobileCourseOptionsState({ status: 'ready', data })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setMobileCourseOptionsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
       })
 
     fetchSyncStatus()
@@ -331,6 +353,10 @@ export default function App() {
       setCorrectionTarget(null)
     }
     setActivePage(page)
+    if (page === 'overview') {
+      if (statsState.status === 'idle') void loadStatsState()
+      if (mobileCourseOptionsState.status === 'idle') void loadMobileCourseOptionsState()
+    }
     if (page === 'rounds' && roundsState.status === 'idle') {
       void loadRoundsState()
     }
@@ -391,6 +417,11 @@ export default function App() {
   function handleCreateAnnotationForSource(target: CorrectionTarget) {
     setCorrectionTarget(target)
     navigate('corrections')
+  }
+
+  function handlePrepCourse(globalId: number) {
+    setPrepGlobalId(globalId)
+    navigate('prep')
   }
 
   async function handleSelectSourceRef(sourceRef: string): Promise<HistoryDrilldownResponse | null> {
@@ -1095,7 +1126,7 @@ export default function App() {
     }
 
     if (activePage === 'prep') {
-      return <CoursePrepPanel />
+      return <CoursePrepPanel key={prepGlobalId ?? 'default'} defaultGlobalId={prepGlobalId ?? undefined} />
     }
 
     if (activePage === 'caddie') {
@@ -1182,10 +1213,15 @@ export default function App() {
 
     return (
       <>
-        <HistoryOverview
-          data={overviewState.data}
-          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+        <HomeOverview
+          overview={overviewState.data}
+          stats={statsState.status === 'ready' ? statsState.data : null}
+          courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
+          onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
+          onPrepCourse={handlePrepCourse}
           onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+          onNavigateHistory={() => navigate('history')}
+          onNavigateAnalysis={() => navigate('holes')}
         />
         {renderDrilldownPanels()}
       </>

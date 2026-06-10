@@ -270,6 +270,12 @@ const mobileCourseOptionsPayload = {
   generatedAt: '2026-05-25T08:00:00Z',
 }
 
+const courseSearchPayload = {
+  schema: 'ai-caddie-course-search-v1',
+  query: '观澜湖',
+  matches: [{ globalId: 31870, name: '观澜湖·奥拉沙宝场', holes: 18, city: '深圳', province: '广东', ratio: 0.92 }],
+}
+
 const readinessPayload = {
   schema: 'ai-caddie-readiness-v1',
   status: 'degraded',
@@ -436,13 +442,14 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await mockApi(page)
 
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'History Overview' })).toBeVisible()
-  await expect(page.getByText('Black Knight B')).toBeVisible()
+  await expect(page.getByText('想备哪场?')).toBeVisible()
+  await expect(page.getByText('Black Knight B', { exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await expect(page.getByText('History API unavailable')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
 
-  await page.getByRole('button', { name: '历史' }).click()
+  // exact: home 近期状态 has a 看历史 → button whose name would substring-match 历史.
+  await page.getByRole('button', { name: '历史', exact: true }).click()
   for (const [tab, heading] of [
     ['趋势总览', '成绩走势'],
     ['球局', 'Rounds'],
@@ -494,6 +501,7 @@ async function mockApi(page: Page) {
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload })
     if (path === '/api/v2/sync/status') return route.fulfill({ json: syncStatusPayload })
     if (path === '/api/v2/mobile/courses/options') return route.fulfill({ json: mobileCourseOptionsPayload })
+    if (path === '/api/v2/courses/search') return route.fulfill({ json: courseSearchPayload })
     if (path === '/api/v2/readiness') return route.fulfill({ json: readinessPayload })
     if (path === '/api/v2/reports') return route.fulfill({ json: reportIndexPayload })
     if (path === '/api/v2/settings/product') return route.fulfill({ json: productSettingsPayload })
