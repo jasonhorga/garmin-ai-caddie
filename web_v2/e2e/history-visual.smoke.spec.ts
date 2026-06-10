@@ -442,26 +442,43 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('History API unavailable')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
 
-  for (const screen of [
-    ['History', 'Statistics Overview'],
-    ['Rounds', 'Rounds'],
-    ['Courses', 'Course Stats'],
-    ['Holes', 'Hole Stats'],
-    ['Clubs', 'Club Stats'],
-    ['Issues', 'Issue Stats'],
-    ['Caddie', 'Caddie'],
-    ['Corrections', 'Corrections'],
-    ['Sync & Data Quality', 'Sync & Data Quality'],
-    ['Reports', 'Reports'],
-    ['Settings', 'Settings'],
+  await page.getByRole('button', { name: '历史' }).click()
+  for (const [tab, heading] of [
+    ['趋势总览', 'Statistics Overview'],
+    ['球局', 'Rounds'],
+    ['强弱分析', 'Hole Stats'],
+    ['球场', 'Course Stats'],
+    ['报告', 'Reports'],
   ] as const) {
-    await page.getByRole('button', { name: screen[0] }).click()
-    await expect(page.getByRole('heading', { name: screen[1], exact: true })).toBeVisible()
+    await page.getByRole('button', { name: tab }).click()
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
     await assertNoViewportOverflow(page)
     await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
   }
 
+  await page.getByRole('button', { name: '强弱分析' }).click()
+  await page.getByRole('button', { name: '按杆' }).click()
+  await expect(page.getByRole('heading', { name: 'Club Stats', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '问题' }).click()
+  await expect(page.getByRole('heading', { name: 'Issue Stats', exact: true })).toBeVisible()
+  await assertNoViewportOverflow(page)
+
+  await page.getByRole('button', { name: '备战' }).click()
+  await expect(page.getByRole('heading', { name: '赛前球场攻略' })).toBeVisible()
+  await assertNoViewportOverflow(page)
+
+  await page.getByRole('button', { name: '实战' }).click()
+  await expect(page.getByRole('heading', { name: 'Caddie', exact: true })).toBeVisible()
+  await assertNoViewportOverflow(page)
+
+  await page.getByRole('button', { name: '设置' }).click()
+  await expect(page.getByRole('heading', { name: 'Sync & Data Quality', exact: true })).toBeVisible()
   await expect(page.getByText('Review history')).toBeVisible()
+  await page.getByRole('button', { name: '订正' }).click()
+  await expect(page.getByRole('heading', { name: 'Corrections', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '后端配置' }).click()
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
+  await assertNoViewportOverflow(page)
   await expect(failedResponses).toEqual([])
   await expect(browserErrors).toEqual([])
   await captureSmokeScreenshot(page, testInfo, 'settings')
