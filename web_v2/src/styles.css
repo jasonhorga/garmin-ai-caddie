@@ -300,6 +300,7 @@ p {
 .round-card-action:hover {
   border-color: var(--green);
   background: #e9f2ea;
+  color: var(--green-text);
 }
 
 .round-card-head {
@@ -1593,6 +1594,7 @@ p {
 .source-ref-button:hover {
   border-color: var(--green);
   background: #e9f2ea;
+  color: var(--green-text);
 }
 
 .source-refs-empty {
@@ -4051,7 +4053,7 @@ button.round-detail-cell:hover {
 
 .sidebar-item.active {
   background: var(--green-tint);
-  color: var(--green);
+  color: var(--green-text);
   font-weight: 600;
 }
 
