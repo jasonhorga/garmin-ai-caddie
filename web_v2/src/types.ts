@@ -579,7 +579,7 @@ export interface ConnectorProbeStatus {
   state: 'not_configured' | 'ready_for_manual_consent'
   liveProbeAllowed: boolean
   configured: Record<string, boolean>
-  missing: string[]
+  missing?: string[]
   consentRequest: {
     method: string
     endpoint?: string
