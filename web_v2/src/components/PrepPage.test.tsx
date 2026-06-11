@@ -314,6 +314,38 @@ describe('PrepPage course state', () => {
     expect(screen.queryByText('Par 9 · 总码数 900 码')).not.toBeInTheDocument()
   })
 
+  it('discards a stale tips response that resolves after the course changed', async () => {
+    let resolveFirst!: (value: PrepTipsResponse) => void
+    const first = new Promise<PrepTipsResponse>((resolve) => {
+      resolveFirst = resolve
+    })
+    fetchPrepTipsMock.mockImplementationOnce(() => first)
+    fetchPrepTipsMock.mockImplementationOnce(async () => ({
+      schema: 'ai-caddie-prep-tips-v1',
+      courseKey: null,
+      tips: [{ priority: 1, severity: 'high', text: '新球场:关注最长洞', basis: 'course.prepHoles', sourceRefs: [] }],
+    }))
+    const { view, props } = renderPrep()
+
+    view.rerender(<PrepPage {...props} globalId={31870} />)
+    await screen.findByText(/Par \d+ · 总码数/)
+    const tabs = screen.getByRole('navigation', { name: '备战页签' })
+    await userEvent.click(within(tabs).getByRole('button', { name: '针对你' }))
+    expect(await screen.findByText('新球场:关注最长洞')).toBeInTheDocument()
+
+    // The stale 31795 tips resolve late — the tipsSeq guard must drop them
+    // (an empty stale payload would otherwise blank the fresh tip or regress
+    // the tab to 加载中).
+    await act(async () => {
+      resolveFirst(tipsResponse())
+      await first
+    })
+
+    expect(screen.getByText('新球场:关注最长洞')).toBeInTheDocument()
+    expect(screen.queryByText('个性化提示加载中…')).not.toBeInTheDocument()
+    expect(screen.queryByText('暂无足够数据生成提示')).not.toBeInTheDocument()
+  })
+
   it('shows fresh loading state, not the previous course data, immediately after switching courses', async () => {
     const { view, props } = renderPrep()
     expect(await screen.findByText('Par 9 · 总码数 900 码')).toBeInTheDocument()

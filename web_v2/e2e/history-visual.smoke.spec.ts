@@ -560,7 +560,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
       failedResponses.push(`${response.status()} ${new URL(response.url()).pathname}`)
     }
   })
-  await mockApi(page)
+  const { prepIncludeShots } = await mockApi(page)
 
   await page.goto('/')
   await expect(page.getByText('想备哪场?')).toBeVisible()
@@ -651,11 +651,20 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
   await assertNoViewportOverflow(page)
 
+  // The scatter we walked through was REQUESTED, not fixture luck: every prep
+  // fetch of this walk carried include_shots=true on the wire. (StrictMode dev
+  // double-fires the effect, so assert values, not a count of one.)
+  expect(prepIncludeShots.length).toBeGreaterThanOrEqual(1)
+  expect(prepIncludeShots).toEqual(prepIncludeShots.map(() => 'true'))
+
   await expect(failedResponses).toEqual([])
   await expect(browserErrors).toEqual([])
 })
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page): Promise<{ prepIncludeShots: Array<string | null> }> {
+  // Recorded ?include_shots values of every /prep request: the scatter walk is
+  // only honest if the page actually asked the server for yourShots.
+  const prepIncludeShots: Array<string | null> = []
   await page.route('**/api/v2/**', async (route) => {
     const requestUrl = new URL(route.request().url())
     const path = requestUrl.pathname
@@ -667,7 +676,24 @@ async function mockApi(page: Page) {
     if (path === '/api/v2/courses/search') return route.fulfill({ json: courseSearchPayload })
     // PrepPage course fetches carry the globalId in the path (and the prep
     // request a ?include_shots=true query), so match by prefix + suffix.
-    if (path.startsWith('/api/v2/courses/') && path.endsWith('/prep')) return route.fulfill({ json: coursePrepPayload })
+    if (path.startsWith('/api/v2/courses/') && path.endsWith('/prep')) {
+      const includeShots = requestUrl.searchParams.get('include_shots')
+      prepIncludeShots.push(includeShots)
+      // Honest contract: yourShots ship ONLY when requested, like the real API —
+      // the visible scatter in the walk then proves the wire parameter.
+      const payload =
+        includeShots === 'true'
+          ? coursePrepPayload
+          : {
+              ...coursePrepPayload,
+              holes: coursePrepPayload.holes.map((hole) => {
+                const { yourShots: _omitted, ...rest } = hole as { yourShots?: unknown }
+                void _omitted
+                return rest
+              }),
+            }
+      return route.fulfill({ json: payload })
+    }
     if (path.startsWith('/api/v2/courses/') && path.endsWith('/prep-tips')) return route.fulfill({ json: prepTipsPayload })
     if (path === '/api/v2/readiness') return route.fulfill({ json: readinessPayload })
     if (path === '/api/v2/reports') return route.fulfill({ json: reportIndexPayload })
@@ -675,6 +701,7 @@ async function mockApi(page: Page) {
     if (path === '/api/v2/annotations') return route.fulfill({ json: annotationsPayload })
     return route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } })
   })
+  return { prepIncludeShots }
 }
 
 async function assertNoViewportOverflow(page: Page) {
