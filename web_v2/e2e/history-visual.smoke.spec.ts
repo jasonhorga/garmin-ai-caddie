@@ -706,7 +706,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
     ['球局', '球局', 1],
     ['强弱分析', 'Hole Stats', 2],
     ['球场', '球场表现', 1],
-    ['报告', 'Reports', 1],
+    ['报告', '报告', 1],
   ] as const) {
     await page.getByRole('button', { name: tab }).click()
     await expect(page.getByRole('heading', { name: heading, exact: true, level })).toBeVisible()

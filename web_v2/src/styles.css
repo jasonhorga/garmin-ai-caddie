@@ -2774,6 +2774,12 @@ button.round-detail-cell:hover {
   line-height: 1.6;
 }
 
+.report-body-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 4px 0 0;
+}
+
 .report-evidence-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

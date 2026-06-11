@@ -1,7 +1,20 @@
 import { useMemo, useState } from 'react'
 import type { HistoryStatsResponse, ReviewReportIndexResponse, ReviewReportIndexItem, ReviewReportResponse } from '../types'
+import { confidenceZh } from '../zhLabels'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
+
+const REPORT_KIND_ZH: Record<string, string> = {
+  trend: '趋势',
+  round: '球局',
+  course: '球场',
+  hole: '球洞',
+  club: '球杆',
+}
+
+function reportKindZh(kind: string): string {
+  return REPORT_KIND_ZH[kind] ?? kind
+}
 
 type ReportIndexState =
   | { status: 'idle' }
@@ -68,17 +81,17 @@ export function ReportsPage({
     <section className="reports-workspace">
       <div className="section-head stats-head">
         <div>
-          <p className="eyebrow">Fact-bound review</p>
-          <h1>Reports</h1>
-          <p>Stored and generated round or trend reviews, tied to source facts and missing data.</p>
+          <p className="eyebrow">事实驱动评测</p>
+          <h1>报告</h1>
+          <p>基于事实的球局和趋势报告，含缺失数据追踪。</p>
         </div>
         <StatsQualityChips data={stats} labels={['reports']} />
       </div>
 
       <div className="reports-layout">
-        <section className="report-controls" aria-label="Report controls">
+        <section className="report-controls" aria-label="报告控制">
           <div className="field-row">
-            <label htmlFor="trend-period">Trend period</label>
+            <label htmlFor="trend-period">周期</label>
             <select id="trend-period" value={trendPeriod} onChange={(event) => setTrendPeriod(event.target.value)}>
               {trendOptions.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -89,15 +102,15 @@ export function ReportsPage({
           </div>
           <div className="button-row">
             <button type="button" onClick={() => onLoadTrend(trendPeriod)}>
-              Load trend report
+              载入趋势报告
             </button>
             <button type="button" onClick={() => onGenerateTrend(trendPeriod)}>
-              Generate trend report
+              生成趋势报告
             </button>
           </div>
 
           <div className="field-row">
-            <label htmlFor="round-id">Round</label>
+            <label htmlFor="round-id">球局编号</label>
             <select id="round-id" value={roundId} onChange={(event) => setRoundId(event.target.value)}>
               {roundOptions.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -108,15 +121,15 @@ export function ReportsPage({
           </div>
           <div className="button-row">
             <button type="button" disabled={!roundId} onClick={() => onLoadRound(roundId)}>
-              Load round report
+              载入球局报告
             </button>
             <button type="button" disabled={!roundId} onClick={() => onGenerateRound(roundId)}>
-              Generate round report
+              生成球局报告
             </button>
           </div>
 
           <div className="field-row">
-            <label htmlFor="course-key">Course</label>
+            <label htmlFor="course-key">球场</label>
             <select id="course-key" value={courseKey} onChange={(event) => setCourseKey(event.target.value)}>
               {courseOptions.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -127,15 +140,15 @@ export function ReportsPage({
           </div>
           <div className="button-row">
             <button type="button" disabled={!courseKey} onClick={() => onLoadCourse(courseKey)}>
-              Load course report
+              载入球场报告
             </button>
             <button type="button" disabled={!courseKey} onClick={() => onGenerateCourse(courseKey)}>
-              Generate course report
+              生成球场报告
             </button>
           </div>
 
           <div className="field-row">
-            <label htmlFor="hole-key">Hole</label>
+            <label htmlFor="hole-key">洞号</label>
             <select id="hole-key" value={holeId} onChange={(event) => setHoleId(event.target.value)}>
               {holeOptions.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -150,19 +163,19 @@ export function ReportsPage({
               disabled={!selectedHole}
               onClick={() => selectedHole && onLoadHole(selectedHole.courseKey, selectedHole.hole)}
             >
-              Load hole report
+              载入球洞报告
             </button>
             <button
               type="button"
               disabled={!selectedHole}
               onClick={() => selectedHole && onGenerateHole(selectedHole.courseKey, selectedHole.hole)}
             >
-              Generate hole report
+              生成球洞报告
             </button>
           </div>
 
           <div className="field-row">
-            <label htmlFor="club-name">Club</label>
+            <label htmlFor="club-name">球杆</label>
             <select id="club-name" value={clubName} onChange={(event) => setClubName(event.target.value)}>
               {clubOptions.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -173,10 +186,10 @@ export function ReportsPage({
           </div>
           <div className="button-row">
             <button type="button" disabled={!clubName} onClick={() => onLoadClub(clubName)}>
-              Load club report
+              载入球杆报告
             </button>
             <button type="button" disabled={!clubName} onClick={() => onGenerateClub(clubName)}>
-              Generate club report
+              生成球杆报告
             </button>
           </div>
 
@@ -216,17 +229,17 @@ function ReportInventory({
 }) {
   if (state.status === 'loading') {
     return (
-      <section className="report-inventory" aria-label="Report inventory">
-        <h2>Report inventory</h2>
-        <p>Loading stored reports</p>
+      <section className="report-inventory" aria-label="报告索引">
+        <h2>报告索引</h2>
+        <p>载入报告中</p>
       </section>
     )
   }
 
   if (state.status === 'error') {
     return (
-      <section className="report-inventory" aria-label="Report inventory">
-        <h2>Report inventory</h2>
+      <section className="report-inventory" aria-label="报告索引">
+        <h2>报告索引</h2>
         <p>{state.message}</p>
       </section>
     )
@@ -234,18 +247,18 @@ function ReportInventory({
 
   if (state.status !== 'ready' || state.data.reports.length === 0) {
     return (
-      <section className="report-inventory" aria-label="Report inventory">
-        <h2>Report inventory</h2>
-        <p>No stored reports</p>
+      <section className="report-inventory" aria-label="报告索引">
+        <h2>报告索引</h2>
+        <p>暂无报告</p>
       </section>
     )
   }
 
   return (
-    <section className="report-inventory" aria-label="Report inventory">
+    <section className="report-inventory" aria-label="报告索引">
       <div className="report-inventory-head">
-        <h2>Report inventory</h2>
-        <span className="fact-chip muted">{state.data.total} stored</span>
+        <h2>报告索引</h2>
+        <span className="fact-chip muted">{state.data.total} 条</span>
       </div>
       <div className="report-inventory-list">
         {state.data.reports.map((report) => (
@@ -301,18 +314,18 @@ function ReportInventoryRow({
     <div className="report-inventory-row">
       <div className="report-inventory-main">
         <div className="report-inventory-title">
-          <span className="fact-chip muted">{report.kind}</span>
+          <span className="fact-chip muted">{reportKindZh(report.kind)}</span>
           <strong>{report.subjectId}</strong>
         </div>
         <div className="report-inventory-meta">
           <span>{report.provider}</span>
           <span>{report.model}</span>
-          <span>{report.confidence} confidence</span>
+          <span>{confidenceZh(report.confidence)} 置信</span>
         </div>
         <SourceRefs refs={report.sourceRefs} onSelectRef={onSelectRef} />
       </div>
-      <button type="button" onClick={handleOpen} aria-label={`Open stored ${report.kind} ${report.subjectId}`}>
-        Open
+      <button type="button" onClick={handleOpen} aria-label={`打开已存 ${reportKindZh(report.kind)} ${report.subjectId}`}>
+        打开
       </button>
     </div>
   )
@@ -321,16 +334,16 @@ function ReportInventoryRow({
 function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportState']; onSelectRef?: (sourceRef: string) => void }) {
   if (state.status === 'loading') {
     return (
-      <section className="report-detail" aria-label="Report detail">
-        <h2>Loading report</h2>
+      <section className="report-detail" aria-label="报告详情">
+        <h2>载入中</h2>
       </section>
     )
   }
 
   if (state.status === 'error') {
     return (
-      <section className="report-detail" aria-label="Report detail">
-        <h2>Report unavailable</h2>
+      <section className="report-detail" aria-label="报告详情">
+        <h2>报告不可用</h2>
         <p>{state.message}</p>
       </section>
     )
@@ -338,65 +351,66 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
 
   if (state.status === 'idle') {
     return (
-      <section className="report-detail" aria-label="Report detail">
-        <h2>No report loaded</h2>
-        <p>Select a trend or round report to inspect the fact-bound review.</p>
+      <section className="report-detail" aria-label="报告详情">
+        <h2>未选报告</h2>
+        <p>选择趋势或球局报告以查看事实审查。</p>
       </section>
     )
   }
 
   const report = state.data
   return (
-    <section className="report-detail" aria-label="Report detail">
+    <section className="report-detail" aria-label="报告详情">
       <div className="report-title-row">
         <div>
-          <p className="eyebrow">{report.kind}</p>
+          <p className="eyebrow">{reportKindZh(report.kind)}</p>
           <h2>{report.provider}</h2>
         </div>
-        <span className={`confidence-pill ${report.confidence}`}>{report.confidence} confidence</span>
+        <span className={`confidence-pill ${report.confidence}`}>{confidenceZh(report.confidence)} 置信</span>
       </div>
-      <section className="report-identity" aria-label="Report identity">
-        <span className="fact-chip muted">subject</span>
+      <section className="report-identity" aria-label="报告信息">
+        <span className="fact-chip muted">主题</span>
         <span className="fact-chip">{report.subjectId}</span>
-        <span className="fact-chip muted">model</span>
+        <span className="fact-chip muted">模型</span>
         <span className="fact-chip">{report.model}</span>
         <ReportFactBinding factBinding={report.factBinding} />
         <SourceRefs refs={report.sourceRefs} onSelectRef={onSelectRef} />
       </section>
       <p className="report-narrative">{report.narrative}</p>
+      <p className="report-body-note">报告正文由引擎生成(暂英文)</p>
 
       <div className="report-evidence-grid">
         <ReportInferences inferences={report.inferencesMade} onSelectRef={onSelectRef} />
         <UnsupportedClaims claims={report.unsupportedClaims} onSelectRef={onSelectRef} />
-        <section aria-label="Report facts">
-          <h3>Facts</h3>
+        <section aria-label="事实">
+          <h3>事实</h3>
           {report.factsUsed.map((fact, index) => (
             <div className="report-row" key={`${String(fact.label)}-${index}`}>
               <div className="report-row-main">
                 <strong>{String(fact.label ?? 'fact')}</strong>
                 <span>{String(fact.source ?? 'source')}</span>
                 <FactValue value={fact.value} />
-                <ReportMetadata row={fact} confidenceLabel="fact confidence" />
+                <ReportMetadata row={fact} confidenceLabel="事实置信" />
               </div>
               <SourceRefs refs={refsForFact(fact)} onSelectRef={onSelectRef} />
             </div>
           ))}
         </section>
-        <section aria-label="Report missing data">
-          <h3>Missing Data</h3>
+        <section aria-label="缺失数据">
+          <h3>缺失数据</h3>
           {report.missingData.length ? (
             report.missingData.map((item, index) => (
               <div className="report-row" key={`${String(item.label)}-${index}`}>
                 <div className="report-row-main">
                   <strong>{String(item.label ?? 'missing')}</strong>
                   <span>{String(item.state ?? item.reason ?? 'needs review')}</span>
-                  <ReportMetadata row={item} confidenceLabel="missing confidence" />
+                  <ReportMetadata row={item} confidenceLabel="缺失置信" />
                 </div>
                 <SourceRefs refs={refsForFact(item)} onSelectRef={onSelectRef} />
               </div>
             ))
           ) : (
-            <p>None</p>
+            <p>无</p>
           )}
         </section>
       </div>
@@ -407,7 +421,7 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
 function ReportFactBinding({ factBinding }: { factBinding: unknown }) {
   const row = factBinding && typeof factBinding === 'object' && !Array.isArray(factBinding) ? (factBinding as Record<string, unknown>) : {}
   const state = typeof row.state === 'string' && row.state.trim() ? row.state : 'bound'
-  return <span className="fact-chip muted">{`${state} binding`}</span>
+  return <span className="fact-chip muted">{`${state} 绑定`}</span>
 }
 
 function UnsupportedClaims({
@@ -419,8 +433,8 @@ function UnsupportedClaims({
 }) {
   const rows = asRecordArray(claims)
   return (
-    <section className="report-unsupported-claims" aria-label="Unsupported report claims">
-      <h3>Unsupported Claims</h3>
+    <section className="report-unsupported-claims" aria-label="无依据断言">
+      <h3>无依据断言</h3>
       {rows.length ? (
         rows.map((claim, index) => (
           <div className="report-row" key={`${String(claim.category ?? 'claim')}-${index}`}>
@@ -429,9 +443,9 @@ function UnsupportedClaims({
               <span>{String(claim.claim ?? 'Unsupported claim')}</span>
               {typeof claim.reason === 'string' ? <span>{claim.reason}</span> : null}
               <div className="report-metadata">
-                {labeledChips(claim.missingDataLabels, 'missing')}
+                {labeledChips(claim.missingDataLabels, 'missing', '缺失')}
                 {typeof claim.confidence === 'string' ? (
-                  <span className="fact-chip muted">{`${claim.confidence} claim confidence`}</span>
+                  <span className="fact-chip muted">{`${confidenceZh(claim.confidence)} 断言置信`}</span>
                 ) : null}
               </div>
             </div>
@@ -439,7 +453,7 @@ function UnsupportedClaims({
           </div>
         ))
       ) : (
-        <p>None</p>
+        <p>无</p>
       )}
     </section>
   )
@@ -454,18 +468,18 @@ function ReportInferences({
 }) {
   const rows = asRecordArray(inferences)
   return (
-    <section className="report-inferences" aria-label="Report inferences">
-      <h3>Inferences</h3>
+    <section className="report-inferences" aria-label="推断">
+      <h3>推断</h3>
       {rows.length ? (
         rows.map((inference, index) => (
           <div className="report-row" key={`${String(inference.claim ?? 'inference')}-${index}`}>
             <div className="report-row-main">
               <strong>{String(inference.claim ?? 'Inference')}</strong>
               <div className="report-metadata">
-                {labeledChips(inference.factLabels, 'fact')}
-                {labeledChips(inference.missingDataLabels, 'missing')}
+                {labeledChips(inference.factLabels, 'fact', '事实')}
+                {labeledChips(inference.missingDataLabels, 'missing', '缺失')}
                 {typeof inference.confidence === 'string' ? (
-                  <span className="fact-chip muted">{`${inference.confidence} inference confidence`}</span>
+                  <span className="fact-chip muted">{`${confidenceZh(inference.confidence)} 推断置信`}</span>
                 ) : null}
               </div>
             </div>
@@ -473,7 +487,7 @@ function ReportInferences({
           </div>
         ))
       ) : (
-        <p>None</p>
+        <p>无</p>
       )}
     </section>
   )
@@ -487,7 +501,7 @@ function ReportMetadata({ row, confidenceLabel }: { row: Record<string, unknown>
   return (
     <div className="report-metadata">
       {coverage ? <span className="fact-chip muted">{coverage}</span> : null}
-      {confidence ? <span className="fact-chip muted">{`${confidence} ${confidenceLabel}`}</span> : null}
+      {confidence ? <span className="fact-chip muted">{`${confidenceZh(confidence)} ${confidenceLabel}`}</span> : null}
     </div>
   )
 }
@@ -499,7 +513,7 @@ function metadataCoverage(value: unknown): string | null {
   const total = typeof row.total === 'number' ? row.total : null
   const pct = typeof row.pct === 'number' ? row.pct : null
   if (ready === null || total === null) return null
-  return `coverage ${ready}/${total}${pct === null ? '' : ` ${pct}%`}`
+  return `覆盖率 ${ready}/${total}${pct === null ? '' : ` ${pct}%`}`
 }
 
 function FactValue({ value }: { value: unknown }) {
@@ -661,10 +675,10 @@ function asStringArray(value: unknown): string[] {
   return value.map((item) => String(item).trim()).filter(Boolean)
 }
 
-function labeledChips(value: unknown, suffix: string) {
+function labeledChips(value: unknown, suffix: string, displaySuffix?: string) {
   return asStringArray(value).map((label) => (
     <span className="fact-chip muted" key={`${suffix}-${label}`}>
-      {`${label} ${suffix}`}
+      {`${label} ${displaySuffix ?? suffix}`}
     </span>
   ))
 }
