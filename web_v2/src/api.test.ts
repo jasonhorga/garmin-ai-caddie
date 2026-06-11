@@ -9,6 +9,7 @@ import {
   fetchAnnotations,
   fetchAnnotationsForTarget,
   fetchCourseGeometryCoverage,
+  fetchCoursePrep,
   fetchCourseReport,
   fetchCourseSearch,
   ensureHoleGeometry,
@@ -21,6 +22,7 @@ import {
   fetchHoleMap,
   fetchMediaForTarget,
   fetchLatestCaddieDecisionAudit,
+  fetchPrepTips,
   fetchReadiness,
   fetchWeatherSnapshot,
   fetchReportIndex,
@@ -2122,6 +2124,248 @@ describe('fetchCourseSearch', () => {
     await fetchCourseSearch('black knight', 'admin-secret')
 
     expect(fetch).toHaveBeenCalledWith(`/api/v2/courses/search?name=${encodeURIComponent('black knight')}`, {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+})
+
+describe('fetchPrepTips', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads prep tips for a course globalId from the correct endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-prep-tips-v1',
+        courseKey: 'black_knight',
+        tips: [
+          {
+            priority: 1,
+            severity: 'high',
+            text: '开球偏左(62%),瞄球道右侧留余量;第3洞有水/沙,尤其当心',
+            basis: 'course.teeDirection',
+            sourceRefs: ['course:31795'],
+          },
+          {
+            priority: 2,
+            severity: 'medium',
+            text: '攻果岭常偏短(41%),本场多带半杆',
+            basis: 'course.approachMiss',
+            sourceRefs: [],
+          },
+        ],
+      }),
+    })))
+
+    const result = await fetchPrepTips(31795)
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
+    expect(result.schema).toBe('ai-caddie-prep-tips-v1')
+    expect(result.courseKey).toBe('black_knight')
+    expect(result.tips).toHaveLength(2)
+    expect(result.tips[0].severity).toBe('high')
+    expect(result.tips[0].priority).toBe(1)
+    expect(result.tips[1].basis).toBe('course.approachMiss')
+  })
+
+  it('returns null courseKey for a course that has never been played', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-prep-tips-v1',
+        courseKey: null,
+        tips: [
+          {
+            priority: 1,
+            severity: 'info',
+            text: '新球场:按 HCP 与长度提示,关注最长的第4洞、第7洞、第2洞',
+            basis: 'course.prepHoles',
+            sourceRefs: [],
+          },
+        ],
+      }),
+    })))
+
+    const result = await fetchPrepTips(99999)
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/courses/99999/prep-tips')
+    expect(result.courseKey).toBeNull()
+    expect(result.tips[0].severity).toBe('info')
+  })
+
+  it('sends admin token header for protected prep-tips reads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-prep-tips-v1',
+        courseKey: null,
+        tips: [],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchPrepTips(31795, 'admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('throws a useful error when the prep-tips request fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+    })))
+
+    await expect(fetchPrepTips(31795)).rejects.toThrow(
+      'GET /api/v2/courses/31795/prep-tips failed: 403 Forbidden',
+    )
+  })
+})
+
+describe('fetchCoursePrep', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('calls the prep endpoint with no query string by default', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-course-prep-v1',
+        globalId: 31795,
+        holeCount: 9,
+        clubs: [],
+        holes: [],
+      }),
+    })))
+
+    const result = await fetchCoursePrep(31795)
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/courses/31795/prep')
+    expect(result.schema).toBe('ai-caddie-course-prep-v1')
+    expect(result.globalId).toBe(31795)
+  })
+
+  it('appends include_shots=true when includeShots option is true', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-course-prep-v1',
+        globalId: 31870,
+        holeCount: 9,
+        clubs: [],
+        holes: [
+          {
+            hole: 3,
+            par: 4,
+            par_source: 'courseview',
+            blue_yards: 380,
+            route_len_m: 347,
+            route: [],
+            geometryCoverage: 'ready',
+            sourceRefs: ['course:31870'],
+            missingData: [],
+            candidateRoutes: [],
+            carryTargets: [],
+            steps: [],
+            cautions: [],
+            landing_m: null,
+            tee_club: '1D',
+            hazards: { water_carry: [], bunkers: [] },
+            map: { image: 'base64img', overlay: { w: 200, h: 400, ppm: 2.5, ln: 347, route: [] } },
+            yourShots: [
+              { x: 45, y: 120, club: '1D', shotType: 'TEE', roundId: 'round-900001' },
+              { x: 100, y: 280, club: '7I', shotType: 'APPROACH', roundId: 'round-900001' },
+            ],
+          },
+        ],
+      }),
+    })))
+
+    const result = await fetchCoursePrep(31870, { includeShots: true })
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/courses/31870/prep?include_shots=true')
+    expect(result.holes[0].yourShots).toHaveLength(2)
+    expect(result.holes[0].yourShots![0].shotType).toBe('TEE')
+    expect(result.holes[0].yourShots![1].club).toBe('7I')
+    expect(result.holes[0].yourShots![1].roundId).toBe('round-900001')
+  })
+
+  it('omits include_shots when includeShots is false or undefined', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-course-prep-v1',
+        globalId: 31795,
+        holeCount: 9,
+        clubs: [],
+        holes: [],
+      }),
+    })))
+
+    await fetchCoursePrep(31795, { includeShots: false })
+    await fetchCoursePrep(31795, {})
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/courses/31795/prep')
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v2/courses/31795/prep')
+  })
+
+  it('combines render=false with include_shots=true in the query string', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-course-prep-v1',
+        globalId: 31795,
+        holeCount: 9,
+        clubs: [],
+        holes: [],
+      }),
+    })))
+
+    await fetchCoursePrep(31795, { render: false, includeShots: true })
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/courses/31795/prep?render=false&include_shots=true')
+  })
+
+  it('combines specific holes with include_shots in the query string', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-course-prep-v1',
+        globalId: 31795,
+        holeCount: 9,
+        clubs: [],
+        holes: [],
+      }),
+    })))
+
+    await fetchCoursePrep(31795, { holes: [1, 3], includeShots: true })
+
+    expect(fetch).toHaveBeenCalledWith('/api/v2/courses/31795/prep?holes=1&holes=3&include_shots=true')
+  })
+
+  it('sends admin token header for protected prep reads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-course-prep-v1',
+        globalId: 31795,
+        holeCount: 9,
+        clubs: [],
+        holes: [],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchCoursePrep(31795, { includeShots: true }, 'admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })

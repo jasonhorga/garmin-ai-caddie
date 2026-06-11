@@ -86,6 +86,31 @@ def _mask(by, name, project, size):
     return mk
 
 
+def _frame(by, route):
+    """Single source of truth for the render frame (supersampled projector + canvas)."""
+    w, h = 720 * SS, 1120 * SS
+    margin = 40 * SS
+    project, sc = _setup(by, tuple(route[0]), tuple(route[-1]), w, h, margin)
+    return project, sc, w, h, margin
+
+
+def overlay_projector(by, route):
+    """Display-pixel projector IDENTICAL to render_hole's overlay route mapping.
+
+    Returns ``to_px((x, y)) -> (px, py)`` taking points in the hole's LOCAL 2D frame
+    (hole.json X/Y == (-mesh_x, mesh_z) metres) and yielding post-downsample pixel coords
+    on the rendered map — the same frame as ``overlay['route']`` rows, so anything projected
+    through it aligns with the map and route by construction.
+    """
+    project, _sc, _w, _h, _margin = _frame(by, route)
+
+    def to_px(pt):
+        x, y = project((float(pt[0]), float(pt[1])))
+        return (x / SS, y / SS)
+
+    return to_px
+
+
 def render_hole(global_id: int, local_hole: int, route, route_len: float, landing_m=None):
     """Render the hole. Returns (image_data_uri, overlay_meta).
 
@@ -93,11 +118,7 @@ def render_hole(global_id: int, local_hole: int, route, route_len: float, landin
     pixel coords, so a client can map metres<->pixels and place the interactive layer.
     """
     md, by = load_mesh(global_id, local_hole)
-    w, h = 720 * SS, 1120 * SS
-    margin = 40 * SS
-    tee = tuple(route[0])
-    green = tuple(route[-1])
-    project, sc = _setup(by, tee, green, w, h, margin)
+    project, sc, w, h, margin = _frame(by, route)
     img = Image.new("RGBA", (w, h), PALETTE["bg"] + (255,))
     d = ImageDraw.Draw(img, "RGBA")
     for name in ORDER:

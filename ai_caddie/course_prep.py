@@ -14,11 +14,13 @@ import json
 import math
 from dataclasses import asdict, dataclass, field
 
-from ai_caddie import course_reference, hole_render
+from ai_caddie import course_reference, hole_render, shot_projection
 from ai_caddie.data import build_club_profiles, read_json
+from ai_caddie.data import available_prep_holes as available_prep_holes  # re-export: prep's hole-list default
 from ai_caddie.geometry_evidence import geometry_coverage_for_hole
 
 YARD = 1.09361
+MAX_SCATTER_SHOTS = 80  # newest rounds first; keeps the overlay readable and the payload small
 DEFAULT_LADDER = {  # metres; overridden by the player's real club model when available
     "1W": 200, "3W": 171, "3H": 159, "5I": 146, "6I": 132, "7I": 128,
     "8I": 122, "9I": 114, "PW": 102, "A杆": 84, "50°": 53, "54°": 52, "58°": 42,
@@ -263,7 +265,39 @@ def _carry_targets(landing_m: float | None, hazards: dict) -> list[dict]:
     return rows
 
 
-def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, render=True) -> HolePrep | None:
+def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, overlay: dict) -> list[dict]:
+    """The player's past TEE/APPROACH end positions projected into display px.
+
+    World→local uses the calibrated frame in :mod:`ai_caddie.shot_projection`; local→px reuses
+    render_hole's EXACT overlay transform (:func:`ai_caddie.hole_render.overlay_projector`).
+    Pixel ints are clipped to the overlay bounds; capped at ``MAX_SCATTER_SHOTS`` newest-first.
+    """
+    hole_meta = md.get("hole") or {}
+    ref_lat, ref_lon = hole_meta.get("RefLat"), hole_meta.get("RefLon")
+    if ref_lat is None or ref_lon is None:
+        return []
+    shots = shot_projection.shots_for_hole(global_id, local_hole)
+    if not shots:
+        return []
+    to_px = hole_render.overlay_projector(by, route)
+    width, height = int(overlay["w"]), int(overlay["h"])
+    out: list[dict] = []
+    for shot in shots[:MAX_SCATTER_SHOTS]:
+        x, y = shot_projection.project_world_to_pixel(
+            shot["lat"], shot["lon"], ref_lat=float(ref_lat), ref_lon=float(ref_lon), to_px=to_px,
+        )
+        out.append({
+            "x": min(max(int(round(x)), 0), width - 1),
+            "y": min(max(int(round(y)), 0), height - 1),
+            "club": shot.get("club"),
+            "shotType": shot.get("shotType"),
+            "roundId": shot.get("roundId"),
+        })
+    return out
+
+
+def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, render=True,
+              include_shots=False) -> HolePrep | None:
     """Compose pre-round prep for one hole. Returns None if geometry is unavailable."""
     try:
         md, by = hole_render.load_mesh(global_id, local_hole)
@@ -313,6 +347,13 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     if render:
         image, meta = hole_render.render_hole(global_id, local_hole, route, route_len, landing_m=landing)
         result["map"] = {"image": image, "overlay": meta}
+        if include_shots:
+            try:
+                scatter = _your_shots(md, by, route, global_id, local_hole, meta)
+            except Exception:
+                scatter = []  # scatter is an enhancement — never break prep over it
+            if scatter:
+                result["yourShots"] = scatter
     return result if render else prep
 
 
@@ -346,7 +387,8 @@ def _missing_hole(global_id: int, local_hole: int, par_record=None) -> dict:
     }
 
 
-def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, include_missing: bool = False) -> list:
+def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, include_missing: bool = False,
+              include_shots: bool = False) -> list:
     """Pre-round prep for every hole of a nine that has geometry.
 
     Par is cache-first: the stored ``data/courses/<gid>.json`` record, else ``resolve_par``
@@ -362,7 +404,8 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
         par_record = course_reference.resolve_par(global_id)
     out = []
     for hole in holes:
-        prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render)
+        prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render,
+                         include_shots=include_shots)
         if prep is not None:
             out.append(prep.to_dict() if include_missing and hasattr(prep, "to_dict") else prep)
         elif include_missing:

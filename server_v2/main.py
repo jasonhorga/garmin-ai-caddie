@@ -50,6 +50,7 @@ from .mobile import (
     reconcile_mobile_round_response,
     replay_mobile_events_response,
 )
+from .prep_tips import load_prep_tips_response
 from .weather import load_weather_snapshot_response
 from .models import (
     AnnotationCreateRequest,
@@ -207,6 +208,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or path == "/api/v2/mobile/courses/options"
             or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
+            or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
             or path == "/api/v2/courses/search"
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/replay"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
@@ -401,15 +403,21 @@ def course_prep_nine(
     global_id: int,
     holes: list[int] | None = Query(default=None),
     render: bool = True,
+    include_shots: bool = False,
 ) -> dict:
-    """Pre-round prep for a nine: per-hole par (labelled source) + route + hazard carries +
+    """Pre-round prep for a course: per-hole par (labelled source) + route + hazard carries +
     strategy from the player's club ladder + (when render=true) a styled map image + overlay.
-    Holes without cached geometry are skipped. render=false returns facts only (lightweight)."""
+    Without an explicit ``holes`` filter every hole with cached geometry is served (18-hole
+    single-gid courses get all 18; no geometry falls back to the front nine).
+    render=false returns facts only (lightweight). include_shots=true additionally projects
+    the player's past TEE/APPROACH end positions into overlay px (``yourShots``) on rendered
+    holes they have history for."""
     from ai_caddie import course_prep
 
-    requested = holes or list(range(1, 10))
+    requested = holes or course_prep.available_prep_holes(global_id)
     ladder = course_prep.club_ladder()
-    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True)
+    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
+                                 include_shots=include_shots)
     return {
         "schema": "ai-caddie-course-prep-v1",
         "globalId": int(global_id),
@@ -417,6 +425,15 @@ def course_prep_nine(
         "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
         "holes": nine,
     }
+
+
+@app.get("/api/v2/courses/{global_id}/prep-tips")
+def course_prep_tips(global_id: int) -> dict:
+    """Deterministic pre-round tips (zh, with sourceRefs) assembled from the player's
+    EXISTING per-course tendencies (teeDirection/approachMiss/parScoring + playerProfile
+    caddie biases) crossed with this course's prep hole features. Never-played courses
+    degrade to global-profile tips plus a length-based informational tip."""
+    return load_prep_tips_response(global_id)
 
 
 @app.get("/api/v2/courses/search")

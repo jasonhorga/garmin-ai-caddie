@@ -177,7 +177,7 @@ describe('HomeOverview', () => {
     expect(screen.queryByText('黑骑士 B/C')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '去备战 深圳沙河' }))
-    expect(onPrepCourse).toHaveBeenCalledWith(40002)
+    expect(onPrepCourse).toHaveBeenCalledWith(40002, '深圳沙河')
   })
 
   it('search submit calls onSearchCourses and renders the matches', async () => {
@@ -198,7 +198,7 @@ describe('HomeOverview', () => {
     expect(onSearchCourses).toHaveBeenCalledWith('观澜湖')
 
     await userEvent.click(await screen.findByRole('button', { name: /观澜湖·世界杯场/ }))
-    expect(onPrepCourse).toHaveBeenCalledWith(31999)
+    expect(onPrepCourse).toHaveBeenCalledWith(31999, '观澜湖·世界杯场')
   })
 
   it('shows 没有找到球场 when the search returns no matches', async () => {

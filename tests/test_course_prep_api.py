@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -102,6 +104,36 @@ class CoursePrepApiTests(unittest.TestCase):
         self.assertEqual(body["holes"][0]["missingData"][0]["label"], "geometry")
         self.assertTrue(prep_nine.call_args.kwargs["include_missing"])
 
+    def test_prep_without_holes_param_serves_every_geometry_hole(self) -> None:
+        """An 18-hole single-gid course (real shape: gid41825 has h01..h18 meshes)
+        must default to ALL geometry holes, not the front nine."""
+        with TemporaryDirectory() as tmp:
+            for hole in range(1, 19):
+                (Path(tmp) / f"gid31870_h{hole:02d}_meshes.json").write_text("{}", encoding="utf-8")
+            with patch("ai_caddie.data.MESH_DIR", Path(tmp)), \
+                    patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                    patch.object(course_prep, "prep_nine",
+                                 side_effect=lambda gid, holes, **kw: [self._prep_row(h) for h in holes]) as prep_nine:
+                resp = self.client.get("/api/v2/courses/31870/prep?render=false")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(list(prep_nine.call_args.args[1]), list(range(1, 19)))
+        body = resp.json()
+        self.assertEqual(body["holeCount"], 18)
+        self.assertEqual([h["hole"] for h in body["holes"]], list(range(1, 19)))
+
+    def test_prep_without_holes_param_falls_back_to_front_nine_without_geometry(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with patch("ai_caddie.data.MESH_DIR", Path(tmp)), \
+                    patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                    patch.object(course_prep, "prep_nine",
+                                 side_effect=lambda gid, holes, **kw: [self._prep_row(h) for h in holes]) as prep_nine:
+                resp = self.client.get("/api/v2/courses/31870/prep?render=false")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(list(prep_nine.call_args.args[1]), list(range(1, 10)))
+        self.assertEqual(resp.json()["holeCount"], 9)
+
     def test_holes_query_filter(self) -> None:
         with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
                 patch.object(course_prep, "prep_nine", return_value=[self._prep_row(3)]) as prep_nine:
@@ -110,6 +142,27 @@ class CoursePrepApiTests(unittest.TestCase):
         self.assertEqual(list(prep_nine.call_args.args[1]), [3])
         holes = resp.json()["holes"]
         self.assertTrue(all(h["hole"] == 3 for h in holes))
+
+    def test_include_shots_forwarded_and_your_shots_rows_pass_through(self) -> None:
+        row = self._prep_row()
+        row["yourShots"] = [{"x": 430, "y": 560, "club": "1W", "shotType": "TEE", "roundId": "9001"}]
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.object(course_prep, "prep_nine", return_value=[row]) as prep_nine:
+            resp = self.client.get("/api/v2/courses/31870/prep?include_shots=true")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIs(prep_nine.call_args.kwargs["include_shots"], True)
+        self.assertEqual(
+            resp.json()["holes"][0]["yourShots"],
+            [{"x": 430, "y": 560, "club": "1W", "shotType": "TEE", "roundId": "9001"}],
+        )
+
+    def test_include_shots_defaults_false_and_rows_lack_your_shots(self) -> None:
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.object(course_prep, "prep_nine", return_value=[self._prep_row()]) as prep_nine:
+            resp = self.client.get("/api/v2/courses/31870/prep?render=false")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIs(prep_nine.call_args.kwargs["include_shots"], False)
+        self.assertNotIn("yourShots", resp.json()["holes"][0])
 
 
 if __name__ == "__main__":

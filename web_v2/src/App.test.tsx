@@ -364,6 +364,45 @@ function mobileCourseOptionsPayload() {
   }
 }
 
+function coursePrepHolePayload(hole: number, par: number, blueYards: number) {
+  return {
+    hole,
+    par,
+    par_source: 'courseview',
+    blue_yards: blueYards,
+    route_len_m: 360,
+    route: [],
+    geometryCoverage: 'ready',
+    sourceRefs: ['course:31795'],
+    missingData: [],
+    candidateRoutes: [],
+    carryTargets: [],
+    steps: [],
+    cautions: [],
+    landing_m: null,
+    tee_club: null,
+    hazards: { water_carry: [], bunkers: [] },
+  }
+}
+
+function coursePrepPayload() {
+  return {
+    schema: 'ai-caddie-course-prep-v1',
+    globalId: 31795,
+    holeCount: 2,
+    clubs: [],
+    holes: [coursePrepHolePayload(1, 4, 410), coursePrepHolePayload(2, 5, 520)],
+  }
+}
+
+function prepTipsPayload() {
+  return {
+    schema: 'ai-caddie-prep-tips-v1',
+    courseKey: 'black_knight',
+    tips: [],
+  }
+}
+
 function annotationsPayload() {
   return {
     schema: 'ai-caddie-annotations-v1',
@@ -1193,13 +1232,15 @@ describe('App navigation', () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
   })
 
-  it('去备战 hands the clicked course globalId to the prep panel', async () => {
+  it('去备战 hands the clicked course globalId to the prep page', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
         if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
         if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
+        if (path === '/api/v2/courses/31795/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
         return overviewPayload()
       },
     }))
@@ -1210,9 +1251,51 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(await screen.findByRole('button', { name: '去备战 Black Knight B/C' }))
 
-    expect(await screen.findByRole('heading', { name: '赛前球场攻略' })).toBeInTheDocument()
-    // CoursePrepPanel seeds its global-id input from the handed-off defaultGlobalId.
-    expect(screen.getByDisplayValue('31795')).toBeInTheDocument()
+    // PrepPage header resolves the chosen globalId against course options.
+    expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
+    expect(await screen.findByText('Par 9 · 总码数 930 码')).toBeInTheDocument()
+    // 你的战绩 joins stats.courses through the option's courseKey.
+    expect(screen.getByText('你的战绩:打过 2 次 · 均杆 82')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '逐洞攻略' }))
+    expect(screen.getByText('1 洞')).toBeInTheDocument()
+    expect(screen.getByText('2 洞')).toBeInTheDocument()
+  })
+
+  it('search-selected course outside course options shows its searched name in the prep header', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        if (path.startsWith('/api/v2/courses/search?')) {
+          return {
+            schema: 'ai-caddie-course-search-v1',
+            query: '观澜湖',
+            matches: [{ globalId: 31870, name: '观澜湖·世界杯场', holes: 18, city: '深圳', province: '广东', ratio: 0.92 }],
+          }
+        }
+        if (path === '/api/v2/courses/31870/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31870/prep-tips') return prepTipsPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    await userEvent.type(await screen.findByLabelText('搜索球场'), '观澜湖{Enter}')
+    await userEvent.click(await screen.findByRole('button', { name: /观澜湖·世界杯场/ }))
+
+    // 31870 is NOT in course options — the header must carry the searched name.
+    expect(await screen.findByRole('heading', { name: '观澜湖·世界杯场' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '球场 31870' })).not.toBeInTheDocument()
+
+    // 换球场 clears the remembered course (and its name) back to the entry state.
+    await userEvent.click(screen.getByRole('button', { name: '换球场' }))
+    expect(await screen.findByRole('heading', { name: '选择球场开始备战' })).toBeInTheDocument()
   })
 
   it('discards a stale trends refresh that resolves after the window changed', async () => {
@@ -1398,10 +1481,12 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
   })
 
-  it('备战 hosts the course prep panel', async () => {
+  it('备战 with no chosen course shows the entry finder without prep fetches', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
+        if (path === '/api/v2/history/stats') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         return overviewPayload()
       },
@@ -1413,8 +1498,10 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '备战' }))
 
-    expect(await screen.findByRole('heading', { name: '赛前球场攻略' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '选择球场开始备战' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '去备战 Black Knight B/C' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '趋势总览' })).toBeNull()
+    expect(fetchMock.mock.calls.some(([path]) => String(path).includes('/prep'))).toBe(false)
   })
 
   it('opens source detail directly from overview and rounds cards', async () => {
@@ -2033,7 +2120,8 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
-    expect(screen.queryByText('赛前球场攻略')).not.toBeInTheDocument()
+    // The 备战 page (entry finder heading) must not leak into the 实战 workspace.
+    expect(screen.queryByRole('heading', { name: '选择球场开始备战' })).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
     expect(await screen.findByText('5.4 m/s')).toBeInTheDocument()
