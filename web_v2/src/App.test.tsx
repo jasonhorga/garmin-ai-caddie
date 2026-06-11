@@ -1263,6 +1263,57 @@ describe('App navigation', () => {
     expect(screen.getByText('2 洞')).toBeInTheDocument()
   })
 
+  it('球场 tab renders 球场表现 heading', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+    await userEvent.click(await screen.findByRole('button', { name: '球场' }))
+
+    expect(await screen.findByRole('heading', { name: '球场表现', level: 1 })).toBeInTheDocument()
+    expect(screen.getByText('Black Knight B')).toBeInTheDocument()
+  })
+
+  it('clicking 去备战 on a course row in 球场表现 navigates to the prep page', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        if (path === '/api/v2/courses/31795/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+    await userEvent.click(await screen.findByRole('button', { name: '球场' }))
+
+    // courseOptions maps black_knight → globalId 31795, so the button appears
+    await userEvent.click(await screen.findByRole('button', { name: '去备战 Black Knight B' }))
+
+    // PrepPage header resolves 31795 against courseOptions → 'Black Knight B/C'
+    expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
+  })
+
   it('search-selected course outside course options shows its searched name in the prep header', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,

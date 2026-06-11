@@ -397,6 +397,11 @@ export default function App() {
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
       if (overviewState.status === 'error') void refreshOverviewState()
     }
+    if (page === 'courses') {
+      // 球场表现 shows 去备战 buttons keyed on globalId from courseOptions;
+      // retry the load when it is idle or previously errored (mirrors 概览/备战).
+      if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
+    }
     if (page === 'rounds' && roundsState.status === 'idle') {
       void loadRoundsState()
     }
@@ -637,7 +642,14 @@ export default function App() {
   }
 
   function renderStatsContent(data: HistoryStatsResponse) {
-    if (activePage === 'courses') return <CourseStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+    if (activePage === 'courses') return (
+      <CourseStats
+        data={data}
+        onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+        courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
+        onPrepCourse={handlePrepCourse}
+      />
+    )
     if (activePage === 'holes' || activePage === 'clubs' || activePage === 'issues') {
       return (
         <>

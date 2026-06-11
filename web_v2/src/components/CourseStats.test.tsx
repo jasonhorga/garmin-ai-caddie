@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { HistoryStatsResponse } from '../types'
+import type { HistoryStatsResponse, MobileCourseOptionsResponse } from '../types'
 import { CourseStats } from './CourseStats'
 
 const statsFixture: HistoryStatsResponse = {
@@ -147,48 +147,66 @@ const statsFixture: HistoryStatsResponse = {
   drillDown: {},
 }
 
+const courseOptionsFixture: MobileCourseOptionsResponse = {
+  schema: 'ai-caddie-mobile-course-options-v1',
+  dataMode: 'fixture',
+  total: 1,
+  courses: [
+    {
+      globalId: 31795,
+      courseKey: 'black_knight',
+      name: 'Black Knight B/C',
+      roundCount: 2,
+      holes: 18,
+      geometryCoverage: 'missing',
+      sourceRefs: ['900001', '900002'],
+    },
+  ],
+  emptyState: null,
+  generatedAt: '2026-06-01T08:00:00Z',
+}
+
 describe('CourseStats', () => {
   it('renders course aggregates and source round refs', () => {
     const onSelectRef = vi.fn()
     render(<CourseStats data={statsFixture} onSelectRef={onSelectRef} />)
 
-    expect(screen.getByRole('heading', { name: 'Course Stats' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '球场表现' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Black Knight B' })).toBeInTheDocument()
-    const facts = screen.getByLabelText('Black Knight B facts')
-    expect(screen.getAllByText('2 rounds').length).toBeGreaterThan(0)
-    expect(screen.getByText('avg 82')).toBeInTheDocument()
-    expect(screen.getByText('best 77')).toBeInTheDocument()
-    expect(screen.getByText('worst 87')).toBeInTheDocument()
-    expect(within(facts).getByText('avg diff 9.8')).toBeInTheDocument()
-    expect(within(facts).getByText('best diff 6.1')).toBeInTheDocument()
-    expect(screen.getByText('recent 77')).toBeInTheDocument()
+    const facts = screen.getByLabelText('Black Knight B 数据')
+    expect(within(facts).getByText('2 场次')).toBeInTheDocument()
+    expect(within(facts).getByText('平均 82')).toBeInTheDocument()
+    expect(within(facts).getByText('最好 77')).toBeInTheDocument()
+    expect(within(facts).getByText('最差 87')).toBeInTheDocument()
+    expect(within(facts).getByText('均差 9.8')).toBeInTheDocument()
+    expect(within(facts).getByText('最好差 6.1')).toBeInTheDocument()
+    expect(screen.getByText('近期 77')).toBeInTheDocument()
     expect(screen.getByText('FIR 25%')).toBeInTheDocument()
-    expect(screen.getByText('tee right 50%')).toHaveClass('tee-right')
+    expect(screen.getByText('开球 right 50%')).toHaveClass('tee-right')
     expect(screen.getByText('GIR 25%')).toBeInTheDocument()
-    expect(screen.getByText('approach short 50%')).toHaveClass('approach-short')
-    expect(screen.getByText('improving -10')).toHaveClass('trend-improving')
-    expect(screen.getByText('diff improving -5.3')).toHaveClass('trend-improving')
-    expect(screen.getByText('geometry missing 0/2')).toHaveClass('quality-missing')
-    expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
+    expect(screen.getByText('攻果岭 short 50%')).toHaveClass('approach-short')
+    expect(screen.getByText('进步中 -10')).toHaveClass('trend-improving')
+    expect(screen.getByText('差分 进步中 -5.3')).toHaveClass('trend-improving')
+    expect(screen.getByText('几何 缺失')).toHaveClass('quality-missing')
     expect(screen.getAllByText('coverage 2/3 66.7%').length).toBeGreaterThan(0)
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
-    expect(screen.getByText('Difficulty Adjusted')).toBeInTheDocument()
-    const difficultyAdjusted = screen.getByLabelText('Black Knight B difficulty adjusted')
-    expect(within(difficultyAdjusted).getByText('Rating / slope coverage')).toBeInTheDocument()
-    expect(within(difficultyAdjusted).getByText('2 / 3 rounds')).toBeInTheDocument()
-    expect(within(difficultyAdjusted).getByText('coverage 2/3 66.7%')).toBeInTheDocument()
-    expect(within(difficultyAdjusted).getByText('Missing rating / slope')).toBeInTheDocument()
-    expect(within(difficultyAdjusted).getByText('1 rounds')).toBeInTheDocument()
+    expect(screen.getByText('难度调整')).toBeInTheDocument()
+    const difficultyAdjusted = screen.getByLabelText('Black Knight B 难度调整')
+    expect(within(difficultyAdjusted).getByText('评级/坡度覆盖')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('2 / 3 场次')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('覆盖 2/3 66.7%')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('缺失评级/坡度')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('1 场次')).toBeInTheDocument()
     expect(within(difficultyAdjusted).getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
-    expect(screen.getByText('Course Issue Profile')).toBeInTheDocument()
+    expect(screen.getByText('球场问题分布')).toBeInTheDocument()
     expect(screen.getByText('double_or_worse')).toBeInTheDocument()
-    expect(screen.getByText('5 holes')).toBeInTheDocument()
-    expect(screen.getByText('risk 7.5')).toBeInTheDocument()
-    expect(screen.getByText('33.3% sample')).toBeInTheDocument()
-    expect(screen.getByText('Toughest Holes')).toBeInTheDocument()
-    expect(screen.getByText('Hole 7')).toBeInTheDocument()
-    expect(screen.getByText('+1.5 avg')).toBeInTheDocument()
-    expect(screen.getByText('risk 4.5')).toBeInTheDocument()
+    expect(screen.getByText('5 洞')).toBeInTheDocument()
+    expect(screen.getByText('风险 7.5')).toBeInTheDocument()
+    expect(screen.getByText('33.3% 样本')).toBeInTheDocument()
+    expect(screen.getByText('最难球洞')).toBeInTheDocument()
+    expect(screen.getByText('第7洞')).toBeInTheDocument()
+    expect(screen.getByText('+1.5 均')).toBeInTheDocument()
+    expect(screen.getByText('风险 4.5')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
   })
@@ -197,12 +215,12 @@ describe('CourseStats', () => {
     const onSelectRef = vi.fn()
     render(<CourseStats data={statsFixture} onSelectRef={onSelectRef} />)
 
-    expect(screen.getByRole('heading', { name: 'Course Distribution' })).toBeInTheDocument()
-    const distribution = screen.getByLabelText('Course distribution')
-    const map = within(distribution).getByRole('img', { name: 'Course distribution geography' })
+    expect(screen.getByRole('heading', { name: '球场分布' })).toBeInTheDocument()
+    const distribution = screen.getByLabelText('球场分布')
+    const map = within(distribution).getByRole('img', { name: '球场地理分布' })
     expect(map).toHaveAttribute('data-plotted-count', '2')
-    expect(within(distribution).getByText('2 plotted')).toBeInTheDocument()
-    expect(within(distribution).getByText('1 missing location')).toHaveClass('quality-missing')
+    expect(within(distribution).getByText('2 已标注')).toBeInTheDocument()
+    expect(within(distribution).getByText('1 无位置信息')).toHaveClass('quality-missing')
 
     const blackKnightPin = within(distribution).getByTestId('course-map-pin-black_knight')
     const islandClubPin = within(distribution).getByTestId('course-map-pin-island_club')
@@ -213,7 +231,7 @@ describe('CourseStats', () => {
     expect(within(distribution).getByText('66.7%')).toBeInTheDocument()
     expect(within(distribution).getByText('22.2790, 114.1620')).toBeInTheDocument()
     expect(within(distribution).getByText('Bay Course')).toBeInTheDocument()
-    expect(within(distribution).getByText('location missing')).toHaveClass('quality-missing')
+    expect(within(distribution).getByText('无位置信息')).toHaveClass('quality-missing')
     expect(within(distribution).getAllByRole('button', { name: 'Open source 900003' }).length).toBeGreaterThan(0)
   })
 
@@ -251,7 +269,37 @@ describe('CourseStats', () => {
   it('renders an empty state when no course aggregates exist', () => {
     render(<CourseStats data={{ ...statsFixture, courses: [] }} />)
 
-    expect(screen.getByText('No course stats yet')).toBeInTheDocument()
-    expect(screen.getByText('Sync Garmin rounds or switch to fixture mode to populate course distribution.')).toBeInTheDocument()
+    expect(screen.getByText('暂无球场表现数据')).toBeInTheDocument()
+    expect(screen.getByText('同步 Garmin 球局或切换到 fixture 模式以填充球场分布。')).toBeInTheDocument()
+  })
+
+  it('shows 去备战 button when courseOptions maps the courseKey to a globalId', async () => {
+    const onPrepCourse = vi.fn()
+    render(<CourseStats data={statsFixture} courseOptions={courseOptionsFixture} onPrepCourse={onPrepCourse} />)
+
+    const prepBtn = screen.getByRole('button', { name: '去备战 Black Knight B' })
+    expect(prepBtn).toBeInTheDocument()
+
+    await userEvent.click(prepBtn)
+
+    expect(onPrepCourse).toHaveBeenCalledWith(31795)
+  })
+
+  it('omits 去备战 button when no courseOptions mapping exists for the course', () => {
+    const onPrepCourse = vi.fn()
+    // courseOptions contains a different courseKey → no match for black_knight
+    const differentOptions: MobileCourseOptionsResponse = {
+      ...courseOptionsFixture,
+      courses: [{ ...courseOptionsFixture.courses[0], courseKey: 'other_course' }],
+    }
+    render(<CourseStats data={statsFixture} courseOptions={differentOptions} onPrepCourse={onPrepCourse} />)
+
+    expect(screen.queryByRole('button', { name: /去备战/ })).not.toBeInTheDocument()
+  })
+
+  it('omits 去备战 button when courseOptions is not provided', () => {
+    render(<CourseStats data={statsFixture} />)
+
+    expect(screen.queryByRole('button', { name: /去备战/ })).not.toBeInTheDocument()
   })
 })

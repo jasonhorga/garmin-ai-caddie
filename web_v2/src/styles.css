@@ -5431,3 +5431,31 @@ button.round-detail-cell:hover {
   flex: 0 0 auto;
   cursor: pointer;
 }
+
+/* ── 球场表现 去备战 按钮 ─────────────────────────────────────────── */
+.stats-item-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.w4-goto-prep {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--green-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.w4-goto-prep:hover {
+  background: var(--panel-hover, #f0f7ee);
+}

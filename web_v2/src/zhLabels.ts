@@ -1,3 +1,10 @@
+const FORM_DIRECTION_ZH: Record<string, string> = {
+  improving: '进步中',
+  stable: '稳定',
+  declining: '下滑',
+  insufficient_data: '样本不足',
+}
+
 const PHASE_ZH: Record<string, string> = {
   Tee: '开球',
   Approach: '攻果岭',
@@ -25,6 +32,10 @@ const CONFIDENCE_ZH: Record<string, string> = {
   medium: '中',
   low: '低',
   insufficient: '样本不足',
+}
+
+export function formDirectionZh(raw: string): string {
+  return FORM_DIRECTION_ZH[raw] ?? raw
 }
 
 export function phaseZh(raw: string): string {
