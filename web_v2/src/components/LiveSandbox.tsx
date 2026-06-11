@@ -1,23 +1,32 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { fetchCoursePrep } from '../api'
+import { fetchCaddieContext, fetchCaddieDecision, fetchCoursePrep } from '../api'
 import type {
+  CaddieContextParams,
+  CaddieDecisionResponse,
   CaddieShotType,
   CoursePrepResponse,
   CourseSearchResponse,
   MobileCourseOption,
   MobileCourseOptionsResponse,
+  RoundCard,
+  WeatherSnapshotResponse,
 } from '../types'
 import { CourseFinder } from './CourseFinder'
 import { atCum, nearestCum } from './coursePrepPanelLogic'
+import { asNumber, asRows, asString } from './statsValues'
 
-// 决策沙盘 (spec §5.4 web scope, W3 T3): pick a course (CourseFinder entry) →
-// fetch its prep payload (default holes, rendered maps) → pick a hole → place
-// the ball on the hole map and read the situation (距T/到果岭). T4 adds the
-// 球位/风/稳博 inputs and the decision advice card on top of this state.
+// 决策沙盘 (spec §5.4 web scope, W3 T3+T4): pick a course (CourseFinder entry)
+// → fetch its prep payload (default holes, rendered maps) → pick a hole →
+// place the ball on the hole map and read the situation (距T/到果岭) → set
+// 球位状态/风/稳博 → 要建议 runs the context+decision pair and renders ONE
+// main recommendation (advice card) with a 稳/默认/博 recompute toggle.
 interface LiveSandboxProps {
   courseOptions: MobileCourseOptionsResponse | null
   adminToken?: string
   onSearchCourses: (name: string) => Promise<CourseSearchResponse>
+  // Latest rounds (overview recentRounds) — the advice sourceRef fallback when
+  // the picked course has no played round of its own (rule below).
+  recentRounds: RoundCard[]
 }
 
 // PrepPage PrepDone idiom: the effect records only its settled result keyed by
@@ -68,6 +77,143 @@ function findCourseOption(courseOptions: MobileCourseOptionsResponse | null, glo
   )
 }
 
+// 要建议 sourceRef rule — pinned against the backend before wiring (W3 T4):
+// build_caddie_context REQUIRES a resolvable PLAYED history ref —
+// resolve_history_ref (ai_caddie/history_drilldown.py:134-160) must find it or
+// the whole context degrades to _missing_context with NO clubProfiles/
+// geometry/history (ai_caddie/caddie_context.py:40-42). A 'roundId:hole' ref
+// resolves only when that hole exists in that round
+// (history_drilldown.py:147-151) and binds geometry/history through the
+// ROUND's own globalId (caddie_context.py:47-67), so a cross-course
+// 'anyRound:hole' ref would either fail outright or inject ANOTHER course's
+// hazards into this course's simulation. Rule therefore:
+// 1) latest played round ON THIS COURSE + ':hole' → full same-course binding.
+//    Derivable client-side from MobileCourseOption.latestRoundId — the newest
+//    round grouped by this globalId (ai_caddie/mobile_live.py:303-323);
+//    sourceRefs[0] is the same newest-first list's head (fallback for older
+//    payloads without latestRoundId).
+// 2) else the latest ANY round (recentRounds[0]) as a BARE round ref — always
+//    resolvable for a known round (history_drilldown.py:134-135,143-146);
+//    clubProfiles/playerProfile/weather still bind
+//    (caddie_context.py:104-137) while geometry+hole history degrade to
+//    explicit missingData (caddie_context.py:74) instead of wrong-course
+//    facts.
+// 3) else null → 要建议 disabled with a zh hint.
+function deriveAdviceSourceRef(
+  courseOptions: MobileCourseOptionsResponse | null,
+  globalId: number,
+  holeNumber: number | null,
+  recentRounds: RoundCard[],
+): string | null {
+  const option = findCourseOption(courseOptions, globalId)
+  const refs = option !== null && Array.isArray(option.sourceRefs) ? option.sourceRefs : []
+  const latestOnCourse = asString(option?.latestRoundId) ?? asString(refs[0])
+  if (latestOnCourse !== null && holeNumber !== null) return `${latestOnCourse}:${holeNumber}`
+  const latestAny = asString(recentRounds[0]?.id)
+  return latestAny
+}
+
+// CaddiePage numericInput idiom: blank → undefined, otherwise a finite number.
+function parseNumberInput(value: string): number | undefined {
+  if (!value.trim()) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function recordFrom(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+// Manual wind must be CONSTRUCTED client-side, not fetched: the snapshot
+// endpoint without latitude/longitude builds state:'missing'
+// (ai_caddie/weather_context.py:91-98) and the decision engine ignores any
+// snapshot whose state is not 'ready' (ai_caddie/decision.py:1481-1483,
+// 2643-2645) — a manual fetch would silently no-op because the sandbox has no
+// geo coordinates for the simulated ball (see the units note above). The
+// engine reads only state/windSpeedMps/windDirectionDeg (+temperatureC for
+// evidence text, decision.py:1466-1476), so a shape-compatible
+// WeatherSnapshotResponse with state 'ready' is the cheapest CORRECT path;
+// confidence mirrors the backend's manual-ready 'medium'
+// (weather_context.py:111) and the direction is integer like its
+// _int_or_none coercion. Wind direction alone is not a wind: the engine
+// treats speed<=0 as no adjustment, so the snapshot only attaches when a
+// speed is set.
+function manualWindSnapshot(windSpeed: string, windDirection: string): WeatherSnapshotResponse | null {
+  const speed = parseNumberInput(windSpeed)
+  if (speed === undefined || speed < 0) return null
+  const direction = parseNumberInput(windDirection)
+  return {
+    schema: 'ai-caddie-weather-snapshot-v1',
+    state: 'ready',
+    source: 'manual',
+    roundId: null,
+    hole: null,
+    capturedAt: new Date().toISOString(),
+    location: null,
+    windSpeedMps: speed,
+    windDirectionDeg: direction === undefined ? null : Math.round(direction),
+    temperatureC: null,
+    precipitationMm: null,
+    confidence: 'medium',
+    missingData: [],
+  }
+}
+
+// CaddiePage selectedDecisionOption idiom: resolve the selected id inside
+// options first, then fall back to the loosely-typed selectedOption/selected
+// records the API may ship instead.
+function selectedDecisionOption(decision: CaddieDecisionResponse): Record<string, unknown> {
+  const selectedId = asString(decision.selectedOptionId)
+  const fromOptions =
+    selectedId === null ? undefined : asRows(decision.options).find((option) => asString(option.id) === selectedId)
+  if (fromOptions) return fromOptions
+  return recordFrom(decision.selectedOption ?? decision.selected)
+}
+
+// CaddiePage optionClubLabel idiom: direct club fields first, then the
+// clubRecommendation rows.
+function optionClub(option: Record<string, unknown>): string {
+  const direct = asString(option.recommendedClub) ?? asString(option.club)
+  if (direct !== null) return direct
+  const clubs = asRows(recordFrom(option.clubRecommendation).clubs)
+    .map((club) => asString(club.clubName) ?? asString(club.name))
+    .filter((name): name is string => name !== null)
+  return clubs.length ? clubs.slice(0, 2).join(' / ') : '—'
+}
+
+// Decision riskScore is an additive scale: base 1 (safe/stock) / 3 (attack)
+// plus hazard penalties +1/+3/+6 (ai_caddie/decision.py:957-975). ≤2 reads as
+// a clean conservative line, ≤4 as attack-base or mildly pressured, above as
+// hazard-hot.
+function riskClass(score: number): string {
+  return score <= 2 ? 'low' : score <= 4 ? 'medium' : 'high'
+}
+
+const CONFIDENCE_ZH: Record<string, string> = { high: '信心高', medium: '信心中', low: '信心低' }
+
+function confidencePill(confidence: string | null): React.ReactElement | null {
+  if (confidence === null) return null
+  return <span className={`confidence-pill ${confidence}`}>{CONFIDENCE_ZH[confidence] ?? confidence}</span>
+}
+
+// 落点/风险/信心 numbers for one option (主建议 meta + 其它选项 detail line).
+function optionNumbers(option: Record<string, unknown>): string[] {
+  const carry = asNumber(option.carry_m)
+  const risk = asNumber(option.riskScore)
+  const confidence = asString(option.confidence)
+  const parts: string[] = []
+  if (carry !== null) parts.push(`落点 ${carry}m`)
+  if (risk !== null) parts.push(`风险 ${risk}`)
+  if (confidence !== null) parts.push(CONFIDENCE_ZH[confidence] ?? confidence)
+  return parts
+}
+
+type AdviceState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; decision: CaddieDecisionResponse }
+
 // Situation distances render in metres at 1dp (matching distanceToPinM's
 // resolution) — the prep card speaks yards, the sandbox speaks the engine's m.
 function formatMetres(value: number): string {
@@ -80,7 +226,24 @@ const SHOT_TYPE_OPTIONS: Array<{ value: CaddieShotType; label: string }> = [
   { value: 'recovery', label: '救球' },
 ]
 
-export function LiveSandbox({ courseOptions, adminToken, onSearchCourses }: LiveSandboxProps) {
+// 球位状态 → the lie strings the engine vocabulary uses.
+const LIE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'fairway', label: '球道' },
+  { value: 'rough', label: '长草' },
+  { value: 'bunker', label: '沙坑' },
+  { value: 'fringe', label: '果岭边' },
+  { value: 'green', label: '果岭' },
+]
+
+// 稳/默认/博 → context.strategyMode ('' = stock, omitted from the request the
+// same way CaddiePage's buildContextLoadParams skips blank modes).
+const STRATEGY_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'protect_score', label: '稳' },
+  { value: '', label: '默认' },
+  { value: 'attack', label: '博' },
+]
+
+export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recentRounds }: LiveSandboxProps) {
   // course === null → entry state (course finder).
   const [course, setCourse] = useState<{ globalId: number; name: string | null } | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -98,10 +261,25 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses }: Live
   // this manual 到果岭 metres input — the sandbox stays fully usable (T4 reads
   // distanceToPinM from here when there is no ball to drag).
   const [manualToGreen, setManualToGreen] = useState('')
+  // 球位状态 (sent for non-tee shots only: the context builder excuses tee
+  // shots from the lie requirement, ai_caddie/caddie_context.py:100-102, and
+  // none of the five surface strings describes a tee box).
+  const [lie, setLie] = useState('fairway')
+  // Optional manual wind (speed m/s + direction °) → client-built snapshot.
+  const [windSpeed, setWindSpeed] = useState('')
+  const [windDirection, setWindDirection] = useState('')
+  // 稳/默认/博; sticky across holes — a player preference, not a ball fact.
+  const [strategyMode, setStrategyMode] = useState('')
+  const [advice, setAdvice] = useState<AdviceState>({ status: 'idle' })
+  // 其它选项 chip currently expanded on the advice card.
+  const [altOptionId, setAltOptionId] = useState<string | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   // The W1b seq-ref race guard (HomeOverview searchSeq idiom): a stale prep
   // response from an earlier course/attempt must never clobber the latest one.
   const prepSeq = useRef(0)
+  // Same guard for the 要建议 context+decision pair: 稳/博 re-requests and
+  // hole/course switches must drop any in-flight stale advice.
+  const adviceSeq = useRef(0)
 
   useEffect(() => {
     if (course === null) return
@@ -125,6 +303,12 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses }: Live
     setBallCum(0)
     setShotTypeOverride(null)
     setManualToGreen('')
+    // A new hole/course is a new simulation: drop the advice card and
+    // invalidate any in-flight advice request (lie/wind/strategy stay — they
+    // are conditions and preferences, not ball state).
+    adviceSeq.current += 1
+    setAdvice({ status: 'idle' })
+    setAltOptionId(null)
   }
 
   const selectCourse = (globalId: number, name?: string) => {
@@ -193,6 +377,64 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses }: Live
     setBallCum(nearestCum(overlay.route, px, py))
   }
 
+  const adviceSourceRef = deriveAdviceSourceRef(courseOptions, course.globalId, hole?.hole ?? null, recentRounds)
+  // distanceToPinM per the units note above: 到果岭 = ln − ballCum (1dp) on the
+  // map, the manual 到果岭 input in the degraded mode (blank/invalid → omitted;
+  // tee shots are excused from distance, approach/recovery get a backend
+  // missing_data chip instead of a client error).
+  const adviceDistance = overlay !== null ? Math.round((overlay.ln - ballCum) * 10) / 10 : parseNumberInput(manualToGreen)
+
+  const requestAdvice = (mode: string) => {
+    if (adviceSourceRef === null) return
+    const requestShotType = shotType
+    const seq = ++adviceSeq.current
+    setAdvice({ status: 'loading' })
+    setAltOptionId(null)
+    const params: CaddieContextParams = {
+      sourceRef: adviceSourceRef,
+      shotType: requestShotType,
+      capturedAt: new Date().toISOString(),
+    }
+    if (adviceDistance !== undefined) params.distanceToPinM = adviceDistance
+    if (requestShotType !== 'tee') params.lie = lie
+    if (mode.trim()) params.strategyMode = mode
+    const windSnapshot = manualWindSnapshot(windSpeed, windDirection)
+    fetchCaddieContext(params, adminToken)
+      .then((contextResponse) =>
+        // Mirrors CaddiePage's buildDecisionRequest (CaddiePage.tsx:1603-1625):
+        // spread the loaded context, re-assert shotType, then layer the
+        // weatherSnapshot on top — last spread wins, so the manual wind
+        // overrides any stored snapshot the context builder bound.
+        fetchCaddieDecision(
+          {
+            shotType: requestShotType,
+            context: {
+              ...contextResponse.context,
+              shotType: requestShotType,
+              ...(windSnapshot ? { weatherSnapshot: windSnapshot } : {}),
+            },
+            includeExplanation: true,
+          },
+          adminToken,
+        ),
+      )
+      .then((decision) => {
+        if (adviceSeq.current !== seq) return
+        setAdvice({ status: 'ready', decision })
+      })
+      .catch((error: unknown) => {
+        if (adviceSeq.current !== seq) return
+        setAdvice({ status: 'error', message: error instanceof Error ? error.message : '未知错误' })
+      })
+  }
+
+  // 稳/博 switch RE-REQUESTS the pair with the new mode once an advice exists
+  // (idle = nothing requested yet → just record the preference).
+  const selectStrategy = (mode: string) => {
+    setStrategyMode(mode)
+    if (advice.status !== 'idle') requestAdvice(mode)
+  }
+
   const shotTypeControl = (
     <label className="live-sandbox-control">
       <span>击球类型</span>
@@ -208,6 +450,54 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses }: Live
         ))}
       </select>
     </label>
+  )
+
+  const situationControls = (
+    <>
+      {shotTypeControl}
+      <label className="live-sandbox-control">
+        <span>球位状态</span>
+        <select
+          aria-label="球位状态"
+          value={lie}
+          disabled={shotType === 'tee'}
+          title={shotType === 'tee' ? '开球无需球位状态' : undefined}
+          onChange={(event) => setLie(event.target.value)}
+        >
+          {LIE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="live-sandbox-control">
+        <span>风速(m/s)</span>
+        <input
+          type="number"
+          aria-label="风速(m/s)"
+          min={0}
+          step="0.1"
+          inputMode="decimal"
+          placeholder="选填"
+          value={windSpeed}
+          onChange={(event) => setWindSpeed(event.target.value)}
+        />
+      </label>
+      <label className="live-sandbox-control">
+        <span>风向(°)</span>
+        <input
+          type="number"
+          aria-label="风向(°)"
+          min={0}
+          max={360}
+          inputMode="numeric"
+          placeholder="选填"
+          value={windDirection}
+          onChange={(event) => setWindDirection(event.target.value)}
+        />
+      </label>
+    </>
   )
 
   let holeStage: React.ReactElement | null = null
@@ -241,7 +531,7 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses }: Live
         </div>
         <p className="live-sandbox-readout">{`距T ${formatMetres(ballCum)}m · 到果岭 ${formatMetres(overlay.ln - ballCum)}m`}</p>
         <p className="live-sandbox-hint">拖动橙球摆位</p>
-        <div className="live-sandbox-controls">{shotTypeControl}</div>
+        <div className="live-sandbox-controls">{situationControls}</div>
       </div>
     )
   } else if (hole !== null) {
@@ -261,10 +551,61 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses }: Live
               onChange={(event) => setManualToGreen(event.target.value)}
             />
           </label>
-          {shotTypeControl}
+          {situationControls}
         </div>
       </div>
     )
+  }
+
+  // 策略 (稳/默认/博) + 要建议 sit under the situation controls for any
+  // selected hole, mapped or not.
+  const adviceActions =
+    hole === null ? null : (
+      <div className="live-advice-actions">
+        <div className="live-strategy" role="group" aria-label="策略">
+          {STRATEGY_OPTIONS.map((option) => (
+            <button
+              key={option.value || 'stock'}
+              type="button"
+              className={strategyMode === option.value ? 'live-strategy-chip active' : 'live-strategy-chip'}
+              aria-pressed={strategyMode === option.value}
+              onClick={() => selectStrategy(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="live-advice-cta"
+          disabled={adviceSourceRef === null || advice.status === 'loading'}
+          onClick={() => requestAdvice(strategyMode)}
+        >
+          要建议
+        </button>
+        {adviceSourceRef === null ? <span className="live-advice-hint">暂无历史球局,无法生成建议</span> : null}
+      </div>
+    )
+
+  let adviceSection: React.ReactElement | null = null
+  if (advice.status === 'loading') {
+    adviceSection = (
+      <section className="panel live-advice" aria-label="沙盘建议">
+        <p className="live-advice-loading">建议生成中…</p>
+      </section>
+    )
+  } else if (advice.status === 'error') {
+    adviceSection = (
+      <section className="panel empty-state prep-load-error" aria-label="建议生成失败" aria-live="polite">
+        <h2>建议生成失败</h2>
+        <p>{advice.message}</p>
+        <button type="button" onClick={() => requestAdvice(strategyMode)}>
+          重试
+        </button>
+      </section>
+    )
+  } else if (advice.status === 'ready') {
+    adviceSection = <AdviceCard decision={advice.decision} altOptionId={altOptionId} onSelectAlt={setAltOptionId} />
   }
 
   return (
@@ -291,24 +632,109 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses }: Live
           <p className="prep-tab-placeholder">沙盘加载中…</p>
         </section>
       ) : (
-        <section className="panel live-sandbox-stage">
-          <div className="live-hole-chips" aria-label="选洞">
-            {holes.map((row) => (
-              <button
-                key={row.hole}
-                type="button"
-                className={hole !== null && row.hole === hole.hole ? 'live-hole-chip active' : 'live-hole-chip'}
-                aria-label={`第${row.hole}洞`}
-                aria-current={hole !== null && row.hole === hole.hole ? 'true' : undefined}
-                onClick={() => selectHole(row.hole)}
-              >
-                {row.hole}
-              </button>
-            ))}
-          </div>
-          {holeStage}
-        </section>
+        <>
+          <section className="panel live-sandbox-stage">
+            <div className="live-hole-chips" aria-label="选洞">
+              {holes.map((row) => (
+                <button
+                  key={row.hole}
+                  type="button"
+                  className={hole !== null && row.hole === hole.hole ? 'live-hole-chip active' : 'live-hole-chip'}
+                  aria-label={`第${row.hole}洞`}
+                  aria-current={hole !== null && row.hole === hole.hole ? 'true' : undefined}
+                  onClick={() => selectHole(row.hole)}
+                >
+                  {row.hole}
+                </button>
+              ))}
+            </div>
+            {holeStage}
+            {adviceActions}
+          </section>
+          {adviceSection}
+        </>
       )}
     </>
+  )
+}
+
+// The ONE main recommendation (spec D7): selected option front and centre,
+// 为什么 narrative, acceptable miss, the other options as informational chips,
+// and the engine's missing-data chips. Decision payload fields are loosely
+// typed Records — every read narrows defensively (CaddiePage idiom).
+function AdviceCard({
+  decision,
+  altOptionId,
+  onSelectAlt,
+}: {
+  decision: CaddieDecisionResponse
+  altOptionId: string | null
+  onSelectAlt: (optionId: string | null) => void
+}) {
+  const selected = selectedDecisionOption(decision)
+  const selectedId = asString(selected.id) ?? asString(decision.selectedOptionId) ?? ''
+  const label = asString(selected.label) ?? selectedId
+  const carry = asNumber(selected.carry_m)
+  const risk = asNumber(selected.riskScore)
+  const confidence = asString(selected.confidence) ?? asString(recordFrom(decision.confidence).level)
+  const narrative = asString(recordFrom(decision.explanation).narrative)
+  const miss = recordFrom(decision.acceptableMiss)
+  const missDirection = asString(miss.direction) ?? asString(miss.side)
+  const missRationale = asString(miss.rationale)
+  const others = asRows(decision.options).filter((option) => asString(option.id) !== selectedId)
+  const alt = others.find((option) => asString(option.id) === altOptionId) ?? null
+  const missingRows = asRows(decision.missingData)
+
+  return (
+    <section className="panel live-advice" aria-label="沙盘建议">
+      <div className="live-advice-main">
+        <span className="live-advice-club">{optionClub(selected)}</span>
+        <div className="live-advice-meta">
+          {label ? <span className="live-advice-option-label">{label}</span> : null}
+          {carry !== null ? <span className="live-advice-carry">{`落点 ${carry}m`}</span> : null}
+          {risk !== null ? <span className={`live-risk-dot ${riskClass(risk)}`} role="img" aria-label={`风险 ${risk}`} /> : null}
+          {confidencePill(confidence)}
+        </div>
+      </div>
+      {narrative !== null ? (
+        <p className="live-advice-why">
+          <strong>为什么</strong>
+          {narrative}
+        </p>
+      ) : null}
+      {missDirection !== null || missRationale !== null ? (
+        <p className="live-advice-miss">{`可接受偏向:${[missDirection, missRationale].filter((part) => part !== null).join(' — ')}`}</p>
+      ) : null}
+      {others.length ? (
+        <div className="live-advice-others" aria-label="其它选项">
+          <span className="live-advice-others-label">其它选项</span>
+          {others.map((option) => {
+            const id = asString(option.id) ?? optionClub(option)
+            const active = altOptionId === id
+            return (
+              <button
+                key={id}
+                type="button"
+                className={active ? 'live-advice-chip active' : 'live-advice-chip'}
+                aria-pressed={active}
+                onClick={() => onSelectAlt(active ? null : id)}
+              >
+                {[asString(option.label) ?? id, optionClub(option)].join(' · ')}
+              </button>
+            )
+          })}
+          {alt !== null ? <p className="live-advice-alt">{optionNumbers(alt).join(' · ') || '暂无数据'}</p> : null}
+        </div>
+      ) : null}
+      {missingRows.length ? (
+        <div className="live-advice-missing" aria-label="数据缺口">
+          {missingRows.map((row, index) => (
+            <span key={`${asString(row.label) ?? 'missing'}-${index}`} className="fact-chip" title={asString(row.reason) ?? undefined}>
+              {asString(row.label) ?? '未知'}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
   )
 }

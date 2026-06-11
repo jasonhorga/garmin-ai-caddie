@@ -9,16 +9,20 @@ import type {
   MobileCourseOptionsResponse,
   RoundCard as RoundCardType,
 } from '../types'
-import { fetchCoursePrep, fetchHistoryRoundDetail } from '../api'
+import { fetchCaddieContext, fetchCaddieDecision, fetchCoursePrep, fetchHistoryRoundDetail } from '../api'
 import { LivePage } from './LivePage'
 
 vi.mock('../api', () => ({
   fetchCoursePrep: vi.fn(),
   fetchHistoryRoundDetail: vi.fn(),
+  fetchCaddieContext: vi.fn(),
+  fetchCaddieDecision: vi.fn(),
 }))
 
 const fetchCoursePrepMock = vi.mocked(fetchCoursePrep)
 const fetchHistoryRoundDetailMock = vi.mocked(fetchHistoryRoundDetail)
+const fetchCaddieContextMock = vi.mocked(fetchCaddieContext)
+const fetchCaddieDecisionMock = vi.mocked(fetchCaddieDecision)
 
 function recentRoundsFixture(): RoundCardType[] {
   return [
@@ -87,6 +91,8 @@ beforeEach(() => {
   fetchCoursePrepMock.mockReset()
   fetchHistoryRoundDetailMock.mockReset()
   fetchHistoryRoundDetailMock.mockImplementation(async (roundRef: string) => roundDetailFixture(roundRef))
+  fetchCaddieContextMock.mockReset()
+  fetchCaddieDecisionMock.mockReset()
 })
 
 function courseOptionsFixture(): MobileCourseOptionsResponse {
@@ -203,6 +209,78 @@ describe('LivePage tabs', () => {
     const chips = within(await screen.findByLabelText('选洞'))
     expect(chips.getByRole('button', { name: '第1洞' })).toHaveAttribute('aria-current', 'true')
     expect(screen.getByRole('heading', { name: '观澜湖·奥拉沙宝场' })).toBeInTheDocument()
+  })
+
+  it('threads recentRounds into the sandbox: 要建议 on a never-played course falls back to the latest round ref', async () => {
+    fetchCoursePrepMock.mockResolvedValue({
+      schema: 'ai-caddie-course-prep-v1',
+      globalId: 99999,
+      holeCount: 1,
+      clubs: [],
+      holes: [
+        {
+          hole: 1,
+          par: 4,
+          par_source: 'estimate',
+          blue_yards: 0,
+          route_len_m: 0,
+          route: [],
+          geometryCoverage: 'missing',
+          sourceRefs: [],
+          missingData: [],
+          candidateRoutes: [],
+          carryTargets: [],
+          steps: [],
+          cautions: [],
+          landing_m: null,
+          tee_club: null,
+          hazards: { water_carry: [], bunkers: [] },
+        },
+      ],
+    } satisfies CoursePrepResponse)
+    fetchCaddieContextMock.mockResolvedValue({
+      schema: 'ai-caddie-context-v1',
+      sourceRef: '900001',
+      shotType: 'tee',
+      context: { source: 'history_drilldown', sourceRef: '900001', roundId: '900001' },
+      evidence: [],
+      missingData: [],
+    })
+    fetchCaddieDecisionMock.mockResolvedValue({
+      schema: 'ai-caddie-decision-v2',
+      decisionId: '900001:tee',
+      sourceRef: '900001',
+      evidenceRefs: [],
+      shotType: 'tee',
+      phase: 'Tee',
+      context: {},
+      options: [{ id: 'stock', label: 'Stock', recommendedClub: '1W' }],
+      selected: { id: 'stock' },
+      selectedOptionId: 'stock',
+      selectedOption: { id: 'stock' },
+      avoidZones: [],
+      forbiddenZones: [],
+      acceptableMiss: {},
+      evidence: [],
+      confidence: { level: 'medium' },
+      missingData: [],
+      auditCriteria: [],
+    })
+    renderLive({ recentRounds: recentRoundsFixture() })
+
+    // 观澜湖·世界杯场 (99999) is NOT in courseOptions → the sandbox must fall
+    // back to the LivePage-provided recentRounds[0] bare round ref.
+    await userEvent.type(screen.getByLabelText('搜索球场'), '观澜湖')
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }))
+    await userEvent.click(await screen.findByRole('button', { name: /观澜湖·世界杯场/ }))
+    await screen.findByLabelText('选洞')
+    await userEvent.click(screen.getByRole('button', { name: '要建议' }))
+
+    expect(fetchCaddieContextMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceRef: '900001', shotType: 'tee' }),
+      'admin-secret',
+    )
+    expect(await screen.findByLabelText('沙盘建议')).toBeInTheDocument()
   })
 
   it('最近回放 lists recent rounds as 日期/球场/杆数/±标准杆 rows', async () => {

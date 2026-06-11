@@ -127,8 +127,11 @@ export function LivePage({
           : { status: 'error', roundRef: replayRoundRef, message: replayDone.result.error }
 
   // 决策沙盘 owns its whole state machine (course → prep fetch → hole picker →
-  // ball drag → situation readout) in the LiveSandbox subcomponent.
-  const sandboxContent = <LiveSandbox courseOptions={courseOptions} adminToken={adminToken} onSearchCourses={onSearchCourses} />
+  // ball drag → situation inputs → advice) in the LiveSandbox subcomponent;
+  // recentRounds doubles as its advice sourceRef fallback (latest ANY round).
+  const sandboxContent = (
+    <LiveSandbox courseOptions={courseOptions} adminToken={adminToken} onSearchCourses={onSearchCourses} recentRounds={recentRounds} />
+  )
 
   const replayContent = (
     <>

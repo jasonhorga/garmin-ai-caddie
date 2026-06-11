@@ -5119,3 +5119,205 @@ button.round-detail-cell:hover {
 .live-sandbox-control input {
   width: 96px;
 }
+
+.live-sandbox-control select:disabled {
+  color: var(--muted);
+  background: var(--bg);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 沙盘建议 (T4): 策略 segmented + 要建议 action row, then the advice card. */
+.live-advice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.live-strategy {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.live-strategy-chip {
+  min-width: 46px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--bg);
+  border: none;
+  cursor: pointer;
+}
+
+.live-strategy-chip + .live-strategy-chip {
+  border-left: 1px solid var(--line);
+}
+
+.live-strategy-chip.active {
+  color: #fff;
+  background: var(--green);
+}
+
+.live-advice-cta {
+  padding: 7px 18px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--green);
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.live-advice-cta:disabled {
+  background: var(--line-strong);
+  cursor: not-allowed;
+}
+
+.live-advice-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.live-advice {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.live-advice-loading {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.live-advice-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.live-advice-club {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-advice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-advice-option-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.live-advice-carry {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* riskScore is the engine's additive hazard scale — see riskClass() note. */
+.live-risk-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.live-risk-dot.low {
+  background: var(--par);
+}
+
+.live-risk-dot.medium {
+  background: var(--bogey);
+}
+
+.live-risk-dot.high {
+  background: var(--double);
+}
+
+.live-advice-why {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.live-advice-why strong {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.live-advice-miss {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.live-advice-others {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.live-advice-others-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.live-advice-chip {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.live-advice-chip:hover {
+  border-color: var(--green);
+}
+
+.live-advice-chip.active {
+  background: var(--green-tint);
+  border-color: var(--green);
+  color: var(--green-text);
+}
+
+.live-advice-alt {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-advice-missing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
