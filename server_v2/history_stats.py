@@ -22,16 +22,18 @@ def load_history_stats_response(window: str = "all") -> HistoryStatsResponse:
 
 
 def warm_stats_cache() -> None:
-    """Pre-populate the stats cache so the first request after a sync is a hit.
+    """Pre-populate the stats cache so the first request after a sync or boot is a hit.
 
     Calls the same cached accessors the request path uses: ``cached_load_history_data``
     (the ~2s read) and ``load_history_stats_response`` (the ~10s build, via
-    ``cached_build_history_stats``). Exactly TWO windows are pre-warmed: ``all`` (the
-    default for /history/stats, /caddie/context and the mobile packages) and ``last10``
-    (趋势总览's default range — its windowed build only sees 10 rounds, ~0.1s extra).
-    ``12m`` is NOT pre-warmed; the first 12m request pays its own build. After this
-    runs, the warmed windows and the other consumers of the stats cache return
-    instantly until the inputs change again.
+    ``cached_build_history_stats``). Exactly THREE windows are pre-warmed:
+
+    * ``all``   — default for /history/stats, /caddie/context, and the mobile packages
+    * ``last10`` — 趋势总览's default range; windowed build sees only 10 rounds (~0.1s extra)
+    * ``12m``   — used by the 12-month trend view (~1.7s extra on real data)
+
+    After this runs, all three warmed windows and the other consumers of the stats cache
+    return instantly until the inputs change again.
 
     This is purely a pre-population: it never changes the data or the response any
     endpoint would produce. Any failure is swallowed -- a warm must NEVER break the sync
@@ -41,6 +43,7 @@ def warm_stats_cache() -> None:
         cached_load_history_data()
         load_history_stats_response()
         load_history_stats_response(window="last10")
+        load_history_stats_response(window="12m")
     except Exception:  # noqa: BLE001 - warming is best-effort and must not propagate
         logger.exception("stats cache warm failed")
 
