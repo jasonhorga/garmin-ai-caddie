@@ -173,10 +173,10 @@ export function SyncStatusPanel({
                     <em>{connector.probe.liveProbeAllowed ? 'live probe allowed' : 'dry-run only'}</em>
                   </span>
                   <b className={`semantic-chip ${connector.probe.state === 'ready_for_manual_consent' ? 'quality-good' : 'quality-missing'}`}>
-                    {probeStateLabel[connector.probe.state]}
+                    {probeStateLabel[connector.probe.state] ?? connector.probe.state}
                   </b>
-                  {connector.probe.missing.length ? (
-                    <p>Missing: {connector.probe.missing.join(', ')}</p>
+                  {(connector.probe.missing?.length ?? 0) > 0 ? (
+                    <p>Missing: {connector.probe.missing?.join(', ')}</p>
                   ) : (
                     <p>Consent request is configured with redacted parameters.</p>
                   )}

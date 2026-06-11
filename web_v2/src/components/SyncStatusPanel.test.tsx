@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { SyncStatusPanel } from './SyncStatusPanel'
-import type { SyncStatusResponse } from '../types'
+import type { ConnectorProbeStatus, SyncStatusResponse } from '../types'
 
 const baseStatus: SyncStatusResponse = {
   schema: 'ai-caddie-sync-status-v2',
@@ -260,5 +260,51 @@ describe('SyncStatusPanel', () => {
     expect(onSaveSession).toHaveBeenCalledTimes(1)
     expect(screen.getByLabelText('Web session header')).toHaveValue('Cookie: JWT_WEB=abc123')
     expect(screen.getByLabelText('Anti-forgery value')).toHaveValue('connect-csrf-token: csrf-secret-value')
+  })
+
+  it('renders without crash when probe has no missing array (real CN payload shape)', () => {
+    // Real /api/v2/sync/status payloads for the CN connector omit `missing`
+    // entirely. Fixtures always include it, so this gap is normally invisible.
+    const probeWithoutMissing = {
+      schema: 'ai-caddie-garmin-oauth-probe-v2',
+      state: 'not_configured',
+      liveProbeAllowed: false,
+    } as unknown as ConnectorProbeStatus
+
+    const statusWithCnProbe: SyncStatusResponse = {
+      ...baseStatus,
+      connectors: [
+        {
+          ...baseStatus.connectors![1],
+          probe: probeWithoutMissing,
+        },
+      ],
+    }
+
+    render(<SyncStatusPanel status={statusWithCnProbe} onSync={vi.fn()} syncState="idle" />)
+
+    expect(screen.getByText('Consent request is configured with redacted parameters.')).toBeInTheDocument()
+  })
+
+  it('renders the raw state string when probe state is not in the label map', () => {
+    const probeUnknownState = {
+      schema: 'ai-caddie-garmin-oauth-probe-v2',
+      state: 'awaiting_redirect',
+      liveProbeAllowed: true,
+    } as unknown as ConnectorProbeStatus
+
+    const statusWithUnknownProbeState: SyncStatusResponse = {
+      ...baseStatus,
+      connectors: [
+        {
+          ...baseStatus.connectors![1],
+          probe: probeUnknownState,
+        },
+      ],
+    }
+
+    render(<SyncStatusPanel status={statusWithUnknownProbeState} onSync={vi.fn()} syncState="idle" />)
+
+    expect(screen.getByText('awaiting_redirect')).toBeInTheDocument()
   })
 })
