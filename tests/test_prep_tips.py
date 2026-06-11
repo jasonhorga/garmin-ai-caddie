@@ -186,6 +186,21 @@ class BuildPrepTipsTests(unittest.TestCase):
             self.assertIn("三杆洞稳(平均+0.4),按部就班", texts)
             self.assertIn("五杆洞平均+1,保守开局", texts)
 
+    def test_fmt_to_par_normalizes_negative_zero(self) -> None:
+        from ai_caddie.prep_tips import _fmt_to_par
+
+        self.assertEqual(_fmt_to_par(-0.0), "+0")
+        self.assertEqual(_fmt_to_par(0.0), "+0")
+        self.assertEqual(_fmt_to_par(-0.3), "-0.3")
+        # Behavior level: a -0.0 par-type average renders 平均+0, never 平均-0.
+        course = _course_row(
+            teeDirection={},
+            approachMiss={},
+            parScoring=[{"key": "par3", "averageToPar": -0.0, "sourceRefs": ["900001:3"]}],
+        )
+        result = build_prep_tips(course_row=course, player_profile=None, prep_holes=[])
+        self.assertEqual([t["text"] for t in result["tips"]], ["三杆洞稳(平均+0),按部就班"])
+
     def test_approach_analogue_directions(self) -> None:
         cases = (
             ("long", 41.7, "攻果岭常偏长(41.7%),本场少带半杆"),

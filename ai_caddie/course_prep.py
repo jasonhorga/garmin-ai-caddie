@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass, field
 
 from ai_caddie import course_reference, hole_render, shot_projection
 from ai_caddie.data import build_club_profiles, read_json
+from ai_caddie.data import available_prep_holes as available_prep_holes  # re-export: prep's hole-list default
 from ai_caddie.geometry_evidence import geometry_coverage_for_hole
 
 YARD = 1.09361

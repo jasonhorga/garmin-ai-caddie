@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -9,6 +11,7 @@ from fastapi.testclient import TestClient
 from ai_caddie import course_prep
 from ai_caddie.config import get_settings
 from server_v2.main import app
+from server_v2.prep_tips import _course_key_for_global_id
 
 
 def _prep_row(hole: int, par: int, yards: int) -> dict:
@@ -68,8 +71,10 @@ class PrepTipsApiTests(unittest.TestCase):
         self.assertEqual(authorized.status_code, 200)
 
     def test_prep_tips_contract_for_fixture_course(self) -> None:
-        with patch.object(course_prep, "prep_nine", return_value=[_prep_row(1, 4, 380)]) as prep_nine:
-            resp = self._get("/api/v2/courses/31795/prep-tips")
+        with TemporaryDirectory() as tmp:
+            with patch("ai_caddie.data.MESH_DIR", Path(tmp)), \
+                    patch.object(course_prep, "prep_nine", return_value=[_prep_row(1, 4, 380)]) as prep_nine:
+                resp = self._get("/api/v2/courses/31795/prep-tips")
 
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -82,10 +87,24 @@ class PrepTipsApiTests(unittest.TestCase):
         self.assertEqual(tip["text"], "球童偏置:攻果岭防失准,选杆校正")
         self.assertEqual(tip["basis"], "playerProfile.caddieBiases.bias_against_approach_other")
         self.assertIn("900001:5", tip["sourceRefs"])
-        # facts-only hole features: no rendering, degraded rows kept
-        self.assertEqual(prep_nine.call_args.args, (31795,))
+        # facts-only hole features: no rendering, degraded rows kept; no cached
+        # geometry in tmp MESH_DIR → hole default falls back to the front nine.
+        self.assertEqual(prep_nine.call_args.args, (31795, list(range(1, 10))))
         self.assertFalse(prep_nine.call_args.kwargs["render"])
         self.assertTrue(prep_nine.call_args.kwargs["include_missing"])
+
+    def test_prep_tips_hole_features_cover_all_geometry_holes(self) -> None:
+        """Tip rules R1/R5 read prep hole features: an 18-hole single-gid course
+        must feed all 18 geometry holes, sharing the prep endpoint's default."""
+        with TemporaryDirectory() as tmp:
+            for hole in range(1, 19):
+                (Path(tmp) / f"gid31795_h{hole:02d}_meshes.json").write_text("{}", encoding="utf-8")
+            with patch("ai_caddie.data.MESH_DIR", Path(tmp)), \
+                    patch.object(course_prep, "prep_nine", return_value=[_prep_row(1, 4, 380)]) as prep_nine:
+                resp = self._get("/api/v2/courses/31795/prep-tips")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(prep_nine.call_args.args, (31795, list(range(1, 19))))
 
     def test_prep_tips_unplayed_course_degrades_to_profile_and_length_tips(self) -> None:
         holes = [_prep_row(1, 4, 380), _prep_row(2, 5, 545), _prep_row(3, 3, 180), _prep_row(4, 4, 431)]
@@ -106,6 +125,55 @@ class PrepTipsApiTests(unittest.TestCase):
             body["tips"][1]["sourceRefs"],
             ["course:31795", "geometry:31795:2", "geometry:31795:4", "geometry:31795:1"],
         )
+
+
+class CourseKeyForGlobalIdTests(unittest.TestCase):
+    """globalId → courseKey must match ANY of the round's three course ids
+    (courseId / frontNineGlobalCourseId / backNineGlobalCourseId): real rounds
+    carry courseId=front gid, so back-nine gids previously resolved nothing."""
+
+    def test_back_nine_global_id_resolves_course_key(self) -> None:
+        rounds = [
+            {
+                "date": "2026-05-30",
+                "courseId": 31834,
+                "frontNineGlobalCourseId": 31834,
+                "backNineGlobalCourseId": 31832,
+                "courseKey": "kX",
+            }
+        ]
+        self.assertEqual(_course_key_for_global_id(rounds, 31832), "kX")
+
+    def test_front_nine_global_id_resolves_course_key(self) -> None:
+        rounds = [
+            {
+                "date": "2026-05-30",
+                "courseId": 31834,
+                "frontNineGlobalCourseId": 31833,
+                "backNineGlobalCourseId": 31832,
+                "courseKey": "kX",
+            }
+        ]
+        self.assertEqual(_course_key_for_global_id(rounds, 31833), "kX")
+
+    def test_fixture_shaped_rows_still_resolve_and_latest_round_wins(self) -> None:
+        rounds = [
+            {"date": "2026-05-01", "globalId": 31795, "courseKey": "old_key"},
+            {"date": "2026-05-30", "courseId": 31795, "backNineGlobalCourseId": 31832, "courseKey": "new_key"},
+        ]
+        self.assertEqual(_course_key_for_global_id(rounds, 31795), "new_key")
+
+    def test_unknown_global_id_returns_none(self) -> None:
+        rounds = [
+            {
+                "date": "2026-05-30",
+                "courseId": 31834,
+                "frontNineGlobalCourseId": 31834,
+                "backNineGlobalCourseId": 31832,
+                "courseKey": "kX",
+            }
+        ]
+        self.assertIsNone(_course_key_for_global_id(rounds, 41825))
 
 
 if __name__ == "__main__":

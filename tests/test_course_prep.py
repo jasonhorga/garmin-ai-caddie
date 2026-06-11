@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from ai_caddie import course_prep as cp
@@ -169,6 +171,40 @@ class GeometryBackedTests(unittest.TestCase):
         prep = cp.prep_hole(self.GID, self.HOLE, render=True)
         self.assertTrue(prep["map"]["image"].startswith("data:image/jpeg;base64,"))
         self.assertTrue(prep["map"]["overlay"]["route"])
+
+
+class AvailablePrepHolesTests(unittest.TestCase):
+    """Default prep hole list derives from the SAME decoded mesh files that
+    prep_hole/geometry coverage read (output/prodgeometry gid*_h*_meshes.json),
+    so single-gid 18-hole courses serve all 18 holes by default."""
+
+    def _write_meshes(self, tmp: str, gid: int, holes) -> None:
+        for hole in holes:
+            (Path(tmp) / f"gid{gid}_h{hole:02d}_meshes.json").write_text("{}", encoding="utf-8")
+
+    def test_eighteen_hole_geometry_returns_one_through_eighteen(self) -> None:
+        with TemporaryDirectory() as tmp:
+            self._write_meshes(tmp, 41825, range(1, 19))
+            self._write_meshes(tmp, 31870, [1])  # another course must not leak in
+            with patch("ai_caddie.data.MESH_DIR", Path(tmp)):
+                self.assertEqual(course_prep.available_prep_holes(41825), list(range(1, 19)))
+
+    def test_nine_hole_geometry_returns_one_through_nine(self) -> None:
+        with TemporaryDirectory() as tmp:
+            self._write_meshes(tmp, 31870, range(1, 10))
+            with patch("ai_caddie.data.MESH_DIR", Path(tmp)):
+                self.assertEqual(course_prep.available_prep_holes(31870), list(range(1, 10)))
+
+    def test_no_geometry_falls_back_to_front_nine(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with patch("ai_caddie.data.MESH_DIR", Path(tmp)):
+                self.assertEqual(course_prep.available_prep_holes(99999), list(range(1, 10)))
+
+    def test_partial_geometry_returns_only_cached_holes_sorted(self) -> None:
+        with TemporaryDirectory() as tmp:
+            self._write_meshes(tmp, 31795, [11, 2, 7])
+            with patch("ai_caddie.data.MESH_DIR", Path(tmp)):
+                self.assertEqual(course_prep.available_prep_holes(31795), [2, 7, 11])
 
 
 class PrepResolvesParTests(unittest.TestCase):

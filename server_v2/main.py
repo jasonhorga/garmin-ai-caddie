@@ -405,14 +405,16 @@ def course_prep_nine(
     render: bool = True,
     include_shots: bool = False,
 ) -> dict:
-    """Pre-round prep for a nine: per-hole par (labelled source) + route + hazard carries +
+    """Pre-round prep for a course: per-hole par (labelled source) + route + hazard carries +
     strategy from the player's club ladder + (when render=true) a styled map image + overlay.
-    Holes without cached geometry are skipped. render=false returns facts only (lightweight).
-    include_shots=true additionally projects the player's past TEE/APPROACH end positions
-    into overlay px (``yourShots``) on rendered holes they have history for."""
+    Without an explicit ``holes`` filter every hole with cached geometry is served (18-hole
+    single-gid courses get all 18; no geometry falls back to the front nine).
+    render=false returns facts only (lightweight). include_shots=true additionally projects
+    the player's past TEE/APPROACH end positions into overlay px (``yourShots``) on rendered
+    holes they have history for."""
     from ai_caddie import course_prep
 
-    requested = holes or list(range(1, 10))
+    requested = holes or course_prep.available_prep_holes(global_id)
     ladder = course_prep.club_ladder()
     nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
                                  include_shots=include_shots)

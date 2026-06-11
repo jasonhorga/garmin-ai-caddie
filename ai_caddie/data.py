@@ -200,6 +200,22 @@ def mesh_path(global_id: int, local_hole: int) -> Path:
     return MESH_DIR / f"gid{global_id}_h{local_hole:02d}_meshes.json"
 
 
+def available_prep_holes(global_id: int) -> list[int]:
+    """Sorted local hole numbers that have decoded geometry meshes for this course.
+
+    Derived from the same ``MESH_DIR`` files that :func:`mesh_path`/geometry coverage
+    read, so single-gid 18-hole courses (e.g. gid41825 with h01..h18) prep ALL their
+    holes by default. No cached geometry → fall back to the front nine [1..9].
+    """
+    pattern = re.compile(rf"gid{int(global_id)}_h(\d+)_meshes\.json$")
+    holes = sorted(
+        int(match.group(1))
+        for path in MESH_DIR.glob(f"gid{int(global_id)}_h*_meshes.json")
+        if (match := pattern.match(path.name))
+    )
+    return holes or list(range(1, 10))
+
+
 def available_holes() -> list[dict[str, Any]]:
     rows = []
     pattern = re.compile(r"gid(\d+)_h(\d+)_hazards\.json$")

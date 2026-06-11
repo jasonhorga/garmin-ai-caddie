@@ -61,7 +61,7 @@ def _fmt_pct(value: float) -> str:
 
 
 def _fmt_to_par(value: float) -> str:
-    return format(float(value), "+g")
+    return format(float(value) + 0.0, "+g")  # + 0.0 normalizes -0.0 so even par reads '+0'
 
 
 def _refs(*groups: Any) -> list[str]:
