@@ -13,7 +13,7 @@ interface HomeOverviewProps {
   stats: HistoryStatsResponse | null // all-window; null → 近期状态 shows loading dashes
   courseOptions: MobileCourseOptionsResponse | null
   onSearchCourses: (name: string) => Promise<CourseSearchResponse>
-  onPrepCourse: (globalId: number) => void
+  onPrepCourse: (globalId: number, name?: string) => void
   onOpenRoundDetail?: (roundRef: string) => void
   onNavigateHistory: () => void
   onNavigateAnalysis: () => void

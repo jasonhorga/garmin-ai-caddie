@@ -74,7 +74,7 @@ describe('CourseFinder', () => {
     expect(screen.queryByText('黑骑士 B/C')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '去备战 深圳沙河' }))
-    expect(onSelectCourse).toHaveBeenCalledWith(40002)
+    expect(onSelectCourse).toHaveBeenCalledWith(40002, '深圳沙河')
   })
 
   it('hides the frequent block when courseOptions is null', () => {
@@ -96,13 +96,13 @@ describe('CourseFinder', () => {
     expect(screen.getAllByText('深圳 · 18洞').length).toBe(2)
   })
 
-  it('picking a search match selects that course', async () => {
+  it('picking a search match selects that course with its name', async () => {
     const { onSelectCourse } = renderFinder()
 
     await userEvent.type(screen.getByLabelText('搜索球场'), '观澜湖{Enter}')
     await userEvent.click(await screen.findByRole('button', { name: /观澜湖·世界杯场/ }))
 
-    expect(onSelectCourse).toHaveBeenCalledWith(31999)
+    expect(onSelectCourse).toHaveBeenCalledWith(31999, '观澜湖·世界杯场')
   })
 
   it('does not search when the query is blank', async () => {

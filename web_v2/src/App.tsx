@@ -147,6 +147,9 @@ export default function App() {
   const [selectedCaddieSourceRef, setSelectedCaddieSourceRef] = useState('900001:7')
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
   const [prepGlobalId, setPrepGlobalId] = useState<number | null>(null)
+  // The finder's course name rides along with the gid so searched courses that
+  // have no courseOptions row still show a real name in the prep header.
+  const [prepCourseName, setPrepCourseName] = useState<string | null>(null)
   const [roundDetailState, setRoundDetailState] = useState<HistoryRoundDetailPanelState>({ status: 'idle' })
   const [drilldownState, setDrilldownState] = useState<HistoryDrilldownPanelState>({ status: 'idle' })
   const [holeEvidenceState, setHoleEvidenceState] = useState<HoleEvidenceState>({ status: 'idle' })
@@ -447,8 +450,9 @@ export default function App() {
     navigate('corrections')
   }
 
-  function handlePrepCourse(globalId: number) {
+  function handlePrepCourse(globalId: number, name?: string) {
     setPrepGlobalId(globalId)
+    setPrepCourseName(name ?? null)
     navigate('prep')
   }
 
@@ -1157,12 +1161,16 @@ export default function App() {
       return (
         <PrepPage
           globalId={prepGlobalId}
+          selectedCourseName={prepCourseName}
           courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
           allStats={statsState.status === 'ready' ? statsState.data : null}
           adminToken={currentAdminToken()}
           onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
           onSelectCourse={handlePrepCourse}
-          onChangeCourse={() => setPrepGlobalId(null)}
+          onChangeCourse={() => {
+            setPrepGlobalId(null)
+            setPrepCourseName(null)
+          }}
         />
       )
     }

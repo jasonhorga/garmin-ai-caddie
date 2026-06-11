@@ -127,15 +127,33 @@ describe('PrepHoleCard', () => {
   })
 
   // Migrated from CoursePrepPanel.test: holes without geometry degrade gracefully.
-  it('shows the missing-geometry fallback and missing-data badge when there is no map', () => {
+  it('shows the missing-geometry fallback and zh missing-data badge when there is no map', () => {
     const { container } = render(<PrepHoleCard hole={unmappedHole()} clubs={clubs} />)
 
     expect(screen.getByText('（此洞暂无几何图）')).toBeInTheDocument()
-    expect(screen.getByText('geometry missing')).toBeInTheDocument()
+    expect(screen.getByText('几何缺失')).toBeInTheDocument()
+    expect(screen.queryByText(/missing/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('第2洞缺失数据')).toBeInTheDocument()
     expect(container.querySelector('svg')).toBeNull()
   })
 
-  it('renders your-shot scatter dots colored by shot type with club/round titles and the legend', () => {
+  it('unmapped missing-data labels fall back to {label}缺失', () => {
+    const hole = unmappedHole()
+    hole.missingData = [{ label: 'hazards', reason: 'prodgeometry hazard file missing' }, { reason: 'no label' }]
+    render(<PrepHoleCard hole={hole} clubs={clubs} />)
+
+    expect(screen.getByText('hazards缺失')).toBeInTheDocument()
+    expect(screen.getByText('数据缺失')).toBeInTheDocument()
+  })
+
+  it('labels the route-option and source-ref chip groups in zh', () => {
+    render(<PrepHoleCard hole={mappedHole()} clubs={clubs} />)
+
+    expect(screen.getByLabelText('第1洞路线选项')).toBeInTheDocument()
+    expect(screen.getByLabelText('第1洞数据来源')).toBeInTheDocument()
+  })
+
+  it('renders your-shot scatter dots colored by shot type with white outline, club/round titles and the legend', () => {
     const hole = mappedHole({
       yourShots: [
         { x: 50, y: 10, club: '1W', shotType: 'TEE', roundId: '900101' },
@@ -145,10 +163,13 @@ describe('PrepHoleCard', () => {
     })
     const { container } = render(<PrepHoleCard hole={hole} clubs={clubs} />)
 
-    const dots = Array.from(container.querySelectorAll('circle[r="3"]'))
+    const dots = Array.from(container.querySelectorAll('circle[r="4.5"]'))
     expect(dots).toHaveLength(3)
-    expect(dots.map((dot) => dot.getAttribute('fill'))).toEqual(['var(--green)', 'var(--birdie)', 'var(--green)'])
+    // APPROACH is --eagle (deep blue distinguishable on water); TEE stays --green.
+    expect(dots.map((dot) => dot.getAttribute('fill'))).toEqual(['var(--green)', 'var(--eagle)', 'var(--green)'])
     expect(dots.every((dot) => dot.getAttribute('fill-opacity') === '0.7')).toBe(true)
+    expect(dots.every((dot) => dot.getAttribute('stroke') === '#fff')).toBe(true)
+    expect(dots.every((dot) => dot.getAttribute('stroke-width') === '1.5')).toBe(true)
     expect(dots[0].getAttribute('cx')).toBe('50')
     expect(dots[0].getAttribute('cy')).toBe('10')
     expect(dots.map((dot) => dot.querySelector('title')?.textContent)).toEqual([
@@ -158,19 +179,25 @@ describe('PrepHoleCard', () => {
     ])
 
     expect(screen.getByText('你的落点:')).toBeInTheDocument()
-    expect(screen.getByText('开球(落点)')).toBeInTheDocument()
-    expect(screen.getByText('攻果岭')).toBeInTheDocument()
+    // The legend swatches must carry the SAME colors as their dot kinds — a
+    // swapped pair would mislabel every dot on the map.
+    const teeSwatch = screen.getByText('开球(落点)').previousElementSibling as HTMLElement
+    expect(teeSwatch.style.background).toContain('var(--green)')
+    expect(teeSwatch.style.border).toBe('1px solid rgb(68, 68, 85)') // #445, normalized by jsdom
+    const approachSwatch = screen.getByText('攻果岭').previousElementSibling as HTMLElement
+    expect(approachSwatch.style.background).toContain('var(--eagle)')
+    expect(approachSwatch.style.border).toBe('1px solid rgb(68, 68, 85)')
   })
 
   it('renders no dots and no legend when yourShots is absent or empty', () => {
     const { container, rerender } = render(<PrepHoleCard hole={mappedHole()} clubs={clubs} />)
 
-    expect(container.querySelectorAll('circle[r="3"]')).toHaveLength(0)
+    expect(container.querySelectorAll('circle[r="4.5"]')).toHaveLength(0)
     expect(screen.queryByText('你的落点:')).not.toBeInTheDocument()
 
     rerender(<PrepHoleCard hole={mappedHole({ yourShots: [] })} clubs={clubs} />)
 
-    expect(container.querySelectorAll('circle[r="3"]')).toHaveLength(0)
+    expect(container.querySelectorAll('circle[r="4.5"]')).toHaveLength(0)
     expect(screen.queryByText('你的落点:')).not.toBeInTheDocument()
   })
 })

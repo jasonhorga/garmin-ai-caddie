@@ -16,11 +16,12 @@ import { asNumber, asRows, asString, type StatRow } from './statsValues'
 
 interface PrepPageProps {
   globalId: number | null // null → entry state (course finder)
+  selectedCourseName?: string | null // finder-handed name for courses absent from courseOptions
   courseOptions: MobileCourseOptionsResponse | null
   allStats: HistoryStatsResponse | null
   adminToken?: string
   onSearchCourses: (name: string) => Promise<CourseSearchResponse>
-  onSelectCourse: (globalId: number) => void
+  onSelectCourse: (globalId: number, name?: string) => void
   onChangeCourse: () => void
 }
 
@@ -116,6 +117,8 @@ interface PlayedKeyHole {
 
 // Played course: worst holes first — averageToPar desc, sampleCount≥2 so a single
 // blow-up round can't define a "key hole"; par joined from this prep's holes.
+// Rows whose hole is not in this prep payload belong to another nine (the server
+// serves the REAL hole list) and are skipped.
 function playedKeyHoles(rows: StatRow[], prepHoles: CoursePrepHole[]): PlayedKeyHole[] {
   const parByHole = new Map(prepHoles.map((hole) => [hole.hole, hole.par]))
   const qualified: Array<{ hole: number; average: number; worst: number | null }> = []
@@ -124,6 +127,7 @@ function playedKeyHoles(rows: StatRow[], prepHoles: CoursePrepHole[]): PlayedKey
     const average = asNumber(row.averageToPar)
     const samples = asNumber(row.sampleCount) ?? 0
     if (hole === null || average === null || samples < 2) continue
+    if (!parByHole.has(hole)) continue
     qualified.push({ hole, average, worst: asNumber(row.worstToPar) })
   }
   qualified.sort(
@@ -272,6 +276,7 @@ function PrepTipsTab({ tips, error, onRetry }: PrepTipsTabProps) {
 
 export function PrepPage({
   globalId,
+  selectedCourseName,
   courseOptions,
   allStats,
   adminToken,
@@ -280,6 +285,13 @@ export function PrepPage({
   onChangeCourse,
 }: PrepPageProps) {
   const [tab, setTab] = useState<PrepTab>('overview')
+  // Last-gid tracking (React "adjust state during render"): a NEW course must
+  // start on 概览, not whatever tab the previous course left behind.
+  const [lastGlobalId, setLastGlobalId] = useState<number | null>(globalId)
+  if (globalId !== lastGlobalId) {
+    setLastGlobalId(globalId)
+    setTab('overview')
+  }
   const [prepDone, setPrepDone] = useState<PrepDone<CoursePrepResponse> | null>(null)
   const [tipsDone, setTipsDone] = useState<PrepDone<PrepTipsResponse> | null>(null)
   const [prepAttempt, setPrepAttempt] = useState(0)
@@ -354,7 +366,10 @@ export function PrepPage({
   const tipsError = tipsCurrent !== null && 'error' in tipsCurrent ? tipsCurrent.error : null
 
   const option = findCourseOption(courseOptions, globalId)
-  const courseName = option?.name ?? `球场 ${globalId}`
+  // courseOptions (played, canonical) wins; the finder-handed search name covers
+  // never-played courses; the bare gid is the last resort.
+  const handedName = typeof selectedCourseName === 'string' && selectedCourseName.trim() ? selectedCourseName : null
+  const courseName = option?.name ?? handedName ?? `球场 ${globalId}`
   const record = courseRecord(allStats, option)
   const totals = holeTotals(prepData)
   const prepHoles = prepData && Array.isArray(prepData.holes) ? prepData.holes : []

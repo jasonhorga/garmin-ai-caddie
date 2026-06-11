@@ -1263,6 +1263,41 @@ describe('App navigation', () => {
     expect(screen.getByText('2 洞')).toBeInTheDocument()
   })
 
+  it('search-selected course outside course options shows its searched name in the prep header', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        if (path.startsWith('/api/v2/courses/search?')) {
+          return {
+            schema: 'ai-caddie-course-search-v1',
+            query: '观澜湖',
+            matches: [{ globalId: 31870, name: '观澜湖·世界杯场', holes: 18, city: '深圳', province: '广东', ratio: 0.92 }],
+          }
+        }
+        if (path === '/api/v2/courses/31870/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31870/prep-tips') return prepTipsPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    await userEvent.type(await screen.findByLabelText('搜索球场'), '观澜湖{Enter}')
+    await userEvent.click(await screen.findByRole('button', { name: /观澜湖·世界杯场/ }))
+
+    // 31870 is NOT in course options — the header must carry the searched name.
+    expect(await screen.findByRole('heading', { name: '观澜湖·世界杯场' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '球场 31870' })).not.toBeInTheDocument()
+
+    // 换球场 clears the remembered course (and its name) back to the entry state.
+    await userEvent.click(screen.getByRole('button', { name: '换球场' }))
+    expect(await screen.findByRole('heading', { name: '选择球场开始备战' })).toBeInTheDocument()
+  })
+
   it('discards a stale trends refresh that resolves after the window changed', async () => {
     const twelveMonthStats = {
       ...statsPayload(),

@@ -11,7 +11,9 @@ import type {
 interface CourseFinderProps {
   courseOptions: MobileCourseOptionsResponse | null
   onSearchCourses: (name: string) => Promise<CourseSearchResponse>
-  onSelectCourse: (globalId: number) => void
+  // name rides along so the prep header can show searched courses that have
+  // no courseOptions row (never-played) instead of a bare 球场 {gid}.
+  onSelectCourse: (globalId: number, name?: string) => void
   heading?: string
   sub?: string
 }
@@ -99,7 +101,7 @@ export function CourseFinder({
         <ul className="home-search-results">
           {search.matches.map((match) => (
             <li key={match.globalId}>
-              <button type="button" className="home-search-match" onClick={() => onSelectCourse(match.globalId)}>
+              <button type="button" className="home-search-match" onClick={() => onSelectCourse(match.globalId, match.name)}>
                 <span className="home-search-match-name">{match.name}</span>
                 <span className="home-search-match-meta">{matchMeta(match)}</span>
               </button>
@@ -115,7 +117,7 @@ export function CourseFinder({
               <article key={course.globalId} className="home-course-card">
                 <b className="home-course-name">{course.name}</b>
                 <span className="home-course-meta">打过 {asNumber(course.roundCount) ?? 0} 次</span>
-                <button type="button" aria-label={`去备战 ${course.name}`} onClick={() => onSelectCourse(course.globalId)}>
+                <button type="button" aria-label={`去备战 ${course.name}`} onClick={() => onSelectCourse(course.globalId, course.name)}>
                   去备战
                 </button>
               </article>
