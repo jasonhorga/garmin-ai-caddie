@@ -2,14 +2,22 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
-import type { CourseSearchResponse, HistoryRoundDetailResponse, MobileCourseOptionsResponse, RoundCard as RoundCardType } from '../types'
-import { fetchHistoryRoundDetail } from '../api'
+import type {
+  CoursePrepResponse,
+  CourseSearchResponse,
+  HistoryRoundDetailResponse,
+  MobileCourseOptionsResponse,
+  RoundCard as RoundCardType,
+} from '../types'
+import { fetchCoursePrep, fetchHistoryRoundDetail } from '../api'
 import { LivePage } from './LivePage'
 
 vi.mock('../api', () => ({
+  fetchCoursePrep: vi.fn(),
   fetchHistoryRoundDetail: vi.fn(),
 }))
 
+const fetchCoursePrepMock = vi.mocked(fetchCoursePrep)
 const fetchHistoryRoundDetailMock = vi.mocked(fetchHistoryRoundDetail)
 
 function recentRoundsFixture(): RoundCardType[] {
@@ -76,6 +84,7 @@ function roundDetailFixture(roundRef: string): HistoryRoundDetailResponse {
 }
 
 beforeEach(() => {
+  fetchCoursePrepMock.mockReset()
   fetchHistoryRoundDetailMock.mockReset()
   fetchHistoryRoundDetailMock.mockImplementation(async (roundRef: string) => roundDetailFixture(roundRef))
 })
@@ -157,6 +166,43 @@ describe('LivePage tabs', () => {
 
     expect(onSearchCourses).toHaveBeenCalledWith('观澜湖')
     expect(await screen.findByText('观澜湖·世界杯场')).toBeInTheDocument()
+  })
+
+  it('决策沙盘 delegates to LiveSandbox: 开始模拟 pick fetches prep and shows hole chips', async () => {
+    fetchCoursePrepMock.mockResolvedValue({
+      schema: 'ai-caddie-course-prep-v1',
+      globalId: 31870,
+      holeCount: 1,
+      clubs: [],
+      holes: [
+        {
+          hole: 1,
+          par: 4,
+          par_source: 'estimate',
+          blue_yards: 0,
+          route_len_m: 0,
+          route: [],
+          geometryCoverage: 'missing',
+          sourceRefs: [],
+          missingData: [],
+          candidateRoutes: [],
+          carryTargets: [],
+          steps: [],
+          cautions: [],
+          landing_m: null,
+          tee_club: null,
+          hazards: { water_carry: [], bunkers: [] },
+        },
+      ],
+    } satisfies CoursePrepResponse)
+    renderLive()
+
+    await userEvent.click(screen.getByRole('button', { name: '开始模拟 观澜湖·奥拉沙宝场' }))
+
+    expect(fetchCoursePrepMock).toHaveBeenCalledWith(31870, {}, 'admin-secret')
+    const chips = within(await screen.findByLabelText('选洞'))
+    expect(chips.getByRole('button', { name: '第1洞' })).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByRole('heading', { name: '观澜湖·奥拉沙宝场' })).toBeInTheDocument()
   })
 
   it('最近回放 lists recent rounds as 日期/球场/杆数/±标准杆 rows', async () => {

@@ -10,6 +10,48 @@ function clampRouteCum(overlay: CoursePrepOverlay, cum: number): number {
   return Math.max(0, Math.min(overlay.ln, cum))
 }
 
+// Route-polyline drag helpers shared by PrepHoleCard and the 实战 LiveSandbox
+// map canvas. Overlay route rows are [px, py, cumMetres] in DISPLAY PIXELS
+// (post-downsample hole render frame) with a true-metre cumulative stamp.
+
+// Point on the route polyline at cumulative distance `cum` (px coords).
+export function atCum(route: CoursePrepOverlay['route'], cum: number): { x: number; y: number } {
+  for (let i = 0; i < route.length - 1; i += 1) {
+    const a = route[i]
+    const b = route[i + 1]
+    if (b[2] >= cum) {
+      const t = b[2] - a[2] ? (cum - a[2]) / (b[2] - a[2]) : 0
+      return { x: a[0] + (b[0] - a[0]) * t, y: a[1] + (b[1] - a[1]) * t }
+    }
+  }
+  const end = route[route.length - 1]
+  return { x: end[0], y: end[1] }
+}
+
+// Cumulative route distance (metres) of the route point nearest to the
+// pointer (px coords) — snaps free drags onto the playing line.
+export function nearestCum(route: CoursePrepOverlay['route'], px: number, py: number): number {
+  let best = 0
+  let bestDist = Infinity
+  for (let i = 0; i < route.length - 1; i += 1) {
+    const a = route[i]
+    const b = route[i + 1]
+    const vx = b[0] - a[0]
+    const vy = b[1] - a[1]
+    const len2 = vx * vx + vy * vy || 1
+    let t = ((px - a[0]) * vx + (py - a[1]) * vy) / len2
+    t = Math.max(0, Math.min(1, t))
+    const qx = a[0] + vx * t
+    const qy = a[1] + vy * t
+    const d = Math.hypot(px - qx, py - qy)
+    if (d < bestDist) {
+      bestDist = d
+      best = a[2] + (b[2] - a[2]) * t
+    }
+  }
+  return best
+}
+
 export interface HazardIntervalReadout {
   toStart: number
   toClear: number

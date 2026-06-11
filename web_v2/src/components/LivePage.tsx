@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type ComponentProps } from 'react'
 import type { AnnotationTargetType, CourseSearchResponse, HistoryRoundDetailResponse, MobileCourseOptionsResponse, RoundCard as RoundCardType } from '../types'
 import { fetchHistoryRoundDetail } from '../api'
 import { CaddiePage } from './CaddiePage'
-import { CourseFinder } from './CourseFinder'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './HistoryRoundDetailPanel'
+import { LiveSandbox } from './LiveSandbox'
 
 // 实战 page shell (spec §5.4 web scope), three inner tabs in the PrepPage idiom
 // (local tab state + subnav--inner classes, NOT SubNav — these tabs are not
@@ -126,21 +126,9 @@ export function LivePage({
           ? { status: 'ready', data: replayDone.result.data }
           : { status: 'error', roundRef: replayRoundRef, message: replayDone.result.error }
 
-  // Entry state only for now — T3 replaces the no-op onSelectCourse with the
-  // sandbox state machine (course → prep fetch → hole picker → ball drag).
-  // prep-entry / prep-load-error are the shared entry-panel/error styles
-  // introduced for 备战; the sandbox restyle in T3 owns any live-叫法.
-  const sandboxContent = (
-    <section className="panel prep-entry">
-      <CourseFinder
-        heading="选择球场开始模拟"
-        sub="搜索球场,或从常打球场直接开始模拟。"
-        courseOptions={courseOptions}
-        onSearchCourses={onSearchCourses}
-        onSelectCourse={() => undefined}
-      />
-    </section>
-  )
+  // 决策沙盘 owns its whole state machine (course → prep fetch → hole picker →
+  // ball drag → situation readout) in the LiveSandbox subcomponent.
+  const sandboxContent = <LiveSandbox courseOptions={courseOptions} adminToken={adminToken} onSearchCourses={onSearchCourses} />
 
   const replayContent = (
     <>

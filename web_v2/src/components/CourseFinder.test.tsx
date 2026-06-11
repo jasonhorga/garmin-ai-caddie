@@ -77,6 +77,22 @@ describe('CourseFinder', () => {
     expect(onSelectCourse).toHaveBeenCalledWith(40002, '深圳沙河')
   })
 
+  it('renders a custom frequent-card CTA label (text + aria-label) when provided', async () => {
+    const { onSelectCourse } = renderFinder({ ctaLabel: '开始模拟' })
+
+    const ctaButtons = screen.getAllByRole('button', { name: /^开始模拟 / })
+    expect(ctaButtons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      '开始模拟 观澜湖·奥拉沙宝场',
+      '开始模拟 深圳沙河',
+      '开始模拟 翡翠湖国际高尔夫',
+    ])
+    expect(ctaButtons[0]).toHaveTextContent('开始模拟')
+    expect(screen.queryByRole('button', { name: /^去备战 / })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '开始模拟 深圳沙河' }))
+    expect(onSelectCourse).toHaveBeenCalledWith(40002, '深圳沙河')
+  })
+
   it('hides the frequent block when courseOptions is null', () => {
     renderFinder({ courseOptions: null })
 
