@@ -5011,9 +5011,14 @@ button.round-detail-cell:hover {
 }
 
 /* 最近回放: round picker rows reuse the trends-round-row/pchip classes; the
-   selected round gets a tint so the rendered detail is attributable. */
+   selected round gets a tint so the rendered detail is attributable. The date
+   cell's muted grey fails contrast on the green tint — darken it. */
 .live-replay-list .trends-round-row.selected {
   background: var(--green-tint);
+}
+
+.live-replay-list .trends-round-row.selected .trends-round-date {
+  color: var(--green-text);
 }
 
 /* 决策沙盘 (LiveSandbox): hole chips + map canvas + situation readout. */
@@ -5270,7 +5275,18 @@ button.round-detail-cell:hover {
   font-variant-numeric: tabular-nums;
 }
 
-/* riskScore is the engine's additive hazard scale — see riskClass() note. */
+/* riskScore is the engine's additive hazard scale — see riskClass() note.
+   The number renders as visible text; the dot is its severity tint. */
+.live-advice-risk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
 .live-risk-dot {
   width: 10px;
   height: 10px;

@@ -226,6 +226,12 @@ function riskClass(score: number): string {
 
 const CONFIDENCE_ZH: Record<string, string> = { high: '信心高', medium: '信心中', low: '信心低' }
 
+// acceptableMiss.direction zh map: the four bearings the miss-bias path emits
+// (preferredMiss side/depth vocabulary). The engine also ships looser tokens
+// (away_from_known_risks / wide_side / history_* — decision.py:3119-3152);
+// those pass through RAW rather than guessing a translation.
+const MISS_DIRECTION_ZH: Record<string, string> = { long: '偏长', short: '偏短', left: '偏左', right: '偏右' }
+
 function confidencePill(confidence: string | null): React.ReactElement | null {
   if (confidence === null) return null
   return <span className={`confidence-pill ${confidence}`}>{CONFIDENCE_ZH[confidence] ?? confidence}</span>
@@ -700,7 +706,7 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
       ) : (
         <>
           <section className="panel live-sandbox-stage">
-            <div className="live-hole-chips" aria-label="选洞">
+            <div className="live-hole-chips" role="group" aria-label="选洞">
               {holes.map((row) => (
                 <button
                   key={row.hole}
@@ -745,7 +751,8 @@ function AdviceCard({
   const confidence = asString(selected.confidence) ?? asString(recordFrom(decision.confidence).level)
   const narrative = asString(recordFrom(decision.explanation).narrative)
   const miss = recordFrom(decision.acceptableMiss)
-  const missDirection = asString(miss.direction) ?? asString(miss.side)
+  const missDirectionRaw = asString(miss.direction) ?? asString(miss.side)
+  const missDirection = missDirectionRaw === null ? null : (MISS_DIRECTION_ZH[missDirectionRaw] ?? missDirectionRaw)
   const missRationale = asString(miss.rationale)
   const others = asRows(decision.options).filter((option) => asString(option.id) !== selectedId)
   const alt = others.find((option) => asString(option.id) === altOptionId) ?? null
@@ -758,7 +765,14 @@ function AdviceCard({
         <div className="live-advice-meta">
           {label ? <span className="live-advice-option-label">{label}</span> : null}
           {carry !== null ? <span className="live-advice-carry">{`落点 ${carry}m`}</span> : null}
-          {risk !== null ? <span className={`live-risk-dot ${riskClass(risk)}`} role="img" aria-label={`风险 ${risk}`} /> : null}
+          {/* 风险 is VISIBLE text (not an aria-label-only dot): sighted users
+              get the number too; the dot stays as a pure severity tint. */}
+          {risk !== null ? (
+            <span className={`live-advice-risk ${riskClass(risk)}`}>
+              <span className={`live-risk-dot ${riskClass(risk)}`} aria-hidden="true" />
+              {`风险 ${risk}`}
+            </span>
+          ) : null}
           {confidencePill(confidence)}
         </div>
       </div>
@@ -772,7 +786,9 @@ function AdviceCard({
         <p className="live-advice-miss">{`可接受偏向:${[missDirection, missRationale].filter((part) => part !== null).join(' — ')}`}</p>
       ) : null}
       {others.length ? (
-        <div className="live-advice-others" aria-label="其它选项">
+        // role=group: an aria-label on a generic div names nothing in the
+        // accessibility tree; the explicit group role makes it land.
+        <div className="live-advice-others" role="group" aria-label="其它选项">
           <span className="live-advice-others-label">其它选项</span>
           {others.map((option) => {
             const id = asString(option.id) ?? optionClub(option)
@@ -793,7 +809,7 @@ function AdviceCard({
         </div>
       ) : null}
       {missingRows.length ? (
-        <div className="live-advice-missing" aria-label="数据缺口">
+        <div className="live-advice-missing" role="group" aria-label="数据缺口">
           {missingRows.map((row, index) => (
             <span key={`${asString(row.label) ?? 'missing'}-${index}`} className="fact-chip" title={asString(row.reason) ?? undefined}>
               {asString(row.label) ?? '未知'}

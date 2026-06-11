@@ -830,9 +830,11 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await page.getByRole('button', { name: '要建议' }).click()
   const adviceCard = page.getByRole('region', { name: '沙盘建议' })
   await expect(adviceCard.getByText('8I', { exact: true })).toBeVisible()
+  // 风险 is visible text on the 主建议 (stock riskScore 2), not a dot-only glyph.
+  await expect(adviceCard.getByText('风险 2', { exact: true })).toBeVisible()
   await expect(adviceCard.getByText('为什么')).toBeVisible()
   await expect(adviceCard.getByText('顺风顺路,8号铁打中线最稳。')).toBeVisible()
-  await expect(adviceCard.getByText('可接受偏向:long — 前水后草,宁长勿短')).toBeVisible()
+  await expect(adviceCard.getByText('可接受偏向:偏长 — 前水后草,宁长勿短')).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'live-advice')
 

@@ -290,7 +290,8 @@ describe('LiveSandbox course pick', () => {
 
     // Default holes, no include_shots/render overrides — the sandbox needs maps.
     expect(fetchCoursePrepMock).toHaveBeenCalledWith(31870, {}, 'admin-secret')
-    const chips = within(await screen.findByLabelText('选洞'))
+    // The labelled chip row is a real a11y group, not a bare labelled div.
+    const chips = within(await screen.findByRole('group', { name: '选洞' }))
     expect(chips.getByRole('button', { name: '第7洞' })).toHaveAttribute('aria-current', 'true')
     expect(chips.getByRole('button', { name: '第8洞' })).not.toHaveAttribute('aria-current')
     expect(chips.getAllByRole('button')).toHaveLength(3)
@@ -789,14 +790,30 @@ describe('LiveSandbox 沙盘建议 card', () => {
     expect(within(card).getByText('8I')).toHaveClass('live-advice-club')
     expect(within(card).getByText('Stock')).toBeInTheDocument()
     expect(within(card).getByText('落点 132m')).toBeInTheDocument()
-    expect(within(card).getByLabelText('风险 3.4')).toHaveClass('live-risk-dot', 'medium')
+    // 风险 renders as VISIBLE text (a11y: the number is not locked inside an
+    // aria-label) with the colored dot kept as a pure tint beside it.
+    expect(within(card).getByText('风险 3.4')).toHaveClass('live-advice-risk', 'medium')
+    const riskDot = card.querySelector('.live-risk-dot.medium')
+    expect(riskDot).not.toBeNull()
+    expect(riskDot).toHaveAttribute('aria-hidden', 'true')
     expect(within(card).getByText('信心中')).toHaveClass('confidence-pill', 'medium')
     expect(within(card).getByText('为什么')).toBeInTheDocument()
     expect(within(card).getByText(/8I 中位 132m/)).toBeInTheDocument()
     expect(within(card).getByText(/可接受偏向/)).toBeInTheDocument()
-    expect(within(card).getByText(/long — short brings the water into play/)).toBeInTheDocument()
-    const missing = within(card).getByLabelText('数据缺口')
+    // The four bearing directions render in zh (long→偏长 …).
+    expect(within(card).getByText(/偏长 — short brings the water into play/)).toBeInTheDocument()
+    const missing = within(card).getByRole('group', { name: '数据缺口' })
     expect(within(missing).getByText('weather')).toHaveAttribute('title', 'weather snapshot is missing or incomplete')
+  })
+
+  it('passes unmapped acceptableMiss directions through raw', async () => {
+    fetchCaddieDecisionMock.mockImplementation(async () =>
+      caddieDecisionFixture({ acceptableMiss: { direction: 'away_from_known_risks', rationale: '避开已知风险侧' } }),
+    )
+
+    const card = await openAdvice()
+
+    expect(within(card).getByText(/可接受偏向:away_from_known_risks — 避开已知风险侧/)).toBeInTheDocument()
   })
 
   it('hides 为什么 when the explanation narrative is missing', async () => {
@@ -810,7 +827,7 @@ describe('LiveSandbox 沙盘建议 card', () => {
   it('其它选项 chips exclude the selected option and reveal that option numbers on click', async () => {
     const card = await openAdvice()
 
-    const others = within(card).getByLabelText('其它选项')
+    const others = within(card).getByRole('group', { name: '其它选项' })
     expect(within(others).queryByRole('button', { name: /Stock/ })).not.toBeInTheDocument()
     expect(within(others).getByRole('button', { name: 'Safe · 9I' })).toBeInTheDocument()
 
