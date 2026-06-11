@@ -1,9 +1,12 @@
-"""Tests for proactively warming the stats cache after a Garmin sync.
+"""Tests for proactively warming the stats cache after a Garmin sync and at startup.
 
 After ``/api/v2/sync/garmin`` lands new scorecards/shots on disk, the stats-cache
 fingerprint changes, so the FIRST user request after a sync would otherwise pay the
 ~10s cold ``build_history_stats`` recompute. We warm the cache on a background thread
 right after a successful sync so that first request is already a cache hit.
+
+The same warm also fires at server startup (FastAPI lifespan) so the very first user
+request after a cold boot is already a hit too.
 
 These are unittest.TestCase tests on purpose: CI runs ``python -m unittest discover``,
 which ignores pytest fixtures/conftest/monkeypatch. We test the plain warm function
@@ -16,6 +19,8 @@ from __future__ import annotations
 import os
 import unittest
 from unittest.mock import patch
+
+from fastapi.testclient import TestClient
 
 from ai_caddie import stats_cache
 from server_v2.history_stats import (
@@ -48,17 +53,18 @@ class CacheWarmupTests(unittest.TestCase):
             warm_stats_cache()
             warmed_calls = build_spy.call_count
             self.assertEqual(
-                warmed_calls, 2, "warm should cold-build BOTH pre-warmed windows (all + last10)"
+                warmed_calls, 3, "warm should cold-build ALL THREE pre-warmed windows (all + last10 + 12m)"
             )
 
-            # The real user path after a warm must NOT recompute — for the default
-            # window AND for last10 (趋势总览's default range, warmed deliberately).
+            # The real user path after a warm must NOT recompute — for all three
+            # pre-warmed windows: all (default), last10 (趋势总览 default), 12m.
             load_history_stats_response()
             load_history_stats_response(window="last10")
+            load_history_stats_response(window="12m")
             self.assertEqual(
                 build_spy.call_count,
                 warmed_calls,
-                "all/last10 requests after warm should be cache hits (no extra build)",
+                "all/last10/12m requests after warm should be cache hits (no extra build)",
             )
 
     def test_warm_populates_load_history_data_cache(self) -> None:
@@ -99,6 +105,24 @@ class CacheWarmupTests(unittest.TestCase):
             thread.join(timeout=30)
             self.assertFalse(thread.is_alive(), "warm thread should finish")
             self.assertGreaterEqual(build_spy.call_count, 1)
+
+
+class AppStartupTests(unittest.TestCase):
+    """Tests that server startup fires the background cache warmer."""
+
+    def test_app_startup_triggers_background_warmer_once(self) -> None:
+        """FastAPI lifespan fires warm_stats_cache_in_background exactly once at boot.
+
+        Using TestClient as a context manager runs the lifespan (startup + shutdown);
+        the patched warmer must be called exactly once so the first user request after
+        a cold boot is already a cache hit without blocking the server from serving.
+        """
+        from server_v2.main import app
+
+        with patch("server_v2.main.warm_stats_cache_in_background") as warm_mock:
+            with TestClient(app) as client:
+                client.get("/api/v2/health")
+            warm_mock.assert_called_once_with()
 
 
 if __name__ == "__main__":

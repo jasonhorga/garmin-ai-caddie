@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hmac
 import os
 from typing import Annotated, Literal
@@ -118,7 +119,19 @@ from .session import save_garmin_session_response
 from .sync_status import load_sync_status_response
 
 
-app = FastAPI(title="AI Caddie v2", version="0.1.0")
+@contextlib.asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """FastAPI lifespan: warm history caches at startup so the first user request is a hit.
+
+    Fires ``warm_stats_cache_in_background`` on a daemon thread immediately after the
+    server starts serving.  Failure-isolated inside ``warm_stats_cache`` itself — a warm
+    error never prevents the server from handling requests.
+    """
+    warm_stats_cache_in_background()
+    yield
+
+
+app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
 
 
 def cors_allowed_origins() -> list[str]:
