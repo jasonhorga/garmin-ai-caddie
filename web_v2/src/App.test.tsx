@@ -1474,6 +1474,7 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
     expect(screen.queryByText('History API unavailable')).toBeNull()
 
@@ -2119,6 +2120,10 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    // 实战 lands on the LivePage 决策沙盘 entry; the legacy dashboard sits
+    // verbatim behind 完整工具.
+    expect(await screen.findByRole('heading', { name: '选择球场开始模拟' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
     // The 备战 page (entry finder heading) must not leak into the 实战 workspace.
     expect(screen.queryByRole('heading', { name: '选择球场开始备战' })).not.toBeInTheDocument()
@@ -2228,6 +2233,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('1D on H5')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
     expect(screen.getByLabelText('Source ref')).toHaveValue('900002:5:4')
 

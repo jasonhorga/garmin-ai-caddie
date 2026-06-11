@@ -4985,3 +4985,14 @@ button.round-detail-cell:hover {
   margin: 0 0 6px;
   font-size: 14px;
 }
+
+/* ===== W3 实战 page (LivePage shell) ===== */
+.live-page {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.live-page .subnav--inner {
+  margin-bottom: 0;
+}

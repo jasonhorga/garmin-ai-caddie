@@ -596,7 +596,14 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
   await assertNoViewportOverflow(page)
 
+  // 实战 lands on the LivePage 决策沙盘 entry; the legacy Caddie dashboard
+  // stays reachable verbatim behind the 完整工具 tab.
   await page.getByRole('button', { name: '实战' }).click()
+  const liveTabs = page.getByRole('navigation', { name: '实战页签' })
+  await expect(liveTabs.getByRole('button', { name: '决策沙盘' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await liveTabs.getByRole('button', { name: '完整工具' }).click()
   await expect(page.getByRole('heading', { name: 'Caddie', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
 

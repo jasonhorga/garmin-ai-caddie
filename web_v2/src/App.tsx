@@ -44,7 +44,7 @@ import {
   runGarminSync,
   saveGarminSession,
 } from './api'
-import { CaddiePage, type MediaContextState } from './components/CaddiePage'
+import type { MediaContextState } from './components/CaddiePage'
 import { ClubStats } from './components/ClubStats'
 import { CorrectionsPage, type CorrectionTarget } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
@@ -66,6 +66,7 @@ import {
   type MobilePackagePrepState,
 } from './components/MobilePackagePrepPanel'
 import { AppShell } from './components/AppShell'
+import { LivePage } from './components/LivePage'
 import { PrepPage } from './components/PrepPage'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
@@ -1176,24 +1177,32 @@ export default function App() {
     }
 
     if (activePage === 'caddie') {
+      // 实战 renders the LivePage shell; the old CaddiePage props bundle moves
+      // VERBATIM into caddieProps for the 完整工具 tab (zero tooling deleted).
       return (
-        <CaddiePage
-          decisionState={decisionState}
-          auditState={decisionAuditState}
-          weatherState={weatherState}
-          contextState={caddieContextState}
-          mediaState={mediaState}
-          onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
-          onCreateAudit={(decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot)}
-          onLoadWeather={(params) => void handleLoadWeather(params)}
-          onLoadCaddieContext={(params) => void handleLoadCaddieContext(params)}
-          onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
-          onAttachMedia={handleAttachMedia}
-          onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}
-          onRedactMedia={(mediaId) => void handleRedactMedia(mediaId)}
-          onConfirmVisionFinding={(findingId, confirmationState) => void handleConfirmVisionFinding(findingId, confirmationState)}
-          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-          selectedSourceRef={selectedCaddieSourceRef}
+        <LivePage
+          courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
+          adminToken={currentAdminToken()}
+          onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
+          recentRounds={overviewState.status === 'ready' ? overviewState.data.recentRounds : []}
+          caddieProps={{
+            decisionState,
+            auditState: decisionAuditState,
+            weatherState,
+            contextState: caddieContextState,
+            mediaState,
+            onRequestDecision: (request) => void handleRequestCaddieDecision(request),
+            onCreateAudit: (decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot),
+            onLoadWeather: (params) => void handleLoadWeather(params),
+            onLoadCaddieContext: (params) => void handleLoadCaddieContext(params),
+            onLoadMediaContext: (target) => void handleLoadMediaContext(target),
+            onAttachMedia: handleAttachMedia,
+            onAnalyzeMedia: (mediaId) => void handleAnalyzeMedia(mediaId),
+            onRedactMedia: (mediaId) => void handleRedactMedia(mediaId),
+            onConfirmVisionFinding: (findingId, confirmationState) => void handleConfirmVisionFinding(findingId, confirmationState),
+            onSelectRef: (sourceRef) => void handleSelectSourceRef(sourceRef),
+            selectedSourceRef: selectedCaddieSourceRef,
+          }}
         />
       )
     }
