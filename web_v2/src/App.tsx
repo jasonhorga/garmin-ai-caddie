@@ -44,7 +44,7 @@ import {
   runGarminSync,
   saveGarminSession,
 } from './api'
-import { CaddiePage, type MediaContextState } from './components/CaddiePage'
+import type { MediaContextState } from './components/CaddiePage'
 import { ClubStats } from './components/ClubStats'
 import { CorrectionsPage, type CorrectionTarget } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
@@ -66,6 +66,7 @@ import {
   type MobilePackagePrepState,
 } from './components/MobilePackagePrepPanel'
 import { AppShell } from './components/AppShell'
+import { LivePage } from './components/LivePage'
 import { PrepPage } from './components/PrepPage'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
@@ -387,6 +388,14 @@ export default function App() {
       // leaving the joined cards stuck on the stale error forever.
       if (statsState.status === 'idle' || statsState.status === 'error') void loadStatsState()
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
+    }
+    if (page === 'caddie') {
+      // 实战 composes course options (沙盘 course pick) + overview recentRounds
+      // (回放 rows AND the sandbox advice sourceRef chain) — same lazy retry as
+      // 概览/备战 above; overview goes through the keep-ready refresh helper so
+      // a still-broken backend cannot clobber an already-ready payload.
+      if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
+      if (overviewState.status === 'error') void refreshOverviewState()
     }
     if (page === 'rounds' && roundsState.status === 'idle') {
       void loadRoundsState()
@@ -1176,25 +1185,58 @@ export default function App() {
     }
 
     if (activePage === 'caddie') {
+      // 实战 renders the LivePage shell; the old CaddiePage props bundle moves
+      // VERBATIM into caddieProps for the 完整工具 tab (zero tooling deleted).
+      // The 最近回放 detail panel gets the SAME drilldown/annotation/AI-review
+      // handlers the history pages give HistoryRoundDetailPanel; the panels
+      // those handlers open render below LivePage exactly like the
+      // sync-quality page (drilldown + hole evidence only — the App-level
+      // round detail panel stays off this page because 最近回放 owns its own).
       return (
-        <CaddiePage
-          decisionState={decisionState}
-          auditState={decisionAuditState}
-          weatherState={weatherState}
-          contextState={caddieContextState}
-          mediaState={mediaState}
-          onRequestDecision={(request) => void handleRequestCaddieDecision(request)}
-          onCreateAudit={(decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot)}
-          onLoadWeather={(params) => void handleLoadWeather(params)}
-          onLoadCaddieContext={(params) => void handleLoadCaddieContext(params)}
-          onLoadMediaContext={(target) => void handleLoadMediaContext(target)}
-          onAttachMedia={handleAttachMedia}
-          onAnalyzeMedia={(mediaId) => void handleAnalyzeMedia(mediaId)}
-          onRedactMedia={(mediaId) => void handleRedactMedia(mediaId)}
-          onConfirmVisionFinding={(findingId, confirmationState) => void handleConfirmVisionFinding(findingId, confirmationState)}
-          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-          selectedSourceRef={selectedCaddieSourceRef}
-        />
+        <>
+          <LivePage
+            courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
+            adminToken={currentAdminToken()}
+            onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
+            recentRounds={overviewState.status === 'ready' ? overviewState.data.recentRounds : []}
+            reportState={reportState}
+            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onCreateAnnotationForRound={handleCreateAnnotationForSource}
+            onLoadRoundReport={handleLoadRoundReport}
+            onGenerateRoundReport={handleGenerateRoundReport}
+            caddieProps={{
+              decisionState,
+              auditState: decisionAuditState,
+              weatherState,
+              contextState: caddieContextState,
+              mediaState,
+              onRequestDecision: (request) => void handleRequestCaddieDecision(request),
+              onCreateAudit: (decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot),
+              onLoadWeather: (params) => void handleLoadWeather(params),
+              onLoadCaddieContext: (params) => void handleLoadCaddieContext(params),
+              onLoadMediaContext: (target) => void handleLoadMediaContext(target),
+              onAttachMedia: handleAttachMedia,
+              onAnalyzeMedia: (mediaId) => void handleAnalyzeMedia(mediaId),
+              onRedactMedia: (mediaId) => void handleRedactMedia(mediaId),
+              onConfirmVisionFinding: (findingId, confirmationState) => void handleConfirmVisionFinding(findingId, confirmationState),
+              onSelectRef: (sourceRef) => void handleSelectSourceRef(sourceRef),
+              selectedSourceRef: selectedCaddieSourceRef,
+            }}
+          />
+          <HistoryDrilldownPanel
+            state={drilldownState}
+            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onCreateAnnotationForSource={handleCreateAnnotationForSource}
+          />
+          {holeEvidenceState.status === 'idle' ? null : (
+            <HoleEvidencePanel
+              state={holeEvidenceState}
+              ensureState={geometryEnsureState}
+              onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
+            />
+          )}
+        </>
       )
     }
 

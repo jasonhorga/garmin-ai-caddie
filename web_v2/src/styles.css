@@ -4985,3 +4985,392 @@ button.round-detail-cell:hover {
   margin: 0 0 6px;
   font-size: 14px;
 }
+
+/* ===== W3 实战 page (LivePage shell) ===== */
+.live-page {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.live-page .subnav--inner {
+  margin-bottom: 0;
+}
+
+/* 沙盘 keep-alive: LivePage keeps the sandbox MOUNTED across tab peeks so the
+   course/hole/ball state survives. display:contents keeps its panels direct
+   flex children of .live-page (column gap preserved); the higher-specificity
+   [hidden] rule restores display:none, which the author-level
+   display:contents would otherwise override. */
+.live-keepalive {
+  display: contents;
+}
+
+.live-keepalive[hidden] {
+  display: none;
+}
+
+/* 最近回放: round picker rows reuse the trends-round-row/pchip classes; the
+   selected round gets a tint so the rendered detail is attributable. The date
+   cell's muted grey fails contrast on the green tint — darken it. */
+.live-replay-list .trends-round-row.selected {
+  background: var(--green-tint);
+}
+
+.live-replay-list .trends-round-row.selected .trends-round-date {
+  color: var(--green-text);
+}
+
+/* 决策沙盘 (LiveSandbox): hole chips + map canvas + situation readout. */
+.live-sandbox-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.live-hole-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.live-hole-chip {
+  min-width: 34px;
+  padding: 5px 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.live-hole-chip:hover {
+  border-color: var(--green);
+}
+
+.live-hole-chip.active {
+  color: #fff;
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.live-sandbox-hole {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.live-sandbox-map {
+  position: relative;
+  max-width: 380px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.live-sandbox-map img {
+  width: 100%;
+  display: block;
+  border-radius: 8px;
+}
+
+.live-sandbox-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none; /* pointer drags must not scroll the page on touch */
+  cursor: grab;
+}
+
+.live-sandbox-readout {
+  margin: 0;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* 键盘摆位: the manual 到果岭 input rides next to the readout on mapped holes
+   so the drag canvas is never the only way to set a distance. */
+.live-sandbox-readout-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 14px;
+}
+
+.live-sandbox-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.live-sandbox-nomap {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.live-sandbox-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+}
+
+.live-sandbox-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.live-sandbox-control select,
+.live-sandbox-control input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+.live-sandbox-control input {
+  width: 96px;
+}
+
+.live-sandbox-control select:disabled {
+  color: var(--muted);
+  background: var(--bg);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 逆风 control: the helper line wraps under the input and says exactly what
+   the engine computes (headwind-only fold, decision.py:1487-1502). */
+.live-sandbox-control--helper {
+  flex-wrap: wrap;
+  max-width: 230px;
+}
+
+.live-sandbox-helper {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* 沙盘建议 (T4): 策略 segmented + 要建议 action row, then the advice card. */
+.live-advice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.live-strategy {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.live-strategy-chip {
+  min-width: 46px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--bg);
+  border: none;
+  cursor: pointer;
+}
+
+.live-strategy-chip + .live-strategy-chip {
+  border-left: 1px solid var(--line);
+}
+
+.live-strategy-chip.active {
+  color: #fff;
+  background: var(--green);
+}
+
+.live-advice-cta {
+  padding: 7px 18px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--green);
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.live-advice-cta:disabled {
+  background: var(--line-strong);
+  cursor: not-allowed;
+}
+
+.live-advice-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.live-advice {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.live-advice-loading {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.live-advice-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.live-advice-club {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-advice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-advice-option-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.live-advice-carry {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* riskScore is the engine's additive hazard scale — see riskClass() note.
+   The number renders as visible text; the dot is its severity tint. */
+.live-advice-risk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-risk-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.live-risk-dot.low {
+  background: var(--par);
+}
+
+.live-risk-dot.medium {
+  background: var(--bogey);
+}
+
+.live-risk-dot.high {
+  background: var(--double);
+}
+
+.live-advice-why {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.live-advice-why strong {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.live-advice-miss {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.live-advice-others {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.live-advice-others-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.live-advice-chip {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.live-advice-chip:hover {
+  border-color: var(--green);
+}
+
+.live-advice-chip.active {
+  background: var(--green-tint);
+  border-color: var(--green);
+  color: var(--green-text);
+}
+
+.live-advice-alt {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-advice-missing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

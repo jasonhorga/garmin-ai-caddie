@@ -548,6 +548,136 @@ const prepTipsPayload = {
   ],
 }
 
+// 实战 walk fixtures: the 决策沙盘 advice pair. Shapes mirror App.test.tsx
+// caddieContextPayload/caddieDecisionPayload. The context mock echoes the
+// request's source_ref/shot_type/lie/distance/strategy_mode back into the
+// context the way the real builder does (ai_caddie/caddie_context.py binds
+// strategyMode into the context only when requested), so the decision POST
+// body carries exactly what the wire carried.
+function caddieContextPayload(query: URLSearchParams) {
+  const sourceRef = query.get('source_ref')
+  const shotType = query.get('shot_type')
+  const distance = query.get('distance_to_pin_m')
+  const lie = query.get('lie')
+  const strategyMode = query.get('strategy_mode')
+  return {
+    schema: 'ai-caddie-context-v1',
+    sourceRef,
+    shotType,
+    context: {
+      source: 'history_drilldown',
+      sourceRef,
+      roundId: '900001',
+      courseName: 'Black Knight B',
+      hole: 1,
+      globalId: 31795,
+      localHole: 1,
+      shotType,
+      ...(distance === null ? {} : { distanceToPin_m: Number(distance) }),
+      ...(lie === null ? {} : { lie }),
+      ...(strategyMode === null ? {} : { strategyMode }),
+      geometry: { coverage: 'partial', hasHazards: true, hasMeshes: false, hazardCount: 1 },
+      hazards: [{ kind: 'water', id: 'water-left' }],
+      clubProfiles: { '8I': { clubName: '8I', sampleSize: 4, median: 144, p10: 132, p90: 153 } },
+    },
+    evidence: [{ label: 'history_ref', value: sourceRef }],
+    missingData: [],
+  }
+}
+
+// The decision mock keys its selected option off the POSTed
+// context.strategyMode (default → stock 8I, attack → 7I), so the 博 recompute
+// in the walk only renders a new club if the toggle truly flowed through the
+// context fetch into the decision request.
+function caddieDecisionPayload(strategyMode: string | undefined) {
+  const attack = strategyMode === 'attack'
+  const selectedId = attack ? 'attack' : 'stock'
+  return {
+    schema: 'ai-caddie-decision-v2',
+    decisionId: `900001:1:approach:${selectedId}`,
+    sourceRef: '900001:1',
+    evidenceRefs: ['900001:1'],
+    shotType: 'approach',
+    phase: 'Approach',
+    context: { courseName: 'Black Knight B', hole: 1, sourceRef: '900001:1' },
+    options: [
+      { id: 'safe', label: 'Safe', recommendedClub: '9I', carry_m: 118, riskScore: 1, confidence: 'high' },
+      { id: 'stock', label: 'Stock', recommendedClub: '8I', carry_m: 131, riskScore: 2, confidence: 'medium' },
+      { id: 'attack', label: 'Attack', recommendedClub: '7I', carry_m: 144, riskScore: 4, confidence: 'medium' },
+    ],
+    selectedOptionId: selectedId,
+    selectedOption: { id: selectedId },
+    selected: { id: selectedId },
+    avoidZones: [{ kind: 'water', id: 'water_front' }],
+    forbiddenZones: [],
+    acceptableMiss: attack
+      ? { direction: 'short', rationale: '果岭后沙坑深,宁短勿长' }
+      : { direction: 'long', rationale: '前水后草,宁长勿短' },
+    evidence: [{ label: 'water_front', value: 'carry 126m' }],
+    confidence: { level: 'medium' },
+    explanation: {
+      narrative: attack ? '强攻角度更激进,7号铁直攻旗杆。' : '顺风顺路,8号铁打中线最稳。',
+      factBinding: [{ claim: 'club', refs: ['900001:1:1'] }],
+    },
+    missingData: [],
+    auditCriteria: [],
+  }
+}
+
+// 最近回放 detail for the one overview recent round (900001); shape mirrors
+// LivePage.test.tsx roundDetailFixture with the overview row's score/toPar.
+const replayRoundDetailPayload = {
+  schema: 'ai-caddie-history-round-detail-v1',
+  roundRef: '900001',
+  requestedRef: '900001',
+  found: true,
+  title: 'Black Knight B · 2026-05-20',
+  round: {
+    id: '900001',
+    score: 78,
+    toPar: 6,
+    holesScored: 18,
+    shotCount: 64,
+    confidence: 'high',
+    coverage: { scorecard: 'full', shots: 'full', putts: 'full' },
+  },
+  scorecard: [
+    {
+      hole: 1,
+      par: 4,
+      score: 4,
+      toPar: 0,
+      className: 'par',
+      putts: 2,
+      gir: true,
+      fairway: 'hit',
+      holeRef: '900001:1',
+      shotRefs: ['900001:1:0'],
+      sourceRefs: ['900001:1'],
+      status: 'complete',
+    },
+    {
+      hole: 2,
+      par: 5,
+      score: 4,
+      toPar: -1,
+      className: 'birdie',
+      putts: 1,
+      gir: true,
+      fairway: 'hit',
+      holeRef: '900001:2',
+      shotRefs: ['900001:2:0'],
+      sourceRefs: ['900001:2'],
+      status: 'complete',
+    },
+  ],
+  phaseSummary: [],
+  holeDetails: [],
+  relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:1', '900001:2'], shotRefs: [], sourceRefs: [] },
+  sourceFields: { id: '900001' },
+  missingData: [],
+}
+
 test('major product screens render with stable Garmin Pro layout', async ({ page }, testInfo) => {
   const browserErrors: string[] = []
   const failedResponses: string[] = []
@@ -560,7 +690,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
       failedResponses.push(`${response.status()} ${new URL(response.url()).pathname}`)
     }
   })
-  const { prepIncludeShots } = await mockApi(page)
+  const { prepIncludeShots, caddieContextQueries, caddieDecisionBodies } = await mockApi(page)
 
   await page.goto('/')
   await expect(page.getByText('想备哪场?')).toBeVisible()
@@ -596,7 +726,14 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
   await assertNoViewportOverflow(page)
 
+  // 实战 lands on the LivePage 决策沙盘 entry; the legacy Caddie dashboard
+  // stays reachable verbatim behind the 完整工具 tab.
   await page.getByRole('button', { name: '实战' }).click()
+  const liveTabs = page.getByRole('navigation', { name: '实战页签' })
+  await expect(liveTabs.getByRole('button', { name: '决策沙盘' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await liveTabs.getByRole('button', { name: '完整工具' }).click()
   await expect(page.getByRole('heading', { name: 'Caddie', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
 
@@ -657,20 +794,134 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   expect(prepIncludeShots.length).toBeGreaterThanOrEqual(1)
   expect(prepIncludeShots).toEqual(prepIncludeShots.map(() => 'true'))
 
+  // 实战 full walk: 决策沙盘 (course pick → hole sim → advice → 博 recompute)
+  // → 最近回放 → 完整工具. Runs after the 备战 include_shots assertions above
+  // because the sandbox's prep fetches carry NO include_shots (asserted at the
+  // end of this walk).
+  const sandboxPrepStart = prepIncludeShots.length
+  await page.getByRole('button', { name: '实战' }).click()
+  await expect(page.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
+  await page.getByRole('button', { name: '开始模拟 Black Knight B/C' }).click()
+  await expect(page.getByRole('heading', { name: 'Black Knight B/C' })).toBeVisible()
+
+  // Hole chips come from the prep payload (1/2/7); hole 1 is active by default
+  // and carries the rendered map. Hole 7 has no geometry, so switching there
+  // degrades to the manual 到果岭 input; back on hole 1 the readout shows the
+  // ball on the tee (距T 0 · 到果岭 = full route length 393m).
+  await expect(page.getByRole('button', { name: '第1洞' })).toHaveAttribute('aria-current', 'true')
+  await page.getByRole('button', { name: '第7洞' }).click()
+  await expect(page.getByLabel('到果岭(m)')).toBeVisible()
+  await page.getByRole('button', { name: '第1洞' }).click()
+  await expect(page.getByText('距T 0m · 到果岭 393m')).toBeVisible()
+  await assertNoViewportOverflow(page)
+
+  // Tee shots take no lie; switching 击球类型 to 攻果岭 (ball still on the
+  // tee, 393m out) unlocks 球位状态 → 长草.
+  await expect(page.getByLabel('球位状态')).toBeDisabled()
+  await page.getByLabel('击球类型').selectOption({ label: '攻果岭' })
+  await expect(page.getByLabel('球位状态')).toBeEnabled()
+  await page.getByLabel('球位状态').selectOption({ label: '长草' })
+
+  // 要建议 runs the context+decision pair; the card shows the selected option
+  // (stock 8I) with the 为什么 narrative and the acceptable-miss line. No
+  // weather request belongs in this flow: manual wind is constructed
+  // client-side, and an unexpected /weather/snapshot fetch would 404 into
+  // failedResponses below.
+  await page.getByRole('button', { name: '要建议' }).click()
+  const adviceCard = page.getByRole('region', { name: '沙盘建议' })
+  await expect(adviceCard.getByText('8I', { exact: true })).toBeVisible()
+  // 风险 is visible text on the 主建议 (stock riskScore 2), not a dot-only glyph.
+  await expect(adviceCard.getByText('风险 2', { exact: true })).toBeVisible()
+  await expect(adviceCard.getByText('为什么')).toBeVisible()
+  await expect(adviceCard.getByText('顺风顺路,8号铁打中线最稳。')).toBeVisible()
+  await expect(adviceCard.getByText('可接受偏向:偏长 — 前水后草,宁长勿短')).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await captureSmokeScreenshot(page, testInfo, 'live-advice')
+
+  // 博 re-requests the pair with strategyMode=attack; the decision mock keys
+  // its selected option off the POSTed context.strategyMode, so the 7I card
+  // only renders if the toggle truly flowed through the wire.
+  await page.getByRole('group', { name: '策略' }).getByRole('button', { name: '博' }).click()
+  await expect(adviceCard.getByText('7I', { exact: true })).toBeVisible()
+  await expect(adviceCard.getByText('强攻角度更激进,7号铁直攻旗杆。')).toBeVisible()
+
+  // Wire-level proof: exactly one context+decision pair per request (event
+  // driven — StrictMode does not double-fire clicks), first pair carrying the
+  // simulated situation, second pair carrying the attack strategy.
+  expect(caddieContextQueries.length).toBe(2)
+  expect(caddieContextQueries[0]?.get('source_ref')).toBe('900001:1')
+  expect(caddieContextQueries[0]?.get('shot_type')).toBe('approach')
+  expect(caddieContextQueries[0]?.get('lie')).toBe('rough')
+  expect(caddieContextQueries[0]?.get('distance_to_pin_m')).toBe('393')
+  expect(caddieContextQueries[0]?.get('strategy_mode')).toBeNull()
+  expect(caddieContextQueries[1]?.get('strategy_mode')).toBe('attack')
+  expect(caddieDecisionBodies.length).toBe(2)
+  expect(caddieDecisionBodies[0]?.shotType).toBe('approach')
+  expect(caddieDecisionBodies[0]?.includeExplanation).toBe(true)
+  expect(caddieDecisionBodies[0]?.context?.strategyMode).toBeUndefined()
+  expect(caddieDecisionBodies[1]?.context?.strategyMode).toBe('attack')
+
+  // 最近回放: the newest overview round auto-selects and its detail loads
+  // through GET /api/v2/history/rounds/900001.
+  await liveTabs.getByRole('button', { name: '最近回放' }).click()
+  await expect(page.getByRole('button', { name: '回放 Black Knight B 05-20' })).toHaveAttribute('aria-current', 'true')
+  await expect(page.getByRole('heading', { name: 'Round Review', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Scorecard', exact: true })).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await captureSmokeScreenshot(page, testInfo, 'live-replay')
+
+  // 完整工具 keeps the legacy Caddie dashboard reachable (T1 anchor).
+  await liveTabs.getByRole('button', { name: '完整工具' }).click()
+  await expect(page.getByRole('heading', { name: 'Caddie', exact: true })).toBeVisible()
+  await assertNoViewportOverflow(page)
+
+  // The sandbox never asks for the prep shot scatter: its prep fetches carry
+  // no include_shots at all (recorded as null), unlike the 备战 walk's.
+  const sandboxPrepFetches = prepIncludeShots.slice(sandboxPrepStart)
+  expect(sandboxPrepFetches.length).toBeGreaterThanOrEqual(1)
+  expect(sandboxPrepFetches).toEqual(sandboxPrepFetches.map(() => null))
+
   await expect(failedResponses).toEqual([])
   await expect(browserErrors).toEqual([])
 })
 
-async function mockApi(page: Page): Promise<{ prepIncludeShots: Array<string | null> }> {
+// Recorded shape of every POST /api/v2/caddie/decision body the sandbox sent.
+interface RecordedDecisionRequest {
+  shotType?: string
+  includeExplanation?: boolean
+  context?: { strategyMode?: string }
+}
+
+interface MockApiRecords {
+  prepIncludeShots: Array<string | null>
+  caddieContextQueries: URLSearchParams[]
+  caddieDecisionBodies: RecordedDecisionRequest[]
+}
+
+async function mockApi(page: Page): Promise<MockApiRecords> {
   // Recorded ?include_shots values of every /prep request: the scatter walk is
   // only honest if the page actually asked the server for yourShots.
   const prepIncludeShots: Array<string | null> = []
+  // Recorded 要建议 wire traffic: context GET queries + decision POST bodies,
+  // so the 实战 walk can assert exactly what the sandbox requested.
+  const caddieContextQueries: URLSearchParams[] = []
+  const caddieDecisionBodies: RecordedDecisionRequest[] = []
   await page.route('**/api/v2/**', async (route) => {
     const requestUrl = new URL(route.request().url())
     const path = requestUrl.pathname
     if (path === '/api/v2/history/overview') return route.fulfill({ json: overviewPayload })
     if (path === '/api/v2/history/rounds') return route.fulfill({ json: roundsPayload })
+    if (path === '/api/v2/history/rounds/900001') return route.fulfill({ json: replayRoundDetailPayload })
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload })
+    if (path === '/api/v2/caddie/context') {
+      caddieContextQueries.push(requestUrl.searchParams)
+      return route.fulfill({ json: caddieContextPayload(requestUrl.searchParams) })
+    }
+    if (path === '/api/v2/caddie/decision') {
+      const body = route.request().postDataJSON() as RecordedDecisionRequest
+      caddieDecisionBodies.push(body)
+      return route.fulfill({ json: caddieDecisionPayload(body.context?.strategyMode) })
+    }
     if (path === '/api/v2/sync/status') return route.fulfill({ json: syncStatusPayload })
     if (path === '/api/v2/mobile/courses/options') return route.fulfill({ json: mobileCourseOptionsPayload })
     if (path === '/api/v2/courses/search') return route.fulfill({ json: courseSearchPayload })
@@ -701,7 +952,7 @@ async function mockApi(page: Page): Promise<{ prepIncludeShots: Array<string | n
     if (path === '/api/v2/annotations') return route.fulfill({ json: annotationsPayload })
     return route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } })
   })
-  return { prepIncludeShots }
+  return { prepIncludeShots, caddieContextQueries, caddieDecisionBodies }
 }
 
 async function assertNoViewportOverflow(page: Page) {

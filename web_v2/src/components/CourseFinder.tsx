@@ -16,6 +16,9 @@ interface CourseFinderProps {
   onSelectCourse: (globalId: number, name?: string) => void
   heading?: string
   sub?: string
+  // Frequent-card CTA copy: prep keeps the default 去备战, the 实战 sandbox
+  // passes 开始模拟 (same select handler either way).
+  ctaLabel?: string
 }
 
 type SearchState =
@@ -57,6 +60,7 @@ export function CourseFinder({
   onSelectCourse,
   heading = '想备哪场?',
   sub = '搜索球场,或从常打球场直接开备战。',
+  ctaLabel = '去备战',
 }: CourseFinderProps) {
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState<SearchState>({ status: 'idle' })
@@ -117,8 +121,8 @@ export function CourseFinder({
               <article key={course.globalId} className="home-course-card">
                 <b className="home-course-name">{course.name}</b>
                 <span className="home-course-meta">打过 {asNumber(course.roundCount) ?? 0} 次</span>
-                <button type="button" aria-label={`去备战 ${course.name}`} onClick={() => onSelectCourse(course.globalId, course.name)}>
-                  去备战
+                <button type="button" aria-label={`${ctaLabel} ${course.name}`} onClick={() => onSelectCourse(course.globalId, course.name)}>
+                  {ctaLabel}
                 </button>
               </article>
             ))}

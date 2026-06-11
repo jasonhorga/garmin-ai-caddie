@@ -1474,11 +1474,50 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
     expect(screen.queryByText('History API unavailable')).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: '概览' }))
     expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+  })
+
+  it('re-entering 实战 retries boot-failed overview and course options', async () => {
+    let bootBroken = true
+    const fetchMock = vi.fn(async (path: string) => {
+      if (bootBroken && (path === '/api/v2/history/overview' || path === '/api/v2/mobile/courses/options')) {
+        return { ok: false, status: 503, statusText: 'Service Unavailable' }
+      }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayloadWithRoundRefs()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+
+    // 实战 during the outage: the sandbox entry renders, but with no 常打球场
+    // card (courseOptions failed) and no replay rows (overview failed).
+    await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    expect(await screen.findByRole('heading', { name: '选择球场开始模拟' })).toBeInTheDocument()
+    expect(screen.queryByText('Black Knight B/C')).not.toBeInTheDocument()
+
+    // Backend recovers → tapping 实战 again retries BOTH boot failures the
+    // way 概览/备战 already do (options reload + keep-ready overview refresh).
+    bootBroken = false
+    await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    expect(await screen.findByText('Black Knight B/C')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '最近回放' }))
+    expect(await screen.findByRole('button', { name: '回放 Black Knight B 05-20' })).toBeInTheDocument()
   })
 
   it('备战 with no chosen course shows the entry finder without prep fetches', async () => {
@@ -2119,6 +2158,10 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    // 实战 lands on the LivePage 决策沙盘 entry; the legacy dashboard sits
+    // verbatim behind 完整工具.
+    expect(await screen.findByRole('heading', { name: '选择球场开始模拟' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
     // The 备战 page (entry finder heading) must not leak into the 实战 workspace.
     expect(screen.queryByRole('heading', { name: '选择球场开始备战' })).not.toBeInTheDocument()
@@ -2228,6 +2271,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('1D on H5')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
     expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
     expect(screen.getByLabelText('Source ref')).toHaveValue('900002:5:4')
 
@@ -2238,5 +2282,43 @@ describe('App navigation', () => {
         /^\/api\/v2\/caddie\/context\?source_ref=900002%3A5%3A4&shot_type=approach&distance_to_pin_m=142&lie=fairway&captured_at=/,
       ),
     )
+  })
+
+  it('最近回放 replays a recent round and reuses the app drilldown + AI review plumbing', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
+        if (path === '/api/v2/reports/round/1') return roundReportPayload('1')
+        if (path === '/api/v2/history/drilldown/1%3A1') return overviewHoleDrilldownPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayloadWithRoundRefs()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    // The replay detail stays lazy until the 最近回放 tab actually opens.
+    expect(fetchMock.mock.calls.some(([path]) => path === '/api/v2/history/rounds/1')).toBe(false)
+    await userEvent.click(screen.getByRole('button', { name: '最近回放' }))
+
+    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
+    expect(screen.getByRole('button', { name: '回放 Black Knight B 05-20' })).toHaveAttribute('aria-current', 'true')
+
+    // AI review buttons run through App's report plumbing, as on history pages.
+    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
+    expect(await screen.findByText('Round review from scorecard facts.')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1')
+
+    // Scorecard refs open the same drilldown panel as on history pages, below LivePage.
+    await userEvent.click(screen.getByRole('button', { name: 'Open hole 1 detail 1:1' }))
+    expect(await screen.findByText('Black Knight B H1')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1%3A1')
   })
 })
