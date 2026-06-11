@@ -38,12 +38,12 @@ describe('HistoryTimeline', () => {
   it('renders month-grouped round cards and month summary stats', () => {
     render(<HistoryTimeline data={payload} />)
 
-    expect(screen.getByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
     expect(screen.queryByText('AI Caddie v2')).not.toBeInTheDocument()
-    expect(screen.getByText('May 2026')).toBeInTheDocument()
-    expect(screen.getByText('2 rounds')).toBeInTheDocument()
-    expect(screen.getByText('avg 82')).toBeInTheDocument()
-    expect(screen.getByText('best 82')).toBeInTheDocument()
+    expect(screen.getByText('2026年5月')).toBeInTheDocument()
+    expect(screen.getByText('2 场')).toBeInTheDocument()
+    expect(screen.getByText('均 82')).toBeInTheDocument()
+    expect(screen.getByText('最佳 82')).toBeInTheDocument()
     expect(screen.getByText('Black Knight B')).toBeInTheDocument()
   })
 
@@ -73,7 +73,7 @@ describe('HistoryTimeline', () => {
 
     render(<HistoryTimeline data={payload} onSelectRef={onSelectRef} onOpenRoundDetail={onOpenRoundDetail} />)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 1' }))
 
     expect(onOpenRoundDetail).toHaveBeenCalledWith('1')
@@ -102,15 +102,15 @@ describe('HistoryTimeline', () => {
     const onFilterChange = vi.fn()
     render(<HistoryTimeline data={filterData} filters={{}} onFilterChange={onFilterChange} />)
 
-    await userEvent.selectOptions(screen.getByLabelText('Year'), '2026')
+    await userEvent.selectOptions(screen.getByLabelText('年份'), '2026')
     expect(onFilterChange).toHaveBeenCalledWith({ year: '2026' })
 
-    await userEvent.click(screen.getByLabelText('Has shots'))
+    await userEvent.click(screen.getByLabelText('有击球'))
     expect(onFilterChange).toHaveBeenCalledWith({ hasShots: true })
   })
 
   it('omits the filter bar when filtering is not enabled', () => {
     render(<HistoryTimeline data={filterData} />)
-    expect(screen.queryByLabelText('Year')).toBeNull()
+    expect(screen.queryByLabelText('年份')).toBeNull()
   })
 })

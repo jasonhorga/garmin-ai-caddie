@@ -9,12 +9,27 @@ interface HistoryTimelineProps {
   onOpenRoundDetail?: (roundRef: string) => void
 }
 
+const MONTH_ZH: Record<string, string> = {
+  January: '1', February: '2', March: '3', April: '4',
+  May: '5', June: '6', July: '7', August: '8',
+  September: '9', October: '10', November: '11', December: '12',
+}
+
+function formatMonthLabel(label: string): string {
+  const match = label.match(/^([A-Za-z]+)\s+(\d{4})$/)
+  if (!match) return label
+  const [, monthEn, year] = match
+  const monthNum = MONTH_ZH[monthEn]
+  if (!monthNum) return label
+  return `${year}年${monthNum}月`
+}
+
 function metric(value: number | null) {
   return value === null ? '-' : String(value)
 }
 
 function monthSummary(group: MonthRoundGroup) {
-  return `${group.count} ${group.count === 1 ? 'round' : 'rounds'}`
+  return `${group.count} 场`
 }
 
 export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, onOpenRoundDetail }: HistoryTimelineProps) {
@@ -22,53 +37,55 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
     <>
       <section className="overview-hero">
         <div>
-          <p className="eyebrow">Round Archive</p>
-          <h1>Rounds</h1>
-          <p className="lead">Month-grouped Garmin rounds with score strips, scoring shape, and coverage context.</p>
+          <p className="eyebrow">球局存档</p>
+          <h1>球局</h1>
+          <p className="lead">按月分组的球局记录，含成绩条、得分形态与数据覆盖。</p>
         </div>
       </section>
 
       {onFilterChange ? (
-        <section className="panel timeline-filters" aria-label="Timeline filters">
-          <label>
-            Year
+        <section className="w4-filter-bar" aria-label="筛选条件">
+          <label className="w4-filter-label">
+            年份
             <select
+              className="w4-filter-select"
               value={filters?.year ?? ''}
               onChange={(event) => onFilterChange({ ...filters, year: event.target.value || undefined })}
             >
-              <option value="">All years</option>
+              <option value="">全部年份</option>
               {(data.availableYears ?? []).map((year) => (
                 <option key={year} value={year}>{year}</option>
               ))}
             </select>
           </label>
-          <label>
-            Course
+          <label className="w4-filter-label">
+            球场
             <select
+              className="w4-filter-select"
               value={filters?.course ?? ''}
               onChange={(event) => onFilterChange({ ...filters, course: event.target.value || undefined })}
             >
-              <option value="">All courses</option>
+              <option value="">全部球场</option>
               {(data.availableCourses ?? []).map((course) => (
                 <option key={course.key} value={course.key}>{course.label}</option>
               ))}
             </select>
           </label>
-          <label className="filter-toggle">
+          <label className="w4-filter-check">
             <input
               type="checkbox"
               checked={filters?.hasShots ?? false}
               onChange={(event) => onFilterChange({ ...filters, hasShots: event.target.checked || undefined })}
             />
-            Has shots
+            有击球
           </label>
-          <label className="filter-toggle">
+          <label className="w4-filter-check">
             <input
               type="checkbox"
               checked={filters?.hasReport ?? false}
               onChange={(event) => onFilterChange({ ...filters, hasReport: event.target.checked || undefined })}
             />
-            Has report
+            有报告
           </label>
         </section>
       ) : null}
@@ -80,17 +97,17 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
         </section>
       ) : null}
 
-      <section className="timeline-stack" aria-label="History timeline">
+      <section className="timeline-stack" aria-label="球局时间线">
         {data.groups.map((group) => (
           <section className="timeline-month" key={group.key}>
             <div className="timeline-month-head">
               <div>
-                <h2>{group.label}</h2>
+                <h2>{formatMonthLabel(group.label)}</h2>
                 <p>{monthSummary(group)}</p>
               </div>
               <div className="timeline-month-stats">
-                <span>avg {metric(group.average18)}</span>
-                <span>best {metric(group.bestScore)}</span>
+                <span>均 {metric(group.average18)}</span>
+                <span>最佳 {metric(group.bestScore)}</span>
               </div>
             </div>
             <div className="round-list">

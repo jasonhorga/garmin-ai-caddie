@@ -1046,10 +1046,10 @@ export default function App() {
       if (roundsState.status === 'error') {
         return (
           <section className="panel empty-state">
-            <h1>Rounds unavailable</h1>
+            <h1>球局数据不可用</h1>
             <p>{roundsState.message}</p>
             <button type="button" onClick={() => void loadRoundsState()}>
-              Retry rounds
+              重试
             </button>
             <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
             <button type="button" onClick={() => navigate('sync-quality')}>
@@ -1060,7 +1060,7 @@ export default function App() {
       }
       return (
         <section className="panel empty-state">
-          <h1>Loading rounds</h1>
+          <h1>球局加载中</h1>
         </section>
       )
     }

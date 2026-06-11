@@ -1033,8 +1033,8 @@ describe('App navigation', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
 
-    expect(await screen.findByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
-    expect(screen.getByText('May 2026')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
+    expect(screen.getByText('2026年5月')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status')
     await waitFor(() => expect(screen.queryByText('History API unavailable')).not.toBeInTheDocument())
@@ -1444,7 +1444,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
 
-    expect(await screen.findByRole('heading', { name: 'Rounds unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '球局数据不可用' })).toBeInTheDocument()
     expect(screen.getByText('如需配置访问密钥，请前往 设置 → 同步与数据健康。')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
@@ -1583,8 +1583,8 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
-    expect(await screen.findByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+    expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
 
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/rounds/1')).toHaveLength(2)
   })

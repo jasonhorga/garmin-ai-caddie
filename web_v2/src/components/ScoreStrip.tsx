@@ -12,8 +12,8 @@ export function ScoreStrip({ cells }: ScoreStripProps) {
         <span
           key={cell.hole}
           className={`score-cell score-${cell.className}`}
-          aria-label={`Hole ${cell.hole}: ${cell.className}, par ${cell.par ?? '-'}, score ${cell.score ?? '-'}`}
-          title={`Hole ${cell.hole} - par ${cell.par ?? '-'} - score ${cell.score ?? '-'}`}
+          aria-label={`第${cell.hole}洞: ${cell.className}, 标准杆 ${cell.par ?? '-'}, 成绩 ${cell.score ?? '-'}`}
+          title={`第${cell.hole}洞 - 标准杆 ${cell.par ?? '-'} - 成绩 ${cell.score ?? '-'}`}
         >
           {cell.score ?? '-'}
         </span>

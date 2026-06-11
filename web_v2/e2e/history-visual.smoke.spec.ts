@@ -701,15 +701,15 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
 
   // exact: home 近期状态 has a 看历史 → button whose name would substring-match 历史.
   await page.getByRole('button', { name: '历史', exact: true }).click()
-  for (const [tab, heading] of [
-    ['趋势总览', '成绩走势'],
-    ['球局', 'Rounds'],
-    ['强弱分析', 'Hole Stats'],
-    ['球场', 'Course Stats'],
-    ['报告', 'Reports'],
+  for (const [tab, heading, level] of [
+    ['趋势总览', '成绩走势', 2],
+    ['球局', '球局', 1],
+    ['强弱分析', 'Hole Stats', 2],
+    ['球场', 'Course Stats', 1],
+    ['报告', 'Reports', 1],
   ] as const) {
     await page.getByRole('button', { name: tab }).click()
-    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: heading, exact: true, level })).toBeVisible()
     await assertNoViewportOverflow(page)
     await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
   }
