@@ -1179,31 +1179,56 @@ export default function App() {
     if (activePage === 'caddie') {
       // 实战 renders the LivePage shell; the old CaddiePage props bundle moves
       // VERBATIM into caddieProps for the 完整工具 tab (zero tooling deleted).
+      // The 最近回放 detail panel gets the SAME drilldown/annotation/AI-review
+      // handlers the history pages give HistoryRoundDetailPanel; the panels
+      // those handlers open render below LivePage exactly like the
+      // sync-quality page (drilldown + hole evidence only — the App-level
+      // round detail panel stays off this page because 最近回放 owns its own).
       return (
-        <LivePage
-          courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
-          adminToken={currentAdminToken()}
-          onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
-          recentRounds={overviewState.status === 'ready' ? overviewState.data.recentRounds : []}
-          caddieProps={{
-            decisionState,
-            auditState: decisionAuditState,
-            weatherState,
-            contextState: caddieContextState,
-            mediaState,
-            onRequestDecision: (request) => void handleRequestCaddieDecision(request),
-            onCreateAudit: (decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot),
-            onLoadWeather: (params) => void handleLoadWeather(params),
-            onLoadCaddieContext: (params) => void handleLoadCaddieContext(params),
-            onLoadMediaContext: (target) => void handleLoadMediaContext(target),
-            onAttachMedia: handleAttachMedia,
-            onAnalyzeMedia: (mediaId) => void handleAnalyzeMedia(mediaId),
-            onRedactMedia: (mediaId) => void handleRedactMedia(mediaId),
-            onConfirmVisionFinding: (findingId, confirmationState) => void handleConfirmVisionFinding(findingId, confirmationState),
-            onSelectRef: (sourceRef) => void handleSelectSourceRef(sourceRef),
-            selectedSourceRef: selectedCaddieSourceRef,
-          }}
-        />
+        <>
+          <LivePage
+            courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
+            adminToken={currentAdminToken()}
+            onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
+            recentRounds={overviewState.status === 'ready' ? overviewState.data.recentRounds : []}
+            reportState={reportState}
+            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onCreateAnnotationForRound={handleCreateAnnotationForSource}
+            onLoadRoundReport={handleLoadRoundReport}
+            onGenerateRoundReport={handleGenerateRoundReport}
+            caddieProps={{
+              decisionState,
+              auditState: decisionAuditState,
+              weatherState,
+              contextState: caddieContextState,
+              mediaState,
+              onRequestDecision: (request) => void handleRequestCaddieDecision(request),
+              onCreateAudit: (decision, actualShot) => void handleCreateDecisionAudit(decision, actualShot),
+              onLoadWeather: (params) => void handleLoadWeather(params),
+              onLoadCaddieContext: (params) => void handleLoadCaddieContext(params),
+              onLoadMediaContext: (target) => void handleLoadMediaContext(target),
+              onAttachMedia: handleAttachMedia,
+              onAnalyzeMedia: (mediaId) => void handleAnalyzeMedia(mediaId),
+              onRedactMedia: (mediaId) => void handleRedactMedia(mediaId),
+              onConfirmVisionFinding: (findingId, confirmationState) => void handleConfirmVisionFinding(findingId, confirmationState),
+              onSelectRef: (sourceRef) => void handleSelectSourceRef(sourceRef),
+              selectedSourceRef: selectedCaddieSourceRef,
+            }}
+          />
+          <HistoryDrilldownPanel
+            state={drilldownState}
+            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onCreateAnnotationForSource={handleCreateAnnotationForSource}
+          />
+          {holeEvidenceState.status === 'idle' ? null : (
+            <HoleEvidencePanel
+              state={holeEvidenceState}
+              ensureState={geometryEnsureState}
+              onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
+            />
+          )}
+        </>
       )
     }
 

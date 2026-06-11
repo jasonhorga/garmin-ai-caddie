@@ -4996,3 +4996,9 @@ button.round-detail-cell:hover {
 .live-page .subnav--inner {
   margin-bottom: 0;
 }
+
+/* 最近回放: round picker rows reuse the trends-round-row/pchip classes; the
+   selected round gets a tint so the rendered detail is attributable. */
+.live-replay-list .trends-round-row.selected {
+  background: var(--green-tint);
+}

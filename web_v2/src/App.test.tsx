@@ -2245,4 +2245,42 @@ describe('App navigation', () => {
       ),
     )
   })
+
+  it('最近回放 replays a recent round and reuses the app drilldown + AI review plumbing', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
+        if (path === '/api/v2/reports/round/1') return roundReportPayload('1')
+        if (path === '/api/v2/history/drilldown/1%3A1') return overviewHoleDrilldownPayload()
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayloadWithRoundRefs()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    // The replay detail stays lazy until the 最近回放 tab actually opens.
+    expect(fetchMock.mock.calls.some(([path]) => path === '/api/v2/history/rounds/1')).toBe(false)
+    await userEvent.click(screen.getByRole('button', { name: '最近回放' }))
+
+    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
+    expect(screen.getByRole('button', { name: '回放 Black Knight B 05-20' })).toHaveAttribute('aria-current', 'true')
+
+    // AI review buttons run through App's report plumbing, as on history pages.
+    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
+    expect(await screen.findByText('Round review from scorecard facts.')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1')
+
+    // Scorecard refs open the same drilldown panel as on history pages, below LivePage.
+    await userEvent.click(screen.getByRole('button', { name: 'Open hole 1 detail 1:1' }))
+    expect(await screen.findByText('Black Knight B H1')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1%3A1')
+  })
 })
