@@ -1482,6 +1482,44 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
   })
 
+  it('re-entering 实战 retries boot-failed overview and course options', async () => {
+    let bootBroken = true
+    const fetchMock = vi.fn(async (path: string) => {
+      if (bootBroken && (path === '/api/v2/history/overview' || path === '/api/v2/mobile/courses/options')) {
+        return { ok: false, status: 503, statusText: 'Service Unavailable' }
+      }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayloadWithRoundRefs()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+
+    // 实战 during the outage: the sandbox entry renders, but with no 常打球场
+    // card (courseOptions failed) and no replay rows (overview failed).
+    await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    expect(await screen.findByRole('heading', { name: '选择球场开始模拟' })).toBeInTheDocument()
+    expect(screen.queryByText('Black Knight B/C')).not.toBeInTheDocument()
+
+    // Backend recovers → tapping 实战 again retries BOTH boot failures the
+    // way 概览/备战 already do (options reload + keep-ready overview refresh).
+    bootBroken = false
+    await userEvent.click(screen.getByRole('button', { name: '实战' }))
+    expect(await screen.findByText('Black Knight B/C')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '最近回放' }))
+    expect(await screen.findByRole('button', { name: '回放 Black Knight B 05-20' })).toBeInTheDocument()
+  })
+
   it('备战 with no chosen course shows the entry finder without prep fetches', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,

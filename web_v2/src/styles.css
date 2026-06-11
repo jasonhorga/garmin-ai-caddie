@@ -4997,6 +4997,19 @@ button.round-detail-cell:hover {
   margin-bottom: 0;
 }
 
+/* 沙盘 keep-alive: LivePage keeps the sandbox MOUNTED across tab peeks so the
+   course/hole/ball state survives. display:contents keeps its panels direct
+   flex children of .live-page (column gap preserved); the higher-specificity
+   [hidden] rule restores display:none, which the author-level
+   display:contents would otherwise override. */
+.live-keepalive {
+  display: contents;
+}
+
+.live-keepalive[hidden] {
+  display: none;
+}
+
 /* 最近回放: round picker rows reuse the trends-round-row/pchip classes; the
    selected round gets a tint so the rendered detail is attributable. */
 .live-replay-list .trends-round-row.selected {
@@ -5077,6 +5090,16 @@ button.round-detail-cell:hover {
   color: var(--ink);
 }
 
+/* 键盘摆位: the manual 到果岭 input rides next to the readout on mapped holes
+   so the drag canvas is never the only way to set a distance. */
+.live-sandbox-readout-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 14px;
+}
+
 .live-sandbox-hint {
   margin: 0;
   text-align: center;
@@ -5125,6 +5148,20 @@ button.round-detail-cell:hover {
   background: var(--bg);
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* 逆风 control: the helper line wraps under the input and says exactly what
+   the engine computes (headwind-only fold, decision.py:1487-1502). */
+.live-sandbox-control--helper {
+  flex-wrap: wrap;
+  max-width: 230px;
+}
+
+.live-sandbox-helper {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
 }
 
 /* 沙盘建议 (T4): 策略 segmented + 要建议 action row, then the advice card. */

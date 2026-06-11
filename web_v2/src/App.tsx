@@ -389,6 +389,14 @@ export default function App() {
       if (statsState.status === 'idle' || statsState.status === 'error') void loadStatsState()
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
     }
+    if (page === 'caddie') {
+      // 实战 composes course options (沙盘 course pick) + overview recentRounds
+      // (回放 rows AND the sandbox advice sourceRef chain) — same lazy retry as
+      // 概览/备战 above; overview goes through the keep-ready refresh helper so
+      // a still-broken backend cannot clobber an already-ready payload.
+      if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
+      if (overviewState.status === 'error') void refreshOverviewState()
+    }
     if (page === 'rounds' && roundsState.status === 'idle') {
       void loadRoundsState()
     }

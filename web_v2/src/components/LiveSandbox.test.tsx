@@ -166,6 +166,21 @@ function caddieContextFixture(): CaddieContextResponse {
   }
 }
 
+// The HTTP-200 degraded payload build_caddie_context returns for an
+// UNRESOLVABLE ref (caddie_context.py:227-235 `_missing_context`): context
+// carries ONLY source/sourceRef/shotType — no roundId, and the user's
+// distance/lie are DROPPED — plus a 'source_ref' missingData row.
+function missingContextFixture(sourceRef: string): CaddieContextResponse {
+  return {
+    schema: 'ai-caddie-context-v1',
+    sourceRef,
+    shotType: 'tee',
+    context: { source: 'history_drilldown', sourceRef, shotType: 'tee' },
+    evidence: [],
+    missingData: [{ label: 'source_ref', reason: 'source reference was not found' }],
+  }
+}
+
 // App.test caddieDecisionPayload shape, extended with the option numbers the
 // advice card renders (carry/risk/confidence) + explanation/acceptableMiss.
 function caddieDecisionFixture(overrides: Partial<CaddieDecisionResponse> = {}): CaddieDecisionResponse {
@@ -441,6 +456,56 @@ describe('LiveSandbox ball + situation readout', () => {
     expect(screen.queryByText('距T 100m · 到果岭 100m')).not.toBeInTheDocument()
     expect(view.container.querySelector('circle[r="12"]')!.getAttribute('cx')).toBe('0')
   })
+
+  it('typing 到果岭 on a mapped hole overrides the readout, ball marker, and request distance', async () => {
+    const { view } = renderSandbox()
+    await openCourse()
+
+    await userEvent.type(screen.getByLabelText('到果岭(m)'), '150')
+
+    // 200m hole: 到果岭 150 puts the ball at cum 50 → route point (50, 0).
+    expect(screen.getByText('距T 50m · 到果岭 150m')).toBeInTheDocument()
+    expect(view.container.querySelector('circle[r="12"]')!.getAttribute('cx')).toBe('50')
+    expect(screen.getByLabelText('击球类型')).toHaveValue('approach')
+
+    await userEvent.click(screen.getByRole('button', { name: '要建议' }))
+
+    expect(fetchCaddieContextMock.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ sourceRef: '900002:7', shotType: 'approach', distanceToPinM: 150 }),
+    )
+  })
+
+  it('dragging the ball clears the manual 到果岭 override', async () => {
+    const { view } = renderSandbox()
+    await openCourse()
+    await userEvent.type(screen.getByLabelText('到果岭(m)'), '150')
+    expect(screen.getByText('距T 50m · 到果岭 150m')).toBeInTheDocument()
+
+    const svg = view.container.querySelector('svg')
+    mockSvgRect(svg!)
+    fireEvent.pointerDown(svg!, { clientX: 100, clientY: 0 })
+
+    expect(screen.getByLabelText('到果岭(m)')).toHaveValue(null)
+    expect(screen.getByText('距T 100m · 到果岭 100m')).toBeInTheDocument()
+    expect(view.container.querySelector('circle[r="12"]')!.getAttribute('cx')).toBe('100')
+  })
+
+  it('hides the ball marker when the typed 到果岭 leaves the route but still sends the distance', async () => {
+    const { view } = renderSandbox()
+    await openCourse()
+
+    await userEvent.type(screen.getByLabelText('到果岭(m)'), '250')
+
+    // 250m on a 200m route: no honest ball position exists → no marker, and
+    // the readout drops the unknowable 距T part.
+    expect(view.container.querySelector('circle[r="12"]')).toBeNull()
+    expect(screen.getByText('到果岭 250m')).toBeInTheDocument()
+    expect(screen.queryByText(/距T/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '要建议' }))
+
+    expect(fetchCaddieContextMock.mock.calls[0][0].distanceToPinM).toBe(250)
+  })
 })
 
 describe('LiveSandbox degraded no-map mode', () => {
@@ -561,12 +626,18 @@ describe('LiveSandbox 沙盘建议 inputs + sourceRef rule', () => {
     expect(fetchCaddieContextMock).not.toHaveBeenCalled()
   })
 
-  it('manual wind merges a ready manual weatherSnapshot into the decision context without any weather fetch', async () => {
+  it('manual 逆风 merges a ready headwind-only weatherSnapshot into the decision context without any weather fetch', async () => {
     renderSandbox()
     await openCourse()
 
-    await userEvent.type(screen.getByLabelText('风速(m/s)'), '4.5')
-    await userEvent.type(screen.getByLabelText('风向(°)'), '270')
+    // ONE honest 逆风 input: without shotBearingDeg the engine folds ANY
+    // direction into pure headwind (decision.py:1487-1502), so the old 风速+
+    // 风向 pair shipped an inert 风向 control.
+    expect(screen.queryByLabelText('风速(m/s)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('风向(°)')).not.toBeInTheDocument()
+    expect(screen.getByText('引擎按逆风折算;顺风请留空')).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('逆风(m/s)'), '4.5')
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
     await screen.findByLabelText('沙盘建议')
 
@@ -586,7 +657,7 @@ describe('LiveSandbox 沙盘建议 inputs + sourceRef rule', () => {
         state: 'ready',
         source: 'manual',
         windSpeedMps: 4.5,
-        windDirectionDeg: 270,
+        windDirectionDeg: null,
         confidence: 'medium',
       }),
     )
@@ -595,11 +666,10 @@ describe('LiveSandbox 沙盘建议 inputs + sourceRef rule', () => {
     expect(fetchWeatherSnapshotMock).not.toHaveBeenCalled()
   })
 
-  it('without wind speed the decision context carries no weatherSnapshot', async () => {
+  it('without a 逆风 value the decision context carries no weatherSnapshot', async () => {
     renderSandbox()
     await openCourse()
 
-    await userEvent.type(screen.getByLabelText('风向(°)'), '90')
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
     await screen.findByLabelText('沙盘建议')
 
@@ -619,6 +689,89 @@ describe('LiveSandbox 沙盘建议 inputs + sourceRef rule', () => {
     )
     const card = await screen.findByLabelText('沙盘建议')
     expect(within(card).getByText('8I', { selector: '.live-advice-club' })).toBeInTheDocument()
+  })
+})
+
+// The W3 adversarial-review CRITICAL: a 'roundId:hole' ref whose round lacks
+// that hole is NOT an HTTP error — build_caddie_context answers 200 with the
+// _missing_context shape (no roundId, 'source_ref' missingData) and the
+// user's distance/lie silently dropped, after which the engine floors the
+// distance to 1m and recommends an absurd 7m chip. requestAdvice must detect
+// that shape and walk the documented fallback chain instead.
+describe('LiveSandbox unresolved sourceRef fallback', () => {
+  it('retries an unresolved hole ref ONCE with the bare on-course round ref and renders from it', async () => {
+    fetchCaddieContextMock.mockImplementationOnce(async (params) => missingContextFixture(params.sourceRef))
+    renderSandbox()
+    await openCourse('开始模拟 Black Knight B/C')
+
+    await userEvent.click(screen.getByRole('button', { name: '要建议' }))
+
+    const card = await screen.findByLabelText('沙盘建议')
+    expect(within(card).getByText('8I', { selector: '.live-advice-club' })).toBeInTheDocument()
+    expect(fetchCaddieContextMock).toHaveBeenCalledTimes(2)
+    expect(fetchCaddieContextMock.mock.calls[0][0].sourceRef).toBe('900777:1')
+    // The retry re-sends the FULL situation against the bare (no ':hole')
+    // round ref — always resolvable for a known round.
+    expect(fetchCaddieContextMock.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ sourceRef: '900777', shotType: 'tee', distanceToPinM: 200 }),
+    )
+    // The decision consumes the RESOLVED retry context, not the degraded one.
+    expect(fetchCaddieDecisionMock).toHaveBeenCalledTimes(1)
+    expect(fetchCaddieDecisionMock.mock.calls[0][0].context).toEqual(expect.objectContaining({ roundId: '900002' }))
+  })
+
+  it('falls back to the latest ANY round when the bare on-course ref is still unresolved', async () => {
+    fetchCaddieContextMock.mockImplementation(async (params) =>
+      params.sourceRef === '900050' ? caddieContextFixture() : missingContextFixture(params.sourceRef),
+    )
+    renderSandbox()
+    await openCourse('开始模拟 Black Knight B/C')
+
+    await userEvent.click(screen.getByRole('button', { name: '要建议' }))
+
+    await screen.findByLabelText('沙盘建议')
+    expect(fetchCaddieContextMock.mock.calls.map(([params]) => params.sourceRef)).toEqual(['900777:1', '900777', '900050'])
+    expect(fetchCaddieDecisionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops after the documented chain with a zh error when nothing resolves', async () => {
+    fetchCaddieContextMock.mockImplementation(async (params) => missingContextFixture(params.sourceRef))
+    renderSandbox()
+    await openCourse('开始模拟 Black Knight B/C')
+
+    await userEvent.click(screen.getByRole('button', { name: '要建议' }))
+
+    const errorPanel = await screen.findByLabelText('建议生成失败')
+    expect(within(errorPanel).getByText('历史球局引用无法解析,无法生成建议')).toBeInTheDocument()
+    // At most the documented chain: hole ref → bare on-course → bare latest
+    // ANY — never a fourth request.
+    expect(fetchCaddieContextMock.mock.calls.map(([params]) => params.sourceRef)).toEqual(['900777:1', '900777', '900050'])
+    expect(fetchCaddieDecisionMock).not.toHaveBeenCalled()
+  })
+
+  it('abandons the retry chain when a course switch supersedes the request', async () => {
+    let resolveFirst!: (value: CaddieContextResponse) => void
+    const first = new Promise<CaddieContextResponse>((resolve) => {
+      resolveFirst = resolve
+    })
+    fetchCaddieContextMock.mockImplementationOnce(() => first)
+    renderSandbox()
+    await openCourse('开始模拟 Black Knight B/C')
+
+    await userEvent.click(screen.getByRole('button', { name: '要建议' }))
+    await userEvent.click(screen.getByRole('button', { name: '换球场' }))
+
+    // The dead request's first hop resolves unresolved AFTER the seq bump —
+    // the chain must stop instead of firing fallback requests.
+    await act(async () => {
+      resolveFirst(missingContextFixture('900777:1'))
+      await first
+    })
+
+    expect(fetchCaddieContextMock).toHaveBeenCalledTimes(1)
+    expect(fetchCaddieDecisionMock).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('沙盘建议')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('建议生成失败')).not.toBeInTheDocument()
   })
 })
 

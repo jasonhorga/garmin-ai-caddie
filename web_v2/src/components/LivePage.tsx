@@ -129,8 +129,15 @@ export function LivePage({
   // 决策沙盘 owns its whole state machine (course → prep fetch → hole picker →
   // ball drag → situation inputs → advice) in the LiveSandbox subcomponent;
   // recentRounds doubles as its advice sourceRef fallback (latest ANY round).
+  // The sandbox stays MOUNTED behind the other tabs ([hidden] wrapper, W3
+  // review): a 回放/完整工具 peek must not tear down a built-up simulation.
+  // 回放/完整工具 themselves keep the cheaper unmount behavior below — their
+  // state is a fetch key (回放) or App-owned (完整工具), so remounts lose
+  // nothing.
   const sandboxContent = (
-    <LiveSandbox courseOptions={courseOptions} adminToken={adminToken} onSearchCourses={onSearchCourses} recentRounds={recentRounds} />
+    <div className="live-keepalive" hidden={tab !== 'sandbox'}>
+      <LiveSandbox courseOptions={courseOptions} adminToken={adminToken} onSearchCourses={onSearchCourses} recentRounds={recentRounds} />
+    </div>
   )
 
   const replayContent = (
@@ -198,7 +205,8 @@ export function LivePage({
           </button>
         ))}
       </nav>
-      {tab === 'sandbox' ? sandboxContent : tab === 'replay' ? replayContent : <CaddiePage {...caddieProps} />}
+      {sandboxContent}
+      {tab === 'replay' ? replayContent : tab === 'tools' ? <CaddiePage {...caddieProps} /> : null}
     </section>
   )
 }

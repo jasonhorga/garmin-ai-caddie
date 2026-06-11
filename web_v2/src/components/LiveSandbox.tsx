@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { fetchCaddieContext, fetchCaddieDecision, fetchCoursePrep } from '../api'
 import type {
   CaddieContextParams,
+  CaddieContextResponse,
   CaddieDecisionResponse,
   CaddieShotType,
   CoursePrepResponse,
@@ -25,7 +26,8 @@ interface LiveSandboxProps {
   adminToken?: string
   onSearchCourses: (name: string) => Promise<CourseSearchResponse>
   // Latest rounds (overview recentRounds) — the advice sourceRef fallback when
-  // the picked course has no played round of its own (rule below).
+  // the picked course has no played round of its own, or when none of its own
+  // refs resolves on the backend (chain rule below).
   recentRounds: RoundCard[]
 }
 
@@ -86,31 +88,57 @@ function findCourseOption(courseOptions: MobileCourseOptionsResponse | null, glo
 // (history_drilldown.py:147-151) and binds geometry/history through the
 // ROUND's own globalId (caddie_context.py:47-67), so a cross-course
 // 'anyRound:hole' ref would either fail outright or inject ANOTHER course's
-// hazards into this course's simulation. Rule therefore:
+// hazards into this course's simulation. The rule is an ORDERED candidate
+// chain — requestAdvice walks it until one ref RESOLVES, because an
+// unresolvable ref is NOT an HTTP error (see isUnresolvedContext below):
 // 1) latest played round ON THIS COURSE + ':hole' → full same-course binding.
 //    Derivable client-side from MobileCourseOption.latestRoundId — the newest
 //    round grouped by this globalId (ai_caddie/mobile_live.py:303-323);
 //    sourceRefs[0] is the same newest-first list's head (fallback for older
 //    payloads without latestRoundId).
-// 2) else the latest ANY round (recentRounds[0]) as a BARE round ref — always
-//    resolvable for a known round (history_drilldown.py:134-135,143-146);
-//    clubProfiles/playerProfile/weather still bind
-//    (caddie_context.py:104-137) while geometry+hole history degrade to
+// 2) the same on-course round as a BARE round ref — a known round always
+//    resolves bare (history_drilldown.py:134-135,143-146) even when it lacks
+//    this hole (e.g. a 9-hole round on an 18-hole course); clubProfiles and
+//    the stored weather still bind (caddie_context.py:104-137) — NOT
+//    playerProfile, which only binds through the hole-keyed history context
+//    (_history_context bails without a local hole,
+//    caddie_context.py:238-291) — while geometry+hole history degrade to
 //    explicit missingData (caddie_context.py:74) instead of wrong-course
 //    facts.
-// 3) else null → 要建议 disabled with a zh hint.
-function deriveAdviceSourceRef(
+// 3) the latest ANY round (recentRounds[0]) as a BARE round ref, same
+//    degraded-but-honest binding as 2.
+// 4) empty chain → 要建议 disabled with a zh hint.
+function adviceSourceRefChain(
   courseOptions: MobileCourseOptionsResponse | null,
   globalId: number,
   holeNumber: number | null,
   recentRounds: RoundCard[],
-): string | null {
+): string[] {
   const option = findCourseOption(courseOptions, globalId)
   const refs = option !== null && Array.isArray(option.sourceRefs) ? option.sourceRefs : []
   const latestOnCourse = asString(option?.latestRoundId) ?? asString(refs[0])
-  if (latestOnCourse !== null && holeNumber !== null) return `${latestOnCourse}:${holeNumber}`
   const latestAny = asString(recentRounds[0]?.id)
-  return latestAny
+  const chain: string[] = []
+  if (latestOnCourse !== null && holeNumber !== null) chain.push(`${latestOnCourse}:${holeNumber}`)
+  if (latestOnCourse !== null) chain.push(latestOnCourse)
+  if (latestAny !== null) chain.push(latestAny)
+  // Dedupe (e.g. latest ANY round == the on-course round): retrying the exact
+  // ref that just failed to resolve would be a wasted request.
+  return chain.filter((ref, index) => chain.indexOf(ref) === index)
+}
+
+// Unresolved-ref detection (W3 adversarial review, REPRODUCED on real data:
+// 4/24 courses): when the ref does not resolve, the backend still answers
+// HTTP 200 with the _missing_context shape (caddie_context.py:227-235) —
+// context carries ONLY {source, sourceRef, shotType} and the user's
+// distance/lie are silently DROPPED, after which the decision engine floors
+// the missing distance to 1m and emits absurd ~7m advice. Key the detection
+// on both signals of that shape: a RESOLVED context always carries roundId
+// (caddie_context.py:157-158), and the degraded one carries the 'source_ref'
+// missingData row.
+function isUnresolvedContext(response: CaddieContextResponse): boolean {
+  if (asString(recordFrom(response.context).roundId) === null) return true
+  return asRows(response.missingData).some((row) => asString(row.label) === 'source_ref')
 }
 
 // CaddiePage numericInput idiom: blank → undefined, otherwise a finite number.
@@ -134,14 +162,21 @@ function recordFrom(value: unknown): Record<string, unknown> {
 // evidence text, decision.py:1466-1476), so a shape-compatible
 // WeatherSnapshotResponse with state 'ready' is the cheapest CORRECT path;
 // confidence mirrors the backend's manual-ready 'medium'
-// (weather_context.py:111) and the direction is integer like its
-// _int_or_none coercion. Wind direction alone is not a wind: the engine
-// treats speed<=0 as no adjustment, so the snapshot only attaches when a
-// speed is set.
-function manualWindSnapshot(windSpeed: string, windDirection: string): WeatherSnapshotResponse | null {
-  const speed = parseNumberInput(windSpeed)
+// (weather_context.py:111).
+//
+// The input is ONE 逆风 speed on purpose (W3 review honesty fix): the
+// direction-aware head/tail/cross split needs BOTH windDirectionDeg AND
+// context.shotBearingDeg, and without a bearing the engine classifies ANY
+// direction as pure headwind at +1.5×speed metres (decision.py:1487-1502).
+// The sandbox can never supply shotBearingDeg (no geo frame, see the units
+// note), so a 风向 input would be an inert control that silently changes
+// nothing — the snapshot ships windDirectionDeg: null and the label promises
+// exactly what the engine computes (逆风折算;顺风请留空). The engine treats
+// speed<=0 as no adjustment, so the snapshot only attaches when a speed is
+// set.
+function manualWindSnapshot(headwindSpeed: string): WeatherSnapshotResponse | null {
+  const speed = parseNumberInput(headwindSpeed)
   if (speed === undefined || speed < 0) return null
-  const direction = parseNumberInput(windDirection)
   return {
     schema: 'ai-caddie-weather-snapshot-v1',
     state: 'ready',
@@ -151,7 +186,7 @@ function manualWindSnapshot(windSpeed: string, windDirection: string): WeatherSn
     capturedAt: new Date().toISOString(),
     location: null,
     windSpeedMps: speed,
-    windDirectionDeg: direction === undefined ? null : Math.round(direction),
+    windDirectionDeg: null,
     temperatureC: null,
     precipitationMm: null,
     confidence: 'medium',
@@ -257,17 +292,17 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
   // null → shotType derives from the ball (tee at cum 0, otherwise approach);
   // a user pick from the 击球类型 select wins until the hole changes.
   const [shotTypeOverride, setShotTypeOverride] = useState<CaddieShotType | null>(null)
-  // Degraded no-map mode: holes without rendered geometry swap the canvas for
-  // this manual 到果岭 metres input — the sandbox stays fully usable (T4 reads
-  // distanceToPinM from here when there is no ball to drag).
+  // Manual 到果岭 metres (keyboard path). On mapped holes it is an OVERRIDE
+  // that wins over the dragged ball until the next drag clears it; on holes
+  // without rendered geometry it is the ONLY distance input — the sandbox
+  // stays fully usable either way (T4 reads distanceToPinM from here).
   const [manualToGreen, setManualToGreen] = useState('')
   // 球位状态 (sent for non-tee shots only: the context builder excuses tee
   // shots from the lie requirement, ai_caddie/caddie_context.py:100-102, and
   // none of the five surface strings describes a tee box).
   const [lie, setLie] = useState('fairway')
-  // Optional manual wind (speed m/s + direction °) → client-built snapshot.
+  // Optional manual 逆风 (m/s) → client-built headwind-only snapshot.
   const [windSpeed, setWindSpeed] = useState('')
-  const [windDirection, setWindDirection] = useState('')
   // 稳/默认/博; sticky across holes — a player preference, not a ball fact.
   const [strategyMode, setStrategyMode] = useState('')
   const [advice, setAdvice] = useState<AdviceState>({ status: 'idle' })
@@ -360,11 +395,18 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
   const courseName = findCourseOption(courseOptions, course.globalId)?.name ?? course.name ?? `球场 ${course.globalId}`
 
   const overlay = hole?.map?.overlay ?? null
+  // Keyboard path on mapped holes (W3 review): a typed 到果岭 is an override —
+  // effectiveCum places the ball marker at atCum(ln − value) while it stays
+  // within the route; a value past the route has no honest position (the
+  // marker hides) but the distance still drives the request.
+  const manualDistance = parseNumberInput(manualToGreen)
+  const effectiveCum = overlay !== null && manualDistance !== undefined ? overlay.ln - manualDistance : ballCum
+  const ballOnRoute = overlay !== null && effectiveCum >= 0 && effectiveCum <= overlay.ln
   // shotType derives from the ball — on the tee (cum 0) it's a tee shot,
   // anywhere down the route it's an approach; the no-map mode mirrors this
   // (nothing entered ≈ still on the tee). A user 击球类型 pick wins until the
   // hole changes.
-  const derivedShotType: CaddieShotType = (overlay !== null ? ballCum === 0 : manualToGreen.trim() === '') ? 'tee' : 'approach'
+  const derivedShotType: CaddieShotType = (overlay !== null ? effectiveCum === 0 : manualToGreen.trim() === '') ? 'tee' : 'approach'
   const shotType: CaddieShotType = shotTypeOverride ?? derivedShotType
 
   const onPointer = (event: ReactPointerEvent<SVGSVGElement>): void => {
@@ -375,31 +417,52 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
     const px = ((event.clientX - rect.left) / rect.width) * overlay.w
     const py = ((event.clientY - rect.top) / rect.height) * overlay.h
     setBallCum(nearestCum(overlay.route, px, py))
+    // A drag is a new ball placement: it supersedes any typed 到果岭 override.
+    setManualToGreen('')
   }
 
-  const adviceSourceRef = deriveAdviceSourceRef(courseOptions, course.globalId, hole?.hole ?? null, recentRounds)
-  // distanceToPinM per the units note above: 到果岭 = ln − ballCum (1dp) on the
-  // map, the manual 到果岭 input in the degraded mode (blank/invalid → omitted;
+  const adviceRefChain = adviceSourceRefChain(courseOptions, course.globalId, hole?.hole ?? null, recentRounds)
+  // distanceToPinM per the units note above: 到果岭 = ln − effectiveCum (1dp,
+  // i.e. the typed override when set, else the dragged ball) on the map, the
+  // manual 到果岭 input alone in the degraded mode (blank/invalid → omitted;
   // tee shots are excused from distance, approach/recovery get a backend
   // missing_data chip instead of a client error).
-  const adviceDistance = overlay !== null ? Math.round((overlay.ln - ballCum) * 10) / 10 : parseNumberInput(manualToGreen)
+  const adviceDistance = overlay !== null ? manualDistance ?? Math.round((overlay.ln - ballCum) * 10) / 10 : manualDistance
 
   const requestAdvice = (mode: string) => {
-    if (adviceSourceRef === null) return
+    if (adviceRefChain.length === 0) return
     const requestShotType = shotType
     const seq = ++adviceSeq.current
     setAdvice({ status: 'loading' })
     setAltOptionId(null)
-    const params: CaddieContextParams = {
-      sourceRef: adviceSourceRef,
-      shotType: requestShotType,
-      capturedAt: new Date().toISOString(),
+    const paramsFor = (sourceRef: string): CaddieContextParams => {
+      const params: CaddieContextParams = {
+        sourceRef,
+        shotType: requestShotType,
+        capturedAt: new Date().toISOString(),
+      }
+      if (adviceDistance !== undefined) params.distanceToPinM = adviceDistance
+      if (requestShotType !== 'tee') params.lie = lie
+      if (mode.trim()) params.strategyMode = mode
+      return params
     }
-    if (adviceDistance !== undefined) params.distanceToPinM = adviceDistance
-    if (requestShotType !== 'tee') params.lie = lie
-    if (mode.trim()) params.strategyMode = mode
-    const windSnapshot = manualWindSnapshot(windSpeed, windDirection)
-    fetchCaddieContext(params, adminToken)
+    // Walk the candidate chain until one ref RESOLVES (see isUnresolvedContext:
+    // an unresolved ref is an HTTP-200 _missing_context that silently DROPS the
+    // typed distance/lie — feeding it onward would floor the distance to 1m and
+    // recommend a 7m chip from 200m out). Each fallback re-sends the full
+    // situation against the next ref; the chain is finite (≤3 documented
+    // candidates, deduped) and stops as soon as a newer request bumps
+    // adviceSeq, so retries can neither loop nor race a fresher simulation.
+    const resolveContext = async (): Promise<CaddieContextResponse> => {
+      for (let index = 0; index < adviceRefChain.length; index += 1) {
+        if (index > 0 && adviceSeq.current !== seq) break
+        const response = await fetchCaddieContext(paramsFor(adviceRefChain[index]), adminToken)
+        if (!isUnresolvedContext(response)) return response
+      }
+      throw new Error('历史球局引用无法解析,无法生成建议')
+    }
+    const windSnapshot = manualWindSnapshot(windSpeed)
+    resolveContext()
       .then((contextResponse) =>
         // Mirrors CaddiePage's buildDecisionRequest (CaddiePage.tsx:1603-1625):
         // spread the loaded context, re-assert shotType, then layer the
@@ -471,11 +534,11 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
           ))}
         </select>
       </label>
-      <label className="live-sandbox-control">
-        <span>风速(m/s)</span>
+      <label className="live-sandbox-control live-sandbox-control--helper">
+        <span>逆风(m/s)</span>
         <input
           type="number"
-          aria-label="风速(m/s)"
+          aria-label="逆风(m/s)"
           min={0}
           step="0.1"
           inputMode="decimal"
@@ -483,28 +546,39 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
           value={windSpeed}
           onChange={(event) => setWindSpeed(event.target.value)}
         />
-      </label>
-      <label className="live-sandbox-control">
-        <span>风向(°)</span>
-        <input
-          type="number"
-          aria-label="风向(°)"
-          min={0}
-          max={360}
-          inputMode="numeric"
-          placeholder="选填"
-          value={windDirection}
-          onChange={(event) => setWindDirection(event.target.value)}
-        />
+        <span className="live-sandbox-helper">引擎按逆风折算;顺风请留空</span>
       </label>
     </>
+  )
+
+  // The manual 到果岭 control renders in BOTH hole modes (next to the readout
+  // on mapped holes, alone in the degraded mode) — exactly one instance exists
+  // at a time, so its label stays unique.
+  const manualDistanceControl = (
+    <label className="live-sandbox-control">
+      <span>到果岭(m)</span>
+      <input
+        type="number"
+        aria-label="到果岭(m)"
+        min={0}
+        inputMode="decimal"
+        placeholder="如 135"
+        value={manualToGreen}
+        onChange={(event) => setManualToGreen(event.target.value)}
+      />
+    </label>
   )
 
   let holeStage: React.ReactElement | null = null
   if (hole !== null && hole.map && overlay !== null) {
     const tee = atCum(overlay.route, 0)
     const green = atCum(overlay.route, overlay.ln)
-    const ball = atCum(overlay.route, ballCum)
+    // A typed 到果岭 past the route length has no honest map position — render
+    // no ball rather than extrapolating a marker off the playing line.
+    const ball = ballOnRoute ? atCum(overlay.route, effectiveCum) : null
+    const readout = ballOnRoute
+      ? `距T ${formatMetres(effectiveCum)}m · 到果岭 ${formatMetres(overlay.ln - effectiveCum)}m`
+      : `到果岭 ${formatMetres(manualDistance ?? 0)}m`
     holeStage = (
       <div className="live-sandbox-hole">
         <div className="live-sandbox-map">
@@ -526,11 +600,14 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
             />
             <circle cx={tee.x} cy={tee.y} r={9} fill="#4aa3d6" stroke="#fff" strokeWidth={3} />
             <circle cx={green.x} cy={green.y} r={7} fill="#fff" stroke="#333" strokeWidth={2} />
-            <circle cx={ball.x} cy={ball.y} r={12} fill="#e8963a" stroke="#fff" strokeWidth={3} />
+            {ball !== null ? <circle cx={ball.x} cy={ball.y} r={12} fill="#e8963a" stroke="#fff" strokeWidth={3} /> : null}
           </svg>
         </div>
-        <p className="live-sandbox-readout">{`距T ${formatMetres(ballCum)}m · 到果岭 ${formatMetres(overlay.ln - ballCum)}m`}</p>
-        <p className="live-sandbox-hint">拖动橙球摆位</p>
+        <div className="live-sandbox-readout-row">
+          <p className="live-sandbox-readout">{readout}</p>
+          {manualDistanceControl}
+        </div>
+        <p className="live-sandbox-hint">拖动橙球摆位,或直接键入到果岭距离</p>
         <div className="live-sandbox-controls">{situationControls}</div>
       </div>
     )
@@ -539,18 +616,7 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
       <div className="live-sandbox-hole">
         <p className="live-sandbox-nomap">此洞暂无几何图,直接输入到果岭距离。</p>
         <div className="live-sandbox-controls">
-          <label className="live-sandbox-control">
-            <span>到果岭(m)</span>
-            <input
-              type="number"
-              aria-label="到果岭(m)"
-              min={0}
-              inputMode="decimal"
-              placeholder="如 135"
-              value={manualToGreen}
-              onChange={(event) => setManualToGreen(event.target.value)}
-            />
-          </label>
+          {manualDistanceControl}
           {situationControls}
         </div>
       </div>
@@ -578,12 +644,12 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
         <button
           type="button"
           className="live-advice-cta"
-          disabled={adviceSourceRef === null || advice.status === 'loading'}
+          disabled={adviceRefChain.length === 0 || advice.status === 'loading'}
           onClick={() => requestAdvice(strategyMode)}
         >
           要建议
         </button>
-        {adviceSourceRef === null ? <span className="live-advice-hint">暂无历史球局,无法生成建议</span> : null}
+        {adviceRefChain.length === 0 ? <span className="live-advice-hint">暂无历史球局,无法生成建议</span> : null}
       </div>
     )
 

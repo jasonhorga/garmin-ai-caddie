@@ -87,6 +87,28 @@ function roundDetailFixture(roundRef: string): HistoryRoundDetailResponse {
   }
 }
 
+// Minimal geometry-less sandbox hole (chips render from the holes list).
+function sandboxHolePayload(hole: number): CoursePrepResponse['holes'][number] {
+  return {
+    hole,
+    par: 4,
+    par_source: 'estimate',
+    blue_yards: 0,
+    route_len_m: 0,
+    route: [],
+    geometryCoverage: 'missing',
+    sourceRefs: [],
+    missingData: [],
+    candidateRoutes: [],
+    carryTargets: [],
+    steps: [],
+    cautions: [],
+    landing_m: null,
+    tee_club: null,
+    hazards: { water_carry: [], bunkers: [] },
+  }
+}
+
 beforeEach(() => {
   fetchCoursePrepMock.mockReset()
   fetchHistoryRoundDetailMock.mockReset()
@@ -290,7 +312,8 @@ describe('LivePage tabs', () => {
 
     expect(liveTabs().getByRole('button', { name: '最近回放' })).toHaveAttribute('aria-current', 'page')
     expect(liveTabs().getByRole('button', { name: '决策沙盘' })).not.toHaveAttribute('aria-current')
-    expect(screen.queryByRole('heading', { name: '选择球场开始模拟' })).not.toBeInTheDocument()
+    // The sandbox stays MOUNTED (state retention) but hidden off this tab.
+    expect(screen.getByRole('heading', { name: '选择球场开始模拟', hidden: true })).not.toBeVisible()
 
     const list = within(screen.getByLabelText('最近回放球局'))
     expect(list.getByRole('button', { name: '回放 Black Knight B 05-20' })).toBeInTheDocument()
@@ -312,12 +335,39 @@ describe('LivePage tabs', () => {
     // The props bundle is spread through untouched: selectedSourceRef reaches
     // CaddiePage's Source ref input exactly as it did when App rendered it.
     expect(screen.getByLabelText('Source ref')).toHaveValue('900042:3')
-    expect(screen.queryByRole('heading', { name: '选择球场开始模拟' })).not.toBeInTheDocument()
+    // The sandbox stays MOUNTED (state retention) but hidden off this tab.
+    expect(screen.getByRole('heading', { name: '选择球场开始模拟', hidden: true })).not.toBeVisible()
 
     await userEvent.click(liveTabs().getByRole('button', { name: '决策沙盘' }))
 
-    expect(screen.getByRole('heading', { name: '选择球场开始模拟' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
     expect(screen.queryByRole('heading', { name: 'Caddie' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the 决策沙盘 course/hole selection across a 最近回放 peek', async () => {
+    fetchCoursePrepMock.mockResolvedValue({
+      schema: 'ai-caddie-course-prep-v1',
+      globalId: 31870,
+      holeCount: 2,
+      clubs: [],
+      holes: [sandboxHolePayload(7), sandboxHolePayload(9)],
+    } satisfies CoursePrepResponse)
+    renderLive()
+    await userEvent.click(screen.getByRole('button', { name: '开始模拟 观澜湖·奥拉沙宝场' }))
+    await screen.findByLabelText('选洞')
+    await userEvent.click(screen.getByRole('button', { name: '第9洞' }))
+
+    await userEvent.click(liveTabs().getByRole('button', { name: '最近回放' }))
+    expect(screen.getByText('还没有球局数据')).toBeInTheDocument()
+    // Mounted-but-hidden: the simulation must NOT be torn down by a tab peek.
+    expect(screen.getByRole('heading', { name: '观澜湖·奥拉沙宝场', hidden: true })).not.toBeVisible()
+
+    await userEvent.click(liveTabs().getByRole('button', { name: '决策沙盘' }))
+
+    expect(screen.getByRole('heading', { name: '观澜湖·奥拉沙宝场' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '第9洞' })).toHaveAttribute('aria-current', 'true')
+    // No refetch: the mounted sandbox kept its loaded prep payload.
+    expect(fetchCoursePrepMock).toHaveBeenCalledTimes(1)
   })
 })
 
