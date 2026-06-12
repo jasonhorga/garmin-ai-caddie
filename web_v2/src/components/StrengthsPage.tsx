@@ -488,29 +488,35 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
           </div>
         </div>
         {issueTrends.length > 0 ? (
-          <div className="stats-list" aria-label="近期在涨">
-            {issueTrends.slice(0, 5).map((trend) => {
-              const issue = asString(trend.issue) ?? 'unknown_issue'
-              const estimated = asNumber(trend.estimatedStrokesLost)
-              return (
-                <article key={issue} className="stats-item diagnosis-item">
-                  <div className="stats-item-main">
-                    <h2>{issueLabel(issue)}</h2>
-                    <p>
-                      <SourceRefs refs={trend.recentRefs ?? trend.sourceRefs} maxVisible={2} onSelectRef={onSelectRef} />
-                    </p>
-                  </div>
-                  <div className="stats-item-facts">
-                    {asString(trend.phase) ? <span>{phaseZh(asString(trend.phase) ?? '')}</span> : null}
-                    {estimated !== null ? <span>估损 {estimated.toFixed(1)}杆</span> : null}
-                  </div>
-                  <strong className="stats-count">{formatSigned(trend.deltaCount)}</strong>
-                </article>
-              )
-            })}
-          </div>
+          <>
+            {/* visible sub-heading: the signed deltas below are recent-window
+                changes, not lifetime totals — unlabeled they read as noise */}
+            <h3 className="w4-list-subhead">近期变化</h3>
+            <div className="stats-list" aria-label="近期变化">
+              {issueTrends.slice(0, 5).map((trend) => {
+                const issue = asString(trend.issue) ?? 'unknown_issue'
+                const estimated = asNumber(trend.estimatedStrokesLost)
+                return (
+                  <article key={issue} className="stats-item diagnosis-item">
+                    <div className="stats-item-main">
+                      <h2>{issueLabel(issue)}</h2>
+                      <p>
+                        <SourceRefs refs={trend.recentRefs ?? trend.sourceRefs} maxVisible={2} onSelectRef={onSelectRef} />
+                      </p>
+                    </div>
+                    <div className="stats-item-facts">
+                      {asString(trend.phase) ? <span>{phaseZh(asString(trend.phase) ?? '')}</span> : null}
+                      {estimated !== null ? <span>估损 {estimated.toFixed(1)}杆</span> : null}
+                    </div>
+                    <strong className="stats-count">{formatSigned(trend.deltaCount)} 次</strong>
+                  </article>
+                )
+              })}
+            </div>
+          </>
         ) : null}
-        <div className="stats-list">
+        {data.issues.length > 0 ? <h3 className="w4-list-subhead">全部问题</h3> : null}
+        <div className="stats-list" aria-label={data.issues.length > 0 ? '全部问题' : undefined}>
           {data.issues.length === 0 ? (
             <article className="stats-empty">
               <h2>暂无重复问题</h2>
@@ -533,7 +539,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
                     <span className={`semantic-chip ${semanticClass('confidence', confidence)}`}>信心{confidenceZh(confidence)}</span>
                   ) : null}
                 </div>
-                <strong className="stats-count">{formatNumber(issue.count)}</strong>
+                <strong className="stats-count">{formatNumber(issue.count)} 次</strong>
               </article>
             )
           })}

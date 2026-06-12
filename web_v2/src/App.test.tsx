@@ -1001,7 +1001,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/rounds') return roundsPayload()
+          if (path === '/api/v2/history/rounds?limit=1000') return roundsPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1035,7 +1035,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
     expect(screen.getByText('2026年5月')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=1000')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status')
     await waitFor(() => expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument())
   })
@@ -1478,7 +1478,7 @@ describe('App navigation', () => {
 
   it('rounds error screen offers token recovery via 去设置', async () => {
     const fetchMock = vi.fn(async (path: string) => {
-      if (path === '/api/v2/history/rounds') return { ok: false, status: 401, statusText: 'Unauthorized' }
+      if (path === '/api/v2/history/rounds?limit=1000') return { ok: false, status: 401, statusText: 'Unauthorized' }
       if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
       return {
         ok: true,
@@ -1512,7 +1512,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/rounds') return roundsPayload()
+          if (path === '/api/v2/history/rounds?limit=1000') return roundsPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1600,7 +1600,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/rounds') return roundsPayload()
+        if (path === '/api/v2/history/rounds?limit=1000') return roundsPayload()
         if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
         if (path === '/api/v2/reports/round/1') return roundReportPayload('1')
         if (path === '/api/v2/reports/round/1/generate') return roundReportPayload('1')
@@ -1894,7 +1894,9 @@ describe('App navigation', () => {
     expect(screen.getByRole('heading', { name: '试运行就绪度' })).toBeInTheDocument()
     expect(screen.getByText('dataMode: fixture')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '数据健康' })).toBeInTheDocument()
-    expect(screen.getByText('shots')).toBeInTheDocument()
+    // dataQuality finding labels render through the zh dictionary, never raw
+    expect(screen.getByText('击球数据')).toBeInTheDocument()
+    expect(screen.queryByText('shots')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '离线包准备' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '离线对账' })).toBeInTheDocument()
 

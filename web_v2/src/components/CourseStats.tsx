@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import type { HistoryStatsResponse, MobileCourseOptionsResponse } from '../types'
 import { issueLabel } from '../issueLabels'
-import { coverageZh, formDirectionZh, phaseZh } from '../zhLabels'
+import { coverageZh, formDirectionZh, missDirectionZh, phaseZh } from '../zhLabels'
 import { AggregateEvidence } from './AggregateEvidence'
 import { CourseDistributionMap } from './CourseDistributionMap'
 import { ShowAllToggle } from './ShowAllToggle'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
-import { asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
+import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
 
 interface CourseStatsProps {
   data: HistoryStatsResponse
@@ -100,6 +100,9 @@ function CourseRow({ course, prepGlobalId, onSelectRef, onPrepCourse }: CourseRo
   const differentialDirection = asString(recentForm.differentialDirection)
   const dominantMiss = asString(teeDirection.dominantMiss)
   const dominantApproachMiss = asString(approachMiss.dominantMiss)
+  // null pcts must drop the whole chip — `!== undefined` leaked 「FIR -%」.
+  const firPct = asNumber(teeDirection.hitPct)
+  const girPct = asNumber(approachMiss.girPct)
   const courseName = asString(course.courseName) ?? '球场'
   const courseKey = asString(course.courseKey)
   const hasDifficultyAdjusted = Object.keys(difficultyAdjusted).length > 0
@@ -122,16 +125,16 @@ function CourseRow({ course, prepGlobalId, onSelectRef, onPrepCourse }: CourseRo
         {course.averageDifferential !== undefined ? <span>均差 {formatNumber(course.averageDifferential)}</span> : null}
         {course.bestDifferential !== undefined ? <span>最好差 {formatNumber(course.bestDifferential)}</span> : null}
         {recentForm.recentAverage18 !== undefined ? <span>近期 {formatNumber(recentForm.recentAverage18)}</span> : null}
-        {teeDirection.hitPct !== undefined ? <span>FIR {formatNumber(teeDirection.hitPct)}%</span> : null}
+        {firPct !== null ? <span>FIR {firPct}%</span> : null}
         {dominantMiss && dominantMiss !== 'unknown' ? (
           <span className={`semantic-chip ${semanticClass('tee', dominantMiss)}`}>
-            开球 {dominantMiss} {formatNumber(teeDirection[`${dominantMiss}Pct`])}%
+            开球 {missDirectionZh(dominantMiss)} {formatNumber(teeDirection[`${dominantMiss}Pct`])}%
           </span>
         ) : null}
-        {approachMiss.girPct !== undefined ? <span>GIR {formatNumber(approachMiss.girPct)}%</span> : null}
+        {girPct !== null ? <span>GIR {girPct}%</span> : null}
         {dominantApproachMiss && dominantApproachMiss !== 'unknown' ? (
           <span className={`semantic-chip ${semanticClass('approach', dominantApproachMiss)}`}>
-            攻果岭 {dominantApproachMiss} {formatNumber(approachMiss[`${dominantApproachMiss}Pct`])}%
+            攻果岭 {missDirectionZh(dominantApproachMiss)} {formatNumber(approachMiss[`${dominantApproachMiss}Pct`])}%
           </span>
         ) : null}
         {direction ? (

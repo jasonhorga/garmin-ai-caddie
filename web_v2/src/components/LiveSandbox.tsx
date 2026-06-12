@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { fetchCaddieContext, fetchCaddieDecision, fetchCoursePrep } from '../api'
 import { fmtYd, metersFromYards } from '../units'
+import { missDirectionZh } from '../zhLabels'
 import type {
   CaddieContextParams,
   CaddieContextResponse,
@@ -226,12 +227,6 @@ function riskClass(score: number): string {
 }
 
 const CONFIDENCE_ZH: Record<string, string> = { high: '信心高', medium: '信心中', low: '信心低' }
-
-// acceptableMiss.direction zh map: the four bearings the miss-bias path emits
-// (preferredMiss side/depth vocabulary). The engine also ships looser tokens
-// (away_from_known_risks / wide_side / history_* — decision.py:3119-3152);
-// those pass through RAW rather than guessing a translation.
-const MISS_DIRECTION_ZH: Record<string, string> = { long: '偏长', short: '偏短', left: '偏左', right: '偏右' }
 
 function confidencePill(confidence: string | null): React.ReactElement | null {
   if (confidence === null) return null
@@ -752,7 +747,9 @@ function AdviceCard({
   const narrative = asString(recordFrom(decision.explanation).narrative)
   const miss = recordFrom(decision.acceptableMiss)
   const missDirectionRaw = asString(miss.direction) ?? asString(miss.side)
-  const missDirection = missDirectionRaw === null ? null : (MISS_DIRECTION_ZH[missDirectionRaw] ?? missDirectionRaw)
+  // acceptableMiss.direction bearings render zh; looser engine tokens
+  // (away_from_known_risks / wide_side / history_*) pass through raw.
+  const missDirection = missDirectionRaw === null ? null : missDirectionZh(missDirectionRaw)
   const missRationale = asString(miss.rationale)
   const others = asRows(decision.options).filter((option) => asString(option.id) !== selectedId)
   const alt = others.find((option) => asString(option.id) === altOptionId) ?? null

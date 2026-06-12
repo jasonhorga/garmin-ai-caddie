@@ -454,15 +454,19 @@ describe('StrengthsPage 问题', () => {
 
     expect(screen.getByRole('heading', { name: '问题' })).toBeInTheDocument()
     const section = screen.getByLabelText('问题')
+    // trends vs totals each get a visible sub-heading so the numbers read
+    // as 「近期变化 +3 次」 / 「全部问题 2 次」 instead of bare +3 / 2
+    expect(within(section).getByRole('heading', { name: '近期变化' })).toBeInTheDocument()
+    expect(within(section).getByRole('heading', { name: '全部问题' })).toBeInTheDocument()
     expect(within(section).getByText('缺少击球数据')).toBeInTheDocument()
     expect(within(section).getByText('数据质量')).toBeInTheDocument()
     expect(within(section).getByText('信心高')).toHaveClass('confidence-high')
-    expect(within(section).getByText('2')).toBeInTheDocument()
+    expect(within(section).getByText('2 次')).toBeInTheDocument()
 
-    // recent cost trend in zh
+    // recent cost trend in zh, with the delta labeled as a signed count
     expect(within(section).getByText('三推')).toBeInTheDocument()
     expect(within(section).getByText('估损 3.0杆')).toBeInTheDocument()
-    expect(within(section).getByText('+3')).toBeInTheDocument()
+    expect(within(section).getByText('+3 次')).toBeInTheDocument()
 
     await userEvent.click(within(section).getByRole('button', { name: 'Open source 900003' }))
     expect(onSelectRef).toHaveBeenCalledWith('900003')
@@ -473,6 +477,8 @@ describe('StrengthsPage 问题', () => {
   it('renders an empty state when no recurring issues exist', () => {
     render(<StrengthsPage data={fixture({ issues: [] })} />)
     expect(screen.getByText('暂无重复问题')).toBeInTheDocument()
+    // no totals list → no 全部问题 sub-heading above the empty state
+    expect(screen.queryByRole('heading', { name: '全部问题' })).not.toBeInTheDocument()
   })
 })
 

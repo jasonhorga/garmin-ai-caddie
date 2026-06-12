@@ -233,8 +233,10 @@ export function fetchHistoryRounds(adminToken?: string, filters?: RoundsFilters)
   if (filters?.course) params.set('course', filters.course)
   if (filters?.hasShots !== undefined) params.set('hasShots', String(filters.hasShots))
   if (filters?.hasReport !== undefined) params.set('hasReport', String(filters.hasReport))
-  const qs = params.toString()
-  return getJson<HistoryRoundsResponse>(`/api/v2/history/rounds${qs ? `?${qs}` : ''}`, adminToken)
+  // The backend defaults to limit=120 (server_v2/history_rounds.py), which
+  // silently truncates the real archive (435+ rounds) — always ask for all.
+  params.set('limit', '1000')
+  return getJson<HistoryRoundsResponse>(`/api/v2/history/rounds?${params.toString()}`, adminToken)
 }
 
 export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): Promise<HistoryRoundDetailResponse> {

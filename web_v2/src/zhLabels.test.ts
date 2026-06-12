@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { phaseZh, coverageZh, stateZh, confidenceZh, dataModeZh, clubLabelZh, qualityLabelZh, tipBasisZh } from './zhLabels'
+import { phaseZh, coverageZh, stateZh, confidenceZh, dataModeZh, clubLabelZh, qualityLabelZh, tipBasisZh, formDirectionZh, missDirectionZh, badgeLabelZh } from './zhLabels'
 
 describe('phaseZh', () => {
   it('maps known phase tokens to Chinese', () => {
@@ -43,8 +43,58 @@ describe('qualityLabelZh', () => {
     expect(qualityLabelZh('shots')).toBe('击球数据')
   })
 
+  it('covers the full history_stats _data_quality label vocabulary', () => {
+    expect(qualityLabelZh('shot_rows')).toBe('击球明细')
+    expect(qualityLabelZh('rating_slope')).toBe('评级/坡度')
+    expect(qualityLabelZh('club_samples')).toBe('球杆样本')
+    expect(qualityLabelZh('decision_audits')).toBe('决策审计')
+    expect(qualityLabelZh('weather')).toBe('天气数据')
+    expect(qualityLabelZh('putts')).toBe('推杆数据')
+    expect(qualityLabelZh('annotations')).toBe('标注')
+    expect(qualityLabelZh('corrections')).toBe('订正')
+  })
+
   it('falls back to the raw label for unknown findings', () => {
     expect(qualityLabelZh('mystery')).toBe('mystery')
+  })
+})
+
+describe('badgeLabelZh', () => {
+  it('maps DataQualityBadge labels (history_overview badges) to Chinese', () => {
+    expect(badgeLabelZh('shots')).toBe('击球')
+    expect(badgeLabelZh('shot rows')).toBe('击球明细')
+  })
+
+  it('falls back to the raw label for unknown badges', () => {
+    expect(badgeLabelZh('weather')).toBe('weather')
+  })
+})
+
+describe('formDirectionZh', () => {
+  it('maps the full _improvement_direction vocabulary to Chinese', () => {
+    expect(formDirectionZh('improving')).toBe('进步中')
+    expect(formDirectionZh('declining')).toBe('下滑')
+    expect(formDirectionZh('flat')).toBe('持平')
+    expect(formDirectionZh('stable')).toBe('稳定')
+    expect(formDirectionZh('insufficient_data')).toBe('样本不足')
+  })
+
+  it('falls back to the raw token for unknown directions', () => {
+    expect(formDirectionZh('volatile')).toBe('volatile')
+  })
+})
+
+describe('missDirectionZh', () => {
+  it('maps the four miss bearings to Chinese', () => {
+    expect(missDirectionZh('left')).toBe('偏左')
+    expect(missDirectionZh('right')).toBe('偏右')
+    expect(missDirectionZh('short')).toBe('偏短')
+    expect(missDirectionZh('long')).toBe('偏长')
+  })
+
+  it('passes looser engine tokens through raw rather than guessing', () => {
+    expect(missDirectionZh('away_from_known_risks')).toBe('away_from_known_risks')
+    expect(missDirectionZh('wide_side')).toBe('wide_side')
   })
 })
 

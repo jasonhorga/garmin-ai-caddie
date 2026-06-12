@@ -186,17 +186,20 @@ describe('CourseStats', () => {
     expect(within(facts).getByText('最好差 6.1')).toBeInTheDocument()
     expect(screen.getByText('近期 77')).toBeInTheDocument()
     expect(screen.getByText('FIR 25%')).toBeInTheDocument()
-    expect(screen.getByText('开球 right 50%')).toHaveClass('tee-right')
+    // dominant-miss tokens render through the zh dictionary, never raw
+    expect(screen.getByText('开球 偏右 50%')).toHaveClass('tee-right')
     expect(screen.getByText('GIR 25%')).toBeInTheDocument()
-    expect(screen.getByText('攻果岭 short 50%')).toHaveClass('approach-short')
+    expect(screen.getByText('攻果岭 偏短 50%')).toHaveClass('approach-short')
     expect(screen.getByText('进步中 -10')).toHaveClass('trend-improving')
     expect(screen.getByText('差分 进步中 -5.3')).toHaveClass('trend-improving')
     expect(screen.getByText('几何 缺失')).toHaveClass('quality-missing')
     // header data-quality chip is zh: 「几何覆盖 缺失 0/2」, not "geometry missing 0/2"
     expect(screen.getByText('几何覆盖 缺失 0/2')).toHaveClass('quality-missing')
     expect(screen.queryByText(/geometry missing/)).not.toBeInTheDocument()
-    expect(screen.getAllByText('coverage 2/3 66.7%').length).toBeGreaterThan(0)
-    expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(screen.getAllByText('覆盖 2/3 66.7%').length).toBeGreaterThan(0)
+    expect(screen.getByText('信心中')).toBeInTheDocument()
+    expect(screen.queryByText(/coverage \d/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/confidence/)).not.toBeInTheDocument()
     expect(screen.getByText('难度调整')).toBeInTheDocument()
     const difficultyAdjusted = screen.getByLabelText('Black Knight B 难度调整')
     expect(within(difficultyAdjusted).getByText('评级/坡度覆盖')).toBeInTheDocument()
@@ -220,6 +223,41 @@ describe('CourseStats', () => {
     expect(screen.getByText('风险 4.5')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
+  })
+
+  // Real data: courses without recorded tee/approach pcts leaked 「FIR -%」
+  // 「GIR -%」 and 「差分 flat 0」 — null pcts drop the chip entirely and the
+  // direction token renders through the zh dictionary.
+  it('omits FIR/GIR chips for null pcts and maps flat direction to zh', () => {
+    const course = {
+      ...statsFixture.courses[0],
+      teeDirection: {
+        recorded: 4,
+        total: 5,
+        hitPct: null,
+        leftPct: 40,
+        dominantMiss: 'left',
+      },
+      approachMiss: {
+        recorded: 4,
+        total: 5,
+        girPct: null,
+        longPct: 60,
+        dominantMiss: 'long',
+      },
+      recentForm: {
+        ...(statsFixture.courses[0].recentForm as Record<string, unknown>),
+        differentialDirection: 'flat',
+        deltaAverageDifferential: 0,
+      },
+    }
+    render(<CourseStats data={{ ...statsFixture, courses: [course] }} />)
+
+    expect(screen.queryByText(/FIR/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/GIR/)).not.toBeInTheDocument()
+    expect(screen.getByText('开球 偏左 40%')).toHaveClass('tee-left')
+    expect(screen.getByText('攻果岭 偏长 60%')).toHaveClass('approach-long')
+    expect(screen.getByText('差分 持平 0')).toHaveClass('trend-flat')
   })
 
   it('renders course distribution with location evidence and drill-down refs', () => {

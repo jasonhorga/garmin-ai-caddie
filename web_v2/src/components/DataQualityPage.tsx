@@ -1,4 +1,4 @@
-import { coverageZh } from '../zhLabels'
+import { coverageZh, qualityLabelZh } from '../zhLabels'
 import type { HistoryStatsResponse } from '../types'
 import { AggregateEvidence } from './AggregateEvidence'
 import { SourceRefs } from './SourceRefs'
@@ -82,7 +82,7 @@ export function DataQualityPage({ data, onSelectRef }: DataQualityPageProps) {
         {data.dataQuality.map((finding) => (
           <article key={asString(finding.label) ?? 'quality'} className="stats-item">
             <div className="stats-item-main">
-              <h2>{asString(finding.label) ?? '未知来源'}</h2>
+              <h2>{qualityLabelZh(asString(finding.label) ?? '未知来源')}</h2>
               <p>
                 <SourceRefs refs={finding.sourceRefs ?? finding.refs} maxVisible={8} onSelectRef={onSelectRef} />
               </p>
