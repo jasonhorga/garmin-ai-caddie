@@ -167,7 +167,7 @@ function fixture(overrides: Partial<HistoryStatsResponse> = {}): HistoryStatsRes
 }
 
 describe('StrengthsPage 你最该练', () => {
-  it('shows the top-3 weaknesses sorted by severity with zh labels and English reasons as secondary lines', () => {
+  it('shows the top-3 weaknesses sorted by severity with zh labels and zh reasons built from structured fields', () => {
     render(<StrengthsPage data={fixture()} onSelectRef={vi.fn()} />)
 
     expect(screen.getByRole('heading', { name: '你最该练', level: 1 })).toBeInTheDocument()
@@ -177,9 +177,13 @@ describe('StrengthsPage 你最该练', () => {
     // 4th weakness (severity 0.4) is cut at top-3
     expect(within(list).queryByText('1D 距离在变短')).not.toBeInTheDocument()
 
-    // English reasons stay readable as secondary lines
-    expect(within(list).getByText('dominant tee miss is right with 62% recorded misses')).toBeInTheDocument()
-    expect(within(list).getByText('Par 5 averages +1.2 to par')).toBeInTheDocument()
+    // reasons rebuilt in zh from the structured fields (direction/value/unit),
+    // not echoed from the backend English sentences
+    expect(within(list).getByText('开球失误主要偏右,占已记录失误的 62%')).toBeInTheDocument()
+    expect(within(list).getByText('Par 5 洞平均比标准杆多 1.2 杆')).toBeInTheDocument()
+    expect(within(list).getByText('有推杆记录的洞中三推 3 次')).toBeInTheDocument()
+    expect(within(list).queryByText(/recorded misses/)).not.toBeInTheDocument()
+    expect(within(list).queryByText(/to par$/)).not.toBeInTheDocument()
 
     // value + phase chips in zh
     expect(within(list).getByText('62%')).toBeInTheDocument()
@@ -213,6 +217,77 @@ describe('StrengthsPage 你最该练', () => {
     render(<StrengthsPage data={data} />)
 
     expect(screen.getByText('样本不足，先多打几场')).toBeInTheDocument()
+  })
+
+  it('maps known English reason sentences to zh templates when only the sentence exists', () => {
+    const data = fixture({
+      playerProfile: {
+        weaknesses: [
+          {
+            key: 'three_putt_pressure',
+            label: 'Three-putt pressure',
+            kind: 'weakness',
+            phase: 'Putting',
+            reason: '364 three-putt holes in recorded putting data',
+            severityScore: 3,
+            sourceRefs: ['900001:8'],
+          },
+          {
+            key: 'club_distance_shorter_pw',
+            label: 'PW trending shorter',
+            kind: 'weakness',
+            phase: 'Club Confidence',
+            reason: 'PW recent median is 27.0m shorter',
+            severityScore: 2.5,
+            sourceRefs: ['900002:5:4'],
+          },
+          {
+            key: 'mystery_signal',
+            label: 'Mystery signal',
+            kind: 'weakness',
+            phase: 'Scoring',
+            reason: 'a bespoke sentence with no known pattern',
+            severityScore: 2,
+            sourceRefs: ['900003:1'],
+          },
+        ],
+        strengths: [],
+      },
+    })
+    render(<StrengthsPage data={data} />)
+
+    const list = screen.getByLabelText('你最该练清单')
+    expect(within(list).getByText('有推杆记录的洞中三推 364 次')).toBeInTheDocument()
+    // 27.0m → 30码 via fmtYd
+    expect(within(list).getByText('近期常用距离比基准短 30码')).toBeInTheDocument()
+    // unknown sentences stay raw rather than vanish
+    expect(within(list).getByText('a bespoke sentence with no known pattern')).toBeInTheDocument()
+  })
+
+  it('renders retired Garmin club nicknames as 「48°(已退役)」 in weakness labels', () => {
+    const data = fixture({
+      playerProfile: {
+        weaknesses: [
+          {
+            key: 'club_distance_shorter_48° 退役',
+            label: '48° 退役 trending shorter',
+            kind: 'weakness',
+            phase: 'Club Confidence',
+            reason: '48° 退役 recent median is 16.0m shorter',
+            value: 16,
+            unit: 'meters',
+            severityScore: 2,
+            sourceRefs: ['900002:5:4'],
+          },
+        ],
+        strengths: [],
+      },
+    })
+    render(<StrengthsPage data={data} />)
+
+    const list = screen.getByLabelText('你最该练清单')
+    expect(within(list).getByRole('heading', { name: '1. 48°(已退役) 距离在变短' })).toBeInTheDocument()
+    expect(within(list).queryByText(/48° 退役/)).not.toBeInTheDocument()
   })
 })
 
@@ -264,14 +339,15 @@ describe('StrengthsPage 按洞', () => {
     expect(within(section).getByText('几何缺失')).toHaveClass('quality-missing')
 
     // zero-count buckets are filtered; remaining buckets are zh-labelled
+    // (bucket labels repeat in the below-bar refs row, hence getAllByText)
     expect(within(section).queryByText('帕')).not.toBeInTheDocument()
-    expect(within(section).getByText('柏忌')).toBeInTheDocument()
-    expect(within(section).getByText('双+')).toBeInTheDocument()
+    expect(within(section).getAllByText('柏忌').length).toBeGreaterThan(0)
+    expect(within(section).getAllByText('双+').length).toBeGreaterThan(0)
     expect(within(section).getAllByText('50%')).toHaveLength(2)
 
-    // repeated issues in zh
+    // repeated issues in zh — Course Management is 场上决策, never 攻略
     expect(within(section).getByText('双柏忌或更差')).toBeInTheDocument()
-    expect(within(section).getByText('攻略')).toBeInTheDocument()
+    expect(within(section).getByText('场上决策')).toBeInTheDocument()
 
     await userEvent.click(within(section).getAllByRole('button', { name: 'Open source 900001:7' })[0])
     expect(onSelectRef).toHaveBeenCalledWith('900001:7')
@@ -308,6 +384,66 @@ describe('StrengthsPage 按杆', () => {
   it('renders an empty state when no club samples exist', () => {
     render(<StrengthsPage data={fixture({ clubs: [] })} />)
     expect(screen.getByText('暂无球杆样本')).toBeInTheDocument()
+  })
+
+  it('renders retired club nicknames as 「48°(已退役)」', () => {
+    const data = fixture({ clubs: [{ ...baseFixture.clubs[0], club: '48° 退役' }] })
+    render(<StrengthsPage data={data} />)
+
+    const section = screen.getByLabelText('按杆')
+    expect(within(section).getByRole('heading', { name: '48°(已退役)' })).toBeInTheDocument()
+    expect(within(section).queryByRole('heading', { name: '48° 退役' })).not.toBeInTheDocument()
+  })
+})
+
+describe('StrengthsPage 出处筹码', () => {
+  it('caps visible ref chips at 2 with a 等 N 处 expander and keeps every ref drillable', async () => {
+    const onSelectRef = vi.fn()
+    const data = fixture({
+      holes: [
+        {
+          ...baseFixture.holes[0],
+          refs: ['900001:7', '900002:7', '900003:7', '900004:7'],
+        },
+      ],
+    })
+    render(<StrengthsPage data={data} onSelectRef={onSelectRef} />)
+
+    const section = screen.getByLabelText('按洞')
+    expect(within(section).getAllByRole('button', { name: 'Open source 900001:7' }).length).toBeGreaterThan(0)
+    expect(within(section).queryByRole('button', { name: 'Open source 900004:7' })).not.toBeInTheDocument()
+
+    await userEvent.click(within(section).getByRole('button', { name: '展开其余 2 处来源' }))
+    await userEvent.click(within(section).getByRole('button', { name: 'Open source 900004:7' }))
+    expect(onSelectRef).toHaveBeenCalledWith('900004:7')
+  })
+
+  it('moves distribution evidence chips out of the bar buckets into a row below the bar', () => {
+    const data = fixture({
+      holes: [
+        {
+          ...baseFixture.holes[0],
+          scoreDistribution: [
+            { key: 'bogey', label: 'Bogey', className: 'bogey', count: 1, pct: 50, holeRefs: ['900001:7', '900002:7', '900003:7'] },
+            { key: 'doubleOrWorse', label: 'Double+', className: 'double', count: 1, pct: 50, holeRefs: ['900002:7'] },
+          ],
+        },
+      ],
+    })
+    const { container } = render(<StrengthsPage data={data} onSelectRef={vi.fn()} />)
+
+    // bar buckets carry only the outcome facts — no ref chips inside
+    for (const bucket of Array.from(container.querySelectorAll('.hole-distribution-bucket'))) {
+      expect(within(bucket as HTMLElement).queryByRole('button', { name: /Open source/ })).not.toBeInTheDocument()
+    }
+
+    // the refs live in the dedicated row below the bar, capped at 2 per bucket
+    const refsRow = container.querySelector('.w4-distribution-refs') as HTMLElement
+    expect(refsRow).not.toBeNull()
+    expect(within(refsRow).getAllByText('柏忌').length).toBe(1)
+    expect(within(refsRow).getByRole('button', { name: 'Open source 900001:7' })).toBeInTheDocument()
+    expect(within(refsRow).queryByRole('button', { name: 'Open source 900003:7' })).not.toBeInTheDocument()
+    expect(within(refsRow).getByRole('button', { name: '展开其余 1 处来源' })).toHaveTextContent('等 1 处')
   })
 })
 

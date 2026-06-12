@@ -266,11 +266,12 @@ describe('PrepPage course state', () => {
     expect(onChangeCourse).toHaveBeenCalledTimes(1)
   })
 
-  it('shows loading placeholders while prep is in flight', async () => {
+  it('hides the Par/总码数 meta row entirely while prep is in flight (no dangling dashes)', async () => {
     fetchCoursePrepMock.mockImplementation(() => new Promise<CoursePrepResponse>(() => {}))
     renderPrep()
 
-    expect(screen.getByText('Par — · 总码数 — 码')).toBeInTheDocument()
+    expect(screen.queryByText(/总码数/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Par —/)).not.toBeInTheDocument()
     const tabs = screen.getByRole('navigation', { name: '备战页签' })
     await userEvent.click(within(tabs).getByRole('button', { name: '逐洞攻略' }))
     expect(screen.getByText('球场攻略加载中…')).toBeInTheDocument()
@@ -355,7 +356,7 @@ describe('PrepPage course state', () => {
     view.rerender(<PrepPage {...props} globalId={31870} />)
 
     expect(screen.getByRole('heading', { name: '观澜湖·奥拉沙宝场' })).toBeInTheDocument()
-    expect(screen.getByText('Par — · 总码数 — 码')).toBeInTheDocument()
+    expect(screen.queryByText(/总码数/)).not.toBeInTheDocument()
     expect(screen.queryByText('Par 9 · 总码数 900 码')).not.toBeInTheDocument()
   })
 })
@@ -528,14 +529,15 @@ describe('PrepPage 针对你 tab', () => {
     await userEvent.click(within(tabs).getByRole('button', { name: '针对你' }))
   }
 
-  it('renders tips in delivered order with severity dot classes and basis sub-lines', async () => {
+  it('renders tips in delivered order with severity dot classes and zh 依据 sub-lines', async () => {
     fetchPrepTipsMock.mockImplementation(async () => ({
       schema: 'ai-caddie-prep-tips-v1',
       courseKey: 'black_knight',
       tips: [
-        { priority: 2, severity: 'medium', text: '攻果岭常偏短(38%),本场多带半杆', basis: '攻果岭分布 · 近20轮', sourceRefs: ['stats:approachMiss'] },
-        { priority: 1, severity: 'high', text: '开球偏右(58%),第2洞右侧水域注意', basis: '开球方向 · 近20轮', sourceRefs: ['stats:teeDirection'] },
-        { priority: 3, severity: 'info', text: '三杆洞稳定(平均+0.3),按部就班', basis: 'Par3 计分', sourceRefs: ['stats:parScoring'] },
+        // basis carries the backend machine keys (ai_caddie/prep_tips.py)
+        { priority: 2, severity: 'medium', text: '攻果岭常偏短(38%),本场多带半杆', basis: 'course.approachMiss', sourceRefs: ['stats:approachMiss'] },
+        { priority: 1, severity: 'high', text: '开球偏右(58%),第2洞右侧水域注意', basis: 'course.teeDirection', sourceRefs: ['stats:teeDirection'] },
+        { priority: 3, severity: 'info', text: '三杆洞稳定(平均+0.3),按部就班', basis: 'course.parScoring.par3', sourceRefs: ['stats:parScoring'] },
       ],
     }))
     renderPrep()
@@ -545,12 +547,28 @@ describe('PrepPage 针对你 tab', () => {
     const items = screen.getAllByRole('listitem')
     expect(items).toHaveLength(3)
     expect(items[0]).toHaveTextContent('攻果岭常偏短(38%),本场多带半杆')
-    expect(items[0]).toHaveTextContent('攻果岭分布 · 近20轮')
+    expect(items[0]).toHaveTextContent('依据:你在本场的攻果岭落点')
     expect(items[1]).toHaveTextContent('开球偏右(58%),第2洞右侧水域注意')
+    expect(items[1]).toHaveTextContent('依据:你在本场的开球倾向')
     expect(items[2]).toHaveTextContent('三杆洞稳定(平均+0.3),按部就班')
+    expect(items[2]).toHaveTextContent('依据:你在本场的三杆洞成绩')
     expect(items[0].querySelector('.prep-tip-dot')).toHaveClass('medium')
     expect(items[1].querySelector('.prep-tip-dot')).toHaveClass('high')
     expect(items[2].querySelector('.prep-tip-dot')).toHaveClass('info')
+  })
+
+  it('hides the 依据 line for unknown machine basis keys instead of rendering them raw', async () => {
+    fetchPrepTipsMock.mockImplementation(async () => ({
+      schema: 'ai-caddie-prep-tips-v1',
+      courseKey: 'black_knight',
+      tips: [{ priority: 1, severity: 'high', text: '保守开局', basis: 'course.someFutureKey', sourceRefs: [] }],
+    }))
+    renderPrep()
+    await openForYouTab()
+
+    expect(screen.getByText('保守开局')).toBeInTheDocument()
+    expect(screen.queryByText(/course\.someFutureKey/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/依据/)).not.toBeInTheDocument()
   })
 
   it('shows 暂无足够数据生成提示 when tips are empty', async () => {

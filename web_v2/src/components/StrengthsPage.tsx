@@ -1,7 +1,7 @@
 import type { HistoryStatsResponse } from '../types'
 import { issueLabel } from '../issueLabels'
 import { fmtYd } from '../units'
-import { confidenceZh, coverageZh, phaseZh } from '../zhLabels'
+import { clubLabelZh, confidenceZh, coverageZh, phaseZh } from '../zhLabels'
 import { AggregateEvidence } from './AggregateEvidence'
 import { SourceRefs } from './SourceRefs'
 import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass, type StatRow } from './statsValues'
@@ -48,10 +48,76 @@ function profileLabelZh(row: StatRow): string {
   const scoringLoss = /^(.+) scoring loss$/.exec(label)
   if (scoringLoss) return `${scoringLoss[1]} 易失分`
   const surfaceRisk = /^(.+) surface risk$/.exec(label)
-  if (surfaceRisk) return `${surfaceRisk[1]} 落点风险高`
+  if (surfaceRisk) return `${clubLabelZh(surfaceRisk[1])} 落点风险高`
   const shorter = /^(.+) trending shorter$/.exec(label)
-  if (shorter) return `${shorter[1]} 距离在变短`
+  if (shorter) return `${clubLabelZh(shorter[1])} 距离在变短`
   return label
+}
+
+// 你最该练 reason lines: rebuild Chinese from the STRUCTURED fields
+// (value/unit/direction per history_stats _player_profile kind); for rows that
+// only carry the English sentence, map the known sentence patterns; unknown
+// text stays raw rather than vanishing.
+const TREND_DIRECTION_ZH: Record<string, string> = {
+  new: '新出现',
+  worsening: '在恶化',
+  improving: '在好转',
+  flat: '持平',
+  active: '活跃',
+}
+
+function scoringReasonZh(name: string, value: number): string {
+  if (value > 0) return `${name} 洞平均比标准杆多 ${formatNumber(value)} 杆`
+  if (value < 0) return `${name} 洞平均比标准杆少 ${formatNumber(Math.abs(value))} 杆`
+  return `${name} 洞平均持平标准杆`
+}
+
+function profileReasonZh(row: StatRow): string | null {
+  const key = asString(row.key) ?? ''
+  const reason = asString(row.reason) ?? ''
+  const value = asNumber(row.value)
+  const direction = asString(row.direction)?.toLowerCase() ?? null
+
+  if (key === 'three_putt_pressure' || /^(\d+) three-putt holes/.test(reason)) {
+    const count = value ?? Number(/^(\d+) three-putt holes/.exec(reason)?.[1])
+    if (Number.isFinite(count)) return `有推杆记录的洞中三推 ${formatNumber(count)} 次`
+  }
+  if (key.startsWith('tee_miss_')) {
+    const directionZh = DIRECTION_ZH[direction ?? key.slice('tee_miss_'.length)]
+    if (directionZh && value !== null) return `开球失误主要${directionZh},占已记录失误的 ${formatNumber(value)}%`
+  }
+  const approachMiss = /^approach_(.+)_miss$/.exec(key)
+  if (approachMiss) {
+    const directionZh = DIRECTION_ZH[direction ?? approachMiss[1]]
+    if (directionZh && value !== null) return `攻果岭失误主要${directionZh},占 ${formatNumber(value)}%`
+  }
+  if (/_scoring_(loss|strength)$/.test(key) && value !== null) {
+    const name = /^(.+) scoring (?:loss|strength)$/.exec(asString(row.label) ?? '')?.[1]
+    if (name) return scoringReasonZh(name, value)
+  }
+  if (key.startsWith('club_distance_shorter_') || /recent median is [\d.]+m shorter/.test(reason)) {
+    const meters = value ?? Number(/recent median is ([\d.]+)m shorter/.exec(reason)?.[1])
+    if (Number.isFinite(meters)) return `近期常用距离比基准短 ${fmtYd(meters)}`
+  }
+  if (key.startsWith('club_surface_risk_') && value !== null) return `有 ${formatNumber(value)}% 的击球落入风险区(沙坑/长草/水)`
+  if (key === 'tee_fairway_control' && value !== null) return `球道命中率 ${formatNumber(value)}%`
+  if (key === 'approach_gir_control' && value !== null) return `GIR 上果岭率 ${formatNumber(value)}%`
+  if (key === 'putting_efficiency' && value !== null) return `平均每洞 ${formatNumber(value)} 推`
+
+  // English sentence patterns for rows where only the sentence exists.
+  const teeMiss = /^dominant tee miss is (\w+) with ([\d.]+)% recorded misses$/.exec(reason)
+  if (teeMiss && DIRECTION_ZH[teeMiss[1]]) return `开球失误主要${DIRECTION_ZH[teeMiss[1]]},占已记录失误的 ${teeMiss[2]}%`
+  const approachSentence = /^dominant approach miss is (\w+) at ([\d.]+)%$/.exec(reason)
+  if (approachSentence && DIRECTION_ZH[approachSentence[1]]) {
+    return `攻果岭失误主要${DIRECTION_ZH[approachSentence[1]]},占 ${approachSentence[2]}%`
+  }
+  const toPar = /^(.+) averages ([+-]?[\d.]+) to par$/.exec(reason)
+  if (toPar) return scoringReasonZh(toPar[1], Number(toPar[2]))
+  const trend = /^recent trend is (\w+)$/.exec(reason)
+  if (trend) return `近期趋势:${TREND_DIRECTION_ZH[trend[1]] ?? trend[1]}`
+  const risk = /^.+ has ([\d.]+)% risk-result samples$/.exec(reason)
+  if (risk) return `有 ${risk[1]}% 的击球落入风险区(沙坑/长草/水)`
+  return asString(row.reason)
 }
 
 function profileValueZh(row: StatRow): string | null {
@@ -122,7 +188,7 @@ function focusEntries(data: HistoryStatsResponse): FocusEntry[] {
       label: profileLabelZh(row),
       valueText: profileValueZh(row),
       phase: asString(row.phase),
-      reason: asString(row.reason),
+      reason: profileReasonZh(row),
       refs: row.sourceRefs ?? row.refs,
     }))
   }
@@ -227,7 +293,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
               {entry.valueText ? <span>{entry.valueText}</span> : null}
             </div>
             <p className="stats-refs">
-              <SourceRefs refs={entry.refs} maxVisible={4} onSelectRef={onSelectRef} />
+              <SourceRefs refs={entry.refs} maxVisible={2} onSelectRef={onSelectRef} />
             </p>
           </article>
         ))}
@@ -295,7 +361,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
                   ) : null}
                 </div>
                 <p className="stats-refs">
-                  <SourceRefs refs={hole.holeRefs ?? hole.refs} onSelectRef={onSelectRef} />
+                  <SourceRefs refs={hole.holeRefs ?? hole.refs} maxVisible={2} onSelectRef={onSelectRef} />
                 </p>
                 {distribution.length || repeatedIssues.length ? (
                   <div className="hole-breakdown">
@@ -309,9 +375,21 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
                             <strong>{outcomeZh(row)}</strong>
                             <b>{formatNumber(row.count)}</b>
                             <em>{formatNumber(row.pct)}%</em>
-                            <SourceRefs refs={row.holeRefs ?? row.refs ?? row.sourceRefs} onSelectRef={onSelectRef} />
                           </span>
                         ))}
+                      </div>
+                    ) : null}
+                    {/* evidence chips live BELOW the bar, never inside it (W4a finding) */}
+                    {distribution.some((row) => hasRefs(row.holeRefs ?? row.refs ?? row.sourceRefs)) ? (
+                      <div className="w4-distribution-refs" aria-label={`第${formatNumber(hole.hole)}洞得分出处`}>
+                        {distribution
+                          .filter((row) => hasRefs(row.holeRefs ?? row.refs ?? row.sourceRefs))
+                          .map((row) => (
+                            <span key={`refs-${asString(row.key) ?? asString(row.label) ?? 'bucket'}`} className="w4-distribution-ref-row">
+                              <strong>{outcomeZh(row)}</strong>
+                              <SourceRefs refs={row.holeRefs ?? row.refs ?? row.sourceRefs} maxVisible={2} onSelectRef={onSelectRef} />
+                            </span>
+                          ))}
                       </div>
                     ) : null}
                     {repeatedIssues.length ? (
@@ -323,7 +401,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
                               {asString(issue.phase) ? <b>{phaseZh(asString(issue.phase) ?? '')}</b> : null}
                               <em>{formatNumber(issue.count)}次</em>
                             </span>
-                            <SourceRefs refs={issue.sourceRefs ?? issue.refs} onSelectRef={onSelectRef} />
+                            <SourceRefs refs={issue.sourceRefs ?? issue.refs} maxVisible={2} onSelectRef={onSelectRef} />
                           </div>
                         ))}
                       </div>
@@ -356,7 +434,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
             return (
               <article key={asString(club.club) ?? 'club'} className="stats-item">
                 <div className="stats-item-main">
-                  <h2>{asString(club.club) ?? '未知球杆'}</h2>
+                  <h2>{clubLabelZh(asString(club.club) ?? '未知球杆')}</h2>
                   <p>常用距离 {fmtYd(asNumber(club.median))}</p>
                 </div>
                 <div className="stats-item-facts">
@@ -371,9 +449,9 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
                   ) : null}
                 </div>
                 <p className="stats-refs">
-                  <SourceRefs refs={club.validShotRefs ?? club.shotRefs ?? club.roundRefs ?? club.roundIds} maxVisible={6} onSelectRef={onSelectRef} />
+                  <SourceRefs refs={club.validShotRefs ?? club.shotRefs ?? club.roundRefs ?? club.roundIds} maxVisible={2} onSelectRef={onSelectRef} />
                   {Array.isArray(club.riskShotRefs) && club.riskShotRefs.length > 0 ? (
-                    <SourceRefs refs={club.riskShotRefs} onSelectRef={onSelectRef} />
+                    <SourceRefs refs={club.riskShotRefs} maxVisible={2} onSelectRef={onSelectRef} />
                   ) : null}
                 </p>
               </article>
@@ -399,7 +477,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
                   <div className="stats-item-main">
                     <h2>{issueLabel(issue)}</h2>
                     <p>
-                      <SourceRefs refs={trend.recentRefs ?? trend.sourceRefs} onSelectRef={onSelectRef} />
+                      <SourceRefs refs={trend.recentRefs ?? trend.sourceRefs} maxVisible={2} onSelectRef={onSelectRef} />
                     </p>
                   </div>
                   <div className="stats-item-facts">
@@ -426,7 +504,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
                 <div className="stats-item-main">
                   <h2>{issueLabel(asString(issue.issue) ?? '问题')}</h2>
                   <p>
-                    <SourceRefs refs={issue.sourceRefs ?? issue.refs} onSelectRef={onSelectRef} />
+                    <SourceRefs refs={issue.sourceRefs ?? issue.refs} maxVisible={2} onSelectRef={onSelectRef} />
                   </p>
                 </div>
                 <div className="stats-item-facts">
@@ -546,4 +624,8 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function hasRefs(value: unknown): boolean {
+  return Array.isArray(value) && value.some((item) => String(item).trim() !== '')
 }

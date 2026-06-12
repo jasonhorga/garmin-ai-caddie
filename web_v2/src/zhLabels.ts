@@ -5,12 +5,16 @@ const FORM_DIRECTION_ZH: Record<string, string> = {
   insufficient_data: '样本不足',
 }
 
+// Issue-taxonomy phases (ai_caddie/issue_taxonomy.py) + scoring phases.
+// 攻略 means "guide" — Course Management is 场上决策, never 攻略.
 const PHASE_ZH: Record<string, string> = {
   Tee: '开球',
   Approach: '攻果岭',
   Putting: '推杆',
   Scoring: '得分',
-  'Course Management': '攻略',
+  'Course Management': '场上决策',
+  'Short Game': '短杆',
+  Penalty: '罚杆',
   'Club Confidence': '球杆信心',
   'Data Quality': '数据质量',
   Trend: '趋势',
@@ -66,4 +70,47 @@ export function confidenceZh(raw: string): string {
 
 export function dataModeZh(raw: string): string {
   return DATA_MODE_ZH[raw] ?? raw
+}
+
+// Garmin club nicknames carry a literal trailing 退役 marker for retired
+// clubs ("48° 退役") which reads broken — render as 「48°(已退役)」.
+export function clubLabelZh(raw: string): string {
+  const match = /^(.+?)[\s·]*退役$/.exec(raw)
+  if (!match || !match[1].trim()) return raw
+  return `${match[1].trim()}(已退役)`
+}
+
+// dataQuality finding labels (history_stats _data_quality) for header chips.
+const QUALITY_LABEL_ZH: Record<string, string> = {
+  shots: '击球数据',
+  putts: '推杆数据',
+  geometry: '几何覆盖',
+  reports: '报告覆盖',
+  annotations: '标注',
+  corrections: '订正',
+  weather: '天气数据',
+}
+
+export function qualityLabelZh(raw: string): string {
+  return QUALITY_LABEL_ZH[raw] ?? raw
+}
+
+// 备战 tips 依据 keys (ai_caddie/prep_tips.py basis vocabulary). Unknown
+// machine keys map to null so they are hidden instead of rendered raw.
+const TIP_BASIS_ZH: Record<string, string> = {
+  'course.teeDirection': '你在本场的开球倾向',
+  'course.approachMiss': '你在本场的攻果岭落点',
+  'course.prepHoles': '球场洞表(长度与HCP)',
+}
+
+const PAR_LABEL_ZH: Record<string, string> = { par3: '三杆洞', par4: '四杆洞', par5: '五杆洞' }
+
+export function tipBasisZh(raw: string): string | null {
+  if (TIP_BASIS_ZH[raw]) return TIP_BASIS_ZH[raw]
+  const courseParScoring = /^course\.parScoring\.(par[345])$/.exec(raw)
+  if (courseParScoring) return `你在本场的${PAR_LABEL_ZH[courseParScoring[1]]}成绩`
+  const profilePar = /^playerProfile\.(par[345])_scoring_(?:strength|loss)$/.exec(raw)
+  if (profilePar) return `你的${PAR_LABEL_ZH[profilePar[1]]}总体成绩`
+  if (/^playerProfile\.caddieBiases\./.test(raw)) return '球童偏置记录'
+  return null
 }

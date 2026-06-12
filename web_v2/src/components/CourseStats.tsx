@@ -1,5 +1,6 @@
 import type { HistoryStatsResponse, MobileCourseOptionsResponse } from '../types'
-import { coverageZh, formDirectionZh } from '../zhLabels'
+import { issueLabel } from '../issueLabels'
+import { coverageZh, formDirectionZh, phaseZh } from '../zhLabels'
 import { AggregateEvidence } from './AggregateEvidence'
 import { CourseDistributionMap } from './CourseDistributionMap'
 import { SourceRefs } from './SourceRefs'
@@ -162,8 +163,8 @@ export function CourseStats({ data, onSelectRef, courseOptions, onPrepCourse }: 
                         {issueProfile.map((issue) => (
                           <div key={`${asString(issue.issue) ?? 'issue'}-${asString(issue.source) ?? 'source'}`} className="course-insight-row">
                             <span>
-                              <strong>{asString(issue.issue) ?? '未知问题'}</strong>
-                              {asString(issue.phase) ? <b>{asString(issue.phase)}</b> : null}
+                              <strong>{issueLabel(asString(issue.issue) ?? '未知问题')}</strong>
+                              {asString(issue.phase) ? <b>{phaseZh(asString(issue.phase) ?? '')}</b> : null}
                               <em>{formatNumber(issue.affectedHoleCount)} 洞</em>
                               <em>{formatNumber(issue.samplePct)}% 样本</em>
                               <em>风险 {formatNumber(issue.estimatedStrokesRisk)}</em>

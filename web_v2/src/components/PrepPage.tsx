@@ -10,6 +10,7 @@ import type {
   PrepTip,
   PrepTipsResponse,
 } from '../types'
+import { tipBasisZh } from '../zhLabels'
 import { CourseFinder } from './CourseFinder'
 import { PrepHoleCard } from './PrepHoleCard'
 import { asNumber, asRows, asString, type StatRow } from './statsValues'
@@ -261,15 +262,20 @@ function PrepTipsTab({ tips, error, onRetry }: PrepTipsTabProps) {
   if (tips.length === 0) return <p className="prep-tab-placeholder">暂无足够数据生成提示</p>
   return (
     <ul className="prep-tips-list">
-      {tips.map((tip, index) => (
-        <li key={index} className="prep-tip">
-          <span className={`prep-tip-dot ${tip.severity}`} aria-hidden="true" />
-          <div className="prep-tip-body">
-            <p className="prep-tip-text">{tip.text}</p>
-            <p className="prep-tip-basis">{tip.basis}</p>
-          </div>
-        </li>
-      ))}
+      {tips.map((tip, index) => {
+        // basis arrives as a backend machine key (course.parScoring.par5…);
+        // unknown keys are hidden rather than rendered raw.
+        const basisZh = tipBasisZh(tip.basis)
+        return (
+          <li key={index} className="prep-tip">
+            <span className={`prep-tip-dot ${tip.severity}`} aria-hidden="true" />
+            <div className="prep-tip-body">
+              <p className="prep-tip-text">{tip.text}</p>
+              {basisZh ? <p className="prep-tip-basis">依据:{basisZh}</p> : null}
+            </div>
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -424,9 +430,12 @@ export function PrepPage({
       <header className="panel prep-course-header">
         <div className="prep-course-info">
           <h2>{courseName}</h2>
-          <p className="prep-course-meta">
-            Par {totals ? totals.par : '—'} · 总码数 {totals ? totals.yards : '—'} 码
-          </p>
+          {/* the meta row only exists once the totals do — never 「Par — · 总码数 —码」 */}
+          {totals ? (
+            <p className="prep-course-meta">
+              Par {totals.par} · 总码数 {totals.yards} 码
+            </p>
+          ) : null}
           {record ? (
             <p className="prep-course-record">
               你的战绩:打过 {record.roundCount} 次 · 均杆 {formatAverage(record.average18)}

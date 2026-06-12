@@ -200,7 +200,7 @@ describe('ReportsPage', () => {
     expect(within(inventory).getByText('球杆')).toBeInTheDocument()
     expect(within(inventory).getByText('recent_10')).toBeInTheDocument()
     expect(within(inventory).getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
-    expect(screen.getByText('reports partial 1/3')).toHaveClass('quality-partial')
+    expect(screen.getByText('报告覆盖 部分 1/3')).toHaveClass('quality-partial')
     expect(screen.getByRole('option', { name: 'Recent 10' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Q 2026-Q2' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Year 2026' })).toBeInTheDocument()

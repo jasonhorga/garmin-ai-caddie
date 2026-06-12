@@ -527,6 +527,8 @@ const coursePrepPayload = {
   ],
 }
 
+// basis carries the REAL backend machine keys (ai_caddie/prep_tips.py); the
+// page maps them to zh 依据 lines and must never render them raw.
 const prepTipsPayload = {
   schema: 'ai-caddie-prep-tips-v1',
   courseKey: 'black_knight',
@@ -535,14 +537,14 @@ const prepTipsPayload = {
       priority: 1,
       severity: 'high',
       text: '开球偏右(58%),第1洞、第7洞尤其要瞄球道左侧',
-      basis: '开球方向:右 58% · 近20轮',
+      basis: 'course.teeDirection',
       sourceRefs: ['stats:black_knight:teeDirection'],
     },
     {
       priority: 2,
       severity: 'info',
       text: '三杆洞稳(平均+0.2),按部就班拿帕',
-      basis: 'Par3 平均 +0.2 · 近20轮',
+      basis: 'course.parScoring.par3',
       sourceRefs: ['stats:black_knight:parScoring:par3'],
     },
   ],
@@ -782,10 +784,13 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-holes')
 
-  // 针对你 renders both mocked tips verbatim.
+  // 针对你 renders both mocked tips verbatim, with machine basis keys mapped
+  // to zh 依据 lines (raw keys must never surface).
   await prepTabs.getByRole('button', { name: '针对你' }).click()
   await expect(page.getByText('开球偏右(58%),第1洞、第7洞尤其要瞄球道左侧')).toBeVisible()
   await expect(page.getByText('三杆洞稳(平均+0.2),按部就班拿帕')).toBeVisible()
+  await expect(page.getByText('依据:你在本场的开球倾向')).toBeVisible()
+  await expect(page.getByText('course.parScoring.par3')).toHaveCount(0)
   await assertNoViewportOverflow(page)
 
   // 换球场 returns to the entry finder.

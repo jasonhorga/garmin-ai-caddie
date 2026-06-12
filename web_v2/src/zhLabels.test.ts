@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { phaseZh, coverageZh, stateZh, confidenceZh, dataModeZh } from './zhLabels'
+import { phaseZh, coverageZh, stateZh, confidenceZh, dataModeZh, clubLabelZh, qualityLabelZh, tipBasisZh } from './zhLabels'
 
 describe('phaseZh', () => {
   it('maps known phase tokens to Chinese', () => {
@@ -7,7 +7,10 @@ describe('phaseZh', () => {
     expect(phaseZh('Approach')).toBe('攻果岭')
     expect(phaseZh('Putting')).toBe('推杆')
     expect(phaseZh('Scoring')).toBe('得分')
-    expect(phaseZh('Course Management')).toBe('攻略')
+    // 攻略 means "guide" — the Course Management phase reads as 场上决策.
+    expect(phaseZh('Course Management')).toBe('场上决策')
+    expect(phaseZh('Short Game')).toBe('短杆')
+    expect(phaseZh('Penalty')).toBe('罚杆')
     expect(phaseZh('Club Confidence')).toBe('球杆信心')
     expect(phaseZh('Data Quality')).toBe('数据质量')
     expect(phaseZh('Trend')).toBe('趋势')
@@ -15,7 +18,53 @@ describe('phaseZh', () => {
 
   it('falls back to the raw token for unknown phases', () => {
     expect(phaseZh('unknown')).toBe('unknown')
-    expect(phaseZh('Short Game')).toBe('Short Game')
+    expect(phaseZh('Recovery')).toBe('Recovery')
+  })
+})
+
+describe('clubLabelZh', () => {
+  it('rewrites the trailing 退役 marker as a (已退役) suffix', () => {
+    expect(clubLabelZh('48° 退役')).toBe('48°(已退役)')
+    expect(clubLabelZh('4I 退役')).toBe('4I(已退役)')
+    expect(clubLabelZh('5H退役')).toBe('5H(已退役)')
+  })
+
+  it('leaves ordinary club names untouched', () => {
+    expect(clubLabelZh('1D')).toBe('1D')
+    expect(clubLabelZh('48°')).toBe('48°')
+    expect(clubLabelZh('退役')).toBe('退役')
+  })
+})
+
+describe('qualityLabelZh', () => {
+  it('maps data-quality finding labels to Chinese', () => {
+    expect(qualityLabelZh('geometry')).toBe('几何覆盖')
+    expect(qualityLabelZh('reports')).toBe('报告覆盖')
+    expect(qualityLabelZh('shots')).toBe('击球数据')
+  })
+
+  it('falls back to the raw label for unknown findings', () => {
+    expect(qualityLabelZh('mystery')).toBe('mystery')
+  })
+})
+
+describe('tipBasisZh', () => {
+  it('maps the prep-tips basis key vocabulary to Chinese', () => {
+    expect(tipBasisZh('course.teeDirection')).toBe('你在本场的开球倾向')
+    expect(tipBasisZh('course.approachMiss')).toBe('你在本场的攻果岭落点')
+    expect(tipBasisZh('course.parScoring.par3')).toBe('你在本场的三杆洞成绩')
+    expect(tipBasisZh('course.parScoring.par4')).toBe('你在本场的四杆洞成绩')
+    expect(tipBasisZh('course.parScoring.par5')).toBe('你在本场的五杆洞成绩')
+    expect(tipBasisZh('playerProfile.par5_scoring_loss')).toBe('你的五杆洞总体成绩')
+    expect(tipBasisZh('playerProfile.par3_scoring_strength')).toBe('你的三杆洞总体成绩')
+    expect(tipBasisZh('playerProfile.caddieBiases.protect_left_tee_miss')).toBe('球童偏置记录')
+    expect(tipBasisZh('course.prepHoles')).toBe('球场洞表(长度与HCP)')
+  })
+
+  it('returns null for unknown machine keys so raw keys never render', () => {
+    expect(tipBasisZh('course.unknownThing')).toBeNull()
+    expect(tipBasisZh('playerProfile.other_signal')).toBeNull()
+    expect(tipBasisZh('')).toBeNull()
   })
 })
 

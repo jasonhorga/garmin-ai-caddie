@@ -1,4 +1,5 @@
 import type { HistoryStatsResponse } from '../types'
+import { coverageZh, qualityLabelZh } from '../zhLabels'
 import { asString, formatNumber, semanticClass } from './statsValues'
 
 interface StatsQualityChipsProps {
@@ -21,7 +22,7 @@ export function StatsQualityChips({ data, labels }: StatsQualityChipsProps) {
         const state = asString(finding.state) ?? 'unknown'
         return (
           <span key={`${label}-${index}`} className={`semantic-chip ${semanticClass('quality', state)}`}>
-            {label} {state} {qualityRatio(finding)}
+            {qualityLabelZh(label)} {coverageZh(state)} {qualityRatio(finding)}
           </span>
         )
       })}

@@ -188,6 +188,9 @@ describe('CourseStats', () => {
     expect(screen.getByText('进步中 -10')).toHaveClass('trend-improving')
     expect(screen.getByText('差分 进步中 -5.3')).toHaveClass('trend-improving')
     expect(screen.getByText('几何 缺失')).toHaveClass('quality-missing')
+    // header data-quality chip is zh: 「几何覆盖 缺失 0/2」, not "geometry missing 0/2"
+    expect(screen.getByText('几何覆盖 缺失 0/2')).toHaveClass('quality-missing')
+    expect(screen.queryByText(/geometry missing/)).not.toBeInTheDocument()
     expect(screen.getAllByText('coverage 2/3 66.7%').length).toBeGreaterThan(0)
     expect(screen.getByText('medium confidence')).toBeInTheDocument()
     expect(screen.getByText('难度调整')).toBeInTheDocument()
@@ -199,7 +202,11 @@ describe('CourseStats', () => {
     expect(within(difficultyAdjusted).getByText('1 场次')).toBeInTheDocument()
     expect(within(difficultyAdjusted).getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
     expect(screen.getByText('球场问题分布')).toBeInTheDocument()
-    expect(screen.getByText('double_or_worse')).toBeInTheDocument()
+    // issue tokens and phases render through the zh dictionaries, never raw
+    expect(screen.getByText('双柏忌或更差')).toBeInTheDocument()
+    expect(screen.queryByText('double_or_worse')).not.toBeInTheDocument()
+    expect(screen.getByText('场上决策')).toBeInTheDocument()
+    expect(screen.queryByText('Course Management')).not.toBeInTheDocument()
     expect(screen.getByText('5 洞')).toBeInTheDocument()
     expect(screen.getByText('风险 7.5')).toBeInTheDocument()
     expect(screen.getByText('33.3% 样本')).toBeInTheDocument()
