@@ -14,6 +14,7 @@ const PHASE_ZH: Record<string, string> = {
 
 const COVERAGE_ZH: Record<string, string> = {
   ready: '齐全',
+  good: '良好',
   partial: '部分',
   missing: '缺失',
 }
@@ -34,6 +35,11 @@ const CONFIDENCE_ZH: Record<string, string> = {
   insufficient: '样本不足',
 }
 
+const DATA_MODE_ZH: Record<string, string> = {
+  local: '本地',
+  fixture: '示例',
+}
+
 export function formDirectionZh(raw: string): string {
   return FORM_DIRECTION_ZH[raw] ?? raw
 }
@@ -52,4 +58,8 @@ export function stateZh(raw: string): string {
 
 export function confidenceZh(raw: string): string {
   return CONFIDENCE_ZH[raw] ?? raw
+}
+
+export function dataModeZh(raw: string): string {
+  return DATA_MODE_ZH[raw] ?? raw
 }

@@ -738,8 +738,8 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
 
   await page.getByRole('button', { name: '设置' }).click()
-  await expect(page.getByRole('heading', { name: 'Sync & Data Quality', exact: true })).toBeVisible()
-  await expect(page.getByText('Review history')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '同步与数据健康', exact: true })).toBeVisible()
+  await expect(page.getByText('查看历史')).toBeVisible()
   await assertNoViewportOverflow(page)
   await page.getByRole('button', { name: '订正' }).click()
   await expect(page.getByRole('heading', { name: 'Corrections', exact: true })).toBeVisible()

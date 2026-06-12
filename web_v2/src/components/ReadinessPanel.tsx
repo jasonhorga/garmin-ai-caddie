@@ -1,3 +1,4 @@
+import { stateZh } from '../zhLabels'
 import type { ReadinessCheck, ReadinessResponse, ReadinessState } from '../types'
 
 interface ReadinessPanelProps {
@@ -6,9 +7,9 @@ interface ReadinessPanelProps {
 }
 
 const checkStateLabel: Record<ReadinessState, string> = {
-  ready: 'ready',
-  degraded: 'needs attention',
-  error: 'error',
+  ready: '就绪',
+  degraded: '需关注',
+  error: '错误',
 }
 
 function evidenceItems(check: ReadinessCheck): string[] {
@@ -57,19 +58,19 @@ export function ReadinessPanel({ readiness, error }: ReadinessPanelProps) {
   const status = readiness?.status ?? 'error'
 
   return (
-    <section className="readiness-panel" aria-label="Private trial readiness">
+    <section className="readiness-panel" aria-label="试运行就绪度">
       <div className="section-head">
         <div>
-          <p className="eyebrow">Private Trial</p>
-          <h2>Private Trial Readiness</h2>
-          <p>Deployment, data, sync, mobile, and secret-handling checks from the live API.</p>
+          <p className="eyebrow">私享试运行</p>
+          <h2>试运行就绪度</h2>
+          <p>来自线上 API 的部署、数据、同步、移动端与密钥处理检查。</p>
         </div>
-        <span className={`semantic-chip readiness-${status}`}>{readiness ? status : 'unavailable'}</span>
+        <span className={`semantic-chip readiness-${status}`}>{readiness ? stateZh(status) : '不可用'}</span>
       </div>
 
       {!readiness ? (
         <article className="readiness-empty">
-          <p>{error ?? 'Readiness checks are not loaded yet.'}</p>
+          <p>{error ?? '就绪检查尚未加载。'}</p>
         </article>
       ) : (
         <div className="readiness-grid">

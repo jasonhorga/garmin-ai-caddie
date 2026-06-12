@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { confidenceZh } from '../zhLabels'
 import type { MobileReconciliationApplyResponse, MobileReconciliationResponse, MobileReconciliationSuggestion } from '../types'
 
 export type MobileReconciliationPanelState =
@@ -21,8 +22,8 @@ interface MobileReconciliationPanelProps {
   defaultRoundId?: string
 }
 
-function formatCount(value: number, noun: string, plural = `${noun}s`) {
-  return `${value} ${value === 1 ? noun : plural}`
+function formatCount(value: number, unitLabel: string) {
+  return `${value} ${unitLabel}`
 }
 
 function compactValue(value: unknown) {
@@ -58,9 +59,9 @@ function suggestionSummary(suggestion: MobileReconciliationSuggestion) {
   if (mediaType && mediaId) return text ? `${mediaType} ${mediaId}: ${text}` : `${mediaType} ${mediaId}`
   if (text) return text
   const strokes = compactValue(suggestion.payload.strokes)
-  if (strokes) return `${strokes} penalty`
+  if (strokes) return `罚 ${strokes} 杆`
   const sourceEventId = compactValue(suggestion.payload.sourceEventId)
-  return sourceEventId ? `event ${sourceEventId}` : suggestion.kind
+  return sourceEventId ? `事件 ${sourceEventId}` : suggestion.kind
 }
 
 export function MobileReconciliationPanel({
@@ -102,17 +103,17 @@ export function MobileReconciliationPanel({
   }
 
   return (
-    <section className="mobile-reconciliation-panel" aria-label="Mobile reconciliation">
+    <section className="mobile-reconciliation-panel" aria-label="移动离线对账">
       <div className="section-head stats-head">
         <div>
-          <p className="eyebrow">Offline Input</p>
-          <h2>Mobile Reconciliation</h2>
-          <p>Review iOS and Watch event logs against synced Garmin facts, then apply selected corrections as auditable annotations.</p>
+          <p className="eyebrow">离线输入</p>
+          <h2>离线对账</h2>
+          <p>将 iOS 与手表的事件日志和已同步的 Garmin 事实核对，并把选中的修正作为可审计批注应用。</p>
         </div>
       </div>
 
-      <form className="mobile-reconcile-form" aria-label="Mobile reconciliation lookup" onSubmit={handleLoad}>
-        <label htmlFor="mobile-reconcile-round-id">Round ID</label>
+      <form className="mobile-reconcile-form" aria-label="离线对账查询" onSubmit={handleLoad}>
+        <label htmlFor="mobile-reconcile-round-id">球局编号</label>
         <input
           id="mobile-reconcile-round-id"
           value={displayRoundId}
@@ -123,47 +124,47 @@ export function MobileReconciliationPanel({
           spellCheck={false}
         />
         <button type="submit" disabled={!displayRoundId.trim() || state.status === 'loading'}>
-          {state.status === 'loading' ? 'Reviewing events' : 'Review offline events'}
+          {state.status === 'loading' ? '核对中' : '核对离线事件'}
         </button>
       </form>
 
       {state.status === 'idle' ? (
         <article className="stats-empty">
-          <h2>No reconciliation loaded</h2>
-          <p>Select a round after mobile events sync back from iOS or Watch.</p>
+          <h2>尚未载入对账</h2>
+          <p>等 iOS 或手表的事件同步回来后，选择一场球局。</p>
         </article>
       ) : null}
 
       {state.status === 'loading' ? (
         <article className="stats-empty">
-          <h2>Loading reconciliation</h2>
+          <h2>对账载入中</h2>
           <p>{state.roundId}</p>
         </article>
       ) : null}
 
       {state.status === 'error' ? (
         <article className="stats-empty">
-          <h2>Reconciliation unavailable</h2>
+          <h2>对账不可用</h2>
           <p>{state.message}</p>
         </article>
       ) : null}
 
       {readyData ? (
         <div className="mobile-reconcile-body">
-          <div className="mobile-reconcile-summary" aria-label="Reconciliation summary">
-            <span>{formatCount(readyData.summary.eventCount, 'event')}</span>
-            <span>{formatCount(readyData.summary.matchedCount, 'match', 'matches')}</span>
-            <span>{formatCount(readyData.summary.localOnlyCount, 'local-only event')}</span>
-            <span>{formatCount(readyData.summary.garminOnlyCount, 'Garmin-only fact')}</span>
-            <span>{formatCount(readyData.summary.conflictCount, 'conflict')}</span>
-            <span>{formatCount(readyData.summary.annotationSuggestionCount, 'suggestion')}</span>
+          <div className="mobile-reconcile-summary" aria-label="对账摘要">
+            <span>{formatCount(readyData.summary.eventCount, '个事件')}</span>
+            <span>{formatCount(readyData.summary.matchedCount, '项匹配')}</span>
+            <span>{formatCount(readyData.summary.localOnlyCount, '条仅本地事件')}</span>
+            <span>{formatCount(readyData.summary.garminOnlyCount, '条仅 Garmin 事实')}</span>
+            <span>{formatCount(readyData.summary.conflictCount, '处冲突')}</span>
+            <span>{formatCount(readyData.summary.annotationSuggestionCount, '条建议')}</span>
           </div>
 
-          <div className="mobile-reconcile-suggestions" aria-label="Reconciliation suggestions">
+          <div className="mobile-reconcile-suggestions" aria-label="对账建议">
             {readyData.annotationSuggestions.length === 0 ? (
               <article className="stats-empty">
-                <h2>No reconciliation suggestions</h2>
-                <p>Local events match the synced Garmin facts, or there is not enough evidence to propose a correction.</p>
+                <h2>暂无对账建议</h2>
+                <p>本地事件与已同步的 Garmin 事实一致，或证据不足以提出修正。</p>
               </article>
             ) : null}
 
@@ -174,7 +175,7 @@ export function MobileReconciliationPanel({
                     type="checkbox"
                     checked={selectedIds.includes(suggestion.id)}
                     onChange={() => toggleSuggestion(suggestion.id)}
-                    aria-label={`Select suggestion ${suggestion.id}`}
+                    aria-label={`选择建议 ${suggestion.id}`}
                   />
                   <span>{suggestion.kind}</span>
                 </label>
@@ -183,21 +184,21 @@ export function MobileReconciliationPanel({
                   <p>{suggestion.reason}</p>
                   <p>{suggestionSummary(suggestion)}</p>
                 </div>
-                <span className={`semantic-chip confidence-${suggestion.confidence}`}>{suggestion.confidence}</span>
+                <span className={`semantic-chip confidence-${suggestion.confidence}`}>{confidenceZh(suggestion.confidence)}</span>
               </article>
             ))}
           </div>
 
           <div className="mobile-reconcile-evidence-grid">
-            <EvidenceRows title="Local-only mobile events" rows={readyData.localOnly} />
-            <EvidenceRows title="Reconciliation conflicts" rows={readyData.conflicts} />
-            <EvidenceRows title="Garmin-only facts" rows={readyData.garminOnly} />
-            <EvidenceRows title="Candidate decision audits" rows={readyData.candidateDecisionAudits} />
+            <EvidenceRows title="仅本地移动事件" rows={readyData.localOnly} />
+            <EvidenceRows title="对账冲突" rows={readyData.conflicts} />
+            <EvidenceRows title="仅 Garmin 事实" rows={readyData.garminOnly} />
+            <EvidenceRows title="候选决策审计" rows={readyData.candidateDecisionAudits} />
           </div>
 
           <div className="mobile-reconcile-actions">
             <button type="button" onClick={handleApply} disabled={!readyData.annotationSuggestions.length || selectedIds.length === 0 || isApplying}>
-              {isApplying ? 'Applying suggestions' : 'Apply selected suggestions'}
+              {isApplying ? '应用中' : '应用所选建议'}
             </button>
             {applyState.status === 'ready' ? (
               <span>
@@ -208,14 +209,14 @@ export function MobileReconciliationPanel({
           </div>
 
           {applyState.status === 'ready' ? (
-            <div className="mobile-reconcile-apply-details" aria-label="Reconciliation apply details">
-              {applyState.data.skippedSuggestionIds.length ? <span>Skipped: {applyState.data.skippedSuggestionIds.join(', ')}</span> : null}
-              {applyState.data.missingSuggestionIds.length ? <span>Missing: {applyState.data.missingSuggestionIds.join(', ')}</span> : null}
+            <div className="mobile-reconcile-apply-details" aria-label="对账应用明细">
+              {applyState.data.skippedSuggestionIds.length ? <span>已跳过:{applyState.data.skippedSuggestionIds.join(', ')}</span> : null}
+              {applyState.data.missingSuggestionIds.length ? <span>未找到:{applyState.data.missingSuggestionIds.join(', ')}</span> : null}
             </div>
           ) : null}
 
           {applyState.status === 'ready' && applyState.data.annotations.length ? (
-            <div className="mobile-reconcile-applied" aria-label="Applied annotations">
+            <div className="mobile-reconcile-applied" aria-label="已应用批注">
               {applyState.data.annotations.map((annotation) => (
                 <article key={annotation.id}>
                   <strong>{annotation.kind}</strong>
@@ -226,7 +227,7 @@ export function MobileReconciliationPanel({
           ) : null}
 
           {applyState.status === 'ready' && (applyState.data.decisionAudits ?? []).length ? (
-            <div className="mobile-reconcile-applied" aria-label="Stored decision audits">
+            <div className="mobile-reconcile-applied" aria-label="已存档决策审计">
               {(applyState.data.decisionAudits ?? []).map((audit) => (
                 <article key={compactValue(audit.id) ?? compactValue(audit.decisionId) ?? 'audit'}>
                   <strong>{compactValue(audit.classification) ?? 'audit'}</strong>
@@ -242,10 +243,10 @@ export function MobileReconciliationPanel({
 }
 
 function applyStatusText(data: MobileReconciliationApplyResponse) {
-  const parts = [`Applied ${data.appliedCount} suggestions`]
-  if (data.decisionAuditCount ?? 0) parts.push(`stored ${formatCount(data.decisionAuditCount ?? 0, 'audit')}`)
-  if (data.skippedCount) parts.push(`skipped ${data.skippedCount}`)
-  return parts.join(', ')
+  const parts = [`已应用 ${data.appliedCount} 条建议`]
+  if (data.decisionAuditCount ?? 0) parts.push(`存档 ${data.decisionAuditCount ?? 0} 条审计`)
+  if (data.skippedCount) parts.push(`跳过 ${data.skippedCount} 条`)
+  return parts.join('，')
 }
 
 function EvidenceRows({ title, rows }: { title: string; rows: Array<Record<string, unknown>> }) {
@@ -260,7 +261,7 @@ function EvidenceRows({ title, rows }: { title: string; rows: Array<Record<strin
           </div>
         ))
       ) : (
-        <p>None</p>
+        <p>无</p>
       )}
     </section>
   )

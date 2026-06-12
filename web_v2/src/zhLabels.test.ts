@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { phaseZh, coverageZh, stateZh, confidenceZh } from './zhLabels'
+import { phaseZh, coverageZh, stateZh, confidenceZh, dataModeZh } from './zhLabels'
 
 describe('phaseZh', () => {
   it('maps known phase tokens to Chinese', () => {
@@ -18,6 +18,7 @@ describe('phaseZh', () => {
 describe('coverageZh', () => {
   it('maps coverage states to Chinese', () => {
     expect(coverageZh('ready')).toBe('齐全')
+    expect(coverageZh('good')).toBe('良好')
     expect(coverageZh('partial')).toBe('部分')
     expect(coverageZh('missing')).toBe('缺失')
   })
@@ -41,6 +42,18 @@ describe('stateZh', () => {
   it('falls back to the raw token for unknown states', () => {
     expect(stateZh('unknown')).toBe('unknown')
     expect(stateZh('syncing')).toBe('syncing')
+  })
+})
+
+describe('dataModeZh', () => {
+  it('maps snapshot data modes to Chinese', () => {
+    expect(dataModeZh('local')).toBe('本地')
+    expect(dataModeZh('fixture')).toBe('示例')
+  })
+
+  it('falls back to the raw token for unknown data modes', () => {
+    expect(dataModeZh('garmin')).toBe('garmin')
+    expect(dataModeZh('unknown')).toBe('unknown')
   })
 })
 

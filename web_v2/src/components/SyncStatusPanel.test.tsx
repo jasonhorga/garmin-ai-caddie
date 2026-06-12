@@ -105,26 +105,26 @@ describe('SyncStatusPanel', () => {
     )
 
     expect(screen.getByText('Garmin CN')).toBeInTheDocument()
-    expect(screen.getAllByText('ready').length).toBeGreaterThan(0)
-    expect(screen.getByText('Review history')).toHaveClass('sync-next-action')
-    expect(screen.getByText('12 scorecards')).toBeInTheDocument()
-    expect(screen.getByText('8 shot files')).toBeInTheDocument()
-    expect(screen.getByText('local data')).toBeInTheDocument()
-    expect(screen.getByText('Last data update')).toBeInTheDocument()
+    expect(screen.getAllByText('就绪').length).toBeGreaterThan(0)
+    expect(screen.getByText('查看历史')).toHaveClass('sync-next-action')
+    expect(screen.getByText('12 张记分卡')).toBeInTheDocument()
+    expect(screen.getByText('8 个击球文件')).toBeInTheDocument()
+    expect(screen.getByText('本地数据')).toBeInTheDocument()
+    expect(screen.getByText('最近数据更新')).toBeInTheDocument()
     expect(screen.getByText('2026-05-25T00:00:00Z')).toBeInTheDocument()
-    expect(screen.getByText('Last run')).toBeInTheDocument()
-    expect(screen.getByText('snapshot snap_123')).toBeInTheDocument()
-    expect(screen.getByText('Official OAuth')).toBeInTheDocument()
-    expect(screen.getByText('not available')).toHaveClass('quality-missing')
+    expect(screen.getByText('最近运行')).toBeInTheDocument()
+    expect(screen.getByText('快照 snap_123')).toBeInTheDocument()
+    expect(screen.getByText('官方 OAuth')).toBeInTheDocument()
+    expect(screen.getByText('不可用')).toHaveClass('quality-missing')
     expect(screen.getByText('Can official OAuth access golf scorecards?')).toBeInTheDocument()
     expect(screen.getByText('Golf scorecards')).toBeInTheDocument()
-    expect(screen.getByText('unproven')).toBeInTheDocument()
+    expect(screen.getByText('未验证')).toBeInTheDocument()
     expect(screen.getByText('Identity')).toBeInTheDocument()
-    expect(screen.getByText('possible')).toBeInTheDocument()
-    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('OAuth probe')
-    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('not configured')
-    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('client_id, redirect_uri')
-    expect(screen.getByLabelText('OAuth probe readiness')).toHaveTextContent('dry-run only')
+    expect(screen.getByText('可行')).toBeInTheDocument()
+    expect(screen.getByLabelText('OAuth 探测就绪度')).toHaveTextContent('OAuth 探测')
+    expect(screen.getByLabelText('OAuth 探测就绪度')).toHaveTextContent('未配置')
+    expect(screen.getByLabelText('OAuth 探测就绪度')).toHaveTextContent('client_id, redirect_uri')
+    expect(screen.getByLabelText('OAuth 探测就绪度')).toHaveTextContent('仅试运行')
   })
 
   it('renders reauth required state', () => {
@@ -144,10 +144,10 @@ describe('SyncStatusPanel', () => {
       />,
     )
 
-    expect(screen.getByText('reauth required')).toBeInTheDocument()
+    expect(screen.getByText('需重新登录')).toBeInTheDocument()
     expect(screen.getByText('Garmin session expired.')).toBeInTheDocument()
-    expect(screen.getByText('Reauthenticate the Garmin CN session before running another sync.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /sync now/i })).toBeDisabled()
+    expect(screen.getByText('请先重新登录 Garmin CN 会话，再运行同步。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '立即同步' })).toBeDisabled()
   })
 
   it('runs sync from the button when connector can sync', async () => {
@@ -156,7 +156,7 @@ describe('SyncStatusPanel', () => {
 
     render(<SyncStatusPanel status={{ ...baseStatus, connector: { ...baseStatus.connector, canSync: true } }} onSync={onSync} syncState="idle" />)
 
-    await user.click(screen.getByRole('button', { name: /sync now/i }))
+    await user.click(screen.getByRole('button', { name: '立即同步' }))
 
     expect(onSync).toHaveBeenCalledTimes(1)
   })
@@ -167,8 +167,8 @@ describe('SyncStatusPanel', () => {
 
     render(<SyncStatusPanel status={{ ...baseStatus, connector: { ...baseStatus.connector, canSync: true } }} onSync={onSync} syncState="idle" />)
 
-    await user.type(screen.getByLabelText('Admin token'), 'admin-secret')
-    await user.click(screen.getByRole('button', { name: /sync now/i }))
+    await user.type(screen.getByLabelText('管理令牌'), 'admin-secret')
+    await user.click(screen.getByRole('button', { name: '立即同步' }))
 
     expect(onSync).toHaveBeenCalledWith('admin-secret')
   })
@@ -176,7 +176,7 @@ describe('SyncStatusPanel', () => {
   it('shows sync running state', () => {
     render(<SyncStatusPanel status={{ ...baseStatus, connector: { ...baseStatus.connector, canSync: true } }} onSync={vi.fn()} syncState="running" />)
 
-    expect(screen.getByRole('button', { name: /syncing/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '同步中' })).toBeDisabled()
   })
 
   it('submits manually pasted Garmin session material', async () => {
@@ -198,9 +198,9 @@ describe('SyncStatusPanel', () => {
       />,
     )
 
-    await user.type(screen.getByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
-    await user.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
-    await user.click(screen.getByRole('button', { name: 'Save session' }))
+    await user.type(screen.getByLabelText('网页会话头'), 'Cookie: JWT_WEB=abc123')
+    await user.type(screen.getByLabelText('防伪令牌'), 'connect-csrf-token: csrf-secret-value')
+    await user.click(screen.getByRole('button', { name: '保存会话' }))
 
     expect(onSaveSession).toHaveBeenCalledWith({
       webSessionHeader: 'Cookie: JWT_WEB=abc123',
@@ -215,10 +215,10 @@ describe('SyncStatusPanel', () => {
 
     render(<SyncStatusPanel status={baseStatus} onSaveSession={onSaveSession} />)
 
-    await user.type(screen.getByLabelText('Admin token'), 'admin-secret')
-    await user.type(screen.getByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
-    await user.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
-    await user.click(screen.getByRole('button', { name: 'Save session' }))
+    await user.type(screen.getByLabelText('管理令牌'), 'admin-secret')
+    await user.type(screen.getByLabelText('网页会话头'), 'Cookie: JWT_WEB=abc123')
+    await user.type(screen.getByLabelText('防伪令牌'), 'connect-csrf-token: csrf-secret-value')
+    await user.click(screen.getByRole('button', { name: '保存会话' }))
 
     expect(onSaveSession).toHaveBeenCalledWith(
       {
@@ -235,16 +235,16 @@ describe('SyncStatusPanel', () => {
     const onSaveSession = vi.fn()
     const { rerender } = render(<SyncStatusPanel status={baseStatus} onSaveSession={onSaveSession} sessionSaveState="idle" />)
 
-    await user.type(screen.getByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
-    await user.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
-    await user.click(screen.getByRole('button', { name: 'Save session' }))
+    await user.type(screen.getByLabelText('网页会话头'), 'Cookie: JWT_WEB=abc123')
+    await user.type(screen.getByLabelText('防伪令牌'), 'connect-csrf-token: csrf-secret-value')
+    await user.click(screen.getByRole('button', { name: '保存会话' }))
 
     expect(onSaveSession).toHaveBeenCalledTimes(1)
 
     rerender(<SyncStatusPanel status={baseStatus} onSaveSession={onSaveSession} sessionSaveState="saved" />)
 
-    expect(screen.getByLabelText('Web session header')).toHaveValue('')
-    expect(screen.getByLabelText('Anti-forgery value')).toHaveValue('')
+    expect(screen.getByLabelText('网页会话头')).toHaveValue('')
+    expect(screen.getByLabelText('防伪令牌')).toHaveValue('')
   })
 
   it('keeps pasted Garmin session material after a failed save', async () => {
@@ -253,13 +253,13 @@ describe('SyncStatusPanel', () => {
 
     render(<SyncStatusPanel status={baseStatus} onSaveSession={onSaveSession} sessionSaveState="idle" />)
 
-    await user.type(screen.getByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
-    await user.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
-    await user.click(screen.getByRole('button', { name: 'Save session' }))
+    await user.type(screen.getByLabelText('网页会话头'), 'Cookie: JWT_WEB=abc123')
+    await user.type(screen.getByLabelText('防伪令牌'), 'connect-csrf-token: csrf-secret-value')
+    await user.click(screen.getByRole('button', { name: '保存会话' }))
 
     expect(onSaveSession).toHaveBeenCalledTimes(1)
-    expect(screen.getByLabelText('Web session header')).toHaveValue('Cookie: JWT_WEB=abc123')
-    expect(screen.getByLabelText('Anti-forgery value')).toHaveValue('connect-csrf-token: csrf-secret-value')
+    expect(screen.getByLabelText('网页会话头')).toHaveValue('Cookie: JWT_WEB=abc123')
+    expect(screen.getByLabelText('防伪令牌')).toHaveValue('connect-csrf-token: csrf-secret-value')
   })
 
   it('renders without crash when probe has no missing array (real CN payload shape)', () => {
@@ -283,7 +283,7 @@ describe('SyncStatusPanel', () => {
 
     render(<SyncStatusPanel status={statusWithCnProbe} onSync={vi.fn()} syncState="idle" />)
 
-    expect(screen.getByText('Consent request is configured with redacted parameters.')).toBeInTheDocument()
+    expect(screen.getByText('同意请求已配置(参数已脱敏)。')).toBeInTheDocument()
   })
 
   it('renders the raw state string when probe state is not in the label map', () => {

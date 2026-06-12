@@ -684,12 +684,12 @@ export default function App() {
 
   function renderSyncQualityWorkspace() {
     return (
-      <section className="sync-quality-workspace" aria-label="Sync and data quality workspace">
+      <section className="sync-quality-workspace" aria-label="同步与数据健康工作区">
         <div className="section-head stats-head">
           <div>
-            <p className="eyebrow">Evidence Coverage</p>
-            <h1>Sync & Data Quality</h1>
-            <p>Garmin connector state, local snapshot coverage, and confidence-impacting gaps.</p>
+            <p className="eyebrow">证据覆盖</p>
+            <h1>同步与数据健康</h1>
+            <p>Garmin 连接器状态、本地快照覆盖与影响置信度的缺口。</p>
           </div>
         </div>
         {syncStatus ? (
@@ -726,15 +726,15 @@ export default function App() {
         ) : null}
         {statsState.status === 'loading' ? (
           <section className="panel empty-state">
-            <h2>Loading data quality</h2>
+            <h2>数据健康加载中</h2>
           </section>
         ) : null}
         {statsState.status === 'error' ? (
           <section className="panel empty-state">
-            <h2>Data quality unavailable</h2>
+            <h2>数据健康不可用</h2>
             <p>{statsState.message}</p>
             <button type="button" onClick={() => void loadStatsState()}>
-              Retry history stats
+              重试历史统计
             </button>
           </section>
         ) : null}

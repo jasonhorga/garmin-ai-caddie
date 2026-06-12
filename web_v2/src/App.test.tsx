@@ -1023,7 +1023,7 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(await screen.findByText('Garmin CN')).toBeInTheDocument()
-    expect(screen.getAllByText('ready').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('就绪').length).toBeGreaterThan(0)
 
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     expect(screen.getByRole('button', { name: '历史' })).toHaveAttribute('aria-current', 'page')
@@ -1065,7 +1065,7 @@ describe('App navigation', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
-    await userEvent.type(await screen.findByLabelText('Admin token'), 'admin-secret')
+    await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
     await userEvent.click(screen.getByRole('button', { name: 'Retry history' }))
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
@@ -1110,7 +1110,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByRole('button', { name: 'Retry source detail' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.type(await screen.findByLabelText('Admin token'), 'admin-secret')
+    await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
     await userEvent.click(screen.getByRole('button', { name: 'Retry source detail' }))
 
     expect(await screen.findByText('1D on H1')).toBeInTheDocument()
@@ -1143,13 +1143,13 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.type(await screen.findByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
-    await userEvent.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
-    await userEvent.click(screen.getByRole('button', { name: 'Save session' }))
+    await userEvent.type(await screen.findByLabelText('网页会话头'), 'Cookie: JWT_WEB=abc123')
+    await userEvent.type(screen.getByLabelText('防伪令牌'), 'connect-csrf-token: csrf-secret-value')
+    await userEvent.click(screen.getByRole('button', { name: '保存会话' }))
 
     expect(await screen.findByText('POST /api/v2/sync/garmin/session failed: 401 Unauthorized')).toBeInTheDocument()
-    expect(screen.getByLabelText('Web session header')).toHaveValue('Cookie: JWT_WEB=abc123')
-    expect(screen.getByLabelText('Anti-forgery value')).toHaveValue('connect-csrf-token: csrf-secret-value')
+    expect(screen.getByLabelText('网页会话头')).toHaveValue('Cookie: JWT_WEB=abc123')
+    expect(screen.getByLabelText('防伪令牌')).toHaveValue('connect-csrf-token: csrf-secret-value')
   })
 
   it('loads history stats once and navigates between stats-backed pages', async () => {
@@ -1392,7 +1392,7 @@ describe('App navigation', () => {
 
     // Kick off a background trends refresh (window=last10) that stays in flight.
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }))
     await waitFor(() =>
       expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(2),
     )
@@ -1470,8 +1470,8 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
 
-    expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
-    expect(await screen.findByLabelText('Admin token')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('管理令牌')).toBeInTheDocument()
   })
 
   it('rounds error screen offers token recovery via 去设置', async () => {
@@ -1500,8 +1500,8 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
 
-    expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
-    expect(await screen.findByLabelText('Admin token')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('管理令牌')).toBeInTheDocument()
   })
 
   it('overview failure does not block other sections', async () => {
@@ -1886,31 +1886,31 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
 
-    expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
     expect(screen.getByText('Garmin CN')).toBeInTheDocument()
     expect(screen.getAllByText('Local Garmin snapshots are available.').length).toBeGreaterThan(0)
-    expect(screen.getByRole('heading', { name: 'Private Trial Readiness' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '试运行就绪度' })).toBeInTheDocument()
     expect(screen.getByText('dataMode: fixture')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Data Quality' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '数据健康' })).toBeInTheDocument()
     expect(screen.getByText('shots')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Mobile Package Prep' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Mobile Reconciliation' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '离线包准备' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '离线对账' })).toBeInTheDocument()
 
-    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
-    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
-    await userEvent.clear(screen.getByLabelText('Course global ID'))
-    await userEvent.type(screen.getByLabelText('Course global ID'), '31795')
-    await userEvent.type(screen.getByLabelText('Live round ID'), 'live-black-knight')
-    await userEvent.type(screen.getByLabelText('Tee box'), 'blue')
-    await userEvent.click(screen.getByRole('button', { name: 'Prepare package' }))
+    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
+    await userEvent.click(screen.getByRole('radio', { name: '球场' }))
+    await userEvent.clear(screen.getByLabelText('球场全局编号'))
+    await userEvent.type(screen.getByLabelText('球场全局编号'), '31795')
+    await userEvent.type(screen.getByLabelText('实战球局编号'), 'live-black-knight')
+    await userEvent.type(screen.getByLabelText('发球台'), 'blue')
+    await userEvent.click(screen.getByRole('button', { name: '生成离线包' }))
     expect(await screen.findByText('Fixture Links')).toBeInTheDocument()
-    expect(screen.getByText('12/18 holes')).toBeInTheDocument()
+    expect(screen.getByText('12/18 洞')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Review offline events' }))
+    await userEvent.click(screen.getByRole('button', { name: '核对离线事件' }))
     expect(await screen.findByText('Local score input can correct the derived score for this hole.')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Apply selected suggestions' }))
-    expect(await screen.findByText('Applied 1 suggestions')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '应用所选建议' }))
+    expect(await screen.findByText('已应用 1 条建议')).toBeInTheDocument()
 
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
@@ -1948,13 +1948,13 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
 
-    expect(await screen.findByRole('heading', { name: 'Mobile Package Prep' })).toBeInTheDocument()
-    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
-    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
-    await userEvent.clear(screen.getByLabelText('Course global ID'))
-    await userEvent.type(screen.getByLabelText('Course global ID'), '31795')
-    await userEvent.type(screen.getByLabelText('Live round ID'), 'live-black-knight')
-    await userEvent.click(screen.getByRole('button', { name: 'Prepare package' }))
+    expect(await screen.findByRole('heading', { name: '离线包准备' })).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
+    await userEvent.click(screen.getByRole('radio', { name: '球场' }))
+    await userEvent.clear(screen.getByLabelText('球场全局编号'))
+    await userEvent.type(screen.getByLabelText('球场全局编号'), '31795')
+    await userEvent.type(screen.getByLabelText('实战球局编号'), 'live-black-knight')
+    await userEvent.click(screen.getByRole('button', { name: '生成离线包' }))
 
     expect(await screen.findByText('Fixture Links')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true', {
@@ -1984,17 +1984,17 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
+    await userEvent.click(screen.getByRole('radio', { name: '球场' }))
 
-    expect(await screen.findByText('Course options unavailable: GET /api/v2/mobile/courses/options failed: 401 Unauthorized')).toBeInTheDocument()
-    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
+    expect(await screen.findByText('球场选项不可用:GET /api/v2/mobile/courses/options failed: 401 Unauthorized')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/options', {
         headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
       }),
     )
-    expect(await screen.findByLabelText('Recent course')).toBeInTheDocument()
+    expect(await screen.findByLabelText('最近球场')).toBeInTheDocument()
   })
 
   it('refreshes loaded history stats after Garmin sync completes', async () => {
@@ -2020,7 +2020,7 @@ describe('App navigation', () => {
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }))
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=true&force_refresh_auth=false', { method: 'POST' })
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
