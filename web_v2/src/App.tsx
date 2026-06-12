@@ -1276,14 +1276,14 @@ export default function App() {
       if (annotationsState.status === 'error') {
         return (
           <section className="panel empty-state">
-            <h1>Corrections unavailable</h1>
+            <h1>订正数据不可用</h1>
             <p>{annotationsState.message}</p>
           </section>
         )
       }
       return (
         <section className="panel empty-state">
-          <h1>Loading corrections</h1>
+          <h1>订正加载中</h1>
         </section>
       )
     }

@@ -33,17 +33,17 @@ export interface CorrectionTarget {
 }
 
 const correctionKinds: Array<{ value: CorrectionFormKind; label: string }> = [
-  { value: 'club_correction', label: 'Club correction' },
-  { value: 'lie_correction', label: 'Lie correction' },
-  { value: 'penalty_correction', label: 'Penalty correction' },
-  { value: 'putt_correction', label: 'Putt correction' },
-  { value: 'score_correction', label: 'Score correction' },
-  { value: 'issue_tag', label: 'Issue tag' },
-  { value: 'issue_tag_removed', label: 'Remove issue tag' },
-  { value: 'weather_context_note', label: 'Weather note' },
-  { value: 'strategy_note', label: 'Strategy note' },
-  { value: 'caddie_feedback', label: 'Caddie feedback' },
-  { value: 'note', label: 'Note' },
+  { value: 'club_correction', label: '球杆订正' },
+  { value: 'lie_correction', label: '球位订正' },
+  { value: 'penalty_correction', label: '罚杆订正' },
+  { value: 'putt_correction', label: '推杆订正' },
+  { value: 'score_correction', label: '成绩订正' },
+  { value: 'issue_tag', label: '问题标签' },
+  { value: 'issue_tag_removed', label: '移除问题标签' },
+  { value: 'weather_context_note', label: '天气备注' },
+  { value: 'strategy_note', label: '策略备注' },
+  { value: 'caddie_feedback', label: '球童反馈' },
+  { value: 'note', label: '备注' },
 ]
 
 const targetTypes: AnnotationTargetType[] = ['round', 'hole', 'shot', 'decision']
@@ -62,19 +62,19 @@ const statsOverlayKindSet = new Set<AnnotationKind>([
 
 function labelKind(kind: AnnotationKind) {
   const labels: Record<AnnotationKind, string> = {
-    round_note: 'Round note',
-    hole_note: 'Hole note',
-    shot_note: 'Shot note',
-    issue_tag: 'Issue tag',
-    issue_tag_removed: 'Remove issue tag',
-    club_correction: 'Club correction',
-    lie_correction: 'Lie correction',
-    penalty_correction: 'Penalty correction',
-    putt_correction: 'Putt correction',
-    score_correction: 'Score correction',
-    weather_context_note: 'Weather note',
-    strategy_note: 'Strategy note',
-    caddie_feedback: 'Caddie feedback',
+    round_note: '球局备注',
+    hole_note: '球洞备注',
+    shot_note: '击球备注',
+    issue_tag: '问题标签',
+    issue_tag_removed: '移除问题标签',
+    club_correction: '球杆订正',
+    lie_correction: '球位订正',
+    penalty_correction: '罚杆订正',
+    putt_correction: '推杆订正',
+    score_correction: '成绩订正',
+    weather_context_note: '天气备注',
+    strategy_note: '策略备注',
+    caddie_feedback: '球童反馈',
   }
   return labels[kind]
 }
@@ -105,27 +105,27 @@ function isFiniteNumberLike(value: unknown): value is number {
 
 function missingPayloadMessage(kind: CorrectionFormKind, payload: Record<string, unknown>): string | null {
   if (kind === 'club_correction') {
-    return payload.from && payload.to ? null : 'Club corrections need both recorded and corrected clubs.'
+    return payload.from && payload.to ? null : '球杆订正需要同时填写原记录与订正后的球杆。'
   }
   if (kind === 'lie_correction') {
-    return payload.from && payload.to ? null : 'Lie corrections need both recorded and corrected lies.'
+    return payload.from && payload.to ? null : '球位订正需要同时填写原记录与订正后的球位。'
   }
   if (kind === 'penalty_correction') {
-    return isFiniteNumberLike(payload.strokes) && payload.strokes >= 1 ? null : 'Penalty corrections need penalty strokes of 1 or more.'
+    return isFiniteNumberLike(payload.strokes) && payload.strokes >= 1 ? null : '罚杆订正需要 1 杆及以上的罚杆数。'
   }
   if (kind === 'putt_correction') {
-    return isFiniteNumberLike(payload.from) && isFiniteNumberLike(payload.to) ? null : 'Putt corrections need numeric recorded and corrected putts.'
+    return isFiniteNumberLike(payload.from) && isFiniteNumberLike(payload.to) ? null : '推杆订正需要数字形式的原记录与订正后推杆数。'
   }
   if (kind === 'score_correction') {
-    return isFiniteNumberLike(payload.from) && isFiniteNumberLike(payload.to) ? null : 'Score corrections need numeric recorded and corrected scores.'
+    return isFiniteNumberLike(payload.from) && isFiniteNumberLike(payload.to) ? null : '成绩订正需要数字形式的原记录与订正后成绩。'
   }
   if (kind === 'issue_tag' || kind === 'issue_tag_removed') {
-    return payload.tag ? null : 'Issue tag changes need an issue tag.'
+    return payload.tag ? null : '问题标签操作需要填写标签。'
   }
   if (kind === 'weather_context_note' || kind === 'strategy_note' || kind === 'note') {
-    return payload.text ? null : 'Notes need text before saving.'
+    return payload.text ? null : '备注需先填写内容再保存。'
   }
-  return Object.keys(payload).length ? null : 'Add correction details before saving.'
+  return Object.keys(payload).length ? null : '保存前请填写订正详情。'
 }
 
 function payloadSummary(record: AnnotationRecord) {
@@ -138,12 +138,12 @@ function payloadSummary(record: AnnotationRecord) {
   if (record.kind === 'putt_correction') {
     const from = compactPayloadValue(payload.from)
     const to = compactPayloadValue(payload.to)
-    if (from && to) return `${from} -> ${to} putts`
+    if (from && to) return `推杆 ${from} -> ${to}`
   }
   if (record.kind === 'score_correction') {
     const from = compactPayloadValue(payload.from)
     const to = compactPayloadValue(payload.to)
-    if (from && to) return `${from} -> ${to} strokes`
+    if (from && to) return `成绩 ${from} -> ${to}`
   }
   if (record.kind === 'lie_correction') {
     const from = compactPayloadValue(payload.from)
@@ -153,8 +153,8 @@ function payloadSummary(record: AnnotationRecord) {
   if (record.kind === 'penalty_correction') {
     const strokes = compactPayloadValue(payload.strokes)
     const reason = compactPayloadValue(payload.reason)
-    if (strokes && reason) return `${strokes} stroke: ${reason}`
-    if (strokes) return `${strokes} penalty stroke`
+    if (strokes && reason) return `罚 ${strokes} 杆:${reason}`
+    if (strokes) return `罚 ${strokes} 杆`
   }
   if (record.kind === 'issue_tag' || record.kind === 'issue_tag_removed') {
     const tag = compactPayloadValue(payload.tag)
@@ -202,37 +202,37 @@ function CorrectionImpactPanel({ annotations }: { annotations: AnnotationRecord[
   const kindRows = countBy(annotations.map((record) => record.kind)).slice(0, 5)
 
   return (
-    <section className="panel correction-impact" aria-label="Correction impact">
+    <section className="panel correction-impact" aria-label="订正影响">
       <div className="section-head">
         <div>
-          <h2>Correction Impact</h2>
-          <p>Manual records are overlays for derived stats; Garmin raw snapshots stay unchanged.</p>
+          <h2>订正影响</h2>
+          <p>人工记录仅作为派生统计的覆盖层;Garmin 原始快照保持不变。</p>
         </div>
       </div>
       <div className="correction-impact-metrics">
         <div>
-          <span>Total annotations</span>
+          <span>批注总数</span>
           <b>{annotations.length}</b>
         </div>
         <div>
-          <span>Stat overlays</span>
+          <span>统计覆盖</span>
           <b>{statsOverlayCount}</b>
         </div>
         <div>
-          <span>Corrections</span>
+          <span>订正</span>
           <b>{correctionCount}</b>
         </div>
       </div>
-      <div className="correction-impact-rules" aria-label="Correction rules">
-        <span>append-only audit log</span>
-        <span>raw facts immutable</span>
-        <span>history stats use explicit overlays</span>
+      <div className="correction-impact-rules" aria-label="订正规则">
+        <span>只追加审计日志</span>
+        <span>原始事实不可变</span>
+        <span>历史统计使用显式覆盖</span>
       </div>
       {targetRows.length || kindRows.length ? (
         <div className="correction-impact-breakdown">
           {targetRows.length ? (
-            <div aria-label="Correction targets">
-              <h3>Targets</h3>
+            <div aria-label="订正目标分布">
+              <h3>目标</h3>
               {targetRows.map((row) => (
                 <span key={row.label}>
                   {row.label} {row.count}
@@ -241,8 +241,8 @@ function CorrectionImpactPanel({ annotations }: { annotations: AnnotationRecord[
             </div>
           ) : null}
           {kindRows.length ? (
-            <div aria-label="Correction kinds">
-              <h3>Kinds</h3>
+            <div aria-label="订正类型分布">
+              <h3>类型</h3>
               {kindRows.map((row) => (
                 <span key={row.label}>
                   {labelKind(row.label)} {row.count}
@@ -342,7 +342,7 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
     event.preventDefault()
     setMessage(null)
     const request = buildRequest()
-    const validationMessage = targetId.trim() ? missingPayloadMessage(correctionKind, request.payload) : 'Target ID is required.'
+    const validationMessage = targetId.trim() ? missingPayloadMessage(correctionKind, request.payload) : '请填写目标编号。'
     if (validationMessage) {
       setMessage(validationMessage)
       return
@@ -351,7 +351,7 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
     setIsSaving(true)
     try {
       const response = await onCreateAnnotation(request)
-      setMessage(`Saved ${labelKind(response.annotation.kind)}`)
+      setMessage(`已保存 ${labelKind(response.annotation.kind)}`)
       setTargetType(initialTarget?.targetType ?? targetType)
       setTargetId(initialTarget?.targetId ?? '')
       setRecordedClub('')
@@ -368,38 +368,38 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
       setFeedbackRating('helpful')
       setNote('')
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : 'Unable to save annotation')
+      setMessage(error instanceof Error ? error.message : '批注保存失败')
     } finally {
       setIsSaving(false)
     }
   }
 
   return (
-    <section className="stats-page corrections-page" aria-label="Corrections workspace">
+    <section className="stats-page corrections-page" aria-label="订正工作区">
       <div className="section-head stats-head">
         <div>
-          <p className="eyebrow">Manual Review</p>
-          <h1>Corrections</h1>
-          <p>Inspect manual annotation history and add corrections without changing Garmin source snapshots.</p>
+          <p className="eyebrow">人工复核</p>
+          <h1>订正</h1>
+          <p>查看人工批注历史,在不改动 Garmin 原始快照的前提下添加订正。</p>
         </div>
-        <span className="mode-pill">{data.total} records</span>
+        <span className="mode-pill">{data.total} 条记录</span>
       </div>
 
       <section className="corrections-grid">
         <div className="corrections-stack">
           <CorrectionImpactPanel annotations={data.annotations} />
-          <form className="panel annotation-form" aria-label="Create annotation" onSubmit={handleSubmit}>
+          <form className="panel annotation-form" aria-label="新增批注" onSubmit={handleSubmit}>
             <div className="section-head">
               <div>
-                <h2>Add Correction</h2>
-                <p>Save a targeted manual annotation for derived history stats.</p>
+                <h2>新增订正</h2>
+                <p>为派生历史统计保存定向人工批注。</p>
               </div>
-              {initialTarget ? <span className="mode-pill">source-bound</span> : null}
+              {initialTarget ? <span className="mode-pill">来源绑定</span> : null}
             </div>
 
             <div className="annotation-form-grid">
               <label>
-                <span>Target type</span>
+                <span>目标类型</span>
                 <select value={targetType} onChange={(event) => setTargetType(event.target.value as AnnotationTargetType)}>
                   {targetTypes.map((type) => (
                     <option key={type} value={type}>
@@ -410,12 +410,12 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
               </label>
 
               <label>
-                <span>Target ID</span>
+                <span>目标编号</span>
                 <input value={targetId} onChange={(event) => setTargetId(event.target.value)} required />
               </label>
 
               <label>
-                <span>Correction type</span>
+                <span>订正类型</span>
                 <select
                   value={correctionKind}
                   onChange={(event) => setCorrectionKind(event.target.value as CorrectionFormKind)}
@@ -431,11 +431,11 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
             {correctionKind === 'club_correction' ? (
               <>
                 <label>
-                  <span>Recorded club</span>
+                  <span>原记录球杆</span>
                   <input value={recordedClub} onChange={(event) => setRecordedClub(event.target.value)} />
                 </label>
                 <label>
-                  <span>Corrected club</span>
+                  <span>订正后球杆</span>
                   <input value={correctedClub} onChange={(event) => setCorrectedClub(event.target.value)} />
                 </label>
               </>
@@ -444,11 +444,11 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
             {correctionKind === 'lie_correction' ? (
               <>
                 <label>
-                  <span>Recorded lie</span>
+                  <span>原记录球位</span>
                   <input value={recordedLie} onChange={(event) => setRecordedLie(event.target.value)} />
                 </label>
                 <label>
-                  <span>Corrected lie</span>
+                  <span>订正后球位</span>
                   <input value={correctedLie} onChange={(event) => setCorrectedLie(event.target.value)} />
                 </label>
               </>
@@ -457,11 +457,11 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
             {correctionKind === 'penalty_correction' ? (
               <>
                 <label>
-                  <span>Penalty strokes</span>
+                  <span>罚杆数</span>
                   <input inputMode="numeric" value={penaltyStrokes} onChange={(event) => setPenaltyStrokes(event.target.value)} />
                 </label>
                 <label>
-                  <span>Penalty reason</span>
+                  <span>罚杆原因</span>
                   <input value={penaltyReason} onChange={(event) => setPenaltyReason(event.target.value)} />
                 </label>
               </>
@@ -470,11 +470,11 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
             {correctionKind === 'putt_correction' ? (
               <>
                 <label>
-                  <span>Recorded putts</span>
+                  <span>原记录推杆</span>
                   <input inputMode="numeric" value={recordedPutts} onChange={(event) => setRecordedPutts(event.target.value)} />
                 </label>
                 <label>
-                  <span>Corrected putts</span>
+                  <span>订正后推杆</span>
                   <input inputMode="numeric" value={correctedPutts} onChange={(event) => setCorrectedPutts(event.target.value)} />
                 </label>
               </>
@@ -483,11 +483,11 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
             {correctionKind === 'score_correction' ? (
               <>
                 <label>
-                  <span>Recorded score</span>
+                  <span>原记录成绩</span>
                   <input inputMode="numeric" value={recordedScore} onChange={(event) => setRecordedScore(event.target.value)} />
                 </label>
                 <label>
-                  <span>Corrected score</span>
+                  <span>订正后成绩</span>
                   <input inputMode="numeric" value={correctedScore} onChange={(event) => setCorrectedScore(event.target.value)} />
                 </label>
               </>
@@ -495,48 +495,48 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
 
             {correctionKind === 'issue_tag' || correctionKind === 'issue_tag_removed' ? (
               <label>
-                <span>Issue tag</span>
+                <span>问题标签</span>
                 <input value={issueTag} onChange={(event) => setIssueTag(event.target.value)} />
               </label>
             ) : null}
 
             {correctionKind === 'caddie_feedback' ? (
               <label>
-                <span>Feedback rating</span>
+                <span>反馈评价</span>
                 <select value={feedbackRating} onChange={(event) => setFeedbackRating(event.target.value)}>
-                  <option value="helpful">Helpful</option>
-                  <option value="too_aggressive">Too aggressive</option>
-                  <option value="too_conservative">Too conservative</option>
-                  <option value="missing_context">Missing context</option>
+                  <option value="helpful">有帮助</option>
+                  <option value="too_aggressive">太激进</option>
+                  <option value="too_conservative">太保守</option>
+                  <option value="missing_context">缺少上下文</option>
                 </select>
               </label>
             ) : null}
 
             <label className="annotation-form-wide">
-              <span>Note</span>
+              <span>备注</span>
               <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} />
             </label>
           </div>
 
             <div className="annotation-actions">
               <button type="submit" disabled={isSaving}>
-                Save annotation
+                保存批注
               </button>
               {message ? <p role="status">{message}</p> : null}
             </div>
           </form>
         </div>
 
-        <section className="panel annotation-history" aria-label="Annotation history">
+        <section className="panel annotation-history" aria-label="批注历史">
           <div className="section-head">
             <div>
-              <h2>Annotation History</h2>
-              <p>Newest manual records returned by the annotation API.</p>
+              <h2>批注历史</h2>
+              <p>批注 API 返回的最新人工记录。</p>
             </div>
           </div>
           <div className="annotation-list">
             {data.annotations.length === 0 ? (
-              <p className="round-empty">No manual annotations yet</p>
+              <p className="round-empty">暂无人工批注</p>
             ) : (
               data.annotations.map((record) => (
                 <article key={record.id} className="annotation-card">

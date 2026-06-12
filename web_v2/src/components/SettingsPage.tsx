@@ -29,52 +29,52 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
   const watchInputs = formatSettingList(watch.inputs, ['club', 'distance', 'score', 'putt', 'penalty'])
 
   return (
-    <section className="settings-page" aria-label="Settings workspace">
+    <section className="settings-page" aria-label="后端配置工作区">
       <div className="section-head stats-head">
         <div>
-          <p className="eyebrow">Control Surface</p>
-          <h1>Settings</h1>
-          <p>Connector, provider, live app, privacy, and correction controls.</p>
+          <p className="eyebrow">控制面</p>
+          <h1>后端配置</h1>
+          <p>连接器、AI 引擎、实战应用、隐私与订正控制。</p>
         </div>
         {settingsError ? <span className="semantic-chip quality-missing">{settingsError}</span> : null}
       </div>
 
       <div className="settings-grid">
-        <article className="settings-item" aria-label="Data source settings">
+        <article className="settings-item" aria-label="数据源配置">
           <div className="settings-item-main">
-            <h2>Data Sources</h2>
+            <h2>数据源</h2>
             <div className="setting-chip-row">
-              <span className="setting-chip setting-primary">CN Web Session</span>
-              <span className="setting-chip setting-secondary">OAuth feasibility</span>
-              <span className="setting-chip">Local snapshots</span>
+              <span className="setting-chip setting-primary">CN 网页会话</span>
+              <span className="setting-chip setting-secondary">OAuth 可行性</span>
+              <span className="setting-chip">本地快照</span>
               {cnSession ? <span className="setting-chip setting-primary">{asString(cnSession.state) ?? 'unknown'}</span> : null}
               {oauth ? <span className="setting-chip setting-secondary">{asString(oauth.state) ?? 'unknown'}</span> : null}
             </div>
             <div className="settings-fact-grid">
-              <span>Scorecards</span>
-              <b>session connector</b>
-              <span>Shot rows</span>
-              <b>normalized snapshot</b>
-              <span>Geometry</span>
+              <span>记分卡</span>
+              <b>会话连接器</b>
+              <span>击球行</span>
+              <b>标准化快照</b>
+              <span>几何</span>
               <b>prodgeometry</b>
-              <span>Credential policy</span>
-              <b>No Garmin password storage</b>
+              <span>凭据策略</span>
+              <b>不存储 Garmin 密码</b>
             </div>
             {oauthProbe.schema ? (
-              <div className="settings-oauth-probe" aria-label="OAuth feasibility probe">
+              <div className="settings-oauth-probe" aria-label="OAuth 可行性探测">
                 <div>
-                  <span>OAuth probe</span>
-                  <b>{asString(oauthProbe.state) === 'ready_for_manual_consent' ? 'ready for manual consent' : 'not configured'}</b>
+                  <span>OAuth 探测</span>
+                  <b>{asString(oauthProbe.state) === 'ready_for_manual_consent' ? '可手动授权' : '未配置'}</b>
                 </div>
-                {oauthMissing.length ? <p>Missing {oauthMissing.join(', ')}</p> : <p>Consent request uses redacted configured parameters.</p>}
+                {oauthMissing.length ? <p>缺失 {oauthMissing.join(', ')}</p> : <p>同意请求使用已脱敏的配置参数。</p>}
                 <div className="settings-oauth-probe-grid">
-                  <span>Code exchange</span>
-                  <b>{asBoolean(oauthExchange.ready, false) ? 'ready' : oauthExchangeMissing.length ? `missing ${oauthExchangeMissing.join(', ')}` : 'not ready'}</b>
-                  <span>Resource checks</span>
+                  <span>授权码交换</span>
+                  <b>{asBoolean(oauthExchange.ready, false) ? '就绪' : oauthExchangeMissing.length ? `缺失 ${oauthExchangeMissing.join(', ')}` : '未就绪'}</b>
+                  <span>资源检查</span>
                   <b>{oauthResourceChecks.length ? oauthResourceChecks.join(', ') : 'user_id, permissions'}</b>
                 </div>
                 {oauthCapabilities.length ? (
-                  <div className="settings-oauth-capabilities" aria-label="OAuth capability matrix">
+                  <div className="settings-oauth-capabilities" aria-label="OAuth 能力矩阵">
                     {oauthCapabilities.map((capability) => (
                       <span key={asString(capability.key) ?? asString(capability.label) ?? 'capability'}>
                         {asString(capability.label) ?? 'Capability'}: {asString(capability.state) ?? 'unknown'}
@@ -93,15 +93,15 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
             ) : null}
           </div>
           <button type="button" onClick={() => onNavigate('sync-quality')}>
-            Review privacy controls
+            查看隐私控制
           </button>
         </article>
 
-        <article className="settings-item" aria-label="AI provider settings">
+        <article className="settings-item" aria-label="AI 引擎配置">
           <div className="settings-item-main">
-            <h2>AI Providers</h2>
+            <h2>AI 引擎</h2>
             <div className="setting-chip-row">
-              {activeProvider ? <span className="setting-chip setting-primary">active: {asString(activeProvider.label) ?? settings?.aiProviders.activeProvider}</span> : null}
+              {activeProvider ? <span className="setting-chip setting-primary">当前:{asString(activeProvider.label) ?? settings?.aiProviders.activeProvider}</span> : null}
               <span className="setting-chip setting-primary">Static</span>
               <span className={providerChipClass(settings, 'nvidia_nim')}>NVIDIA NIM</span>
               <span className={providerChipClass(settings, 'gemini_api_key')}>Gemini API</span>
@@ -111,101 +111,101 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
             </div>
             <label className="setting-check">
               <input type="checkbox" checked={settings?.aiProviders?.factBindingRequired ?? true} readOnly />
-              <span>Fact binding required</span>
+              <span>必须绑定事实</span>
             </label>
             <div className="settings-fact-grid">
-              <span>Reports</span>
+              <span>报告</span>
               <b>factsUsed + missingData</b>
-              <span>Caddie explanation</span>
-              <b>decision facts only</b>
-              <span>CLI OAuth refresh</span>
-              <b>{asBoolean(geminiCliProvider?.refreshRequiresClientCredential, false) ? 'token cache + client credential for refresh' : 'local development only'}</b>
+              <span>球童解释</span>
+              <b>仅决策事实</b>
+              <span>CLI OAuth 刷新</span>
+              <b>{asBoolean(geminiCliProvider?.refreshRequiresClientCredential, false) ? '令牌缓存 + 刷新需客户端凭据' : '仅本地开发'}</b>
             </div>
           </div>
           <button type="button" onClick={() => onNavigate('reports')}>
-            Open report controls
+            打开报告控制
           </button>
         </article>
 
-        <article className="settings-item" aria-label="Live app settings">
+        <article className="settings-item" aria-label="实战应用配置">
           <div className="settings-item-main">
-            <h2>Live Apps</h2>
+            <h2>实战应用</h2>
             <div className="setting-chip-row">
-              <span className="setting-chip setting-primary">iOS offline package</span>
-              <span className="setting-chip setting-secondary">Watch bridge</span>
-              <span className="setting-chip">Photo / video context</span>
+              <span className="setting-chip setting-primary">iOS 离线包</span>
+              <span className="setting-chip setting-secondary">手表桥接</span>
+              <span className="setting-chip">照片/视频上下文</span>
               {asString(ios.state) ? <span className="setting-chip">iOS {asString(ios.state)}</span> : null}
               {asString(watch.state) ? <span className="setting-chip">Watch {asString(watch.state)}</span> : null}
             </div>
             <div className="settings-fact-grid">
-              <span>Round start</span>
-              <b>cached package</b>
-              <span>On-course input</span>
+              <span>开局</span>
+              <b>缓存离线包</b>
+              <span>场上输入</span>
               <b>{iosCaptures}</b>
-              <span>Watch input</span>
+              <span>手表输入</span>
               <b>{watchInputs}</b>
-              <span>Post-round</span>
-              <b>event reconciliation</b>
+              <span>赛后</span>
+              <b>事件对账</b>
             </div>
           </div>
           <button type="button" onClick={() => onNavigate('sync-quality')}>
-            Open live prep
+            打开实战准备
           </button>
         </article>
 
-        <article className="settings-item" aria-label="Privacy settings">
+        <article className="settings-item" aria-label="隐私配置">
           <div className="settings-item-main">
-            <h2>Privacy & Retention</h2>
+            <h2>隐私与留存</h2>
             <div className="setting-check-grid">
               <label className="setting-check">
                 <input type="checkbox" checked={asBoolean(privacy.adminProtectedWrites, true)} readOnly />
-                <span>Admin protected writes</span>
+                <span>管理员保护写入</span>
               </label>
               <label className="setting-check">
                 <input type="checkbox" checked={asBoolean(privacy.mediaRedaction, true)} readOnly />
-                <span>Media redaction</span>
+                <span>媒体脱敏</span>
               </label>
               <label className="setting-check">
                 <input type="checkbox" checked={asBoolean(privacy.localSnapshotsSurviveReauth, true)} readOnly />
-                <span>Local snapshots survive reauth</span>
+                <span>重新登录保留本地快照</span>
               </label>
               <label className="setting-check">
                 <input type="checkbox" checked={asBoolean(privacy.secretFreeStatusResponses, true)} readOnly />
-                <span>Secret-free status responses</span>
+                <span>状态响应不含密钥</span>
               </label>
             </div>
             <div className="settings-fact-grid">
-              <span>Session material</span>
-              <b>secret storage only</b>
-              <span>Media bytes</span>
-              <b>redactable</b>
-              <span>API responses</span>
-              <b>private paths removed</b>
+              <span>会话材料</span>
+              <b>仅密钥存储</b>
+              <span>媒体字节</span>
+              <b>可脱敏</b>
+              <span>API 响应</span>
+              <b>已移除私有路径</b>
             </div>
           </div>
           <button type="button" onClick={() => onNavigate('sync-quality')}>
-            Open sync controls
+            打开同步控制
           </button>
         </article>
 
         <article className="settings-item">
           <div className="settings-item-main">
-            <h2>Manual Corrections</h2>
+            <h2>人工订正</h2>
             <div className="setting-chip-row">
-              <span className="setting-chip">Issue tags</span>
-              <span className="setting-chip">Score fixes</span>
-              <span className="setting-chip">Caddie feedback</span>
-              <span className="setting-chip">Weather notes</span>
+              <span className="setting-chip">问题标签</span>
+              <span className="setting-chip">成绩修正</span>
+              <span className="setting-chip">球童反馈</span>
+              <span className="setting-chip">天气备注</span>
             </div>
             <div className="settings-fact-grid">
-              <span>Raw facts</span>
-              <b>immutable</b>
-              <span>Derived stats</span>
-              <b>correction-aware</b>
+              <span>原始事实</span>
+              <b>不可变</b>
+              <span>派生统计</span>
+              <b>订正感知</b>
             </div>
           </div>
           <button type="button" onClick={() => onNavigate('corrections')}>
-            Open corrections
+            打开订正
           </button>
         </article>
       </div>
