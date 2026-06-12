@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { AnnotationRecord, AnnotationTargetType, HistoryRoundDetailResponse, ReviewReportResponse } from '../types'
+import { phaseZh } from '../zhLabels'
 import { SourceRefs } from './SourceRefs'
 
 export type HistoryRoundDetailPanelState =
@@ -70,18 +71,18 @@ function RoundFacts({ data }: { data: HistoryRoundDetailResponse }) {
   const round = data.round ?? {}
   const coverage = typeof round.coverage === 'object' && round.coverage !== null ? round.coverage as Record<string, unknown> : {}
   const facts: Array<[string, unknown]> = [
-    ['Score', round.score],
-    ['To par', toParText(round.toPar)],
-    ['Holes', round.holesScored ?? round.holesCompleted],
-    ['Shots', round.shotCount],
-    ['Scorecard', coverage.scorecard],
-    ['Shot data', coverage.shots],
-    ['Putts', coverage.putts],
-    ['Confidence', round.confidence],
+    ['成绩', round.score],
+    ['对标准杆', toParText(round.toPar)],
+    ['洞数', round.holesScored ?? round.holesCompleted],
+    ['击球数', round.shotCount],
+    ['记分卡', coverage.scorecard],
+    ['击球数据', coverage.shots],
+    ['推杆数', coverage.putts],
+    ['置信度', round.confidence],
   ]
 
   return (
-    <section className="round-detail-facts" aria-label="Round detail facts">
+    <section className="round-detail-facts" aria-label="球局数据">
       {facts.map(([label, value]) => (
         <div key={label}>
           <span>{label}</span>
@@ -95,11 +96,11 @@ function RoundFacts({ data }: { data: HistoryRoundDetailResponse }) {
 function ScorecardGrid({ data, onSelectRef }: { data: HistoryRoundDetailResponse; onSelectRef?: (sourceRef: string) => void }) {
   if (data.scorecard.length === 0) return null
   return (
-    <section className="round-detail-section" aria-label="Scorecard">
+    <section className="round-detail-section" aria-label="记分卡">
       <div className="section-head">
         <div>
-          <h3>Scorecard</h3>
-          <p>Hole-by-hole score, putts, GIR, fairway, and source refs.</p>
+          <h3>记分卡</h3>
+          <p>逐洞成绩、推杆数、果岭击球率、球道命中</p>
         </div>
       </div>
       <div className="round-detail-scorecard" style={{ '--round-detail-holes': Math.max(data.scorecard.length, 1) } as CSSProperties}>
@@ -138,12 +139,12 @@ function ScorecardGrid({ data, onSelectRef }: { data: HistoryRoundDetailResponse
 function PhaseSummary({ rows }: { rows: Array<Record<string, unknown>> }) {
   if (rows.length === 0) return null
   return (
-    <section className="round-detail-section" aria-label="Phase summary">
-      <h3>Phase Summary</h3>
+    <section className="round-detail-section" aria-label="阶段汇总">
+      <h3>阶段汇总</h3>
       <div className="round-phase-grid">
         {rows.map((row) => (
           <article key={valueText(row.phase)} className="round-phase-card">
-            <span>{valueText(row.phase)}</span>
+            <span>{phaseZh(valueText(row.phase))}</span>
             <b>{valueText(row.primary)}</b>
             <small>{valueText(row.state)}</small>
           </article>
@@ -156,8 +157,8 @@ function PhaseSummary({ rows }: { rows: Array<Record<string, unknown>> }) {
 function HoleDetails({ rows, onSelectRef }: { rows: Array<Record<string, unknown>>; onSelectRef?: (sourceRef: string) => void }) {
   if (rows.length === 0) return null
   return (
-    <section className="round-detail-section" aria-label="Hole details">
-      <h3>Hole Details</h3>
+    <section className="round-detail-section" aria-label="逐洞详情">
+      <h3>逐洞详情</h3>
       <div className="round-hole-table">
         {rows.map((row) => (
           <div key={valueText(row.holeRef)} className="round-hole-row">
@@ -166,7 +167,7 @@ function HoleDetails({ rows, onSelectRef }: { rows: Array<Record<string, unknown
               <b>{valueText(row.score)} / {toParText(row.toPar)}</b>
             </div>
             <div>
-              <span>Putts</span>
+              <span>推杆</span>
               <b>{valueText(row.putts)}</b>
             </div>
             <div>
@@ -174,11 +175,11 @@ function HoleDetails({ rows, onSelectRef }: { rows: Array<Record<string, unknown
               <b>{valueText(row.gir)}</b>
             </div>
             <div>
-              <span>Fairway</span>
+              <span>球道</span>
               <b>{valueText(row.fairway)}</b>
             </div>
             <div className="round-hole-sources">
-              <span>Shots</span>
+              <span>击球</span>
               <SourceRefs refs={row.shotRefs} maxVisible={3} onSelectRef={onSelectRef} />
             </div>
           </div>
@@ -197,8 +198,8 @@ function RelatedSources({ data, onSelectRef }: { data: HistoryRoundDetailRespons
   ] as const
   if (!groups.some(([, refs]) => refs.length > 0)) return null
   return (
-    <section className="round-detail-section" aria-label="Related round sources">
-      <h3>Related Sources</h3>
+    <section className="round-detail-section" aria-label="相关来源">
+      <h3>相关来源</h3>
       <div className="drilldown-rows">
         {groups.map(([label, refs]) => (
           <div key={label} className="drilldown-row">
@@ -216,8 +217,8 @@ function RelatedSources({ data, onSelectRef }: { data: HistoryRoundDetailRespons
 function MissingDataRows({ rows }: { rows: Array<Record<string, unknown>> }) {
   if (rows.length === 0) return null
   return (
-    <section className="round-detail-section" aria-label="Round detail missing data">
-      <h3>Missing Data</h3>
+    <section className="round-detail-section" aria-label="缺失数据">
+      <h3>缺失数据</h3>
       <div className="drilldown-rows">
         {rows.map((row, index) => (
           <div key={`${valueText(row.label)}-${index}`} className="drilldown-row">
@@ -234,8 +235,8 @@ function IssueTags({ annotations }: { annotations: AnnotationRecord[] }) {
   const tags = activeIssueTags(annotations)
   if (tags.length === 0) return null
   return (
-    <section className="round-detail-section" aria-label="Round issue tags">
-      <h3>Issue Tags</h3>
+    <section className="round-detail-section" aria-label="问题标签">
+      <h3>问题标签</h3>
       <div className="fact-array">
         {tags.map((tag) => (
           <span key={tag} className="fact-chip">
@@ -254,13 +255,13 @@ function ShotSummary({ data }: { data: HistoryRoundDetailResponse }) {
   const holesWithRoute = data.scorecard.filter((cell) => cell.shotRefs.length > 0 && cell.globalId != null && cell.localHole != null).length
   if (shotCount === 0 && holesWithShots === 0) return null
   const facts: Array<[string, string]> = [
-    ['Recorded shots', String(shotCount)],
-    ['Holes with shots', String(holesWithShots)],
-    ['Holes with route map', String(holesWithRoute)],
+    ['记录击球', String(shotCount)],
+    ['有击球的洞数', String(holesWithShots)],
+    ['有路径图的洞数', String(holesWithRoute)],
   ]
   return (
-    <section className="round-detail-section" aria-label="Round shot summary">
-      <h3>Shot Summary</h3>
+    <section className="round-detail-section" aria-label="击球汇总">
+      <h3>击球汇总</h3>
       <div className="fact-array">
         {facts.map(([label, value]) => (
           <span key={label} className="fact-chip">
@@ -466,23 +467,23 @@ function RoundAiReview({
     <section className="round-detail-section round-ai-review" aria-label="Round AI review">
       <div className="section-head">
         <div>
-          <h3>AI Review</h3>
-          <p>Fact-bound round narrative with source refs and missing-data limits.</p>
+          <h3>AI 回顾</h3>
+          <p>基于事实的球局叙述，含来源引用和缺失数据说明。</p>
         </div>
         <div className="button-row">
           {onLoadRoundReport ? (
             <button type="button" onClick={() => onLoadRoundReport(roundRef)}>
-              Load AI Review
+              载入 AI 回顾
             </button>
           ) : null}
           {onGenerateRoundReport ? (
             <button type="button" onClick={() => onGenerateRoundReport(roundRef)}>
-              Generate AI Review
+              生成 AI 回顾
             </button>
           ) : null}
         </div>
       </div>
-      {reportState?.status === 'loading' ? <p>Loading AI review</p> : null}
+      {reportState?.status === 'loading' ? <p>AI 回顾加载中</p> : null}
       {reportState?.status === 'error' ? <p>{reportState.message}</p> : null}
       {loadedReport ? (
         <div className="round-ai-review-body">
@@ -514,7 +515,7 @@ export function HistoryRoundDetailPanel({
   if (state.status === 'loading') {
     return (
       <section className="panel round-detail-panel" aria-live="polite">
-        <h2>Round Review</h2>
+        <h2>球局回顾</h2>
         <p>Loading {state.roundRef}</p>
       </section>
     )
@@ -523,12 +524,12 @@ export function HistoryRoundDetailPanel({
   if (state.status === 'error') {
     return (
       <section className="panel round-detail-panel" aria-live="polite">
-        <h2>Round Review</h2>
+        <h2>球局回顾</h2>
         <p>{state.roundRef}</p>
         <p>{state.message}</p>
         {onRetryRound ? (
           <button type="button" className="drilldown-action-button" onClick={() => onRetryRound(state.roundRef)}>
-            Retry round review
+            重试
           </button>
         ) : null}
       </section>
@@ -541,8 +542,8 @@ export function HistoryRoundDetailPanel({
     <section className="panel round-detail-panel" aria-live="polite">
       <div className="drilldown-title-row">
         <div>
-          <p className="eyebrow">Round Scorecard</p>
-          <h2>{data.found ? 'Round Review' : 'Round Unavailable'}</h2>
+          <p className="eyebrow">球局记分卡</p>
+          <h2>{data.found ? '球局回顾' : '球局不可用'}</h2>
           <p>{data.title}</p>
         </div>
         <div className="drilldown-meta">
@@ -555,7 +556,7 @@ export function HistoryRoundDetailPanel({
               onClick={() => onCreateAnnotationForRound?.({ targetType: 'round', targetId: data.roundRef })}
               aria-label={`Add correction for round ${data.roundRef}`}
             >
-              Add Correction
+              添加订正
             </button>
           ) : null}
         </div>
@@ -577,8 +578,8 @@ export function HistoryRoundDetailPanel({
       <PhaseSummary rows={data.phaseSummary} />
       <HoleDetails rows={data.holeDetails} onSelectRef={onSelectRef} />
       <RelatedSources data={data} onSelectRef={onSelectRef} />
-      <AnnotationRows title="Round Annotations" rows={data.annotations ?? []} />
-      <AnnotationRows title="Applied Corrections" rows={data.corrections ?? []} />
+      <AnnotationRows title="球局标注" rows={data.annotations ?? []} />
+      <AnnotationRows title="已应用订正" rows={data.corrections ?? []} />
       <MissingDataRows rows={data.missingData} />
     </section>
   )

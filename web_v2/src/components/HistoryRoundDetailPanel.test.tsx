@@ -82,13 +82,13 @@ describe('HistoryRoundDetailPanel', () => {
   it('renders scorecard-first round review with phase and hole evidence', () => {
     render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
 
-    expect(screen.getByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
     expect(screen.getByText('Scorecard Links - 2026-05-25')).toBeInTheDocument()
-    expect(screen.getByLabelText('Round detail facts')).toHaveTextContent('Score')
-    expect(screen.getByLabelText('Scorecard')).toHaveTextContent('H1')
-    expect(screen.getByLabelText('Scorecard')).toHaveTextContent('3 putts')
-    expect(screen.getByLabelText('Phase summary')).toHaveTextContent('1/2 fairways')
-    expect(screen.getByLabelText('Hole details')).toHaveTextContent('700001:1:0')
+    expect(screen.getByLabelText('球局数据')).toHaveTextContent('成绩')
+    expect(screen.getByLabelText('记分卡')).toHaveTextContent('H1')
+    expect(screen.getByLabelText('记分卡')).toHaveTextContent('3 putts')
+    expect(screen.getByLabelText('阶段汇总')).toHaveTextContent('1/2 fairways')
+    expect(screen.getByLabelText('逐洞详情')).toHaveTextContent('700001:1:0')
     expect(screen.getByText('windy finish')).toBeInTheDocument()
     expect(screen.getByText('83 -> 82')).toBeInTheDocument()
     expect(screen.getAllByText('partial').length).toBeGreaterThan(0)
@@ -97,7 +97,7 @@ describe('HistoryRoundDetailPanel', () => {
   it('renders active issue tags as a dedicated section and excludes retracted ones', () => {
     render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
 
-    const issues = screen.getByLabelText('Round issue tags')
+    const issues = screen.getByLabelText('问题标签')
     expect(within(issues).getByText('three_putts')).toBeInTheDocument()
     expect(within(issues).getByText('tee_miss_right')).toBeInTheDocument()
     // retracted_issue had a later issue_tag_removed record, so it must not appear
@@ -108,7 +108,7 @@ describe('HistoryRoundDetailPanel', () => {
     render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
 
     // issue tags live only in the dedicated section, not the raw round annotations list
-    const annotations = screen.getByLabelText('Round Annotations')
+    const annotations = screen.getByLabelText('球局标注')
     expect(within(annotations).getByText('windy finish')).toBeInTheDocument()
     expect(within(annotations).queryByText('three_putts')).not.toBeInTheDocument()
     expect(within(annotations).queryByText('tee_miss_right')).not.toBeInTheDocument()
@@ -117,10 +117,10 @@ describe('HistoryRoundDetailPanel', () => {
   it('shows a compact round shot summary', () => {
     render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
 
-    const summary = screen.getByLabelText('Round shot summary')
-    expect(summary).toHaveTextContent('Recorded shots 42')
+    const summary = screen.getByLabelText('击球汇总')
+    expect(summary).toHaveTextContent('记录击球 42')
     // both fixture holes carry shotRefs, so 2 holes have recorded shots
-    expect(summary).toHaveTextContent('Holes with shots 2')
+    expect(summary).toHaveTextContent('有击球的洞数 2')
   })
 
   it('omits the issue tags and shot summary sections when there is no data', () => {
@@ -134,8 +134,8 @@ describe('HistoryRoundDetailPanel', () => {
     }
     render(<HistoryRoundDetailPanel state={{ status: 'ready', data: empty }} />)
 
-    expect(screen.queryByLabelText('Round issue tags')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Round shot summary')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('问题标签')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('击球汇总')).not.toBeInTheDocument()
   })
 
   it('opens hole and shot source refs from the round detail', async () => {
@@ -144,7 +144,7 @@ describe('HistoryRoundDetailPanel', () => {
     render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} onSelectRef={onSelectRef} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Open hole 1 detail 700001:1' }))
-    const holeDetails = screen.getByLabelText('Hole details')
+    const holeDetails = screen.getByLabelText('逐洞详情')
     await userEvent.click(within(holeDetails).getByRole('button', { name: 'Open source 700001:1:0' }))
 
     expect(onSelectRef).toHaveBeenCalledWith('700001:1')
@@ -158,7 +158,7 @@ describe('HistoryRoundDetailPanel', () => {
     const onGenerateRoundReport = vi.fn()
 
     render(<HistoryRoundDetailPanel state={{ status: 'error', roundRef: '700001', message: '401' }} onRetryRound={onRetryRound} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Retry round review' }))
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(onRetryRound).toHaveBeenCalledWith('700001')
 
     render(
@@ -222,8 +222,8 @@ describe('HistoryRoundDetailPanel', () => {
       />,
     )
     await userEvent.click(screen.getByRole('button', { name: 'Add correction for round 700001' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Generate AI Review' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
+    await userEvent.click(screen.getByRole('button', { name: '生成 AI 回顾' }))
     expect(onCreateAnnotationForRound).toHaveBeenCalledWith({ targetType: 'round', targetId: '700001' })
     expect(onLoadRoundReport).toHaveBeenCalledWith('700001')
     expect(onGenerateRoundReport).toHaveBeenCalledWith('700001')

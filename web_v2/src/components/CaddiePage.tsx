@@ -118,18 +118,18 @@ export function CaddiePage({
     <section className="caddie-workspace">
       <div className="section-head">
         <div>
-          <p className="eyebrow">Decision layer</p>
-          <h1>Caddie</h1>
-          <p>Compare safe, stock, and attack plans with evidence, missing data, and audit criteria.</p>
+          <p className="eyebrow">决策层</p>
+          <h1>智能球童</h1>
+          <p>对比保守、标准与进攻方案，结合证据、缺失数据与审计条件。</p>
         </div>
       </div>
 
       <section className="caddie-control-bar" aria-label="Caddie controls">
-        <label htmlFor="shot-type">Shot type</label>
+        <label htmlFor="shot-type">击球类型</label>
         <select id="shot-type" value={shotType} onChange={(event) => setShotType(event.target.value as CaddieShotType)}>
-          <option value="approach">Approach</option>
-          <option value="tee">Tee</option>
-          <option value="recovery">Recovery</option>
+          <option value="approach">攻果岭</option>
+          <option value="tee">发球台</option>
+          <option value="recovery">脱险</option>
         </select>
         {onLoadWeather ? (
           <button
@@ -145,7 +145,7 @@ export function CaddiePage({
               }))
             }
           >
-            Load weather
+            加载天气
           </button>
         ) : null}
         <button
@@ -153,9 +153,9 @@ export function CaddiePage({
           disabled={!hasSourceContext}
           onClick={() => onRequestDecision(buildDecisionRequest(shotType, contextState, weatherSnapshot, visionFindings))}
         >
-          Request caddie plan
+          请求球童方案
         </button>
-        {!hasSourceContext ? <span className="caddie-context-required">Load caddie context before requesting a source-bound plan.</span> : null}
+        {!hasSourceContext ? <span className="caddie-context-required">请先加载球童上下文再请求球场计划。</span> : null}
       </section>
 
       {onLoadWeather ? <WeatherContextPanel state={weatherState} /> : null}

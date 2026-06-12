@@ -26,16 +26,16 @@ describe('HistoryDrilldownPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '来源详情' })).toBeInTheDocument()
     expect(screen.getByText('1D on H1')).toBeInTheDocument()
     expect(screen.getByText('shot')).toBeInTheDocument()
     expect(screen.getByText('clubName')).toBeInTheDocument()
     expect(screen.getByText('geometry')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Evidence Coverage' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Evidence coverage')).toHaveTextContent('Source fields3')
-    expect(screen.getByLabelText('Evidence coverage')).toHaveTextContent('Related refs3')
-    expect(screen.getByLabelText('Evidence coverage')).toHaveTextContent('Missing data1')
-    expect(screen.getByLabelText('Evidence coverage')).toHaveTextContent('Confidencehigh')
+    expect(screen.getByRole('heading', { name: '证据覆盖率' })).toBeInTheDocument()
+    expect(screen.getByLabelText('证据覆盖率')).toHaveTextContent('字段数3')
+    expect(screen.getByLabelText('证据覆盖率')).toHaveTextContent('关联来源3')
+    expect(screen.getByLabelText('证据覆盖率')).toHaveTextContent('缺失数据1')
+    expect(screen.getByLabelText('证据覆盖率')).toHaveTextContent('置信度high')
   })
 
   it('renders related refs as drilldown buttons', async () => {
@@ -65,7 +65,7 @@ describe('HistoryDrilldownPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Related Sources' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '相关来源' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1' }))
 
     expect(onSelectRef).toHaveBeenCalledWith('900001:1')
@@ -88,9 +88,9 @@ describe('HistoryDrilldownPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '来源详情' })).toBeInTheDocument()
     expect(screen.getByText('900001:1:0')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Retry source detail' }))
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
 
     expect(onRetrySource).toHaveBeenCalledWith('900001:1:0')
   })
@@ -154,7 +154,7 @@ describe('HistoryDrilldownPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Source Unavailable' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '来源不可用' })).toBeInTheDocument()
     expect(screen.getByText('900404:9 was not found in loaded history data')).toBeInTheDocument()
   })
 
@@ -211,8 +211,8 @@ describe('HistoryDrilldownPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Manual Annotations' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Applied Corrections' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '手动标注' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '已应用订正' })).toBeInTheDocument()
     expect(screen.getByText('ball was above feet')).toBeInTheDocument()
     expect(screen.getAllByText('club_correction')).toHaveLength(2)
     expect(screen.getAllByText('8I -> 7I')).toHaveLength(2)
@@ -244,13 +244,13 @@ describe('HistoryDrilldownPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Reports' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '报告' })).toBeInTheDocument()
     expect(screen.getByText('hole / black_knight:7 / static')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Weather' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '天气' })).toBeInTheDocument()
     expect(screen.getByText('900001 / 7 / 6')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Decision Audits' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '决策审计' })).toBeInTheDocument()
     expect(screen.getByText('decision-900001-7 / attack')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Geometry Evidence' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '几何证据' })).toBeInTheDocument()
     expect(screen.getByText('31795 / 7 / 900001:7')).toBeInTheDocument()
   })
 })

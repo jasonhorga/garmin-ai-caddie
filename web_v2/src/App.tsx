@@ -1283,7 +1283,7 @@ export default function App() {
     if (overviewState.status === 'loading') {
       return (
         <section className="panel empty-state">
-          <h1>Loading history</h1>
+          <h1>历史数据加载中</h1>
         </section>
       )
     }
@@ -1293,10 +1293,10 @@ export default function App() {
         <>
           {renderSyncPanel()}
           <section className="panel empty-state">
-            <h1>History API unavailable</h1>
+            <h1>历史数据不可用</h1>
             <p>{overviewState.message}</p>
             <button type="button" onClick={() => void refreshOverviewState()}>
-              Retry history
+              重试
             </button>
           </section>
         </>

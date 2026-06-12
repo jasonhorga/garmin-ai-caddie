@@ -20,7 +20,7 @@ export function HoleEvidencePanel({ state, ensureState = 'idle', onEnsureGeometr
   if (state.status === 'idle') {
     return (
       <section className="hole-evidence-panel" aria-label="Hole geometry evidence">
-        <h2>Hole Evidence</h2>
+        <h2>洞口几何证据</h2>
         <p>Select a hole or shot source to load geometry evidence.</p>
       </section>
     )
@@ -29,7 +29,7 @@ export function HoleEvidencePanel({ state, ensureState = 'idle', onEnsureGeometr
   if (state.status === 'loading') {
     return (
       <section className="hole-evidence-panel" aria-label="Hole geometry evidence">
-        <h2>Hole Evidence</h2>
+        <h2>洞口几何证据</h2>
         <p>Loading geometry evidence for {state.sourceRef}</p>
       </section>
     )
@@ -38,7 +38,7 @@ export function HoleEvidencePanel({ state, ensureState = 'idle', onEnsureGeometr
   if (state.status === 'error') {
     return (
       <section className="hole-evidence-panel" aria-label="Hole geometry evidence">
-        <h2>Hole Evidence</h2>
+        <h2>洞口几何证据</h2>
         <p>{state.message}</p>
       </section>
     )
@@ -57,8 +57,8 @@ export function HoleEvidencePanel({ state, ensureState = 'idle', onEnsureGeometr
     <section className="hole-evidence-panel" aria-label="Hole geometry evidence">
       <div className="report-title-row">
         <div>
-          <p className="eyebrow">Geometry Evidence</p>
-          <h2>Hole Evidence</h2>
+          <p className="eyebrow">几何证据</p>
+          <h2>洞口几何证据</h2>
           <p>
             {state.evidence.globalId} H{state.evidence.localHole}
           </p>

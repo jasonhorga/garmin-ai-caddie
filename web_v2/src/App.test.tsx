@@ -1037,7 +1037,7 @@ describe('App navigation', () => {
     expect(screen.getByText('2026年5月')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status')
-    await waitFor(() => expect(screen.queryByText('History API unavailable')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument())
   })
 
   it('can recover protected history overview after entering an admin token', async () => {
@@ -1064,9 +1064,9 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
     await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
-    await userEvent.click(screen.getByRole('button', { name: 'Retry history' }))
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
@@ -1108,10 +1108,10 @@ describe('App navigation', () => {
     await userEvent.click(await screen.findByRole('button', { name: '强弱分析' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
 
-    expect(await screen.findByRole('button', { name: 'Retry source detail' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '重试' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
-    await userEvent.click(screen.getByRole('button', { name: 'Retry source detail' }))
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
 
     expect(await screen.findByText('1D on H1')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A0', {
@@ -1185,7 +1185,7 @@ describe('App navigation', () => {
     expect(screen.getAllByText('缺少击球数据').length).toBeGreaterThan(0)
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
 
-    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '来源详情' })).toBeInTheDocument()
     expect(screen.getByText('1D on H1')).toBeInTheDocument()
     expect(screen.getByText('geometry')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A0')
@@ -1524,15 +1524,15 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
     await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
-    expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
-    expect(screen.queryByText('History API unavailable')).toBeNull()
+    expect(await screen.findByRole('heading', { name: '智能球童' })).toBeInTheDocument()
+    expect(screen.queryByText('历史数据不可用')).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: '概览' }))
-    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
   })
 
   it('re-entering 实战 retries boot-failed overview and course options', async () => {
@@ -1555,7 +1555,7 @@ describe('App navigation', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
 
     // 实战 during the outage: the sandbox entry renders, but with no 常打球场
     // card (courseOptions failed) and no replay rows (overview failed).
@@ -1619,14 +1619,14 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
 
-    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
     expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(0)
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
-    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
 
     expect(await screen.findByText('Round review from scorecard facts.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1')
-    await userEvent.click(screen.getByRole('button', { name: 'Generate AI Review' }))
+    await userEvent.click(screen.getByRole('button', { name: '生成 AI 回顾' }))
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1/generate', { method: 'POST' })
     await userEvent.click(screen.getAllByRole('button', { name: 'Open source 1:1' })[0])
@@ -1717,7 +1717,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
-    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Add correction for round 1' }))
 
@@ -1862,7 +1862,7 @@ describe('App navigation', () => {
     const identity = await screen.findByLabelText('报告信息')
     await userEvent.click(within(identity).getByRole('button', { name: 'Open source 900001' }))
 
-    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '来源详情' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001')
   })
 
@@ -2050,8 +2050,8 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
 
-    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Hole Evidence' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '来源详情' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '洞口几何证据' })).toBeInTheDocument()
     expect(screen.getByText('31795 H7')).toBeInTheDocument()
     expect(screen.getByText('Vector geometry overlay')).toBeInTheDocument()
     expect(screen.getByText('source Esri World Imagery / WGS84')).toBeInTheDocument()
@@ -2175,7 +2175,7 @@ describe('App navigation', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/ensure', { method: 'POST' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001' }))
     expect(await screen.findByText('Black Knight B - 2026-05-18')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Hole Evidence' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '洞口几何证据' })).not.toBeInTheDocument()
 
     await act(async () => {
       resolveEnsure()
@@ -2185,7 +2185,7 @@ describe('App navigation', () => {
     })
 
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7')).toHaveLength(1)
-    expect(screen.queryByRole('heading', { name: 'Hole Evidence' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '洞口几何证据' })).not.toBeInTheDocument()
   })
 
   it('opens the caddie workspace, attaches media context, and requests a decision', async () => {
@@ -2215,11 +2215,11 @@ describe('App navigation', () => {
     // verbatim behind 完整工具.
     expect(await screen.findByRole('heading', { name: '选择球场开始模拟' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
-    expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '智能球童' })).toBeInTheDocument()
     // The 备战 page (entry finder heading) must not leak into the 实战 workspace.
     expect(screen.queryByRole('heading', { name: '选择球场开始备战' })).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
+    await userEvent.click(screen.getByRole('button', { name: '加载天气' }))
     expect(await screen.findByText('5.4 m/s')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
@@ -2237,7 +2237,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Analyze media media-1' }))
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/media-1/analyze', { method: 'POST' })
 
-    await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
+    await userEvent.click(screen.getByRole('button', { name: '请求球童方案' }))
 
     expect(await screen.findByText('8I')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
@@ -2325,7 +2325,7 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
     await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
-    expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '智能球童' })).toBeInTheDocument()
     expect(screen.getByLabelText('Source ref')).toHaveValue('900002:5:4')
 
     await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
@@ -2360,12 +2360,12 @@ describe('App navigation', () => {
     expect(fetchMock.mock.calls.some(([path]) => path === '/api/v2/history/rounds/1')).toBe(false)
     await userEvent.click(screen.getByRole('button', { name: '最近回放' }))
 
-    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
     expect(screen.getByRole('button', { name: '回放 Black Knight B 05-20' })).toHaveAttribute('aria-current', 'true')
 
     // AI review buttons run through App's report plumbing, as on history pages.
-    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
     expect(await screen.findByText('Round review from scorecard facts.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1')
 

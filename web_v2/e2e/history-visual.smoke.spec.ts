@@ -696,7 +696,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('想备哪场?')).toBeVisible()
   await expect(page.getByText('Black Knight B', { exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
-  await expect(page.getByText('History API unavailable')).toHaveCount(0)
+  await expect(page.getByText('历史数据不可用')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
 
   // exact: home 近期状态 has a 看历史 → button whose name would substring-match 历史.
@@ -739,7 +739,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
   await assertNoViewportOverflow(page)
   await liveTabs.getByRole('button', { name: '完整工具' }).click()
-  await expect(page.getByRole('heading', { name: 'Caddie', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '智能球童', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
 
   await page.getByRole('button', { name: '设置' }).click()
@@ -871,14 +871,14 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   // through GET /api/v2/history/rounds/900001.
   await liveTabs.getByRole('button', { name: '最近回放' }).click()
   await expect(page.getByRole('button', { name: '回放 Black Knight B 05-20' })).toHaveAttribute('aria-current', 'true')
-  await expect(page.getByRole('heading', { name: 'Round Review', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Scorecard', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '球局回顾', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '记分卡', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'live-replay')
 
   // 完整工具 keeps the legacy Caddie dashboard reachable (T1 anchor).
   await liveTabs.getByRole('button', { name: '完整工具' }).click()
-  await expect(page.getByRole('heading', { name: 'Caddie', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '智能球童', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
 
   // The sandbox never asks for the prep shot scatter: its prep fetches carry

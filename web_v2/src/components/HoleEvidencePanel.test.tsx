@@ -90,7 +90,7 @@ describe('HoleEvidencePanel', () => {
   it('renders geometry coverage, WGS84 map layers, feature evidence, and missing data', () => {
     render(<HoleEvidencePanel state={readyState} />)
 
-    expect(screen.getByRole('heading', { name: 'Hole Evidence' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '洞口几何证据' })).toBeInTheDocument()
     expect(screen.getByText('31795 H7')).toBeInTheDocument()
     expect(screen.getByText('ready coverage')).toHaveClass('quality-good')
     expect(screen.getByText('Vector geometry overlay')).toBeInTheDocument()
