@@ -815,9 +815,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   // ball on the tee (距T 0 · 到果岭 = full route length 393m).
   await expect(page.getByRole('button', { name: '第1洞' })).toHaveAttribute('aria-current', 'true')
   await page.getByRole('button', { name: '第7洞' }).click()
-  await expect(page.getByLabel('到果岭(m)')).toBeVisible()
+  await expect(page.getByLabel('到果岭(码)')).toBeVisible()
   await page.getByRole('button', { name: '第1洞' }).click()
-  await expect(page.getByText('距T 0m · 到果岭 393m')).toBeVisible()
+  // 393m * 1.09361 = 430.09 → 430码
+  await expect(page.getByText('距T 0码 · 到果岭 430码')).toBeVisible()
   await assertNoViewportOverflow(page)
 
   // Tee shots take no lie; switching 击球类型 to 攻果岭 (ball still on the

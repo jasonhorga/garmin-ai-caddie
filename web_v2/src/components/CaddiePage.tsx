@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { fmtYd } from '../units'
 import type {
   CaddieDecisionAuditRecord,
   CaddieContextParams,
@@ -1155,7 +1156,7 @@ function DecisionAuditPanel({
             <p className="decision-audit-result">
               {[
                 result.clubName ? String(result.clubName) : null,
-                result.meters !== undefined && result.meters !== null ? `${String(result.meters)}m` : null,
+                result.meters !== undefined && result.meters !== null ? fmtYd(Number(result.meters)) : null,
                 result.surface ? String(result.surface) : null,
               ]
                 .filter(Boolean)
@@ -1405,13 +1406,14 @@ function booleanLabel(value: unknown): string {
 
 function metersLabel(value: unknown): string {
   if (value === undefined || value === null || value === '') return 'unknown'
-  return `${String(value)}m`
+  const num = Number(value)
+  return Number.isFinite(num) ? fmtYd(num) : String(value)
 }
 
 function auditCriterionText(row: Record<string, unknown>): string {
   const expected = formatExplanationValue(row.expected ?? row.expected_m ?? row.expectedRange_m)
   const actual = formatExplanationValue(row.actual ?? row.actual_m ?? row.actualScoreToPar ?? row.surface)
-  const delta = row.distanceDelta_m !== undefined && row.distanceDelta_m !== null ? `delta ${String(row.distanceDelta_m)}m` : ''
+  const delta = row.distanceDelta_m !== undefined && row.distanceDelta_m !== null ? `delta ${metersLabel(row.distanceDelta_m)}` : ''
   const parts = [expected ? `expected ${expected}` : '', actual ? `actual ${actual}` : '', delta].filter(Boolean)
   return parts.length ? parts.join(' - ') : String(row.rule ?? '')
 }
@@ -1645,7 +1647,7 @@ function formatSequenceMeta(sequence: Record<string, unknown>): string {
   const risk = sequence.riskScore
   const parts = []
   if (strokes !== undefined) parts.push(`${String(strokes)} shots`)
-  if (remaining !== undefined) parts.push(`${String(remaining)}m remaining`)
+  if (remaining !== undefined) parts.push(`${fmtYd(Number(remaining))} remaining`)
   if (risk !== undefined) parts.push(`risk ${String(risk)}`)
   return parts.join(' - ') || '-'
 }
@@ -1654,8 +1656,8 @@ function sequenceStepLabel(step: Record<string, unknown>): string {
   const carry = step.targetCarry_m ?? step.carry_m
   const remaining = step.expectedRemaining_m
   return [
-    carry === undefined ? null : `${String(carry)}m carry`,
-    remaining === undefined ? null : `${String(remaining)}m left`,
+    carry === undefined ? null : `${fmtYd(Number(carry))} carry`,
+    remaining === undefined ? null : `${fmtYd(Number(remaining))} left`,
   ]
     .filter(Boolean)
     .join(' - ') || '-'
@@ -1705,10 +1707,10 @@ function formatOptionMeta(option: Record<string, unknown>): string {
   const expected = scoreImpact?.expectedStrokes
   const clearance = hazardClearance?.minimumClearance_m
   return [
-    carry === undefined ? null : `${String(carry)}m`,
+    carry === undefined ? null : fmtYd(Number(carry)),
     risk === undefined ? null : `risk ${String(risk)}`,
     expected === undefined ? null : `${String(expected)} exp`,
-    clearance === undefined || clearance === null ? null : `${String(clearance)}m clear`,
+    clearance === undefined || clearance === null ? null : `${fmtYd(Number(clearance))} clear`,
   ]
     .filter(Boolean)
     .join(' - ')

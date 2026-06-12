@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { fetchCaddieContext, fetchCaddieDecision, fetchCoursePrep } from '../api'
+import { fmtYd, metersFromYards } from '../units'
 import type {
   CaddieContextParams,
   CaddieContextResponse,
@@ -243,7 +244,7 @@ function optionNumbers(option: Record<string, unknown>): string[] {
   const risk = asNumber(option.riskScore)
   const confidence = asString(option.confidence)
   const parts: string[] = []
-  if (carry !== null) parts.push(`落点 ${carry}m`)
+  if (carry !== null) parts.push(`落点 ${fmtYd(carry)}`)
   if (risk !== null) parts.push(`风险 ${risk}`)
   if (confidence !== null) parts.push(CONFIDENCE_ZH[confidence] ?? confidence)
   return parts
@@ -255,11 +256,8 @@ type AdviceState =
   | { status: 'error'; message: string }
   | { status: 'ready'; decision: CaddieDecisionResponse }
 
-// Situation distances render in metres at 1dp (matching distanceToPinM's
-// resolution) — the prep card speaks yards, the sandbox speaks the engine's m.
-function formatMetres(value: number): string {
-  return String(Math.round(value * 10) / 10)
-}
+// Situation distances display in yards (fmtYd); distanceToPinM sent to the
+// engine stays in metres (the API's resolution unit — see the units note above).
 
 const SHOT_TYPE_OPTIONS: Array<{ value: CaddieShotType; label: string }> = [
   { value: 'tee', label: '开球' },
@@ -401,12 +399,14 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
   const courseName = findCourseOption(courseOptions, course.globalId)?.name ?? course.name ?? `球场 ${course.globalId}`
 
   const overlay = hole?.map?.overlay ?? null
-  // Keyboard path on mapped holes (W3 review): a typed 到果岭 is an override —
-  // effectiveCum places the ball marker at atCum(ln − value) while it stays
-  // within the route; a value past the route has no honest position (the
+  // Keyboard path on mapped holes (W3 review): the 到果岭 input accepts yards;
+  // metersFromYards converts to the metre domain for effectiveCum + the API.
+  // effectiveCum places the ball marker at atCum(ln − manualDistanceM) while it
+  // stays within the route; a value past the route has no honest position (the
   // marker hides) but the distance still drives the request.
-  const manualDistance = parseNumberInput(manualToGreen)
-  const effectiveCum = overlay !== null && manualDistance !== undefined ? overlay.ln - manualDistance : ballCum
+  const manualYards = parseNumberInput(manualToGreen)
+  const manualDistanceM = manualYards !== undefined ? metersFromYards(manualYards) : undefined
+  const effectiveCum = overlay !== null && manualDistanceM !== undefined ? overlay.ln - manualDistanceM : ballCum
   const ballOnRoute = overlay !== null && effectiveCum >= 0 && effectiveCum <= overlay.ln
   // shotType derives from the ball — on the tee (cum 0) it's a tee shot,
   // anywhere down the route it's an approach; the no-map mode mirrors this
@@ -433,7 +433,7 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
   // manual 到果岭 input alone in the degraded mode (blank/invalid → omitted;
   // tee shots are excused from distance, approach/recovery get a backend
   // missing_data chip instead of a client error).
-  const adviceDistance = overlay !== null ? manualDistance ?? Math.round((overlay.ln - ballCum) * 10) / 10 : manualDistance
+  const adviceDistance = overlay !== null ? manualDistanceM ?? Math.round((overlay.ln - ballCum) * 10) / 10 : manualDistanceM
 
   const requestAdvice = (mode: string) => {
     if (adviceRefChain.length === 0) return
@@ -562,13 +562,13 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
   // at a time, so its label stays unique.
   const manualDistanceControl = (
     <label className="live-sandbox-control">
-      <span>到果岭(m)</span>
+      <span>到果岭(码)</span>
       <input
         type="number"
-        aria-label="到果岭(m)"
+        aria-label="到果岭(码)"
         min={0}
         inputMode="decimal"
-        placeholder="如 135"
+        placeholder="如 150"
         value={manualToGreen}
         onChange={(event) => setManualToGreen(event.target.value)}
       />
@@ -583,8 +583,8 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
     // no ball rather than extrapolating a marker off the playing line.
     const ball = ballOnRoute ? atCum(overlay.route, effectiveCum) : null
     const readout = ballOnRoute
-      ? `距T ${formatMetres(effectiveCum)}m · 到果岭 ${formatMetres(overlay.ln - effectiveCum)}m`
-      : `到果岭 ${formatMetres(manualDistance ?? 0)}m`
+      ? `距T ${fmtYd(effectiveCum)} · 到果岭 ${fmtYd(overlay.ln - effectiveCum)}`
+      : `到果岭 ${fmtYd(manualDistanceM ?? 0)}`
     holeStage = (
       <div className="live-sandbox-hole">
         <div className="live-sandbox-map">
@@ -764,7 +764,7 @@ function AdviceCard({
         <span className="live-advice-club">{optionClub(selected)}</span>
         <div className="live-advice-meta">
           {label ? <span className="live-advice-option-label">{label}</span> : null}
-          {carry !== null ? <span className="live-advice-carry">{`落点 ${carry}m`}</span> : null}
+          {carry !== null ? <span className="live-advice-carry">{`落点 ${fmtYd(carry)}`}</span> : null}
           {/* 风险 is VISIBLE text (not an aria-label-only dot): sighted users
               get the number too; the dot stays as a pure severity tint. */}
           {risk !== null ? (

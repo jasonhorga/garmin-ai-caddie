@@ -310,7 +310,8 @@ describe('MobilePackagePrepPanel', () => {
     const caddieSeeds = within(panel).getByLabelText('离线球童候选')
     expect(within(caddieSeeds).getByText('H1 Stock')).toBeInTheDocument()
     expect(within(caddieSeeds).getByText('已选')).toHaveClass('package-state-ready')
-    expect(within(caddieSeeds).getByText('8I / 144m')).toBeInTheDocument()
+    // 144m * 1.09361 = 157.48 → 157码
+    expect(within(caddieSeeds).getByText('8I / 157码')).toBeInTheDocument()
     expect(within(caddieSeeds).getAllByText('高 置信')).toHaveLength(2)
     expect(within(caddieSeeds).getAllByText('覆盖 24/24')).toHaveLength(2)
     expect(within(caddieSeeds).getAllByText('来源 live-black-knight:1')).toHaveLength(3)

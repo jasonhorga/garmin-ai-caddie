@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { fmtYd } from '../units'
 import { confidenceZh, coverageZh, dataModeZh, stateZh } from '../zhLabels'
 import type {
   MobileCourseOptionsResponse,
@@ -397,7 +398,7 @@ function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
             <div className="report-row" key={row.key}>
               <strong>H{row.hole} {row.label}</strong>
               {row.selected ? <span className="semantic-chip package-state-ready">已选</span> : null}
-              <span>{row.club}{row.carry ? ` / ${row.carry}m` : ''}</span>
+              <span>{row.club}{row.carry ? ` / ${fmtYd(Number(row.carry))}` : ''}</span>
               {row.confidence ? <span>{confidenceZh(row.confidence)} 置信</span> : null}
               {row.sampleSize ? <span>{row.sampleSize} 个样本</span> : null}
               {row.coverage ? <span>{row.coverage}</span> : null}

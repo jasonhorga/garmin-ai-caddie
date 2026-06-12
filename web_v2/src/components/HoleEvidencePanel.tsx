@@ -1,4 +1,5 @@
 import type { GeoJsonFeature, GeometryEvidenceResponse, HoleMapResponse } from '../types'
+import { fmtYd } from '../units'
 import { asString, semanticClass } from './statsValues'
 
 export type HoleEvidenceState =
@@ -241,12 +242,12 @@ function landingRiskLabel(row: Record<string, unknown>): string {
 
 function formatMeters(value: unknown): string {
   const numeric = Number(value)
-  return Number.isFinite(numeric) ? `${numeric}m` : 'unknown'
+  return Number.isFinite(numeric) ? fmtYd(numeric) : 'unknown'
 }
 
 function shotRouteLabel(row: Record<string, unknown>): string {
   const club = asString(row.club) ?? 'club unknown'
-  const distance = typeof row.distance === 'number' ? `${row.distance}m` : asString(row.distance) ?? ''
+  const distance = typeof row.distance === 'number' ? fmtYd(row.distance) : asString(row.distance) ?? ''
   const surface = asString(row.surface) ?? ''
   return [club, distance, surface].filter(Boolean).join(' ')
 }
