@@ -114,6 +114,7 @@ def load_history_rounds_response(
     course: str | None = None,
     has_shots: bool | None = None,
     has_report: bool | None = None,
+    limit: int = 120,
 ) -> HistoryRoundsResponse:
     data, _mode = load_history_data_for_mode()
     # Only pay the report-store read when the caller actually filters on it.
@@ -124,5 +125,6 @@ def load_history_rounds_response(
         course=course,
         has_shots=has_shots,
         has_report=has_report,
+        limit=limit,
         report_round_ids=report_round_ids,
     )
