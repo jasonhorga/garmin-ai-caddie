@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { fmtYd } from '../units'
 import type {
   CaddieDecisionAuditRecord,
   CaddieContextParams,
@@ -117,18 +118,19 @@ export function CaddiePage({
     <section className="caddie-workspace">
       <div className="section-head">
         <div>
-          <p className="eyebrow">Decision layer</p>
-          <h1>Caddie</h1>
-          <p>Compare safe, stock, and attack plans with evidence, missing data, and audit criteria.</p>
+          <p className="eyebrow">决策层</p>
+          <h1>智能球童</h1>
+          <p>对比保守、标准与进攻方案，结合证据、缺失数据与审计条件。</p>
         </div>
       </div>
 
       <section className="caddie-control-bar" aria-label="Caddie controls">
-        <label htmlFor="shot-type">Shot type</label>
+        <label htmlFor="shot-type">击球类型</label>
         <select id="shot-type" value={shotType} onChange={(event) => setShotType(event.target.value as CaddieShotType)}>
-          <option value="approach">Approach</option>
-          <option value="tee">Tee</option>
-          <option value="recovery">Recovery</option>
+          {/* 击球类型 wording aligned with LiveSandbox SHOT_TYPE options */}
+          <option value="approach">攻果岭</option>
+          <option value="tee">开球</option>
+          <option value="recovery">救球</option>
         </select>
         {onLoadWeather ? (
           <button
@@ -144,7 +146,7 @@ export function CaddiePage({
               }))
             }
           >
-            Load weather
+            加载天气
           </button>
         ) : null}
         <button
@@ -152,9 +154,9 @@ export function CaddiePage({
           disabled={!hasSourceContext}
           onClick={() => onRequestDecision(buildDecisionRequest(shotType, contextState, weatherSnapshot, visionFindings))}
         >
-          Request caddie plan
+          请求球童方案
         </button>
-        {!hasSourceContext ? <span className="caddie-context-required">Load caddie context before requesting a source-bound plan.</span> : null}
+        {!hasSourceContext ? <span className="caddie-context-required">请先加载球童上下文再请求球场计划。</span> : null}
       </section>
 
       {onLoadWeather ? <WeatherContextPanel state={weatherState} /> : null}
@@ -1155,7 +1157,7 @@ function DecisionAuditPanel({
             <p className="decision-audit-result">
               {[
                 result.clubName ? String(result.clubName) : null,
-                result.meters !== undefined && result.meters !== null ? `${String(result.meters)}m` : null,
+                result.meters !== undefined && result.meters !== null ? fmtYd(Number(result.meters)) : null,
                 result.surface ? String(result.surface) : null,
               ]
                 .filter(Boolean)
@@ -1405,13 +1407,14 @@ function booleanLabel(value: unknown): string {
 
 function metersLabel(value: unknown): string {
   if (value === undefined || value === null || value === '') return 'unknown'
-  return `${String(value)}m`
+  const num = Number(value)
+  return Number.isFinite(num) ? fmtYd(num) : String(value)
 }
 
 function auditCriterionText(row: Record<string, unknown>): string {
   const expected = formatExplanationValue(row.expected ?? row.expected_m ?? row.expectedRange_m)
   const actual = formatExplanationValue(row.actual ?? row.actual_m ?? row.actualScoreToPar ?? row.surface)
-  const delta = row.distanceDelta_m !== undefined && row.distanceDelta_m !== null ? `delta ${String(row.distanceDelta_m)}m` : ''
+  const delta = row.distanceDelta_m !== undefined && row.distanceDelta_m !== null ? `delta ${metersLabel(row.distanceDelta_m)}` : ''
   const parts = [expected ? `expected ${expected}` : '', actual ? `actual ${actual}` : '', delta].filter(Boolean)
   return parts.length ? parts.join(' - ') : String(row.rule ?? '')
 }
@@ -1645,7 +1648,7 @@ function formatSequenceMeta(sequence: Record<string, unknown>): string {
   const risk = sequence.riskScore
   const parts = []
   if (strokes !== undefined) parts.push(`${String(strokes)} shots`)
-  if (remaining !== undefined) parts.push(`${String(remaining)}m remaining`)
+  if (remaining !== undefined) parts.push(`${fmtYd(Number(remaining))} remaining`)
   if (risk !== undefined) parts.push(`risk ${String(risk)}`)
   return parts.join(' - ') || '-'
 }
@@ -1654,8 +1657,8 @@ function sequenceStepLabel(step: Record<string, unknown>): string {
   const carry = step.targetCarry_m ?? step.carry_m
   const remaining = step.expectedRemaining_m
   return [
-    carry === undefined ? null : `${String(carry)}m carry`,
-    remaining === undefined ? null : `${String(remaining)}m left`,
+    carry === undefined ? null : `${fmtYd(Number(carry))} carry`,
+    remaining === undefined ? null : `${fmtYd(Number(remaining))} left`,
   ]
     .filter(Boolean)
     .join(' - ') || '-'
@@ -1705,10 +1708,10 @@ function formatOptionMeta(option: Record<string, unknown>): string {
   const expected = scoreImpact?.expectedStrokes
   const clearance = hazardClearance?.minimumClearance_m
   return [
-    carry === undefined ? null : `${String(carry)}m`,
+    carry === undefined ? null : fmtYd(Number(carry)),
     risk === undefined ? null : `risk ${String(risk)}`,
     expected === undefined ? null : `${String(expected)} exp`,
-    clearance === undefined || clearance === null ? null : `${String(clearance)}m clear`,
+    clearance === undefined || clearance === null ? null : `${fmtYd(Number(clearance))} clear`,
   ]
     .filter(Boolean)
     .join(' - ')

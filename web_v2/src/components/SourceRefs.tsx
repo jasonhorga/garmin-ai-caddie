@@ -37,9 +37,9 @@ export function SourceRefs({ refs, maxVisible, onSelectRef }: SourceRefsProps) {
           type="button"
           className="source-ref-button source-ref-more"
           onClick={() => setExpanded(true)}
-          aria-label={`Show ${hiddenCount} more source ${hiddenCount === 1 ? 'ref' : 'refs'}`}
+          aria-label={`展开其余 ${hiddenCount} 处来源`}
         >
-          +{hiddenCount}
+          等 {hiddenCount} 处
         </button>
       ) : null}
     </span>

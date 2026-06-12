@@ -1,4 +1,5 @@
 import type { DataQualityBadge } from '../types'
+import { badgeLabelZh, coverageZh } from '../zhLabels'
 
 interface DataQualityChipsProps {
   badges: DataQualityBadge[]
@@ -16,10 +17,10 @@ export function DataQualityChips({ badges }: DataQualityChipsProps) {
           key={`${badge.label}-${badge.value}`}
           className={`quality-chip quality-${badge.state}`}
           title={badge.reason}
-          aria-label={`${badge.label}: ${badge.value}, ${badge.state} - ${badge.reason}`}
+          aria-label={`${badgeLabelZh(badge.label)}: ${coverageZh(badge.value)}, ${badge.state} - ${badge.reason}`}
         >
-          <span>{badge.label}</span>
-          <b>{badge.value}</b>
+          <span>{badgeLabelZh(badge.label)}</span>
+          <b>{coverageZh(badge.value)}</b>
         </span>
       ))}
     </div>

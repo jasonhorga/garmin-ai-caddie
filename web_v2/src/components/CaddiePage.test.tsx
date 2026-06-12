@@ -296,8 +296,8 @@ describe('CaddiePage', () => {
       />,
     )
 
-    expect(screen.getByText('Load caddie context before requesting a source-bound plan.')).toBeInTheDocument()
-    const requestButton = screen.getByRole('button', { name: 'Request caddie plan' })
+    expect(screen.getByText('请先加载球童上下文再请求球场计划。')).toBeInTheDocument()
+    const requestButton = screen.getByRole('button', { name: '请求球童方案' })
     expect(requestButton).toBeDisabled()
 
     await userEvent.click(requestButton)
@@ -364,8 +364,8 @@ describe('CaddiePage', () => {
     )
 
     expect(screen.getByLabelText('Source ref')).toHaveValue('900002:5:4')
-    expect(screen.getByText('Load caddie context before requesting a source-bound plan.')).toBeInTheDocument()
-    const requestButton = screen.getByRole('button', { name: 'Request caddie plan' })
+    expect(screen.getByText('请先加载球童上下文再请求球场计划。')).toBeInTheDocument()
+    const requestButton = screen.getByRole('button', { name: '请求球童方案' })
     expect(requestButton).toBeDisabled()
 
     await userEvent.click(requestButton)
@@ -409,7 +409,7 @@ describe('CaddiePage', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '智能球童' })).toBeInTheDocument()
     expect(screen.getByText('Stock')).toBeInTheDocument()
     expect(screen.getByText('8I')).toBeInTheDocument()
     expect(screen.getAllByText('sample 24').length).toBeGreaterThan(0)
@@ -417,7 +417,8 @@ describe('CaddiePage', () => {
     expect(screen.getAllByText('high option confidence').length).toBeGreaterThan(0)
     expect(screen.getByText('history +0.8 risk')).toBeInTheDocument()
     expect(screen.getAllByText('selected').length).toBeGreaterThan(0)
-    expect(screen.getByText('144m - risk 1 - 1.24 exp - 16m clear')).toBeInTheDocument()
+    // 144m→157码, 16m→17码 (Math.round(16*1.09361)=Math.round(17.498)=17)
+    expect(screen.getByText('157码 - risk 1 - 1.24 exp - 17码 clear')).toBeInTheDocument()
     expect(screen.getAllByText('water_front').length).toBeGreaterThan(0)
     expect(screen.getAllByText('wind').length).toBeGreaterThan(0)
     expect(screen.getAllByText('medium confidence').length).toBeGreaterThan(0)
@@ -427,7 +428,8 @@ describe('CaddiePage', () => {
     expect(screen.getAllByRole('button', { name: 'Open source fixture-links:4' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source fixture-links:4:history' }).length).toBeGreaterThan(0)
     expect(screen.getByText('club match yes')).toBeInTheDocument()
-    expect(screen.getByText('distance -1m')).toBeInTheDocument()
+    // -1m → -1码 (Math.round(-1*1.09361) = -1)
+    expect(screen.getByText('distance -1码')).toBeInTheDocument()
     expect(screen.getByText('risk no')).toBeInTheDocument()
     expect(screen.getByText('club_match')).toBeInTheDocument()
     expect(screen.getByText('carry_window')).toBeInTheDocument()
@@ -478,7 +480,8 @@ describe('CaddiePage', () => {
     expect(screen.getByText('coverage 153/153')).toBeInTheDocument()
     expect(screen.getByText('high sequence confidence')).toBeInTheDocument()
     expect(screen.getByText('advance 1D')).toBeInTheDocument()
-    expect(screen.getByText('245m carry - 275m left')).toBeInTheDocument()
+    // 245m→268码 (Math.round(267.93)=268), 275m→301码 (Math.round(300.74)=301)
+    expect(screen.getByText('268码 carry - 301码 left')).toBeInTheDocument()
     expect(screen.getByText('80 samples')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source club-sample-1d-0' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: 'Caddie Context' })).toBeInTheDocument()
@@ -489,7 +492,7 @@ describe('CaddiePage', () => {
     expect(screen.getByText('history_ref')).toBeInTheDocument()
     expect(screen.getByText('prodgeometry mesh file missing')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
+    await userEvent.click(screen.getByRole('button', { name: '加载天气' }))
     await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
     await userEvent.click(screen.getByRole('button', { name: 'Load media context' }))
     await userEvent.click(screen.getByRole('button', { name: 'Analyze media media-1' }))
@@ -498,7 +501,7 @@ describe('CaddiePage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reject finding finding-1' }))
     await userEvent.upload(screen.getByLabelText('Media file'), new File(['lie-bytes'], 'lie.jpg', { type: 'image/jpeg' }))
     await userEvent.click(screen.getByRole('button', { name: 'Attach media' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
+    await userEvent.click(screen.getByRole('button', { name: '请求球童方案' }))
     expect(screen.queryByRole('button', { name: 'Audit with fixture outcome' })).not.toBeInTheDocument()
     await userEvent.clear(screen.getByLabelText('Actual club'))
     await userEvent.type(screen.getByLabelText('Actual club'), '9I')
@@ -681,7 +684,7 @@ describe('CaddiePage', () => {
       />,
     )
 
-    await userEvent.selectOptions(screen.getByLabelText('Shot type'), 'tee')
+    await userEvent.selectOptions(screen.getByLabelText('击球类型'), 'tee')
     await userEvent.clear(screen.getByLabelText('Route start X'))
     await userEvent.type(screen.getByLabelText('Route start X'), '0')
     await userEvent.clear(screen.getByLabelText('Route start Y'))
@@ -724,7 +727,7 @@ describe('CaddiePage', () => {
 
     expect(screen.getByText('Loaded media belongs to shot fixture-round:4:approach; reload media for hole 900001:7.')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
+    await userEvent.click(screen.getByRole('button', { name: '请求球童方案' }))
 
     expect(onRequestDecision).toHaveBeenCalledWith({
       shotType: 'approach',

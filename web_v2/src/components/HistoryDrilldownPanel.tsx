@@ -1,4 +1,6 @@
+import { useEffect, useRef } from 'react'
 import type { AnnotationRecord, AnnotationTargetType, HistoryDrilldownResponse } from '../types'
+import { annotationKindZh, confidenceZh, targetTypeZh } from '../zhLabels'
 import { SourceRefs } from './SourceRefs'
 
 export type HistoryDrilldownPanelState =
@@ -37,7 +39,7 @@ function provenanceConfidence(sourceFields: Record<string, unknown>): string {
     if (typeof confidence === 'string' && confidence.trim()) return confidence
   }
   const confidence = sourceFields.confidence
-  return typeof confidence === 'string' && confidence.trim() ? confidence : 'not supplied'
+  return typeof confidence === 'string' && confidence.trim() ? confidence : '未提供'
 }
 
 function compactPayloadValue(value: unknown): string | null {
@@ -50,7 +52,7 @@ function annotationSummary(record: AnnotationRecord): string {
   const { payload } = record
   const from = compactPayloadValue(payload.from)
   const to = compactPayloadValue(payload.to)
-  if (from && to) return `${from} -> ${to}`
+  if (from && to) return `${from} → ${to}`
 
   const tag = compactPayloadValue(payload.tag)
   if (tag) return tag
@@ -92,8 +94,8 @@ function MissingDataRows({ rows }: { rows: Array<Record<string, unknown>> }) {
   if (rows.length === 0) return null
 
   return (
-    <section className="drilldown-block" aria-label="Missing data">
-      <h3>Missing Data</h3>
+    <section className="drilldown-block" aria-label="缺失数据">
+      <h3>缺失数据</h3>
       <div className="drilldown-rows">
         {rows.map((row, index) => (
           <div key={`${valueText(row.label)}-${index}`} className="drilldown-row">
@@ -113,24 +115,24 @@ function EvidenceCoverage({ data }: { data: HistoryDrilldownResponse }) {
   const confidence = provenanceConfidence(data.sourceFields)
 
   return (
-    <section className="drilldown-block drilldown-coverage" aria-label="Evidence coverage">
-      <h3>Evidence Coverage</h3>
+    <section className="drilldown-block drilldown-coverage" aria-label="证据覆盖率">
+      <h3>证据覆盖率</h3>
       <div className="coverage-metrics">
         <div className="coverage-metric">
-          <span>Source fields</span>
+          <span>字段数</span>
           <b>{sourceFieldCount}</b>
         </div>
         <div className="coverage-metric">
-          <span>Related refs</span>
+          <span>关联来源</span>
           <b>{relatedCount}</b>
         </div>
         <div className="coverage-metric">
-          <span>Missing data</span>
+          <span>缺失数据</span>
           <b>{missingCount}</b>
         </div>
         <div className="coverage-metric">
-          <span>Confidence</span>
-          <b>{confidence}</b>
+          <span>置信度</span>
+          <b>{confidenceZh(confidence)}</b>
         </div>
       </div>
     </section>
@@ -146,7 +148,7 @@ function AnnotationRows({ title, rows }: { title: string; rows: AnnotationRecord
       <div className="drilldown-rows">
         {rows.map((row) => (
           <div key={row.id} className="drilldown-row">
-            <span>{row.kind}</span>
+            <span>{annotationKindZh(row.kind)}</span>
             <b>{annotationSummary(row)}</b>
           </div>
         ))}
@@ -195,15 +197,15 @@ function RelatedRefs({
   onSelectRef?: (sourceRef: string) => void
 }) {
   const groups = [
-    ['Rounds', relatedRefs.roundRefs],
-    ['Holes', relatedRefs.holeRefs],
-    ['Shots', relatedRefs.shotRefs],
+    ['球局', relatedRefs.roundRefs],
+    ['球洞', relatedRefs.holeRefs],
+    ['击球', relatedRefs.shotRefs],
   ] as const
   if (!groups.some(([, refs]) => refs.length > 0)) return null
 
   return (
-    <section className="drilldown-block" aria-label="Related sources">
-      <h3>Related Sources</h3>
+    <section className="drilldown-block" aria-label="相关来源">
+      <h3>相关来源</h3>
       <div className="drilldown-rows">
         {groups.map(([label, refs]) => (
           <div key={label} className="drilldown-row">
@@ -240,26 +242,34 @@ function correctionTargetForDrilldown(data: HistoryDrilldownResponse): { targetT
 }
 
 export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCreateAnnotationForSource }: HistoryDrilldownPanelProps) {
+  const rootRef = useRef<HTMLElement | null>(null)
+  // Same as the round-detail panel: drill-downs mount at the page tail, so
+  // scroll them into view whenever a new source ref is requested.
+  const scrollKey =
+    state.status === 'idle' ? null : state.status === 'ready' ? state.data.ref : state.sourceRef
+  useEffect(() => {
+    if (scrollKey) rootRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, [scrollKey])
   if (state.status === 'idle') return null
 
   if (state.status === 'loading') {
     return (
-      <section className="panel drilldown-panel" aria-live="polite">
-        <h2>Source Detail</h2>
-        <p>Loading {state.sourceRef}</p>
+      <section ref={rootRef} className="panel drilldown-panel" aria-live="polite">
+        <h2>来源详情</h2>
+        <p>加载中 {state.sourceRef}</p>
       </section>
     )
   }
 
   if (state.status === 'error') {
     return (
-      <section className="panel drilldown-panel" aria-live="polite">
-        <h2>Source Detail</h2>
+      <section ref={rootRef} className="panel drilldown-panel" aria-live="polite">
+        <h2>来源详情</h2>
         <p>{state.sourceRef}</p>
         <p>{state.message}</p>
         {onRetrySource ? (
           <button type="button" className="drilldown-action-button" onClick={() => onRetrySource(state.sourceRef)}>
-            Retry source detail
+            重试
           </button>
         ) : null}
       </section>
@@ -269,17 +279,17 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCre
   const data = state.data
   const correctionTarget = correctionTargetForDrilldown(data)
   return (
-    <section className="panel drilldown-panel" aria-live="polite">
+    <section ref={rootRef} className="panel drilldown-panel" aria-live="polite">
       <div className="drilldown-title-row">
         <div>
-          <p className="eyebrow">Evidence Drill-Down</p>
-          <h2>{data.found ? 'Source Detail' : 'Source Unavailable'}</h2>
+          <p className="eyebrow">证据追溯</p>
+          <h2>{data.found ? '来源详情' : '来源不可用'}</h2>
           <p>{data.title}</p>
         </div>
         <div className="drilldown-meta">
           <span>{data.ref}</span>
-          <span>{data.refType}</span>
-          <span>{data.found ? 'found' : 'not found'}</span>
+          <span>{targetTypeZh(data.refType)}</span>
+          <span>{data.found ? '已找到' : '未找到'}</span>
           {onCreateAnnotationForSource && correctionTarget ? (
             <button
               type="button"
@@ -287,7 +297,7 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCre
               onClick={() => onCreateAnnotationForSource(correctionTarget)}
               aria-label={`Add correction for source ${data.ref}`}
             >
-              Add Correction
+              添加订正
             </button>
           ) : null}
         </div>
@@ -296,19 +306,19 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCre
       <EvidenceCoverage data={data} />
 
       <div className="drilldown-grid">
-        <DetailRows title="Round" record={data.round} />
-        <DetailRows title="Hole" record={data.hole} />
-        <DetailRows title="Shot" record={data.shot} />
-        <DetailRows title="Source Fields" record={data.sourceFields} />
+        <DetailRows title="球局" record={data.round} />
+        <DetailRows title="洞" record={data.hole} />
+        <DetailRows title="击球" record={data.shot} />
+        <DetailRows title="源字段" record={data.sourceFields} />
       </div>
 
       <RelatedRefs relatedRefs={data.relatedRefs} onSelectRef={onSelectRef} />
-      <AnnotationRows title="Manual Annotations" rows={data.annotations ?? []} />
-      <AnnotationRows title="Applied Corrections" rows={data.corrections ?? []} />
-      <EvidenceBundleRows title="Reports" rows={data.reports ?? []} summaryKeys={['kind', 'subjectId', 'provider']} />
-      <EvidenceBundleRows title="Weather" rows={data.weatherSnapshots ?? []} summaryKeys={['roundId', 'hole', 'windSpeedMps']} />
-      <EvidenceBundleRows title="Decision Audits" rows={data.decisionAudits ?? []} summaryKeys={['decisionId', 'actualOptionId']} />
-      <EvidenceBundleRows title="Geometry Evidence" rows={data.geometryEvidence ?? []} summaryKeys={['globalId', 'localHole', 'sourceRef']} />
+      <AnnotationRows title="手动标注" rows={data.annotations ?? []} />
+      <AnnotationRows title="已应用订正" rows={data.corrections ?? []} />
+      <EvidenceBundleRows title="报告" rows={data.reports ?? []} summaryKeys={['kind', 'subjectId', 'provider']} />
+      <EvidenceBundleRows title="天气" rows={data.weatherSnapshots ?? []} summaryKeys={['roundId', 'hole', 'windSpeedMps']} />
+      <EvidenceBundleRows title="决策审计" rows={data.decisionAudits ?? []} summaryKeys={['decisionId', 'actualOptionId']} />
+      <EvidenceBundleRows title="几何证据" rows={data.geometryEvidence ?? []} summaryKeys={['globalId', 'localHole', 'sourceRef']} />
       <MissingDataRows rows={data.missingData} />
     </section>
   )

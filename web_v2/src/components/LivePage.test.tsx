@@ -183,7 +183,7 @@ describe('LivePage tabs', () => {
     // courseOptions flow through to the finder's 常打球场 cards.
     expect(screen.getByText('Black Knight B/C')).toBeInTheDocument()
     // The legacy dashboard must stay OFF the default tab.
-    expect(screen.queryByRole('heading', { name: 'Caddie' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '智能球童' })).not.toBeInTheDocument()
   })
 
   it('hands the search query to onSearchCourses and lists matches on the sandbox entry', async () => {
@@ -331,7 +331,7 @@ describe('LivePage tabs', () => {
     await userEvent.click(liveTabs().getByRole('button', { name: '完整工具' }))
 
     expect(liveTabs().getByRole('button', { name: '完整工具' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '智能球童' })).toBeInTheDocument()
     // The props bundle is spread through untouched: selectedSourceRef reaches
     // CaddiePage's Source ref input exactly as it did when App rendered it.
     expect(screen.getByLabelText('Source ref')).toHaveValue('900042:3')
@@ -341,7 +341,7 @@ describe('LivePage tabs', () => {
     await userEvent.click(liveTabs().getByRole('button', { name: '决策沙盘' }))
 
     expect(screen.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: 'Caddie' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '智能球童' })).not.toBeInTheDocument()
   })
 
   it('keeps the 决策沙盘 course/hole selection across a 最近回放 peek', async () => {
@@ -381,7 +381,7 @@ describe('LivePage 最近回放 detail', () => {
     await userEvent.click(liveTabs().getByRole('button', { name: '最近回放' }))
 
     expect(await screen.findByText('详情 900001')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
     expect(fetchHistoryRoundDetailMock).toHaveBeenCalledWith('900001', 'admin-secret')
     expect(screen.getByRole('button', { name: '回放 Black Knight B 05-20' })).toHaveAttribute('aria-current', 'true')
   })
@@ -447,7 +447,7 @@ describe('LivePage 最近回放 detail', () => {
 
     expect(screen.getByText('还没有球局数据')).toBeInTheDocument()
     expect(fetchHistoryRoundDetailMock).not.toHaveBeenCalled()
-    expect(screen.queryByRole('heading', { name: 'Round Review' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '球局回顾' })).not.toBeInTheDocument()
   })
 
   it('threads drilldown and report handlers into the round detail panel', async () => {
@@ -465,7 +465,7 @@ describe('LivePage 最近回放 detail', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open hole 1 detail 900001:1' }))
     expect(onSelectRef).toHaveBeenCalledWith('900001:1')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
     expect(onLoadRoundReport).toHaveBeenCalledWith('900001')
   })
 })

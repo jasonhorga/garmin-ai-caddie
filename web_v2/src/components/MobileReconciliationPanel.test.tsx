@@ -97,9 +97,9 @@ describe('MobileReconciliationPanel', () => {
 
     render(<MobileReconciliationPanel state={{ status: 'idle' }} applyState={{ status: 'idle' }} onLoad={onLoad} onApply={vi.fn()} />)
 
-    await userEvent.clear(screen.getByLabelText('Round ID'))
-    await userEvent.type(screen.getByLabelText('Round ID'), 'round:1')
-    await userEvent.click(screen.getByRole('button', { name: 'Review offline events' }))
+    await userEvent.clear(screen.getByLabelText('球局编号'))
+    await userEvent.type(screen.getByLabelText('球局编号'), 'round:1')
+    await userEvent.click(screen.getByRole('button', { name: '核对离线事件' }))
 
     expect(onLoad).toHaveBeenCalledWith('round:1')
   })
@@ -116,25 +116,25 @@ describe('MobileReconciliationPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Mobile Reconciliation' })).toBeInTheDocument()
-    expect(screen.getByText('5 events')).toBeInTheDocument()
-    expect(screen.getByText('1 conflict')).toBeInTheDocument()
-    expect(screen.getByText('4 suggestions')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '离线对账' })).toBeInTheDocument()
+    expect(screen.getByText('5 个事件')).toBeInTheDocument()
+    expect(screen.getByText('1 处冲突')).toBeInTheDocument()
+    expect(screen.getByText('4 条建议')).toBeInTheDocument()
     expect(screen.getAllByText('score_correction').length).toBeGreaterThan(0)
     expect(screen.getAllByText('hole_note').length).toBeGreaterThan(0)
     expect(screen.getAllByText('900001:1').length).toBeGreaterThan(0)
-    expect(screen.getByText('4 -> 5')).toBeInTheDocument()
+    expect(screen.getByText('4 → 5')).toBeInTheDocument()
     expect(screen.getByText('photo media-photo-1: Ball sitting down in rough.')).toBeInTheDocument()
     expect(screen.getAllByText('Wind hurting; favor center green.').length).toBeGreaterThan(0)
     expect(screen.getByText('Offline live event includes an actual shot that can audit this caddie decision.')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByLabelText('Select suggestion audit-1:caddie-feedback'))
-    await userEvent.click(screen.getByRole('button', { name: 'Apply selected suggestions' }))
+    await userEvent.click(screen.getByLabelText('选择建议 audit-1:caddie-feedback'))
+    await userEvent.click(screen.getByRole('button', { name: '应用所选建议' }))
 
     expect(onApply).toHaveBeenCalledWith('900001', ['score-conflict:score-correction', 'note-local:hole-note', 'photo-lie:media-context'])
-    expect(screen.getByText('Applied 1 suggestions, stored 1 audit')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Applied annotations')).getByText('score_correction')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Stored decision audits')).getByText('execution')).toBeInTheDocument()
+    expect(screen.getByText('已应用 1 条建议，存档 1 条审计')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('已应用批注')).getByText('score_correction')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('已存档决策审计')).getByText('execution')).toBeInTheDocument()
   })
 
   it('renders local-only, Garmin-only, conflict, and audit evidence rows', () => {
@@ -147,11 +147,11 @@ describe('MobileReconciliationPanel', () => {
       />,
     )
 
-    expect(within(screen.getByLabelText('Local-only mobile events')).getByText('note-local')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Local-only mobile events')).getByText('Wind hurting; favor center green.')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Garmin-only facts')).getByText('900001:2:1')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Reconciliation conflicts')).getByText('score-conflict')).toBeInTheDocument()
-    expect(within(screen.getByLabelText('Candidate decision audits')).getByText('decision-1')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('仅本地移动事件')).getByText('note-local')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('仅本地移动事件')).getByText('Wind hurting; favor center green.')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('仅 Garmin 事实')).getByText('900001:2:1')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('对账冲突')).getByText('score-conflict')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('候选决策审计')).getByText('decision-1')).toBeInTheDocument()
   })
 
   it('shows skipped and missing apply results', () => {
@@ -176,9 +176,9 @@ describe('MobileReconciliationPanel', () => {
       />,
     )
 
-    expect(screen.getByText('Applied 0 suggestions, skipped 1')).toBeInTheDocument()
-    expect(screen.getByText('Skipped: note-local:hole-note')).toBeInTheDocument()
-    expect(screen.getByText('Missing: missing:hole-note')).toBeInTheDocument()
+    expect(screen.getByText('已应用 0 条建议，跳过 1 条')).toBeInTheDocument()
+    expect(screen.getByText('已跳过:note-local:hole-note')).toBeInTheDocument()
+    expect(screen.getByText('未找到:missing:hole-note')).toBeInTheDocument()
   })
 
   it('shows an empty state when there are no annotation suggestions', () => {
@@ -191,7 +191,7 @@ describe('MobileReconciliationPanel', () => {
       />,
     )
 
-    expect(screen.getByText('No reconciliation suggestions')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Apply selected suggestions' })).toBeDisabled()
+    expect(screen.getByText('暂无对账建议')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '应用所选建议' })).toBeDisabled()
   })
 })

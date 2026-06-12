@@ -90,7 +90,7 @@ describe('HoleEvidencePanel', () => {
   it('renders geometry coverage, WGS84 map layers, feature evidence, and missing data', () => {
     render(<HoleEvidencePanel state={readyState} />)
 
-    expect(screen.getByRole('heading', { name: 'Hole Evidence' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '洞口几何证据' })).toBeInTheDocument()
     expect(screen.getByText('31795 H7')).toBeInTheDocument()
     expect(screen.getByText('ready coverage')).toHaveClass('quality-good')
     expect(screen.getByText('Vector geometry overlay')).toBeInTheDocument()
@@ -105,21 +105,28 @@ describe('HoleEvidencePanel', () => {
     expect(screen.getByText('surface / fairway')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Shot Routes' })).toBeInTheDocument()
     expect(screen.getAllByText('900001:7:0').length).toBeGreaterThan(0)
-    expect(screen.getByText('7I 144m green')).toBeInTheDocument()
+    // 144m * 1.09361 = 157.48 → 157码
+    expect(screen.getByText('7I 157码 green')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Surface Classifications' })).toBeInTheDocument()
     expect(screen.getByText('green / mesh')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Route Evidence' })).toBeInTheDocument()
-    expect(screen.getByText('route length 182m')).toBeInTheDocument()
-    expect(screen.getByText('landing window [0, 182] r=18m')).toBeInTheDocument()
+    // 182m * 1.09361 = 199.04 → 199码
+    expect(screen.getByText('route length 199码')).toBeInTheDocument()
+    // radius 18m * 1.09361 = 19.685 → 20码
+    expect(screen.getByText('landing window [0, 182] r=20码')).toBeInTheDocument()
     expect(screen.getByText('water_crossing')).toBeInTheDocument()
-    expect(screen.getByText('water clear 110m')).toBeInTheDocument()
+    // 110m * 1.09361 = 120.30 → 120码
+    expect(screen.getByText('water clear 120码')).toBeInTheDocument()
     expect(screen.getAllByText('fairway_bunker').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('bunker clear 150m').length).toBeGreaterThan(0)
+    // 150m * 1.09361 = 164.04 → 164码
+    expect(screen.getAllByText('bunker clear 164码').length).toBeGreaterThan(0)
     expect(screen.getByText('Landing Risks')).toBeInTheDocument()
     expect(screen.getByText('fairway_bunker landing')).toBeInTheDocument()
-    expect(screen.getByText('bunker landing 16m from center, overlap 2m, r=18m')).toBeInTheDocument()
+    // 16m→17码, 2m→2码, 18m→20码
+    expect(screen.getByText('bunker landing 17码 from center, overlap 2码, r=20码')).toBeInTheDocument()
     expect(screen.getByText('right_bunker')).toBeInTheDocument()
-    expect(screen.getByText('bunker landing 12m from center')).toBeInTheDocument()
+    // 12m * 1.09361 = 13.12 → 13码
+    expect(screen.getByText('bunker landing 13码 from center')).toBeInTheDocument()
     expect(screen.getByText('hazards')).toBeInTheDocument()
     expect(screen.getByText('output/prodgeometry_hazards/gid31795_h07_hazards.json')).toBeInTheDocument()
     expect(screen.getByText('shot_routes')).toBeInTheDocument()

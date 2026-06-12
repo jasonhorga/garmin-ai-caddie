@@ -209,7 +209,21 @@ describe('fetchHistoryRounds', () => {
 
     expect(payload.schema).toBe('ai-caddie-history-rounds-v2')
     expect(payload.total).toBe(0)
-    expect(fetch).toHaveBeenCalledWith('/api/v2/history/rounds')
+    // backend defaults to limit=120 which truncates the real archive (435
+    // rounds) — every fetch must ask for the full archive explicitly
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/rounds?limit=1000')
+  })
+
+  it('keeps limit=1000 on filtered archive reads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ schema: 'ai-caddie-history-rounds-v2', total: 0, groups: [], emptyState: null }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryRounds(undefined, { year: '2026', hasShots: true })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?year=2026&hasShots=true&limit=1000')
   })
 
   it('can attach admin tokens to protected history round reads', async () => {
@@ -221,7 +235,7 @@ describe('fetchHistoryRounds', () => {
 
     await fetchHistoryRounds('admin-secret')
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=1000', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })

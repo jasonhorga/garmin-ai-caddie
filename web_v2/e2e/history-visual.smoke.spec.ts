@@ -527,6 +527,8 @@ const coursePrepPayload = {
   ],
 }
 
+// basis carries the REAL backend machine keys (ai_caddie/prep_tips.py); the
+// page maps them to zh 依据 lines and must never render them raw.
 const prepTipsPayload = {
   schema: 'ai-caddie-prep-tips-v1',
   courseKey: 'black_knight',
@@ -535,14 +537,14 @@ const prepTipsPayload = {
       priority: 1,
       severity: 'high',
       text: '开球偏右(58%),第1洞、第7洞尤其要瞄球道左侧',
-      basis: '开球方向:右 58% · 近20轮',
+      basis: 'course.teeDirection',
       sourceRefs: ['stats:black_knight:teeDirection'],
     },
     {
       priority: 2,
       severity: 'info',
       text: '三杆洞稳(平均+0.2),按部就班拿帕',
-      basis: 'Par3 平均 +0.2 · 近20轮',
+      basis: 'course.parScoring.par3',
       sourceRefs: ['stats:black_knight:parScoring:par3'],
     },
   ],
@@ -696,29 +698,34 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('想备哪场?')).toBeVisible()
   await expect(page.getByText('Black Knight B', { exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
-  await expect(page.getByText('History API unavailable')).toHaveCount(0)
+  await expect(page.getByText('历史数据不可用')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
 
   // exact: home 近期状态 has a 看历史 → button whose name would substring-match 历史.
   await page.getByRole('button', { name: '历史', exact: true }).click()
-  for (const [tab, heading] of [
-    ['趋势总览', '成绩走势'],
-    ['球局', 'Rounds'],
-    ['强弱分析', 'Hole Stats'],
-    ['球场', 'Course Stats'],
-    ['报告', 'Reports'],
+  for (const [tab, heading, level] of [
+    ['趋势总览', '成绩走势', 2],
+    ['球局', '球局', 1],
+    ['强弱分析', '你最该练', 1],
+    ['球场', '球场表现', 1],
+    ['报告', '报告', 1],
   ] as const) {
     await page.getByRole('button', { name: tab }).click()
-    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: heading, exact: true, level })).toBeVisible()
     await assertNoViewportOverflow(page)
     await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
   }
 
   await page.getByRole('button', { name: '强弱分析' }).click()
-  await expect(page.getByRole('heading', { name: 'Hole Stats', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Club Stats', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Issue Stats', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '你最该练', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '按洞', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '按杆', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '问题', exact: true })).toBeVisible()
+  // 总体数字 from scoring.phaseStats: Tee fairwaysHit 6/10 → 60%
+  await expect(page.getByText('球道命中率')).toBeVisible()
+  await expect(page.getByText('60%', { exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
+  await captureSmokeScreenshot(page, testInfo, 'strengths')
 
   // prepGlobalId is null on a fresh visit, so 备战 lands on the PrepPage entry
   // state (course finder); the full prep walk runs at the end of this test.
@@ -734,18 +741,18 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
   await assertNoViewportOverflow(page)
   await liveTabs.getByRole('button', { name: '完整工具' }).click()
-  await expect(page.getByRole('heading', { name: 'Caddie', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '智能球童', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
 
   await page.getByRole('button', { name: '设置' }).click()
-  await expect(page.getByRole('heading', { name: 'Sync & Data Quality', exact: true })).toBeVisible()
-  await expect(page.getByText('Review history')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '同步与数据健康', exact: true })).toBeVisible()
+  await expect(page.getByText('查看历史')).toBeVisible()
   await assertNoViewportOverflow(page)
   await page.getByRole('button', { name: '订正' }).click()
-  await expect(page.getByRole('heading', { name: 'Corrections', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '订正', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await page.getByRole('button', { name: '后端配置' }).click()
-  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '后端配置', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'settings')
 
@@ -777,10 +784,13 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-holes')
 
-  // 针对你 renders both mocked tips verbatim.
+  // 针对你 renders both mocked tips verbatim, with machine basis keys mapped
+  // to zh 依据 lines (raw keys must never surface).
   await prepTabs.getByRole('button', { name: '针对你' }).click()
   await expect(page.getByText('开球偏右(58%),第1洞、第7洞尤其要瞄球道左侧')).toBeVisible()
   await expect(page.getByText('三杆洞稳(平均+0.2),按部就班拿帕')).toBeVisible()
+  await expect(page.getByText('依据:你在本场的开球倾向')).toBeVisible()
+  await expect(page.getByText('course.parScoring.par3')).toHaveCount(0)
   await assertNoViewportOverflow(page)
 
   // 换球场 returns to the entry finder.
@@ -810,9 +820,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   // ball on the tee (距T 0 · 到果岭 = full route length 393m).
   await expect(page.getByRole('button', { name: '第1洞' })).toHaveAttribute('aria-current', 'true')
   await page.getByRole('button', { name: '第7洞' }).click()
-  await expect(page.getByLabel('到果岭(m)')).toBeVisible()
+  await expect(page.getByLabel('到果岭(码)')).toBeVisible()
   await page.getByRole('button', { name: '第1洞' }).click()
-  await expect(page.getByText('距T 0m · 到果岭 393m')).toBeVisible()
+  // 393m * 1.09361 = 430.09 → 430码
+  await expect(page.getByText('距T 0码 · 到果岭 430码')).toBeVisible()
   await assertNoViewportOverflow(page)
 
   // Tee shots take no lie; switching 击球类型 to 攻果岭 (ball still on the
@@ -865,14 +876,14 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   // through GET /api/v2/history/rounds/900001.
   await liveTabs.getByRole('button', { name: '最近回放' }).click()
   await expect(page.getByRole('button', { name: '回放 Black Knight B 05-20' })).toHaveAttribute('aria-current', 'true')
-  await expect(page.getByRole('heading', { name: 'Round Review', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Scorecard', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '球局回顾', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '记分卡', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'live-replay')
 
   // 完整工具 keeps the legacy Caddie dashboard reachable (T1 anchor).
   await liveTabs.getByRole('button', { name: '完整工具' }).click()
-  await expect(page.getByRole('heading', { name: 'Caddie', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '智能球童', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
 
   // The sandbox never asks for the prep shot scatter: its prep fetches carry

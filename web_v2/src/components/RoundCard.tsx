@@ -10,7 +10,7 @@ function formatToPar(value: number | null) {
 }
 
 function roundActionLabel(round: RoundCardType) {
-  return `Open round ${round.courseName}, ${round.date ?? 'Unknown date'}, score ${round.score ?? '-'}, ref ${round.id}`
+  return `打开球局 ${round.courseName}, ${round.date ?? '未知日期'}, score ${round.score ?? '-'}, ref ${round.id}`
 }
 
 interface RoundCardProps {
@@ -41,12 +41,12 @@ export function RoundCard({ round, onSelectRef, onOpenRoundDetail }: RoundCardPr
           onClick={() => (onOpenRoundDetail ?? onSelectRef)?.(round.id)}
           aria-label={roundActionLabel(round)}
         >
-          Open
+          打开
         </button>
       ) : null}
       <ScoreStrip cells={round.scoreStrip} />
       <div className="round-card-source">
-        <span>Source</span>
+        <span>来源</span>
         <SourceRefs refs={[round.id]} maxVisible={1} onSelectRef={onSelectRef} />
       </div>
       <DataQualityChips badges={round.badges} />

@@ -1356,24 +1356,26 @@ p {
   opacity: 0.9;
 }
 
-.hole-distribution-bucket .source-refs {
-  grid-column: 1 / -1;
+/* W4a: evidence chips live below the distribution bar, never inside it. */
+.w4-distribution-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 6px;
 }
 
-.hole-distribution-bucket .aggregate-meta {
-  grid-column: 1 / -1;
+.w4-distribution-ref-row {
+  min-width: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  font-size: 11px;
 }
 
-.hole-distribution-bucket .source-ref-button,
-.hole-distribution-bucket .source-ref-token {
-  border-color: rgba(255, 255, 255, 0.55);
-  color: #ffffff;
-}
-
-.hole-distribution-bucket .aggregate-meta .fact-chip {
-  border-color: rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+.w4-distribution-ref-row strong {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .hole-issues {
@@ -2772,6 +2774,12 @@ button.round-detail-cell:hover {
   color: var(--text);
   font-size: 1rem;
   line-height: 1.6;
+}
+
+.report-body-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 4px 0 0;
 }
 
 .report-evidence-grid {
@@ -4507,8 +4515,14 @@ button.round-detail-cell:hover {
   color: var(--ink);
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* W4a: long names (nine-combination suffixes like 「~ C/A」) clamp at TWO
+     lines instead of truncating the suffix away on one. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .home-search-match-meta {
@@ -4549,8 +4563,13 @@ button.round-detail-cell:hover {
   font-size: 13px;
   color: var(--ink);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* W4a: keep nine-combination suffixes visible — clamp at two lines. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .home-course-meta {
@@ -5373,4 +5392,221 @@ button.round-detail-cell:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* ── W4 filter bar (球局页筛选条) ──────────────────────────── */
+.w4-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  margin-bottom: 14px;
+}
+
+.w4-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.w4-filter-select {
+  min-height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fbfcfa;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.w4-filter-select:focus {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+
+.w4-filter-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.w4-filter-check input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--green);
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+/* ── 球场表现 去备战 按钮 ─────────────────────────────────────────── */
+.stats-item-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.w4-goto-prep {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--green-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.w4-goto-prep:hover {
+  background: var(--panel-hover, #f0f7ee);
+}
+
+/* ===== W4a 强弱分析 (StrengthsPage) ===== */
+.strengths-page {
+  display: grid;
+  gap: 14px;
+}
+
+.strengths-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.strengths-jump a {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.strengths-jump a:hover {
+  background: #f0f7ee;
+}
+
+.strengths-focus-item {
+  background: #f8faf7;
+}
+
+.strengths-focus-item .stats-item-main h2 {
+  font-size: 16px;
+}
+
+.strengths-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.strengths-audit {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 10px 12px;
+}
+
+.strengths-audit summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.strengths-audit[open] summary {
+  margin-bottom: 10px;
+}
+
+.strengths-audit h3 {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+@media (max-width: 720px) {
+  .strengths-kpis {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+}
+
+/* ── W4a 大数据截断:加载更多 / 展开全部 / 球场详情折叠 ─────────── */
+.w4-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 2px;
+}
+
+.w4-load-more-btn,
+.w4-expand-toggle {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 5px 16px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.w4-load-more-btn:hover,
+.w4-expand-toggle:hover {
+  background: #f0f7ee;
+}
+
+.w4-expand-toggle {
+  justify-self: start;
+  margin-top: 8px;
+}
+
+/* 问题区 sub-list captions (近期变化 / 全部问题): a subtle muted label that
+   separates recent-window deltas from lifetime totals without the weight of a
+   full section-head. */
+.w4-list-subhead {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.course-breakdown-details {
+  grid-column: 1 / -1;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+
+.course-breakdown-details summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.course-breakdown-details[open] summary {
+  margin-bottom: 8px;
 }

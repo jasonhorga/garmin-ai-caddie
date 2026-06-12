@@ -46,8 +46,8 @@ describe('ReadinessPanel', () => {
   it('renders overall readiness and per-check evidence', () => {
     render(<ReadinessPanel readiness={readinessFixture} />)
 
-    expect(screen.getByRole('heading', { name: 'Private Trial Readiness' })).toBeInTheDocument()
-    expect(screen.getByText('degraded')).toHaveClass('readiness-degraded')
+    expect(screen.getByRole('heading', { name: '试运行就绪度' })).toBeInTheDocument()
+    expect(screen.getByText('降级')).toHaveClass('readiness-degraded')
     expect(screen.getByText('service')).toBeInTheDocument()
     expect(screen.getByText('history')).toBeInTheDocument()
     expect(screen.getByText('dataMode: fixture')).toBeInTheDocument()
@@ -61,9 +61,9 @@ describe('ReadinessPanel', () => {
   it('renders a compact unavailable state when readiness cannot load', () => {
     render(<ReadinessPanel readiness={null} error="GET /api/v2/readiness failed" />)
 
-    expect(screen.getByRole('heading', { name: 'Private Trial Readiness' })).toBeInTheDocument()
-    const panel = screen.getByLabelText('Private trial readiness')
-    expect(within(panel).getByText('unavailable')).toHaveClass('readiness-error')
+    expect(screen.getByRole('heading', { name: '试运行就绪度' })).toBeInTheDocument()
+    const panel = screen.getByLabelText('试运行就绪度')
+    expect(within(panel).getByText('不可用')).toHaveClass('readiness-error')
     expect(screen.getByText('GET /api/v2/readiness failed')).toBeInTheDocument()
   })
 })

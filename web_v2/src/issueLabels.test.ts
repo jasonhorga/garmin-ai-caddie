@@ -1,7 +1,11 @@
-// Full backend issue-token vocabulary (ai_caddie/issue_taxonomy.py) plus the
-// manual-annotation extras already shipped (tee_left/tee_right/short_game/
-// penalty). Unknown tokens fall back to the raw token — never crash.
-const ISSUE_LABELS: Record<string, string> = {
+import { describe, expect, it } from 'vitest'
+import { issueLabel } from './issueLabels'
+
+// Full backend issue-token vocabulary: ai_caddie/issue_taxonomy.py plus the
+// manual-annotation extras (tee_left/tee_right/short_game/penalty) that the
+// frontend already labelled. Every token must render golf Chinese — raw
+// English tokens on the 强弱分析 page were a visual-acceptance finding.
+const EXPECTED: Record<string, string> = {
   approach_short: '攻果岭偏短',
   approach_long: '攻果岭偏长',
   approach_left: '攻果岭偏左',
@@ -37,6 +41,15 @@ const ISSUE_LABELS: Record<string, string> = {
   weak_sample_size: '样本偏少',
 }
 
-export function issueLabel(token: string): string {
-  return ISSUE_LABELS[token] ?? token
-}
+describe('issueLabel', () => {
+  it('covers the full backend issue-token vocabulary with golf Chinese', () => {
+    for (const [token, zh] of Object.entries(EXPECTED)) {
+      expect(issueLabel(token), token).toBe(zh)
+    }
+  })
+
+  it('falls back to the raw token for unknown issues', () => {
+    expect(issueLabel('some_future_issue')).toBe('some_future_issue')
+    expect(issueLabel('')).toBe('')
+  })
+})

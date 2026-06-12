@@ -33,8 +33,8 @@ export function CourseDistributionMap({ rows, onSelectRef, metricMode = 'split',
   if (distribution.length === 0) {
     return (
       <article className="stats-empty">
-        <h3>No course distribution yet</h3>
-        <p>Distribution rows appear after round history has course keys.</p>
+        <h3>暂无球场分布数据</h3>
+        <p>同步球局数据后球场分布将自动填充。</p>
       </article>
     )
   }
@@ -46,7 +46,7 @@ export function CourseDistributionMap({ rows, onSelectRef, metricMode = 'split',
           <svg
             className="course-distribution-svg"
             role="img"
-            aria-label="Course distribution geography"
+            aria-label="球场地理分布"
             viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
             data-plotted-count={plotted.length}
           >
@@ -67,15 +67,15 @@ export function CourseDistributionMap({ rows, onSelectRef, metricMode = 'split',
               </g>
             ))}
           </svg>
-          <div className="course-map-summary" aria-label="Course map coverage">
-            <span>{plotted.length} plotted</span>
-            <span className={missingCount ? 'semantic-chip quality-missing' : 'semantic-chip quality-good'}>{missingCount} missing location</span>
+          <div className="course-map-summary" aria-label="地图覆盖情况">
+            <span>{plotted.length} 已标注</span>
+            <span className={missingCount ? 'semantic-chip quality-missing' : 'semantic-chip quality-good'}>{missingCount} 无位置信息</span>
           </div>
         </div>
       ) : (
         <article className="stats-empty">
-          <h3>No mapped locations yet</h3>
-          <p>Course rows need latitude and longitude before map pins can render.</p>
+          <h3>暂无位置信息</h3>
+          <p>球场数据需包含经纬度才能在地图上显示标注。</p>
         </article>
       )}
       <div className="course-distribution-list">
@@ -96,7 +96,7 @@ export function CourseDistributionMap({ rows, onSelectRef, metricMode = 'split',
                     <span>{roundLabel(row.roundCount)}</span>
                   </>
                 )}
-                {location ? <em>{formatLocation(location)}</em> : <em className="semantic-chip quality-missing">location missing</em>}
+                {location ? <em>{formatLocation(location)}</em> : <em className="semantic-chip quality-missing">无位置信息</em>}
               </div>
               <SourceRefs refs={refsFor(row)} maxVisible={4} onSelectRef={onSelectRef} />
             </div>

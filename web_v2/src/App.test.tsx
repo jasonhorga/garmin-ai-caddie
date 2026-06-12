@@ -1001,7 +1001,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/rounds') return roundsPayload()
+          if (path === '/api/v2/history/rounds?limit=1000') return roundsPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1023,7 +1023,7 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(await screen.findByText('Garmin CN')).toBeInTheDocument()
-    expect(screen.getAllByText('ready').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('就绪').length).toBeGreaterThan(0)
 
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     expect(screen.getByRole('button', { name: '历史' })).toHaveAttribute('aria-current', 'page')
@@ -1033,11 +1033,11 @@ describe('App navigation', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
 
-    expect(await screen.findByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
-    expect(screen.getByText('May 2026')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds')
+    expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
+    expect(screen.getByText('2026年5月')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=1000')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status')
-    await waitFor(() => expect(screen.queryByText('History API unavailable')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument())
   })
 
   it('can recover protected history overview after entering an admin token', async () => {
@@ -1064,9 +1064,9 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
-    await userEvent.type(await screen.findByLabelText('Admin token'), 'admin-secret')
-    await userEvent.click(screen.getByRole('button', { name: 'Retry history' }))
+    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
+    await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
@@ -1108,10 +1108,10 @@ describe('App navigation', () => {
     await userEvent.click(await screen.findByRole('button', { name: '强弱分析' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
 
-    expect(await screen.findByRole('button', { name: 'Retry source detail' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '重试' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.type(await screen.findByLabelText('Admin token'), 'admin-secret')
-    await userEvent.click(screen.getByRole('button', { name: 'Retry source detail' }))
+    await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
 
     expect(await screen.findByText('1D on H1')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A0', {
@@ -1143,13 +1143,13 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.type(await screen.findByLabelText('Web session header'), 'Cookie: JWT_WEB=abc123')
-    await userEvent.type(screen.getByLabelText('Anti-forgery value'), 'connect-csrf-token: csrf-secret-value')
-    await userEvent.click(screen.getByRole('button', { name: 'Save session' }))
+    await userEvent.type(await screen.findByLabelText('网页会话头'), 'Cookie: JWT_WEB=abc123')
+    await userEvent.type(screen.getByLabelText('防伪令牌'), 'connect-csrf-token: csrf-secret-value')
+    await userEvent.click(screen.getByRole('button', { name: '保存会话' }))
 
     expect(await screen.findByText('POST /api/v2/sync/garmin/session failed: 401 Unauthorized')).toBeInTheDocument()
-    expect(screen.getByLabelText('Web session header')).toHaveValue('Cookie: JWT_WEB=abc123')
-    expect(screen.getByLabelText('Anti-forgery value')).toHaveValue('connect-csrf-token: csrf-secret-value')
+    expect(screen.getByLabelText('网页会话头')).toHaveValue('Cookie: JWT_WEB=abc123')
+    expect(screen.getByLabelText('防伪令牌')).toHaveValue('connect-csrf-token: csrf-secret-value')
   })
 
   it('loads history stats once and navigates between stats-backed pages', async () => {
@@ -1176,14 +1176,16 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
 
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '你最该练', level: 1 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按杆' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '问题' })).toBeInTheDocument()
     expect(screen.getByText('1D')).toBeInTheDocument()
-    expect(screen.getByText('missing_shots')).toBeInTheDocument()
+    // missing_shots renders via issueLabel in the 问题 section and the 你最该练 fallback
+    expect(screen.getAllByText('缺少击球数据').length).toBeGreaterThan(0)
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
 
-    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '来源详情' })).toBeInTheDocument()
     expect(screen.getByText('1D on H1')).toBeInTheDocument()
     expect(screen.getByText('geometry')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A0')
@@ -1195,7 +1197,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
 
-    expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '问题' })).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(1)
   })
@@ -1261,6 +1263,57 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '逐洞攻略' }))
     expect(screen.getByText('1 洞')).toBeInTheDocument()
     expect(screen.getByText('2 洞')).toBeInTheDocument()
+  })
+
+  it('球场 tab renders 球场表现 heading', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+    await userEvent.click(await screen.findByRole('button', { name: '球场' }))
+
+    expect(await screen.findByRole('heading', { name: '球场表现', level: 1 })).toBeInTheDocument()
+    expect(screen.getByText('Black Knight B')).toBeInTheDocument()
+  })
+
+  it('clicking 去备战 on a course row in 球场表现 navigates to the prep page', async () => {
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        if (path === '/api/v2/courses/31795/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
+        return overviewPayload()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+    await userEvent.click(await screen.findByRole('button', { name: '球场' }))
+
+    // courseOptions maps black_knight → globalId 31795, so the button appears
+    await userEvent.click(await screen.findByRole('button', { name: '去备战 Black Knight B' }))
+
+    // PrepPage header resolves 31795 against courseOptions → 'Black Knight B/C'
+    expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
   })
 
   it('search-selected course outside course options shows its searched name in the prep header', async () => {
@@ -1341,7 +1394,7 @@ describe('App navigation', () => {
 
     // Kick off a background trends refresh (window=last10) that stays in flight.
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }))
     await waitFor(() =>
       expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(2),
     )
@@ -1414,18 +1467,18 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '球场' }))
 
-    expect(await screen.findByRole('heading', { name: 'History stats unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '历史数据加载失败' })).toBeInTheDocument()
     expect(screen.getByText('如需配置访问密钥，请前往 设置 → 同步与数据健康。')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
 
-    expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
-    expect(await screen.findByLabelText('Admin token')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('管理令牌')).toBeInTheDocument()
   })
 
   it('rounds error screen offers token recovery via 去设置', async () => {
     const fetchMock = vi.fn(async (path: string) => {
-      if (path === '/api/v2/history/rounds') return { ok: false, status: 401, statusText: 'Unauthorized' }
+      if (path === '/api/v2/history/rounds?limit=1000') return { ok: false, status: 401, statusText: 'Unauthorized' }
       if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
       return {
         ok: true,
@@ -1444,13 +1497,13 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
 
-    expect(await screen.findByRole('heading', { name: 'Rounds unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '球局数据不可用' })).toBeInTheDocument()
     expect(screen.getByText('如需配置访问密钥，请前往 设置 → 同步与数据健康。')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
 
-    expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
-    expect(await screen.findByLabelText('Admin token')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('管理令牌')).toBeInTheDocument()
   })
 
   it('overview failure does not block other sections', async () => {
@@ -1459,7 +1512,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/rounds') return roundsPayload()
+          if (path === '/api/v2/history/rounds?limit=1000') return roundsPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1471,15 +1524,15 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
     await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
-    expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
-    expect(screen.queryByText('History API unavailable')).toBeNull()
+    expect(await screen.findByRole('heading', { name: '智能球童' })).toBeInTheDocument()
+    expect(screen.queryByText('历史数据不可用')).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: '概览' }))
-    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
   })
 
   it('re-entering 实战 retries boot-failed overview and course options', async () => {
@@ -1502,7 +1555,7 @@ describe('App navigation', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    expect(await screen.findByRole('heading', { name: 'History API unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
 
     // 实战 during the outage: the sandbox entry renders, but with no 常打球场
     // card (courseOptions failed) and no replay rows (overview failed).
@@ -1547,7 +1600,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/rounds') return roundsPayload()
+        if (path === '/api/v2/history/rounds?limit=1000') return roundsPayload()
         if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
         if (path === '/api/v2/reports/round/1') return roundReportPayload('1')
         if (path === '/api/v2/reports/round/1/generate') return roundReportPayload('1')
@@ -1566,14 +1619,14 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
 
-    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
     expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(0)
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
-    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
 
     expect(await screen.findByText('Round review from scorecard facts.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1')
-    await userEvent.click(screen.getByRole('button', { name: 'Generate AI Review' }))
+    await userEvent.click(screen.getByRole('button', { name: '生成 AI 回顾' }))
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1/generate', { method: 'POST' })
     await userEvent.click(screen.getAllByRole('button', { name: 'Open source 1:1' })[0])
@@ -1583,8 +1636,8 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
-    expect(await screen.findByRole('heading', { name: 'Rounds' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Open round Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+    expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
 
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/rounds/1')).toHaveLength(2)
   })
@@ -1610,25 +1663,25 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(await screen.findByRole('button', { name: '订正' }))
 
-    expect(await screen.findByRole('heading', { name: 'Corrections' })).toBeInTheDocument()
-    const history = screen.getByLabelText('Annotation history')
+    expect(await screen.findByRole('heading', { name: '订正' })).toBeInTheDocument()
+    const history = screen.getByLabelText('批注历史')
     expect(within(history).getByText('round-1:7:shot-3')).toBeInTheDocument()
-    expect(within(history).getByText('Club correction')).toBeInTheDocument()
-    expect(within(history).getByText('7I -> 8I')).toBeInTheDocument()
+    expect(within(history).getByText('球杆订正')).toBeInTheDocument()
+    expect(within(history).getByText('7I → 8I')).toBeInTheDocument()
     expect(within(history).getByText('approach_short')).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Club correction' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Putt correction' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Issue tag' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Note' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '球杆订正' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '推杆订正' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '问题标签' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '备注' })).toBeInTheDocument()
 
-    await userEvent.selectOptions(screen.getByLabelText('Target type'), 'shot')
-    await userEvent.clear(screen.getByLabelText('Target ID'))
-    await userEvent.type(screen.getByLabelText('Target ID'), 'round-1:8:shot-1')
-    await userEvent.selectOptions(screen.getByLabelText('Correction type'), 'club_correction')
-    await userEvent.type(screen.getByLabelText('Recorded club'), '7I')
-    await userEvent.type(screen.getByLabelText('Corrected club'), '8I')
-    await userEvent.type(screen.getByLabelText('Note'), 'Trackman confirmed the club')
-    await userEvent.click(screen.getByRole('button', { name: 'Save annotation' }))
+    await userEvent.selectOptions(screen.getByLabelText('目标类型'), 'shot')
+    await userEvent.clear(screen.getByLabelText('目标编号'))
+    await userEvent.type(screen.getByLabelText('目标编号'), 'round-1:8:shot-1')
+    await userEvent.selectOptions(screen.getByLabelText('订正类型'), 'club_correction')
+    await userEvent.type(screen.getByLabelText('原记录球杆'), '7I')
+    await userEvent.type(screen.getByLabelText('订正后球杆'), '8I')
+    await userEvent.type(screen.getByLabelText('备注'), 'Trackman confirmed the club')
+    await userEvent.click(screen.getByRole('button', { name: '保存批注' }))
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/annotations', {
       method: 'POST',
@@ -1641,7 +1694,7 @@ describe('App navigation', () => {
       }),
     })
     expect(await screen.findByText('round-1:8:shot-1')).toBeInTheDocument()
-    expect(screen.getAllByText('7I -> 8I')).toHaveLength(2)
+    expect(screen.getAllByText('7I → 8I')).toHaveLength(2)
     expect(screen.getByText('Trackman confirmed the club')).toBeInTheDocument()
   })
 
@@ -1664,13 +1717,13 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
-    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Add correction for round 1' }))
 
-    expect(await screen.findByRole('heading', { name: 'Corrections' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Target type')).toHaveValue('round')
-    expect(screen.getByLabelText('Target ID')).toHaveValue('1')
+    expect(await screen.findByRole('heading', { name: '订正' })).toBeInTheDocument()
+    expect(screen.getByLabelText('目标类型')).toHaveValue('round')
+    expect(screen.getByLabelText('目标编号')).toHaveValue('1')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/annotations')
   })
 
@@ -1694,9 +1747,9 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(await screen.findByRole('button', { name: '后端配置' }))
 
-    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
-    expect(await screen.findByText('active: Gemini API')).toHaveClass('setting-primary')
-    expect(screen.getByText('available')).toHaveClass('setting-primary')
+    expect(await screen.findByRole('heading', { name: '后端配置' })).toBeInTheDocument()
+    expect(await screen.findByText('当前:Gemini API')).toHaveClass('setting-primary')
+    expect(screen.getByText('可用')).toHaveClass('setting-primary')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/settings/product')
   })
 
@@ -1725,16 +1778,16 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(await screen.findByRole('button', { name: '后端配置' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Open corrections' }))
-    expect(await screen.findByRole('heading', { name: 'Corrections' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '打开订正' }))
+    expect(await screen.findByRole('heading', { name: '订正' })).toBeInTheDocument()
 
-    await userEvent.selectOptions(screen.getByLabelText('Target type'), 'shot')
-    await userEvent.clear(screen.getByLabelText('Target ID'))
-    await userEvent.type(screen.getByLabelText('Target ID'), 'round-1:8:shot-1')
-    await userEvent.selectOptions(screen.getByLabelText('Correction type'), 'club_correction')
-    await userEvent.type(screen.getByLabelText('Recorded club'), '7I')
-    await userEvent.type(screen.getByLabelText('Corrected club'), '8I')
-    await userEvent.click(screen.getByRole('button', { name: 'Save annotation' }))
+    await userEvent.selectOptions(screen.getByLabelText('目标类型'), 'shot')
+    await userEvent.clear(screen.getByLabelText('目标编号'))
+    await userEvent.type(screen.getByLabelText('目标编号'), 'round-1:8:shot-1')
+    await userEvent.selectOptions(screen.getByLabelText('订正类型'), 'club_correction')
+    await userEvent.type(screen.getByLabelText('原记录球杆'), '7I')
+    await userEvent.type(screen.getByLabelText('订正后球杆'), '8I')
+    await userEvent.click(screen.getByRole('button', { name: '保存批注' }))
 
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
   })
@@ -1761,21 +1814,21 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '报告' }))
 
-    expect(await screen.findByRole('heading', { name: 'Reports' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Report inventory' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open stored trend recent_10' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open stored course black_knight' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '报告' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '报告索引' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '打开已存 趋势 recent_10' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '打开已存 球场 black_knight' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Black Knight B' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Black Knight B H7' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '1D' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Load trend report' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Open stored trend recent_10' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入趋势报告' }))
+    await userEvent.click(screen.getByRole('button', { name: '打开已存 趋势 recent_10' }))
     expect(await screen.findByText('Trend review from stored facts.')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Load course report' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入球场报告' }))
     expect(await screen.findByText('Course review from stored facts.')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Load hole report' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入球洞报告' }))
     expect(await screen.findByText('Hole review from stored facts.')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Load club report' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入球杆报告' }))
 
     expect(await screen.findByText('Club review from stored facts.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats')
@@ -1805,11 +1858,11 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '报告' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Load trend report' }))
-    const identity = await screen.findByLabelText('Report identity')
+    await userEvent.click(await screen.findByRole('button', { name: '载入趋势报告' }))
+    const identity = await screen.findByLabelText('报告信息')
     await userEvent.click(within(identity).getByRole('button', { name: 'Open source 900001' }))
 
-    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '来源详情' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001')
   })
 
@@ -1835,31 +1888,33 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
 
-    expect(await screen.findByRole('heading', { name: 'Sync & Data Quality' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
     expect(screen.getByText('Garmin CN')).toBeInTheDocument()
-    expect(screen.getAllByText('Local Garmin snapshots are available.').length).toBeGreaterThan(0)
-    expect(screen.getByRole('heading', { name: 'Private Trial Readiness' })).toBeInTheDocument()
+    expect(screen.getAllByText('本地 Garmin 快照已就绪。').length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { name: '试运行就绪度' })).toBeInTheDocument()
     expect(screen.getByText('dataMode: fixture')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Data Quality' })).toBeInTheDocument()
-    expect(screen.getByText('shots')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Mobile Package Prep' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Mobile Reconciliation' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '数据健康' })).toBeInTheDocument()
+    // dataQuality finding labels render through the zh dictionary, never raw
+    expect(screen.getByText('击球数据')).toBeInTheDocument()
+    expect(screen.queryByText('shots')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '离线包准备' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '离线对账' })).toBeInTheDocument()
 
-    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
-    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
-    await userEvent.clear(screen.getByLabelText('Course global ID'))
-    await userEvent.type(screen.getByLabelText('Course global ID'), '31795')
-    await userEvent.type(screen.getByLabelText('Live round ID'), 'live-black-knight')
-    await userEvent.type(screen.getByLabelText('Tee box'), 'blue')
-    await userEvent.click(screen.getByRole('button', { name: 'Prepare package' }))
+    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
+    await userEvent.click(screen.getByRole('radio', { name: '球场' }))
+    await userEvent.clear(screen.getByLabelText('球场全局编号'))
+    await userEvent.type(screen.getByLabelText('球场全局编号'), '31795')
+    await userEvent.type(screen.getByLabelText('实战球局编号'), 'live-black-knight')
+    await userEvent.type(screen.getByLabelText('发球台'), 'blue')
+    await userEvent.click(screen.getByRole('button', { name: '生成离线包' }))
     expect(await screen.findByText('Fixture Links')).toBeInTheDocument()
-    expect(screen.getByText('12/18 holes')).toBeInTheDocument()
+    expect(screen.getByText('12/18 洞')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Review offline events' }))
+    await userEvent.click(screen.getByRole('button', { name: '核对离线事件' }))
     expect(await screen.findByText('Local score input can correct the derived score for this hole.')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Apply selected suggestions' }))
-    expect(await screen.findByText('Applied 1 suggestions')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '应用所选建议' }))
+    expect(await screen.findByText('已应用 1 条建议')).toBeInTheDocument()
 
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
@@ -1897,13 +1952,13 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
 
-    expect(await screen.findByRole('heading', { name: 'Mobile Package Prep' })).toBeInTheDocument()
-    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
-    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
-    await userEvent.clear(screen.getByLabelText('Course global ID'))
-    await userEvent.type(screen.getByLabelText('Course global ID'), '31795')
-    await userEvent.type(screen.getByLabelText('Live round ID'), 'live-black-knight')
-    await userEvent.click(screen.getByRole('button', { name: 'Prepare package' }))
+    expect(await screen.findByRole('heading', { name: '离线包准备' })).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
+    await userEvent.click(screen.getByRole('radio', { name: '球场' }))
+    await userEvent.clear(screen.getByLabelText('球场全局编号'))
+    await userEvent.type(screen.getByLabelText('球场全局编号'), '31795')
+    await userEvent.type(screen.getByLabelText('实战球局编号'), 'live-black-knight')
+    await userEvent.click(screen.getByRole('button', { name: '生成离线包' }))
 
     expect(await screen.findByText('Fixture Links')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true', {
@@ -1933,17 +1988,17 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(screen.getByRole('radio', { name: 'Course' }))
+    await userEvent.click(screen.getByRole('radio', { name: '球场' }))
 
-    expect(await screen.findByText('Course options unavailable: GET /api/v2/mobile/courses/options failed: 401 Unauthorized')).toBeInTheDocument()
-    await userEvent.type(screen.getByLabelText('Admin token'), 'admin-secret')
+    expect(await screen.findByText('球场选项不可用:GET /api/v2/mobile/courses/options failed: 401 Unauthorized')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/options', {
         headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
       }),
     )
-    expect(await screen.findByLabelText('Recent course')).toBeInTheDocument()
+    expect(await screen.findByLabelText('最近球场')).toBeInTheDocument()
   })
 
   it('refreshes loaded history stats after Garmin sync completes', async () => {
@@ -1969,7 +2024,7 @@ describe('App navigation', () => {
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+    await userEvent.click(await screen.findByRole('button', { name: '立即同步' }))
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=true&force_refresh_auth=false', { method: 'POST' })
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
@@ -1994,11 +2049,11 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
 
-    expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Hole Evidence' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '来源详情' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '洞口几何证据' })).toBeInTheDocument()
     expect(screen.getByText('31795 H7')).toBeInTheDocument()
     expect(screen.getByText('Vector geometry overlay')).toBeInTheDocument()
     expect(screen.getByText('source Esri World Imagery / WGS84')).toBeInTheDocument()
@@ -2032,7 +2087,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:10' }))
 
     expect(await screen.findByText('222222 H1')).toBeInTheDocument()
@@ -2066,7 +2121,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
 
     expect(await screen.findByText('partial coverage')).toBeInTheDocument()
@@ -2114,7 +2169,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
     expect(await screen.findByText('partial coverage')).toBeInTheDocument()
 
@@ -2122,7 +2177,7 @@ describe('App navigation', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v2/geometry/hole/31795/7/ensure', { method: 'POST' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001' }))
     expect(await screen.findByText('Black Knight B - 2026-05-18')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Hole Evidence' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '洞口几何证据' })).not.toBeInTheDocument()
 
     await act(async () => {
       resolveEnsure()
@@ -2132,7 +2187,7 @@ describe('App navigation', () => {
     })
 
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7')).toHaveLength(1)
-    expect(screen.queryByRole('heading', { name: 'Hole Evidence' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '洞口几何证据' })).not.toBeInTheDocument()
   })
 
   it('opens the caddie workspace, attaches media context, and requests a decision', async () => {
@@ -2162,11 +2217,11 @@ describe('App navigation', () => {
     // verbatim behind 完整工具.
     expect(await screen.findByRole('heading', { name: '选择球场开始模拟' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
-    expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '智能球童' })).toBeInTheDocument()
     // The 备战 page (entry finder heading) must not leak into the 实战 workspace.
     expect(screen.queryByRole('heading', { name: '选择球场开始备战' })).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Load weather' }))
+    await userEvent.click(screen.getByRole('button', { name: '加载天气' }))
     expect(await screen.findByText('5.4 m/s')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
@@ -2184,7 +2239,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Analyze media media-1' }))
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/media/media-1/analyze', { method: 'POST' })
 
-    await userEvent.click(screen.getByRole('button', { name: 'Request caddie plan' }))
+    await userEvent.click(screen.getByRole('button', { name: '请求球童方案' }))
 
     expect(await screen.findByText('8I')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
@@ -2265,14 +2320,14 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按杆' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900002:5:4' }))
 
     expect(await screen.findByText('1D on H5')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
     await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
-    expect(await screen.findByRole('heading', { name: 'Caddie' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '智能球童' })).toBeInTheDocument()
     expect(screen.getByLabelText('Source ref')).toHaveValue('900002:5:4')
 
     await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
@@ -2307,12 +2362,12 @@ describe('App navigation', () => {
     expect(fetchMock.mock.calls.some(([path]) => path === '/api/v2/history/rounds/1')).toBe(false)
     await userEvent.click(screen.getByRole('button', { name: '最近回放' }))
 
-    expect(await screen.findByRole('heading', { name: 'Round Review' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
     expect(screen.getByRole('button', { name: '回放 Black Knight B 05-20' })).toHaveAttribute('aria-current', 'true')
 
     // AI review buttons run through App's report plumbing, as on history pages.
-    await userEvent.click(screen.getByRole('button', { name: 'Load AI Review' }))
+    await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
     expect(await screen.findByText('Round review from scorecard facts.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1')
 

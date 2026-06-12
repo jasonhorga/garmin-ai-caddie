@@ -384,12 +384,13 @@ describe('LiveSandbox course pick', () => {
 })
 
 describe('LiveSandbox ball + situation readout', () => {
-  it('starts the ball at the tee with the metric readout and derived 开球', async () => {
+  it('starts the ball at the tee with the yards readout and derived 开球', async () => {
     const { view } = renderSandbox()
     await openCourse()
 
     expect(screen.getByRole('img', { name: '第7洞球道图' })).toBeInTheDocument()
-    expect(screen.getByText('距T 0m · 到果岭 200m')).toBeInTheDocument()
+    // 0m → 0码; 200m * 1.09361 = 218.72 → 219码
+    expect(screen.getByText('距T 0码 · 到果岭 219码')).toBeInTheDocument()
     const select = screen.getByLabelText('击球类型')
     expect(select).toHaveValue('tee')
     expect(
@@ -414,17 +415,19 @@ describe('LiveSandbox ball + situation readout', () => {
 
     fireEvent.pointerDown(svg!, { clientX: 100, clientY: 0 })
 
-    expect(screen.getByText('距T 100m · 到果岭 100m')).toBeInTheDocument()
+    // 100m → 109码 (100 * 1.09361 = 109.361 → 109)
+    expect(screen.getByText('距T 109码 · 到果岭 109码')).toBeInTheDocument()
     expect(screen.getByLabelText('击球类型')).toHaveValue('approach')
     expect(view.container.querySelector('circle[r="12"]')!.getAttribute('cx')).toBe('100')
 
-    // pointermove with a held button keeps dragging (1dp metre rounding)…
+    // pointermove with a held button keeps dragging (yard rounding)…
+    // 33.5m → 37码 (33.5 * 1.09361 = 36.636 → 37); 166.5m → 182码 (182.086 → 182)
     fireEvent.pointerMove(svg!, { clientX: 33.5, clientY: 0, buttons: 1 })
-    expect(screen.getByText('距T 33.5m · 到果岭 166.5m')).toBeInTheDocument()
+    expect(screen.getByText('距T 37码 · 到果岭 182码')).toBeInTheDocument()
 
     // …but hovering without a pressed button must not move the ball.
     fireEvent.pointerMove(svg!, { clientX: 180, clientY: 0, buttons: 0 })
-    expect(screen.getByText('距T 33.5m · 到果岭 166.5m')).toBeInTheDocument()
+    expect(screen.getByText('距T 37码 · 到果岭 182码')).toBeInTheDocument()
   })
 
   it('击球类型 override to 救球 survives drags and resets when the hole changes', async () => {
@@ -449,45 +452,48 @@ describe('LiveSandbox ball + situation readout', () => {
     const svg = view.container.querySelector('svg')
     mockSvgRect(svg!)
     fireEvent.pointerDown(svg!, { clientX: 100, clientY: 0 })
-    expect(screen.getByText('距T 100m · 到果岭 100m')).toBeInTheDocument()
+    expect(screen.getByText('距T 109码 · 到果岭 109码')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '第9洞' }))
 
-    expect(screen.getByText('距T 0m · 到果岭 200m')).toBeInTheDocument()
-    expect(screen.queryByText('距T 100m · 到果岭 100m')).not.toBeInTheDocument()
+    expect(screen.getByText('距T 0码 · 到果岭 219码')).toBeInTheDocument()
+    expect(screen.queryByText('距T 109码 · 到果岭 109码')).not.toBeInTheDocument()
     expect(view.container.querySelector('circle[r="12"]')!.getAttribute('cx')).toBe('0')
   })
 
-  it('typing 到果岭 on a mapped hole overrides the readout, ball marker, and request distance', async () => {
+  it('typing 到果岭(码) on a mapped hole overrides the readout, ball marker, and request distance', async () => {
     const { view } = renderSandbox()
     await openCourse()
 
-    await userEvent.type(screen.getByLabelText('到果岭(m)'), '150')
+    await userEvent.type(screen.getByLabelText('到果岭(码)'), '150')
 
-    // 200m hole: 到果岭 150 puts the ball at cum 50 → route point (50, 0).
-    expect(screen.getByText('距T 50m · 到果岭 150m')).toBeInTheDocument()
-    expect(view.container.querySelector('circle[r="12"]')!.getAttribute('cx')).toBe('50')
+    // 200m hole: 到果岭 150码 = metersFromYards(150) = 137.2m
+    // effectiveCum = 200 - 137.2 = 62.8 → route point (62.8, 0)
+    // fmtYd(62.8) = 69码; fmtYd(137.2) = 150码
+    expect(screen.getByText('距T 69码 · 到果岭 150码')).toBeInTheDocument()
+    // 200 - 137.2 = 62.80000000000001 (IEEE 754); route x at that cum
+    expect(view.container.querySelector('circle[r="12"]')!.getAttribute('cx')).toBe('62.80000000000001')
     expect(screen.getByLabelText('击球类型')).toHaveValue('approach')
 
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
 
     expect(fetchCaddieContextMock.mock.calls[0][0]).toEqual(
-      expect.objectContaining({ sourceRef: '900002:7', shotType: 'approach', distanceToPinM: 150 }),
+      expect.objectContaining({ sourceRef: '900002:7', shotType: 'approach', distanceToPinM: 137.2 }),
     )
   })
 
   it('dragging the ball clears the manual 到果岭 override', async () => {
     const { view } = renderSandbox()
     await openCourse()
-    await userEvent.type(screen.getByLabelText('到果岭(m)'), '150')
-    expect(screen.getByText('距T 50m · 到果岭 150m')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('到果岭(码)'), '150')
+    expect(screen.getByText('距T 69码 · 到果岭 150码')).toBeInTheDocument()
 
     const svg = view.container.querySelector('svg')
     mockSvgRect(svg!)
     fireEvent.pointerDown(svg!, { clientX: 100, clientY: 0 })
 
-    expect(screen.getByLabelText('到果岭(m)')).toHaveValue(null)
-    expect(screen.getByText('距T 100m · 到果岭 100m')).toBeInTheDocument()
+    expect(screen.getByLabelText('到果岭(码)')).toHaveValue(null)
+    expect(screen.getByText('距T 109码 · 到果岭 109码')).toBeInTheDocument()
     expect(view.container.querySelector('circle[r="12"]')!.getAttribute('cx')).toBe('100')
   })
 
@@ -495,29 +501,29 @@ describe('LiveSandbox ball + situation readout', () => {
     const { view } = renderSandbox()
     await openCourse()
 
-    await userEvent.type(screen.getByLabelText('到果岭(m)'), '250')
+    await userEvent.type(screen.getByLabelText('到果岭(码)'), '250')
 
-    // 250m on a 200m route: no honest ball position exists → no marker, and
-    // the readout drops the unknowable 距T part.
+    // 250码 = metersFromYards(250) = 228.6m > 200m route → no honest ball position.
+    // fmtYd(228.6) = 250码; readout drops the unknowable 距T part.
     expect(view.container.querySelector('circle[r="12"]')).toBeNull()
-    expect(screen.getByText('到果岭 250m')).toBeInTheDocument()
+    expect(screen.getByText('到果岭 250码')).toBeInTheDocument()
     expect(screen.queryByText(/距T/)).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
 
-    expect(fetchCaddieContextMock.mock.calls[0][0].distanceToPinM).toBe(250)
+    expect(fetchCaddieContextMock.mock.calls[0][0].distanceToPinM).toBe(228.6)
   })
 })
 
 describe('LiveSandbox degraded no-map mode', () => {
-  it('a hole without a map renders the numeric 到果岭 input instead of the canvas', async () => {
+  it('a hole without a map renders the numeric 到果岭(码) input instead of the canvas', async () => {
     const { view } = renderSandbox()
     await openCourse()
 
     await userEvent.click(screen.getByRole('button', { name: '第8洞' }))
 
     expect(screen.getByText('此洞暂无几何图,直接输入到果岭距离。')).toBeInTheDocument()
-    expect(screen.getByLabelText('到果岭(m)')).toBeInTheDocument()
+    expect(screen.getByLabelText('到果岭(码)')).toBeInTheDocument()
     expect(view.container.querySelector('svg')).toBeNull()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(screen.queryByText(/距T /)).not.toBeInTheDocument()
@@ -525,12 +531,12 @@ describe('LiveSandbox degraded no-map mode', () => {
     expect(screen.getByLabelText('击球类型')).toHaveValue('tee')
   })
 
-  it('accepts a numeric 到果岭 distance and derives 攻果岭 from it', async () => {
+  it('accepts a numeric 到果岭(码) distance and derives 攻果岭 from it', async () => {
     renderSandbox()
     await openCourse()
     await userEvent.click(screen.getByRole('button', { name: '第8洞' }))
 
-    const input = screen.getByLabelText('到果岭(m)')
+    const input = screen.getByLabelText('到果岭(码)')
     await userEvent.type(input, '135')
 
     expect(input).toHaveValue(135)
@@ -544,12 +550,12 @@ describe('LiveSandbox degraded no-map mode', () => {
     renderSandbox()
     await openCourse()
     await userEvent.click(screen.getByRole('button', { name: '第8洞' }))
-    await userEvent.type(screen.getByLabelText('到果岭(m)'), '135')
+    await userEvent.type(screen.getByLabelText('到果岭(码)'), '135')
 
     await userEvent.click(screen.getByRole('button', { name: '第7洞' }))
     await userEvent.click(screen.getByRole('button', { name: '第8洞' }))
 
-    expect(screen.getByLabelText('到果岭(m)')).toHaveValue(null)
+    expect(screen.getByLabelText('到果岭(码)')).toHaveValue(null)
     expect(screen.getByLabelText('击球类型')).toHaveValue('tee')
   })
 })
@@ -681,12 +687,13 @@ describe('LiveSandbox 沙盘建议 inputs + sourceRef rule', () => {
     renderSandbox()
     await openCourse()
     await userEvent.click(screen.getByRole('button', { name: '第8洞' }))
-    await userEvent.type(screen.getByLabelText('到果岭(m)'), '135')
+    // 135码 = metersFromYards(135) = 123.4m sent to API
+    await userEvent.type(screen.getByLabelText('到果岭(码)'), '135')
 
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
 
     expect(fetchCaddieContextMock.mock.calls[0][0]).toEqual(
-      expect.objectContaining({ sourceRef: '900002:8', shotType: 'approach', distanceToPinM: 135, lie: 'fairway' }),
+      expect.objectContaining({ sourceRef: '900002:8', shotType: 'approach', distanceToPinM: 123.4, lie: 'fairway' }),
     )
     const card = await screen.findByLabelText('沙盘建议')
     expect(within(card).getByText('8I', { selector: '.live-advice-club' })).toBeInTheDocument()
@@ -789,7 +796,8 @@ describe('LiveSandbox 沙盘建议 card', () => {
 
     expect(within(card).getByText('8I')).toHaveClass('live-advice-club')
     expect(within(card).getByText('Stock')).toBeInTheDocument()
-    expect(within(card).getByText('落点 132m')).toBeInTheDocument()
+    // 132m * 1.09361 = 143.36 → 144码 (but let me compute: Math.round(132*1.09361)=Math.round(144.36)=144)
+    expect(within(card).getByText('落点 144码')).toBeInTheDocument()
     // 风险 renders as VISIBLE text (a11y: the number is not locked inside an
     // aria-label) with the colored dot kept as a pure tint beside it.
     expect(within(card).getByText('风险 3.4')).toHaveClass('live-advice-risk', 'medium')
@@ -833,7 +841,8 @@ describe('LiveSandbox 沙盘建议 card', () => {
 
     await userEvent.click(within(others).getByRole('button', { name: 'Attack · 7I' }))
 
-    expect(within(card).getByText('落点 146m · 风险 5.2 · 信心低')).toBeInTheDocument()
+    // 146m * 1.09361 = 159.67 → 160码
+    expect(within(card).getByText('落点 160码 · 风险 5.2 · 信心低')).toBeInTheDocument()
   })
 
   it('稳→博 re-requests the context+decision pair with strategyMode=attack', async () => {

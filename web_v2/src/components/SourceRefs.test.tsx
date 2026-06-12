@@ -29,7 +29,9 @@ describe('SourceRefs', () => {
     expect(screen.getByRole('button', { name: 'Open source 900001:2' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open source 900001:3' })).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Show 1 more source ref' }))
+    const more = screen.getByRole('button', { name: '展开其余 1 处来源' })
+    expect(more).toHaveTextContent('等 1 处')
+    await userEvent.click(more)
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:3' }))
 
     expect(onSelectRef).toHaveBeenCalledWith('900001:3')

@@ -45,7 +45,6 @@ import {
   saveGarminSession,
 } from './api'
 import type { MediaContextState } from './components/CaddiePage'
-import { ClubStats } from './components/ClubStats'
 import { CorrectionsPage, type CorrectionTarget } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
@@ -54,8 +53,6 @@ import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './compon
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
 import { HoleEvidencePanel, type GeometryEnsureState, type HoleEvidenceState } from './components/HoleEvidencePanel'
-import { HoleStats } from './components/HoleStats'
-import { IssueStats } from './components/IssueStats'
 import {
   MobileReconciliationPanel,
   type MobileReconciliationApplyState,
@@ -71,6 +68,7 @@ import { PrepPage } from './components/PrepPage'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
+import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
@@ -397,6 +395,11 @@ export default function App() {
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
       if (overviewState.status === 'error') void refreshOverviewState()
     }
+    if (page === 'courses') {
+      // 球场表现 shows 去备战 buttons keyed on globalId from courseOptions;
+      // retry the load when it is idle or previously errored (mirrors 概览/备战).
+      if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
+    }
     if (page === 'rounds' && roundsState.status === 'idle') {
       void loadRoundsState()
     }
@@ -637,15 +640,16 @@ export default function App() {
   }
 
   function renderStatsContent(data: HistoryStatsResponse) {
-    if (activePage === 'courses') return <CourseStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+    if (activePage === 'courses') return (
+      <CourseStats
+        data={data}
+        onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+        courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
+        onPrepCourse={handlePrepCourse}
+      />
+    )
     if (activePage === 'holes' || activePage === 'clubs' || activePage === 'issues') {
-      return (
-        <>
-          <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-          <ClubStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-          <IssueStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        </>
-      )
+      return <StrengthsPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
     }
     if (activePage === 'reports') {
       return (
@@ -672,12 +676,12 @@ export default function App() {
 
   function renderSyncQualityWorkspace() {
     return (
-      <section className="sync-quality-workspace" aria-label="Sync and data quality workspace">
+      <section className="sync-quality-workspace" aria-label="同步与数据健康工作区">
         <div className="section-head stats-head">
           <div>
-            <p className="eyebrow">Evidence Coverage</p>
-            <h1>Sync & Data Quality</h1>
-            <p>Garmin connector state, local snapshot coverage, and confidence-impacting gaps.</p>
+            <p className="eyebrow">证据覆盖</p>
+            <h1>同步与数据健康</h1>
+            <p>Garmin 连接器状态、本地快照覆盖与影响置信度的缺口。</p>
           </div>
         </div>
         {syncStatus ? (
@@ -714,15 +718,15 @@ export default function App() {
         ) : null}
         {statsState.status === 'loading' ? (
           <section className="panel empty-state">
-            <h2>Loading data quality</h2>
+            <h2>数据健康加载中</h2>
           </section>
         ) : null}
         {statsState.status === 'error' ? (
           <section className="panel empty-state">
-            <h2>Data quality unavailable</h2>
+            <h2>数据健康不可用</h2>
             <p>{statsState.message}</p>
             <button type="button" onClick={() => void loadStatsState()}>
-              Retry history stats
+              重试历史统计
             </button>
           </section>
         ) : null}
@@ -1046,10 +1050,10 @@ export default function App() {
       if (roundsState.status === 'error') {
         return (
           <section className="panel empty-state">
-            <h1>Rounds unavailable</h1>
+            <h1>球局数据不可用</h1>
             <p>{roundsState.message}</p>
             <button type="button" onClick={() => void loadRoundsState()}>
-              Retry rounds
+              重试
             </button>
             <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
             <button type="button" onClick={() => navigate('sync-quality')}>
@@ -1060,7 +1064,7 @@ export default function App() {
       }
       return (
         <section className="panel empty-state">
-          <h1>Loading rounds</h1>
+          <h1>球局加载中</h1>
         </section>
       )
     }
@@ -1147,10 +1151,10 @@ export default function App() {
       if (statsState.status === 'error') {
         return (
           <section className="panel empty-state">
-            <h1>History stats unavailable</h1>
+            <h1>历史数据加载失败</h1>
             <p>{statsState.message}</p>
             <button type="button" onClick={() => void loadStatsState()}>
-              Retry history stats
+              重试
             </button>
             <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
             <button type="button" onClick={() => navigate('sync-quality')}>
@@ -1161,7 +1165,7 @@ export default function App() {
       }
       return (
         <section className="panel empty-state">
-          <h1>Loading history stats</h1>
+          <h1>历史数据加载中</h1>
         </section>
       )
     }
@@ -1264,14 +1268,14 @@ export default function App() {
       if (annotationsState.status === 'error') {
         return (
           <section className="panel empty-state">
-            <h1>Corrections unavailable</h1>
+            <h1>订正数据不可用</h1>
             <p>{annotationsState.message}</p>
           </section>
         )
       }
       return (
         <section className="panel empty-state">
-          <h1>Loading corrections</h1>
+          <h1>订正加载中</h1>
         </section>
       )
     }
@@ -1279,7 +1283,7 @@ export default function App() {
     if (overviewState.status === 'loading') {
       return (
         <section className="panel empty-state">
-          <h1>Loading history</h1>
+          <h1>历史数据加载中</h1>
         </section>
       )
     }
@@ -1289,10 +1293,10 @@ export default function App() {
         <>
           {renderSyncPanel()}
           <section className="panel empty-state">
-            <h1>History API unavailable</h1>
+            <h1>历史数据不可用</h1>
             <p>{overviewState.message}</p>
             <button type="button" onClick={() => void refreshOverviewState()}>
-              Retry history
+              重试
             </button>
           </section>
         </>

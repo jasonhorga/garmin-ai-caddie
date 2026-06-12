@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { HistoryStatsResponse } from '../types'
+import type { HistoryStatsResponse, MobileCourseOptionsResponse } from '../types'
 import { CourseStats } from './CourseStats'
 
 const statsFixture: HistoryStatsResponse = {
@@ -147,62 +147,179 @@ const statsFixture: HistoryStatsResponse = {
   drillDown: {},
 }
 
+const courseOptionsFixture: MobileCourseOptionsResponse = {
+  schema: 'ai-caddie-mobile-course-options-v1',
+  dataMode: 'fixture',
+  total: 1,
+  courses: [
+    {
+      globalId: 31795,
+      courseKey: 'black_knight',
+      name: 'Black Knight B/C',
+      roundCount: 2,
+      holes: 18,
+      geometryCoverage: 'missing',
+      sourceRefs: ['900001', '900002'],
+    },
+  ],
+  emptyState: null,
+  generatedAt: '2026-06-01T08:00:00Z',
+}
+
 describe('CourseStats', () => {
-  it('renders course aggregates and source round refs', () => {
+  it('renders course aggregates and source round refs', async () => {
     const onSelectRef = vi.fn()
     render(<CourseStats data={statsFixture} onSelectRef={onSelectRef} />)
 
-    expect(screen.getByRole('heading', { name: 'Course Stats' })).toBeInTheDocument()
+    // per-course sub-blocks live inside a closed <details>; open it so the
+    // breakdown assertions below see the rendered content
+    await userEvent.click(screen.getByText(/^详情/))
+
+    expect(screen.getByRole('heading', { name: '球场表现' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Black Knight B' })).toBeInTheDocument()
-    const facts = screen.getByLabelText('Black Knight B facts')
-    expect(screen.getAllByText('2 rounds').length).toBeGreaterThan(0)
-    expect(screen.getByText('avg 82')).toBeInTheDocument()
-    expect(screen.getByText('best 77')).toBeInTheDocument()
-    expect(screen.getByText('worst 87')).toBeInTheDocument()
-    expect(within(facts).getByText('avg diff 9.8')).toBeInTheDocument()
-    expect(within(facts).getByText('best diff 6.1')).toBeInTheDocument()
-    expect(screen.getByText('recent 77')).toBeInTheDocument()
+    const facts = screen.getByLabelText('Black Knight B 数据')
+    expect(within(facts).getByText('2 场次')).toBeInTheDocument()
+    expect(within(facts).getByText('平均 82')).toBeInTheDocument()
+    expect(within(facts).getByText('最好 77')).toBeInTheDocument()
+    expect(within(facts).getByText('最差 87')).toBeInTheDocument()
+    expect(within(facts).getByText('均差 9.8')).toBeInTheDocument()
+    expect(within(facts).getByText('最好差 6.1')).toBeInTheDocument()
+    expect(screen.getByText('近期 77')).toBeInTheDocument()
     expect(screen.getByText('FIR 25%')).toBeInTheDocument()
-    expect(screen.getByText('tee right 50%')).toHaveClass('tee-right')
+    // dominant-miss tokens render through the zh dictionary, never raw
+    expect(screen.getByText('开球 偏右 50%')).toHaveClass('tee-right')
     expect(screen.getByText('GIR 25%')).toBeInTheDocument()
-    expect(screen.getByText('approach short 50%')).toHaveClass('approach-short')
-    expect(screen.getByText('improving -10')).toHaveClass('trend-improving')
-    expect(screen.getByText('diff improving -5.3')).toHaveClass('trend-improving')
-    expect(screen.getByText('geometry missing 0/2')).toHaveClass('quality-missing')
-    expect(screen.getByText('geometry missing')).toHaveClass('quality-missing')
-    expect(screen.getAllByText('coverage 2/3 66.7%').length).toBeGreaterThan(0)
-    expect(screen.getByText('medium confidence')).toBeInTheDocument()
-    expect(screen.getByText('Difficulty Adjusted')).toBeInTheDocument()
-    const difficultyAdjusted = screen.getByLabelText('Black Knight B difficulty adjusted')
-    expect(within(difficultyAdjusted).getByText('Rating / slope coverage')).toBeInTheDocument()
-    expect(within(difficultyAdjusted).getByText('2 / 3 rounds')).toBeInTheDocument()
-    expect(within(difficultyAdjusted).getByText('coverage 2/3 66.7%')).toBeInTheDocument()
-    expect(within(difficultyAdjusted).getByText('Missing rating / slope')).toBeInTheDocument()
-    expect(within(difficultyAdjusted).getByText('1 rounds')).toBeInTheDocument()
+    expect(screen.getByText('攻果岭 偏短 50%')).toHaveClass('approach-short')
+    expect(screen.getByText('进步中 -10')).toHaveClass('trend-improving')
+    expect(screen.getByText('差分 进步中 -5.3')).toHaveClass('trend-improving')
+    expect(screen.getByText('几何 缺失')).toHaveClass('quality-missing')
+    // header data-quality chip is zh: 「几何覆盖 缺失 0/2」, not "geometry missing 0/2"
+    expect(screen.getByText('几何覆盖 缺失 0/2')).toHaveClass('quality-missing')
+    expect(screen.queryByText(/geometry missing/)).not.toBeInTheDocument()
+    expect(screen.getAllByText('覆盖 2/3 66.7%').length).toBeGreaterThan(0)
+    expect(screen.getByText('信心中')).toBeInTheDocument()
+    expect(screen.queryByText(/coverage \d/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/confidence/)).not.toBeInTheDocument()
+    expect(screen.getByText('难度调整')).toBeInTheDocument()
+    const difficultyAdjusted = screen.getByLabelText('Black Knight B 难度调整')
+    expect(within(difficultyAdjusted).getByText('评级/坡度覆盖')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('2 / 3 场次')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('覆盖 2/3 66.7%')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('缺失评级/坡度')).toBeInTheDocument()
+    expect(within(difficultyAdjusted).getByText('1 场次')).toBeInTheDocument()
     expect(within(difficultyAdjusted).getByRole('button', { name: 'Open source 900003' })).toBeInTheDocument()
-    expect(screen.getByText('Course Issue Profile')).toBeInTheDocument()
-    expect(screen.getByText('double_or_worse')).toBeInTheDocument()
-    expect(screen.getByText('5 holes')).toBeInTheDocument()
-    expect(screen.getByText('risk 7.5')).toBeInTheDocument()
-    expect(screen.getByText('33.3% sample')).toBeInTheDocument()
-    expect(screen.getByText('Toughest Holes')).toBeInTheDocument()
-    expect(screen.getByText('Hole 7')).toBeInTheDocument()
-    expect(screen.getByText('+1.5 avg')).toBeInTheDocument()
-    expect(screen.getByText('risk 4.5')).toBeInTheDocument()
+    expect(screen.getByText('球场问题分布')).toBeInTheDocument()
+    // issue tokens and phases render through the zh dictionaries, never raw
+    expect(screen.getByText('双柏忌或更差')).toBeInTheDocument()
+    expect(screen.queryByText('double_or_worse')).not.toBeInTheDocument()
+    expect(screen.getByText('场上决策')).toBeInTheDocument()
+    expect(screen.queryByText('Course Management')).not.toBeInTheDocument()
+    expect(screen.getByText('5 洞')).toBeInTheDocument()
+    expect(screen.getByText('风险 7.5')).toBeInTheDocument()
+    expect(screen.getByText('33.3% 样本')).toBeInTheDocument()
+    expect(screen.getByText('最难球洞')).toBeInTheDocument()
+    expect(screen.getByText('第7洞')).toBeInTheDocument()
+    expect(screen.getByText('+1.5 均')).toBeInTheDocument()
+    expect(screen.getByText('风险 4.5')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Open source 900001' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open source 900002' }).length).toBeGreaterThan(0)
+  })
+
+  // Real data: courses without recorded tee/approach pcts leaked 「FIR -%」
+  // 「GIR -%」 and 「差分 flat 0」 — null pcts drop the chip entirely and the
+  // direction token renders through the zh dictionary.
+  it('omits FIR/GIR chips for null pcts and maps flat direction to zh', () => {
+    const course = {
+      ...statsFixture.courses[0],
+      teeDirection: {
+        recorded: 4,
+        total: 5,
+        hitPct: null,
+        leftPct: 40,
+        dominantMiss: 'left',
+      },
+      approachMiss: {
+        recorded: 4,
+        total: 5,
+        girPct: null,
+        longPct: 60,
+        dominantMiss: 'long',
+      },
+      recentForm: {
+        ...(statsFixture.courses[0].recentForm as Record<string, unknown>),
+        differentialDirection: 'flat',
+        deltaAverageDifferential: 0,
+      },
+    }
+    render(<CourseStats data={{ ...statsFixture, courses: [course] }} />)
+
+    expect(screen.queryByText(/FIR/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/GIR/)).not.toBeInTheDocument()
+    expect(screen.getByText('开球 偏左 40%')).toHaveClass('tee-left')
+    expect(screen.getByText('攻果岭 偏长 60%')).toHaveClass('approach-long')
+    expect(screen.getByText('差分 持平 0')).toHaveClass('trend-flat')
+  })
+
+  // Real data also ships dominantMiss 'other'/'mixed'/'none': other/mixed map
+  // through the zh dictionary, mixed has no `{token}Pct` so the percentage is
+  // omitted (never 「-%」), and 'none' renders no chip at all.
+  it('maps other/mixed dominant misses to zh, omits missing pcts, and drops none chips', () => {
+    const course = {
+      ...statsFixture.courses[0],
+      teeDirection: {
+        recorded: 6,
+        total: 6,
+        otherPct: 33.3,
+        dominantMiss: 'other',
+      },
+      approachMiss: {
+        recorded: 6,
+        total: 6,
+        dominantMiss: 'mixed',
+      },
+    }
+    render(<CourseStats data={{ ...statsFixture, courses: [course] }} />)
+
+    expect(screen.getByText('开球 方向不定 33.3%')).toHaveClass('tee-other')
+    expect(screen.getByText('攻果岭 方向混杂')).toHaveClass('approach-mixed')
+    expect(screen.queryByText(/-%/)).not.toBeInTheDocument()
+  })
+
+  it('renders no miss chips when dominantMiss is none', () => {
+    const course = {
+      ...statsFixture.courses[0],
+      teeDirection: {
+        recorded: 6,
+        total: 6,
+        hitPct: 100,
+        dominantMiss: 'none',
+      },
+      approachMiss: {
+        recorded: 6,
+        total: 6,
+        girPct: 100,
+        dominantMiss: 'none',
+      },
+    }
+    render(<CourseStats data={{ ...statsFixture, courses: [course] }} />)
+
+    expect(screen.queryByText(/开球 /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/攻果岭 /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/none/)).not.toBeInTheDocument()
+    expect(screen.getByText('FIR 100%')).toBeInTheDocument()
+    expect(screen.getByText('GIR 100%')).toBeInTheDocument()
   })
 
   it('renders course distribution with location evidence and drill-down refs', () => {
     const onSelectRef = vi.fn()
     render(<CourseStats data={statsFixture} onSelectRef={onSelectRef} />)
 
-    expect(screen.getByRole('heading', { name: 'Course Distribution' })).toBeInTheDocument()
-    const distribution = screen.getByLabelText('Course distribution')
-    const map = within(distribution).getByRole('img', { name: 'Course distribution geography' })
+    expect(screen.getByRole('heading', { name: '球场分布' })).toBeInTheDocument()
+    const distribution = screen.getByLabelText('球场分布')
+    const map = within(distribution).getByRole('img', { name: '球场地理分布' })
     expect(map).toHaveAttribute('data-plotted-count', '2')
-    expect(within(distribution).getByText('2 plotted')).toBeInTheDocument()
-    expect(within(distribution).getByText('1 missing location')).toHaveClass('quality-missing')
+    expect(within(distribution).getByText('2 已标注')).toBeInTheDocument()
+    expect(within(distribution).getByText('1 无位置信息')).toHaveClass('quality-missing')
 
     const blackKnightPin = within(distribution).getByTestId('course-map-pin-black_knight')
     const islandClubPin = within(distribution).getByTestId('course-map-pin-island_club')
@@ -213,7 +330,7 @@ describe('CourseStats', () => {
     expect(within(distribution).getByText('66.7%')).toBeInTheDocument()
     expect(within(distribution).getByText('22.2790, 114.1620')).toBeInTheDocument()
     expect(within(distribution).getByText('Bay Course')).toBeInTheDocument()
-    expect(within(distribution).getByText('location missing')).toHaveClass('quality-missing')
+    expect(within(distribution).getByText('无位置信息')).toHaveClass('quality-missing')
     expect(within(distribution).getAllByRole('button', { name: 'Open source 900003' }).length).toBeGreaterThan(0)
   })
 
@@ -251,7 +368,103 @@ describe('CourseStats', () => {
   it('renders an empty state when no course aggregates exist', () => {
     render(<CourseStats data={{ ...statsFixture, courses: [] }} />)
 
-    expect(screen.getByText('No course stats yet')).toBeInTheDocument()
-    expect(screen.getByText('Sync Garmin rounds or switch to fixture mode to populate course distribution.')).toBeInTheDocument()
+    expect(screen.getByText('暂无球场表现数据')).toBeInTheDocument()
+    expect(screen.getByText('同步 Garmin 球局或切换到示例模式以填充球场分布。')).toBeInTheDocument()
+  })
+
+  it('shows 去备战 button when courseOptions maps the courseKey to a globalId', async () => {
+    const onPrepCourse = vi.fn()
+    render(<CourseStats data={statsFixture} courseOptions={courseOptionsFixture} onPrepCourse={onPrepCourse} />)
+
+    const prepBtn = screen.getByRole('button', { name: '去备战 Black Knight B' })
+    expect(prepBtn).toBeInTheDocument()
+
+    await userEvent.click(prepBtn)
+
+    expect(onPrepCourse).toHaveBeenCalledWith(31795)
+  })
+
+  it('omits 去备战 button when no courseOptions mapping exists for the course', () => {
+    const onPrepCourse = vi.fn()
+    // courseOptions contains a different courseKey → no match for black_knight
+    const differentOptions: MobileCourseOptionsResponse = {
+      ...courseOptionsFixture,
+      courses: [{ ...courseOptionsFixture.courses[0], courseKey: 'other_course' }],
+    }
+    render(<CourseStats data={statsFixture} courseOptions={differentOptions} onPrepCourse={onPrepCourse} />)
+
+    expect(screen.queryByRole('button', { name: /去备战/ })).not.toBeInTheDocument()
+  })
+
+  it('omits 去备战 button when courseOptions is not provided', () => {
+    render(<CourseStats data={statsFixture} />)
+
+    expect(screen.queryByRole('button', { name: /去备战/ })).not.toBeInTheDocument()
+  })
+})
+
+// 70 real courses × heavy sub-blocks froze the page — cap the list at 20 with
+// 展开全部, and keep the per-course breakdown inside a lazy <details> so the
+// initial render stays cheap. Display truncation only; data unchanged.
+describe('CourseStats 大数据截断', () => {
+  function manyCourses(count: number) {
+    return Array.from({ length: count }, (_, index) => ({
+      courseKey: `course_${index + 1}`,
+      courseName: `Course ${index + 1}`,
+      roundCount: 2,
+      average18: 82,
+      bestScore: 77,
+      worstScore: 87,
+      roundRefs: [`9000${index}`],
+    }))
+  }
+
+  it('renders only the first 20 course rows with an aria-expanded 展开全部 toggle', async () => {
+    const data = { ...statsFixture, courses: manyCourses(21) }
+    render(<CourseStats data={data} />)
+
+    expect(screen.getByRole('heading', { name: 'Course 20' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Course 21' })).not.toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: '展开全部(共 21)' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    await userEvent.click(toggle)
+
+    expect(screen.getByRole('heading', { name: 'Course 21' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('renders no expand toggle when the course list is under the cap', () => {
+    render(<CourseStats data={statsFixture} />)
+    expect(screen.queryByRole('button', { name: /展开全部/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps the per-course breakdown inside a closed lazy <details> with an informative summary', async () => {
+    const { container } = render(<CourseStats data={statsFixture} />)
+
+    const details = container.querySelector('details.course-breakdown-details') as HTMLDetailsElement
+    expect(details).not.toBeNull()
+    expect(details.open).toBe(false)
+    // summary advertises what is inside without rendering it
+    expect(within(details).getByText('详情:难度调整 · 问题分布(2) · 最难球洞(1)')).toBeInTheDocument()
+    expect(screen.queryByText('球场问题分布')).not.toBeInTheDocument()
+    expect(screen.queryByText('双柏忌或更差')).not.toBeInTheDocument()
+
+    await userEvent.click(within(details).getByText(/^详情/))
+
+    expect(details.open).toBe(true)
+    expect(screen.getByText('球场问题分布')).toBeInTheDocument()
+    expect(screen.getByText('双柏忌或更差')).toBeInTheDocument()
+    expect(screen.getByText('最难球洞')).toBeInTheDocument()
+
+    // collapsing unmounts the heavy content again
+    await userEvent.click(within(details).getByText(/^详情/))
+    expect(details.open).toBe(false)
+    expect(screen.queryByText('球场问题分布')).not.toBeInTheDocument()
+  })
+
+  it('omits the details element entirely for courses without breakdown data', () => {
+    const { container } = render(<CourseStats data={{ ...statsFixture, courses: manyCourses(1) }} />)
+    expect(container.querySelector('details.course-breakdown-details')).toBeNull()
   })
 })

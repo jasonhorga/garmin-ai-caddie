@@ -1,4 +1,6 @@
 import { useState, type FormEvent } from 'react'
+import { fmtYd } from '../units'
+import { confidenceZh, coverageZh, dataModeZh, stateZh } from '../zhLabels'
 import type {
   MobileCourseOptionsResponse,
   LiveRoundPackageResponse,
@@ -52,8 +54,48 @@ function asRecordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.map(asRecord).filter((row) => Object.keys(row).length) : []
 }
 
+// Closed machine-token vocabulary shared by the readiness-check labels
+// (mobile_live._package_readiness_checks) and the missing-data labels
+// (mobile_live missingData emission sites + weather_context.weather_values).
+// Unknown tokens fall through raw.
+const PACKAGE_TOKEN_ZH: Record<string, string> = {
+  source: '数据源',
+  geometry: '几何',
+  weather: '天气',
+  club_profiles: '球杆样本',
+  recent_history: '近期历史',
+  caddie_seeds: '球童预置',
+  club_profile_sample: '球杆样本',
+  current_location: '当前位置',
+  weather_values: '天气数据',
+  course_prep: '球场备战包',
+  route_geometry: '路线几何',
+  lie: '球位',
+  manual_notes: '手动备注',
+  round_reference: '球局引用',
+}
+
+function packageTokenZh(raw: string): string {
+  return PACKAGE_TOKEN_ZH[raw] ?? raw
+}
+
+// Offline option labels (mobile_live option_specs Safe/Stock/Attack and the
+// caddie seed options safe layup/stock line/attack line).
+const OPTION_LABEL_ZH: Record<string, string> = {
+  Safe: '保守',
+  Stock: '标准',
+  Attack: '强攻',
+  'safe layup': '保守起步',
+  'stock line': '标准线',
+  'attack line': '强攻线',
+}
+
+function optionLabelZh(raw: string): string {
+  return OPTION_LABEL_ZH[raw] ?? raw
+}
+
 function missingLabel(row: Record<string, unknown>) {
-  return compactValue(row.label) ?? compactValue(row.key) ?? 'missing'
+  return packageTokenZh(compactValue(row.label) ?? compactValue(row.key) ?? 'missing')
 }
 
 function missingReason(row: Record<string, unknown>) {
@@ -68,50 +110,51 @@ function recentScoreCount(data: LiveRoundPackageResponse) {
 function packageCoverageFacts(data: LiveRoundPackageResponse) {
   const coverage = data.sourceCoverage
   const facts = [
-    `source ${coverage.state}`,
-    `${coverage.dataMode} data`,
-    `${coverage.availableRoundCount} available rounds`,
-    `${coverage.holeCount} holes`,
-    `${coverage.clubProfileCount} clubs`,
-    `${recentScoreCount(data)} recent scores`,
+    `来源 ${stateZh(coverage.state)}`,
+    `${dataModeZh(coverage.dataMode)}数据`,
+    `${coverage.availableRoundCount} 场可用球局`,
+    `${coverage.holeCount} 洞`,
+    `${coverage.clubProfileCount} 支球杆`,
+    `${recentScoreCount(data)} 条近期成绩`,
   ]
   if (coverage.preparationMode === 'course' && coverage.requestedCourseGlobalId) {
-    facts.push(`course ${coverage.requestedCourseGlobalId}`)
+    facts.push(`球场 ${coverage.requestedCourseGlobalId}`)
   }
   if (typeof coverage.courseFound === 'boolean') {
-    facts.push(coverage.courseFound ? 'course found' : 'course missing')
+    facts.push(coverage.courseFound ? '球场已找到' : '球场缺失')
   }
   if (coverage.geometryEnsure) {
-    facts.push(`geometry fetch ${coverage.geometryEnsure.state}`)
-    facts.push(`${coverage.geometryEnsure.ready}/${coverage.geometryEnsure.attempted} fetched`)
+    facts.push(`几何拉取 ${coverageZh(coverage.geometryEnsure.state)}`)
+    facts.push(`已拉取 ${coverage.geometryEnsure.ready}/${coverage.geometryEnsure.attempted}`)
   }
-  facts.push(coverage.roundFound ? 'round found' : 'round missing')
-  facts.push(coverage.selectedRoundId ? `template round ${coverage.selectedRoundId}` : 'no template round')
-  facts.push(`expires ${data.offlinePackageStatus.expiresAt}`)
+  facts.push(coverage.roundFound ? '球局已找到' : '球局缺失')
+  facts.push(coverage.selectedRoundId ? `模板球局 ${coverage.selectedRoundId}` : '无模板球局')
+  facts.push(`有效期至 ${data.offlinePackageStatus.expiresAt}`)
   return facts
 }
 
 function weatherCoverageText(data: LiveRoundPackageResponse) {
   const coverage = data.weatherSnapshot.coverage
   if (!coverage) return data.weatherSnapshot.source
-  return `${coverage.ready}/${coverage.total} holes`
+  return `${coverage.ready}/${coverage.total} 洞`
 }
 
 function readinessTitle(label: string) {
-  return label.replace(/_/g, ' ')
+  const zh = PACKAGE_TOKEN_ZH[label]
+  return zh ?? label.replace(/_/g, ' ')
 }
 
 function optionCoverageText(option: Record<string, unknown>) {
   const coverage = asRecord(option.coverage)
   const ready = compactValue(coverage.ready)
   const total = compactValue(coverage.total)
-  return ready && total ? `coverage ${ready}/${total}` : null
+  return ready && total ? `覆盖 ${ready}/${total}` : null
 }
 
 function optionMissingText(option: Record<string, unknown>) {
   const rows = asRecordArray(option.missingData)
   const labels = rows.map(missingLabel).filter(Boolean)
-  return labels.length ? `missing ${labels.slice(0, 2).join(', ')}` : null
+  return labels.length ? `缺失 ${labels.slice(0, 2).join(', ')}` : null
 }
 
 function offlineSeedOptionRows(data: LiveRoundPackageResponse) {
@@ -122,7 +165,7 @@ function offlineSeedOptionRows(data: LiveRoundPackageResponse) {
       const sourceRef = compactValue(seed.sourceRef)
       return asRecordArray(seed.offlineOptions).map((option) => {
         const optionId = compactValue(option.id) ?? compactValue(option.optionId) ?? ''
-        const label = compactValue(option.label) ?? (optionId || 'Option')
+        const label = optionLabelZh(compactValue(option.label) ?? (optionId || 'Option'))
         const club = compactValue(option.clubName) ?? '-'
         const carry = compactValue(option.carryM)
         const confidence = compactValue(option.confidence)
@@ -207,17 +250,17 @@ export function MobilePackagePrepPanel({
   const canPrepare = mode === 'round' ? Boolean(roundId.trim()) : Number.isInteger(courseIdValue) && courseIdValue > 0
 
   return (
-    <section className="mobile-package-panel" aria-label="Mobile package preparation">
+    <section className="mobile-package-panel" aria-label="移动离线包准备">
       <div className="section-head stats-head">
         <div>
-          <p className="eyebrow">Offline Round</p>
-          <h2>Mobile Package Prep</h2>
+          <p className="eyebrow">离线球局</p>
+          <h2>离线包准备</h2>
         </div>
-        {readyData ? <span className={`semantic-chip package-state-${readyData.offlinePackageStatus.state}`}>{readyData.offlinePackageStatus.state}</span> : null}
+        {readyData ? <span className={`semantic-chip package-state-${readyData.offlinePackageStatus.state}`}>{stateZh(readyData.offlinePackageStatus.state)}</span> : null}
       </div>
 
-      <form className="mobile-package-form" aria-label="Mobile package lookup" onSubmit={handleSubmit}>
-        <div className="package-mode-toggle" role="radiogroup" aria-label="Package mode">
+      <form className="mobile-package-form" aria-label="离线包查询" onSubmit={handleSubmit}>
+        <div className="package-mode-toggle" role="radiogroup" aria-label="打包模式">
           <label>
             <input
               type="radio"
@@ -225,7 +268,7 @@ export function MobilePackagePrepPanel({
               checked={mode === 'round'}
               onChange={() => setMode('round')}
             />
-            <span>Round</span>
+            <span>球局</span>
           </label>
           <label>
             <input
@@ -234,50 +277,50 @@ export function MobilePackagePrepPanel({
               checked={mode === 'course'}
               onChange={() => setMode('course')}
             />
-            <span>Course</span>
+            <span>球场</span>
           </label>
         </div>
 
         {mode === 'round' ? (
           <label>
-            <span>Round ID</span>
+            <span>球局编号</span>
             <input value={roundId} onChange={(event) => setRoundId(event.target.value)} spellCheck={false} />
           </label>
         ) : (
           <>
             {courseOptions.length ? (
               <label>
-                <span>Recent course</span>
+                <span>最近球场</span>
                 <select
                   value={selectedCourseOption}
                   onChange={(event) => handleCourseOptionChange(event.target.value)}
                 >
-                  <option value="">Manual course ID</option>
+                  <option value="">手动输入球场编号</option>
                   {courseOptions.map((option) => (
                     <option key={option.globalId} value={option.globalId}>
-                      {option.name} / {option.holes} holes / {option.roundCount} rounds
+                      {option.name} / {option.holes} 洞 / {option.roundCount} 场
                     </option>
                   ))}
                 </select>
               </label>
             ) : null}
             <label>
-              <span>Course global ID</span>
+              <span>球场全局编号</span>
               <input inputMode="numeric" value={courseGlobalId} onChange={(event) => setCourseGlobalId(event.target.value)} spellCheck={false} />
             </label>
             <label>
-              <span>Live round ID</span>
+              <span>实战球局编号</span>
               <input value={liveRoundId} onChange={(event) => setLiveRoundId(event.target.value)} spellCheck={false} />
             </label>
             <label>
-              <span>Tee box</span>
+              <span>发球台</span>
               <input value={teeBox} onChange={(event) => setTeeBox(event.target.value)} spellCheck={false} />
             </label>
           </>
         )}
 
         <label>
-          <span>Captured time</span>
+          <span>采集时间</span>
           <input value={capturedAt} onChange={(event) => setCapturedAt(event.target.value)} spellCheck={false} placeholder="2026-05-25T08:00:00Z" />
         </label>
 
@@ -287,12 +330,12 @@ export function MobilePackagePrepPanel({
             checked={ensureGeometry}
             onChange={(event) => setEnsureGeometry(event.target.checked)}
           />
-          <span>Fetch geometry</span>
+          <span>拉取几何</span>
         </label>
 
         {showAdminTokenInput ? (
           <label>
-            <span>Admin token</span>
+            <span>管理令牌</span>
             <input
               type="password"
               value={adminTokenValue}
@@ -304,35 +347,35 @@ export function MobilePackagePrepPanel({
         ) : null}
 
         <button type="submit" disabled={!canPrepare || isLoading}>
-          {isLoading ? 'Preparing package' : 'Prepare package'}
+          {isLoading ? '打包中' : '生成离线包'}
         </button>
       </form>
 
       {mode === 'course' && courseOptionsState.status === 'loading' ? (
-        <p className="mobile-package-note">Loading recent courses.</p>
+        <p className="mobile-package-note">正在载入最近球场。</p>
       ) : null}
 
       {mode === 'course' && courseOptionsState.status === 'error' ? (
-        <p className="mobile-package-note">Course options unavailable: {courseOptionsState.message}</p>
+        <p className="mobile-package-note">球场选项不可用:{courseOptionsState.message}</p>
       ) : null}
 
       {state.status === 'idle' ? (
         <article className="stats-empty">
-          <h2>No package prepared</h2>
-          <p>Choose a round or course before starting live play.</p>
+          <h2>尚未生成离线包</h2>
+          <p>选择球局或球场后再开始实战。</p>
         </article>
       ) : null}
 
       {state.status === 'loading' ? (
         <article className="stats-empty">
-          <h2>Preparing package</h2>
+          <h2>离线包生成中</h2>
           <p>{state.target}</p>
         </article>
       ) : null}
 
       {state.status === 'error' ? (
         <article className="stats-empty">
-          <h2>Package unavailable</h2>
+          <h2>离线包不可用</h2>
           <p>{state.message}</p>
         </article>
       ) : null}
@@ -348,41 +391,41 @@ function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
   const seedOptions = offlineSeedOptionRows(data)
   return (
     <div className="mobile-package-body">
-      <div className="package-summary-grid" aria-label="Package summary">
+      <div className="package-summary-grid" aria-label="离线包摘要">
         <article>
-          <span>Course</span>
+          <span>球场</span>
           <strong>{data.course.name}</strong>
           <em>{data.course.globalId} / {data.course.teeBox}</em>
         </article>
         <article>
-          <span>Round</span>
+          <span>球局</span>
           <strong>{data.roundId}</strong>
-          <em>{data.sourceCoverage.preparationMode ?? 'round'} package</em>
+          <em>{data.sourceCoverage.preparationMode === 'course' ? '球场包' : '球局包'}</em>
         </article>
         <article>
-          <span>Geometry</span>
-          <strong>{data.geometryCoverage.state}</strong>
-          <em>{data.geometryCoverage.readyHoles}/{data.geometryCoverage.totalHoles} holes</em>
+          <span>几何</span>
+          <strong>{coverageZh(data.geometryCoverage.state)}</strong>
+          <em>{data.geometryCoverage.readyHoles}/{data.geometryCoverage.totalHoles} 洞</em>
         </article>
         <article>
-          <span>Weather</span>
-          <strong>weather {data.weatherSnapshot.state}</strong>
+          <span>天气</span>
+          <strong>天气{coverageZh(data.weatherSnapshot.state)}</strong>
           <em>{weatherCoverageText(data)}</em>
         </article>
       </div>
 
-      <div className="package-chip-row" aria-label="Package facts">
+      <div className="package-chip-row" aria-label="离线包要点">
         {packageCoverageFacts(data).map((fact) => (
           <span key={fact}>{fact}</span>
         ))}
       </div>
 
       {readinessChecks.length ? (
-        <div className="package-readiness-list" aria-label="Package readiness checks">
+        <div className="package-readiness-list" aria-label="离线包就绪检查">
           {readinessChecks.map((row) => (
             <div className="report-row" key={row.label}>
               <strong>{readinessTitle(row.label)}</strong>
-              <span className={`semantic-chip package-state-${row.state}`}>{row.state}</span>
+              <span className={`semantic-chip package-state-${row.state}`}>{stateZh(row.state)}</span>
               <span>{row.ready}/{row.total}</span>
               <span>{row.reason}</span>
             </div>
@@ -391,24 +434,24 @@ function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
       ) : null}
 
       {seedOptions.length ? (
-        <div className="package-caddie-list" aria-label="Offline caddie seed options">
+        <div className="package-caddie-list" aria-label="离线球童候选">
           {seedOptions.map((row) => (
             <div className="report-row" key={row.key}>
               <strong>H{row.hole} {row.label}</strong>
-              {row.selected ? <span className="semantic-chip package-state-ready">selected</span> : null}
-              <span>{row.club}{row.carry ? ` / ${row.carry}m` : ''}</span>
-              {row.confidence ? <span>{row.confidence} confidence</span> : null}
-              {row.sampleSize ? <span>{row.sampleSize} samples</span> : null}
+              {row.selected ? <span className="semantic-chip package-state-ready">已选</span> : null}
+              <span>{row.club}{row.carry ? ` / ${fmtYd(Number(row.carry))}` : ''}</span>
+              {row.confidence ? <span>{confidenceZh(row.confidence)} 置信</span> : null}
+              {row.sampleSize ? <span>{row.sampleSize} 个样本</span> : null}
               {row.coverage ? <span>{row.coverage}</span> : null}
-              {row.sourceRef ? <span>src {row.sourceRef}</span> : null}
-              {row.sampleRefCount ? <span>sample refs {row.sampleRefCount}</span> : null}
+              {row.sourceRef ? <span>来源 {row.sourceRef}</span> : null}
+              {row.sampleRefCount ? <span>样本引用 {row.sampleRefCount}</span> : null}
               {row.missing ? <span>{row.missing}</span> : null}
             </div>
           ))}
         </div>
       ) : null}
 
-      <div className="package-missing-list" aria-label="Package missing data">
+      <div className="package-missing-list" aria-label="离线包缺失数据">
         {missingRows.length ? (
           missingRows.map((row, index) => (
             <div className="report-row" key={`${missingLabel(row)}-${index}`}>
@@ -418,8 +461,8 @@ function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
           ))
         ) : (
           <div className="report-row">
-            <strong>coverage</strong>
-            <span>ready</span>
+            <strong>覆盖</strong>
+            <span>就绪</span>
           </div>
         )}
       </div>
