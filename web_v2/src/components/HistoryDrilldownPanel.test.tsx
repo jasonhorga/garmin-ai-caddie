@@ -254,4 +254,17 @@ describe('HistoryDrilldownPanel', () => {
     expect(screen.getByRole('heading', { name: '几何证据' })).toBeInTheDocument()
     expect(screen.getByText('31795 / 7 / 900001:7')).toBeInTheDocument()
   })
+
+  it('scrolls itself into view when a source ref is requested', () => {
+    // Drill-downs mount at the page tail; requesting a ref must bring the panel on screen.
+    const original = Element.prototype.scrollIntoView
+    const spy = vi.fn()
+    Element.prototype.scrollIntoView = spy
+    try {
+      render(<HistoryDrilldownPanel state={{ status: 'loading', sourceRef: '900001:7' }} />)
+      expect(spy).toHaveBeenCalled()
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
 })

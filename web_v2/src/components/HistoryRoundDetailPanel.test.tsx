@@ -242,4 +242,17 @@ describe('HistoryRoundDetailPanel', () => {
     expect(screen.getByLabelText('Round AI missing data')).toHaveTextContent('weather')
     expect(screen.getByLabelText('Round AI unsupported claims')).toHaveTextContent('Wind caused the miss.')
   })
+
+  it('scrolls itself into view when a round is requested', () => {
+    // The panel mounts below the full timeline; opening a round must bring it on screen.
+    const original = Element.prototype.scrollIntoView
+    const spy = vi.fn()
+    Element.prototype.scrollIntoView = spy
+    try {
+      render(<HistoryRoundDetailPanel state={{ status: 'loading', roundRef: '900001' }} />)
+      expect(spy).toHaveBeenCalled()
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
 })

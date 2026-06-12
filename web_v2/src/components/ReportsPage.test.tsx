@@ -282,4 +282,47 @@ describe('ReportsPage', () => {
     const facts = screen.getByLabelText('事实')
     expect(within(facts).getByText('summary')).toBeInTheDocument()
   })
+
+  it('truncates the report inventory and appends batches on demand', async () => {
+    // 973 real reports rendered at once froze the renderer — the index must cap.
+    const manyReports: ReviewReportIndexResponse = {
+      schema: 'ai-caddie-review-report-index-v1',
+      total: 35,
+      reports: Array.from({ length: 35 }, (_, i) => ({
+        id: `bulk-${i}`,
+        storedAt: '2026-05-26T00:00:00Z',
+        kind: 'round' as const,
+        subjectId: `r-${i}`,
+        confidence: 'medium' as const,
+        provider: 'StaticProvider',
+        model: 'static',
+        sourceRefs: [],
+      })),
+    }
+    render(
+      <ReportsPage
+        stats={stats}
+        reportState={{ status: 'idle' }}
+        reportIndexState={{ status: 'ready', data: manyReports }}
+        onLoadTrend={vi.fn()}
+        onGenerateTrend={vi.fn()}
+        onLoadRound={vi.fn()}
+        onGenerateRound={vi.fn()}
+        onLoadCourse={vi.fn()}
+        onGenerateCourse={vi.fn()}
+        onLoadHole={vi.fn()}
+        onGenerateHole={vi.fn()}
+        onLoadClub={vi.fn()}
+        onGenerateClub={vi.fn()}
+        onSelectRef={vi.fn()}
+      />,
+    )
+
+    const inventory = screen.getByLabelText('报告索引')
+    expect(within(inventory).getAllByText(/^r-\d+$/)).toHaveLength(30)
+    const loadMore = within(inventory).getByRole('button', { name: '加载更多(还有 5 条)' })
+    await userEvent.click(loadMore)
+    expect(within(inventory).getAllByText(/^r-\d+$/)).toHaveLength(35)
+    expect(within(inventory).queryByRole('button', { name: /加载更多/ })).not.toBeInTheDocument()
+  })
 })

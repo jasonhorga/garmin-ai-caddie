@@ -210,6 +210,10 @@ export function ReportsPage({
   )
 }
 
+const REPORTS_BATCH = 30
+// Stable empty array so the last-key comparison cannot loop while loading.
+const EMPTY_REPORTS: ReviewReportIndexItem[] = []
+
 function ReportInventory({
   state,
   onLoadTrend,
@@ -227,6 +231,15 @@ function ReportInventory({
   onLoadClub: (clubName: string) => void
   onSelectRef?: (sourceRef: string) => void
 }) {
+  // 973 real reports rendered at once froze the renderer — show the first batch
+  // and append on demand, resetting when a fresh index arrives (last-key idiom).
+  const reports = state.status === 'ready' ? state.data.reports : EMPTY_REPORTS
+  const [visibleCount, setVisibleCount] = useState(REPORTS_BATCH)
+  const [lastReports, setLastReports] = useState(reports)
+  if (lastReports !== reports) {
+    setLastReports(reports)
+    setVisibleCount(REPORTS_BATCH)
+  }
   if (state.status === 'loading') {
     return (
       <section className="report-inventory" aria-label="报告索引">
@@ -261,7 +274,7 @@ function ReportInventory({
         <span className="fact-chip muted">{state.data.total} 条</span>
       </div>
       <div className="report-inventory-list">
-        {state.data.reports.map((report) => (
+        {reports.slice(0, visibleCount).map((report) => (
           <ReportInventoryRow
             key={report.id || `${report.kind}-${report.subjectId}-${report.storedAt}`}
             report={report}
@@ -274,6 +287,15 @@ function ReportInventory({
           />
         ))}
       </div>
+      {reports.length > visibleCount ? (
+        <button
+          type="button"
+          className="w4-load-more-btn"
+          onClick={() => setVisibleCount((count) => count + REPORTS_BATCH)}
+        >
+          加载更多(还有 {reports.length - visibleCount} 条)
+        </button>
+      ) : null}
     </section>
   )
 }

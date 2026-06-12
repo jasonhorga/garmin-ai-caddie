@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { useEffect, useRef, type CSSProperties } from 'react'
 import type { AnnotationRecord, AnnotationTargetType, HistoryRoundDetailResponse, ReviewReportResponse } from '../types'
 import { issueLabel } from '../issueLabels'
 import { annotationKindZh, confidenceZh, coverageZh, phaseZh, stateZh } from '../zhLabels'
@@ -574,11 +574,23 @@ export function HistoryRoundDetailPanel({
   onLoadRoundReport,
   onGenerateRoundReport,
 }: HistoryRoundDetailPanelProps) {
+  const rootRef = useRef<HTMLElement | null>(null)
+  // The panel mounts below the full timeline — without this, 打开 on a card up
+  // top looks like a no-op because the detail appears thousands of pixels down.
+  const scrollKey =
+    state.status === 'idle'
+      ? null
+      : state.status === 'ready'
+        ? state.data.requestedRef || state.data.roundRef
+        : state.roundRef
+  useEffect(() => {
+    if (scrollKey) rootRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, [scrollKey])
   if (state.status === 'idle') return null
 
   if (state.status === 'loading') {
     return (
-      <section className="panel round-detail-panel" aria-live="polite">
+      <section ref={rootRef} className="panel round-detail-panel" aria-live="polite">
         <h2>球局回顾</h2>
         <p>加载中 {state.roundRef}</p>
       </section>
@@ -587,7 +599,7 @@ export function HistoryRoundDetailPanel({
 
   if (state.status === 'error') {
     return (
-      <section className="panel round-detail-panel" aria-live="polite">
+      <section ref={rootRef} className="panel round-detail-panel" aria-live="polite">
         <h2>球局回顾</h2>
         <p>{state.roundRef}</p>
         <p>{state.message}</p>
@@ -603,7 +615,7 @@ export function HistoryRoundDetailPanel({
   const data = state.data
   const canAnnotate = data.found && Boolean(data.roundRef.trim()) && Boolean(onCreateAnnotationForRound)
   return (
-    <section className="panel round-detail-panel" aria-live="polite">
+    <section ref={rootRef} className="panel round-detail-panel" aria-live="polite">
       <div className="drilldown-title-row">
         <div>
           <p className="eyebrow">球局记分卡</p>

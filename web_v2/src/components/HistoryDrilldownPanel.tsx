@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { AnnotationRecord, AnnotationTargetType, HistoryDrilldownResponse } from '../types'
 import { annotationKindZh, confidenceZh, targetTypeZh } from '../zhLabels'
 import { SourceRefs } from './SourceRefs'
@@ -241,11 +242,19 @@ function correctionTargetForDrilldown(data: HistoryDrilldownResponse): { targetT
 }
 
 export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCreateAnnotationForSource }: HistoryDrilldownPanelProps) {
+  const rootRef = useRef<HTMLElement | null>(null)
+  // Same as the round-detail panel: drill-downs mount at the page tail, so
+  // scroll them into view whenever a new source ref is requested.
+  const scrollKey =
+    state.status === 'idle' ? null : state.status === 'ready' ? state.data.ref : state.sourceRef
+  useEffect(() => {
+    if (scrollKey) rootRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, [scrollKey])
   if (state.status === 'idle') return null
 
   if (state.status === 'loading') {
     return (
-      <section className="panel drilldown-panel" aria-live="polite">
+      <section ref={rootRef} className="panel drilldown-panel" aria-live="polite">
         <h2>来源详情</h2>
         <p>加载中 {state.sourceRef}</p>
       </section>
@@ -254,7 +263,7 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCre
 
   if (state.status === 'error') {
     return (
-      <section className="panel drilldown-panel" aria-live="polite">
+      <section ref={rootRef} className="panel drilldown-panel" aria-live="polite">
         <h2>来源详情</h2>
         <p>{state.sourceRef}</p>
         <p>{state.message}</p>
@@ -270,7 +279,7 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCre
   const data = state.data
   const correctionTarget = correctionTargetForDrilldown(data)
   return (
-    <section className="panel drilldown-panel" aria-live="polite">
+    <section ref={rootRef} className="panel drilldown-panel" aria-live="polite">
       <div className="drilldown-title-row">
         <div>
           <p className="eyebrow">证据追溯</p>
