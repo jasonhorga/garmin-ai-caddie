@@ -45,7 +45,6 @@ import {
   saveGarminSession,
 } from './api'
 import type { MediaContextState } from './components/CaddiePage'
-import { ClubStats } from './components/ClubStats'
 import { CorrectionsPage, type CorrectionTarget } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
@@ -54,8 +53,6 @@ import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './compon
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
 import { HoleEvidencePanel, type GeometryEnsureState, type HoleEvidenceState } from './components/HoleEvidencePanel'
-import { HoleStats } from './components/HoleStats'
-import { IssueStats } from './components/IssueStats'
 import {
   MobileReconciliationPanel,
   type MobileReconciliationApplyState,
@@ -71,6 +68,7 @@ import { PrepPage } from './components/PrepPage'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
+import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
@@ -651,13 +649,7 @@ export default function App() {
       />
     )
     if (activePage === 'holes' || activePage === 'clubs' || activePage === 'issues') {
-      return (
-        <>
-          <HoleStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-          <ClubStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-          <IssueStats data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        </>
-      )
+      return <StrengthsPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
     }
     if (activePage === 'reports') {
       return (
@@ -1159,10 +1151,10 @@ export default function App() {
       if (statsState.status === 'error') {
         return (
           <section className="panel empty-state">
-            <h1>History stats unavailable</h1>
+            <h1>历史数据加载失败</h1>
             <p>{statsState.message}</p>
             <button type="button" onClick={() => void loadStatsState()}>
-              Retry history stats
+              重试
             </button>
             <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
             <button type="button" onClick={() => navigate('sync-quality')}>
@@ -1173,7 +1165,7 @@ export default function App() {
       }
       return (
         <section className="panel empty-state">
-          <h1>Loading history stats</h1>
+          <h1>历史数据加载中</h1>
         </section>
       )
     }

@@ -704,7 +704,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   for (const [tab, heading, level] of [
     ['趋势总览', '成绩走势', 2],
     ['球局', '球局', 1],
-    ['强弱分析', 'Hole Stats', 2],
+    ['强弱分析', '你最该练', 1],
     ['球场', '球场表现', 1],
     ['报告', '报告', 1],
   ] as const) {
@@ -715,10 +715,15 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   }
 
   await page.getByRole('button', { name: '强弱分析' }).click()
-  await expect(page.getByRole('heading', { name: 'Hole Stats', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Club Stats', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Issue Stats', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '你最该练', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '按洞', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '按杆', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '问题', exact: true })).toBeVisible()
+  // 总体数字 from scoring.phaseStats: Tee fairwaysHit 6/10 → 60%
+  await expect(page.getByText('球道命中率')).toBeVisible()
+  await expect(page.getByText('60%', { exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
+  await captureSmokeScreenshot(page, testInfo, 'strengths')
 
   // prepGlobalId is null on a fresh visit, so 备战 lands on the PrepPage entry
   // state (course finder); the full prep walk runs at the end of this test.

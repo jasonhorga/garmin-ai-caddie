@@ -7,6 +7,10 @@ describe('phaseZh', () => {
     expect(phaseZh('Approach')).toBe('攻果岭')
     expect(phaseZh('Putting')).toBe('推杆')
     expect(phaseZh('Scoring')).toBe('得分')
+    expect(phaseZh('Course Management')).toBe('攻略')
+    expect(phaseZh('Club Confidence')).toBe('球杆信心')
+    expect(phaseZh('Data Quality')).toBe('数据质量')
+    expect(phaseZh('Trend')).toBe('趋势')
   })
 
   it('falls back to the raw token for unknown phases', () => {

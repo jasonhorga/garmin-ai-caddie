@@ -1176,11 +1176,13 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
 
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '你最该练', level: 1 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按杆' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '问题' })).toBeInTheDocument()
     expect(screen.getByText('1D')).toBeInTheDocument()
-    expect(screen.getByText('missing_shots')).toBeInTheDocument()
+    // missing_shots renders via issueLabel in the 问题 section and the 你最该练 fallback
+    expect(screen.getAllByText('缺少击球数据').length).toBeGreaterThan(0)
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
 
     expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
@@ -1195,7 +1197,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
 
-    expect(await screen.findByRole('heading', { name: 'Issue Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '问题' })).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(1)
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats?window=last10')).toHaveLength(1)
   })
@@ -1465,7 +1467,7 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '球场' }))
 
-    expect(await screen.findByRole('heading', { name: 'History stats unavailable' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '历史数据加载失败' })).toBeInTheDocument()
     expect(screen.getByText('如需配置访问密钥，请前往 设置 → 同步与数据健康。')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
@@ -2045,7 +2047,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
 
     expect(await screen.findByRole('heading', { name: 'Source Detail' })).toBeInTheDocument()
@@ -2083,7 +2085,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:10' }))
 
     expect(await screen.findByText('222222 H1')).toBeInTheDocument()
@@ -2117,7 +2119,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
 
     expect(await screen.findByText('partial coverage')).toBeInTheDocument()
@@ -2165,7 +2167,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Hole Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:7' }))
     expect(await screen.findByText('partial coverage')).toBeInTheDocument()
 
@@ -2316,7 +2318,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
-    expect(await screen.findByRole('heading', { name: 'Club Stats' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '按杆' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900002:5:4' }))
 
     expect(await screen.findByText('1D on H5')).toBeInTheDocument()

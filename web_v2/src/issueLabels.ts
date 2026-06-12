@@ -5,6 +5,8 @@ const ISSUE_LABELS: Record<string, string> = {
   three_putt: '三推',
   short_game: '短杆',
   penalty: '罚杆',
+  double_or_worse: '双柏忌或更差',
+  missing_shots: '缺少击球数据',
 }
 
 export function issueLabel(token: string): string {

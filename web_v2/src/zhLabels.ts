@@ -10,6 +10,10 @@ const PHASE_ZH: Record<string, string> = {
   Approach: '攻果岭',
   Putting: '推杆',
   Scoring: '得分',
+  'Course Management': '攻略',
+  'Club Confidence': '球杆信心',
+  'Data Quality': '数据质量',
+  Trend: '趋势',
 }
 
 const COVERAGE_ZH: Record<string, string> = {

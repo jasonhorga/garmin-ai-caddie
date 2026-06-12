@@ -1367,6 +1367,7 @@ p {
 .hole-distribution-bucket .source-ref-button,
 .hole-distribution-bucket .source-ref-token {
   border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
 }
 
@@ -5464,4 +5465,75 @@ button.round-detail-cell:hover {
 
 .w4-goto-prep:hover {
   background: var(--panel-hover, #f0f7ee);
+}
+
+/* ===== W4a 强弱分析 (StrengthsPage) ===== */
+.strengths-page {
+  display: grid;
+  gap: 14px;
+}
+
+.strengths-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.strengths-jump a {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.strengths-jump a:hover {
+  background: #f0f7ee;
+}
+
+.strengths-focus-item {
+  background: #f8faf7;
+}
+
+.strengths-focus-item .stats-item-main h2 {
+  font-size: 16px;
+}
+
+.strengths-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.strengths-audit {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 10px 12px;
+}
+
+.strengths-audit summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.strengths-audit[open] summary {
+  margin-bottom: 10px;
+}
+
+.strengths-audit h3 {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+@media (max-width: 720px) {
+  .strengths-kpis {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
 }
