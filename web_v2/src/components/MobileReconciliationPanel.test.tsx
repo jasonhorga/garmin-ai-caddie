@@ -123,7 +123,7 @@ describe('MobileReconciliationPanel', () => {
     expect(screen.getAllByText('score_correction').length).toBeGreaterThan(0)
     expect(screen.getAllByText('hole_note').length).toBeGreaterThan(0)
     expect(screen.getAllByText('900001:1').length).toBeGreaterThan(0)
-    expect(screen.getByText('4 -> 5')).toBeInTheDocument()
+    expect(screen.getByText('4 → 5')).toBeInTheDocument()
     expect(screen.getByText('photo media-photo-1: Ball sitting down in rough.')).toBeInTheDocument()
     expect(screen.getAllByText('Wind hurting; favor center green.').length).toBeGreaterThan(0)
     expect(screen.getByText('Offline live event includes an actual shot that can audit this caddie decision.')).toBeInTheDocument()

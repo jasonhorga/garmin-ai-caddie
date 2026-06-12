@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { AnnotationRecord, AnnotationTargetType, HistoryRoundDetailResponse, ReviewReportResponse } from '../types'
-import { phaseZh } from '../zhLabels'
+import { issueLabel } from '../issueLabels'
+import { annotationKindZh, confidenceZh, coverageZh, phaseZh, stateZh } from '../zhLabels'
 import { SourceRefs } from './SourceRefs'
 
 export type HistoryRoundDetailPanelState =
@@ -41,10 +42,73 @@ function toParText(value: unknown): string {
 function annotationSummary(record: AnnotationRecord): string {
   const from = compactValue(record.payload.from)
   const to = compactValue(record.payload.to)
-  if (from && to) return `${from} -> ${to}`
+  if (from && to) return `${from} → ${to}`
   const text = compactValue(record.payload.text) ?? compactValue(record.payload.note)
   if (text) return text
   return valueText(record.payload)
+}
+
+// Scorecard fairway tokens are stored raw (history_round_detail passes
+// hole["fairway"] through): the closed normalization vocabulary lives in
+// history_stats._fairway_direction. Unknown tokens fall through raw.
+const FAIRWAY_ZH: Record<string, string> = {
+  hit: '中',
+  center: '中',
+  centre: '中',
+  fairway: '中',
+  yes: '中',
+  true: '中',
+  left: '偏左',
+  miss_left: '偏左',
+  missed_left: '偏左',
+  left_rough: '偏左',
+  right: '偏右',
+  miss_right: '偏右',
+  missed_right: '偏右',
+  right_rough: '偏右',
+  miss: '未中',
+  missed: '未中',
+  rough: '长草',
+}
+
+function fairwayText(value: unknown): string {
+  if (value === null || value === undefined) return '-'
+  const token = String(value).trim().toLowerCase()
+  return FAIRWAY_ZH[token] ?? valueText(value)
+}
+
+function girText(value: unknown): string {
+  if (value === null || value === undefined) return '-'
+  if (value === true || value === 'true') return '是'
+  if (value === false || value === 'false') return '否'
+  return valueText(value)
+}
+
+// row.primary closed sentence shapes from history_round_detail._phase_summary
+// ('7/14 fairways', '9/18 GIR', '5 putts', …). Unknown shapes fall through raw.
+const PHASE_PRIMARY_PATTERNS: Array<[RegExp, (match: RegExpExecArray) => string]> = [
+  [/^(\d+)\/(\d+) fairways$/, (match) => `球道 ${match[1]}/${match[2]}`],
+  [/^(\d+)\/(\d+) GIR$/, (match) => `GIR ${match[1]}/${match[2]}`],
+  [/^(\d+) tee shots$/, (match) => `开球 ${match[1]} 杆`],
+  [/^(\d+) approach shots$/, (match) => `攻果岭 ${match[1]} 杆`],
+  [/^(\d+) short shots$/, (match) => `短杆 ${match[1]} 杆`],
+  [/^(\d+) putts$/, (match) => `推杆 ${match[1]}`],
+  [/^(\d+) putt shots$/, (match) => `推杆 ${match[1]} 杆`],
+  [/^(\d+) double-or-worse holes$/, (match) => `双柏忌+ ${match[1]} 洞`],
+]
+
+function phasePrimaryZh(raw: string): string {
+  for (const [pattern, build] of PHASE_PRIMARY_PATTERNS) {
+    const match = pattern.exec(raw)
+    if (match) return build(match)
+  }
+  return raw
+}
+
+// Coverage cells carry the closed ready/partial/missing vocabulary as plain
+// strings; anything non-string (counts, null) keeps the generic rendering.
+function factValueZh(value: unknown, translate: (token: string) => string): string {
+  return typeof value === 'string' ? translate(value) : valueText(value)
 }
 
 const ISSUE_TAG_KINDS = new Set<AnnotationRecord['kind']>(['issue_tag', 'issue_tag_removed'])
@@ -70,15 +134,15 @@ function activeIssueTags(records: AnnotationRecord[]): string[] {
 function RoundFacts({ data }: { data: HistoryRoundDetailResponse }) {
   const round = data.round ?? {}
   const coverage = typeof round.coverage === 'object' && round.coverage !== null ? round.coverage as Record<string, unknown> : {}
-  const facts: Array<[string, unknown]> = [
-    ['成绩', round.score],
+  const facts: Array<[string, string]> = [
+    ['成绩', valueText(round.score)],
     ['对标准杆', toParText(round.toPar)],
-    ['洞数', round.holesScored ?? round.holesCompleted],
-    ['击球数', round.shotCount],
-    ['记分卡', coverage.scorecard],
-    ['击球数据', coverage.shots],
-    ['推杆数', coverage.putts],
-    ['置信度', round.confidence],
+    ['洞数', valueText(round.holesScored ?? round.holesCompleted)],
+    ['击球数', valueText(round.shotCount)],
+    ['记分卡', factValueZh(coverage.scorecard, coverageZh)],
+    ['击球数据', factValueZh(coverage.shots, coverageZh)],
+    ['推杆数', factValueZh(coverage.putts, coverageZh)],
+    ['置信度', factValueZh(round.confidence, confidenceZh)],
   ]
 
   return (
@@ -86,7 +150,7 @@ function RoundFacts({ data }: { data: HistoryRoundDetailResponse }) {
       {facts.map(([label, value]) => (
         <div key={label}>
           <span>{label}</span>
-          <b>{valueText(value)}</b>
+          <b>{value}</b>
         </div>
       ))}
     </section>
@@ -112,7 +176,7 @@ function ScorecardGrid({ data, onSelectRef }: { data: HistoryRoundDetailResponse
               <small>
                 p{cell.par ?? '-'} / {toParText(cell.toPar)}
               </small>
-              <em>{cell.putts === null ? 'putts -' : `${cell.putts} putts`}</em>
+              <em>{cell.putts === null ? '推杆 —' : `${cell.putts}推`}</em>
             </>
           )
           return onSelectRef ? (
@@ -145,8 +209,8 @@ function PhaseSummary({ rows }: { rows: Array<Record<string, unknown>> }) {
         {rows.map((row) => (
           <article key={valueText(row.phase)} className="round-phase-card">
             <span>{phaseZh(valueText(row.phase))}</span>
-            <b>{valueText(row.primary)}</b>
-            <small>{valueText(row.state)}</small>
+            <b>{phasePrimaryZh(valueText(row.primary))}</b>
+            <small>{stateZh(valueText(row.state))}</small>
           </article>
         ))}
       </div>
@@ -172,11 +236,11 @@ function HoleDetails({ rows, onSelectRef }: { rows: Array<Record<string, unknown
             </div>
             <div>
               <span>GIR</span>
-              <b>{valueText(row.gir)}</b>
+              <b>{girText(row.gir)}</b>
             </div>
             <div>
               <span>球道</span>
-              <b>{valueText(row.fairway)}</b>
+              <b>{fairwayText(row.fairway)}</b>
             </div>
             <div className="round-hole-sources">
               <span>击球</span>
@@ -191,10 +255,10 @@ function HoleDetails({ rows, onSelectRef }: { rows: Array<Record<string, unknown
 
 function RelatedSources({ data, onSelectRef }: { data: HistoryRoundDetailResponse; onSelectRef?: (sourceRef: string) => void }) {
   const groups = [
-    ['Rounds', data.relatedRefs.roundRefs],
-    ['Holes', data.relatedRefs.holeRefs],
-    ['Shots', data.relatedRefs.shotRefs],
-    ['Raw', data.relatedRefs.sourceRefs ?? []],
+    ['球局', data.relatedRefs.roundRefs],
+    ['球洞', data.relatedRefs.holeRefs],
+    ['击球', data.relatedRefs.shotRefs],
+    ['原始', data.relatedRefs.sourceRefs ?? []],
   ] as const
   if (!groups.some(([, refs]) => refs.length > 0)) return null
   return (
@@ -240,7 +304,7 @@ function IssueTags({ annotations }: { annotations: AnnotationRecord[] }) {
       <div className="fact-array">
         {tags.map((tag) => (
           <span key={tag} className="fact-chip">
-            {tag}
+            {issueLabel(tag)}
           </span>
         ))}
       </div>
@@ -284,7 +348,7 @@ function AnnotationRows({ title, rows }: { title: string; rows: AnnotationRecord
       <div className="drilldown-rows">
         {visible.map((row) => (
           <div key={row.id} className="drilldown-row">
-            <span>{row.kind}</span>
+            <span>{annotationKindZh(row.kind)}</span>
             <b>{annotationSummary(row)}</b>
           </div>
         ))}
@@ -336,7 +400,7 @@ function EvidenceValue({ value }: { value: unknown }) {
             {valueText(item)}
           </span>
         ))}
-        {value.length > 4 ? <span className="fact-chip muted">+{value.length - 4} more</span> : null}
+        {value.length > 4 ? <span className="fact-chip muted">等 {value.length - 4} 处</span> : null}
       </div>
     )
   }
@@ -366,7 +430,7 @@ function RoundAiEvidence({ report, onSelectRef }: { report: ReviewReportResponse
   return (
     <div className="report-evidence-grid round-ai-review-evidence">
       <section aria-label="Round AI facts">
-        <h4>Facts</h4>
+        <h4>事实</h4>
         {facts.length ? (
           facts.map((fact, index) => (
             <div className="report-row" key={`${valueText(fact.label)}-${index}`}>
@@ -379,50 +443,50 @@ function RoundAiEvidence({ report, onSelectRef }: { report: ReviewReportResponse
             </div>
           ))
         ) : (
-          <p>None</p>
+          <p>无</p>
         )}
       </section>
 
       <section aria-label="Round AI inferences">
-        <h4>Inferences</h4>
+        <h4>推断</h4>
         {inferences.length ? (
           inferences.map((inference, index) => (
             <div className="report-row" key={`${valueText(inference.claim)}-${index}`}>
               <div className="report-row-main">
                 <strong>{valueText(inference.claim ?? 'Inference')}</strong>
                 <div className="report-metadata">
-                  {asStringArray(inference.factLabels).map((label) => <span key={`fact-${label}`} className="fact-chip muted">{label} fact</span>)}
-                  {asStringArray(inference.missingDataLabels).map((label) => <span key={`missing-${label}`} className="fact-chip muted">{label} missing</span>)}
-                  {typeof inference.confidence === 'string' ? <span className="fact-chip muted">{inference.confidence} inference confidence</span> : null}
+                  {asStringArray(inference.factLabels).map((label) => <span key={`fact-${label}`} className="fact-chip muted">{label} 事实</span>)}
+                  {asStringArray(inference.missingDataLabels).map((label) => <span key={`missing-${label}`} className="fact-chip muted">{label} 缺失</span>)}
+                  {typeof inference.confidence === 'string' ? <span className="fact-chip muted">{confidenceZh(inference.confidence)} 推断置信</span> : null}
                 </div>
               </div>
               <SourceRefs refs={evidenceRefs(inference)} onSelectRef={onSelectRef} />
             </div>
           ))
         ) : (
-          <p>None</p>
+          <p>无</p>
         )}
       </section>
 
       <section aria-label="Round AI missing data">
-        <h4>Missing Data</h4>
+        <h4>缺失数据</h4>
         {missingData.length ? (
           missingData.map((item, index) => (
             <div className="report-row" key={`${valueText(item.label)}-${index}`}>
               <div className="report-row-main">
                 <strong>{valueText(item.label ?? 'missing')}</strong>
-                <span>{valueText(item.state ?? item.reason ?? 'needs review')}</span>
+                <span>{valueText(item.state ?? item.reason ?? '待复核')}</span>
               </div>
               <SourceRefs refs={evidenceRefs(item)} onSelectRef={onSelectRef} />
             </div>
           ))
         ) : (
-          <p>None</p>
+          <p>无</p>
         )}
       </section>
 
       <section aria-label="Round AI unsupported claims">
-        <h4>Unsupported Claims</h4>
+        <h4>无依据断言</h4>
         {unsupportedClaims.length ? (
           unsupportedClaims.map((claim, index) => (
             <div className="report-row" key={`${valueText(claim.category)}-${index}`}>
@@ -435,7 +499,7 @@ function RoundAiEvidence({ report, onSelectRef }: { report: ReviewReportResponse
             </div>
           ))
         ) : (
-          <p>None</p>
+          <p>无</p>
         )}
       </section>
     </div>
@@ -516,7 +580,7 @@ export function HistoryRoundDetailPanel({
     return (
       <section className="panel round-detail-panel" aria-live="polite">
         <h2>球局回顾</h2>
-        <p>Loading {state.roundRef}</p>
+        <p>加载中 {state.roundRef}</p>
       </section>
     )
   }
@@ -548,7 +612,7 @@ export function HistoryRoundDetailPanel({
         </div>
         <div className="drilldown-meta">
           <span>{data.roundRef}</span>
-          <span>{data.found ? 'found' : 'not found'}</span>
+          <span>{data.found ? '已找到' : '未找到'}</span>
           {canAnnotate ? (
             <button
               type="button"

@@ -188,14 +188,15 @@ describe('StrengthsPage 你最该练', () => {
     expect(screen.getByRole('heading', { name: '你最该练', level: 1 })).toBeInTheDocument()
     const list = screen.getByLabelText('你最该练清单')
     const headings = within(list).getAllByRole('heading', { level: 2 })
-    expect(headings.map((heading) => heading.textContent)).toEqual(['1. Par 5 易失分', '2. 开球偏右', '3. 三推太多'])
+    expect(headings.map((heading) => heading.textContent)).toEqual(['1. 五杆洞易失分', '2. 开球偏右', '3. 三推太多'])
     // 4th weakness (severity 0.4) is cut at top-3
     expect(within(list).queryByText('1D 距离在变短')).not.toBeInTheDocument()
 
     // reasons rebuilt in zh from the structured fields (direction/value/unit),
-    // not echoed from the backend English sentences
-    expect(within(list).getByText('开球失误主要偏右,占已记录失误的 62%')).toBeInTheDocument()
-    expect(within(list).getByText('Par 5 洞平均比标准杆多 1.2 杆')).toBeInTheDocument()
+    // not echoed from the backend English sentences. The tee-miss pct is a
+    // share of recorded TEE SHOTS (开球), not of the misses.
+    expect(within(list).getByText('开球失误主要偏右,占已记录开球的 62%')).toBeInTheDocument()
+    expect(within(list).getByText('五杆洞平均比标准杆多 1.2 杆')).toBeInTheDocument()
     expect(within(list).getByText('有推杆记录的洞中三推 3 次')).toBeInTheDocument()
     expect(within(list).queryByText(/recorded misses/)).not.toBeInTheDocument()
     expect(within(list).queryByText(/to par$/)).not.toBeInTheDocument()

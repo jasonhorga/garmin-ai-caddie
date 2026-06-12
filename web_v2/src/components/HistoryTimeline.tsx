@@ -29,6 +29,15 @@ function metric(value: number | null) {
   return value === null ? '-' : String(value)
 }
 
+// emptyState arrives with backend English copy; map by the closed
+// emptyState.kind vocabulary and keep the backend strings for unknown kinds.
+const EMPTY_STATE_ZH: Record<string, { title: string; detail: string }> = {
+  no_rounds: {
+    title: '还没有本地球局数据',
+    detail: '先在 设置·同步 里完成一次同步,球局会出现在这里。',
+  },
+}
+
 function monthSummary(group: MonthRoundGroup) {
   return `${group.count} 场`
 }
@@ -124,8 +133,8 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
 
       {data.emptyState ? (
         <section className="panel empty-state">
-          <h2>{data.emptyState.title}</h2>
-          <p>{data.emptyState.detail}</p>
+          <h2>{EMPTY_STATE_ZH[data.emptyState.kind]?.title ?? data.emptyState.title}</h2>
+          <p>{EMPTY_STATE_ZH[data.emptyState.kind]?.detail ?? data.emptyState.detail}</p>
         </section>
       ) : null}
 

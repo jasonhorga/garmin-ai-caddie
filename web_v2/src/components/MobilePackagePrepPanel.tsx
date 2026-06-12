@@ -54,8 +54,48 @@ function asRecordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.map(asRecord).filter((row) => Object.keys(row).length) : []
 }
 
+// Closed machine-token vocabulary shared by the readiness-check labels
+// (mobile_live._package_readiness_checks) and the missing-data labels
+// (mobile_live missingData emission sites + weather_context.weather_values).
+// Unknown tokens fall through raw.
+const PACKAGE_TOKEN_ZH: Record<string, string> = {
+  source: '数据源',
+  geometry: '几何',
+  weather: '天气',
+  club_profiles: '球杆样本',
+  recent_history: '近期历史',
+  caddie_seeds: '球童预置',
+  club_profile_sample: '球杆样本',
+  current_location: '当前位置',
+  weather_values: '天气数据',
+  course_prep: '球场备战包',
+  route_geometry: '路线几何',
+  lie: '球位',
+  manual_notes: '手动备注',
+  round_reference: '球局引用',
+}
+
+function packageTokenZh(raw: string): string {
+  return PACKAGE_TOKEN_ZH[raw] ?? raw
+}
+
+// Offline option labels (mobile_live option_specs Safe/Stock/Attack and the
+// caddie seed options safe layup/stock line/attack line).
+const OPTION_LABEL_ZH: Record<string, string> = {
+  Safe: '保守',
+  Stock: '标准',
+  Attack: '强攻',
+  'safe layup': '保守起步',
+  'stock line': '标准线',
+  'attack line': '强攻线',
+}
+
+function optionLabelZh(raw: string): string {
+  return OPTION_LABEL_ZH[raw] ?? raw
+}
+
 function missingLabel(row: Record<string, unknown>) {
-  return compactValue(row.label) ?? compactValue(row.key) ?? 'missing'
+  return packageTokenZh(compactValue(row.label) ?? compactValue(row.key) ?? 'missing')
 }
 
 function missingReason(row: Record<string, unknown>) {
@@ -100,7 +140,8 @@ function weatherCoverageText(data: LiveRoundPackageResponse) {
 }
 
 function readinessTitle(label: string) {
-  return label.replace(/_/g, ' ')
+  const zh = PACKAGE_TOKEN_ZH[label]
+  return zh ?? label.replace(/_/g, ' ')
 }
 
 function optionCoverageText(option: Record<string, unknown>) {
@@ -124,7 +165,7 @@ function offlineSeedOptionRows(data: LiveRoundPackageResponse) {
       const sourceRef = compactValue(seed.sourceRef)
       return asRecordArray(seed.offlineOptions).map((option) => {
         const optionId = compactValue(option.id) ?? compactValue(option.optionId) ?? ''
-        const label = compactValue(option.label) ?? (optionId || 'Option')
+        const label = optionLabelZh(compactValue(option.label) ?? (optionId || 'Option'))
         const club = compactValue(option.clubName) ?? '-'
         const carry = compactValue(option.carryM)
         const confidence = compactValue(option.confidence)

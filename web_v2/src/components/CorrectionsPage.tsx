@@ -7,6 +7,7 @@ import type {
   AnnotationRecord,
   AnnotationTargetType,
 } from '../types'
+import { annotationKindZh, targetTypeZh } from '../zhLabels'
 
 type CorrectionFormKind =
   | 'club_correction'
@@ -60,23 +61,15 @@ const statsOverlayKindSet = new Set<AnnotationKind>([
   'issue_tag_removed',
 ])
 
-function labelKind(kind: AnnotationKind) {
-  const labels: Record<AnnotationKind, string> = {
-    round_note: '球局备注',
-    hole_note: '球洞备注',
-    shot_note: '击球备注',
-    issue_tag: '问题标签',
-    issue_tag_removed: '移除问题标签',
-    club_correction: '球杆订正',
-    lie_correction: '球位订正',
-    penalty_correction: '罚杆订正',
-    putt_correction: '推杆订正',
-    score_correction: '成绩订正',
-    weather_context_note: '天气备注',
-    strategy_note: '策略备注',
-    caddie_feedback: '球童反馈',
-  }
-  return labels[kind]
+// Kind labels live in zhLabels.annotationKindZh so the round-detail and
+// drilldown annotation rows share the same vocabulary.
+const labelKind = annotationKindZh
+
+// record.source vocabulary ('manual' today); unknown sources fall through raw.
+const ANNOTATION_SOURCE_ZH: Record<string, string> = { manual: '手动' }
+
+function annotationSourceZh(raw: string): string {
+  return ANNOTATION_SOURCE_ZH[raw] ?? raw
 }
 
 function noteKindForTarget(targetType: AnnotationTargetType): AnnotationKind {
@@ -133,22 +126,22 @@ function payloadSummary(record: AnnotationRecord) {
   if (record.kind === 'club_correction') {
     const from = compactPayloadValue(payload.from)
     const to = compactPayloadValue(payload.to)
-    if (from && to) return `${from} -> ${to}`
+    if (from && to) return `${from} → ${to}`
   }
   if (record.kind === 'putt_correction') {
     const from = compactPayloadValue(payload.from)
     const to = compactPayloadValue(payload.to)
-    if (from && to) return `推杆 ${from} -> ${to}`
+    if (from && to) return `推杆 ${from} → ${to}`
   }
   if (record.kind === 'score_correction') {
     const from = compactPayloadValue(payload.from)
     const to = compactPayloadValue(payload.to)
-    if (from && to) return `成绩 ${from} -> ${to}`
+    if (from && to) return `成绩 ${from} → ${to}`
   }
   if (record.kind === 'lie_correction') {
     const from = compactPayloadValue(payload.from)
     const to = compactPayloadValue(payload.to)
-    if (from && to) return `${from} -> ${to}`
+    if (from && to) return `${from} → ${to}`
   }
   if (record.kind === 'penalty_correction') {
     const strokes = compactPayloadValue(payload.strokes)
@@ -235,7 +228,7 @@ function CorrectionImpactPanel({ annotations }: { annotations: AnnotationRecord[
               <h3>目标</h3>
               {targetRows.map((row) => (
                 <span key={row.label}>
-                  {row.label} {row.count}
+                  {targetTypeZh(row.label)} {row.count}
                 </span>
               ))}
             </div>
@@ -403,7 +396,7 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
                 <select value={targetType} onChange={(event) => setTargetType(event.target.value as AnnotationTargetType)}>
                   {targetTypes.map((type) => (
                     <option key={type} value={type}>
-                      {type}
+                      {targetTypeZh(type)}
                     </option>
                   ))}
                 </select>
@@ -544,11 +537,11 @@ export function CorrectionsPage({ data, initialTarget, onCreateAnnotation }: Cor
                     <div>
                       <h3>{labelKind(record.kind)}</h3>
                       <p>
-                        {record.targetType}
+                        {targetTypeZh(record.targetType)}
                         <span>{record.targetId}</span>
                       </p>
                     </div>
-                    <span className="mode-pill">{record.source}</span>
+                    <span className="mode-pill">{annotationSourceZh(record.source)}</span>
                   </div>
                   <strong>{payloadSummary(record)}</strong>
                   {payloadDetail(record) ? <p>{payloadDetail(record)}</p> : null}

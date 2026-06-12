@@ -403,7 +403,7 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
               <div className="report-row" key={`${String(item.label)}-${index}`}>
                 <div className="report-row-main">
                   <strong>{String(item.label ?? 'missing')}</strong>
-                  <span>{String(item.state ?? item.reason ?? 'needs review')}</span>
+                  <span>{String(item.state ?? item.reason ?? '待复核')}</span>
                   <ReportMetadata row={item} confidenceLabel="缺失置信" />
                 </div>
                 <SourceRefs refs={refsForFact(item)} onSelectRef={onSelectRef} />
@@ -418,10 +418,17 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
   )
 }
 
+// factBinding.state is a closed bound/needs_review pair; unknown states keep
+// the previous `${state} 绑定` raw shape.
+const FACT_BINDING_ZH: Record<string, string> = {
+  bound: '绑定正常',
+  needs_review: '待复核',
+}
+
 function ReportFactBinding({ factBinding }: { factBinding: unknown }) {
   const row = factBinding && typeof factBinding === 'object' && !Array.isArray(factBinding) ? (factBinding as Record<string, unknown>) : {}
   const state = typeof row.state === 'string' && row.state.trim() ? row.state : 'bound'
-  return <span className="fact-chip muted">{`${state} 绑定`}</span>
+  return <span className="fact-chip muted">{FACT_BINDING_ZH[state] ?? `${state} 绑定`}</span>
 }
 
 function UnsupportedClaims({
@@ -537,7 +544,7 @@ function FactArray({ rows }: { rows: unknown[] }) {
           </span>
         )
       })}
-      {rows.length > displayRows.length ? <span className="fact-chip muted">+{rows.length - displayRows.length} more</span> : null}
+      {rows.length > displayRows.length ? <span className="fact-chip muted">等 {rows.length - displayRows.length} 处</span> : null}
     </div>
   )
 }
@@ -567,12 +574,12 @@ function formatFactPair(key: string, value: unknown): string {
 }
 
 function formatFactPrimitive(value: unknown, key = ''): string {
-  if (value === null) return 'none'
+  if (value === null) return '无'
   if (typeof value === 'number') {
     if (key === 'toPar' && value > 0) return `+${value}`
     return String(value)
   }
-  if (typeof value === 'boolean') return value ? 'yes' : 'no'
+  if (typeof value === 'boolean') return value ? '是' : '否'
   return String(value)
 }
 
@@ -581,15 +588,22 @@ function factObjectKey(value: Record<string, unknown>, index: number): string {
   return `${String(ref ?? 'row')}-${index}`
 }
 
+// Quarter keys are `{year}-Q{n}` (history_stats byQuarter) → 「2026年Q2」;
+// other keys (e.g. 'unknown') keep the previous raw shape.
+function quarterLabelZh(key: string): string {
+  const match = /^(\d{4})-Q(\d)$/.exec(key)
+  return match ? `${match[1]}年Q${match[2]}` : `Q ${key}`
+}
+
 function buildTrendOptions(stats: HistoryStatsResponse): Option[] {
-  const options: Option[] = [{ id: 'recent_10', label: 'Recent 10' }]
+  const options: Option[] = [{ id: 'recent_10', label: '近10场' }]
   for (const row of asRecordArray(stats.time.byQuarter)) {
     const key = String(row.key ?? '')
-    if (key) options.push({ id: `quarter:${key}`, label: `Q ${key}` })
+    if (key) options.push({ id: `quarter:${key}`, label: quarterLabelZh(key) })
   }
   for (const row of asRecordArray(stats.time.byYear)) {
     const key = String(row.key ?? row.year ?? '')
-    if (key) options.push({ id: `year:${key}`, label: `Year ${key}` })
+    if (key) options.push({ id: `year:${key}`, label: `${key}年` })
   }
   return options
 }

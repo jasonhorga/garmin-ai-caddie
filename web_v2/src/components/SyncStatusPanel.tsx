@@ -1,10 +1,26 @@
 import { useState, type FormEvent } from 'react'
 import type { GarminSessionImportRequest, SyncStatusResponse } from '../types'
-import { dataModeZh, stateZh } from '../zhLabels'
+import { dataModeZh, oauthCapabilityZh, stateZh } from '../zhLabels'
 
 const connectorLabel = {
   garmin_cn_web_session: 'Garmin CN 网页会话',
   garmin_oauth_feasibility: '官方 OAuth',
+}
+
+// connector.detail closed sentences: three from server_v2/sync_status.py
+// (:117-124) plus the fixed OAuth feasibility sentence (garmin_oauth.py
+// build_oauth_feasibility_status). Free-form persisted details fall through raw.
+const CONNECTOR_DETAIL_ZH: Record<string, string> = {
+  'Garmin connector needs attention.': 'Garmin 连接器需要处理。',
+  'Local Garmin snapshots are available.': '本地 Garmin 快照已就绪。',
+  'No local Garmin snapshots are loaded. Connect Garmin or use fixture mode.':
+    '尚未载入本地 Garmin 快照。请连接 Garmin 或使用示例数据。',
+  'Official Garmin OAuth is tracked as a replaceable connector path, but golf scorecard and shot access are not proven for this product yet.':
+    '官方 Garmin OAuth 作为可替换的连接器路径在跟踪,但高尔夫记分卡与击球数据访问尚未验证。',
+}
+
+function connectorDetailZh(raw: string): string {
+  return CONNECTOR_DETAIL_ZH[raw] ?? raw
 }
 
 const capabilityStateLabel = {
@@ -112,7 +128,7 @@ export function SyncStatusPanel({
       <div>
         <p className="eyebrow">Garmin CN</p>
         <h2>{stateZh(status.connector.state)}</h2>
-        <p>{status.connector.detail}</p>
+        <p>{connectorDetailZh(status.connector.detail)}</p>
         {status.connector.nextAction ? (
           <span className="sync-next-action">{nextActionLabel[status.connector.nextAction]}</span>
         ) : null}
@@ -142,15 +158,15 @@ export function SyncStatusPanel({
           <article key={connector.name} className="sync-connector">
             <div>
               <strong>{connectorLabel[connector.name]}</strong>
-              <p>{connector.detail}</p>
+              <p>{connectorDetailZh(connector.detail)}</p>
               {connector.feasibilityQuestions?.[0] ? <p>{connector.feasibilityQuestions[0]}</p> : null}
               {connector.capabilities?.length ? (
                 <div className="sync-capabilities" aria-label={`${connectorLabel[connector.name]} 能力矩阵`}>
                   {connector.capabilities.map((capability) => (
                     <div key={capability.key} className="sync-capability-row">
                       <span>
-                        <strong>{capability.label}</strong>
-                        <em>{capability.nextStep}</em>
+                        <strong>{oauthCapabilityZh(capability.key)?.label ?? capability.label}</strong>
+                        <em>{oauthCapabilityZh(capability.key)?.nextStep ?? capability.nextStep}</em>
                       </span>
                       <b className={`semantic-chip ${capability.state === 'possible' || capability.state === 'proven' ? 'quality-good' : 'quality-missing'}`}>
                         {capabilityStateLabel[capability.state]}

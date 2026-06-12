@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { HistoryStatsResponse } from '../types'
 import { issueLabel } from '../issueLabels'
 import { fmtYd } from '../units'
-import { clubLabelZh, confidenceZh, coverageZh, phaseZh } from '../zhLabels'
+import { clubLabelZh, confidenceZh, coverageZh, PAR_LABEL_ZH, phaseZh } from '../zhLabels'
 import { AggregateEvidence } from './AggregateEvidence'
 import { ShowAllToggle } from './ShowAllToggle'
 import { SourceRefs } from './SourceRefs'
@@ -36,6 +36,13 @@ const PROFILE_LABEL_ZH: Record<string, string> = {
   putting_efficiency: '推杆效率高',
 }
 
+// "Par 5" → 五杆洞 (PAR_LABEL_ZH wording); non-par subjects return null so
+// callers keep their existing raw-label fallback shape.
+function parNameZh(name: string): string | null {
+  const match = /^par\s*([345])$/i.exec(name.trim())
+  return match ? PAR_LABEL_ZH[`par${match[1]}`] : null
+}
+
 function profileLabelZh(row: StatRow): string {
   const key = asString(row.key) ?? ''
   const label = asString(row.label) ?? key
@@ -48,7 +55,10 @@ function profileLabelZh(row: StatRow): string {
   if (approachMiss) return `攻果岭${DIRECTION_ZH[direction ?? approachMiss[1]] ?? '易偏'}`
   if (key.startsWith('recent_')) return `近期${issueLabel(key.slice('recent_'.length))}`
   const scoringLoss = /^(.+) scoring loss$/.exec(label)
-  if (scoringLoss) return `${scoringLoss[1]} 易失分`
+  if (scoringLoss) {
+    const parName = parNameZh(scoringLoss[1])
+    return parName ? `${parName}易失分` : `${scoringLoss[1]} 易失分`
+  }
   const surfaceRisk = /^(.+) surface risk$/.exec(label)
   if (surfaceRisk) return `${clubLabelZh(surfaceRisk[1])} 落点风险高`
   const shorter = /^(.+) trending shorter$/.exec(label)
@@ -69,9 +79,12 @@ const TREND_DIRECTION_ZH: Record<string, string> = {
 }
 
 function scoringReasonZh(name: string, value: number): string {
-  if (value > 0) return `${name} 洞平均比标准杆多 ${formatNumber(value)} 杆`
-  if (value < 0) return `${name} 洞平均比标准杆少 ${formatNumber(Math.abs(value))} 杆`
-  return `${name} 洞平均持平标准杆`
+  // "Par 5" reads as 五杆洞 (already contains 洞); unknown subjects keep the
+  // previous `${name} 洞` shape.
+  const subject = parNameZh(name) ?? `${name} 洞`
+  if (value > 0) return `${subject}平均比标准杆多 ${formatNumber(value)} 杆`
+  if (value < 0) return `${subject}平均比标准杆少 ${formatNumber(Math.abs(value))} 杆`
+  return `${subject}平均持平标准杆`
 }
 
 function profileReasonZh(row: StatRow): string | null {
@@ -86,7 +99,9 @@ function profileReasonZh(row: StatRow): string | null {
   }
   if (key.startsWith('tee_miss_')) {
     const directionZh = DIRECTION_ZH[direction ?? key.slice('tee_miss_'.length)]
-    if (directionZh && value !== null) return `开球失误主要${directionZh},占已记录失误的 ${formatNumber(value)}%`
+    // value is misses / recorded TEE SHOTS (history_stats leftPct = left/recorded),
+    // not a share of the misses — 开球, not 失误.
+    if (directionZh && value !== null) return `开球失误主要${directionZh},占已记录开球的 ${formatNumber(value)}%`
   }
   const approachMiss = /^approach_(.+)_miss$/.exec(key)
   if (approachMiss) {
@@ -108,7 +123,7 @@ function profileReasonZh(row: StatRow): string | null {
 
   // English sentence patterns for rows where only the sentence exists.
   const teeMiss = /^dominant tee miss is (\w+) with ([\d.]+)% recorded misses$/.exec(reason)
-  if (teeMiss && DIRECTION_ZH[teeMiss[1]]) return `开球失误主要${DIRECTION_ZH[teeMiss[1]]},占已记录失误的 ${teeMiss[2]}%`
+  if (teeMiss && DIRECTION_ZH[teeMiss[1]]) return `开球失误主要${DIRECTION_ZH[teeMiss[1]]},占已记录开球的 ${teeMiss[2]}%`
   const approachSentence = /^dominant approach miss is (\w+) at ([\d.]+)%$/.exec(reason)
   if (approachSentence && DIRECTION_ZH[approachSentence[1]]) {
     return `攻果岭失误主要${DIRECTION_ZH[approachSentence[1]]},占 ${approachSentence[2]}%`

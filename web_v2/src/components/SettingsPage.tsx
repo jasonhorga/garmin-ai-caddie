@@ -1,10 +1,35 @@
 import type { ProductPage } from '../navigation'
 import type { ProductSettingsResponse } from '../types'
+import { oauthCapabilityZh } from '../zhLabels'
 
 interface SettingsPageProps {
   onNavigate: (page: ProductPage) => void
   settings?: ProductSettingsResponse | null
   settingsError?: string | null
+}
+
+// Closed status vocabulary emitted by server_v2/product_settings.py (data
+// sources, AI providers, live apps) plus the OAuth capability-matrix states
+// (connectors/garmin_oauth.py). Unknown tokens fall through raw.
+const SETTINGS_STATE_ZH: Record<string, string> = {
+  ready: '就绪',
+  configured: '已配置',
+  missing_key: '缺密钥',
+  missing_config: '缺配置',
+  available: '可用',
+  not_syncable: '不可同步',
+  contract_ready: '契约就绪',
+  bounded_context: '受限上下文',
+  unproven: '未验证',
+  possible: '可行',
+  proven: '已验证',
+  needs_golf_fit_validation: '需 FIT 验证',
+  not_replacement: '非替代方案',
+  not_available: '不可用',
+}
+
+function settingsStateZh(raw: string): string {
+  return SETTINGS_STATE_ZH[raw] ?? raw
 }
 
 export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPageProps) {
@@ -47,8 +72,8 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
               <span className="setting-chip setting-primary">CN 网页会话</span>
               <span className="setting-chip setting-secondary">OAuth 可行性</span>
               <span className="setting-chip">本地快照</span>
-              {cnSession ? <span className="setting-chip setting-primary">{asString(cnSession.state) ?? 'unknown'}</span> : null}
-              {oauth ? <span className="setting-chip setting-secondary">{asString(oauth.state) ?? 'unknown'}</span> : null}
+              {cnSession ? <span className="setting-chip setting-primary">{settingsStateZh(asString(cnSession.state) ?? '未知')}</span> : null}
+              {oauth ? <span className="setting-chip setting-secondary">{settingsStateZh(asString(oauth.state) ?? '未知')}</span> : null}
             </div>
             <div className="settings-fact-grid">
               <span>记分卡</span>
@@ -77,7 +102,7 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
                   <div className="settings-oauth-capabilities" aria-label="OAuth 能力矩阵">
                     {oauthCapabilities.map((capability) => (
                       <span key={asString(capability.key) ?? asString(capability.label) ?? 'capability'}>
-                        {asString(capability.label) ?? 'Capability'}: {asString(capability.state) ?? 'unknown'}
+                        {oauthCapabilityZh(asString(capability.key) ?? '')?.label ?? asString(capability.label) ?? 'Capability'}: {settingsStateZh(asString(capability.state) ?? '未知')}
                       </span>
                     ))}
                   </div>
@@ -107,7 +132,7 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
               <span className={providerChipClass(settings, 'gemini_api_key')}>Gemini API</span>
               <span className={providerChipClass(settings, 'gemini_cli_oauth')}>Gemini CLI OAuth</span>
               <span className="setting-chip">Anthropic</span>
-              {activeProvider ? <span className="setting-chip setting-primary">{asString(activeProvider.state) ?? 'unknown'}</span> : null}
+              {activeProvider ? <span className="setting-chip setting-primary">{settingsStateZh(asString(activeProvider.state) ?? '未知')}</span> : null}
             </div>
             <label className="setting-check">
               <input type="checkbox" checked={settings?.aiProviders?.factBindingRequired ?? true} readOnly />
@@ -134,8 +159,8 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
               <span className="setting-chip setting-primary">iOS 离线包</span>
               <span className="setting-chip setting-secondary">手表桥接</span>
               <span className="setting-chip">照片/视频上下文</span>
-              {asString(ios.state) ? <span className="setting-chip">iOS {asString(ios.state)}</span> : null}
-              {asString(watch.state) ? <span className="setting-chip">Watch {asString(watch.state)}</span> : null}
+              {asString(ios.state) ? <span className="setting-chip">iOS {settingsStateZh(asString(ios.state) ?? '')}</span> : null}
+              {asString(watch.state) ? <span className="setting-chip">Watch {settingsStateZh(asString(watch.state) ?? '')}</span> : null}
             </div>
             <div className="settings-fact-grid">
               <span>开局</span>

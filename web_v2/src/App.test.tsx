@@ -1667,7 +1667,7 @@ describe('App navigation', () => {
     const history = screen.getByLabelText('批注历史')
     expect(within(history).getByText('round-1:7:shot-3')).toBeInTheDocument()
     expect(within(history).getByText('球杆订正')).toBeInTheDocument()
-    expect(within(history).getByText('7I -> 8I')).toBeInTheDocument()
+    expect(within(history).getByText('7I → 8I')).toBeInTheDocument()
     expect(within(history).getByText('approach_short')).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '球杆订正' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '推杆订正' })).toBeInTheDocument()
@@ -1694,7 +1694,7 @@ describe('App navigation', () => {
       }),
     })
     expect(await screen.findByText('round-1:8:shot-1')).toBeInTheDocument()
-    expect(screen.getAllByText('7I -> 8I')).toHaveLength(2)
+    expect(screen.getAllByText('7I → 8I')).toHaveLength(2)
     expect(screen.getByText('Trackman confirmed the club')).toBeInTheDocument()
   })
 
@@ -1749,7 +1749,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByRole('heading', { name: '后端配置' })).toBeInTheDocument()
     expect(await screen.findByText('当前:Gemini API')).toHaveClass('setting-primary')
-    expect(screen.getByText('available')).toHaveClass('setting-primary')
+    expect(screen.getByText('可用')).toHaveClass('setting-primary')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/settings/product')
   })
 
@@ -1890,7 +1890,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
     expect(screen.getByText('Garmin CN')).toBeInTheDocument()
-    expect(screen.getAllByText('Local Garmin snapshots are available.').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('本地 Garmin 快照已就绪。').length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: '试运行就绪度' })).toBeInTheDocument()
     expect(screen.getByText('dataMode: fixture')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '数据健康' })).toBeInTheDocument()

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { phaseZh, coverageZh, stateZh, confidenceZh, dataModeZh, clubLabelZh, qualityLabelZh, tipBasisZh, formDirectionZh, missDirectionZh, badgeLabelZh } from './zhLabels'
+import { phaseZh, coverageZh, stateZh, confidenceZh, dataModeZh, clubLabelZh, qualityLabelZh, tipBasisZh, formDirectionZh, missDirectionZh, badgeLabelZh, targetTypeZh, annotationKindZh, oauthCapabilityZh } from './zhLabels'
 
 describe('phaseZh', () => {
   it('maps known phase tokens to Chinese', () => {
@@ -14,6 +14,10 @@ describe('phaseZh', () => {
     expect(phaseZh('Club Confidence')).toBe('球杆信心')
     expect(phaseZh('Data Quality')).toBe('数据质量')
     expect(phaseZh('Trend')).toBe('趋势')
+  })
+
+  it('maps the round-detail Penalty / Damage phase', () => {
+    expect(phaseZh('Penalty / Damage')).toBe('罚杆/损失')
   })
 
   it('falls back to the raw token for unknown phases', () => {
@@ -92,6 +96,11 @@ describe('missDirectionZh', () => {
     expect(missDirectionZh('long')).toBe('偏长')
   })
 
+  it('maps the dominant-miss aggregate tokens other and mixed', () => {
+    expect(missDirectionZh('other')).toBe('方向不定')
+    expect(missDirectionZh('mixed')).toBe('方向混杂')
+  })
+
   it('passes looser engine tokens through raw rather than guessing', () => {
     expect(missDirectionZh('away_from_known_risks')).toBe('away_from_known_risks')
     expect(missDirectionZh('wide_side')).toBe('wide_side')
@@ -126,6 +135,12 @@ describe('coverageZh', () => {
     expect(coverageZh('missing')).toBe('缺失')
   })
 
+  it('maps the geometry-ensure outcome tokens', () => {
+    expect(coverageZh('skipped')).toBe('已跳过')
+    expect(coverageZh('failed')).toBe('失败')
+    expect(coverageZh('not_requested')).toBe('未请求')
+  })
+
   it('falls back to the raw token for unknown coverage values', () => {
     expect(coverageZh('other')).toBe('other')
     expect(coverageZh('unknown')).toBe('unknown')
@@ -142,9 +157,67 @@ describe('stateZh', () => {
     expect(stateZh('degraded')).toBe('降级')
   })
 
+  it('maps phase-summary and readiness missing/partial states', () => {
+    expect(stateZh('missing')).toBe('缺失')
+    expect(stateZh('partial')).toBe('部分')
+  })
+
   it('falls back to the raw token for unknown states', () => {
     expect(stateZh('unknown')).toBe('unknown')
     expect(stateZh('syncing')).toBe('syncing')
+  })
+})
+
+describe('targetTypeZh', () => {
+  it('maps the annotation target type vocabulary to Chinese', () => {
+    expect(targetTypeZh('round')).toBe('球局')
+    expect(targetTypeZh('hole')).toBe('球洞')
+    expect(targetTypeZh('shot')).toBe('击球')
+    expect(targetTypeZh('decision')).toBe('决策')
+  })
+
+  it('falls back to the raw token for unknown target types', () => {
+    expect(targetTypeZh('course')).toBe('course')
+    expect(targetTypeZh('unknown')).toBe('unknown')
+  })
+})
+
+describe('annotationKindZh', () => {
+  it('maps the annotation kind vocabulary to Chinese', () => {
+    expect(annotationKindZh('round_note')).toBe('球局备注')
+    expect(annotationKindZh('hole_note')).toBe('球洞备注')
+    expect(annotationKindZh('shot_note')).toBe('击球备注')
+    expect(annotationKindZh('issue_tag')).toBe('问题标签')
+    expect(annotationKindZh('issue_tag_removed')).toBe('移除问题标签')
+    expect(annotationKindZh('club_correction')).toBe('球杆订正')
+    expect(annotationKindZh('lie_correction')).toBe('球位订正')
+    expect(annotationKindZh('penalty_correction')).toBe('罚杆订正')
+    expect(annotationKindZh('putt_correction')).toBe('推杆订正')
+    expect(annotationKindZh('score_correction')).toBe('成绩订正')
+    expect(annotationKindZh('weather_context_note')).toBe('天气备注')
+    expect(annotationKindZh('strategy_note')).toBe('策略备注')
+    expect(annotationKindZh('caddie_feedback')).toBe('球童反馈')
+  })
+
+  it('falls back to the raw token for unknown kinds', () => {
+    expect(annotationKindZh('mystery_kind')).toBe('mystery_kind')
+  })
+})
+
+describe('oauthCapabilityZh', () => {
+  it('maps the five fixed OAuth capability keys to zh label and next step', () => {
+    expect(oauthCapabilityZh('scorecards')?.label).toBe('高尔夫记分卡')
+    expect(oauthCapabilityZh('golf_shots')?.label).toBe('高尔夫GPS击球')
+    expect(oauthCapabilityZh('fit_golf_activity')?.label).toBe('FIT 高尔夫活动')
+    expect(oauthCapabilityZh('course_metadata')?.label).toBe('球场元数据')
+    expect(oauthCapabilityZh('identity')?.label).toBe('身份')
+    expect(oauthCapabilityZh('scorecards')?.nextStep).toBeTruthy()
+    expect(oauthCapabilityZh('identity')?.nextStep).toBeTruthy()
+  })
+
+  it('returns null for unknown keys so backend strings stay visible', () => {
+    expect(oauthCapabilityZh('unknown_capability')).toBeNull()
+    expect(oauthCapabilityZh('')).toBeNull()
   })
 })
 

@@ -28,14 +28,15 @@ describe('HistoryDrilldownPanel', () => {
 
     expect(screen.getByRole('heading', { name: '来源详情' })).toBeInTheDocument()
     expect(screen.getByText('1D on H1')).toBeInTheDocument()
-    expect(screen.getByText('shot')).toBeInTheDocument()
+    expect(screen.getAllByText('击球').length).toBeGreaterThan(0)
+    expect(screen.queryByText('shot')).not.toBeInTheDocument()
     expect(screen.getByText('clubName')).toBeInTheDocument()
     expect(screen.getByText('geometry')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '证据覆盖率' })).toBeInTheDocument()
     expect(screen.getByLabelText('证据覆盖率')).toHaveTextContent('字段数3')
     expect(screen.getByLabelText('证据覆盖率')).toHaveTextContent('关联来源3')
     expect(screen.getByLabelText('证据覆盖率')).toHaveTextContent('缺失数据1')
-    expect(screen.getByLabelText('证据覆盖率')).toHaveTextContent('置信度high')
+    expect(screen.getByLabelText('证据覆盖率')).toHaveTextContent('置信度高')
   })
 
   it('renders related refs as drilldown buttons', async () => {
@@ -214,8 +215,8 @@ describe('HistoryDrilldownPanel', () => {
     expect(screen.getByRole('heading', { name: '手动标注' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '已应用订正' })).toBeInTheDocument()
     expect(screen.getByText('ball was above feet')).toBeInTheDocument()
-    expect(screen.getAllByText('club_correction')).toHaveLength(2)
-    expect(screen.getAllByText('8I -> 7I')).toHaveLength(2)
+    expect(screen.getAllByText('球杆订正')).toHaveLength(2)
+    expect(screen.getAllByText('8I → 7I')).toHaveLength(2)
   })
 
   it('renders report weather decision and geometry evidence bundles', () => {

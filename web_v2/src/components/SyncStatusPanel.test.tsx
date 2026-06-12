@@ -117,9 +117,11 @@ describe('SyncStatusPanel', () => {
     expect(screen.getByText('官方 OAuth')).toBeInTheDocument()
     expect(screen.getByText('不可用')).toHaveClass('quality-missing')
     expect(screen.getByText('Can official OAuth access golf scorecards?')).toBeInTheDocument()
-    expect(screen.getByText('Golf scorecards')).toBeInTheDocument()
+    // capability label + nextStep map by key through the shared OAuth dictionary
+    expect(screen.getByText('高尔夫记分卡')).toBeInTheDocument()
+    expect(screen.getByText('验证官方授权能否读取高尔夫记分卡。')).toBeInTheDocument()
     expect(screen.getByText('未验证')).toBeInTheDocument()
-    expect(screen.getByText('Identity')).toBeInTheDocument()
+    expect(screen.getByText('身份')).toBeInTheDocument()
     expect(screen.getByText('可行')).toBeInTheDocument()
     expect(screen.getByLabelText('OAuth 探测就绪度')).toHaveTextContent('OAuth 探测')
     expect(screen.getByLabelText('OAuth 探测就绪度')).toHaveTextContent('未配置')

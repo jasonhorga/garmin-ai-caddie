@@ -52,7 +52,7 @@ function rowLabel(row: Record<string, unknown>, fallback: string) {
 function suggestionSummary(suggestion: MobileReconciliationSuggestion) {
   const from = compactValue(suggestion.payload.from)
   const to = compactValue(suggestion.payload.to)
-  if (from && to) return `${from} -> ${to}`
+  if (from && to) return `${from} → ${to}`
   const text = compactValue(suggestion.payload.text) ?? compactValue(suggestion.payload.note)
   const mediaType = compactValue(suggestion.payload.mediaType)
   const mediaId = compactValue(suggestion.payload.mediaId)

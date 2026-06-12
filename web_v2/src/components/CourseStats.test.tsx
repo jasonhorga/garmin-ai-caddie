@@ -260,6 +260,56 @@ describe('CourseStats', () => {
     expect(screen.getByText('差分 持平 0')).toHaveClass('trend-flat')
   })
 
+  // Real data also ships dominantMiss 'other'/'mixed'/'none': other/mixed map
+  // through the zh dictionary, mixed has no `{token}Pct` so the percentage is
+  // omitted (never 「-%」), and 'none' renders no chip at all.
+  it('maps other/mixed dominant misses to zh, omits missing pcts, and drops none chips', () => {
+    const course = {
+      ...statsFixture.courses[0],
+      teeDirection: {
+        recorded: 6,
+        total: 6,
+        otherPct: 33.3,
+        dominantMiss: 'other',
+      },
+      approachMiss: {
+        recorded: 6,
+        total: 6,
+        dominantMiss: 'mixed',
+      },
+    }
+    render(<CourseStats data={{ ...statsFixture, courses: [course] }} />)
+
+    expect(screen.getByText('开球 方向不定 33.3%')).toHaveClass('tee-other')
+    expect(screen.getByText('攻果岭 方向混杂')).toHaveClass('approach-mixed')
+    expect(screen.queryByText(/-%/)).not.toBeInTheDocument()
+  })
+
+  it('renders no miss chips when dominantMiss is none', () => {
+    const course = {
+      ...statsFixture.courses[0],
+      teeDirection: {
+        recorded: 6,
+        total: 6,
+        hitPct: 100,
+        dominantMiss: 'none',
+      },
+      approachMiss: {
+        recorded: 6,
+        total: 6,
+        girPct: 100,
+        dominantMiss: 'none',
+      },
+    }
+    render(<CourseStats data={{ ...statsFixture, courses: [course] }} />)
+
+    expect(screen.queryByText(/开球 /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/攻果岭 /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/none/)).not.toBeInTheDocument()
+    expect(screen.getByText('FIR 100%')).toBeInTheDocument()
+    expect(screen.getByText('GIR 100%')).toBeInTheDocument()
+  })
+
   it('renders course distribution with location evidence and drill-down refs', () => {
     const onSelectRef = vi.fn()
     render(<CourseStats data={statsFixture} onSelectRef={onSelectRef} />)
@@ -319,7 +369,7 @@ describe('CourseStats', () => {
     render(<CourseStats data={{ ...statsFixture, courses: [] }} />)
 
     expect(screen.getByText('暂无球场表现数据')).toBeInTheDocument()
-    expect(screen.getByText('同步 Garmin 球局或切换到 fixture 模式以填充球场分布。')).toBeInTheDocument()
+    expect(screen.getByText('同步 Garmin 球局或切换到示例模式以填充球场分布。')).toBeInTheDocument()
   })
 
   it('shows 去备战 button when courseOptions maps the courseKey to a globalId', async () => {

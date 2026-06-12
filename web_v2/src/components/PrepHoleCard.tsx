@@ -24,7 +24,7 @@ function pointHazardLabel(overlay: CoursePrepOverlay, cum: number, hazardCum: nu
 }
 
 function routeOptionLabel(route: { id: string; carryM?: number }): string {
-  return route.carryM ? `${route.id} ${Math.round(route.carryM * YARD)}y` : route.id
+  return route.carryM ? `${route.id} ${Math.round(route.carryM * YARD)}码` : route.id
 }
 
 const MISSING_LABEL_ZH: Record<string, string> = { geometry: '几何' }
@@ -64,7 +64,7 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
       <span style={{ background: parColor, color: '#fff', borderRadius: 12, padding: '1px 9px', fontSize: 12, fontWeight: 700 }}>
         Par {hole.par}
       </span>
-      <span style={{ fontSize: 12, color: '#667' }}>{hole.blue_yards}y 蓝T</span>
+      <span style={{ fontSize: 12, color: '#667' }}>{hole.blue_yards}码 蓝T</span>
       <span style={{ fontSize: 10, color: '#8a8f98', border: '1px dotted #aab', borderRadius: 8, padding: '0 5px' }}>
         Par 来源：{SOURCE_LABEL[hole.par_source] ?? hole.par_source}
       </span>
@@ -88,7 +88,7 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
     const green = atCum(route, ln)
     const ball = atCum(route, cum)
     const distances = routeYardageReadout(overlay, cum)
-    readout = hole.par === 3 ? `开球 ${distances.distT}y 一杆上果岭` : `距T ${distances.distT}y · 到果岭 ${distances.toGreen}y`
+    readout = hole.par === 3 ? `开球 ${distances.distT}码 一杆上果岭` : `距T ${distances.distT}码 · 到果岭 ${distances.toGreen}码`
     const haz: HazardMarker[] = [
       ...hole.hazards.water_carry.map((w) => ({ kind: 'water' as const, start: w[0], end: w[1], cum: w[1], color: '#2f7fb0' })),
       ...hole.hazards.bunkers.filter((b) => b[1] <= 20).slice(0, 3).map((b) => ({ kind: 'bunker' as const, cum: b[0], color: '#caa14a', label: '沙' })),
@@ -184,7 +184,7 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
               onClick={() => setCum(Math.min(club.m, ln))}
               style={{ fontSize: 11, padding: '2px 7px', borderRadius: 10, border: '1px solid #cdd2d8', background: '#f5f7f9', cursor: 'pointer' }}
             >
-              {club.name} {club.yd}y
+              {club.name} {club.yd}码
             </button>
           ))}
         </div>

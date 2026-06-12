@@ -77,12 +77,12 @@ describe('PrepHoleCard', () => {
     render(<PrepHoleCard hole={mappedHole()} clubs={clubs} />)
 
     expect(screen.getByText('Par 来源：CourseView')).toBeInTheDocument()
-    expect(screen.getByText('219y 蓝T')).toBeInTheDocument()
+    expect(screen.getByText('219码 蓝T')).toBeInTheDocument()
     expect(screen.getByText('水 进22y / 过55y')).toBeInTheDocument()
     expect(screen.getByText('沙87y')).toBeInTheDocument()
-    expect(screen.getByText(/距T 87y · 到果岭 131y/)).toBeInTheDocument()
+    expect(screen.getByText(/距T 87码 · 到果岭 131码/)).toBeInTheDocument()
     expect(screen.getByText('开球落点约 87y')).toBeInTheDocument()
-    expect(screen.getByText('stock 219y')).toBeInTheDocument()
+    expect(screen.getByText('stock 219码')).toBeInTheDocument()
     expect(screen.getByText('course:31870')).toBeInTheDocument()
     expect(screen.queryByText(/碳/)).not.toBeInTheDocument()
     expect(screen.queryByText(/\?/)).not.toBeInTheDocument()
@@ -92,7 +92,7 @@ describe('PrepHoleCard', () => {
   it('snaps the ball to a club carry distance when its chip is clicked', async () => {
     render(<PrepHoleCard hole={mappedHole()} clubs={clubs} />)
 
-    await userEvent.click(screen.getByRole('button', { name: '1W 219y' }))
+    await userEvent.click(screen.getByRole('button', { name: '1W 219码' }))
 
     expect(screen.getByText('水已过')).toBeInTheDocument()
     expect(screen.getByText('沙已过')).toBeInTheDocument()
@@ -117,7 +117,7 @@ describe('PrepHoleCard', () => {
 
     fireEvent.pointerDown(svg!, { clientX: 100, clientY: 0 })
 
-    expect(screen.getByText(/距T 109y · 到果岭 109y/)).toBeInTheDocument()
+    expect(screen.getByText(/距T 109码 · 到果岭 109码/)).toBeInTheDocument()
   })
 
   it('lists cautions when the hole has them', () => {

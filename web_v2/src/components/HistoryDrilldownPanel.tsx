@@ -1,4 +1,5 @@
 import type { AnnotationRecord, AnnotationTargetType, HistoryDrilldownResponse } from '../types'
+import { annotationKindZh, confidenceZh, targetTypeZh } from '../zhLabels'
 import { SourceRefs } from './SourceRefs'
 
 export type HistoryDrilldownPanelState =
@@ -37,7 +38,7 @@ function provenanceConfidence(sourceFields: Record<string, unknown>): string {
     if (typeof confidence === 'string' && confidence.trim()) return confidence
   }
   const confidence = sourceFields.confidence
-  return typeof confidence === 'string' && confidence.trim() ? confidence : 'not supplied'
+  return typeof confidence === 'string' && confidence.trim() ? confidence : '未提供'
 }
 
 function compactPayloadValue(value: unknown): string | null {
@@ -50,7 +51,7 @@ function annotationSummary(record: AnnotationRecord): string {
   const { payload } = record
   const from = compactPayloadValue(payload.from)
   const to = compactPayloadValue(payload.to)
-  if (from && to) return `${from} -> ${to}`
+  if (from && to) return `${from} → ${to}`
 
   const tag = compactPayloadValue(payload.tag)
   if (tag) return tag
@@ -130,7 +131,7 @@ function EvidenceCoverage({ data }: { data: HistoryDrilldownResponse }) {
         </div>
         <div className="coverage-metric">
           <span>置信度</span>
-          <b>{confidence}</b>
+          <b>{confidenceZh(confidence)}</b>
         </div>
       </div>
     </section>
@@ -146,7 +147,7 @@ function AnnotationRows({ title, rows }: { title: string; rows: AnnotationRecord
       <div className="drilldown-rows">
         {rows.map((row) => (
           <div key={row.id} className="drilldown-row">
-            <span>{row.kind}</span>
+            <span>{annotationKindZh(row.kind)}</span>
             <b>{annotationSummary(row)}</b>
           </div>
         ))}
@@ -195,9 +196,9 @@ function RelatedRefs({
   onSelectRef?: (sourceRef: string) => void
 }) {
   const groups = [
-    ['Rounds', relatedRefs.roundRefs],
-    ['Holes', relatedRefs.holeRefs],
-    ['Shots', relatedRefs.shotRefs],
+    ['球局', relatedRefs.roundRefs],
+    ['球洞', relatedRefs.holeRefs],
+    ['击球', relatedRefs.shotRefs],
   ] as const
   if (!groups.some(([, refs]) => refs.length > 0)) return null
 
@@ -246,7 +247,7 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCre
     return (
       <section className="panel drilldown-panel" aria-live="polite">
         <h2>来源详情</h2>
-        <p>Loading {state.sourceRef}</p>
+        <p>加载中 {state.sourceRef}</p>
       </section>
     )
   }
@@ -278,8 +279,8 @@ export function HistoryDrilldownPanel({ state, onSelectRef, onRetrySource, onCre
         </div>
         <div className="drilldown-meta">
           <span>{data.ref}</span>
-          <span>{data.refType}</span>
-          <span>{data.found ? 'found' : 'not found'}</span>
+          <span>{targetTypeZh(data.refType)}</span>
+          <span>{data.found ? '已找到' : '未找到'}</span>
           {onCreateAnnotationForSource && correctionTarget ? (
             <button
               type="button"

@@ -47,7 +47,7 @@ describe('HistoryTimeline', () => {
     expect(screen.getByText('Black Knight B')).toBeInTheDocument()
   })
 
-  it('renders a clear empty state', () => {
+  it('renders a clear empty state in zh keyed off emptyState.kind', () => {
     render(
       <HistoryTimeline
         data={{
@@ -63,8 +63,29 @@ describe('HistoryTimeline', () => {
       />,
     )
 
-    expect(screen.getByText('No local Garmin rounds loaded')).toBeInTheDocument()
-    expect(screen.getByText(/this remote workspace has 0 rounds/i)).toBeInTheDocument()
+    expect(screen.getByText('还没有本地球局数据')).toBeInTheDocument()
+    expect(screen.getByText('先在 设置·同步 里完成一次同步,球局会出现在这里。')).toBeInTheDocument()
+    expect(screen.queryByText('No local Garmin rounds loaded')).not.toBeInTheDocument()
+  })
+
+  it('keeps the backend empty-state copy for unknown kinds', () => {
+    render(
+      <HistoryTimeline
+        data={{
+          schema: 'ai-caddie-history-rounds-v2',
+          total: 0,
+          groups: [],
+          emptyState: {
+            kind: 'filters_too_narrow',
+            title: 'No rounds match the filters',
+            detail: 'Relax the year or course filter to see rounds again.',
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByText('No rounds match the filters')).toBeInTheDocument()
+    expect(screen.getByText('Relax the year or course filter to see rounds again.')).toBeInTheDocument()
   })
 
   it('opens timeline round source refs', async () => {

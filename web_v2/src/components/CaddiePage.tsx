@@ -127,9 +127,10 @@ export function CaddiePage({
       <section className="caddie-control-bar" aria-label="Caddie controls">
         <label htmlFor="shot-type">击球类型</label>
         <select id="shot-type" value={shotType} onChange={(event) => setShotType(event.target.value as CaddieShotType)}>
+          {/* 击球类型 wording aligned with LiveSandbox SHOT_TYPE options */}
           <option value="approach">攻果岭</option>
-          <option value="tee">发球台</option>
-          <option value="recovery">脱险</option>
+          <option value="tee">开球</option>
+          <option value="recovery">救球</option>
         </select>
         {onLoadWeather ? (
           <button
