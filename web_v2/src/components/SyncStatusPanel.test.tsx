@@ -152,6 +152,27 @@ describe('SyncStatusPanel', () => {
     expect(screen.getByRole('button', { name: '立即同步' })).toBeDisabled()
   })
 
+  it('maps the real expired-session detail sentence to zh', () => {
+    render(
+      <SyncStatusPanel
+        status={{
+          ...baseStatus,
+          connector: {
+            ...baseStatus.connector,
+            state: 'reauth_required',
+            detail: 'Garmin CN session expired or missing. Reconnect Garmin and retry.',
+            reauthRequired: true,
+          },
+        }}
+        onSync={vi.fn()}
+        syncState="idle"
+      />,
+    )
+
+    expect(screen.getByText('Garmin CN 会话已过期或缺失。请重新登录 Garmin 后再同步。')).toBeInTheDocument()
+    expect(screen.queryByText('Garmin CN session expired or missing. Reconnect Garmin and retry.')).not.toBeInTheDocument()
+  })
+
   it('runs sync from the button when connector can sync', async () => {
     const user = userEvent.setup()
     const onSync = vi.fn()

@@ -17,6 +17,12 @@ const CONNECTOR_DETAIL_ZH: Record<string, string> = {
     '尚未载入本地 Garmin 快照。请连接 Garmin 或使用示例数据。',
   'Official Garmin OAuth is tracked as a replaceable connector path, but golf scorecard and shot access are not proven for this product yet.':
     '官方 Garmin OAuth 作为可替换的连接器路径在跟踪,但高尔夫记分卡与击球数据访问尚未验证。',
+  // ai_caddie/connectors/garmin_cn.py emits these two on the reauth/error paths —
+  // the expired one is the most common state the user ever sees here.
+  'Garmin CN session expired or missing. Reconnect Garmin and retry.':
+    'Garmin CN 会话已过期或缺失。请重新登录 Garmin 后再同步。',
+  'Garmin CN sync failed before a complete snapshot was written.':
+    'Garmin CN 同步在写出完整快照前失败。',
 }
 
 function connectorDetailZh(raw: string): string {
