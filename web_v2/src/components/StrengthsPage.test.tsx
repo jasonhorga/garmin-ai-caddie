@@ -12,6 +12,14 @@ import { StrengthsPage } from './StrengthsPage'
 // redesign intentionally drops (StatsQualityChips header chips, club
 // valid/invalid/outlier/surface/consistency chips, AggregateEvidence coverage
 // chips on simple rows) are not re-asserted.
+//
+// Declared-dropped coverage (round-3 ledger):
+// - 近期变化 trend rows deliberately drop the old baseline/recent/rate/actual/
+//   confidence numeric facts (conclusions-first redesign); the full numbers
+//   remain on the 引擎自检 cost drivers via TrendContextFacts and are asserted
+//   in the 引擎自检 suite below.
+// - club usableRate chip dropped (风险率 retained, asserted in 按杆).
+// - issue source chip ('deterministic') dropped — source only keys React rows.
 
 const baseFixture: HistoryStatsResponse = {
   schema: 'ai-caddie-history-stats-v1',
@@ -57,6 +65,7 @@ const baseFixture: HistoryStatsResponse = {
       max: 270,
       confidence: 'low',
       hazardRate: 25,
+      distanceTrend: { direction: 'shorter', deltaMedian: -16, sampleCount: 8 },
       shotRefs: ['900001:1:0', '900002:5:4'],
       validShotRefs: ['900001:1:0', '900002:5:4'],
       riskShotRefs: ['900005:7:1'],
@@ -95,6 +104,12 @@ const baseFixture: HistoryStatsResponse = {
           phase: 'tee_shot',
           direction: 'new',
           deltaCount: 1,
+          baselineCount: 0,
+          recentCount: 1,
+          baselineRatePerRound: 0,
+          recentRatePerRound: 0.33,
+          actualToParImpact: 2,
+          actualImpactCoverage: { ready: 3, total: 3 },
           estimatedStrokesLost: 1.2,
           recentRefs: ['900002:7'],
           confidence: 'low',
@@ -373,6 +388,8 @@ describe('StrengthsPage 按杆', () => {
     expect(within(section).getByText('最远 295码')).toBeInTheDocument()
     expect(within(section).getByText('样本 2')).toBeInTheDocument()
     expect(within(section).getByText('风险率 25%')).toBeInTheDocument()
+    // distanceTrend deltaMedian -16m → 17码 via fmtYd, semantic trend class kept
+    expect(within(section).getByText('近期短 17码')).toHaveClass('semantic-chip', 'trend-shorter')
     expect(within(section).getByText('信心低')).toHaveClass('confidence-low')
 
     await userEvent.click(within(section).getByRole('button', { name: 'Open source 900001:1:0' }))
@@ -384,6 +401,24 @@ describe('StrengthsPage 按杆', () => {
   it('renders an empty state when no club samples exist', () => {
     render(<StrengthsPage data={fixture({ clubs: [] })} />)
     expect(screen.getByText('暂无球杆样本')).toBeInTheDocument()
+  })
+
+  it('renders 近期长 for longer trends and skips the chip for stable/insufficient/missing trends', () => {
+    const data = fixture({
+      clubs: [
+        { ...baseFixture.clubs[0], club: '5I', distanceTrend: { direction: 'longer', deltaMedian: 8 } },
+        { ...baseFixture.clubs[0], club: '7I', distanceTrend: { direction: 'stable', deltaMedian: 1 } },
+        { ...baseFixture.clubs[0], club: '9I', distanceTrend: { direction: 'insufficient_data', deltaMedian: null } },
+        { ...baseFixture.clubs[0], club: 'PW', distanceTrend: undefined },
+      ],
+    })
+    render(<StrengthsPage data={data} />)
+
+    const section = screen.getByLabelText('按杆')
+    // +8m → 9码
+    expect(within(section).getByText('近期长 9码')).toHaveClass('semantic-chip', 'trend-longer')
+    // stable / insufficient_data / missing all render no trend chip
+    expect(within(section).getAllByText(/近期[短长]/)).toHaveLength(1)
   })
 
   it('renders retired club nicknames as 「48°(已退役)」', () => {
@@ -433,7 +468,10 @@ describe('StrengthsPage 出处筹码', () => {
     const { container } = render(<StrengthsPage data={data} onSelectRef={vi.fn()} />)
 
     // bar buckets carry only the outcome facts — no ref chips inside
-    for (const bucket of Array.from(container.querySelectorAll('.hole-distribution-bucket'))) {
+    // (guarded against a class rename making the loop pass vacuously)
+    const buckets = Array.from(container.querySelectorAll('.hole-distribution-bucket'))
+    expect(buckets.length).toBeGreaterThan(0)
+    for (const bucket of buckets) {
       expect(within(bucket as HTMLElement).queryByRole('button', { name: /Open source/ })).not.toBeInTheDocument()
     }
 
@@ -568,6 +606,15 @@ describe('StrengthsPage 引擎自检', () => {
     expect(within(details).getByText('33.3% audits')).toBeInTheDocument()
     expect(within(details).getByText('1.2 est. strokes')).toBeInTheDocument()
     expect(within(details).getAllByRole('button', { name: 'Open source 900002:7' }).length).toBeGreaterThan(0)
+
+    // TrendContextFacts on the cost drivers — intentionally English (engine
+    // vocabulary inside the advanced details block), including the restored
+    // actual {ready}/{total} coverage span from the old IssueStats
+    expect(within(details).getByText('baseline 0')).toBeInTheDocument()
+    expect(within(details).getByText('recent 1')).toBeInTheDocument()
+    expect(within(details).getByText('rate 0 -> 0.33/round')).toBeInTheDocument()
+    expect(within(details).getByText('+2 actual to-par')).toBeInTheDocument()
+    expect(within(details).getByText('actual 3/3')).toBeInTheDocument()
   })
 
   it('omits the details block when there is no audit content', () => {

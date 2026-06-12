@@ -214,6 +214,9 @@ function TrendContextFacts({ row }: { row: StatRow }) {
   const baselineRate = asNumber(row.baselineRatePerRound)
   const recentRate = asNumber(row.recentRatePerRound)
   const actualImpact = asNumber(row.actualToParImpact)
+  const actualCoverage = asRecord(row.actualImpactCoverage)
+  const actualReady = asNumber(actualCoverage.ready)
+  const actualTotal = asNumber(actualCoverage.total)
 
   return (
     <>
@@ -225,6 +228,11 @@ function TrendContextFacts({ row }: { row: StatRow }) {
         </span>
       ) : null}
       {actualImpact !== null ? <span>{formatSigned(actualImpact)} actual to-par</span> : null}
+      {actualReady !== null && actualTotal !== null ? (
+        <span>
+          actual {formatNumber(actualReady)}/{formatNumber(actualTotal)}
+        </span>
+      ) : null}
       <AggregateEvidence row={row} showReason={false} />
     </>
   )
@@ -448,6 +456,9 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
           {visibleClubs.map((club) => {
             const confidence = asString(club.confidence)
             const hazardRate = asNumber(club.hazardRate)
+            const trend = asRecord(club.distanceTrend)
+            const trendDirection = asString(trend.direction)
+            const trendDelta = asNumber(trend.deltaMedian)
             return (
               <article key={asString(club.club) ?? 'club'} className="stats-item">
                 <div className="stats-item-main">
@@ -461,6 +472,14 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
                   <span>最远 {fmtYd(asNumber(club.max))}</span>
                   <span>样本 {formatNumber(club.sampleCount)}</span>
                   {hazardRate !== null ? <span>风险率 {hazardRate}%</span> : null}
+                  {/* distanceTrend chip restored from the old ClubStats — only
+                      shorter/longer carry a meaningful delta; stable and
+                      insufficient_data stay chipless */}
+                  {(trendDirection === 'shorter' || trendDirection === 'longer') && trendDelta !== null ? (
+                    <span className={`semantic-chip ${semanticClass('trend', trendDirection)}`}>
+                      近期{trendDirection === 'shorter' ? '短' : '长'} {fmtYd(Math.abs(trendDelta))}
+                    </span>
+                  ) : null}
                   {confidence ? (
                     <span className={`semantic-chip ${semanticClass('confidence', confidence)}`}>信心{confidenceZh(confidence)}</span>
                   ) : null}
