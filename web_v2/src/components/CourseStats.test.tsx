@@ -167,9 +167,13 @@ const courseOptionsFixture: MobileCourseOptionsResponse = {
 }
 
 describe('CourseStats', () => {
-  it('renders course aggregates and source round refs', () => {
+  it('renders course aggregates and source round refs', async () => {
     const onSelectRef = vi.fn()
     render(<CourseStats data={statsFixture} onSelectRef={onSelectRef} />)
+
+    // per-course sub-blocks live inside a closed <details>; open it so the
+    // breakdown assertions below see the rendered content
+    await userEvent.click(screen.getByText(/^详情/))
 
     expect(screen.getByRole('heading', { name: '球场表现' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Black Knight B' })).toBeInTheDocument()
@@ -308,5 +312,71 @@ describe('CourseStats', () => {
     render(<CourseStats data={statsFixture} />)
 
     expect(screen.queryByRole('button', { name: /去备战/ })).not.toBeInTheDocument()
+  })
+})
+
+// 70 real courses × heavy sub-blocks froze the page — cap the list at 20 with
+// 展开全部, and keep the per-course breakdown inside a lazy <details> so the
+// initial render stays cheap. Display truncation only; data unchanged.
+describe('CourseStats 大数据截断', () => {
+  function manyCourses(count: number) {
+    return Array.from({ length: count }, (_, index) => ({
+      courseKey: `course_${index + 1}`,
+      courseName: `Course ${index + 1}`,
+      roundCount: 2,
+      average18: 82,
+      bestScore: 77,
+      worstScore: 87,
+      roundRefs: [`9000${index}`],
+    }))
+  }
+
+  it('renders only the first 20 course rows with an aria-expanded 展开全部 toggle', async () => {
+    const data = { ...statsFixture, courses: manyCourses(21) }
+    render(<CourseStats data={data} />)
+
+    expect(screen.getByRole('heading', { name: 'Course 20' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Course 21' })).not.toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: '展开全部(共 21)' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    await userEvent.click(toggle)
+
+    expect(screen.getByRole('heading', { name: 'Course 21' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('renders no expand toggle when the course list is under the cap', () => {
+    render(<CourseStats data={statsFixture} />)
+    expect(screen.queryByRole('button', { name: /展开全部/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps the per-course breakdown inside a closed lazy <details> with an informative summary', async () => {
+    const { container } = render(<CourseStats data={statsFixture} />)
+
+    const details = container.querySelector('details.course-breakdown-details') as HTMLDetailsElement
+    expect(details).not.toBeNull()
+    expect(details.open).toBe(false)
+    // summary advertises what is inside without rendering it
+    expect(within(details).getByText('详情:难度调整 · 问题分布(2) · 最难球洞(1)')).toBeInTheDocument()
+    expect(screen.queryByText('球场问题分布')).not.toBeInTheDocument()
+    expect(screen.queryByText('双柏忌或更差')).not.toBeInTheDocument()
+
+    await userEvent.click(within(details).getByText(/^详情/))
+
+    expect(details.open).toBe(true)
+    expect(screen.getByText('球场问题分布')).toBeInTheDocument()
+    expect(screen.getByText('双柏忌或更差')).toBeInTheDocument()
+    expect(screen.getByText('最难球洞')).toBeInTheDocument()
+
+    // collapsing unmounts the heavy content again
+    await userEvent.click(within(details).getByText(/^详情/))
+    expect(details.open).toBe(false)
+    expect(screen.queryByText('球场问题分布')).not.toBeInTheDocument()
+  })
+
+  it('omits the details element entirely for courses without breakdown data', () => {
+    const { container } = render(<CourseStats data={{ ...statsFixture, courses: manyCourses(1) }} />)
+    expect(container.querySelector('details.course-breakdown-details')).toBeNull()
   })
 })

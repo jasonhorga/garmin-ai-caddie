@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import type { HistoryStatsResponse } from '../types'
 import { issueLabel } from '../issueLabels'
 import { fmtYd } from '../units'
 import { clubLabelZh, confidenceZh, coverageZh, phaseZh } from '../zhLabels'
 import { AggregateEvidence } from './AggregateEvidence'
+import { ShowAllToggle } from './ShowAllToggle'
 import { SourceRefs } from './SourceRefs'
 import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass, type StatRow } from './statsValues'
 
@@ -228,8 +230,20 @@ function TrendContextFacts({ row }: { row: StatRow }) {
   )
 }
 
+// Real data renders 1200+ hole rows at once and froze the page — cap each
+// section and expand on demand (pure display truncation, data unchanged).
+const HOLES_CAP = 24
+const CLUBS_CAP = 30
+const ISSUES_CAP = 30
+
 export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
   const focus = focusEntries(data)
+  const [holesExpanded, setHolesExpanded] = useState(false)
+  const [clubsExpanded, setClubsExpanded] = useState(false)
+  const [issuesExpanded, setIssuesExpanded] = useState(false)
+  const visibleHoles = holesExpanded ? data.holes : data.holes.slice(0, HOLES_CAP)
+  const visibleClubs = clubsExpanded ? data.clubs : data.clubs.slice(0, CLUBS_CAP)
+  const visibleIssues = issuesExpanded ? data.issues : data.issues.slice(0, ISSUES_CAP)
 
   const phaseRows = asRows((data.scoring as Record<string, unknown>).phaseStats)
   const teeRow = phaseRows.find((row) => asString(row.phase) === 'Tee')
@@ -341,7 +355,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
               <p>需要带逐洞成绩的记分卡才能看出重复模式。</p>
             </article>
           ) : null}
-          {data.holes.map((hole) => {
+          {visibleHoles.map((hole) => {
             const distribution = asRows(hole.scoreDistribution).filter((row) => (asNumber(row.count) ?? 0) > 0)
             const repeatedIssues = asRows(hole.repeatedIssues)
             const courseKey = asString(hole.courseKey)
@@ -412,6 +426,9 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
             )
           })}
         </div>
+        {data.holes.length > HOLES_CAP ? (
+          <ShowAllToggle total={data.holes.length} expanded={holesExpanded} onToggle={() => setHolesExpanded((value) => !value)} />
+        ) : null}
       </section>
 
       <section id="strengths-clubs" className="panel compact-panel" aria-label="按杆">
@@ -428,7 +445,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
               <p>有击球数据或手动录入球杆后，这里会给出每支杆的距离模型。</p>
             </article>
           ) : null}
-          {data.clubs.map((club) => {
+          {visibleClubs.map((club) => {
             const confidence = asString(club.confidence)
             const hazardRate = asNumber(club.hazardRate)
             return (
@@ -458,6 +475,9 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
             )
           })}
         </div>
+        {data.clubs.length > CLUBS_CAP ? (
+          <ShowAllToggle total={data.clubs.length} expanded={clubsExpanded} onToggle={() => setClubsExpanded((value) => !value)} />
+        ) : null}
       </section>
 
       <section id="strengths-issues" className="panel compact-panel" aria-label="问题">
@@ -497,7 +517,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
               <p>分析跑过之后，规则、AI 建议和手动标注的问题会出现在这里。</p>
             </article>
           ) : null}
-          {data.issues.map((issue) => {
+          {visibleIssues.map((issue) => {
             const confidence = asString(issue.confidence)
             return (
               <article key={asString(issue.issue) ?? 'issue'} className="stats-item">
@@ -518,6 +538,9 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
             )
           })}
         </div>
+        {data.issues.length > ISSUES_CAP ? (
+          <ShowAllToggle total={data.issues.length} expanded={issuesExpanded} onToggle={() => setIssuesExpanded((value) => !value)} />
+        ) : null}
       </section>
 
       {hasAudit ? (

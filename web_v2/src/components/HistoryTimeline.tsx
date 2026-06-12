@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { HistoryRoundsResponse, MonthRoundGroup, RoundsFilters } from '../types'
 import { RoundCard } from './RoundCard'
 
@@ -32,7 +33,38 @@ function monthSummary(group: MonthRoundGroup) {
   return `${group.count} 场`
 }
 
+// 435 real rounds froze the page when every card rendered at once — show the
+// first batch and append on demand. Pure display truncation; data unchanged.
+const ROUNDS_BATCH = 60
+
+function truncatedGroups(groups: MonthRoundGroup[], cap: number): MonthRoundGroup[] {
+  const out: MonthRoundGroup[] = []
+  let used = 0
+  for (const group of groups) {
+    if (used >= cap) break
+    const take = Math.min(group.rounds.length, cap - used)
+    out.push(take === group.rounds.length ? group : { ...group, rounds: group.rounds.slice(0, take) })
+    used += take
+  }
+  return out
+}
+
 export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, onOpenRoundDetail }: HistoryTimelineProps) {
+  // Filter-change reset via the last-key idiom (PrepPage lastGlobalId): a new
+  // filter combination must restart at the first batch, never keep an
+  // expanded window from the previous result set.
+  const filterKey = JSON.stringify(filters ?? {})
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey)
+  const [visibleCount, setVisibleCount] = useState(ROUNDS_BATCH)
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey)
+    setVisibleCount(ROUNDS_BATCH)
+  }
+
+  const totalRounds = data.groups.reduce((sum, group) => sum + group.rounds.length, 0)
+  const visibleGroups = totalRounds > visibleCount ? truncatedGroups(data.groups, visibleCount) : data.groups
+  const hiddenRounds = Math.max(0, totalRounds - visibleCount)
+
   return (
     <>
       <section className="overview-hero">
@@ -98,7 +130,7 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
       ) : null}
 
       <section className="timeline-stack" aria-label="球局时间线">
-        {data.groups.map((group) => (
+        {visibleGroups.map((group) => (
           <section className="timeline-month" key={group.key}>
             <div className="timeline-month-head">
               <div>
@@ -118,6 +150,14 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
           </section>
         ))}
       </section>
+
+      {hiddenRounds > 0 ? (
+        <div className="w4-load-more">
+          <button type="button" className="w4-load-more-btn" onClick={() => setVisibleCount((count) => count + ROUNDS_BATCH)}>
+            加载更多(还有 {hiddenRounds} 场)
+          </button>
+        </div>
+      ) : null}
     </>
   )
 }

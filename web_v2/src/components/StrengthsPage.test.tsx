@@ -476,6 +476,76 @@ describe('StrengthsPage 问题', () => {
   })
 })
 
+// Real data: 1200+ hole rows / dozens of clubs and issues rendered all at once
+// froze the page. Sections cap their rows and expand on demand; data unchanged.
+describe('StrengthsPage 大数据截断', () => {
+  function manyHoles(count: number) {
+    return Array.from({ length: count }, (_, index) => ({
+      courseKey: 'black_knight',
+      hole: index + 1,
+      sampleCount: 2,
+      averageToPar: 1,
+      worstToPar: 2,
+      refs: [`9000${index}:1`],
+    }))
+  }
+
+  function manyClubs(count: number) {
+    return Array.from({ length: count }, (_, index) => ({
+      club: `C${index + 1}`,
+      sampleCount: 3,
+      median: 100 + index,
+      p10: 90,
+      p90: 110,
+      max: 120,
+      shotRefs: [`9000${index}:1:0`],
+    }))
+  }
+
+  function manyIssues(count: number) {
+    return Array.from({ length: count }, (_, index) => ({
+      issue: `issue_${index + 1}`,
+      count: index + 1,
+      refs: [`9000${index}`],
+    }))
+  }
+
+  it('按洞 caps at 24 rows with an aria-expanded 展开全部 toggle', async () => {
+    const data = fixture({ holes: manyHoles(25), diagnosis: {} })
+    const { container } = render(<StrengthsPage data={data} />)
+
+    expect(container.querySelectorAll('.hole-stats-item')).toHaveLength(24)
+    const section = screen.getByLabelText('按洞')
+    const toggle = within(section).getByRole('button', { name: '展开全部(共 25)' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    await userEvent.click(toggle)
+
+    expect(container.querySelectorAll('.hole-stats-item')).toHaveLength(25)
+    expect(within(section).getByRole('button', { name: '收起' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('按杆 and 问题 cap at 30 rows with the same expand affordance', async () => {
+    const data = fixture({ clubs: manyClubs(31), issues: manyIssues(31), diagnosis: {} })
+    render(<StrengthsPage data={data} />)
+
+    const clubSection = screen.getByLabelText('按杆')
+    expect(clubSection.querySelectorAll('article.stats-item')).toHaveLength(30)
+    await userEvent.click(within(clubSection).getByRole('button', { name: '展开全部(共 31)' }))
+    expect(clubSection.querySelectorAll('article.stats-item')).toHaveLength(31)
+
+    const issueSection = screen.getByLabelText('问题')
+    expect(issueSection.querySelectorAll('article.stats-item')).toHaveLength(30)
+    await userEvent.click(within(issueSection).getByRole('button', { name: '展开全部(共 31)' }))
+    expect(issueSection.querySelectorAll('article.stats-item')).toHaveLength(31)
+  })
+
+  it('renders no expand toggle when a section is under its cap', () => {
+    render(<StrengthsPage data={fixture()} />)
+    expect(screen.queryByRole('button', { name: /展开全部/ })).not.toBeInTheDocument()
+  })
+})
+
 describe('StrengthsPage 引擎自检', () => {
   it('keeps the decision-audit content inside a closed details block at the page bottom', () => {
     render(<StrengthsPage data={fixture()} onSelectRef={vi.fn()} />)
