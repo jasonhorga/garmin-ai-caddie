@@ -88,6 +88,24 @@ class ServerV2HistoryRoundsTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-history-rounds-v2")
         self.assertNotIn("schema_", payload)
 
+    def test_history_rounds_endpoint_honors_limit_param(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        from ai_caddie.config import get_settings
+
+        with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
+            get_settings.cache_clear()
+            client = TestClient(app)
+            capped = client.get("/api/v2/history/rounds?limit=1").json()
+            full = client.get("/api/v2/history/rounds?limit=1000").json()
+        get_settings.cache_clear()
+
+        self.assertEqual(sum(len(group["rounds"]) for group in capped["groups"]), 1)
+        self.assertGreaterEqual(sum(len(group["rounds"]) for group in full["groups"]), 3)
+        # total reports all matching rounds regardless of the page cap.
+        self.assertEqual(capped["total"], full["total"])
+
     def test_history_rounds_endpoint_can_use_fixture_mode(self) -> None:
         import os
         from unittest.mock import patch
