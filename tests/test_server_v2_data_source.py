@@ -62,6 +62,33 @@ class ServerV2DataSourceTests(unittest.TestCase):
         self.assertEqual(mode, "local")
         self.assertEqual(data.rounds, [{"id": 1}])
 
+    def test_non_owner_empty_does_not_inherit_owner_snapshot_or_fixture(self) -> None:
+        # Red-line: a non-owner player with zero rounds must stay scoped to their own
+        # (empty) data and never inherit the OWNER's Garmin snapshot or the shared fixture
+        # rounds. If this guard is ever removed, owner data leaks to every friend.
+        owner_snapshot = HistoryData(
+            raw_rounds=[{"id": "owner-snap"}],
+            rounds=[{"id": "owner-snap", "course": "Owner Snapshot Links"}],
+            shots=[{"roundId": "owner-snap", "club": "1W"}],
+        )
+        with (
+            patch(
+                "server_v2.data_source.cached_load_history_data",
+                return_value=HistoryData(raw_rounds=[], rounds=[], shots=[]),
+            ),
+            patch(
+                "server_v2.data_source.load_latest_snapshot_history",
+                return_value=owner_snapshot,
+            ) as snapshot,
+            patch("server_v2.data_source.fixture_history_data") as fixture,
+        ):
+            data, mode = load_history_data_for_mode("local_or_fixture", player_id="p_friend")
+
+        self.assertEqual(mode, "local")
+        self.assertEqual(data.rounds, [])
+        snapshot.assert_not_called()  # owner snapshot never read for a non-owner
+        fixture.assert_not_called()  # shared fixture rounds never inherited by a non-owner
+
 
 if __name__ == "__main__":
     unittest.main()

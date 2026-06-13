@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
 from ai_caddie import course_search
+from ai_caddie.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
 from ai_caddie.connectors.snapshot import snapshot_to_payload
 
@@ -447,17 +448,24 @@ def course_prep_nine(
     the player's past TEE/APPROACH end positions into overlay px (``yourShots``) on rendered
     holes they have history for.
 
-    ``player_id`` (resolved from the bearer/admin token) gates access to this player-side
-    route. The course_prep engine's club ladder + shot scatter still read the owner's data
-    (parametrizing course_prep by player is outside Task 2/4's surface — owner/admin path
-    only for now); see the multiplayer-foundation plan follow-up."""
+    The club ladder (the player's real distances) and shot scatter (their real TEE/APPROACH
+    end positions) are PLAYER data. The course_prep engine still sources both from the
+    owner's data, so only the owner ("me", incl. the admin token) gets the real ladder +
+    scatter; a non-owner player gets the course knowledge (par/route/hazards) with a generic
+    default ladder and never the owner's projected shots (per-player engine scoping is a
+    multiplayer-foundation follow-up)."""
     from ai_caddie import course_prep
 
-    _ = player_id  # access is gated by the dependency; engine scoping is a follow-up
+    is_owner = player_id == OWNER_ID
     requested = holes or course_prep.available_prep_holes(global_id)
-    ladder = course_prep.club_ladder()
+    # Owner reads their real club model; a non-owner falls back to the generic default
+    # ladder so the owner's measured distances never leak.
+    ladder = course_prep.club_ladder() if is_owner else sorted(
+        course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]
+    )
+    # Shot scatter projects the owner's real end positions — never expose it to a non-owner.
     nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
-                                 include_shots=include_shots)
+                                 include_shots=include_shots and is_owner)
     return {
         "schema": "ai-caddie-course-prep-v1",
         "globalId": int(global_id),
@@ -763,11 +771,10 @@ def weather_snapshot(
 
 @app.get("/api/v2/reports", response_model=ReviewReportIndexResponse)
 def report_index(player_id: str = Depends(current_player_id)) -> ReviewReportIndexResponse:
-    # ``player_id`` gates this player-side route. The report store is a shared single-file
-    # store (owner-generated reports only; generation is admin-only), so the index is not
-    # yet partitioned per player — per-player report stores are a follow-up beyond Task 6.
-    _ = player_id
-    return load_report_index_response()
+    # The report store is a shared single-file store of OWNER-generated reports only
+    # (generation is admin-only). The owner ("me", incl. the admin token) sees the index;
+    # a non-owner player gets an empty index — never the owner's stored reports/round ids.
+    return load_report_index_response(player_id=player_id)
 
 
 @app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)
