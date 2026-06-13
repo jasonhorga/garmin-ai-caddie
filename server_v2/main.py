@@ -52,7 +52,12 @@ from .mobile import (
     reconcile_mobile_round_response,
     replay_mobile_events_response,
 )
-from .players_api import current_player_id, has_valid_player_token, is_player_scoped_route
+from .players_api import (
+    admin_router,
+    current_player_id,
+    has_valid_player_token,
+    is_player_scoped_route,
+)
 from .prep_tips import load_prep_tips_response
 from .weather import load_weather_snapshot_response
 from .models import (
@@ -134,6 +139,7 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
+app.include_router(admin_router)
 
 
 def cors_allowed_origins() -> list[str]:
@@ -160,7 +166,7 @@ app.add_middleware(
     allow_origins=cors_allowed_origins(),
     allow_origin_regex=cors_allowed_origin_regex(),
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -208,6 +214,11 @@ def _truthy_query_flag(value: str | None) -> bool:
 
 def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> bool:
     normalized_method = method.upper()
+    # Every owner-management route (/api/v2/admin/*) requires the admin token,
+    # regardless of method. These are never player-scoped, so a per-player token
+    # cannot bypass the gate in enforce_admin_token_before_body_validation.
+    if path == "/api/v2/admin" or path.startswith("/api/v2/admin/"):
+        return True
     if normalized_method == "GET":
         return (
             path.startswith("/api/v2/history/")

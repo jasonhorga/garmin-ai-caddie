@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import hmac
 import os
+from typing import Any
 
-from fastapi import HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 from ai_caddie import players
 from ai_caddie.players import OWNER_ID
@@ -115,3 +117,90 @@ def is_player_scoped_route(method: str, path: str) -> bool:
         or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
         or path == "/api/v2/mobile/courses/options"
     )
+
+
+# ---------------------------------------------------------------------------
+# Owner management API (admin token). Admin-token enforcement is performed by
+# the global ``enforce_admin_token_before_body_validation`` gate in
+# ``server_v2.main`` for every ``/api/v2/admin/*`` route (these are NOT
+# player-scoped, so a per-player token never bypasses the gate). Keeping the
+# admin check in the middleware avoids a circular import back into ``main`` and
+# preserves the established 401 (configured-but-missing) / 503 (fail-closed
+# under a private profile) semantics.
+# ---------------------------------------------------------------------------
+
+admin_router = APIRouter(prefix="/api/v2/admin", tags=["admin-players"])
+
+
+class PlayerCreateRequest(BaseModel):
+    name: str
+    avatar: str | None = None
+
+
+class PlayerUpdateRequest(BaseModel):
+    name: str | None = None
+    avatar: str | None = None
+
+
+def _public_player(row: dict[str, Any]) -> dict[str, Any]:
+    """Registry row → owner-facing view: never any token material, never data."""
+    return {
+        "id": row.get("id"),
+        "name": row.get("name"),
+        "isOwner": bool(row.get("isOwner", False)),
+        "createdAt": row.get("createdAt"),
+        "avatar": row.get("avatar"),
+        "tokenLast4": row.get("tokenLast4"),
+    }
+
+
+def _player_url(request: Request, token: str) -> str:
+    return f"{request.base_url}p/{token}"
+
+
+@admin_router.get("/players")
+def admin_list_players() -> dict[str, Any]:
+    reg = players.load_registry()
+    return {"players": [_public_player(row) for row in reg["players"]]}
+
+
+@admin_router.post("/players", status_code=201)
+def admin_create_player(body: PlayerCreateRequest, request: Request) -> dict[str, Any]:
+    created = players.create_player(body.name, avatar=body.avatar)
+    token = created["token"]  # plaintext returned ONCE, never persisted/logged
+    return {
+        "id": created["id"],
+        "name": created["name"],
+        "token": token,
+        "url": _player_url(request, token),
+    }
+
+
+@admin_router.patch("/players/{player_id}")
+def admin_update_player(player_id: str, body: PlayerUpdateRequest) -> dict[str, Any]:
+    try:
+        row = players.update_player(player_id, name=body.name, avatar=body.avatar)
+    except players.PlayerError:
+        raise HTTPException(status_code=404, detail="unknown player")
+    return _public_player(row)
+
+
+@admin_router.post("/players/{player_id}/rotate-token")
+def admin_rotate_token(player_id: str, request: Request) -> dict[str, Any]:
+    try:
+        rotated = players.rotate_token(player_id)
+    except players.PlayerError:
+        raise HTTPException(status_code=404, detail="unknown player")
+    token = rotated["token"]
+    return {"id": rotated["id"], "token": token, "url": _player_url(request, token)}
+
+
+@admin_router.delete("/players/{player_id}")
+def admin_delete_player(player_id: str) -> dict[str, Any]:
+    if player_id == OWNER_ID:
+        raise HTTPException(status_code=400, detail="owner cannot be deleted")
+    try:
+        players.delete_player(player_id)
+    except players.PlayerError:
+        raise HTTPException(status_code=404, detail="unknown player")
+    return {"ok": True, "id": player_id}

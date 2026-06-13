@@ -77,6 +77,24 @@ def rotate_token(player_id: str, *, root: Path | str | None = None) -> dict[str,
     return {"id": player_id, "token": token}
 
 
+def update_player(
+    player_id: str,
+    *,
+    name: str | None = None,
+    avatar: str | None = None,
+    root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Rename / re-avatar a player. ``None`` fields are left unchanged."""
+    reg = load_registry(root)
+    row = _find(reg, player_id)  # raises PlayerError if missing
+    if name is not None:
+        row["name"] = name
+    if avatar is not None:
+        row["avatar"] = avatar
+    _save_registry(reg, root)
+    return row
+
+
 def resolve_token(token: str | None, *, root: Path | str | None = None) -> str | None:
     if not token:
         return None
