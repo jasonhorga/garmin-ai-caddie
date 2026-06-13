@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from ai_caddie import players
 from ai_caddie.history import OWNER_ID, HistoryData, average
 
 from .data_source import load_history_data_for_mode
 from .models import (
+    CurrentPlayer,
     DataQualityBadge,
     DistributionBucket,
     DistributionFamily,
@@ -197,10 +199,25 @@ def round_card_for_row(row: dict[str, Any]) -> RoundCard:
         scoreStrip=score_strip_for_round(row),
         badges=_round_badges(row),
         primaryIssue=None if row.get("hasShots") else "missing_shots",
+        source=row.get("source"),
     )
 
 
-def build_history_overview_response(data: HistoryData) -> HistoryOverviewResponse:
+def _current_player_model(player_id: str) -> CurrentPlayer | None:
+    profile = players.get_player(player_id)
+    if profile is None:
+        return None
+    return CurrentPlayer(
+        id=str(profile.get("id") or player_id),
+        name=profile.get("name"),
+        isOwner=bool(profile.get("isOwner", False)),
+        avatar=profile.get("avatar"),
+    )
+
+
+def build_history_overview_response(
+    data: HistoryData, current_player: CurrentPlayer | None = None
+) -> HistoryOverviewResponse:
     rounds = list(data.rounds)
     rounds18 = [r for r in rounds if r.get("holesCompleted") == 18 and r.get("strokes")]
     scores18 = [int(r["strokes"]) for r in rounds18]
@@ -222,6 +239,7 @@ def build_history_overview_response(data: HistoryData) -> HistoryOverviewRespons
         recentRounds=[round_card_for_row(row) for row in recent_rounds],
         distribution=_score_distribution(rounds18),
         dataQuality=_quality_badges(data),
+        currentPlayer=current_player,
         emptyState=EmptyState(
             kind="no_rounds",
             title="No local Garmin data loaded",
@@ -236,4 +254,4 @@ def build_history_overview_response(data: HistoryData) -> HistoryOverviewRespons
 
 def load_history_overview_response(player_id: str = OWNER_ID) -> HistoryOverviewResponse:
     data, _mode = load_history_data_for_mode(player_id=player_id)
-    return build_history_overview_response(data)
+    return build_history_overview_response(data, _current_player_model(player_id))

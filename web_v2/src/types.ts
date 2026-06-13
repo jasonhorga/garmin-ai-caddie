@@ -44,6 +44,10 @@ export interface ScoreStripCell {
   className: ScoreClass
 }
 
+// 'manual' rounds are phone-logged (补录); 'garmin' rounds come from the watch
+// sync. The web只用它做展示标注 (手动 chip) — engines treat both alike.
+export type RoundSource = 'garmin' | 'manual'
+
 export interface RoundCard {
   id: string
   date: string | null
@@ -56,6 +60,18 @@ export interface RoundCard {
   scoreStrip: ScoreStripCell[]
   badges: DataQualityBadge[]
   primaryIssue: string | null
+  // Optional / forward-compatible: absent on legacy payloads → treated as Garmin.
+  source?: RoundSource | null
+}
+
+// The token-resolved player whose data the whole app is currently scoped to
+// (player link → that friend; owner/admin → "me"). Read-only identity for the
+// top-bar badge — there is no switcher.
+export interface CurrentPlayer {
+  id: string
+  name: string
+  isOwner: boolean
+  avatar: string | null
 }
 
 export interface HistoryMetricSet {
@@ -106,6 +122,9 @@ export interface HistoryOverviewResponse {
   distribution: ScoreDistribution
   dataQuality: DataQualityBadge[]
   emptyState: EmptyState | null
+  // Identity of the token-resolved player (for the read-only top-bar badge).
+  // Optional / forward-compatible: absent on legacy payloads → no badge shown.
+  currentPlayer?: CurrentPlayer | null
 }
 
 export interface CaddieDecisionRequest {

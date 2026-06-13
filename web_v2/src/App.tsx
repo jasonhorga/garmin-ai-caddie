@@ -1361,6 +1361,7 @@ export default function App() {
       activePage={activePage}
       onNavigate={navigate}
       playersAdminVisible={!playerToken && Boolean(currentAdminToken())}
+      currentPlayer={overviewState.status === 'ready' ? overviewState.data.currentPlayer ?? null : null}
     >
       {renderActivePage()}
     </AppShell>

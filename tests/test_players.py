@@ -48,3 +48,18 @@ class PlayersRegistryTests(unittest.TestCase):
         self.assertIsNone(players.resolve_token(created["token"], root=self.root))
         with self.assertRaises(players.PlayerError):
             players.delete_player("me", root=self.root)
+
+    def test_get_player_returns_public_profile_without_token_material(self) -> None:
+        created = players.create_player("老王", root=self.root)
+        profile = players.get_player(created["id"], root=self.root)
+        self.assertEqual(profile, {"id": created["id"], "name": "老王", "isOwner": False, "avatar": None})
+        self.assertNotIn("tokenHash", profile)
+        self.assertIsNone(players.get_player("p_missing", root=self.root))
+
+    def test_get_player_does_not_seed_registry(self) -> None:
+        # Read-only on a hot path: no registry file should be written, and the
+        # implicit owner is still resolvable before any seed.
+        owner = players.get_player("me", root=self.root)
+        self.assertEqual(owner["id"], "me")
+        self.assertTrue(owner["isOwner"])
+        self.assertFalse((self.root / "data" / "players" / "registry.json").exists())

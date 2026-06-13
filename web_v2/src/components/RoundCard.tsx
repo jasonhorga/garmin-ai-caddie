@@ -28,6 +28,11 @@ export function RoundCard({ round, onSelectRef, onOpenRoundDetail }: RoundCardPr
           <p>
             {round.date ?? 'Unknown date'} - {round.holesCompleted ?? '-'}H
           </p>
+          {round.source === 'manual' ? (
+            <span className="quality-chip round-source-chip" aria-label="手动录入的球局">
+              手动
+            </span>
+          ) : null}
         </div>
         <div className="round-score">
           <strong>{round.score ?? '-'}</strong>

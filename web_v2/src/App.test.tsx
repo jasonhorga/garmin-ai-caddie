@@ -1096,6 +1096,29 @@ describe('App navigation', () => {
     await waitFor(() => expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument())
   })
 
+  it('renders the read-only current-player badge from the overview payload', async () => {
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return { ...overviewPayload(), currentPlayer: { id: 'p_a1b2', name: '老王', isOwner: false, avatar: null } }
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    const badge = await screen.findByLabelText('当前球员 老王')
+    expect(within(badge).getByText('老王')).toBeInTheDocument()
+    // Read-only: the top-bar identity is not a switcher.
+    expect(within(badge).queryByRole('button')).not.toBeInTheDocument()
+  })
+
   it('can recover protected history overview after entering an admin token', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/v2/sync/status') {

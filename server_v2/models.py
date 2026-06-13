@@ -226,6 +226,18 @@ class RoundCard(BaseModel):
     scoreStrip: list[ScoreStripCell]
     badges: list[DataQualityBadge]
     primaryIssue: str | None = None
+    # "manual" = phone-logged补录; "garmin" (or None on legacy rows) = watch sync.
+    # Display-only marker — engines treat both sources alike.
+    source: str | None = None
+
+
+class CurrentPlayer(BaseModel):
+    """Identity of the token-resolved player for the read-only top-bar badge."""
+
+    id: str
+    name: str | None
+    isOwner: bool = False
+    avatar: str | None = None
 
 
 class HistoryMetricSet(BaseModel):
@@ -278,6 +290,8 @@ class HistoryOverviewResponse(BaseModel):
     distribution: ScoreDistribution
     dataQuality: list[DataQualityBadge]
     emptyState: EmptyState | None
+    # Token-resolved player whose data this payload represents (top-bar badge).
+    currentPlayer: CurrentPlayer | None = None
 
 
 class MonthRoundGroup(BaseModel):

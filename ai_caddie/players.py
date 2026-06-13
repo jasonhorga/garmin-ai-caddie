@@ -118,6 +118,31 @@ def delete_player(player_id: str, *, root: Path | str | None = None) -> None:
         shutil.rmtree(pdir)
 
 
+def get_player(player_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
+    """Public profile (no token material) for one player, or ``None`` if unknown.
+
+    Read-only on purpose: unlike :func:`load_registry` it never seeds/writes the
+    registry, so it is safe to call on hot read paths (e.g. the history
+    overview). When the registry has not been created yet only the implicit
+    owner ``"me"`` is known.
+    """
+    path = _registry_path(root)
+    if path.exists():
+        reg = json.loads(path.read_text(encoding="utf-8"))
+        for row in reg.get("players", []):
+            if row.get("id") == player_id:
+                return {
+                    "id": row.get("id"),
+                    "name": row.get("name"),
+                    "isOwner": bool(row.get("isOwner", False)),
+                    "avatar": row.get("avatar"),
+                }
+        return None
+    if player_id == OWNER_ID:
+        return {"id": OWNER_ID, "name": "我", "isOwner": True, "avatar": None}
+    return None
+
+
 def _find(reg: dict[str, Any], player_id: str) -> dict[str, Any]:
     for row in reg["players"]:
         if row["id"] == player_id:
