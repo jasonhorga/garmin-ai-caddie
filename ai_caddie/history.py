@@ -24,13 +24,38 @@ from .data import (
     mesh_path,
     read_json,
     round_hole_ref,
-    scorecard_files,
     semicircle_to_deg,
     wgs84_to_local,
 )
 
 REPORT_DIR = ROOT / "output" / "ai_caddie"
 OLD_REVIEW_DIR = ROOT / "output" / "ai_reviews"
+
+# Owner ("me") keeps reading the existing flat ``data/`` root for zero migration;
+# every other player reads ``data/players/<id>/``. Paths derive from the module-level
+# ``ROOT`` so tests can repoint the whole tree by patching ``history.ROOT``.
+OWNER_ID = "me"
+
+
+def _player_data_dir(player_id: str = OWNER_ID) -> Path:
+    base = ROOT / "data"
+    return base if player_id == OWNER_ID else base / "players" / player_id
+
+
+def _player_scorecard_files(scorecards_dir: Path) -> list[Path]:
+    return sorted(scorecards_dir.glob("*.json"))
+
+
+def _player_shot_file(shots_dir: Path, scorecard_id: int | str) -> dict[str, Any] | None:
+    """Per-player mirror of ``data.load_shot_file`` (which is pinned to the flat
+    ``data/shots`` dir). Same semantics: missing file or ``_no_data`` -> ``None``."""
+    path = shots_dir / f"{scorecard_id}.json"
+    if not path.exists():
+        return None
+    data = read_json(path)
+    if data.get("_no_data"):
+        return None
+    return data
 
 CLUB_TYPE_NAME = {
     0: "Unknown",
@@ -214,7 +239,7 @@ def _shot_data_has_usable_rows(shot_data: dict[str, Any] | None) -> bool:
     return False
 
 
-def _scorecard_to_round(raw: dict[str, Any]) -> dict[str, Any]:
+def _scorecard_to_round(raw: dict[str, Any], *, shots_dir: Path | None = None) -> dict[str, Any]:
     detail = raw["scorecardDetails"][0]
     sc = detail["scorecard"]
     stats = detail.get("scorecardStats", {}).get("round", {}) or {}
@@ -223,8 +248,14 @@ def _scorecard_to_round(raw: dict[str, Any]) -> dict[str, Any]:
     course_name = snap.get("name") or "Unknown course"
     canon = canonical_course_name(course_name)
     sid = sc["id"]
-    shot_path = SHOT_DIR / f"{sid}.json"
-    shot_data = load_shot_file(sid)
+    if shots_dir is None:
+        # Default/owner path: keep using the module-level SHOT_DIR + data.load_shot_file
+        # so existing callers/tests that patch those names are byte-for-byte unchanged.
+        shot_path = SHOT_DIR / f"{sid}.json"
+        shot_data = load_shot_file(sid)
+    else:
+        shot_path = shots_dir / f"{sid}.json"
+        shot_data = _player_shot_file(shots_dir, sid)
     has_usable_shots = _shot_data_has_usable_rows(shot_data)
     if has_usable_shots:
         shot_status = "ready"
@@ -280,11 +311,14 @@ def _scorecard_to_round(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def load_raw_rounds() -> list[dict[str, Any]]:
+def load_raw_rounds(player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    data_dir = _player_data_dir(player_id)
+    scorecards_dir = data_dir / "scorecards"
+    shots_dir = data_dir / "shots"
     rounds = []
-    for path in scorecard_files():
+    for path in _player_scorecard_files(scorecards_dir):
         try:
-            rounds.append(_scorecard_to_round(read_json(path)))
+            rounds.append(_scorecard_to_round(read_json(path), shots_dir=shots_dir))
         except Exception:
             continue
     rounds.sort(key=lambda r: r["date"])
@@ -377,11 +411,17 @@ def _loc_to_wgs84(loc: dict[str, Any] | None) -> dict[str, Any] | None:
     return {"lat": lat, "lon": lon, "lie": loc.get("lie"), "lieSource": loc.get("lieSource")}
 
 
-def load_shot_history(raw_rounds: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    raw_rounds = raw_rounds if raw_rounds is not None else load_raw_rounds()
+def load_shot_history(
+    raw_rounds: list[dict[str, Any]] | None = None,
+    player_id: str = OWNER_ID,
+) -> list[dict[str, Any]]:
+    raw_rounds = raw_rounds if raw_rounds is not None else load_raw_rounds(player_id=player_id)
+    data_dir = _player_data_dir(player_id)
+    scorecards_dir = data_dir / "scorecards"
+    shots_dir = data_dir / "shots"
     rounds_by_id = {int(r["id"]): r for r in raw_rounds if not str(r["id"]).startswith("merged_")}
     rows = []
-    for path in sorted(SHOT_DIR.glob("*.json")):
+    for path in sorted(shots_dir.glob("*.json")):
         try:
             sid = int(path.stem)
         except ValueError:
@@ -399,7 +439,7 @@ def load_shot_history(raw_rounds: list[dict[str, Any]] | None = None) -> list[di
         for hole_data in shot_data.get("holeShots", []) or []:
             hole_number = int(hole_data.get("holeNumber") or 0)
             try:
-                ref = round_hole_ref(load_scorecard(sid), hole_number)
+                ref = round_hole_ref(read_json(scorecards_dir / f"{sid}.json"), hole_number)
             except Exception:
                 ref = None
             for shot in hole_data.get("shots", []) or []:
@@ -429,10 +469,10 @@ def load_shot_history(raw_rounds: list[dict[str, Any]] | None = None) -> list[di
     return rows
 
 
-def load_history_data() -> HistoryData:
-    raw_rounds = load_raw_rounds()
+def load_history_data(player_id: str = OWNER_ID) -> HistoryData:
+    raw_rounds = load_raw_rounds(player_id=player_id)
     rounds = merge_same_day_halves(raw_rounds)
-    shots = load_shot_history(raw_rounds)
+    shots = load_shot_history(raw_rounds, player_id=player_id)
     return HistoryData(raw_rounds=raw_rounds, rounds=rounds, shots=shots)
 
 
