@@ -7,6 +7,35 @@ from pathlib import Path
 from unittest import mock
 
 from ai_caddie import history
+from ai_caddie.history_stats import build_history_stats
+
+
+def _write_shots(base: Path, rid: int) -> None:
+    """Write a minimal usable shot file under ``base/shots/<rid>.json``.
+
+    One hole with one shot is enough for ``_shot_data_has_usable_rows`` to report
+    ``hasShots=True`` and for ``load_shot_history`` to emit a shot row. No real
+    coordinates are written (start/end omitted -> WGS84 ``None``)."""
+    sd = base / "shots"
+    sd.mkdir(parents=True, exist_ok=True)
+    (sd / f"{rid}.json").write_text(
+        json.dumps(
+            {
+                "scorecardId": rid,
+                "clubDetails": [{"clubId": 1, "name": "Driver", "clubTypeId": 1}],
+                "holeShots": [
+                    {
+                        "holeNumber": 1,
+                        "shots": [
+                            {"id": f"{rid}-s1", "shotOrder": 1, "clubId": 1,
+                             "shotType": "tee", "meters": 200}
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _write_round(
@@ -114,6 +143,58 @@ class OwnerMergeTests(unittest.TestCase):
         with mock.patch.object(history, "ROOT", self.root):
             rounds = history.load_raw_rounds(player_id="me")
         self.assertEqual(rounds[0]["source"], "manual")
+
+
+class SupersededRoundExclusionTests(unittest.TestCase):
+    """A Garmin-superseded manual duplicate (even one that has its own shots file)
+    must not be counted in stats: spec §4 says it does not count. raw_rounds is the
+    counting surface for dataQuality (``_data_quality`` total / ``_shot_row_quality``
+    expected ids), so the superseded round must be absent from ``data.raw_rounds`` and
+    its shots absent from ``data.shots``."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.flat = self.root / "data"
+        self.me_manual = self.root / "data" / "players" / "me"
+        self.none = str(self.root / "none")  # nonexistent aux roots -> empty/stable
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_superseded_manual_round_with_shots_excluded_from_quality_and_shots(self) -> None:
+        # Garmin round 100 and a manual phone duplicate 200 on the SAME day + course;
+        # Garmin wins, 200 is supersededBy 100. BOTH have a shots/<id>.json file.
+        _write_round(self.flat, 100, "2026-05-01T08:00:00", "Owner Course", 80)
+        _write_shots(self.flat, 100)
+        _write_round(self.me_manual, 200, "2026-05-01T14:00:00", "Owner Course", 99)
+        _write_shots(self.me_manual, 200)
+
+        with mock.patch.object(history, "ROOT", self.root):
+            data = history.load_history_data(player_id="me")
+
+        # The superseded duplicate is excluded from the counting surface.
+        self.assertEqual([r["id"] for r in data.raw_rounds], [100])
+        # Its shots never surface (covers the load_shot_history supersededBy filter).
+        scorecard_ids = {s.get("scorecardId") for s in data.shots}
+        self.assertIn(100, scorecard_ids)
+        self.assertNotIn(200, scorecard_ids)
+
+        stats = build_history_stats(
+            data,
+            data_mode="local",
+            annotations_root=self.none,
+            weather_root=self.none,
+            reports_root=self.none,
+            decision_audit_root=self.none,
+        )
+        quality = {row["label"]: row for row in stats["dataQuality"]}
+        # "shots" totals only the active round, not the superseded duplicate.
+        self.assertEqual(quality["shots"]["total"], 1)
+        self.assertEqual(quality["shots"]["ready"], 1)
+        # shot_rows must not falsely flag the superseded round as missing its shots.
+        self.assertEqual(quality["shot_rows"]["total"], 1)
+        self.assertEqual(quality["shot_rows"]["missingRefs"], [])
 
 
 if __name__ == "__main__":

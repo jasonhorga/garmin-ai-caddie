@@ -530,7 +530,13 @@ def load_history_data(player_id: str = OWNER_ID) -> HistoryData:
     raw_rounds = load_raw_rounds(player_id=player_id)
     rounds = merge_same_day_halves(raw_rounds)
     shots = load_shot_history(raw_rounds, player_id=player_id)
-    return HistoryData(raw_rounds=raw_rounds, rounds=rounds, shots=shots)
+    # A Garmin-superseded manual duplicate is kept on disk but does not count in stats
+    # (spec §4). HistoryData.raw_rounds is the counting surface read by every consumer
+    # (overview totals, _data_quality, _shot_row_quality, ...), so drop superseded rows
+    # here — staying consistent with merge_same_day_halves / load_shot_history, which
+    # already skip them, so the rounds/shots/raw_rounds views never disagree.
+    active_raw = [row for row in raw_rounds if not row.get("supersededBy")]
+    return HistoryData(raw_rounds=active_raw, rounds=rounds, shots=shots)
 
 
 def _round_public(row: dict[str, Any], include_holes: bool = False) -> dict[str, Any]:

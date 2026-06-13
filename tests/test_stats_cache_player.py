@@ -134,6 +134,45 @@ class StatsCachePlayerScopeTests(unittest.TestCase):
             stats_cache.cached_load_history_data(player_id="p_a")  # now cached
             self.assertEqual(load_calls["n"], 2)
 
+    def test_owner_manual_round_under_players_me_invalidates_build_cache(self) -> None:
+        # Task 3 folds data/players/me into the OWNER's data, so the owner's
+        # build-stats fingerprint must cover it: an owner phone round landing there
+        # auto-invalidates the cache (no clear() needed).
+        calls = {"n": 0}
+        me_manual_sc = self.players / "me" / "scorecards"
+        me_manual_sc.mkdir(parents=True)
+        with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.me_sc,)), \
+             patch.object(stats_cache, "_GEOMETRY_DIRS", ()), \
+             patch.object(stats_cache, "_PLAYERS_DIR", self.players):
+            data = _dummy_data()
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="me", **self.roots)
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="me", **self.roots)
+            self.assertEqual(calls["n"], 1)  # owner warm + hit
+            # Owner records a phone round under data/players/me -> fingerprint changes.
+            (me_manual_sc / "r1.json").write_text("{}")
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="me", **self.roots)
+            self.assertEqual(calls["n"], 2)  # recomputed, not stale
+
+    def test_owner_manual_round_under_players_me_invalidates_load_cache(self) -> None:
+        load_calls = {"n": 0}
+
+        def fake_load(*args, **kwargs):
+            load_calls["n"] += 1
+            return _dummy_data()
+
+        me_manual_sc = self.players / "me" / "scorecards"
+        me_manual_sc.mkdir(parents=True)
+        with patch.object(stats_cache, "_load_history_data", fake_load), \
+             patch.object(stats_cache, "_LOAD_DIRS", (self.me_sc,)), \
+             patch.object(stats_cache, "_PLAYERS_DIR", self.players):
+            stats_cache.cached_load_history_data()  # owner warm
+            stats_cache.cached_load_history_data()  # owner hit
+            self.assertEqual(load_calls["n"], 1)
+            (me_manual_sc / "r1.json").write_text("{}")
+            stats_cache.cached_load_history_data()  # owner re-loads after phone round
+            self.assertEqual(load_calls["n"], 2)
+
     def test_default_player_id_is_owner(self) -> None:
         # No player_id given == owner ("me"): backward-compatible with all existing callers.
         calls = {"n": 0}

@@ -58,7 +58,11 @@ def _fingerprint_dirs(player_id: str) -> tuple[Path, ...]:
     player uses their per-player scorecards/shots root plus the shared geometry dirs.
     """
     if player_id == OWNER_ID:
-        return _FINGERPRINT_DIRS
+        # Owner data = flat data/ PLUS data/players/me (manual phone rounds folded in
+        # by ai_caddie.history; Task 3). Cover both so an owner phone round landing under
+        # players/me auto-invalidates instead of serving stale stats.
+        owner = _PLAYERS_DIR / OWNER_ID
+        return (*_FINGERPRINT_DIRS, owner / "scorecards", owner / "shots")
     base = _PLAYERS_DIR / player_id
     return (base / "scorecards", base / "shots", *_GEOMETRY_DIRS)
 
@@ -66,7 +70,9 @@ def _fingerprint_dirs(player_id: str) -> tuple[Path, ...]:
 def _load_dirs(player_id: str) -> tuple[Path, ...]:
     """Dirs that feed load_history_data (rounds + shots) for ``player_id``."""
     if player_id == OWNER_ID:
-        return _LOAD_DIRS
+        # Owner load spans flat data/ + data/players/me (see _fingerprint_dirs).
+        owner = _PLAYERS_DIR / OWNER_ID
+        return (*_LOAD_DIRS, owner / "scorecards", owner / "shots")
     base = _PLAYERS_DIR / player_id
     return (base / "scorecards", base / "shots")
 
