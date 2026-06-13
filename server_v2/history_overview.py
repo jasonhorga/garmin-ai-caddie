@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from ai_caddie.history import HistoryData, average
+from ai_caddie.history import OWNER_ID, HistoryData, average
 
 from .data_source import load_history_data_for_mode
 from .models import (
@@ -234,6 +234,6 @@ def build_history_overview_response(data: HistoryData) -> HistoryOverviewRespons
     )
 
 
-def load_history_overview_response() -> HistoryOverviewResponse:
-    data, _mode = load_history_data_for_mode()
+def load_history_overview_response(player_id: str = OWNER_ID) -> HistoryOverviewResponse:
+    data, _mode = load_history_data_for_mode(player_id=player_id)
     return build_history_overview_response(data)

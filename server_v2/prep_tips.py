@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie import course_prep
+from ai_caddie.history import OWNER_ID
 from ai_caddie.prep_tips import build_prep_tips
 from ai_caddie.stats_cache import cached_build_history_stats
 
@@ -42,10 +43,10 @@ def _course_key_for_global_id(rounds: list[dict[str, Any]], global_id: int) -> s
     return str(latest.get("courseKey") or "") or None
 
 
-def load_prep_tips_response(global_id: int) -> dict[str, Any]:
-    data, mode = load_history_data_for_mode()
+def load_prep_tips_response(global_id: int, *, player_id: str = OWNER_ID) -> dict[str, Any]:
+    data, mode = load_history_data_for_mode(player_id=player_id)
     stats = cached_build_history_stats(
-        data, data_mode=mode, decision_audit_root=DECISION_AUDIT_ROOT, window="all"
+        data, data_mode=mode, player_id=player_id, decision_audit_root=DECISION_AUDIT_ROOT, window="all"
     )
     course_key = _course_key_for_global_id(data.rounds, global_id)
     course_row = next(

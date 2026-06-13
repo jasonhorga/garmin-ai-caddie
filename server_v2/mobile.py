@@ -12,6 +12,7 @@ from ai_caddie.mobile_live import (
     build_mobile_course_options,
     replay_event_log,
 )
+from ai_caddie.history import OWNER_ID
 from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.weather_context import WeatherTransport
 
@@ -86,8 +87,8 @@ def build_mobile_course_package_response(
     )
 
 
-def build_mobile_course_options_response() -> MobileCourseOptionsResponse:
-    data, mode = load_history_data_for_mode()
+def build_mobile_course_options_response(player_id: str = OWNER_ID) -> MobileCourseOptionsResponse:
+    data, mode = load_history_data_for_mode(player_id=player_id)
     return MobileCourseOptionsResponse(**build_mobile_course_options(data, data_mode=mode))
 
 
