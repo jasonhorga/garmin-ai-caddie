@@ -51,6 +51,7 @@ from .mobile import (
     reconcile_mobile_round_response,
     replay_mobile_events_response,
 )
+from .players_api import has_valid_player_token, is_player_scoped_route
 from .prep_tips import load_prep_tips_response
 from .weather import load_weather_snapshot_response
 from .models import (
@@ -255,10 +256,18 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
 @app.middleware("http")
 async def enforce_admin_token_before_body_validation(request: Request, call_next):
     if _requires_admin_token(request.method, request.url.path, request.query_params):
-        try:
-            require_admin_token(request.headers.get("x-ai-caddie-admin-token"))
-        except HTTPException as exc:
-            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        # A valid per-player token grants access to player-scoped routes. Admin
+        # token handling stays in require_admin_token so its 401 (configured but
+        # missing) and 503 (fail-closed under a private profile) semantics — and
+        # the admin-token-as-owner backward compatibility — are unchanged.
+        player_token_allows = is_player_scoped_route(
+            request.method, request.url.path
+        ) and has_valid_player_token(request)
+        if not player_token_allows:
+            try:
+                require_admin_token(request.headers.get("x-ai-caddie-admin-token"))
+            except HTTPException as exc:
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     return await call_next(request)
 
 
