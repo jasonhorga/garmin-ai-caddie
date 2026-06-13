@@ -15,3 +15,8 @@ dependencies = [
     "pillow>=12.2.0",
     "uvicorn[standard]>=0.48.0",
 ]
+
+[dependency-groups]
+# Auth self-heal: headed Chromium under xvfb (garmin_playwright_login). Not a
+# runtime dependency of the API — install with `uv run --group auth` / `uv sync --group auth`.
+auth = ["playwright>=1.60"]
