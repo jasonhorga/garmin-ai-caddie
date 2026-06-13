@@ -4,6 +4,7 @@ import logging
 import threading
 from pathlib import Path
 
+from ai_caddie.history import OWNER_ID
 from ai_caddie.stats_cache import cached_build_history_stats, cached_load_history_data
 
 from .data_source import load_history_data_for_mode
@@ -14,10 +15,12 @@ DECISION_AUDIT_ROOT = Path(".")
 logger = logging.getLogger(__name__)
 
 
-def load_history_stats_response(window: str = "all") -> HistoryStatsResponse:
-    data, mode = load_history_data_for_mode()
+def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> HistoryStatsResponse:
+    data, mode = load_history_data_for_mode(player_id=player_id)
     return HistoryStatsResponse(
-        **cached_build_history_stats(data, data_mode=mode, decision_audit_root=DECISION_AUDIT_ROOT, window=window)
+        **cached_build_history_stats(
+            data, data_mode=mode, player_id=player_id, decision_audit_root=DECISION_AUDIT_ROOT, window=window
+        )
     )
 
 

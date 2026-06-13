@@ -47,7 +47,154 @@ import {
   redactMedia,
   runGarminSync,
   saveGarminSession,
+  fetchAdminPlayers,
+  createAdminPlayer,
+  updateAdminPlayer,
+  rotateAdminPlayerToken,
+  deleteAdminPlayer,
 } from './api'
+import { readPlayerToken } from './playerContext'
+
+vi.mock('./playerContext', () => ({
+  readPlayerToken: vi.fn(() => null),
+}))
+
+const HISTORY_OVERVIEW_PAYLOAD = {
+  schema: 'ai-caddie-history-overview-v2',
+  metrics: {
+    totalRounds: 0,
+    eighteenHoleRounds: 0,
+    nineHoleRounds: 0,
+    courseCount: 0,
+    shotCount: 0,
+    average18: null,
+    recent10Average: null,
+    bestScore: null,
+  },
+  recentRounds: [],
+  distribution: { total: 0, average: null, best: null, worst: null, families: [], histogram: [] },
+  dataQuality: [],
+  emptyState: null,
+}
+
+describe('player bearer token injection', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    vi.mocked(readPlayerToken).mockReturnValue(null)
+  })
+
+  it('attaches Authorization: Bearer from the player token on GET reads', async () => {
+    vi.mocked(readPlayerToken).mockReturnValue('player-tok-123')
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => HISTORY_OVERVIEW_PAYLOAD }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryOverview()
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { Authorization: 'Bearer player-tok-123' },
+    })
+  })
+
+  it('coexists with the admin token header when both are present', async () => {
+    vi.mocked(readPlayerToken).mockReturnValue('player-tok-123')
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => HISTORY_OVERVIEW_PAYLOAD }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryOverview('admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret', Authorization: 'Bearer player-tok-123' },
+    })
+  })
+
+  it('attaches Authorization: Bearer on POST writes', async () => {
+    vi.mocked(readPlayerToken).mockReturnValue('player-tok-123')
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-decision-v2',
+        decisionId: 'd',
+        sourceRef: 's',
+        evidenceRefs: [],
+        shotType: 'approach',
+        phase: 'Approach',
+        context: {},
+        options: [],
+        selected: null,
+        selectedOptionId: null,
+        selectedOption: null,
+        avoidZones: [],
+        forbiddenZones: [],
+        acceptableMiss: {},
+        evidence: [],
+        confidence: {},
+        missingData: [],
+        auditCriteria: [],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const request = { shotType: 'approach' as const, context: { distanceToPin_m: 142 } }
+    await fetchCaddieDecision(request)
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer player-tok-123' },
+      body: JSON.stringify(request),
+    })
+  })
+
+  it('attaches Authorization: Bearer on empty POST writes', async () => {
+    vi.mocked(readPlayerToken).mockReturnValue('player-tok-123')
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-review-report-v1',
+        kind: 'round',
+        provider: 'StaticProvider',
+        model: 'static',
+        factsUsed: [],
+        missingData: [],
+        narrative: 'round review',
+        confidence: 'medium',
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await generateRoundReport('900001')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/900001/generate', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer player-tok-123' },
+    })
+  })
+
+  it('attaches Authorization: Bearer on the Garmin sync POST', async () => {
+    vi.mocked(readPlayerToken).mockReturnValue('player-tok-123')
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ schema: 'ai-caddie-sync-run-v2' }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await runGarminSync({ withShots: false, forceRefreshAuth: false })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=false&force_refresh_auth=false', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer player-tok-123' },
+    })
+  })
+
+  it('sends no Authorization header when there is no player token', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => HISTORY_OVERVIEW_PAYLOAD }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryOverview()
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview')
+  })
+})
 
 describe('fetchHistoryOverview', () => {
   afterEach(() => {
@@ -2382,5 +2529,122 @@ describe('fetchCoursePrep', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
+  })
+})
+
+describe('admin players CRUD', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('lists players with the admin token header', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        players: [
+          { id: 'me', name: '我', isOwner: true, createdAt: '2026-06-01T00:00:00Z', avatar: null, tokenLast4: null },
+          { id: 'p_a1b2', name: '老王', isOwner: false, createdAt: '2026-06-02T00:00:00Z', avatar: null, tokenLast4: '77c1' },
+        ],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const payload = await fetchAdminPlayers('admin-secret')
+
+    expect(payload.players).toHaveLength(2)
+    expect(payload.players[1].tokenLast4).toBe('77c1')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('creates a player and returns the one-time token and url', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'p_a1b2', name: '老王', token: 'plaintext-token-xyz', url: 'http://host/p/plaintext-token-xyz' }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const created = await createAdminPlayer({ name: '老王' }, 'admin-secret')
+
+    expect(created.token).toBe('plaintext-token-xyz')
+    expect(created.url).toBe('http://host/p/plaintext-token-xyz')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      body: JSON.stringify({ name: '老王' }),
+    })
+  })
+
+  it('updates a player name with a PATCH and the admin token header', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'p_a1b2', name: '王师傅', isOwner: false, createdAt: '2026-06-02T00:00:00Z', avatar: null, tokenLast4: '77c1' }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const updated = await updateAdminPlayer('p_a1b2', { name: '王师傅' }, 'admin-secret')
+
+    expect(updated.name).toBe('王师傅')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players/p_a1b2', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      body: JSON.stringify({ name: '王师傅' }),
+    })
+  })
+
+  it('rotates a player token and returns the fresh url', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'p_a1b2', token: 'rotated-token-abc', url: 'http://host/p/rotated-token-abc' }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const rotated = await rotateAdminPlayerToken('p_a1b2', 'admin-secret')
+
+    expect(rotated.token).toBe('rotated-token-abc')
+    expect(rotated.url).toBe('http://host/p/rotated-token-abc')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players/p_a1b2/rotate-token', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('encodes the player id when rotating tokens', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'p/odd', token: 't', url: 'u' }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await rotateAdminPlayerToken('p/odd', 'admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players/p%2Fodd/rotate-token', {
+      method: 'POST',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('deletes a player with a DELETE and the admin token header', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, id: 'p_a1b2' }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const deleted = await deleteAdminPlayer('p_a1b2', 'admin-secret')
+
+    expect(deleted.ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players/p_a1b2', {
+      method: 'DELETE',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('surfaces a useful error when an admin request fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, statusText: 'Unauthorized' })))
+
+    await expect(fetchAdminPlayers('bad')).rejects.toThrow('GET /api/v2/admin/players failed: 401 Unauthorized')
   })
 })

@@ -11,6 +11,7 @@ export type ProductPage =
   | 'prep'
   | 'corrections'
   | 'sync-quality'
+  | 'players'
   | 'settings'
 
 export type ProductSection = 'home' | 'history' | 'prep' | 'live' | 'settings'
@@ -28,6 +29,7 @@ export const PAGE_TO_SECTION: Record<ProductPage, ProductSection> = {
   caddie: 'live',
   corrections: 'settings',
   'sync-quality': 'settings',
+  players: 'settings',
   settings: 'settings',
 }
 
@@ -65,6 +67,7 @@ export const HISTORY_SUBNAV: SubNavItem[] = [
 
 export const SETTINGS_SUBNAV: SubNavItem[] = [
   { page: 'sync-quality', label: '同步与数据健康' },
+  { page: 'players', label: '球员管理' },
   { page: 'corrections', label: '订正' },
   { page: 'settings', label: '后端配置' },
 ]

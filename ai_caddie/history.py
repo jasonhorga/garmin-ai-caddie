@@ -24,13 +24,38 @@ from .data import (
     mesh_path,
     read_json,
     round_hole_ref,
-    scorecard_files,
     semicircle_to_deg,
     wgs84_to_local,
 )
 
 REPORT_DIR = ROOT / "output" / "ai_caddie"
 OLD_REVIEW_DIR = ROOT / "output" / "ai_reviews"
+
+# Owner ("me") keeps reading the existing flat ``data/`` root for zero migration;
+# every other player reads ``data/players/<id>/``. Paths derive from the module-level
+# ``ROOT`` so tests can repoint the whole tree by patching ``history.ROOT``.
+OWNER_ID = "me"
+
+
+def _player_data_dir(player_id: str = OWNER_ID) -> Path:
+    base = ROOT / "data"
+    return base if player_id == OWNER_ID else base / "players" / player_id
+
+
+def _player_scorecard_files(scorecards_dir: Path) -> list[Path]:
+    return sorted(scorecards_dir.glob("*.json"))
+
+
+def _player_shot_file(shots_dir: Path, scorecard_id: int | str) -> dict[str, Any] | None:
+    """Per-player mirror of ``data.load_shot_file`` (which is pinned to the flat
+    ``data/shots`` dir). Same semantics: missing file or ``_no_data`` -> ``None``."""
+    path = shots_dir / f"{scorecard_id}.json"
+    if not path.exists():
+        return None
+    data = read_json(path)
+    if data.get("_no_data"):
+        return None
+    return data
 
 CLUB_TYPE_NAME = {
     0: "Unknown",
@@ -214,7 +239,9 @@ def _shot_data_has_usable_rows(shot_data: dict[str, Any] | None) -> bool:
     return False
 
 
-def _scorecard_to_round(raw: dict[str, Any]) -> dict[str, Any]:
+def _scorecard_to_round(
+    raw: dict[str, Any], *, shots_dir: Path | None = None, default_source: str = "garmin"
+) -> dict[str, Any]:
     detail = raw["scorecardDetails"][0]
     sc = detail["scorecard"]
     stats = detail.get("scorecardStats", {}).get("round", {}) or {}
@@ -223,8 +250,14 @@ def _scorecard_to_round(raw: dict[str, Any]) -> dict[str, Any]:
     course_name = snap.get("name") or "Unknown course"
     canon = canonical_course_name(course_name)
     sid = sc["id"]
-    shot_path = SHOT_DIR / f"{sid}.json"
-    shot_data = load_shot_file(sid)
+    if shots_dir is None:
+        # Default/owner path: keep using the module-level SHOT_DIR + data.load_shot_file
+        # so existing callers/tests that patch those names are byte-for-byte unchanged.
+        shot_path = SHOT_DIR / f"{sid}.json"
+        shot_data = load_shot_file(sid)
+    else:
+        shot_path = shots_dir / f"{sid}.json"
+        shot_data = _player_shot_file(shots_dir, sid)
     has_usable_shots = _shot_data_has_usable_rows(shot_data)
     if has_usable_shots:
         shot_status = "ready"
@@ -276,17 +309,53 @@ def _scorecard_to_round(raw: dict[str, Any]) -> dict[str, Any]:
         "hasShotFile": shot_path.exists(),
         "hasShots": has_usable_shots,
         "shotStatus": shot_status,
+        "source": raw.get("source") or default_source,
         "merged": False,
     }
 
 
-def load_raw_rounds() -> list[dict[str, Any]]:
-    rounds = []
-    for path in scorecard_files():
+def _load_rounds_from_dir(data_dir: Path, *, default_source: str) -> list[dict[str, Any]]:
+    scorecards_dir = data_dir / "scorecards"
+    shots_dir = data_dir / "shots"
+    rounds: list[dict[str, Any]] = []
+    for path in _player_scorecard_files(scorecards_dir):
         try:
-            rounds.append(_scorecard_to_round(read_json(path)))
+            rounds.append(
+                _scorecard_to_round(read_json(path), shots_dir=shots_dir, default_source=default_source)
+            )
         except Exception:
             continue
+    return rounds
+
+
+def _merge_owner_sources(
+    garmin: list[dict[str, Any]], manual: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Owner ("me") combines the flat Garmin export with manual phone rounds.
+
+    On a ``(date[:10], courseKey)`` collision Garmin wins (it is the richer source);
+    the manual duplicate is kept in the list but flagged ``supersededBy`` so the merge
+    and stats layers skip it (see ``merge_same_day_halves`` / ``load_shot_history``).
+    """
+    garmin_by_key: dict[tuple[str, str | None], dict[str, Any]] = {}
+    for row in garmin:
+        garmin_by_key[(str(row.get("date") or "")[:10], row.get("courseKey"))] = row
+    for row in manual:
+        winner = garmin_by_key.get((str(row.get("date") or "")[:10], row.get("courseKey")))
+        if winner is not None:
+            row["supersededBy"] = winner["id"]
+    return garmin + manual
+
+
+def load_raw_rounds(player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    if player_id == OWNER_ID:
+        # Owner reads the flat Garmin export (zero migration) AND any manual phone
+        # rounds under data/players/me/, with Garmin winning same-day/same-course ties.
+        garmin = _load_rounds_from_dir(ROOT / "data", default_source="garmin")
+        manual = _load_rounds_from_dir(ROOT / "data" / "players" / OWNER_ID, default_source="manual")
+        rounds = _merge_owner_sources(garmin, manual)
+    else:
+        rounds = _load_rounds_from_dir(_player_data_dir(player_id), default_source="manual")
     rounds.sort(key=lambda r: r["date"])
     return rounds
 
@@ -294,6 +363,9 @@ def load_raw_rounds() -> list[dict[str, Any]]:
 def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_key: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rounds:
+        if row.get("supersededBy"):
+            # Garmin-superseded manual duplicate: kept on disk/raw, excluded from stats.
+            continue
         by_key[(str(row.get("date") or "")[:10], row["courseCanonical"])].append(row)
 
     merged: list[dict[str, Any]] = []
@@ -377,63 +449,94 @@ def _loc_to_wgs84(loc: dict[str, Any] | None) -> dict[str, Any] | None:
     return {"lat": lat, "lon": lon, "lie": loc.get("lie"), "lieSource": loc.get("lieSource")}
 
 
-def load_shot_history(raw_rounds: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    raw_rounds = raw_rounds if raw_rounds is not None else load_raw_rounds()
-    rounds_by_id = {int(r["id"]): r for r in raw_rounds if not str(r["id"]).startswith("merged_")}
+def _player_shot_sources(player_id: str) -> list[tuple[Path, Path]]:
+    """(scorecards_dir, shots_dir) pairs to scan for a player's shots.
+
+    Owner ("me") spans the flat Garmin export plus manual phone rounds under
+    data/players/me/; every other player has a single per-player root.
+    """
+    if player_id == OWNER_ID:
+        flat = ROOT / "data"
+        manual = ROOT / "data" / "players" / OWNER_ID
+        return [
+            (flat / "scorecards", flat / "shots"),
+            (manual / "scorecards", manual / "shots"),
+        ]
+    base = _player_data_dir(player_id)
+    return [(base / "scorecards", base / "shots")]
+
+
+def load_shot_history(
+    raw_rounds: list[dict[str, Any]] | None = None,
+    player_id: str = OWNER_ID,
+) -> list[dict[str, Any]]:
+    raw_rounds = raw_rounds if raw_rounds is not None else load_raw_rounds(player_id=player_id)
+    rounds_by_id = {
+        int(r["id"]): r
+        for r in raw_rounds
+        if not str(r["id"]).startswith("merged_") and not r.get("supersededBy")
+    }
     rows = []
-    for path in sorted(SHOT_DIR.glob("*.json")):
-        try:
-            sid = int(path.stem)
-        except ValueError:
-            continue
-        round_row = rounds_by_id.get(sid)
-        if not round_row:
-            continue
-        try:
-            shot_data = read_json(path)
-        except Exception:
-            continue
-        if shot_data.get("_no_data"):
-            continue
-        club_map, retired = _build_club_map(shot_data)
-        for hole_data in shot_data.get("holeShots", []) or []:
-            hole_number = int(hole_data.get("holeNumber") or 0)
+    for scorecards_dir, shots_dir in _player_shot_sources(player_id):
+        for path in sorted(shots_dir.glob("*.json")):
             try:
-                ref = round_hole_ref(load_scorecard(sid), hole_number)
+                sid = int(path.stem)
+            except ValueError:
+                continue
+            round_row = rounds_by_id.get(sid)
+            if not round_row:
+                continue
+            try:
+                shot_data = read_json(path)
             except Exception:
-                ref = None
-            for shot in hole_data.get("shots", []) or []:
-                cid = shot.get("clubId")
-                rows.append({
-                    "id": shot.get("id"),
-                    "scorecardId": sid,
-                    "date": round_row["date"][:10],
-                    "course": round_row["course"],
-                    "courseCanonical": round_row["courseCanonical"],
-                    "courseKey": round_row["courseKey"],
-                    "hole": hole_number,
-                    "globalId": ref.global_id if ref else None,
-                    "localHole": ref.local_hole if ref else None,
-                    "order": shot.get("shotOrder"),
-                    "clubId": cid,
-                    "clubName": club_map.get(cid) or club_name_from_details(cid, shot_data),
-                    "clubRetired": cid in retired if cid is not None else False,
-                    "type": shot.get("shotType"),
-                    "auto": shot.get("autoShotType"),
-                    "meters": shot.get("meters"),
-                    "start": _loc_to_wgs84(shot.get("startLoc")),
-                    "end": _loc_to_wgs84(shot.get("endLoc")),
-                    "endLie": (shot.get("endLoc") or {}).get("lie"),
-                })
+                continue
+            if shot_data.get("_no_data"):
+                continue
+            club_map, retired = _build_club_map(shot_data)
+            for hole_data in shot_data.get("holeShots", []) or []:
+                hole_number = int(hole_data.get("holeNumber") or 0)
+                try:
+                    ref = round_hole_ref(read_json(scorecards_dir / f"{sid}.json"), hole_number)
+                except Exception:
+                    ref = None
+                for shot in hole_data.get("shots", []) or []:
+                    cid = shot.get("clubId")
+                    rows.append({
+                        "id": shot.get("id"),
+                        "scorecardId": sid,
+                        "date": round_row["date"][:10],
+                        "course": round_row["course"],
+                        "courseCanonical": round_row["courseCanonical"],
+                        "courseKey": round_row["courseKey"],
+                        "hole": hole_number,
+                        "globalId": ref.global_id if ref else None,
+                        "localHole": ref.local_hole if ref else None,
+                        "order": shot.get("shotOrder"),
+                        "clubId": cid,
+                        "clubName": club_map.get(cid) or club_name_from_details(cid, shot_data),
+                        "clubRetired": cid in retired if cid is not None else False,
+                        "type": shot.get("shotType"),
+                        "auto": shot.get("autoShotType"),
+                        "meters": shot.get("meters"),
+                        "start": _loc_to_wgs84(shot.get("startLoc")),
+                        "end": _loc_to_wgs84(shot.get("endLoc")),
+                        "endLie": (shot.get("endLoc") or {}).get("lie"),
+                    })
     rows.sort(key=lambda r: (r.get("date") or "", int(r.get("order") or 0)))
     return rows
 
 
-def load_history_data() -> HistoryData:
-    raw_rounds = load_raw_rounds()
+def load_history_data(player_id: str = OWNER_ID) -> HistoryData:
+    raw_rounds = load_raw_rounds(player_id=player_id)
     rounds = merge_same_day_halves(raw_rounds)
-    shots = load_shot_history(raw_rounds)
-    return HistoryData(raw_rounds=raw_rounds, rounds=rounds, shots=shots)
+    shots = load_shot_history(raw_rounds, player_id=player_id)
+    # A Garmin-superseded manual duplicate is kept on disk but does not count in stats
+    # (spec §4). HistoryData.raw_rounds is the counting surface read by every consumer
+    # (overview totals, _data_quality, _shot_row_quality, ...), so drop superseded rows
+    # here — staying consistent with merge_same_day_halves / load_shot_history, which
+    # already skip them, so the rounds/shots/raw_rounds views never disagree.
+    active_raw = [row for row in raw_rounds if not row.get("supersededBy")]
+    return HistoryData(raw_rounds=active_raw, rounds=rounds, shots=shots)
 
 
 def _round_public(row: dict[str, Any], include_holes: bool = False) -> dict[str, Any]:

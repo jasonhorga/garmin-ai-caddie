@@ -226,6 +226,18 @@ class RoundCard(BaseModel):
     scoreStrip: list[ScoreStripCell]
     badges: list[DataQualityBadge]
     primaryIssue: str | None = None
+    # "manual" = phone-logged补录; "garmin" (or None on legacy rows) = watch sync.
+    # Display-only marker — engines treat both sources alike.
+    source: str | None = None
+
+
+class CurrentPlayer(BaseModel):
+    """Identity of the token-resolved player for the read-only top-bar badge."""
+
+    id: str
+    name: str | None
+    isOwner: bool = False
+    avatar: str | None = None
 
 
 class HistoryMetricSet(BaseModel):
@@ -278,6 +290,8 @@ class HistoryOverviewResponse(BaseModel):
     distribution: ScoreDistribution
     dataQuality: list[DataQualityBadge]
     emptyState: EmptyState | None
+    # Token-resolved player whose data this payload represents (top-bar badge).
+    currentPlayer: CurrentPlayer | None = None
 
 
 class MonthRoundGroup(BaseModel):
@@ -885,6 +899,31 @@ class LiveRoundEventAckResponse(BaseModel):
     ackedServerSequence: int
     latestServerSequence: int
     pendingEventCount: int
+
+
+class RoundIngestRequest(BaseModel):
+    """A manual ("phone") round: live capture events + round meta (see
+    ``ai_caddie.round_ingest.ingest_round``). Events are accepted as loose dicts so the
+    full live-event payload surface stays forward-compatible; ``ingest_round`` validates
+    them and raises a 400 on malformed input."""
+
+    events: list[dict[str, Any]] = Field(min_length=1)
+    meta: dict[str, Any] = Field(default_factory=dict)
+    idempotencyKey: str | None = None
+    clientRoundId: str | None = None
+
+
+class RoundIngestResponse(BaseModel):
+    id: int
+    playerId: str
+    source: Literal["manual"]
+    date: str | None = None
+    course: str | None = None
+    holesCompleted: int | None = None
+    strokes: int | None = None
+    par: int | None = None
+    shotCount: int | None = None
+    idempotent: bool
 
 
 class MobileReconciliationApplyRequest(BaseModel):

@@ -5,13 +5,14 @@ import hmac
 import os
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
-from ai_caddie import course_search
+from ai_caddie import course_search, round_ingest
+from ai_caddie.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
 from ai_caddie.connectors.snapshot import snapshot_to_payload
 
@@ -50,6 +51,12 @@ from .mobile import (
     build_mobile_round_package_response,
     reconcile_mobile_round_response,
     replay_mobile_events_response,
+)
+from .players_api import (
+    admin_router,
+    current_player_id,
+    has_valid_player_token,
+    is_player_scoped_route,
 )
 from .prep_tips import load_prep_tips_response
 from .weather import load_weather_snapshot_response
@@ -92,6 +99,8 @@ from .models import (
     MobileReconciliationResponse,
     ReviewReportIndexResponse,
     ReviewReportResponse,
+    RoundIngestRequest,
+    RoundIngestResponse,
     SyncRunResponse,
     SyncStatusResponse,
     VisionAnalysisResponse,
@@ -132,6 +141,7 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
+app.include_router(admin_router)
 
 
 def cors_allowed_origins() -> list[str]:
@@ -158,7 +168,7 @@ app.add_middleware(
     allow_origins=cors_allowed_origins(),
     allow_origin_regex=cors_allowed_origin_regex(),
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -206,6 +216,11 @@ def _truthy_query_flag(value: str | None) -> bool:
 
 def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> bool:
     normalized_method = method.upper()
+    # Every owner-management route (/api/v2/admin/*) requires the admin token,
+    # regardless of method. These are never player-scoped, so a per-player token
+    # cannot bypass the gate in enforce_admin_token_before_body_validation.
+    if path == "/api/v2/admin" or path.startswith("/api/v2/admin/"):
+        return True
     if normalized_method == "GET":
         return (
             path.startswith("/api/v2/history/")
@@ -255,10 +270,18 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
 @app.middleware("http")
 async def enforce_admin_token_before_body_validation(request: Request, call_next):
     if _requires_admin_token(request.method, request.url.path, request.query_params):
-        try:
-            require_admin_token(request.headers.get("x-ai-caddie-admin-token"))
-        except HTTPException as exc:
-            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        # A valid per-player token grants access to player-scoped routes. Admin
+        # token handling stays in require_admin_token so its 401 (configured but
+        # missing) and 503 (fail-closed under a private profile) semantics — and
+        # the admin-token-as-owner backward compatibility — are unchanged.
+        player_token_allows = is_player_scoped_route(
+            request.method, request.url.path
+        ) and has_valid_player_token(request)
+        if not player_token_allows:
+            try:
+                require_admin_token(request.headers.get("x-ai-caddie-admin-token"))
+            except HTTPException as exc:
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     return await call_next(request)
 
 
@@ -341,8 +364,35 @@ def product_settings() -> dict[str, object]:
 
 
 @app.get("/api/v2/history/overview", response_model=HistoryOverviewResponse)
-def history_overview() -> HistoryOverviewResponse:
-    return load_history_overview_response()
+def history_overview(player_id: str = Depends(current_player_id)) -> HistoryOverviewResponse:
+    return load_history_overview_response(player_id=player_id)
+
+
+@app.post("/api/v2/players/{target_player_id}/rounds", response_model=RoundIngestResponse, status_code=201)
+def ingest_player_round(
+    target_player_id: str,
+    body: RoundIngestRequest,
+    request: Request,
+    acting_player_id: str = Depends(current_player_id),
+) -> RoundIngestResponse:
+    """Land a manual ("phone") round for a player. A per-player bearer token may only
+    target its own player; the owner (admin token) may target any player. Idempotent on
+    the ``Idempotency-Key`` header (or a client-supplied round id)."""
+    if acting_player_id != OWNER_ID and acting_player_id != target_player_id:
+        raise HTTPException(status_code=403, detail="cannot ingest rounds for another player")
+    idempotency_key = (
+        request.headers.get("Idempotency-Key")
+        or body.idempotencyKey
+        or body.clientRoundId
+        or round_ingest.derive_idempotency_key(target_player_id, body.events, body.meta)
+    )
+    try:
+        summary = round_ingest.ingest_round(
+            target_player_id, body.events, body.meta, idempotency_key=idempotency_key
+        )
+    except round_ingest.RoundIngestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return RoundIngestResponse(**summary)
 
 
 @app.get("/api/v2/history/rounds", response_model=HistoryRoundsResponse)
@@ -352,25 +402,33 @@ def history_rounds(
     hasShots: bool | None = Query(default=None),
     hasReport: bool | None = Query(default=None),
     limit: int = Query(default=120, ge=1, le=2000),
+    player_id: str = Depends(current_player_id),
 ) -> HistoryRoundsResponse:
     return load_history_rounds_response(
-        year=year, course=course, has_shots=hasShots, has_report=hasReport, limit=limit
+        year=year, course=course, has_shots=hasShots, has_report=hasReport, limit=limit, player_id=player_id
     )
 
 
 @app.get("/api/v2/history/rounds/{round_ref}", response_model=HistoryRoundDetailResponse)
-def history_round_detail(round_ref: str) -> HistoryRoundDetailResponse:
-    return load_history_round_detail_response(round_ref)
+def history_round_detail(
+    round_ref: str, player_id: str = Depends(current_player_id)
+) -> HistoryRoundDetailResponse:
+    return load_history_round_detail_response(round_ref, player_id=player_id)
 
 
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)
-def history_stats(window: str = Query("all", pattern="^(all|12m|last10)$")) -> HistoryStatsResponse:
-    return load_history_stats_response(window=window)
+def history_stats(
+    window: str = Query("all", pattern="^(all|12m|last10)$"),
+    player_id: str = Depends(current_player_id),
+) -> HistoryStatsResponse:
+    return load_history_stats_response(window=window, player_id=player_id)
 
 
 @app.get("/api/v2/history/drilldown/{source_ref}", response_model=HistoryDrilldownResponse)
-def history_drilldown(source_ref: str) -> HistoryDrilldownResponse:
-    return load_history_drilldown_response(source_ref)
+def history_drilldown(
+    source_ref: str, player_id: str = Depends(current_player_id)
+) -> HistoryDrilldownResponse:
+    return load_history_drilldown_response(source_ref, player_id=player_id)
 
 
 @app.get("/api/v2/geometry/course/{global_id}/coverage", response_model=CourseGeometryCoverageResponse)
@@ -420,6 +478,7 @@ def course_prep_nine(
     holes: list[int] | None = Query(default=None),
     render: bool = True,
     include_shots: bool = False,
+    player_id: str = Depends(current_player_id),
 ) -> dict:
     """Pre-round prep for a course: per-hole par (labelled source) + route + hazard carries +
     strategy from the player's club ladder + (when render=true) a styled map image + overlay.
@@ -427,13 +486,26 @@ def course_prep_nine(
     single-gid courses get all 18; no geometry falls back to the front nine).
     render=false returns facts only (lightweight). include_shots=true additionally projects
     the player's past TEE/APPROACH end positions into overlay px (``yourShots``) on rendered
-    holes they have history for."""
+    holes they have history for.
+
+    The club ladder (the player's real distances) and shot scatter (their real TEE/APPROACH
+    end positions) are PLAYER data. The course_prep engine still sources both from the
+    owner's data, so only the owner ("me", incl. the admin token) gets the real ladder +
+    scatter; a non-owner player gets the course knowledge (par/route/hazards) with a generic
+    default ladder and never the owner's projected shots (per-player engine scoping is a
+    multiplayer-foundation follow-up)."""
     from ai_caddie import course_prep
 
+    is_owner = player_id == OWNER_ID
     requested = holes or course_prep.available_prep_holes(global_id)
-    ladder = course_prep.club_ladder()
+    # Owner reads their real club model; a non-owner falls back to the generic default
+    # ladder so the owner's measured distances never leak.
+    ladder = course_prep.club_ladder() if is_owner else sorted(
+        course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]
+    )
+    # Shot scatter projects the owner's real end positions — never expose it to a non-owner.
     nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
-                                 include_shots=include_shots)
+                                 include_shots=include_shots and is_owner)
     return {
         "schema": "ai-caddie-course-prep-v1",
         "globalId": int(global_id),
@@ -444,12 +516,12 @@ def course_prep_nine(
 
 
 @app.get("/api/v2/courses/{global_id}/prep-tips")
-def course_prep_tips(global_id: int) -> dict:
+def course_prep_tips(global_id: int, player_id: str = Depends(current_player_id)) -> dict:
     """Deterministic pre-round tips (zh, with sourceRefs) assembled from the player's
     EXISTING per-course tendencies (teeDirection/approachMiss/parScoring + playerProfile
     caddie biases) crossed with this course's prep hole features. Never-played courses
     degrade to global-profile tips plus a length-based informational tip."""
-    return load_prep_tips_response(global_id)
+    return load_prep_tips_response(global_id, player_id=player_id)
 
 
 @app.get("/api/v2/courses/search")
@@ -631,8 +703,8 @@ def mobile_round_package(
 
 
 @app.get("/api/v2/mobile/courses/options", response_model=MobileCourseOptionsResponse)
-def mobile_course_options() -> MobileCourseOptionsResponse:
-    return build_mobile_course_options_response()
+def mobile_course_options(player_id: str = Depends(current_player_id)) -> MobileCourseOptionsResponse:
+    return build_mobile_course_options_response(player_id=player_id)
 
 
 @app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
@@ -738,13 +810,16 @@ def weather_snapshot(
 
 
 @app.get("/api/v2/reports", response_model=ReviewReportIndexResponse)
-def report_index() -> ReviewReportIndexResponse:
-    return load_report_index_response()
+def report_index(player_id: str = Depends(current_player_id)) -> ReviewReportIndexResponse:
+    # The report store is a shared single-file store of OWNER-generated reports only
+    # (generation is admin-only). The owner ("me", incl. the admin token) sees the index;
+    # a non-owner player gets an empty index — never the owner's stored reports/round ids.
+    return load_report_index_response(player_id=player_id)
 
 
 @app.get("/api/v2/reports/round/{round_id}", response_model=ReviewReportResponse)
-def round_report(round_id: str) -> ReviewReportResponse:
-    return load_round_report_response(round_id)
+def round_report(round_id: str, player_id: str = Depends(current_player_id)) -> ReviewReportResponse:
+    return load_round_report_response(round_id, player_id=player_id)
 
 
 @app.post("/api/v2/reports/round/{round_id}/generate", response_model=ReviewReportResponse)
@@ -754,8 +829,8 @@ def generate_round_report(round_id: str, x_ai_caddie_admin_token: AdminTokenHead
 
 
 @app.get("/api/v2/reports/course/{course_key}", response_model=ReviewReportResponse)
-def course_report(course_key: str) -> ReviewReportResponse:
-    return load_course_report_response(course_key)
+def course_report(course_key: str, player_id: str = Depends(current_player_id)) -> ReviewReportResponse:
+    return load_course_report_response(course_key, player_id=player_id)
 
 
 @app.post("/api/v2/reports/course/{course_key}/generate", response_model=ReviewReportResponse)
@@ -765,8 +840,10 @@ def generate_course_report(course_key: str, x_ai_caddie_admin_token: AdminTokenH
 
 
 @app.get("/api/v2/reports/hole/{course_key}/{hole}", response_model=ReviewReportResponse)
-def hole_report(course_key: str, hole: int) -> ReviewReportResponse:
-    return load_hole_report_response(course_key, hole)
+def hole_report(
+    course_key: str, hole: int, player_id: str = Depends(current_player_id)
+) -> ReviewReportResponse:
+    return load_hole_report_response(course_key, hole, player_id=player_id)
 
 
 @app.post("/api/v2/reports/hole/{course_key}/{hole}/generate", response_model=ReviewReportResponse)
@@ -776,8 +853,8 @@ def generate_hole_report(course_key: str, hole: int, x_ai_caddie_admin_token: Ad
 
 
 @app.get("/api/v2/reports/club/{club_name}", response_model=ReviewReportResponse)
-def club_report(club_name: str) -> ReviewReportResponse:
-    return load_club_report_response(club_name)
+def club_report(club_name: str, player_id: str = Depends(current_player_id)) -> ReviewReportResponse:
+    return load_club_report_response(club_name, player_id=player_id)
 
 
 @app.post("/api/v2/reports/club/{club_name}/generate", response_model=ReviewReportResponse)
@@ -787,8 +864,8 @@ def generate_club_report(club_name: str, x_ai_caddie_admin_token: AdminTokenHead
 
 
 @app.get("/api/v2/reports/trend/{period}", response_model=ReviewReportResponse)
-def trend_report(period: str) -> ReviewReportResponse:
-    return load_trend_report_response(period)
+def trend_report(period: str, player_id: str = Depends(current_player_id)) -> ReviewReportResponse:
+    return load_trend_report_response(period, player_id=player_id)
 
 
 @app.post("/api/v2/reports/trend/{period}/generate", response_model=ReviewReportResponse)

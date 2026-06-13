@@ -88,6 +88,37 @@ describe('HistoryTimeline', () => {
     expect(screen.getByText('Relax the year or course filter to see rounds again.')).toBeInTheDocument()
   })
 
+  it('tags manual rounds with a 手动 chip and leaves Garmin rounds unmarked', () => {
+    const mixed: HistoryRoundsResponse = {
+      schema: 'ai-caddie-history-rounds-v2',
+      total: 2,
+      groups: [
+        {
+          key: '2026-05',
+          label: 'May 2026',
+          count: 2,
+          average18: 88,
+          bestScore: 82,
+          rounds: [
+            { ...payload.groups[0].rounds[0], id: 'g1', source: 'garmin' },
+            {
+              ...payload.groups[0].rounds[0],
+              id: 'm1',
+              courseName: '忘带表那场',
+              source: 'manual',
+            },
+          ],
+        },
+      ],
+      emptyState: null,
+    }
+
+    render(<HistoryTimeline data={mixed} />)
+    // Exactly one 手动 chip, for the manual round only.
+    expect(screen.getAllByText('手动')).toHaveLength(1)
+    expect(screen.getByLabelText('手动录入的球局')).toBeInTheDocument()
+  })
+
   it('opens timeline round source refs', async () => {
     const onSelectRef = vi.fn()
     const onOpenRoundDetail = vi.fn()

@@ -25,23 +25,56 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.annotations import annotation_file
-from ai_caddie.data import HAZARD_DIR, MANUAL_DIR, MESH_DIR, SCORECARD_DIR, SHOT_DIR, SNAPSHOT_DIR
+from ai_caddie.data import DATA_DIR, HAZARD_DIR, MANUAL_DIR, MESH_DIR, SCORECARD_DIR, SHOT_DIR, SNAPSHOT_DIR
 from ai_caddie.decision import decision_audit_file
+from ai_caddie.history import OWNER_ID
 from ai_caddie.history import load_history_data as _load_history_data
 from ai_caddie.history_stats import build_history_stats as _build_history_stats
 from ai_caddie.history_stats import windowed_history_data as _windowed_history_data
 from ai_caddie.reports import report_store_file
 from ai_caddie.weather_context import weather_snapshot_file
 
-# Directories whose file contents feed build_history_stats. Module-level so tests can
-# repoint them at a tmp dir.
+# Directories whose file contents feed build_history_stats for the OWNER ("me"), who
+# keeps the flat data/ layout (zero migration). Module-level so tests can repoint them.
 _FINGERPRINT_DIRS: tuple[Path, ...] = (SCORECARD_DIR, SHOT_DIR, SNAPSHOT_DIR, MANUAL_DIR, HAZARD_DIR, MESH_DIR)
 # Dirs that feed load_history_data (rounds + shots); geometry/aux are not read by load.
 _LOAD_DIRS: tuple[Path, ...] = (SCORECARD_DIR, SHOT_DIR, SNAPSHOT_DIR, MANUAL_DIR)
+# Base for non-owner players: data/players/<id>/{scorecards,shots}. Mirrors
+# ai_caddie.history._player_data_dir; module-level so tests can repoint it.
+_PLAYERS_DIR: Path = DATA_DIR / "players"
+# Shared course geometry feeds build_history_stats for EVERY player (it is already part
+# of the owner's _FINGERPRINT_DIRS); appended to each non-owner player's fingerprint.
+_GEOMETRY_DIRS: tuple[Path, ...] = (HAZARD_DIR, MESH_DIR)
 
 _lock = threading.Lock()
 _cache: dict[tuple, tuple[Any, Any]] = {}
 _load_cache: dict[str, tuple[Any, Any]] = {}
+
+
+def _fingerprint_dirs(player_id: str) -> tuple[Path, ...]:
+    """Dirs whose contents feed build_history_stats for ``player_id``.
+
+    Owner ("me") uses the flat ``_FINGERPRINT_DIRS`` (zero migration); every other
+    player uses their per-player scorecards/shots root plus the shared geometry dirs.
+    """
+    if player_id == OWNER_ID:
+        # Owner data = flat data/ PLUS data/players/me (manual phone rounds folded in
+        # by ai_caddie.history; Task 3). Cover both so an owner phone round landing under
+        # players/me auto-invalidates instead of serving stale stats.
+        owner = _PLAYERS_DIR / OWNER_ID
+        return (*_FINGERPRINT_DIRS, owner / "scorecards", owner / "shots")
+    base = _PLAYERS_DIR / player_id
+    return (base / "scorecards", base / "shots", *_GEOMETRY_DIRS)
+
+
+def _load_dirs(player_id: str) -> tuple[Path, ...]:
+    """Dirs that feed load_history_data (rounds + shots) for ``player_id``."""
+    if player_id == OWNER_ID:
+        # Owner load spans flat data/ + data/players/me (see _fingerprint_dirs).
+        owner = _PLAYERS_DIR / OWNER_ID
+        return (*_LOAD_DIRS, owner / "scorecards", owner / "shots")
+    base = _PLAYERS_DIR / player_id
+    return (base / "scorecards", base / "shots")
 
 
 def _aux_files(
@@ -95,10 +128,10 @@ def _data_signature(data) -> tuple:
     return (len(shots), hash(tuple(str(r.get("id")) for r in rounds)))
 
 
-def _fingerprint(data, roots: dict[str, Any]) -> tuple:
+def _fingerprint(data, roots: dict[str, Any], player_id: str = OWNER_ID) -> tuple:
     return (
         _data_signature(data),
-        tuple(_dir_sig(d) for d in _FINGERPRINT_DIRS),
+        tuple(_dir_sig(d) for d in _fingerprint_dirs(player_id)),
         tuple(_file_sig(f) for f in _aux_files(**roots)),
     )
 
@@ -110,18 +143,20 @@ def clear() -> None:
         _load_cache.clear()
 
 
-def cached_load_history_data():
+def cached_load_history_data(player_id: str = OWNER_ID):
     """Drop-in replacement for load_history_data that caches the loaded HistoryData by
-    data-dir fingerprint. The ~2s read of scorecards/shots is skipped while those dirs
-    are unchanged; a new score (new file) auto-invalidates it."""
-    fingerprint = tuple(_dir_sig(d) for d in _LOAD_DIRS)
+    data-dir fingerprint, per player. The ~2s read of scorecards/shots is skipped while
+    that player's dirs are unchanged; a new score (new file) auto-invalidates it. Each
+    player has its own entry, so loading one player never evicts another."""
+    fingerprint = tuple(_dir_sig(d) for d in _load_dirs(player_id))
     with _lock:
-        hit = _load_cache.get("history")
+        hit = _load_cache.get(player_id)
         if hit is not None and hit[0] == fingerprint:
             return hit[1]
-    value = _load_history_data()
+    # Owner keeps the no-arg call so load_history_data stays byte-for-byte identical.
+    value = _load_history_data() if player_id == OWNER_ID else _load_history_data(player_id=player_id)
     with _lock:
-        _load_cache["history"] = (fingerprint, value)
+        _load_cache[player_id] = (fingerprint, value)
     return value
 
 
@@ -129,6 +164,7 @@ def cached_build_history_stats(
     data,
     *,
     data_mode,
+    player_id: str = OWNER_ID,
     annotations_root: Path | str | None = None,
     weather_root: Path | str | None = None,
     reports_root: Path | str | None = None,
@@ -148,10 +184,12 @@ def cached_build_history_stats(
         "reports_root": reports_root,
         "decision_audit_root": decision_audit_root,
     }
-    # Key by caller (data_mode + roots + window); the fingerprint (data signature +
-    # input-file state) decides hit vs recompute, so distinct datasets and any file
-    # change are both handled.
+    # Key by caller (player + data_mode + roots + window); the fingerprint (data
+    # signature + input-file state) decides hit vs recompute, so distinct datasets and
+    # any file change are both handled. player_id in the key guarantees one player's
+    # result is never served to another, even with identical data signatures.
     key = (
+        player_id,
         data_mode,
         str(annotations_root),
         str(weather_root),
@@ -159,7 +197,7 @@ def cached_build_history_stats(
         str(decision_audit_root),
         window,
     )
-    fingerprint = _fingerprint(data, roots)
+    fingerprint = _fingerprint(data, roots, player_id)
     with _lock:
         hit = _cache.get(key)
         if hit is not None and hit[0] == fingerprint:

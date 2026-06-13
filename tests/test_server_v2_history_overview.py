@@ -184,6 +184,45 @@ class ServerV2HistoryOverviewTests(unittest.TestCase):
         self.assertEqual(payload["dataQuality"][0]["label"], "shots")
         self.assertEqual(payload["dataQuality"][0]["state"], "partial")
 
+    def test_round_cards_carry_source_for_manual_tagging(self) -> None:
+        # The web 手动 chip keys off RoundCard.source; manual补录 rounds must carry
+        # "manual" while Garmin rounds carry "garmin" (legacy rows stay None).
+        rounds = [
+            {
+                "id": 1, "ids": [1], "date": "2026-05-20", "course": "Manual Course",
+                "courseKey": "c_m", "holesCompleted": 18, "strokes": 90, "par": 72,
+                "holePars": "4" * 18, "holes": [{"number": n, "strokes": 5} for n in range(1, 19)],
+                "hasShots": False, "source": "manual",
+            },
+            {
+                "id": 2, "ids": [2], "date": "2026-05-10", "course": "Watch Course",
+                "courseKey": "c_w", "holesCompleted": 18, "strokes": 82, "par": 72,
+                "holePars": "4" * 18, "holes": [{"number": n, "strokes": 4} for n in range(1, 19)],
+                "hasShots": True, "source": "garmin",
+            },
+        ]
+        data = HistoryData(
+            raw_rounds=[{"id": r["id"], "hasShots": r["hasShots"]} for r in rounds],
+            rounds=rounds,
+            shots=[],
+        )
+
+        cards = {c["id"]: c for c in build_history_overview_response(data).model_dump()["recentRounds"]}
+
+        self.assertEqual(cards["1"]["source"], "manual")
+        self.assertEqual(cards["2"]["source"], "garmin")
+
+    def test_history_overview_endpoint_carries_current_player(self) -> None:
+        # The read-only top-bar badge needs the token-resolved player; the open
+        # dev / owner request resolves to "me".
+        client = TestClient(app)
+
+        payload = client.get("/api/v2/history/overview").json()
+
+        self.assertIn("currentPlayer", payload)
+        self.assertEqual(payload["currentPlayer"]["id"], "me")
+        self.assertTrue(payload["currentPlayer"]["isOwner"])
+
 
 if __name__ == "__main__":
     unittest.main()

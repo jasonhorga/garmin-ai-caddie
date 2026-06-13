@@ -44,6 +44,10 @@ export interface ScoreStripCell {
   className: ScoreClass
 }
 
+// 'manual' rounds are phone-logged (补录); 'garmin' rounds come from the watch
+// sync. The web只用它做展示标注 (手动 chip) — engines treat both alike.
+export type RoundSource = 'garmin' | 'manual'
+
 export interface RoundCard {
   id: string
   date: string | null
@@ -56,6 +60,18 @@ export interface RoundCard {
   scoreStrip: ScoreStripCell[]
   badges: DataQualityBadge[]
   primaryIssue: string | null
+  // Optional / forward-compatible: absent on legacy payloads → treated as Garmin.
+  source?: RoundSource | null
+}
+
+// The token-resolved player whose data the whole app is currently scoped to
+// (player link → that friend; owner/admin → "me"). Read-only identity for the
+// top-bar badge — there is no switcher.
+export interface CurrentPlayer {
+  id: string
+  name: string
+  isOwner: boolean
+  avatar: string | null
 }
 
 export interface HistoryMetricSet {
@@ -106,6 +122,9 @@ export interface HistoryOverviewResponse {
   distribution: ScoreDistribution
   dataQuality: DataQualityBadge[]
   emptyState: EmptyState | null
+  // Identity of the token-resolved player (for the read-only top-bar badge).
+  // Optional / forward-compatible: absent on legacy payloads → no badge shown.
+  currentPlayer?: CurrentPlayer | null
 }
 
 export interface CaddieDecisionRequest {
@@ -1029,4 +1048,44 @@ export interface PrepTipsResponse {
   schema: 'ai-caddie-prep-tips-v1'
   courseKey: string | null
   tips: PrepTip[]
+}
+
+// Owner-side player management (multiplayer foundation, stage 1). These mirror
+// server_v2/players_api.py's admin endpoints. The list view never carries token
+// material (only tokenLast4) and never carries any player's score analysis;
+// roundCount/sources are lightweight aggregate metadata that the backend MAY
+// include on a row — never round-level data.
+export interface AdminPlayer {
+  id: string
+  name: string
+  isOwner: boolean
+  createdAt: string | null
+  avatar: string | null
+  tokenLast4: string | null
+  // Optional, forward-compatible aggregate metadata (not score analysis):
+  roundCount?: number | null
+  sources?: Record<string, number> | null
+}
+
+export interface AdminPlayersListResponse {
+  players: AdminPlayer[]
+}
+
+// Create / rotate return the plaintext token + shareable URL exactly ONCE.
+export interface AdminPlayerCreateResponse {
+  id: string
+  name: string
+  token: string
+  url: string
+}
+
+export interface AdminPlayerTokenResponse {
+  id: string
+  token: string
+  url: string
+}
+
+export interface AdminPlayerDeleteResponse {
+  ok: boolean
+  id: string
 }

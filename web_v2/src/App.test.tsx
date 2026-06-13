@@ -992,7 +992,63 @@ function holeMapPayload() {
 describe('App navigation', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     vi.restoreAllMocks()
+  })
+
+  it('shows the invalid-link page and sends no data requests when a link is required but none is present', async () => {
+    vi.stubEnv('VITE_AI_CADDIE_REQUIRE_LINK', 'true')
+    vi.stubGlobal('location', { pathname: '/', search: '' })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: '需要有效链接' })).toBeInTheDocument()
+    // A locked-out visitor must leak nothing: no request fires and no player data shows.
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.queryByText('想备哪场?')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '概览' })).not.toBeInTheDocument()
+  })
+
+  it('shows the invalid-link page when a player link is rejected', async () => {
+    vi.stubGlobal('location', { pathname: '/p/bad-token', search: '' })
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 401, statusText: 'Unauthorized' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: '需要有效链接' })).toBeInTheDocument()
+    // An invalid player link must not fall back to the owner admin-token recovery panel.
+    expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('管理令牌')).not.toBeInTheDocument()
+  })
+
+  it('loads normally for a valid player link even when a link is required', async () => {
+    vi.stubEnv('VITE_AI_CADDIE_REQUIRE_LINK', 'true')
+    vi.stubGlobal('location', { pathname: '/p/good-token', search: '' })
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '需要有效链接' })).not.toBeInTheDocument()
+    // The player token rides on every request as a bearer credential.
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { Authorization: 'Bearer good-token' },
+    })
   })
 
   it('exposes the master spec IA and opens the rounds timeline', async () => {
@@ -1038,6 +1094,29 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=1000')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status')
     await waitFor(() => expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument())
+  })
+
+  it('renders the read-only current-player badge from the overview payload', async () => {
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return { ...overviewPayload(), currentPlayer: { id: 'p_a1b2', name: '老王', isOwner: false, avatar: null } }
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    const badge = await screen.findByLabelText('当前球员 老王')
+    expect(within(badge).getByText('老王')).toBeInTheDocument()
+    // Read-only: the top-bar identity is not a switcher.
+    expect(within(badge).queryByRole('button')).not.toBeInTheDocument()
   })
 
   it('can recover protected history overview after entering an admin token', async () => {
@@ -1751,6 +1830,47 @@ describe('App navigation', () => {
     expect(await screen.findByText('当前:Gemini API')).toHaveClass('setting-primary')
     expect(screen.getByText('可用')).toHaveClass('setting-primary')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/settings/product')
+  })
+
+  it('reveals the owner 球员管理 tab only after an admin token is entered and manages players there', async () => {
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/admin/players') {
+            return {
+              players: [
+                { id: 'me', name: '我', isOwner: true, createdAt: null, avatar: null, tokenLast4: null },
+                { id: 'p_a1b2', name: '老王', isOwner: false, createdAt: null, avatar: null, tokenLast4: '77c1', roundCount: 4, sources: { garmin: 3, manual: 1 } },
+              ],
+            }
+          }
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '设置' }))
+    // No admin token yet → the owner-only 球员管理 tab stays hidden.
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '球员管理' })).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
+    await userEvent.click(await screen.findByRole('button', { name: '球员管理' }))
+
+    expect(await screen.findByRole('heading', { name: '球员管理' })).toBeInTheDocument()
+    expect(await screen.findByText('老王')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
   })
 
   it('refreshes loaded history stats after creating a correction', async () => {

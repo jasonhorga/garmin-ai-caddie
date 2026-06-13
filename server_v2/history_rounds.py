@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-from ai_caddie.history import HistoryData, average
+from ai_caddie.history import OWNER_ID, HistoryData, average
 from ai_caddie.reports import list_report_records
 
 from .data_source import load_history_data_for_mode
@@ -115,8 +115,9 @@ def load_history_rounds_response(
     has_shots: bool | None = None,
     has_report: bool | None = None,
     limit: int = 120,
+    player_id: str = OWNER_ID,
 ) -> HistoryRoundsResponse:
-    data, _mode = load_history_data_for_mode()
+    data, _mode = load_history_data_for_mode(player_id=player_id)
     # Only pay the report-store read when the caller actually filters on it.
     report_round_ids = _round_ids_with_reports() if has_report is not None else None
     return build_history_rounds_response(
