@@ -51,10 +51,20 @@ import type {
   VisionAnalysisResponse,
   VisionFindingsListResponse,
 } from './types'
+import { readPlayerToken } from './playerContext'
+
+// Per-player capability token read from the URL (see playerContext). When
+// present it scopes every request to that player via `Authorization: Bearer`.
+// It coexists with the owner's admin-token header; the backend prefers the
+// player token. Never log the token.
+function playerTokenHeader(): Record<string, string> {
+  const token = readPlayerToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 async function getJson<T>(path: string, adminToken?: string): Promise<T> {
   const url = apiUrl(path)
-  const headers = adminTokenHeader(adminToken)
+  const headers = { ...adminTokenHeader(adminToken), ...playerTokenHeader() }
   const init = Object.keys(headers).length ? { headers } : undefined
   const response = init ? await fetch(url, init) : await fetch(url)
   if (!response.ok) {
@@ -78,7 +88,7 @@ async function postJson<T>(path: string, body: unknown, adminToken?: string): Pr
   const url = apiUrl(path)
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...adminTokenHeader(adminToken) },
+    headers: { 'Content-Type': 'application/json', ...adminTokenHeader(adminToken), ...playerTokenHeader() },
     body: JSON.stringify(body),
   })
   if (!response.ok) {
@@ -89,7 +99,7 @@ async function postJson<T>(path: string, body: unknown, adminToken?: string): Pr
 
 async function postEmpty<T>(path: string, adminToken?: string): Promise<T> {
   const url = apiUrl(path)
-  const headers = adminTokenHeader(adminToken)
+  const headers = { ...adminTokenHeader(adminToken), ...playerTokenHeader() }
   const init: RequestInit = { method: 'POST' }
   if (Object.keys(headers).length) init.headers = headers
   const response = await fetch(url, init)
@@ -440,7 +450,7 @@ export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: b
   })
   const path = `/api/v2/sync/garmin?${params.toString()}`
   const url = apiUrl(path)
-  const headers = adminTokenHeader(options.adminToken)
+  const headers = { ...adminTokenHeader(options.adminToken), ...playerTokenHeader() }
   const init: RequestInit = { method: 'POST' }
   if (Object.keys(headers).length) init.headers = headers
   return fetch(url, init).then((response) => {
