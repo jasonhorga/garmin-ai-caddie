@@ -12,6 +12,7 @@ DATA_PATHS = [
     Path("data") / "summary.json",
     Path("data") / "scorecards",
     Path("data") / "shots",
+    Path("data") / "players",
     Path("data") / "snapshots",
     Path("data") / "sync",
     Path("data") / "annotations",

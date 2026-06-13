@@ -123,6 +123,41 @@ class SnapshotImportExportTests(unittest.TestCase):
             self.assertFalse((target / ".garmin_tokens").exists())
             self.assertFalse((target / "clubs.json").exists())
 
+    def test_export_includes_player_data_roots_and_skips_symlinks(self) -> None:
+        with TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            (source / "data" / "players" / "p_friend" / "scorecards").mkdir(parents=True)
+            (source / "data" / "players" / "p_friend" / "scorecards" / "900.json").write_text(
+                "{}", encoding="utf-8"
+            )
+            (source / "data" / "players" / "p_friend" / "shots").mkdir()
+            (source / "data" / "players" / "p_friend" / "shots" / "900.json").write_text(
+                "{}", encoding="utf-8"
+            )
+            (source / ".env").write_text("SECRET=1", encoding="utf-8")
+            (source / "data" / "players" / "p_friend" / "secret-link.json").symlink_to(
+                source / ".env"
+            )
+
+            tarball = Path(tmp) / "snapshot.tar.gz"
+            export_snapshot(source_root=source, output_path=tarball)
+            with tarfile.open(tarball, "r:gz") as archive:
+                names = sorted(archive.getnames())
+
+            target = Path(tmp) / "target"
+            import_snapshot(tarball, target_root=target)
+
+            self.assertIn("data/players/p_friend/scorecards/900.json", names)
+            self.assertIn("data/players/p_friend/shots/900.json", names)
+            self.assertNotIn("data/players/p_friend/secret-link.json", names)
+            self.assertEqual(
+                (target / "data" / "players" / "p_friend" / "scorecards" / "900.json").read_text(
+                    encoding="utf-8"
+                ),
+                "{}",
+            )
+
     def test_export_can_include_clubs_when_explicit(self) -> None:
         with TemporaryDirectory() as tmp:
             source = Path(tmp) / "source"
