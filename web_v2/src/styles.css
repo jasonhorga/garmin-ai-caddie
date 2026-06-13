@@ -4032,6 +4032,21 @@ button.round-detail-cell:hover {
   margin-top: 10px;
 }
 
+/* ===== Invalid / missing player link gate ===== */
+.invalid-link-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.invalid-link-card {
+  max-width: 420px;
+  margin-bottom: 0;
+  text-align: center;
+}
+
 /* ===== W1b trends ===== */
 .trends-page {
   display: flex;

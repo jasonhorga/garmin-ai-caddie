@@ -32,3 +32,16 @@ export function readPlayerToken(loc: LocationLike = window.location): string | n
 
   return null
 }
+
+/**
+ * Whether this deployment requires a player link to enter at all.
+ *
+ * Default (flag unset) is the owner/homeserver deployment: the bare URL keeps
+ * its existing admin-token behavior and is never gated, so the homeserver web
+ * page is not interrupted. A player-facing/public deployment sets
+ * `VITE_AI_CADDIE_REQUIRE_LINK="true"`, so a visitor with no credential gets a
+ * clean "needs a valid link" page instead of any data request.
+ */
+export function isLinkRequired(): boolean {
+  return String(import.meta.env.VITE_AI_CADDIE_REQUIRE_LINK ?? '').trim().toLowerCase() === 'true'
+}

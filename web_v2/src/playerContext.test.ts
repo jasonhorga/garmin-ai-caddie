@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readPlayerToken } from './playerContext'
+import { isLinkRequired, readPlayerToken } from './playerContext'
 
 describe('readPlayerToken', () => {
   afterEach(() => {
@@ -46,5 +46,25 @@ describe('readPlayerToken', () => {
   it('returns null on the default app location', () => {
     vi.stubGlobal('location', { pathname: '/', search: '' })
     expect(readPlayerToken()).toBeNull()
+  })
+})
+
+describe('isLinkRequired', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('is false by default (owner/homeserver deployment is not gated)', () => {
+    expect(isLinkRequired()).toBe(false)
+  })
+
+  it('is true only when the deployment flag is exactly "true"', () => {
+    vi.stubEnv('VITE_AI_CADDIE_REQUIRE_LINK', 'true')
+    expect(isLinkRequired()).toBe(true)
+  })
+
+  it('is false for any non-"true" flag value', () => {
+    vi.stubEnv('VITE_AI_CADDIE_REQUIRE_LINK', 'false')
+    expect(isLinkRequired()).toBe(false)
   })
 })

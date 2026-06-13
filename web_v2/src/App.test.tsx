@@ -992,7 +992,63 @@ function holeMapPayload() {
 describe('App navigation', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     vi.restoreAllMocks()
+  })
+
+  it('shows the invalid-link page and sends no data requests when a link is required but none is present', async () => {
+    vi.stubEnv('VITE_AI_CADDIE_REQUIRE_LINK', 'true')
+    vi.stubGlobal('location', { pathname: '/', search: '' })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: '需要有效链接' })).toBeInTheDocument()
+    // A locked-out visitor must leak nothing: no request fires and no player data shows.
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.queryByText('想备哪场?')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '概览' })).not.toBeInTheDocument()
+  })
+
+  it('shows the invalid-link page when a player link is rejected', async () => {
+    vi.stubGlobal('location', { pathname: '/p/bad-token', search: '' })
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 401, statusText: 'Unauthorized' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: '需要有效链接' })).toBeInTheDocument()
+    // An invalid player link must not fall back to the owner admin-token recovery panel.
+    expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('管理令牌')).not.toBeInTheDocument()
+  })
+
+  it('loads normally for a valid player link even when a link is required', async () => {
+    vi.stubEnv('VITE_AI_CADDIE_REQUIRE_LINK', 'true')
+    vi.stubGlobal('location', { pathname: '/p/good-token', search: '' })
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '需要有效链接' })).not.toBeInTheDocument()
+    // The player token rides on every request as a bearer credential.
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { Authorization: 'Bearer good-token' },
+    })
   })
 
   it('exposes the master spec IA and opens the rounds timeline', async () => {

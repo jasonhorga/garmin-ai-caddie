@@ -49,6 +49,7 @@ import { CorrectionsPage, type CorrectionTarget } from './components/Corrections
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
 import { HomeOverview } from './components/HomeOverview'
+import { InvalidLinkPage } from './components/InvalidLinkPage'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
@@ -72,6 +73,7 @@ import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
+import { isLinkRequired, readPlayerToken } from './playerContext'
 import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
@@ -118,6 +120,14 @@ type HoleGeometryTarget = { globalId: number; localHole: number; sourceRef: stri
 const statsPages: ProductPage[] = ['history', 'courses', 'holes', 'clubs', 'issues', 'reports', 'sync-quality']
 
 export default function App() {
+  // Access model: a per-player bearer token in the URL scopes the whole app to
+  // one player; otherwise the existing owner/admin-token behavior applies. On a
+  // player-facing deployment (isLinkRequired) a visitor with neither a player
+  // token nor an admin token is locked out behind InvalidLinkPage, and an
+  // invalid/expired player link (first auth 401) flips accessDenied below.
+  const playerToken = readPlayerToken()
+  const linkRequired = isLinkRequired()
+  const [accessDenied, setAccessDenied] = useState(false)
   const [activePage, setActivePage] = useState<ProductPage>('overview')
   const [overviewState, setOverviewState] = useState<LoadState<HistoryOverviewResponse>>({ status: 'loading' })
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
@@ -163,14 +173,28 @@ export default function App() {
   const [adminToken, setAdminToken] = useState('')
 
   useEffect(() => {
+    // Locked out: a link is required, the URL carries no player token, and no
+    // admin token can exist yet at mount. Send no requests and expose nothing.
+    if (isLinkRequired() && !readPlayerToken()) {
+      return
+    }
+
     let cancelled = false
+    const bootPlayerToken = readPlayerToken()
 
     fetchHistoryOverview()
       .then((data) => {
         if (!cancelled) setOverviewState({ status: 'ready', data })
       })
       .catch((error: unknown) => {
-        if (!cancelled) setOverviewState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+        if (cancelled) return
+        // An invalid/expired player link must not surface the owner recovery
+        // panel — show the clean invalid-link page instead.
+        if (bootPlayerToken && isUnauthorized(error)) {
+          setAccessDenied(true)
+          return
+        }
+        setOverviewState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
       })
 
     // The landing 概览 page composes all-window stats (近期状态/本周该练) and
@@ -1320,11 +1344,20 @@ export default function App() {
     )
   }
 
+  const lockedOut = linkRequired && !playerToken && !currentAdminToken()
+  if (lockedOut || accessDenied) {
+    return <InvalidLinkPage />
+  }
+
   return (
     <AppShell activePage={activePage} onNavigate={navigate}>
       {renderActivePage()}
     </AppShell>
   )
+}
+
+function isUnauthorized(error: unknown): boolean {
+  return error instanceof Error && /\b401\b/.test(error.message)
 }
 
 function sameHoleGeometryTarget(left: HoleGeometryTarget | null, right: HoleGeometryTarget): boolean {
