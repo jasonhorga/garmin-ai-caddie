@@ -65,6 +65,7 @@ import {
 } from './components/MobilePackagePrepPanel'
 import { AppShell } from './components/AppShell'
 import { LivePage } from './components/LivePage'
+import { PlayerAdminPage } from './components/PlayerAdminPage'
 import { PrepPage } from './components/PrepPage'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
@@ -1268,6 +1269,12 @@ export default function App() {
       )
     }
 
+    if (activePage === 'players') {
+      // Owner-only management surface; reuses the admin token entered in the
+      // sync panel. Never renders any player's score analysis.
+      return <PlayerAdminPage adminToken={currentAdminToken()} onNavigate={navigate} />
+    }
+
     if (activePage === 'settings') {
       return (
         <SettingsPage
@@ -1350,7 +1357,11 @@ export default function App() {
   }
 
   return (
-    <AppShell activePage={activePage} onNavigate={navigate}>
+    <AppShell
+      activePage={activePage}
+      onNavigate={navigate}
+      playersAdminVisible={!playerToken && Boolean(currentAdminToken())}
+    >
       {renderActivePage()}
     </AppShell>
   )

@@ -1,4 +1,9 @@
 import type {
+  AdminPlayer,
+  AdminPlayerCreateResponse,
+  AdminPlayerDeleteResponse,
+  AdminPlayersListResponse,
+  AdminPlayerTokenResponse,
   AnnotationCreateRequest,
   AnnotationCreateResponse,
   AnnotationListResponse,
@@ -105,6 +110,31 @@ async function postEmpty<T>(path: string, adminToken?: string): Promise<T> {
   const response = await fetch(url, init)
   if (!response.ok) {
     throw new Error(`POST ${url} failed: ${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<T>
+}
+
+async function patchJson<T>(path: string, body: unknown, adminToken?: string): Promise<T> {
+  const url = apiUrl(path)
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...adminTokenHeader(adminToken), ...playerTokenHeader() },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    throw new Error(`PATCH ${url} failed: ${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<T>
+}
+
+async function deleteJson<T>(path: string, adminToken?: string): Promise<T> {
+  const url = apiUrl(path)
+  const headers = { ...adminTokenHeader(adminToken), ...playerTokenHeader() }
+  const init: RequestInit = { method: 'DELETE' }
+  if (Object.keys(headers).length) init.headers = headers
+  const response = await fetch(url, init)
+  if (!response.ok) {
+    throw new Error(`DELETE ${url} failed: ${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<T>
 }
@@ -463,6 +493,40 @@ export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: b
 
 export function saveGarminSession(request: GarminSessionImportRequest, adminToken?: string): Promise<GarminSessionImportResponse> {
   return postJson<GarminSessionImportResponse>('/api/v2/sync/garmin/session', request, adminToken)
+}
+
+// Owner-side player management (admin token). These hit /api/v2/admin/players,
+// which is NOT player-scoped: the admin gate is enforced server-side, so a
+// per-player URL token can never reach these. create/rotate return the plaintext
+// token + URL exactly once — surface it to the owner immediately, never log it.
+export function fetchAdminPlayers(adminToken?: string): Promise<AdminPlayersListResponse> {
+  return getJson<AdminPlayersListResponse>('/api/v2/admin/players', adminToken)
+}
+
+export function createAdminPlayer(
+  request: { name: string; avatar?: string | null },
+  adminToken?: string,
+): Promise<AdminPlayerCreateResponse> {
+  return postJson<AdminPlayerCreateResponse>('/api/v2/admin/players', request, adminToken)
+}
+
+export function updateAdminPlayer(
+  playerId: string,
+  request: { name?: string; avatar?: string | null },
+  adminToken?: string,
+): Promise<AdminPlayer> {
+  return patchJson<AdminPlayer>(`/api/v2/admin/players/${encodeURIComponent(playerId)}`, request, adminToken)
+}
+
+export function rotateAdminPlayerToken(playerId: string, adminToken?: string): Promise<AdminPlayerTokenResponse> {
+  return postEmpty<AdminPlayerTokenResponse>(
+    `/api/v2/admin/players/${encodeURIComponent(playerId)}/rotate-token`,
+    adminToken,
+  )
+}
+
+export function deleteAdminPlayer(playerId: string, adminToken?: string): Promise<AdminPlayerDeleteResponse> {
+  return deleteJson<AdminPlayerDeleteResponse>(`/api/v2/admin/players/${encodeURIComponent(playerId)}`, adminToken)
 }
 
 export function fetchAnnotations(adminToken?: string): Promise<AnnotationListResponse> {

@@ -35,4 +35,11 @@ describe('navigation map', () => {
     expect(analysis?.page).toBe('holes')
     expect(analysis?.activeFor).toEqual(['holes', 'clubs', 'issues'])
   })
+
+  it('places 球员管理 in the settings section subnav', () => {
+    expect(PAGE_TO_SECTION.players).toBe('settings')
+    const players = SETTINGS_SUBNAV.find((item) => item.page === 'players')
+    expect(players?.label).toBe('球员管理')
+    expect(subnavForPage('players')).toBe(SETTINGS_SUBNAV)
+  })
 })

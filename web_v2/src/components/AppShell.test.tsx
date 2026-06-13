@@ -28,4 +28,23 @@ describe('AppShell', () => {
     expect(screen.getByRole('heading', { name: '概览' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '趋势总览' })).not.toBeInTheDocument()
   })
+
+  it('hides the 球员管理 settings tab unless owner player admin is visible', () => {
+    const { rerender } = render(
+      <AppShell activePage="sync-quality" onNavigate={() => undefined}>
+        <p>settings body</p>
+      </AppShell>,
+    )
+    // Default (e.g. a per-player link): no owner management affordance.
+    expect(screen.queryByRole('button', { name: '球员管理' })).not.toBeInTheDocument()
+    // The other settings tabs are unaffected.
+    expect(screen.getByRole('button', { name: '同步与数据健康' })).toBeInTheDocument()
+
+    rerender(
+      <AppShell activePage="sync-quality" onNavigate={() => undefined} playersAdminVisible>
+        <p>settings body</p>
+      </AppShell>,
+    )
+    expect(screen.getByRole('button', { name: '球员管理' })).toBeInTheDocument()
+  })
 })

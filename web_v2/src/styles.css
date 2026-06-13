@@ -732,6 +732,154 @@ p {
   color: var(--double-text);
 }
 
+/* Owner player-admin page (multiplayer foundation) — reuses the panel/chip
+   design language; manages players + links only, never any score analysis. */
+.player-admin-page {
+  display: grid;
+  gap: 14px;
+}
+
+.player-admin-create {
+  display: grid;
+  grid-template-columns: 96px minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.player-admin-create label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.player-admin-create input {
+  min-height: 38px;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
+.player-admin-issued {
+  display: grid;
+  gap: 10px;
+  border-color: var(--green);
+  background: var(--green-tint, #f1faf4);
+}
+
+.player-admin-url {
+  display: block;
+  overflow-wrap: anywhere;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 12px;
+}
+
+.player-admin-issued-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.player-admin-issued-actions button:not(.sync-action) {
+  min-height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  padding: 8px 12px;
+}
+
+.player-admin-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.player-admin-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.player-admin-row-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.player-admin-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-admin-identity strong {
+  font-size: 15px;
+  font-weight: 850;
+  color: var(--ink);
+}
+
+.player-admin-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.player-admin-muted {
+  font-style: italic;
+}
+
+.player-admin-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.player-admin-actions button:not(.sync-action) {
+  min-height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.player-admin-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.player-admin-danger {
+  border-color: var(--double-text) !important;
+  color: var(--double-text) !important;
+}
+
 .readiness-panel {
   display: grid;
   gap: 12px;

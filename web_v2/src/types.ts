@@ -1030,3 +1030,43 @@ export interface PrepTipsResponse {
   courseKey: string | null
   tips: PrepTip[]
 }
+
+// Owner-side player management (multiplayer foundation, stage 1). These mirror
+// server_v2/players_api.py's admin endpoints. The list view never carries token
+// material (only tokenLast4) and never carries any player's score analysis;
+// roundCount/sources are lightweight aggregate metadata that the backend MAY
+// include on a row — never round-level data.
+export interface AdminPlayer {
+  id: string
+  name: string
+  isOwner: boolean
+  createdAt: string | null
+  avatar: string | null
+  tokenLast4: string | null
+  // Optional, forward-compatible aggregate metadata (not score analysis):
+  roundCount?: number | null
+  sources?: Record<string, number> | null
+}
+
+export interface AdminPlayersListResponse {
+  players: AdminPlayer[]
+}
+
+// Create / rotate return the plaintext token + shareable URL exactly ONCE.
+export interface AdminPlayerCreateResponse {
+  id: string
+  name: string
+  token: string
+  url: string
+}
+
+export interface AdminPlayerTokenResponse {
+  id: string
+  token: string
+  url: string
+}
+
+export interface AdminPlayerDeleteResponse {
+  ok: boolean
+  id: string
+}

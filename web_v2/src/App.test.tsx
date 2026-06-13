@@ -1809,6 +1809,47 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/settings/product')
   })
 
+  it('reveals the owner 球员管理 tab only after an admin token is entered and manages players there', async () => {
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/admin/players') {
+            return {
+              players: [
+                { id: 'me', name: '我', isOwner: true, createdAt: null, avatar: null, tokenLast4: null },
+                { id: 'p_a1b2', name: '老王', isOwner: false, createdAt: null, avatar: null, tokenLast4: '77c1', roundCount: 4, sources: { garmin: 3, manual: 1 } },
+              ],
+            }
+          }
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '设置' }))
+    // No admin token yet → the owner-only 球员管理 tab stays hidden.
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '球员管理' })).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
+    await userEvent.click(await screen.findByRole('button', { name: '球员管理' }))
+
+    expect(await screen.findByRole('heading', { name: '球员管理' })).toBeInTheDocument()
+    expect(await screen.findByText('老王')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
   it('refreshes loaded history stats after creating a correction', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
