@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
-from ai_caddie import course_search
+from ai_caddie import course_search, round_ingest
 from ai_caddie.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
 from ai_caddie.connectors.snapshot import snapshot_to_payload
@@ -99,6 +99,8 @@ from .models import (
     MobileReconciliationResponse,
     ReviewReportIndexResponse,
     ReviewReportResponse,
+    RoundIngestRequest,
+    RoundIngestResponse,
     SyncRunResponse,
     SyncStatusResponse,
     VisionAnalysisResponse,
@@ -364,6 +366,33 @@ def product_settings() -> dict[str, object]:
 @app.get("/api/v2/history/overview", response_model=HistoryOverviewResponse)
 def history_overview(player_id: str = Depends(current_player_id)) -> HistoryOverviewResponse:
     return load_history_overview_response(player_id=player_id)
+
+
+@app.post("/api/v2/players/{target_player_id}/rounds", response_model=RoundIngestResponse, status_code=201)
+def ingest_player_round(
+    target_player_id: str,
+    body: RoundIngestRequest,
+    request: Request,
+    acting_player_id: str = Depends(current_player_id),
+) -> RoundIngestResponse:
+    """Land a manual ("phone") round for a player. A per-player bearer token may only
+    target its own player; the owner (admin token) may target any player. Idempotent on
+    the ``Idempotency-Key`` header (or a client-supplied round id)."""
+    if acting_player_id != OWNER_ID and acting_player_id != target_player_id:
+        raise HTTPException(status_code=403, detail="cannot ingest rounds for another player")
+    idempotency_key = (
+        request.headers.get("Idempotency-Key")
+        or body.idempotencyKey
+        or body.clientRoundId
+        or round_ingest.derive_idempotency_key(target_player_id, body.events, body.meta)
+    )
+    try:
+        summary = round_ingest.ingest_round(
+            target_player_id, body.events, body.meta, idempotency_key=idempotency_key
+        )
+    except round_ingest.RoundIngestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return RoundIngestResponse(**summary)
 
 
 @app.get("/api/v2/history/rounds", response_model=HistoryRoundsResponse)

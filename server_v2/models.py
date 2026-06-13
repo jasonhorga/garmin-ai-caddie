@@ -887,6 +887,31 @@ class LiveRoundEventAckResponse(BaseModel):
     pendingEventCount: int
 
 
+class RoundIngestRequest(BaseModel):
+    """A manual ("phone") round: live capture events + round meta (see
+    ``ai_caddie.round_ingest.ingest_round``). Events are accepted as loose dicts so the
+    full live-event payload surface stays forward-compatible; ``ingest_round`` validates
+    them and raises a 400 on malformed input."""
+
+    events: list[dict[str, Any]] = Field(min_length=1)
+    meta: dict[str, Any] = Field(default_factory=dict)
+    idempotencyKey: str | None = None
+    clientRoundId: str | None = None
+
+
+class RoundIngestResponse(BaseModel):
+    id: int
+    playerId: str
+    source: Literal["manual"]
+    date: str | None = None
+    course: str | None = None
+    holesCompleted: int | None = None
+    strokes: int | None = None
+    par: int | None = None
+    shotCount: int | None = None
+    idempotent: bool
+
+
 class MobileReconciliationApplyRequest(BaseModel):
     suggestionIds: list[str] = Field(default_factory=list)
 

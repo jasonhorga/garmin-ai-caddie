@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ai_caddie import data as _data
+from ai_caddie import history as _history
 from ai_caddie.data import deg_to_semicircle, read_json, wgs84_to_local
 
 OWNER_ID = "me"
@@ -42,7 +42,10 @@ class RoundIngestError(Exception):
 # Paths
 # ---------------------------------------------------------------------------
 def _repo_root(root: Path | str | None) -> Path:
-    return Path(root) if root is not None else _data.ROOT
+    # Default to history.ROOT so writes land where the load layer reads (and so the
+    # established ``mock.patch.object(history, "ROOT", tmp)`` test convention repoints
+    # ingest too). In production history.ROOT == data.ROOT (the repo root).
+    return Path(root) if root is not None else _history.ROOT
 
 
 def _player_dir(player_id: str, root: Path | str | None) -> Path:
