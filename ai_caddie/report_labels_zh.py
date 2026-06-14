@@ -79,9 +79,63 @@ DATA_LABELS_ZH: dict[str, str] = {
 }
 
 
+# Decision-audit CLOSED enums embedded in audit-signal claims. Open identifiers
+# (criterion labels like ``avoid_zones``, option ids like ``stock``) stay raw —
+# the decision engine and the CaddiePage audit panel surface those raw by
+# convention (decision.py passes loose tokens through rather than guessing).
+AUDIT_STATUS_ZH: dict[str, str] = {
+    "fail": "未达标",
+    "review": "需复核",
+    "missing": "缺失",
+    "pass": "达标",
+}
+AUDIT_CLASS_ZH: dict[str, str] = {
+    "execution": "执行偏差",
+    "strategy": "策略偏差",
+    "info_gap": "信息不足",
+}
+
+# Trend-change dimensions + directions. FORM_DIRECTION_ZH mirrors
+# web_v2/src/zhLabels.ts FORM_DIRECTION_ZH — keep in sync.
+TREND_DIMENSION_ZH: dict[str, str] = {
+    "overall": "整体",
+    "course": "球场",
+    "club": "球杆",
+    "issue": "问题",
+    "hole": "球洞",
+}
+FORM_DIRECTION_ZH: dict[str, str] = {
+    "improving": "进步中",
+    "stable": "稳定",
+    "declining": "下滑",
+    "flat": "持平",
+    "insufficient_data": "样本不足",
+}
+
+
 def issue_label_zh(token: str) -> str:
     """Chinese label for an issue token; unknown tokens pass through unchanged."""
     return ISSUE_LABELS_ZH.get(token, token)
+
+
+def audit_status_zh(token: str) -> str:
+    """Chinese label for a decision-audit criterion status; unknown passes through."""
+    return AUDIT_STATUS_ZH.get(token, token)
+
+
+def audit_class_zh(token: str) -> str:
+    """Chinese label for a decision-audit classification; unknown passes through."""
+    return AUDIT_CLASS_ZH.get(token, token)
+
+
+def trend_dimension_zh(token: str) -> str:
+    """Chinese label for a trend-change dimension; unknown passes through."""
+    return TREND_DIMENSION_ZH.get(token, token)
+
+
+def form_direction_zh(token: str) -> str:
+    """Chinese label for a trend/form direction; unknown passes through."""
+    return FORM_DIRECTION_ZH.get(token, token)
 
 
 def data_label_zh(token: str) -> str:

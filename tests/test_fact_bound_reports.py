@@ -149,7 +149,7 @@ class FactBoundReportTests(unittest.TestCase):
             inferences,
         )
         self.assertTrue(any("三推" in row["claim"] and row["sourceRefs"] == ["round-2:7"] for row in inferences))
-        self.assertTrue(any("execution" in row["claim"] and row["factLabels"] == ["decision_audit_trends"] for row in inferences))
+        self.assertTrue(any("执行偏差" in row["claim"] and row["factLabels"] == ["decision_audit_trends"] for row in inferences))
 
     def test_generated_report_flags_sensitive_claims_not_supported_by_facts(self) -> None:
         facts = {
@@ -647,7 +647,7 @@ class FactBoundReportTests(unittest.TestCase):
 
         report = generate_report(facts, StaticProvider("Trend review constrained to the provided facts."))
         claims = [row["claim"] for row in report["inferencesMade"]]
-        self.assertTrue(any("最大趋势变化" in claim and "approach_short" in claim for claim in claims))
+        self.assertTrue(any("最大趋势变化" in claim and "攻果岭偏短" in claim for claim in claims))
 
     def test_hole_report_facts_bind_hole_issues_geometry_shots_and_confirmed_vision(self) -> None:
         data = fixture_history_data()
@@ -896,7 +896,7 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["recentCostDrivers"][0]["classification"], "execution")
         self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["criteriaBreakdown"][0]["label"], "avoid_zones")
         self.assertEqual(trend_by_label["decision_audit_trends"]["value"]["optionOutcomes"][0]["selectedOptionId"], "safe")
-        self.assertTrue(any("avoid_zones fail" in row["claim"] for row in report["inferencesMade"]))
+        self.assertTrue(any("avoid_zones 未达标" in row["claim"] for row in report["inferencesMade"]))
 
     def test_trend_report_facts_include_diagnosis_course_and_club_risk_models(self) -> None:
         stats = {
