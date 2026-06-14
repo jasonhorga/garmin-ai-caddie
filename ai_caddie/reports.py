@@ -238,6 +238,14 @@ _MISSING_CALLOUT_TERMS = (
     "uncertain",
     "lack",
     "lacking",
+    # Chinese equivalents
+    "缺失",
+    "不可用",
+    "未记录",
+    "无数据",
+    "未知",
+    "不确定",
+    "缺少",
 )
 
 
@@ -416,9 +424,9 @@ def build_round_report_facts(
 
     missing_data: list[dict[str, Any]] = []
     if str(round_id) not in all_round_ids:
-        missing_data.append({"label": "round_reference", "reason": f"{round_id} not present in drillDown.roundIds"})
+        missing_data.append({"label": "round_reference", "reason": f"{round_id} 不在 drillDown.roundIds 中"})
     if history_data is not None and not round_row:
-        missing_data.append({"label": "round_scorecard", "reason": f"{round_id} not present in normalized history data"})
+        missing_data.append({"label": "round_scorecard", "reason": f"{round_id} 不在标准化历史数据中"})
     missing_data.extend(_missing_data_quality_rows(data_quality))
 
     return {
@@ -1195,13 +1203,13 @@ def build_hole_report_facts(
 
     missing_data: list[dict[str, Any]] = []
     if hole_stat is None:
-        missing_data.append({"label": "hole_reference", "reason": f"{subject_id} not present in history hole aggregates"})
+        missing_data.append({"label": "hole_reference", "reason": f"{subject_id} 不在历史球洞汇总中"})
     elif str(hole_stat.get("geometryCoverage") or "").lower() != "ready":
         missing_data.append(
             {
                 "label": "geometry",
                 "state": str(hole_stat.get("geometryCoverage") or "missing"),
-                "reason": f"Geometry coverage for {subject_id} is {hole_stat.get('geometryCoverage') or 'missing'}",
+                "reason": f"{subject_id} 的几何覆盖率为 {hole_stat.get('geometryCoverage') or '缺失'}",
                 "sourceRefs": hole_refs,
             }
         )
@@ -1339,13 +1347,13 @@ def build_course_report_facts(history_stats: dict[str, Any], course_key: str) ->
 
     missing_data: list[dict[str, Any]] = []
     if course_stat is None:
-        missing_data.append({"label": "course_reference", "reason": f"{course_key} not present in course aggregates"})
+        missing_data.append({"label": "course_reference", "reason": f"{course_key} 不在球场汇总中"})
     elif str(course_stat.get("geometryCoverage") or "").lower() != "ready":
         missing_data.append(
             {
                 "label": "geometry",
                 "state": str(course_stat.get("geometryCoverage") or "missing"),
-                "reason": f"Geometry coverage for {course_key} is {course_stat.get('geometryCoverage') or 'missing'}",
+                "reason": f"{course_key} 的几何覆盖率为 {course_stat.get('geometryCoverage') or '缺失'}",
                 "sourceRefs": _as_string_list(course_stat.get("sourceRefs") or course_stat.get("roundRefs") or course_stat.get("roundIds")),
             }
         )
@@ -1463,7 +1471,7 @@ def build_club_report_facts(history_stats: dict[str, Any], club_name: str) -> di
 
     missing_data: list[dict[str, Any]] = []
     if club_stat is None:
-        missing_data.append({"label": "club_reference", "reason": f"{club_name} not present in club aggregates"})
+        missing_data.append({"label": "club_reference", "reason": f"{club_name} 不在球杆汇总中"})
     else:
         sample_quality = club_stat.get("sampleQuality") if isinstance(club_stat.get("sampleQuality"), dict) else {}
         if str(sample_quality.get("confidence") or club_stat.get("confidence") or "").lower() in {"low", "insufficient"}:
@@ -1471,7 +1479,7 @@ def build_club_report_facts(history_stats: dict[str, Any], club_name: str) -> di
                 {
                     "label": "club_samples",
                     "state": "partial",
-                    "reason": f"Club sample confidence for {club_stat.get('club')} is {sample_quality.get('confidence') or club_stat.get('confidence')}",
+                    "reason": f"球杆 {club_stat.get('club')} 样本置信度为 {sample_quality.get('confidence') or club_stat.get('confidence')}",
                     "sourceRefs": _as_string_list(club_stat.get("shotRefs")),
                 }
             )
@@ -1696,7 +1704,7 @@ def build_trend_report_facts(history_stats: dict[str, Any], period: str) -> dict
 
     missing_data: list[dict[str, Any]] = []
     if period_row is None and period != "recent_10":
-        missing_data.append({"label": "period", "reason": f"{period} not present in history time aggregates"})
+        missing_data.append({"label": "period", "reason": f"{period} 不在历史时间汇总中"})
     missing_data.extend(_missing_data_quality_rows(data_quality))
 
     return {
@@ -1914,7 +1922,7 @@ def _first_audit_signal(value: Any) -> str | None:
         label = str(item.get("label") or "").strip()
         status = str(item.get("status") or "").strip()
         if label and status and status.lower() in {"fail", "review", "missing"}:
-            return f"criterion {label} {status}"
+            return f"判据 {label} {status}"
 
     for item in rows:
         if not isinstance(item, dict):
@@ -1923,11 +1931,11 @@ def _first_audit_signal(value: Any) -> str | None:
         actual = str(item.get("actualOptionId") or "").strip()
         classification = str(item.get("classification") or "").strip()
         if selected and actual and selected != actual:
-            suffix = f" classified as {classification}" if classification else ""
-            return f"option {selected}->{actual}{suffix}"
+            suffix = f"，分类为 {classification}" if classification else ""
+            return f"选项 {selected}->{actual}{suffix}"
 
     classification = _first_audit_classification(value)
-    return f"{classification} as a decision issue" if classification else None
+    return f"{classification} 决策问题" if classification else None
 
 
 def _first_risky_club(value: Any) -> tuple[str, float | None] | None:
@@ -2047,24 +2055,24 @@ def build_report_inferences(
         if label in {"summary_trend", "total_rounds"}:
             round_count = _summary_round_count(value)
             if round_count is not None:
-                claim = f"Recent review is based on {round_count} rounds." if label == "summary_trend" else f"Report is based on {round_count} rounds."
+                claim = f"近期回顾基于 {round_count} 场球。" if label == "summary_trend" else f"本报告基于 {round_count} 场球。"
                 _append_inference(rows, _inference(claim, fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label in {"top_issue", "top_issues", "round_issues", "diagnosis_issue_trends", "round_diagnosis_issue_trends"}:
             issue = _first_issue(value)
             if issue:
-                _append_inference(rows, _inference(f"Primary scoring-loss signal is {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
+                _append_inference(rows, _inference(f"主要失分信号为 {issue}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "hole_history":
             summary = _hole_history_summary(value)
             if summary:
                 hole, average_to_par, sample_count = summary
-                hole_text = f"Hole {hole}" if hole is not None else "This hole"
-                sample_text = f" across {sample_count} samples" if sample_count is not None else ""
+                hole_text = f"第 {hole} 洞" if hole is not None else "本洞"
+                sample_text = f"，共 {sample_count} 个样本" if sample_count is not None else ""
                 _append_inference(
                     rows,
                     _inference(
-                        f"{hole_text} averages {average_to_par} to par{sample_text}.",
+                        f"{hole_text}平均相对标准杆 {average_to_par}{sample_text}。",
                         fact,
                         default_confidence=confidence,
                         missing_data=missing_data,
@@ -2074,7 +2082,7 @@ def build_report_inferences(
         if label == "hole_repeated_issues":
             issue = _first_issue(value)
             if issue:
-                _append_inference(rows, _inference(f"Hole-specific repeated issue is {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
+                _append_inference(rows, _inference(f"本洞反复出现的问题为 {issue}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "confirmed_vision_findings":
             finding_type = _first_vision_finding(value)
@@ -2082,7 +2090,7 @@ def build_report_inferences(
                 _append_inference(
                     rows,
                     _inference(
-                        f"Confirmed vision evidence includes {finding_type}.",
+                        f"已确认的视觉证据包含 {finding_type}。",
                         fact,
                         default_confidence=confidence,
                         missing_data=missing_data,
@@ -2093,23 +2101,23 @@ def build_report_inferences(
             summary = _course_history_summary(value)
             if summary:
                 course, round_count = summary
-                count_text = f" has {round_count} rounds" if round_count is not None else " is present in history"
-                _append_inference(rows, _inference(f"Course {course}{count_text}.", fact, default_confidence=confidence, missing_data=missing_data))
+                count_text = f"共有 {round_count} 场球记录" if round_count is not None else "已在历史记录中"
+                _append_inference(rows, _inference(f"球场 {course}{count_text}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "course_issue_profile":
             issue = _first_issue(value)
             if issue:
-                _append_inference(rows, _inference(f"Course-specific issue profile highlights {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
+                _append_inference(rows, _inference(f"球场专项问题分布突出 {issue}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "club_profile":
             summary = _club_profile_summary(value)
             if summary:
                 club, median_value, sample_count = summary
-                sample_text = f" from {sample_count} samples" if sample_count is not None else ""
+                sample_text = f"，共 {sample_count} 个样本" if sample_count is not None else ""
                 _append_inference(
                     rows,
                     _inference(
-                        f"Club {club} median distance is {median_value}{sample_text}.",
+                        f"球杆 {club} 中位距离为 {median_value}{sample_text}。",
                         fact,
                         default_confidence=confidence,
                         missing_data=missing_data,
@@ -2121,7 +2129,7 @@ def build_report_inferences(
             _append_inference(
                 rows,
                 _inference(
-                    f"Club {club} distance trend is {value.get('direction')}.",
+                    f"球杆 {club} 距离趋势为 {value.get('direction')}。",
                     fact,
                     default_confidence=confidence,
                     missing_data=missing_data,
@@ -2132,25 +2140,25 @@ def build_report_inferences(
             summary = _club_surface_risk_summary(value)
             if summary:
                 club, risk_rate = summary
-                rate_text = f" at {risk_rate:g}% risk rate" if isinstance(risk_rate, (int, float)) else ""
-                _append_inference(rows, _inference(f"Club surface model flags {club}{rate_text}.", fact, default_confidence=confidence, missing_data=missing_data))
+                rate_text = f"，风险率 {risk_rate:g}%" if isinstance(risk_rate, (int, float)) else ""
+                _append_inference(rows, _inference(f"球杆落点模型标记 {club}{rate_text}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "club_risk_profiles":
             club_risk = _first_risky_club(value)
             if club_risk:
                 club, risk_rate = club_risk
-                rate_text = f" at {risk_rate:g}% risk rate" if risk_rate is not None else ""
-                _append_inference(rows, _inference(f"Club risk model flags {club}{rate_text}.", fact, default_confidence=confidence, missing_data=missing_data))
+                rate_text = f"，风险率 {risk_rate:g}%" if risk_rate is not None else ""
+                _append_inference(rows, _inference(f"球杆风险模型标记 {club}{rate_text}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "trend_changes":
             summary = _top_trend_change_summary(value)
             if summary:
                 dimension, key, delta, direction = summary
-                delta_text = f" by {delta}" if delta is not None else ""
+                delta_text = f"，变化量 {delta}" if delta is not None else ""
                 _append_inference(
                     rows,
                     _inference(
-                        f"Largest trend change is {dimension} {key} {direction}{delta_text}.",
+                        f"最大趋势变化：{dimension} {key} {direction}{delta_text}。",
                         fact,
                         default_confidence=confidence,
                         missing_data=missing_data,
@@ -2161,7 +2169,7 @@ def build_report_inferences(
             course_issue = _first_course_issue(value)
             if course_issue:
                 course, issue = course_issue
-                _append_inference(rows, _inference(f"Course profile for {course} highlights {issue}.", fact, default_confidence=confidence, missing_data=missing_data))
+                _append_inference(rows, _inference(f"球场 {course} 问题分布突出 {issue}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label in {"decision_audit_trends", "round_decision_audits"}:
             signal = _first_audit_signal(value)
@@ -2169,7 +2177,7 @@ def build_report_inferences(
                 _append_inference(
                     rows,
                     _inference(
-                        f"Caddie audit loop highlights {signal}.",
+                        f"球童审计循环标记 {signal}。",
                         fact,
                         default_confidence=confidence,
                         missing_data=missing_data,
@@ -2180,8 +2188,8 @@ def build_report_inferences(
             score = value.get("score")
             course = value.get("course")
             if score is not None:
-                course_text = f" at {course}" if course else ""
-                _append_inference(rows, _inference(f"Round score was {score}{course_text}.", fact, default_confidence=confidence, missing_data=missing_data))
+                course_text = f"，球场 {course}" if course else ""
+                _append_inference(rows, _inference(f"本场成绩 {score}{course_text}。", fact, default_confidence=confidence, missing_data=missing_data))
 
     if not rows and facts_used:
         synthetic_fact = {
@@ -2190,7 +2198,7 @@ def build_report_inferences(
         }
         rows.append(
             _inference(
-                f"Narrative is constrained to {len(facts_used)} structured facts.",
+                f"叙述受限于 {len(facts_used)} 条结构化事实。",
                 synthetic_fact,
                 default_confidence=confidence,
                 missing_data=missing_data,
@@ -2217,20 +2225,20 @@ def _deterministic_report_narrative(
     inferences = build_report_inferences(facts_used, missing_data)
     claims = [_sentence(row.get("claim")) for row in inferences if isinstance(row, dict) and row.get("claim")]
     if not claims:
-        claims = [f"Review is constrained to {len(facts_used)} structured facts."]
+        claims = [f"回顾受限于 {len(facts_used)} 条结构化事实。"]
 
     title = {
-        "round": "Round review",
-        "trend": "Trend review",
-        "hole": "Hole review",
-        "course": "Course review",
-        "club": "Club review",
-    }.get(kind, "Review")
-    parts = [f"{title}: {' '.join(claims[:5])}"]
+        "round": "球局回顾",
+        "trend": "趋势回顾",
+        "hole": "球洞回顾",
+        "course": "球场回顾",
+        "club": "球杆回顾",
+    }.get(kind, "回顾")
+    parts = [f"{title}：{' '.join(claims[:5])}"]
     missing_labels = _missing_labels(missing_data)
     if missing_labels:
-        parts.append(f"Missing data: {', '.join(missing_labels[:8])}.")
-    parts.append("Every statement is bound to the structured facts and source references in this report.")
+        parts.append(f"数据缺失：{', '.join(missing_labels[:8])}。")
+    parts.append("每项陈述均受本报告结构化事实及来源引用约束。")
     return redact_private_text(" ".join(parts))
 
 
@@ -2300,7 +2308,7 @@ def audit_report_narrative(
                     {
                         "category": category,
                         "claim": fragment_text[:240],
-                        "reason": f"Narrative references {category} without a supporting structured fact.",
+                        "reason": f"叙述引用了 {category}，但缺乏对应的结构化事实支撑。",
                         "confidence": "low",
                         "sourceRefs": [],
                         "missingDataRefs": missing_refs,
@@ -2570,14 +2578,14 @@ def generate_report(facts: dict[str, Any], provider: TextProvider) -> dict[str, 
     safe_facts = _redact_value(facts)
 
     prompt = (
-        "Write an evidence-bound golf review. Use only factsUsed. "
-        "Do not invent weather, lie, intent, club, penalties, or private data. "
-        "Call out missingData explicitly.\n\n"
+        "用简体中文撰写基于证据的高尔夫复盘。仅使用 factsUsed 中的事实。"
+        "不得编造天气、谎言、意图、球杆、罚杆或私人数据。"
+        "明确指出 missingData 中的缺失数据。\n\n"
         f"{json.dumps(safe_facts, ensure_ascii=False, indent=2)}"
     )
     narrative = provider.chat(
         [
-            LLMMessage(role="system", content="You are AI Caddie. Facts are authoritative; uncertainty must be visible."),
+            LLMMessage(role="system", content="你是AI球童。事实是权威的；不确定性必须明确呈现。"),
             LLMMessage(role="user", content=prompt),
         ],
         max_tokens=1200,

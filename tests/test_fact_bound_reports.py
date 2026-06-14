@@ -139,7 +139,7 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertTrue(all("factLabels" in row for row in inferences))
         self.assertIn(
             {
-                "claim": "Recent review is based on 6 rounds.",
+                "claim": "近期回顾基于 6 场球。",
                 "factLabels": ["summary_trend"],
                 "sourceRefs": ["round-1", "round-2"],
                 "confidence": "medium",
@@ -358,7 +358,7 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertEqual(by_label["round_shots"]["value"][0]["shotRef"], "900001:1:0")
         self.assertEqual(by_label["round_shots"]["value"][0]["club"], "1D")
         self.assertIn("round_issues", by_label)
-        self.assertNotIn({"label": "round_reference", "reason": "900001 not present in drillDown.roundIds"}, facts["missingData"])
+        self.assertNotIn({"label": "round_reference", "reason": "900001 不在 drillDown.roundIds 中"}, facts["missingData"])
 
     def test_round_report_scorecard_fact_includes_difficulty_adjusted_differential(self) -> None:
         data = HistoryData(
@@ -647,7 +647,7 @@ class FactBoundReportTests(unittest.TestCase):
 
         report = generate_report(facts, StaticProvider("Trend review constrained to the provided facts."))
         claims = [row["claim"] for row in report["inferencesMade"]]
-        self.assertTrue(any("Largest trend change" in claim and "approach_short" in claim for claim in claims))
+        self.assertTrue(any("最大趋势变化" in claim and "approach_short" in claim for claim in claims))
 
     def test_hole_report_facts_bind_hole_issues_geometry_shots_and_confirmed_vision(self) -> None:
         data = fixture_history_data()
@@ -723,7 +723,7 @@ class FactBoundReportTests(unittest.TestCase):
 
         report = generate_report(facts, StaticProvider("Hole review from structured facts."))
         self.assertEqual(report["kind"], "hole")
-        self.assertTrue(any(row["factLabels"] == ["hole_history"] and "Hole 7" in row["claim"] for row in report["inferencesMade"]))
+        self.assertTrue(any(row["factLabels"] == ["hole_history"] and "第 7 洞" in row["claim"] for row in report["inferencesMade"]))
         self.assertTrue(any(row["factLabels"] == ["confirmed_vision_findings"] and "blocked_view" in row["claim"] for row in report["inferencesMade"]))
 
     def test_course_report_facts_bind_course_form_issues_holes_and_geometry(self) -> None:
@@ -1020,7 +1020,7 @@ class FactBoundReportTests(unittest.TestCase):
             "year:2025",
         )
 
-        self.assertIn({"label": "period", "reason": "year:2025 not present in history time aggregates"}, facts["missingData"])
+        self.assertIn({"label": "period", "reason": "year:2025 不在历史时间汇总中"}, facts["missingData"])
 
     def test_prompt_excludes_cookie_csrf_token_secret_and_private_paths(self) -> None:
         facts = {
