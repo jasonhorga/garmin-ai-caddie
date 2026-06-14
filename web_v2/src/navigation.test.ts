@@ -28,6 +28,11 @@ describe('navigation map', () => {
     expect(subnavForPage('overview')).toBeNull()
     expect(subnavForPage('prep')).toBeNull()
     expect(subnavForPage('caddie')).toBeNull()
+    expect(subnavForPage('record')).toBeNull()
+  })
+
+  it('puts the 手机记分 recorder in the 实战 (live) section', () => {
+    expect(PAGE_TO_SECTION.record).toBe('live')
   })
 
   it('marks 强弱分析 active for holes/clubs/issues', () => {

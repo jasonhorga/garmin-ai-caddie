@@ -19,6 +19,7 @@ import {
   fetchHistoryRounds,
   fetchHistoryStats,
   fetchHistorySummary,
+  ingestPlayerRound,
   ROUNDS_FULL_LIMIT,
   fetchReadiness,
   fetchMobileCoursePackage,
@@ -55,6 +56,7 @@ import { InvalidLinkPage } from './components/InvalidLinkPage'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
+import { RecordRoundPage } from './components/RecordRoundPage'
 import { HoleEvidencePanel, type GeometryEnsureState, type HoleEvidenceState } from './components/HoleEvidencePanel'
 import {
   MobileReconciliationPanel,
@@ -523,6 +525,10 @@ export default function App() {
     if (page === 'courses') {
       // 球场表现 shows 去备战 buttons keyed on globalId from courseOptions;
       // retry the load when it is idle or previously errored (mirrors 概览/备战).
+      if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
+    }
+    if (page === 'record') {
+      // 手机记分 offers a 常打球场 dropdown sourced from courseOptions.
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
     }
     if (page === 'rounds' && roundsState.status === 'idle') {
@@ -1354,6 +1360,22 @@ export default function App() {
       )
     }
 
+    if (activePage === 'record') {
+      // 手机记分: browser-Geolocation per-shot GPS recorder that posts a manual
+      // round to /api/v2/players/{id}/rounds. Player id comes from the boot
+      // overview (owner = "me"); the api wrapper injects the bearer/admin token.
+      const currentPlayer = overviewState.status === 'ready' ? overviewState.data.currentPlayer ?? null : null
+      return (
+        <RecordRoundPage
+          playerId={currentPlayer?.id ?? 'me'}
+          playerName={currentPlayer?.name ?? null}
+          courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
+          onIngest={(playerId, body) => ingestPlayerRound(playerId, body, currentAdminToken())}
+          onExit={() => navigate('overview')}
+        />
+      )
+    }
+
     if (activePage === 'players') {
       // Owner-only management surface; reuses the admin token entered in the
       // sync panel. Never renders any player's score analysis.
@@ -1434,6 +1456,7 @@ export default function App() {
           onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
           onNavigateHistory={() => navigate('history')}
           onNavigateAnalysis={() => navigate('holes')}
+          onStartRecord={() => navigate('record')}
         />
         {renderDrilldownPanels()}
       </>

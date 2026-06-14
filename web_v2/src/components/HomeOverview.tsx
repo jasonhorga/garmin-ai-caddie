@@ -20,6 +20,7 @@ interface HomeOverviewProps {
   onOpenRoundDetail?: (roundRef: string) => void
   onNavigateHistory: () => void
   onNavigateAnalysis: () => void
+  onStartRecord?: () => void
 }
 
 function asNumber(value: unknown): number | null {
@@ -81,6 +82,7 @@ export function HomeOverview({
   onOpenRoundDetail,
   onNavigateHistory,
   onNavigateAnalysis,
+  onStartRecord,
 }: HomeOverviewProps) {
   const recentRounds: RoundCardType[] = Array.isArray(overview.recentRounds) ? overview.recentRounds : []
   const lastRound = recentRounds[0] ?? null
@@ -127,6 +129,11 @@ export function HomeOverview({
       <div className="home-grid">
         <section className="panel home-card home-prep" aria-label="备战入口">
           <CourseFinder courseOptions={courseOptions} onSearchCourses={onSearchCourses} onSelectCourse={onPrepCourse} />
+          {onStartRecord ? (
+            <button type="button" className="home-link home-record-link" onClick={onStartRecord}>
+              📍 手机记分(GPS) →
+            </button>
+          ) : null}
         </section>
 
         <section className="panel home-card home-last" aria-label="上一场">

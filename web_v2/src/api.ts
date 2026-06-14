@@ -23,6 +23,8 @@ import type {
   HistoryRoundsResponse,
   HistoryStatsResponse,
   HistoryStatsSummaryResponse,
+  RoundIngestRequestBody,
+  RoundIngestResult,
   RoundsFilters,
   CourseGeometryCoverageResponse,
   GeometryEnsureResponse,
@@ -302,6 +304,16 @@ export function fetchHistoryStats(adminToken?: string, window: StatsWindow = 'al
 // the ~20MB full /history/stats on first paint (full stats stays lazy per page).
 export function fetchHistorySummary(adminToken?: string): Promise<HistoryStatsSummaryResponse> {
   return getJson<HistoryStatsSummaryResponse>('/api/v2/history/summary', adminToken)
+}
+
+// Land a manual ("phone") round captured by the web GPS recorder. A player
+// bearer may only target its own player; the owner (admin token) may target any.
+export function ingestPlayerRound(
+  playerId: string,
+  body: RoundIngestRequestBody,
+  adminToken?: string,
+): Promise<RoundIngestResult> {
+  return postJson<RoundIngestResult>(`/api/v2/players/${encodeURIComponent(playerId)}/rounds`, body, adminToken)
 }
 
 export function fetchCourseSearch(name: string, adminToken?: string): Promise<CourseSearchResponse> {

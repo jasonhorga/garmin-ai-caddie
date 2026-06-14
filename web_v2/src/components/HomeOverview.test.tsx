@@ -264,6 +264,18 @@ describe('HomeOverview', () => {
     expect(within(card).queryByText('—')).not.toBeInTheDocument()
   })
 
+  it('shows the 手机记分 entry and triggers it when enabled', async () => {
+    const onStartRecord = vi.fn()
+    renderHome({ onStartRecord })
+    await userEvent.click(screen.getByRole('button', { name: /手机记分/ }))
+    expect(onStartRecord).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits the 手机记分 entry when no handler is provided', () => {
+    renderHome()
+    expect(screen.queryByRole('button', { name: /手机记分/ })).toBeNull()
+  })
+
   it('hides the banner when the summary has no top issue', () => {
     renderHome({ statsSummary: summaryFixture({ topIssue: null }) })
     expect(screen.queryByLabelText('本周该练')).not.toBeInTheDocument()

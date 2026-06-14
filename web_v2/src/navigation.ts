@@ -8,6 +8,7 @@ export type ProductPage =
   | 'issues'
   | 'reports'
   | 'caddie'
+  | 'record'
   | 'prep'
   | 'corrections'
   | 'sync-quality'
@@ -27,6 +28,7 @@ export const PAGE_TO_SECTION: Record<ProductPage, ProductSection> = {
   reports: 'history',
   prep: 'prep',
   caddie: 'live',
+  record: 'live',
   corrections: 'settings',
   'sync-quality': 'settings',
   players: 'settings',
