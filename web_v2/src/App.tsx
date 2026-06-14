@@ -644,23 +644,6 @@ export default function App() {
     }
   }
 
-  function renderSyncPanel() {
-    return syncStatus ? (
-      <div className="sync-panel-shell">
-        <SyncStatusPanel
-          status={syncStatus}
-          onSync={handleRunSync}
-          syncState={syncRunState}
-          onSaveSession={handleSaveGarminSession}
-          sessionSaveState={sessionSaveState}
-          sessionSaveError={sessionSaveError}
-          adminTokenValue={adminToken}
-          onAdminTokenChange={handleAdminTokenChange}
-        />
-      </div>
-    ) : null
-  }
-
   function renderDrilldownPanels() {
     if (roundDetailState.status === 'idle' && drilldownState.status === 'idle' && holeEvidenceState.status === 'idle') return null
     return (
@@ -1347,17 +1330,20 @@ export default function App() {
     }
 
     if (overviewState.status === 'error') {
+      // The home never shows the Garmin connector diagnostic / 管理令牌 input /
+      // 立即同步 — those engineering surfaces live ONLY in 设置 → 同步. A token-less
+      // owner (or a stale/bad link) just gets a clean prompt pointing them there.
       return (
-        <>
-          {renderSyncPanel()}
-          <section className="panel empty-state">
-            <h1>历史数据不可用</h1>
-            <p>{overviewState.message}</p>
-            <button type="button" onClick={() => void refreshOverviewState()}>
-              重试
-            </button>
-          </section>
-        </>
+        <section className="panel empty-state">
+          <h1>还看不到你的数据</h1>
+          <p>请到 设置 → 同步 填入管理令牌，或用你收到的专属链接打开本页。</p>
+          <button type="button" onClick={() => navigate('sync-quality')}>
+            去设置
+          </button>
+          <button type="button" onClick={() => void refreshOverviewState()}>
+            重试
+          </button>
+        </section>
       )
     }
 

@@ -1023,7 +1023,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByRole('heading', { name: '需要有效链接' })).toBeInTheDocument()
     // An invalid player link must not fall back to the owner admin-token recovery panel.
-    expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument()
+    expect(screen.queryByText('还看不到你的数据')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('管理令牌')).not.toBeInTheDocument()
   })
 
@@ -1096,7 +1096,7 @@ describe('App navigation', () => {
     expect(screen.getByText('2026年5月')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=1000')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status')
-    await waitFor(() => expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('还看不到你的数据')).not.toBeInTheDocument())
   })
 
   it('renders the read-only current-player badge from the overview payload', async () => {
@@ -1146,9 +1146,12 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '还看不到你的数据' })).toBeInTheDocument()
+    // The admin-token input lives in 设置 → 同步, never on the home page.
+    await userEvent.click(screen.getByRole('button', { name: '去设置' }))
     await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
-    await userEvent.click(screen.getByRole('button', { name: '重试' }))
+    // Entering the token auto-recovers the errored overview; returning home shows it.
+    await userEvent.click(screen.getByRole('button', { name: '概览' }))
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
@@ -1183,7 +1186,7 @@ describe('App navigation', () => {
     render(<App />)
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-    expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument()
+    expect(screen.queryByText('还看不到你的数据')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
@@ -1214,17 +1217,23 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '还看不到你的数据' })).toBeInTheDocument()
 
+    // The admin-token input lives in 设置 → 同步, never on the home page.
+    await userEvent.click(screen.getByRole('button', { name: '去设置' }))
     await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
 
     // The token is persisted for the next load...
     expect(localStorage.getItem('ai-caddie.admin-token')).toBe('admin-secret')
-    // ...and the errored overview recovers WITH the token, with no manual 重试.
+    // ...and every errored owner surface auto-refetches WITH the token, no manual 重试.
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+        headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      }),
+    )
+    // ...so returning to 概览 shows the data.
+    await userEvent.click(screen.getByRole('button', { name: '概览' }))
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
-      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-    })
   })
 
   it('can retry protected source detail after entering an admin token', async () => {
@@ -1659,6 +1668,49 @@ describe('App navigation', () => {
     expect(await screen.findByLabelText('管理令牌')).toBeInTheDocument()
   })
 
+  it('概览首页失败态只显示干净提示,绝不堆连接器诊断/管理令牌', async () => {
+    // Owner with no admin token yet: the boot overview 401s. The home must show a
+    // friendly prompt pointing at 设置 → 同步 — never the Garmin connector matrix,
+    // the 管理令牌 input, or the 立即同步 button (those belong ONLY in 设置).
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/history/overview') return { ok: false, status: 401, statusText: 'Unauthorized' }
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    // Clean, on-brand empty-state prompt.
+    expect(await screen.findByRole('heading', { name: '还看不到你的数据' })).toBeInTheDocument()
+    expect(screen.getByText(/填入管理令牌/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '去设置' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+
+    // 去设置 routes to the one correct home for the connector panel + 管理令牌;
+    // reaching it proves sync status loaded, so the home-page absence checks below
+    // are a real guard against the connector diagnostic ever leaking back home.
+    await userEvent.click(screen.getByRole('button', { name: '去设置' }))
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('管理令牌')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '立即同步' })).toBeInTheDocument()
+
+    // Back on the still-errored home: none of the engineering/connector surface
+    // leaks onto the home page even though sync status is fully loaded.
+    await userEvent.click(screen.getByRole('button', { name: '概览' }))
+    expect(await screen.findByRole('heading', { name: '还看不到你的数据' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('管理令牌')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '立即同步' })).not.toBeInTheDocument()
+    expect(screen.queryByText('本地 Garmin 快照已就绪。')).not.toBeInTheDocument()
+    expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument()
+  })
+
   it('overview failure does not block other sections', async () => {
     const fetchMock = vi.fn(async (path: string) => {
       if (path === '/api/v2/history/overview') return { ok: false, status: 401, statusText: 'Unauthorized' }
@@ -1677,15 +1729,15 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '还看不到你的数据' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
     await userEvent.click(screen.getByRole('button', { name: '完整工具' }))
     expect(await screen.findByRole('heading', { name: '智能球童' })).toBeInTheDocument()
-    expect(screen.queryByText('历史数据不可用')).toBeNull()
+    expect(screen.queryByText('还看不到你的数据')).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: '概览' }))
-    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '还看不到你的数据' })).toBeInTheDocument()
   })
 
   it('re-entering 实战 retries boot-failed overview and course options', async () => {
@@ -1708,7 +1760,7 @@ describe('App navigation', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '还看不到你的数据' })).toBeInTheDocument()
 
     // 实战 during the outage: the sandbox entry renders, but with no 常打球场
     // card (courseOptions failed) and no replay rows (overview failed).
