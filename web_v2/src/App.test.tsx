@@ -994,6 +994,9 @@ describe('App navigation', () => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
     vi.restoreAllMocks()
+    // The admin token now persists to localStorage; clear it so a token entered
+    // in one test never leaks a stray header into the next test's boot load.
+    localStorage.clear()
   })
 
   it('shows the invalid-link page and sends no data requests when a link is required but none is present', async () => {
@@ -1147,6 +1150,77 @@ describe('App navigation', () => {
     await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
     await userEvent.click(screen.getByRole('button', { name: '重试' }))
 
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('boots the owner straight into their data when an admin token is persisted', async () => {
+    // Owner mode: bare URL, no player link. A previously-entered admin token is
+    // hydrated from localStorage at mount so the very first boot load carries it
+    // and the owner never lands on the 401 recovery panel.
+    localStorage.setItem('ai-caddie.admin-token', 'admin-secret')
+    const hasAdminToken = (init?: RequestInit) =>
+      Boolean(init?.headers && (init.headers as Record<string, string>)['X-AI-Caddie-Admin-Token'] === 'admin-secret')
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/v2/sync/status') return { ok: true, json: async () => syncStatusPayload() }
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      // Private owner profile: every history surface 401s unless the boot load
+      // carries the hydrated admin token.
+      if (!hasAdminToken(init)) return { ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(screen.queryByText('历史数据不可用')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
+  it('persists the admin token and refetches errored owner surfaces the moment it is entered', async () => {
+    // No persisted token: the token-less boot 401s every private surface, so the
+    // owner first sees the recovery panel, then enters the token in the sync panel.
+    const hasAdminToken = (init?: RequestInit) =>
+      Boolean(init?.headers && (init.headers as Record<string, string>)['X-AI-Caddie-Admin-Token'] === 'admin-secret')
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/v2/sync/status') return { ok: true, json: async () => syncStatusPayload() }
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      if (!hasAdminToken(init)) return { ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: '历史数据不可用' })).toBeInTheDocument()
+
+    await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
+
+    // The token is persisted for the next load...
+    expect(localStorage.getItem('ai-caddie.admin-token')).toBe('admin-secret')
+    // ...and the errored overview recovers WITH the token, with no manual 重试.
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
