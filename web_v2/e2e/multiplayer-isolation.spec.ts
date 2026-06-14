@@ -147,6 +147,11 @@ function statsPayload() {
   }
 }
 
+function summaryPayload() {
+  const stats = statsPayload()
+  return { schema: 'ai-caddie-history-summary-v1', summary: stats.summary, topIssue: stats.issues[0]?.issue ?? null }
+}
+
 function roundsPayload() {
   return {
     schema: 'ai-caddie-history-rounds-v2',
@@ -197,6 +202,7 @@ async function mockPlayerApi(page: Page, player: { token: string }) {
         : route.fulfill({ status: 401, json: { detail: 'unauthorized' } })
     if (path === '/api/v2/history/overview') return gated(overviewFor({ id: PLAYER_A.id, name: PLAYER_A.name, isOwner: false }))
     if (path === '/api/v2/history/stats') return gated(statsPayload())
+    if (path === '/api/v2/history/summary') return gated(summaryPayload())
     if (path === '/api/v2/history/rounds') return gated(roundsPayload())
     if (path === '/api/v2/mobile/courses/options') return gated(EMPTY_OPTIONS)
     if (path === '/api/v2/sync/status') return route.fulfill({ json: SYNC_STATUS })
@@ -231,6 +237,7 @@ async function mockOwnerApi(page: Page) {
     }
     if (path === '/api/v2/history/overview') return route.fulfill({ json: overviewFor({ id: 'me', name: '我', isOwner: true }) })
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload() })
+    if (path === '/api/v2/history/summary') return route.fulfill({ json: summaryPayload() })
     if (path === '/api/v2/mobile/courses/options') return route.fulfill({ json: EMPTY_OPTIONS })
     if (path === '/api/v2/sync/status') return route.fulfill({ json: SYNC_STATUS })
     if (path === '/api/v2/readiness') return route.fulfill({ json: READINESS })
