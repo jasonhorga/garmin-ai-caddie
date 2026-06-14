@@ -9,7 +9,14 @@ from uuid import uuid4
 
 from ai_caddie.history import HistoryData
 from ai_caddie.llm_providers import LLMMessage, TextProvider, redact_secret_text
-from ai_caddie.report_labels_zh import data_label_zh, issue_label_zh
+from ai_caddie.report_labels_zh import (
+    audit_class_zh,
+    audit_status_zh,
+    data_label_zh,
+    form_direction_zh,
+    issue_label_zh,
+    trend_dimension_zh,
+)
 from ai_caddie.vision_context import list_findings_for_target
 
 
@@ -1923,7 +1930,7 @@ def _first_audit_signal(value: Any) -> str | None:
         label = str(item.get("label") or "").strip()
         status = str(item.get("status") or "").strip()
         if label and status and status.lower() in {"fail", "review", "missing"}:
-            return f"判据 {label} {status}"
+            return f"判据 {label} {audit_status_zh(status)}"
 
     for item in rows:
         if not isinstance(item, dict):
@@ -1932,11 +1939,11 @@ def _first_audit_signal(value: Any) -> str | None:
         actual = str(item.get("actualOptionId") or "").strip()
         classification = str(item.get("classification") or "").strip()
         if selected and actual and selected != actual:
-            suffix = f"，分类为 {classification}" if classification else ""
+            suffix = f"，分类为 {audit_class_zh(classification)}" if classification else ""
             return f"选项 {selected}->{actual}{suffix}"
 
     classification = _first_audit_classification(value)
-    return f"{classification} 决策问题" if classification else None
+    return f"{audit_class_zh(classification)} 决策问题" if classification else None
 
 
 def _first_risky_club(value: Any) -> tuple[str, float | None] | None:
@@ -2155,11 +2162,16 @@ def build_report_inferences(
             summary = _top_trend_change_summary(value)
             if summary:
                 dimension, key, delta, direction = summary
+                dim_zh = trend_dimension_zh(dimension)
+                # The key is an issue token only when the dimension is "issue";
+                # for club/course it is a name/key that stays as-is.
+                key_zh = issue_label_zh(key) if dimension == "issue" else key
+                dir_zh = form_direction_zh(direction) if direction is not None else ""
                 delta_text = f"，变化量 {delta}" if delta is not None else ""
                 _append_inference(
                     rows,
                     _inference(
-                        f"最大趋势变化：{dimension} {key} {direction}{delta_text}。",
+                        f"最大趋势变化：{dim_zh} {key_zh} {dir_zh}{delta_text}。",
                         fact,
                         default_confidence=confidence,
                         missing_data=missing_data,
