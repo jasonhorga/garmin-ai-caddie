@@ -8,7 +8,7 @@ from ai_caddie.history import OWNER_ID
 from ai_caddie.stats_cache import cached_build_history_stats, cached_load_history_data
 
 from .data_source import load_history_data_for_mode
-from .models import HistoryStatsResponse
+from .models import HistoryStatsResponse, HistoryStatsSummaryResponse
 
 DECISION_AUDIT_ROOT = Path(".")
 
@@ -22,6 +22,22 @@ def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_I
             data, data_mode=mode, player_id=player_id, decision_audit_root=DECISION_AUDIT_ROOT, window=window
         )
     )
+
+
+def load_history_summary_response(*, player_id: str = OWNER_ID) -> HistoryStatsSummaryResponse:
+    """Slim the full (window=all) stats build down to the 概览 landing needs.
+
+    Reuses the same cached build as ``load_history_stats_response`` (so it is a
+    cache hit after warm), then returns only ``summary`` + the top issue label —
+    a ~15KB payload instead of the ~20MB full response.
+    """
+    stats = load_history_stats_response(window="all", player_id=player_id)
+    top_issue: str | None = None
+    if stats.issues:
+        candidate = stats.issues[0].get("issue")
+        if isinstance(candidate, str):
+            top_issue = candidate
+    return HistoryStatsSummaryResponse(schema="ai-caddie-history-summary-v1", summary=stats.summary, topIssue=top_issue)
 
 
 def warm_stats_cache() -> None:

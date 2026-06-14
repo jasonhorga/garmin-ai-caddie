@@ -18,6 +18,8 @@ import {
   fetchHistoryRoundDetail,
   fetchHistoryRounds,
   fetchHistoryStats,
+  fetchHistorySummary,
+  ROUNDS_FULL_LIMIT,
   fetchReadiness,
   fetchMobileCoursePackage,
   fetchMobileCourseOptions,
@@ -90,6 +92,7 @@ import type {
   HistoryRoundDetailResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  HistoryStatsSummaryResponse,
   LiveRoundPackageResponse,
   MobileCourseOptionsResponse,
   MobileCoursePackageParams,
@@ -134,7 +137,16 @@ export default function App() {
   const [overviewState, setOverviewState] = useState<LoadState<HistoryOverviewResponse>>({ status: 'loading' })
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
   const [roundsFilters, setRoundsFilters] = useState<RoundsFilters>({})
+  // Two-tier 球局 loading: first page on entry, full archive on demand. The seq
+  // ref discards a stale fetch (e.g. a filter change mid-flight) and fullLoaded
+  // lets refreshes re-pull at the same depth the visitor had reached.
+  const [roundsLoadingMore, setRoundsLoadingMore] = useState(false)
+  const roundsSeq = useRef(0)
+  const roundsFullLoaded = useRef(false)
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
+  // 概览 landing uses this slim summary (handicap/均杆/本周该练) instead of the
+  // ~20MB full statsState, which now loads lazily only on the analysis pages.
+  const [homeSummaryState, setHomeSummaryState] = useState<DeferredLoadState<HistoryStatsSummaryResponse>>({ status: 'idle' })
   const [trendsWindow, setTrendsWindow] = useState<StatsWindow>('last10')
   const [trendsState, setTrendsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
   // Mirrors HomeOverview's searchSeq guard: stale trends responses are discarded,
@@ -206,8 +218,19 @@ export default function App() {
         setOverviewState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
       })
 
-    // The landing 概览 page composes all-window stats (近期状态/本周该练) and
-    // mobile course options (常打球场 globalIds) on top of the overview payload.
+    // The landing 概览 reads the slim summary (近期状态/本周该练) for a fast first
+    // paint instead of the ~20MB full stats. The full statsState still loads in
+    // the background below so the analysis pages stay warm/instant; only the
+    // home's blocking dependency on that 20MB payload is removed.
+    setHomeSummaryState({ status: 'loading' })
+    fetchHistorySummary(bootAdminToken)
+      .then((data) => {
+        if (!cancelled) setHomeSummaryState({ status: 'ready', data })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setHomeSummaryState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+      })
+
     setStatsState({ status: 'loading' })
     fetchHistoryStats(bootAdminToken)
       .then((data) => {
@@ -270,18 +293,45 @@ export default function App() {
   }
 
   async function loadRoundsState(filters: RoundsFilters = roundsFilters, adminTokenOverride: string | undefined = currentAdminToken()) {
+    const seq = ++roundsSeq.current
+    roundsFullLoaded.current = false
+    setRoundsLoadingMore(false)
     setRoundsState({ status: 'loading' })
     try {
       const data = await fetchHistoryRounds(adminTokenOverride, filters)
+      if (roundsSeq.current !== seq) return
       setRoundsState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (roundsSeq.current !== seq) return
       setRoundsState({ status: 'error', message: errorMessage(error) })
     }
   }
 
-  async function refreshRoundsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+  // Pull the full archive once the visitor reveals past the first page. Swaps
+  // the data in place (keep-ready) so the timeline never drops to a skeleton,
+  // and the seq guard means a filter change mid-flight wins.
+  async function loadAllRounds(adminTokenOverride: string | undefined = currentAdminToken()) {
+    if (roundsLoadingMore || roundsFullLoaded.current) return
+    const seq = ++roundsSeq.current
+    setRoundsLoadingMore(true)
     try {
-      const data = await fetchHistoryRounds(adminTokenOverride, roundsFilters)
+      const data = await fetchHistoryRounds(adminTokenOverride, roundsFilters, ROUNDS_FULL_LIMIT)
+      if (roundsSeq.current !== seq) return
+      roundsFullLoaded.current = true
+      setRoundsState((current) => (current.status === 'ready' ? { status: 'ready', data } : current))
+    } catch {
+      // Keep the first page on failure; the 加载更多 button stays available to retry.
+    } finally {
+      if (roundsSeq.current === seq) setRoundsLoadingMore(false)
+    }
+  }
+
+  async function refreshRoundsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+    // Re-pull at the depth the visitor had reached so a background refresh never
+    // silently re-collapses an already-expanded archive back to the first page.
+    const limit = roundsFullLoaded.current ? ROUNDS_FULL_LIMIT : undefined
+    try {
+      const data = await fetchHistoryRounds(adminTokenOverride, roundsFilters, limit)
       setRoundsState({ status: 'ready', data })
     } catch (error: unknown) {
       setRoundsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
@@ -304,6 +354,25 @@ export default function App() {
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
       setStatsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
+    }
+  }
+
+  async function loadHomeSummary(adminTokenOverride: string | undefined = currentAdminToken()) {
+    setHomeSummaryState({ status: 'loading' })
+    try {
+      const data = await fetchHistorySummary(adminTokenOverride)
+      setHomeSummaryState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setHomeSummaryState({ status: 'error', message: errorMessage(error) })
+    }
+  }
+
+  async function refreshHomeSummary(adminTokenOverride: string | undefined = currentAdminToken()) {
+    try {
+      const data = await fetchHistorySummary(adminTokenOverride)
+      setHomeSummaryState({ status: 'ready', data })
+    } catch (error: unknown) {
+      setHomeSummaryState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
 
@@ -388,6 +457,7 @@ export default function App() {
 
   function refreshLoadedHistorySurfaces(adminTokenOverride: string | undefined = currentAdminToken()) {
     void refreshOverviewState(adminTokenOverride)
+    if (homeSummaryState.status !== 'idle') void refreshHomeSummary(adminTokenOverride)
     if (roundsState.status !== 'idle') void refreshRoundsState(adminTokenOverride)
     if (statsState.status !== 'idle') void refreshStatsState(adminTokenOverride)
     if (trendsState.status !== 'idle') void refreshTrendsState(adminTokenOverride)
@@ -401,6 +471,7 @@ export default function App() {
   // payloads. Gating on 'error' means a healthy app issues no extra loads.
   function recoverErroredHistorySurfaces(adminTokenOverride: string | undefined = currentAdminToken()) {
     if (overviewState.status === 'error') void refreshOverviewState(adminTokenOverride)
+    if (homeSummaryState.status === 'error') void refreshHomeSummary(adminTokenOverride)
     if (roundsState.status === 'error') void refreshRoundsState(adminTokenOverride)
     if (statsState.status === 'error') void refreshStatsState(adminTokenOverride)
     if (trendsState.status === 'error') void refreshTrendsState(adminTokenOverride)
@@ -435,7 +506,9 @@ export default function App() {
     if (page === 'overview' || page === 'prep') {
       // 概览/备战 compose stats + course options on boot; if either failed at
       // boot (e.g. backend briefly down), returning here retries instead of
-      // leaving the joined cards stuck on the stale error forever.
+      // leaving the joined cards stuck on the stale error forever. 概览 also
+      // retries its slim summary (the card it actually renders from).
+      if (page === 'overview' && (homeSummaryState.status === 'idle' || homeSummaryState.status === 'error')) void loadHomeSummary()
       if (statsState.status === 'idle' || statsState.status === 'error') void loadStatsState()
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
     }
@@ -1077,6 +1150,8 @@ export default function App() {
               }}
               onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
               onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+              onLoadAll={() => void loadAllRounds()}
+              loadingMore={roundsLoadingMore}
             />
             {renderDrilldownPanels()}
           </>
@@ -1351,7 +1426,8 @@ export default function App() {
       <>
         <HomeOverview
           overview={overviewState.data}
-          stats={statsState.status === 'ready' ? statsState.data : null}
+          statsSummary={homeSummaryState.status === 'ready' ? homeSummaryState.data : null}
+          statsLoading={homeSummaryState.status === 'loading' || homeSummaryState.status === 'idle'}
           courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
           onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
           onPrepCourse={handlePrepCourse}

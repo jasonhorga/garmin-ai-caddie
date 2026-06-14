@@ -359,6 +359,21 @@ class HistoryStatsResponse(BaseModel):
     drillDown: dict[str, Any]
 
 
+class HistoryStatsSummaryResponse(BaseModel):
+    """Lightweight 概览 landing payload: the few summary numbers + the top issue.
+
+    The full HistoryStatsResponse is ~20MB (courses/clubs/holes aggregates); the
+    home only reads ``summary`` + ``issues[0].issue``, so this slices those out
+    to keep first paint fast. The heavy response stays for the analysis pages.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-history-summary-v1"] = Field(alias="schema")
+    summary: dict[str, Any]
+    topIssue: str | None = None
+
+
 class HistoryDrilldownResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 

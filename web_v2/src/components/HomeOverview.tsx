@@ -1,7 +1,7 @@
 import type {
   CourseSearchResponse,
   HistoryOverviewResponse,
-  HistoryStatsResponse,
+  HistoryStatsSummaryResponse,
   MobileCourseOptionsResponse,
   RoundCard as RoundCardType,
 } from '../types'
@@ -10,7 +10,10 @@ import { CourseFinder } from './CourseFinder'
 
 interface HomeOverviewProps {
   overview: HistoryOverviewResponse
-  stats: HistoryStatsResponse | null // all-window; null → 近期状态 shows loading dashes
+  // Slim landing summary (handicap/均杆/top issue). null while loading or on
+  // error → 近期状态 shows '…' (loading) or '—' (no data) per statsLoading.
+  statsSummary: HistoryStatsSummaryResponse | null
+  statsLoading?: boolean
   courseOptions: MobileCourseOptionsResponse | null
   onSearchCourses: (name: string) => Promise<CourseSearchResponse>
   onPrepCourse: (globalId: number, name?: string) => void
@@ -29,10 +32,6 @@ function asString(value: unknown): string | null {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
-}
-
-function asRows(value: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => row !== null && typeof row === 'object') : []
 }
 
 function formatNumber(value: number): string {
@@ -74,7 +73,8 @@ function Sparkline({ values }: { values: number[] }) {
 
 export function HomeOverview({
   overview,
-  stats,
+  statsSummary,
+  statsLoading = false,
   courseOptions,
   onSearchCourses,
   onPrepCourse,
@@ -101,11 +101,13 @@ export function HomeOverview({
     )
   }
 
-  const summary = stats ? asRecord(stats.summary) : {}
+  const summary = statsSummary ? asRecord(statsSummary.summary) : {}
   const handicapEstimate = asNumber(summary.handicapEstimate)
   const handicapTrend = asNumber(summary.handicapTrend)
   const recent10Average = asNumber(summary.recent10Average)
-  const topIssue = stats ? asString(asRows(stats.issues)[0]?.issue) : null
+  const topIssue = statsSummary ? asString(statsSummary.topIssue) : null
+  // While the summary loads show '…' (not '—', which reads as a real "no data").
+  const statValue = (value: number | null): string => (value !== null ? formatNumber(value) : statsLoading ? '…' : '—')
 
   const sparkValues = recentRounds
     .slice(0, 10)
@@ -157,7 +159,7 @@ export function HomeOverview({
             <div className="home-stat">
               <span>差点(估算)</span>
               <b>
-                {handicapEstimate === null ? '—' : formatNumber(handicapEstimate)}
+                {statValue(handicapEstimate)}
                 {handicapEstimate !== null && handicapTrend !== null && handicapTrend !== 0 ? (
                   <em className={handicapTrend < 0 ? 'home-delta good' : 'home-delta bad'}>
                     {handicapTrend < 0 ? '▼' : '▲'} {formatNumber(Math.abs(handicapTrend))}
@@ -167,7 +169,7 @@ export function HomeOverview({
             </div>
             <div className="home-stat">
               <span>均杆</span>
-              <b>{recent10Average === null ? '—' : formatNumber(recent10Average)}</b>
+              <b>{statValue(recent10Average)}</b>
             </div>
           </div>
           {sparkValues.length >= 2 ? <Sparkline values={sparkValues} /> : null}

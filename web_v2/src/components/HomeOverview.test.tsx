@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type {
   CourseSearchResponse,
   HistoryOverviewResponse,
-  HistoryStatsResponse,
+  HistoryStatsSummaryResponse,
   MobileCourseOptionsResponse,
 } from '../types'
 import { HomeOverview } from './HomeOverview'
@@ -57,10 +57,9 @@ function overviewFixture(overrides: Partial<HistoryOverviewResponse> = {}): Hist
   }
 }
 
-function statsFixture(overrides: Partial<HistoryStatsResponse> = {}): HistoryStatsResponse {
+function summaryFixture(overrides: Partial<HistoryStatsSummaryResponse> = {}): HistoryStatsSummaryResponse {
   return {
-    schema: 'ai-caddie-history-stats-v1',
-    dataMode: 'fixture',
+    schema: 'ai-caddie-history-summary-v1',
     summary: {
       totalRounds: 12,
       average18: 90.2,
@@ -70,16 +69,7 @@ function statsFixture(overrides: Partial<HistoryStatsResponse> = {}): HistorySta
       handicapEstimate: 16.4,
       handicapTrend: -0.8,
     },
-    time: {},
-    scoring: {},
-    courseDistribution: [],
-    records: {},
-    courses: [],
-    holes: [],
-    clubs: [],
-    issues: [{ issue: 'approach_short', count: 6, refs: ['900001:7'] }],
-    dataQuality: [],
-    drillDown: {},
+    topIssue: 'approach_short',
     ...overrides,
   }
 }
@@ -148,7 +138,7 @@ function renderHome(overrides: Partial<Parameters<typeof HomeOverview>[0]> = {})
   render(
     <HomeOverview
       overview={overviewFixture()}
-      stats={statsFixture()}
+      statsSummary={summaryFixture()}
       courseOptions={courseOptionsFixture()}
       onSearchCourses={onSearchCourses}
       onPrepCourse={onPrepCourse}
@@ -256,8 +246,8 @@ describe('HomeOverview', () => {
     expect(onNavigateAnalysis).toHaveBeenCalledTimes(1)
   })
 
-  it('renders with null stats and course options: dashes, no banner, no frequent courses', () => {
-    renderHome({ stats: null, courseOptions: null })
+  it('renders with null summary and course options: dashes, no banner, no frequent courses', () => {
+    renderHome({ statsSummary: null, courseOptions: null })
 
     expect(screen.getByText('你好 👋')).toBeInTheDocument()
     expect(screen.getByText('想备哪场?')).toBeInTheDocument()
@@ -267,8 +257,15 @@ describe('HomeOverview', () => {
     expect(within(card).getAllByText('—').length).toBeGreaterThan(0)
   })
 
-  it('hides the banner when stats has no issues', () => {
-    renderHome({ stats: statsFixture({ issues: [] }) })
+  it('shows … placeholders (not dashes) while the summary is still loading', () => {
+    renderHome({ statsSummary: null, statsLoading: true })
+    const card = screen.getByLabelText('近期状态')
+    expect(within(card).getAllByText('…').length).toBeGreaterThan(0)
+    expect(within(card).queryByText('—')).not.toBeInTheDocument()
+  })
+
+  it('hides the banner when the summary has no top issue', () => {
+    renderHome({ statsSummary: summaryFixture({ topIssue: null }) })
     expect(screen.queryByLabelText('本周该练')).not.toBeInTheDocument()
   })
 

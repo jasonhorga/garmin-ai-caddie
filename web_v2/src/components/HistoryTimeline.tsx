@@ -8,6 +8,11 @@ interface HistoryTimelineProps {
   onFilterChange?: (filters: RoundsFilters) => void
   onSelectRef?: (sourceRef: string) => void
   onOpenRoundDetail?: (roundRef: string) => void
+  // First paint loads only the first page; revealing past it asks the parent to
+  // pull the full archive (data.total) in the background. loadingMore reflects
+  // that fetch so the button can disable + show progress.
+  onLoadAll?: () => void
+  loadingMore?: boolean
 }
 
 const MONTH_ZH: Record<string, string> = {
@@ -58,7 +63,7 @@ function truncatedGroups(groups: MonthRoundGroup[], cap: number): MonthRoundGrou
   return out
 }
 
-export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, onOpenRoundDetail }: HistoryTimelineProps) {
+export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, onOpenRoundDetail, onLoadAll, loadingMore }: HistoryTimelineProps) {
   // Filter-change reset via the last-key idiom (PrepPage lastGlobalId): a new
   // filter combination must restart at the first batch, never keep an
   // expanded window from the previous result set.
@@ -70,9 +75,13 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
     setVisibleCount(ROUNDS_BATCH)
   }
 
-  const totalRounds = data.groups.reduce((sum, group) => sum + group.rounds.length, 0)
-  const visibleGroups = totalRounds > visibleCount ? truncatedGroups(data.groups, visibleCount) : data.groups
-  const hiddenRounds = Math.max(0, totalRounds - visibleCount)
+  const loadedRounds = data.groups.reduce((sum, group) => sum + group.rounds.length, 0)
+  const serverTotal = data.total
+  const visibleGroups = loadedRounds > visibleCount ? truncatedGroups(data.groups, visibleCount) : data.groups
+  // Rounds still to reveal = those not yet shown client-side PLUS those not yet
+  // fetched from the server (first paint loaded only the first page).
+  const remainingRounds = Math.max(0, serverTotal - visibleCount)
+  const hasMoreOnServer = loadedRounds < serverTotal
 
   return (
     <>
@@ -160,10 +169,21 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
         ))}
       </section>
 
-      {hiddenRounds > 0 ? (
+      {remainingRounds > 0 || loadingMore ? (
         <div className="w4-load-more">
-          <button type="button" className="w4-load-more-btn" onClick={() => setVisibleCount((count) => count + ROUNDS_BATCH)}>
-            加载更多(还有 {hiddenRounds} 场)
+          <button
+            type="button"
+            className="w4-load-more-btn"
+            disabled={loadingMore}
+            onClick={() => {
+              const next = visibleCount + ROUNDS_BATCH
+              setVisibleCount(next)
+              // Crossing the fetched first page pulls the full archive in the
+              // background; the already-advanced window reveals it on arrival.
+              if (next > loadedRounds && hasMoreOnServer) onLoadAll?.()
+            }}
+          >
+            {loadingMore ? '加载中…' : `加载更多(还有 ${remainingRounds} 场)`}
           </button>
         </div>
       ) : null}

@@ -22,6 +22,7 @@ import type {
   HistoryRoundDetailResponse,
   HistoryRoundsResponse,
   HistoryStatsResponse,
+  HistoryStatsSummaryResponse,
   RoundsFilters,
   CourseGeometryCoverageResponse,
   GeometryEnsureResponse,
@@ -267,15 +268,24 @@ export function confirmVisionFinding(
   )
 }
 
-export function fetchHistoryRounds(adminToken?: string, filters?: RoundsFilters): Promise<HistoryRoundsResponse> {
+// First paint of 球局 fetches just the first page (the real archive is 440+
+// rounds ≈ 600KB at full scoreStrips); the timeline pulls the full set in the
+// background only once the visitor reveals past it. ROUNDS_FULL_LIMIT sits at
+// the backend's hard cap (server_v2/main.py Query le=2000).
+export const ROUNDS_FIRST_PAGE = 120
+export const ROUNDS_FULL_LIMIT = 2000
+
+export function fetchHistoryRounds(
+  adminToken?: string,
+  filters?: RoundsFilters,
+  limit: number = ROUNDS_FIRST_PAGE,
+): Promise<HistoryRoundsResponse> {
   const params = new URLSearchParams()
   if (filters?.year) params.set('year', filters.year)
   if (filters?.course) params.set('course', filters.course)
   if (filters?.hasShots !== undefined) params.set('hasShots', String(filters.hasShots))
   if (filters?.hasReport !== undefined) params.set('hasReport', String(filters.hasReport))
-  // The backend defaults to limit=120 (server_v2/history_rounds.py), which
-  // silently truncates the real archive (435+ rounds) — always ask for all.
-  params.set('limit', '1000')
+  params.set('limit', String(limit))
   return getJson<HistoryRoundsResponse>(`/api/v2/history/rounds?${params.toString()}`, adminToken)
 }
 
@@ -286,6 +296,12 @@ export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): 
 export function fetchHistoryStats(adminToken?: string, window: StatsWindow = 'all'): Promise<HistoryStatsResponse> {
   const qs = window !== 'all' ? `?window=${window}` : ''
   return getJson<HistoryStatsResponse>(`/api/v2/history/stats${qs}`, adminToken)
+}
+
+// 概览 landing only needs summary + top issue; this slim endpoint avoids pulling
+// the ~20MB full /history/stats on first paint (full stats stays lazy per page).
+export function fetchHistorySummary(adminToken?: string): Promise<HistoryStatsSummaryResponse> {
+  return getJson<HistoryStatsSummaryResponse>('/api/v2/history/summary', adminToken)
 }
 
 export function fetchCourseSearch(name: string, adminToken?: string): Promise<CourseSearchResponse> {

@@ -161,5 +161,31 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertIn("900002", audit_quality["missingRefs"])
 
 
+    def test_history_summary_endpoint_slims_stats_to_landing_fields(self) -> None:
+        with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
+            get_settings.cache_clear()
+            client = TestClient(app)
+            summary = client.get("/api/v2/history/summary")
+            full = client.get("/api/v2/history/stats")
+
+        self.assertEqual(summary.status_code, 200)
+        payload = summary.json()
+        self.assertEqual(payload["schema"], "ai-caddie-history-summary-v1")
+        self.assertNotIn("schema_", payload)
+        # Only the slim landing fields — none of the heavy aggregates (courses /
+        # clubs / holes / drillDown) that make the full response ~20MB.
+        self.assertEqual(set(payload.keys()), {"schema", "summary", "topIssue"})
+        # The summary block is exactly the full response's summary, and carries
+        # the handicap fields the 近期状态 card renders.
+        self.assertEqual(payload["summary"], full.json()["summary"])
+        for key in ("handicapEstimate", "handicapTrend", "recent10Average"):
+            self.assertIn(key, payload["summary"])
+        # topIssue mirrors the full response's first issue label (or None).
+        full_issues = full.json()["issues"]
+        expected_top = full_issues[0]["issue"] if full_issues else None
+        self.assertEqual(payload["topIssue"], expected_top)
+        self.assertTrue(payload["topIssue"] is None or isinstance(payload["topIssue"], str))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -515,6 +515,14 @@ export interface HistoryStatsResponse {
   drillDown: Record<string, unknown>
 }
 
+// Lightweight 概览 landing payload (see server_v2 HistoryStatsSummaryResponse):
+// the few summary numbers + top issue, so the home avoids the ~20MB full stats.
+export interface HistoryStatsSummaryResponse {
+  schema: 'ai-caddie-history-summary-v1'
+  summary: Record<string, unknown>
+  topIssue: string | null
+}
+
 export type HistoryRefType = 'round' | 'hole' | 'shot' | 'unknown'
 
 export interface HistoryDrilldownResponse {
