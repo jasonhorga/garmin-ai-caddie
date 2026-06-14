@@ -523,6 +523,36 @@ export interface HistoryStatsSummaryResponse {
   topIssue: string | null
 }
 
+// Manual ("phone") round ingest — the web GPS recorder posts a stream of these
+// live events (server: ai_caddie/round_ingest.py). A shot is a `club` event
+// followed by a `location` event carrying lat/lon; `score`/`putt` close a hole.
+export type RoundIngestEventKind = 'club' | 'location' | 'score' | 'putt' | 'penalty' | 'note'
+
+export interface RoundIngestEvent {
+  hole: number
+  kind: RoundIngestEventKind
+  payload: Record<string, unknown>
+}
+
+export interface RoundIngestRequestBody {
+  events: RoundIngestEvent[]
+  meta?: Record<string, unknown>
+  clientRoundId?: string
+}
+
+export interface RoundIngestResult {
+  id: number
+  playerId: string
+  source: 'manual'
+  date?: string | null
+  course?: string | null
+  holesCompleted?: number | null
+  strokes?: number | null
+  par?: number | null
+  shotCount?: number | null
+  idempotent: boolean
+}
+
 export type HistoryRefType = 'round' | 'hole' | 'shot' | 'unknown'
 
 export interface HistoryDrilldownResponse {

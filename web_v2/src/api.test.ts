@@ -19,6 +19,7 @@ import {
   fetchHistoryRoundDetail,
   fetchHistoryStats,
   fetchHistorySummary,
+  ingestPlayerRound,
   ROUNDS_FULL_LIMIT,
   fetchHoleGeometryEvidence,
   fetchHoleMap,
@@ -634,6 +635,45 @@ describe('fetchHistorySummary', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/summary', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
+  })
+})
+
+describe('ingestPlayerRound', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('posts a manual round to the player rounds endpoint', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 7, playerId: 'me', source: 'manual', idempotent: false }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const requestBody = { events: [{ hole: 1, kind: 'score' as const, payload: { strokes: 4 } }], meta: { courseName: 'X' } }
+    const res = await ingestPlayerRound('me', requestBody)
+
+    expect(res.id).toBe(7)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/players/me/rounds',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify(requestBody) }),
+    )
+  })
+
+  it('encodes the player id and attaches the admin token', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 1, playerId: 'xiao li', source: 'manual', idempotent: false }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await ingestPlayerRound('xiao li', { events: [{ hole: 1, kind: 'score', payload: { strokes: 4 } }] }, 'admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/players/xiao%20li/rounds',
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-AI-Caddie-Admin-Token': 'admin-secret' }) }),
+    )
   })
 })
 
