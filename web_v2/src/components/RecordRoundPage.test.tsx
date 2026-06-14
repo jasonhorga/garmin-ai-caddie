@@ -9,7 +9,7 @@ function ingestResult(over: Partial<RoundIngestResult> = {}): RoundIngestResult 
 }
 
 function renderRecord(over: Partial<Parameters<typeof RecordRoundPage>[0]> = {}) {
-  const onIngest = vi.fn(async (_playerId: string, _body: RoundIngestRequestBody) => ingestResult())
+  const onIngest = vi.fn(async () => ingestResult())
   const onExit = vi.fn()
   const getPosition = vi.fn(async () => ({ latitude: 39.91, longitude: 116.41, accuracy: 4 }))
   render(
@@ -48,7 +48,7 @@ describe('RecordRoundPage', () => {
 
     expect(await screen.findByRole('heading', { name: '已提交 ✅' })).toBeInTheDocument()
     expect(onIngest).toHaveBeenCalledTimes(1)
-    const [playerId, body] = onIngest.mock.calls[0]
+    const [playerId, body] = onIngest.mock.calls[0] as unknown as [string, RoundIngestRequestBody]
     expect(playerId).toBe('me')
     expect(body.meta).toMatchObject({ courseName: '北京丽宫', holesCompleted: 1 })
     expect(body.events).toEqual([
@@ -89,7 +89,7 @@ describe('RecordRoundPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '结束并提交' }))
 
     await screen.findByRole('heading', { name: '已提交 ✅' })
-    const body = onIngest.mock.calls[0][1]
+    const [, body] = onIngest.mock.calls[0] as unknown as [string, RoundIngestRequestBody]
     expect(body.events).toEqual([
       { hole: 1, kind: 'score', payload: { strokes: 4 } },
       { hole: 2, kind: 'score', payload: { strokes: 6 } },
