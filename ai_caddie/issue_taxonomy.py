@@ -170,6 +170,15 @@ def classify_issue(issue: str) -> dict[str, str]:
     }
 
 
+# On real data a single issue (e.g. bunker across 441 rounds) accumulates
+# ~1300 source refs, stored twice per row (refs + sourceRefs) — this dominated
+# the ~20MB /history/stats payload. The refs are only example drill-down links:
+# the true sample size is the separate ``count`` field, and drill-down resolves
+# via /api/v2/history/drilldown/{ref} (not these inline arrays). So cap the
+# stored examples while keeping ``count`` the full, accurate total.
+ISSUE_REFS_CAP = 100
+
+
 def issue_record(
     issue: str,
     refs: list[str],
@@ -178,11 +187,12 @@ def issue_record(
 ) -> dict[str, Any]:
     key = str(issue or "").strip().lower()
     classification = classify_issue(key)
+    capped = refs[:ISSUE_REFS_CAP]
     return {
         "issue": key,
         "count": len(refs),
-        "refs": refs,
-        "sourceRefs": refs,
+        "refs": capped,
+        "sourceRefs": capped,
         "source": source,
         **classification,
     }
