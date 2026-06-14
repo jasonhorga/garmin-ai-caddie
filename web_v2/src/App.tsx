@@ -74,6 +74,7 @@ import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
+import { readStoredAdminToken, writeStoredAdminToken } from './adminTokenStore'
 import { isLinkRequired, readPlayerToken } from './playerContext'
 import type {
   AnnotationCreateRequest,
@@ -171,7 +172,9 @@ export default function App() {
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
   const [sessionSaveState, setSessionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null)
-  const [adminToken, setAdminToken] = useState('')
+  // Hydrate the owner's admin token from localStorage so the boot load below
+  // already carries it (owner mode: bare URL, private profile → otherwise 401).
+  const [adminToken, setAdminToken] = useState(() => readStoredAdminToken())
 
   useEffect(() => {
     // Locked out: a link is required, the URL carries no player token, and no
@@ -182,8 +185,13 @@ export default function App() {
 
     let cancelled = false
     const bootPlayerToken = readPlayerToken()
+    // currentAdminToken() reads the hydrated admin-token state, so the owner's
+    // first boot fetch carries it (api.ts still auto-injects the player bearer
+    // from /p/<token> on top, so player links keep working). With neither token
+    // present this is undefined and behavior is unchanged.
+    const bootAdminToken = currentAdminToken()
 
-    fetchHistoryOverview()
+    fetchHistoryOverview(bootAdminToken)
       .then((data) => {
         if (!cancelled) setOverviewState({ status: 'ready', data })
       })
@@ -201,7 +209,7 @@ export default function App() {
     // The landing 概览 page composes all-window stats (近期状态/本周该练) and
     // mobile course options (常打球场 globalIds) on top of the overview payload.
     setStatsState({ status: 'loading' })
-    fetchHistoryStats()
+    fetchHistoryStats(bootAdminToken)
       .then((data) => {
         if (!cancelled) setStatsState({ status: 'ready', data })
       })
@@ -210,7 +218,7 @@ export default function App() {
       })
 
     setMobileCourseOptionsState({ status: 'loading' })
-    fetchMobileCourseOptions()
+    fetchMobileCourseOptions(bootAdminToken)
       .then((data) => {
         if (!cancelled) setMobileCourseOptionsState({ status: 'ready', data })
       })
@@ -233,6 +241,9 @@ export default function App() {
         adminTokenRefreshTimer.current = null
       }
     }
+    // Boot-once: deliberately empty deps. currentAdminToken() reads the token
+    // hydrated at mount; we do not want this effect to re-run as it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function currentAdminToken(): string | undefined {
@@ -385,16 +396,32 @@ export default function App() {
     if (reportIndexState.status !== 'idle') loadReportIndex()
   }
 
+  // Re-fetch only the history surfaces that errored on the token-less boot, using
+  // the keep-ready refreshers so a still-broken backend cannot clobber ready
+  // payloads. Gating on 'error' means a healthy app issues no extra loads.
+  function recoverErroredHistorySurfaces(adminTokenOverride: string | undefined = currentAdminToken()) {
+    if (overviewState.status === 'error') void refreshOverviewState(adminTokenOverride)
+    if (roundsState.status === 'error') void refreshRoundsState(adminTokenOverride)
+    if (statsState.status === 'error') void refreshStatsState(adminTokenOverride)
+    if (trendsState.status === 'error') void refreshTrendsState(adminTokenOverride)
+    if (mobileCourseOptionsState.status === 'error') void refreshMobileCourseOptionsState(adminTokenOverride)
+  }
+
   function handleAdminTokenChange(value: string) {
     setAdminToken(value)
+    // Persist immediately so the next page load hydrates it; clearing removes it.
+    writeStoredAdminToken(value)
     if (adminTokenRefreshTimer.current !== null) {
       window.clearTimeout(adminTokenRefreshTimer.current)
       adminTokenRefreshTimer.current = null
     }
     const nextToken = value.trim()
-    if (nextToken && activePage === 'sync-quality' && mobileCourseOptionsState.status === 'error') {
+    // The owner just supplied a token: re-fetch any surface that 401'd on the
+    // token-less boot so their data appears without a manual 重试. Debounced so
+    // typing the token char-by-char fires a single refetch with the full value.
+    if (nextToken) {
       adminTokenRefreshTimer.current = window.setTimeout(() => {
-        void loadMobileCourseOptionsState(nextToken)
+        recoverErroredHistorySurfaces(nextToken)
         adminTokenRefreshTimer.current = null
       }, 250)
     }
