@@ -18,6 +18,8 @@ import {
   fetchHistoryRounds,
   fetchHistoryRoundDetail,
   fetchHistoryStats,
+  fetchHistorySummary,
+  ROUNDS_FULL_LIMIT,
   fetchHoleGeometryEvidence,
   fetchHoleMap,
   fetchMediaForTarget,
@@ -356,12 +358,12 @@ describe('fetchHistoryRounds', () => {
 
     expect(payload.schema).toBe('ai-caddie-history-rounds-v2')
     expect(payload.total).toBe(0)
-    // backend defaults to limit=120 which truncates the real archive (435
-    // rounds) — every fetch must ask for the full archive explicitly
-    expect(fetch).toHaveBeenCalledWith('/api/v2/history/rounds?limit=1000')
+    // First paint fetches a fast first page (limit=120); the timeline pulls the
+    // full archive on demand via ROUNDS_FULL_LIMIT (see below).
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/rounds?limit=120')
   })
 
-  it('keeps limit=1000 on filtered archive reads', async () => {
+  it('uses the first-page limit (120) on filtered reads', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       json: async () => ({ schema: 'ai-caddie-history-rounds-v2', total: 0, groups: [], emptyState: null }),
@@ -370,7 +372,19 @@ describe('fetchHistoryRounds', () => {
 
     await fetchHistoryRounds(undefined, { year: '2026', hasShots: true })
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?year=2026&hasShots=true&limit=1000')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?year=2026&hasShots=true&limit=120')
+  })
+
+  it('asks for the full archive when given ROUNDS_FULL_LIMIT', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ schema: 'ai-caddie-history-rounds-v2', total: 0, groups: [], emptyState: null }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryRounds(undefined, undefined, ROUNDS_FULL_LIMIT)
+
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v2/history/rounds?limit=${ROUNDS_FULL_LIMIT}`)
   })
 
   it('can attach admin tokens to protected history round reads', async () => {
@@ -382,7 +396,7 @@ describe('fetchHistoryRounds', () => {
 
     await fetchHistoryRounds('admin-secret')
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=1000', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=120', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })
@@ -582,6 +596,44 @@ describe('fetchHistoryStats', () => {
     await fetchHistoryStats(undefined, '12m')
 
     expect(fetch).toHaveBeenCalledWith('/api/v2/history/stats?window=12m')
+  })
+})
+
+describe('fetchHistorySummary', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('loads the slim landing summary payload', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-history-summary-v1',
+        summary: { totalRounds: 3, handicapEstimate: 16.4, recent10Average: 89.5 },
+        topIssue: 'approach_short',
+      }),
+    })))
+
+    const payload = await fetchHistorySummary()
+
+    expect(payload.schema).toBe('ai-caddie-history-summary-v1')
+    expect(payload.topIssue).toBe('approach_short')
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/summary')
+  })
+
+  it('can attach admin tokens to protected summary reads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ schema: 'ai-caddie-history-summary-v1', summary: {}, topIssue: null }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistorySummary('admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/summary', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
   })
 })
 
