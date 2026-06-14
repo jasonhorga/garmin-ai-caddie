@@ -148,7 +148,7 @@ class FactBoundReportTests(unittest.TestCase):
             },
             inferences,
         )
-        self.assertTrue(any("three_putt" in row["claim"] and row["sourceRefs"] == ["round-2:7"] for row in inferences))
+        self.assertTrue(any("三推" in row["claim"] and row["sourceRefs"] == ["round-2:7"] for row in inferences))
         self.assertTrue(any("execution" in row["claim"] and row["factLabels"] == ["decision_audit_trends"] for row in inferences))
 
     def test_generated_report_flags_sensitive_claims_not_supported_by_facts(self) -> None:
@@ -746,7 +746,7 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertTrue(all(row["courseKey"] == "black_knight" for row in by_label["course_holes"]["value"]))
         self.assertEqual(report["kind"], "course")
         self.assertTrue(any(row["factLabels"] == ["course_history"] and "Black Knight" in row["claim"] for row in report["inferencesMade"]))
-        self.assertTrue(any(row["factLabels"] == ["course_issue_profile"] and "double_or_worse" in row["claim"] for row in report["inferencesMade"]))
+        self.assertTrue(any(row["factLabels"] == ["course_issue_profile"] and "双柏忌或更差" in row["claim"] for row in report["inferencesMade"]))
 
     def test_club_report_facts_bind_distance_trend_sample_quality_and_surface_risk(self) -> None:
         stats = build_history_stats(fixture_history_data(), data_mode="fixture")
@@ -973,7 +973,7 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertEqual(by_label["club_risk_profiles"]["value"][0]["club"], "8I")
         self.assertEqual(by_label["club_risk_profiles"]["value"][0]["riskRate"], 33.3)
         self.assertEqual(by_label["club_risk_profiles"]["sourceRefs"], ["900001:7:2", "900002:4:2"])
-        self.assertTrue(any(row["factLabels"] == ["diagnosis_issue_trends"] and "water" in row["claim"] for row in report["inferencesMade"]))
+        self.assertTrue(any(row["factLabels"] == ["diagnosis_issue_trends"] and "下水" in row["claim"] for row in report["inferencesMade"]))
         self.assertTrue(any(row["factLabels"] == ["club_risk_profiles"] and "8I" in row["claim"] for row in report["inferencesMade"]))
 
     def test_report_facts_preserve_stat_source_refs_coverage_and_confidence(self) -> None:
