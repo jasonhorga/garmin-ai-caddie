@@ -156,7 +156,7 @@ export function RecordRoundPage({ playerId, playerName, courseOptions, onIngest,
         <section className="panel record-done">
           <h1>已提交 ✅</h1>
           <p>
-            {result.course ?? courseName || '本场'} · {result.holesCompleted ?? scoredHoles} 洞
+            {(result.course ?? courseName) || '本场'} · {result.holesCompleted ?? scoredHoles} 洞
             {result.strokes != null ? ` · ${result.strokes} 杆` : ''} · {result.shotCount ?? totalShots} 杆位置
           </p>
           <p className="record-hint">{result.idempotent ? '这场之前已提交过(未重复创建)。' : '已存入你的球局,稍后可在 历史 · 球局 查看。'}</p>
