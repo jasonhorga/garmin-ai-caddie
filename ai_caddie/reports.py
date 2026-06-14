@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from ai_caddie.history import HistoryData
 from ai_caddie.llm_providers import LLMMessage, TextProvider, redact_secret_text
+from ai_caddie.report_labels_zh import data_label_zh, issue_label_zh
 from ai_caddie.vision_context import list_findings_for_target
 
 
@@ -2061,7 +2062,7 @@ def build_report_inferences(
         if label in {"top_issue", "top_issues", "round_issues", "diagnosis_issue_trends", "round_diagnosis_issue_trends"}:
             issue = _first_issue(value)
             if issue:
-                _append_inference(rows, _inference(f"主要失分信号为 {issue}。", fact, default_confidence=confidence, missing_data=missing_data))
+                _append_inference(rows, _inference(f"主要失分信号为 {issue_label_zh(issue)}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "hole_history":
             summary = _hole_history_summary(value)
@@ -2082,7 +2083,7 @@ def build_report_inferences(
         if label == "hole_repeated_issues":
             issue = _first_issue(value)
             if issue:
-                _append_inference(rows, _inference(f"本洞反复出现的问题为 {issue}。", fact, default_confidence=confidence, missing_data=missing_data))
+                _append_inference(rows, _inference(f"本洞反复出现的问题为 {issue_label_zh(issue)}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "confirmed_vision_findings":
             finding_type = _first_vision_finding(value)
@@ -2107,7 +2108,7 @@ def build_report_inferences(
         if label == "course_issue_profile":
             issue = _first_issue(value)
             if issue:
-                _append_inference(rows, _inference(f"球场专项问题分布突出 {issue}。", fact, default_confidence=confidence, missing_data=missing_data))
+                _append_inference(rows, _inference(f"球场专项问题分布突出 {issue_label_zh(issue)}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label == "club_profile":
             summary = _club_profile_summary(value)
@@ -2169,7 +2170,7 @@ def build_report_inferences(
             course_issue = _first_course_issue(value)
             if course_issue:
                 course, issue = course_issue
-                _append_inference(rows, _inference(f"球场 {course} 问题分布突出 {issue}。", fact, default_confidence=confidence, missing_data=missing_data))
+                _append_inference(rows, _inference(f"球场 {course} 问题分布突出 {issue_label_zh(issue)}。", fact, default_confidence=confidence, missing_data=missing_data))
                 continue
         if label in {"decision_audit_trends", "round_decision_audits"}:
             signal = _first_audit_signal(value)
@@ -2237,7 +2238,7 @@ def _deterministic_report_narrative(
     parts = [f"{title}：{' '.join(claims[:5])}"]
     missing_labels = _missing_labels(missing_data)
     if missing_labels:
-        parts.append(f"数据缺失：{', '.join(missing_labels[:8])}。")
+        parts.append(f"数据缺失：{', '.join(data_label_zh(label) for label in missing_labels[:8])}。")
     parts.append("每项陈述均受本报告结构化事实及来源引用约束。")
     return redact_private_text(" ".join(parts))
 
