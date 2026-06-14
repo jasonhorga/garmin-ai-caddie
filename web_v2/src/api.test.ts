@@ -651,16 +651,14 @@ describe('ingestPlayerRound', () => {
     }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const res = await ingestPlayerRound('me', {
-      events: [{ hole: 1, kind: 'score', payload: { strokes: 4 } }],
-      meta: { courseName: 'X' },
-    })
+    const requestBody = { events: [{ hole: 1, kind: 'score' as const, payload: { strokes: 4 } }], meta: { courseName: 'X' } }
+    const res = await ingestPlayerRound('me', requestBody)
 
     expect(res.id).toBe(7)
-    const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/v2/players/me/rounds')
-    expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body).events[0]).toEqual({ hole: 1, kind: 'score', payload: { strokes: 4 } })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/players/me/rounds',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify(requestBody) }),
+    )
   })
 
   it('encodes the player id and attaches the admin token', async () => {
@@ -672,9 +670,10 @@ describe('ingestPlayerRound', () => {
 
     await ingestPlayerRound('xiao li', { events: [{ hole: 1, kind: 'score', payload: { strokes: 4 } }] }, 'admin-secret')
 
-    const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/v2/players/xiao%20li/rounds')
-    expect(init.headers['X-AI-Caddie-Admin-Token']).toBe('admin-secret')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v2/players/xiao%20li/rounds',
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-AI-Caddie-Admin-Token': 'admin-secret' }) }),
+    )
   })
 })
 
