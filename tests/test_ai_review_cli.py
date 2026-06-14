@@ -37,7 +37,9 @@ class AiReviewCliTests(unittest.TestCase):
         self.assertTrue(report["sourceRefs"])
         prompt = provider.messages[-1].content
         self.assertIn('"factsUsed"', prompt)
-        self.assertIn("Do not invent weather, lie, intent, club, penalties, or private data.", prompt)
+        # The report prompt is now Chinese and instructs the model to write in zh.
+        self.assertIn("用简体中文撰写", prompt)
+        self.assertIn("不得编造天气、谎言、意图、球杆、罚杆或私人数据。", prompt)
         self.assertNotIn("可能的根因猜测", prompt)
         self.assertNotIn("下一场该试", prompt)
 

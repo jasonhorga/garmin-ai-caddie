@@ -41,7 +41,7 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(payload["provider"], "DeterministicReportProvider")
         self.assertEqual(payload["model"], "deterministic-facts-v1")
         self.assertNotIn("No generated report stored yet", payload["narrative"])
-        self.assertIn("Round score was", payload["narrative"])
+        self.assertIn("本场成绩", payload["narrative"])
         self.assertEqual(payload["factBinding"]["state"], "bound")
 
     def test_report_facts_include_course_distribution_from_history_stats_api_model(self) -> None:
@@ -89,7 +89,7 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertIn("hole_geometry_coverage", labels)
         self.assertEqual(payload["provider"], "DeterministicReportProvider")
         self.assertEqual(payload["model"], "deterministic-facts-v1")
-        self.assertIn("Hole review", payload["narrative"])
+        self.assertIn("球洞回顾", payload["narrative"])
         self.assertEqual(payload["factBinding"]["state"], "bound")
 
     def test_get_course_and_club_reports_return_deterministic_fact_bound_reports(self) -> None:
@@ -111,7 +111,7 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertIn("course_history", course_labels)
         self.assertIn("course_issue_profile", course_labels)
         self.assertIn("course_holes", course_labels)
-        self.assertIn("Course review", course_payload["narrative"])
+        self.assertIn("球场回顾", course_payload["narrative"])
         self.assertEqual(course_payload["factBinding"]["state"], "bound")
 
         self.assertEqual(club_response.status_code, 200)
@@ -122,7 +122,7 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertIn("club_profile", club_labels)
         self.assertIn("club_distance_trend", club_labels)
         self.assertIn("club_surface_risk", club_labels)
-        self.assertIn("Club review", club_payload["narrative"])
+        self.assertIn("球杆回顾", club_payload["narrative"])
         self.assertEqual(club_payload["factBinding"]["state"], "bound")
 
     def test_generated_hole_report_is_stored_and_returned_by_get(self) -> None:
@@ -302,7 +302,7 @@ class ServerV2ReportsTests(unittest.TestCase):
         self.assertEqual(payload["provider"], "DeterministicReportProvider")
         self.assertEqual(payload["model"], "deterministic-facts-v1")
         self.assertNotIn("No generated trend report stored yet", payload["narrative"])
-        self.assertIn("Recent review is based on", payload["narrative"])
+        self.assertIn("近期回顾基于", payload["narrative"])
         self.assertEqual(payload["factBinding"]["state"], "bound")
 
     def test_generated_trend_report_is_stored_and_returned_by_get(self) -> None:

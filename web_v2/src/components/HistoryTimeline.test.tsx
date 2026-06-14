@@ -233,6 +233,45 @@ describe('HistoryTimeline 截断与加载更多', () => {
     expect(screen.queryByRole('button', { name: /加载更多/ })).not.toBeInTheDocument()
   })
 
+  function firstPagePayload(loaded: number, serverTotal: number): HistoryRoundsResponse {
+    const rounds = Array.from({ length: loaded }, (_, index) => syntheticRound(index + 1))
+    return {
+      schema: 'ai-caddie-history-rounds-v2',
+      total: serverTotal,
+      groups: [{ key: '2026-05', label: 'May 2026', count: loaded, average18: 82, bestScore: 76, rounds }],
+      emptyState: null,
+    }
+  }
+
+  it('counts the full server total and pulls the rest when revealing past the first page', async () => {
+    const onLoadAll = vi.fn()
+    // First page is 60 loaded; the server holds 200 in total.
+    render(<HistoryTimeline data={firstPagePayload(60, 200)} onLoadAll={onLoadAll} />)
+
+    // The count reflects the server truth (200 - 60), not just what is loaded.
+    expect(screen.getByRole('button', { name: '加载更多(还有 140 场)' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /加载更多/ }))
+    // Window advances 60→120, crossing the fetched 60 → ask the parent for the full archive.
+    expect(onLoadAll).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows a disabled 加载中 label while the full archive is being fetched', () => {
+    render(<HistoryTimeline data={firstPagePayload(60, 200)} onLoadAll={() => undefined} loadingMore />)
+    const button = screen.getByRole('button', { name: '加载中…' })
+    expect(button).toBeInTheDocument()
+    expect(button).toBeDisabled()
+  })
+
+  it('does not re-request the server once everything is loaded', async () => {
+    const onLoadAll = vi.fn()
+    // loaded === serverTotal → purely client-side reveal, no server pull.
+    render(<HistoryTimeline data={firstPagePayload(80, 80)} onLoadAll={onLoadAll} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /加载更多/ }))
+    expect(onLoadAll).not.toHaveBeenCalled()
+  })
+
   it('resets the visible window when any filter changes', async () => {
     const data = bigPayload()
     const { container, rerender } = render(<HistoryTimeline data={data} filters={{}} onFilterChange={() => undefined} />)

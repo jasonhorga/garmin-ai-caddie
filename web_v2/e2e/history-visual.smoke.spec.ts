@@ -924,6 +924,10 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     if (path === '/api/v2/history/rounds') return route.fulfill({ json: roundsPayload })
     if (path === '/api/v2/history/rounds/900001') return route.fulfill({ json: replayRoundDetailPayload })
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload })
+    if (path === '/api/v2/history/summary')
+      return route.fulfill({
+        json: { schema: 'ai-caddie-history-summary-v1', summary: statsPayload.summary, topIssue: statsPayload.issues?.[0]?.issue ?? null },
+      })
     if (path === '/api/v2/caddie/context') {
       caddieContextQueries.push(requestUrl.searchParams)
       return route.fulfill({ json: caddieContextPayload(requestUrl.searchParams) })

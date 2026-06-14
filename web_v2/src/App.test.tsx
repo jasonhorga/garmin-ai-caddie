@@ -130,6 +130,14 @@ function statsPayload() {
   }
 }
 
+function summaryPayload() {
+  return {
+    schema: 'ai-caddie-history-summary-v1',
+    summary: { totalRounds: 3, average18: 82, bestScore: 77, recent10Average: 82, handicapEstimate: 12.5, handicapTrend: -0.5 },
+    topIssue: 'missing_shots',
+  }
+}
+
 function syncStatusPayload() {
   return {
     schema: 'ai-caddie-sync-status-v2',
@@ -1035,6 +1043,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1060,7 +1069,8 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/rounds?limit=1000') return roundsPayload()
+          if (path === '/api/v2/history/rounds?limit=120') return roundsPayload()
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1094,7 +1104,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
     expect(screen.getByText('2026年5月')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=1000')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=120')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status')
     await waitFor(() => expect(screen.queryByText('还看不到你的数据')).not.toBeInTheDocument())
   })
@@ -1105,6 +1115,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1175,6 +1186,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           return overviewPayload()
@@ -1207,6 +1219,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           return overviewPayload()
@@ -1255,6 +1268,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
@@ -1640,11 +1654,12 @@ describe('App navigation', () => {
 
   it('rounds error screen offers token recovery via 去设置', async () => {
     const fetchMock = vi.fn(async (path: string) => {
-      if (path === '/api/v2/history/rounds?limit=1000') return { ok: false, status: 401, statusText: 'Unauthorized' }
+      if (path === '/api/v2/history/rounds?limit=120') return { ok: false, status: 401, statusText: 'Unauthorized' }
       if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           return overviewPayload()
@@ -1717,7 +1732,8 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
-          if (path === '/api/v2/history/rounds?limit=1000') return roundsPayload()
+          if (path === '/api/v2/history/rounds?limit=120') return roundsPayload()
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
@@ -1749,6 +1765,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
@@ -1805,7 +1822,7 @@ describe('App navigation', () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
-        if (path === '/api/v2/history/rounds?limit=1000') return roundsPayload()
+        if (path === '/api/v2/history/rounds?limit=120') return roundsPayload()
         if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
         if (path === '/api/v2/reports/round/1') return roundReportPayload('1')
         if (path === '/api/v2/reports/round/1/generate') return roundReportPayload('1')
@@ -1965,6 +1982,7 @@ describe('App navigation', () => {
         ok: true,
         json: async () => {
           if (path === '/api/v2/sync/status') return syncStatusPayload()
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
           if (path === '/api/v2/admin/players') {
@@ -2005,6 +2023,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/annotations' && init?.method === 'POST') return createdAnnotationPayload()
           if (path === '/api/v2/annotations') return annotationsPayload()
@@ -2184,6 +2203,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/readiness') return readinessPayload()
           if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true') return mobilePackagePayload()
@@ -2220,6 +2240,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusPayload()
           if (path === '/api/v2/readiness') return readinessPayload()
@@ -2253,6 +2274,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/sync/status') return syncStatusCanSyncPayload()
           if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') return syncRunPayload()
@@ -2396,6 +2418,7 @@ describe('App navigation', () => {
       return {
         ok: true,
         json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
           if (path === '/api/v2/history/stats' || path === '/api/v2/history/stats?window=last10') return statsPayload()
           if (path === '/api/v2/history/drilldown/900001%3A7') return holeDrilldownPayload()
           if (path === '/api/v2/history/drilldown/900001') return roundDrilldownPayload()

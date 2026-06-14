@@ -27,7 +27,11 @@ from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from .history_round_detail import load_history_round_detail_response
 from .history_drilldown import load_history_drilldown_response
-from .history_stats import load_history_stats_response, warm_stats_cache_in_background
+from .history_stats import (
+    load_history_stats_response,
+    load_history_summary_response,
+    warm_stats_cache_in_background,
+)
 from .geometry import (
     load_course_geometry_coverage_response,
     load_geometry_ensure_response,
@@ -82,6 +86,7 @@ from .models import (
     HistoryRoundDetailResponse,
     HistoryRoundsResponse,
     HistoryStatsResponse,
+    HistoryStatsSummaryResponse,
     LiveRoundEventBatchRequest,
     LiveRoundEventBatchResponse,
     LiveRoundEventAckRequest,
@@ -300,6 +305,7 @@ def service_index() -> dict[str, object]:
             "historyRounds": "/api/v2/history/rounds",
             "historyRoundDetail": "/api/v2/history/rounds/{round_ref}",
             "historyStats": "/api/v2/history/stats",
+            "historySummary": "/api/v2/history/summary",
             "historyDrilldown": "/api/v2/history/drilldown/{source_ref}",
             "geometryCourseCoverage": "/api/v2/geometry/course/{global_id}/coverage",
             "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
@@ -422,6 +428,15 @@ def history_stats(
     player_id: str = Depends(current_player_id),
 ) -> HistoryStatsResponse:
     return load_history_stats_response(window=window, player_id=player_id)
+
+
+@app.get("/api/v2/history/summary", response_model=HistoryStatsSummaryResponse)
+def history_summary(
+    player_id: str = Depends(current_player_id),
+) -> HistoryStatsSummaryResponse:
+    # 概览 landing: the few summary numbers + top issue, sliced from the cached
+    # full build so the home does not download the ~20MB /history/stats payload.
+    return load_history_summary_response(player_id=player_id)
 
 
 @app.get("/api/v2/history/drilldown/{source_ref}", response_model=HistoryDrilldownResponse)
