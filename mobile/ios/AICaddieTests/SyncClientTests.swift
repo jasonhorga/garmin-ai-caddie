@@ -259,6 +259,33 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(ack.pendingEventCount, 0)
     }
 
+    func testNonSuccessResponseThrowsTypedErrorWithStatusAndBody() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"detail":"boom"}"#.utf8))
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session
+        )
+
+        do {
+            _ = try await client.postEventBatch([], roundId: "round-1", idempotencyKey: "key-1")
+            XCTFail("expected SyncClientError for a 500 response")
+        } catch let error as SyncClientError {
+            XCTAssertEqual(error, .http(status: 500, body: #"{"detail":"boom"}"#))
+        }
+    }
+
     private static func requestBodyData(from request: URLRequest) throws -> Data {
         if let body = request.httpBody {
             return body

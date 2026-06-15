@@ -79,6 +79,16 @@ public struct EventCursorAckResponse: Codable, Equatable {
     public let pendingEventCount: Int
 }
 
+/// Typed sync transport error. Previously every non-2xx collapsed into a generic
+/// `URLError(.badServerResponse)`, discarding the HTTP status and the server's
+/// error body — useless for diagnosing a failed sync on the course. This keeps
+/// both so callers and logs can tell apart auth (401), missing round (404), and
+/// server faults (5xx).
+public enum SyncClientError: Error, Equatable {
+    case notHTTPResponse
+    case http(status: Int, body: String?)
+}
+
 public final class SyncClient {
     private let baseURL: URL
     private let adminToken: String?
@@ -116,7 +126,7 @@ public final class SyncClient {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 
@@ -142,7 +152,7 @@ public final class SyncClient {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 
@@ -152,7 +162,7 @@ public final class SyncClient {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
     }
 
@@ -168,7 +178,7 @@ public final class SyncClient {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(CoursePrepResponse.self, from: data)
     }
 
@@ -188,7 +198,7 @@ public final class SyncClient {
         request.httpBody = try encoder.encode(EventBatch(roundId: roundId, events: events))
 
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(SyncResult.self, from: data)
     }
 
@@ -219,7 +229,7 @@ public final class SyncClient {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(EventReplayResponse.self, from: data)
     }
 
@@ -234,7 +244,7 @@ public final class SyncClient {
         request.httpBody = try encoder.encode(EventCursorAckRequest(clientId: clientId, serverSequence: serverSequence))
 
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(EventCursorAckResponse.self, from: data)
     }
 
@@ -263,12 +273,15 @@ public final class SyncClient {
         return baseURL.appendingPathComponent(path)
     }
 
-    private func validate(response: URLResponse) throws {
+    private func validate(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
+            AICaddieLog.network.error("Sync response was not an HTTP response")
+            throw SyncClientError.notHTTPResponse
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+            let body = String(data: data, encoding: .utf8)
+            AICaddieLog.network.error("Sync HTTP \(http.statusCode, privacy: .public) at \(http.url?.path ?? "", privacy: .public): \(body ?? "<no body>", privacy: .public)")
+            throw SyncClientError.http(status: http.statusCode, body: body)
         }
     }
 }
