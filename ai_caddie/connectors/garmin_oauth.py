@@ -493,10 +493,10 @@ def build_oauth_feasibility_status(env: dict[str, str] | None = None, *, include
         "reauthRequired": False,
         "track": "official_oauth",
         "feasibilityQuestions": [
-            "Can official OAuth access golf scorecards?",
-            "Can official OAuth access golf GPS shot records or FIT golf data?",
-            "Can official OAuth expose course or golf activity metadata for history review?",
-            "Can official OAuth support identity or a future connector migration if golf data is unavailable?",
+            "官方 OAuth 能否读取高尔夫记分卡?",
+            "官方 OAuth 能否读取高尔夫 GPS 击球记录或 FIT 高尔夫数据?",
+            "官方 OAuth 能否提供球场或高尔夫活动元数据以供历史回顾?",
+            "若高尔夫数据不可用,官方 OAuth 能否支持身份或未来的连接器迁移?",
         ],
         "capabilities": _capability_matrix(),
     }
