@@ -43,7 +43,7 @@ class GarminOauthFeasibilityTests(unittest.TestCase):
         self.assertFalse(status["canSync"])
         self.assertFalse(status["reauthRequired"])
         self.assertEqual(status["track"], "official_oauth")
-        self.assertIn("golf scorecards", " ".join(status["feasibilityQuestions"]))
+        self.assertIn("高尔夫记分卡", " ".join(status["feasibilityQuestions"]))
         self.assertNotIn("client_secret", str(status).lower())
         self.assertNotIn("access_token", str(status).lower())
 

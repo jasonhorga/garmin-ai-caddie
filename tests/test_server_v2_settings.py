@@ -39,7 +39,7 @@ class ServerV2SettingsTests(unittest.TestCase):
         self.assertEqual(data_sources["garmin_oauth"]["probe"]["schema"], "ai-caddie-garmin-oauth-probe-v2")
         self.assertEqual(data_sources["garmin_oauth"]["probe"]["state"], "not_configured")
         self.assertIn("client_id", data_sources["garmin_oauth"]["probe"]["missing"])
-        self.assertIn("Can official OAuth access golf scorecards?", data_sources["garmin_oauth"]["feasibilityQuestions"])
+        self.assertIn("官方 OAuth 能否读取高尔夫记分卡?", data_sources["garmin_oauth"]["feasibilityQuestions"])
         oauth_capabilities = {row["key"]: row for row in data_sources["garmin_oauth"]["capabilityMatrix"]}
         self.assertEqual(oauth_capabilities["scorecards"]["state"], "unproven")
         self.assertFalse(oauth_capabilities["scorecards"]["canReplaceCnConnector"])

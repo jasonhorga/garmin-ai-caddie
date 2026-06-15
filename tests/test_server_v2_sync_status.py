@@ -23,7 +23,7 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["connectors"][1]["name"], "garmin_oauth_feasibility")
         self.assertEqual(payload["connectors"][1]["state"], "not_available")
         self.assertFalse(payload["connectors"][1]["canSync"])
-        self.assertIn("golf scorecards", " ".join(payload["connectors"][1]["feasibilityQuestions"]))
+        self.assertIn("高尔夫记分卡", " ".join(payload["connectors"][1]["feasibilityQuestions"]))
         oauth_capabilities = {row["key"]: row for row in payload["connectors"][1]["capabilities"]}
         self.assertEqual(oauth_capabilities["scorecards"]["state"], "unproven")
         self.assertFalse(oauth_capabilities["scorecards"]["canReplaceCnConnector"])
