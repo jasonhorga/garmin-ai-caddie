@@ -106,6 +106,7 @@ public final class OfflineStore {
         let encoded = try encoder.encode(package)
         try encoded.write(to: packageURL(roundId: package.roundId), options: [.atomic])
         try encoded.write(to: currentPackageURL, options: [.atomic])
+        AICaddieLog.storage.debug("Saved round package \(package.roundId, privacy: .public) (\(package.holes.count, privacy: .public) holes)")
     }
 
     public func loadRoundPackage(roundId: String) throws -> LiveRoundPackage? {
@@ -137,6 +138,7 @@ public final class OfflineStore {
             data.append(Data([0x0A]))
             try data.write(to: logURL, options: [.atomic])
         }
+        AICaddieLog.storage.debug("Saved live event \(String(describing: event.kind), privacy: .public) hole \(event.hole, privacy: .public)")
     }
 
     public func containsEvent(eventId: String) throws -> Bool {
@@ -389,7 +391,11 @@ public final class OfflineStore {
         let remaining = allMedia.filter { !ids.contains($0.id) }
         let removed = allMedia.filter { ids.contains($0.id) }
         if remaining.isEmpty {
-            try? FileManager.default.removeItem(at: pendingMediaIndexURL)
+            do {
+                try FileManager.default.removeItem(at: pendingMediaIndexURL)
+            } catch {
+                AICaddieLog.storage.error("Failed to remove pending-media index: \(String(describing: error), privacy: .public)")
+            }
         } else {
             let lines = try remaining.map { media in
                 String(data: try encoder.encode(media), encoding: .utf8) ?? "{}"
@@ -400,7 +406,11 @@ public final class OfflineStore {
             try data.write(to: pendingMediaIndexURL, options: [.atomic])
         }
         for media in removed {
-            try? FileManager.default.removeItem(at: media.fileURL)
+            do {
+                try FileManager.default.removeItem(at: media.fileURL)
+            } catch {
+                AICaddieLog.storage.error("Failed to remove pending media file \(media.id, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
