@@ -66,9 +66,9 @@ struct HoleDistanceHeader: View {
             }
             Text("第 \(holeNumber) 洞 · Par \(par)").font(.title2.weight(.bold))
             HStack(spacing: 10) {
-                HeaderStat(value: toPinYards.map(String.init) ?? "—", label: "到旗杆(码)")
+                HeaderStat(value: toPinYards.map(String.init) ?? "—", label: "到旗杆(米)")
                 HeaderStat(value: carryFrontYards.map(String.init) ?? "—", label: "过前缘")
-                HeaderStat(value: toParText, label: "本场")
+                HeaderStat(value: toParText, label: "本洞")
             }
         }
         .padding(16)
@@ -147,6 +147,7 @@ struct ClubStripView: View {
 
 /// Big primary "记一杆 · GPS" action with an optional last-shot caption.
 struct RecordShotButton: View {
+    var title: String = "📍 记一杆 · GPS"
     var isLocating: Bool = false
     var lastShotText: String?
     var onTap: () -> Void = {}
@@ -154,7 +155,7 @@ struct RecordShotButton: View {
     var body: some View {
         VStack(spacing: 7) {
             Button(action: onTap) {
-                Text(isLocating ? "定位中…" : "📍 记一杆 · GPS")
+                Text(isLocating ? "定位中…" : title)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 15)
@@ -203,6 +204,18 @@ struct HoleScoreSteppers: View {
         .frame(maxWidth: .infinity)
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(LiveHoleStyle.line))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+extension View {
+    /// White rounded card used across the redesigned live-hole screen.
+    func liveCard() -> some View {
+        self
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white)
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(LiveHoleStyle.line))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

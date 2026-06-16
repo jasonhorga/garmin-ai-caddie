@@ -77,96 +77,114 @@ public struct CurrentHoleView: View {
     }
 
     public var body: some View {
-        Form {
-            Section {
-                HStack {
-                    Text("Hole \(hole.number)")
-                        .font(.title3.weight(.semibold))
-                    Spacer()
-                    Text("Par \(hole.par)")
-                        .foregroundStyle(.secondary)
-                }
-                if let caddieDecision {
-                    CaddiePlanView(response: caddieDecision)
-                } else {
-                    CaddiePlanView(seed: caddieContextSeed)
-                }
-                if isLoadingCaddieDecision {
-                    ProgressView("Updating caddie")
-                }
-                if let caddieErrorMessage {
-                    Text(caddieErrorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Button {
-                    Task {
-                        await loadCaddieDecision()
-                    }
-                } label: {
-                    Label("Refresh caddie", systemImage: "arrow.clockwise")
-                }
-                .disabled(isLoadingCaddieDecision)
-            }
-
-            Section("Input") {
-                Picker("Shot", selection: $selectedShotType) {
-                    ForEach(shotTypeOptions, id: \.self) { shotType in
-                        Text(shotType.capitalized).tag(shotType)
-                    }
-                }
-                Picker("Strategy", selection: $selectedStrategyMode) {
-                    ForEach(strategyModeOptions, id: \.self) { mode in
-                        Text(strategyModeLabel(mode)).tag(mode)
-                    }
-                }
-                TextField("Distance m", text: $distanceToPinText)
-                    .keyboardType(.decimalPad)
-                Button {
-                    targetCoordinate = currentCoordinate
-                } label: {
-                    Label("Set target", systemImage: "mappin.and.ellipse")
-                }
-                .disabled(currentCoordinate == nil)
-                Picker("Lie", selection: $selectedLie) {
-                    ForEach(lieOptions, id: \.self) { lie in
-                        Text(lie.capitalized).tag(lie)
-                    }
-                }
-                Stepper("Score \(score)", value: $score, in: 1...12)
-                Stepper("Putts \(puttCount)", value: $puttCount, in: 0...6)
-                Stepper("Penalty \(penaltyCount)", value: $penaltyCount, in: 0...4)
-                Picker("Club", selection: $selectedClub) {
-                    ForEach(package.clubProfiles) { club in
-                        Text(club.clubName).tag(club.clubName)
-                    }
-                }
-                TextField("Note", text: $note)
-                Button {
-                    submitEvents()
-                } label: {
-                    Label("Save", systemImage: "checkmark.circle")
-                }
-            }
-
-            Section("Media") {
-                MediaCaptureView(
-                    roundId: package.roundId,
-                    hole: hole.number,
-                    targetId: caddieContextSeed?.sourceRef ?? "\(package.roundId):\(hole.number)",
-                    offlineStore: offlineStore,
-                    uploadClient: mediaUploadClient,
-                    onEvent: onEvent,
-                    onVisionFindings: { findings in
-                        visionFindings = findings
-                        Task {
-                            await loadCaddieDecision()
-                        }
-                    }
+        ScrollView {
+            VStack(spacing: 0) {
+                HoleDistanceHeader(
+                    course: package.course.name,
+                    holeNumber: hole.number,
+                    holeCount: package.holes.count,
+                    par: hole.par,
+                    toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
+                    carryFrontYards: nil,
+                    toParText: holeToParText
                 )
+
+                VStack(spacing: 12) {
+                    // Caddie recommendation — the focal card. Embeds the proven
+                    // CaddiePlanView for the decision content; chrome is redesigned.
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("球童建议 · \(strategyModeLabel(selectedStrategyMode))")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(LiveHoleStyle.green)
+                        if let caddieDecision {
+                            CaddiePlanView(response: caddieDecision)
+                        } else {
+                            CaddiePlanView(seed: caddieContextSeed)
+                        }
+                        if isLoadingCaddieDecision {
+                            ProgressView("更新球童建议…")
+                        }
+                        if let caddieErrorMessage {
+                            Text(caddieErrorMessage).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Button {
+                            Task { await loadCaddieDecision() }
+                        } label: {
+                            Label("刷新球童", systemImage: "arrow.clockwise").font(.subheadline)
+                        }
+                        .disabled(isLoadingCaddieDecision)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white)
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(LiveHoleStyle.green, lineWidth: 1.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                    // Club picker + record/save (records the current GPS fix).
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("选球杆").font(.caption).foregroundStyle(.secondary)
+                        ClubStripView(clubs: package.clubProfiles.map(\.clubName), selected: selectedClub) { selectedClub = $0 }
+                        RecordShotButton(title: "📍 保存本洞 · 含定位", lastShotText: recordHintText) { submitEvents() }
+                    }
+                    .liveCard()
+
+                    // Compact score.
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("本洞成绩").font(.caption).foregroundStyle(.secondary)
+                        HoleScoreSteppers(score: $score, putts: $puttCount)
+                    }
+                    .liveCard()
+
+                    // All the original inputs are preserved, tucked into 更多调整.
+                    DisclosureGroup("更多调整(打法 / 球位 / 距离 / 目标 / 备注)") {
+                        VStack(spacing: 10) {
+                            Picker("打法", selection: $selectedShotType) {
+                                ForEach(shotTypeOptions, id: \.self) { Text($0.capitalized).tag($0) }
+                            }
+                            Picker("策略", selection: $selectedStrategyMode) {
+                                ForEach(strategyModeOptions, id: \.self) { Text(strategyModeLabel($0)).tag($0) }
+                            }
+                            Picker("球位", selection: $selectedLie) {
+                                ForEach(lieOptions, id: \.self) { Text($0.capitalized).tag($0) }
+                            }
+                            TextField("到旗杆距离(米)", text: $distanceToPinText)
+                                .keyboardType(.decimalPad)
+                            Button {
+                                targetCoordinate = currentCoordinate
+                            } label: {
+                                Label("设为目标点", systemImage: "mappin.and.ellipse")
+                            }
+                            .disabled(currentCoordinate == nil)
+                            Stepper("罚杆 \(penaltyCount)", value: $penaltyCount, in: 0...4)
+                            TextField("备注", text: $note)
+                        }
+                        .padding(.top, 6)
+                    }
+                    .liveCard()
+
+                    // Media capture (unchanged behavior).
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("拍照取证").font(.caption).foregroundStyle(.secondary)
+                        MediaCaptureView(
+                            roundId: package.roundId,
+                            hole: hole.number,
+                            targetId: caddieContextSeed?.sourceRef ?? "\(package.roundId):\(hole.number)",
+                            offlineStore: offlineStore,
+                            uploadClient: mediaUploadClient,
+                            onEvent: onEvent,
+                            onVisionFindings: { findings in
+                                visionFindings = findings
+                                Task { await loadCaddieDecision() }
+                            }
+                        )
+                    }
+                    .liveCard()
+                }
+                .padding(14)
             }
         }
-        .navigationTitle("Hole \(hole.number)")
+        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        .navigationTitle("第 \(hole.number) 洞")
         .onAppear {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
@@ -188,6 +206,19 @@ public struct CurrentHoleView: View {
 
     private var caddieContextSeed: CaddieContextSeed? {
         package.caddieContextSeeds.first { $0.hole == hole.number }
+    }
+
+    private var holeToParText: String {
+        let delta = score - hole.par
+        return delta > 0 ? "+\(delta)" : "\(delta)"
+    }
+
+    private var recordHintText: String? {
+        guard currentCoordinate != nil else { return "等待 GPS 定位…" }
+        if let accuracy = currentHorizontalAccuracyM {
+            return "已定位 · 精度 ±\(Int(accuracy.rounded()))m · 球杆 \(selectedClub)"
+        }
+        return "已定位 · 球杆 \(selectedClub)"
     }
 
     private var shotTypeOptions: [String] {
