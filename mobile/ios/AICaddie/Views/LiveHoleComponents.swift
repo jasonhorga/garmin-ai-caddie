@@ -124,27 +124,43 @@ struct ClubStripView: View {
     let selected: String
     var onSelect: (String) -> Void = { _ in }
 
+    var perRow: Int = 5
+
+    private var rows: [[String]] {
+        guard perRow > 0 else { return [clubs] }
+        return stride(from: 0, to: clubs.count, by: perRow).map { start in
+            Array(clubs[start ..< min(start + perRow, clubs.count)])
+        }
+    }
+
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(clubs, id: \.self) { club in
-                    Button { onSelect(club) } label: {
-                        Text(club)
-                            .font(.body.weight(.semibold))
-                            .padding(.vertical, 9)
-                            .padding(.horizontal, 13)
+        // Wrapping rows (not a horizontal ScrollView): keeps every club visible
+        // and renders in the CI ImageRenderer snapshot — ScrollView content does
+        // not render there.
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { entry in
+                HStack(spacing: 8) {
+                    ForEach(entry.element, id: \.self) { club in
+                        chip(club)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(club == selected ? Color.white : Color.primary)
-                    .background(club == selected ? LiveHoleStyle.green : Color.white)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Spacer(minLength: 0)
                 }
             }
         }
-        // A definite height keeps the horizontal scroller from collapsing (it
-        // rendered empty in the CI ImageRenderer snapshot without it).
-        .frame(height: 46)
+    }
+
+    private func chip(_ club: String) -> some View {
+        Button { onSelect(club) } label: {
+            Text(club)
+                .font(.body.weight(.semibold))
+                .padding(.vertical, 9)
+                .padding(.horizontal, 13)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(club == selected ? Color.white : Color.primary)
+        .background(club == selected ? LiveHoleStyle.green : Color.white)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
