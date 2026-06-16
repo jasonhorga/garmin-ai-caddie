@@ -41,6 +41,19 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderRecentReview() throws {
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        let package = try JSONDecoder().decode(LiveRoundPackage.self, from: Data(contentsOf: fixtureURL))
+        let view = RecentReviewContent(package: package)
+            .frame(width: 390)
+            .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        try render(view, named: "recent-review")
+    }
+
+    @MainActor
     private func render(_ view: some View, named name: String) throws {
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
