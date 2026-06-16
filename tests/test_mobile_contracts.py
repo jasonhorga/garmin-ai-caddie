@@ -1249,7 +1249,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",round_home)
         self.assertIn("public let courseOptions: [MobileCourseOption]", round_home)
         self.assertIn("StartRoundView(", round_home)
-        self.assertIn('Label("Start Round"', round_home)
+        self.assertIn('Label("开始一场"', round_home)
 
     def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
         course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
@@ -1286,7 +1286,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let onSync", round_home)
         self.assertIn("Button", round_home)
         self.assertIn("onSync()", round_home)
-        self.assertIn('Label("Sync"', round_home)
+        self.assertIn('Label("同步"', round_home)
 
     def test_ios_sync_acknowledgement_metadata_is_preserved(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -1783,7 +1783,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("username", web_capture.lower())
 
         self.assertIn("GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)", round_home)
-        self.assertIn('Label("Garmin Session"', round_home)
+        self.assertIn('Label("Garmin 账号"', round_home)
 
     def test_ios_garmin_session_material_can_be_stored_in_keychain(self) -> None:
         session_store = _read_required_source(self, IOS_DIR / "Services" / "GarminSessionStore.swift")
@@ -2101,7 +2101,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("package.missingData.isEmpty", round_home)
         self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
         self.assertIn("RecentRoundReviewView(package: package)", round_home)
-        self.assertIn('Label("Recent Review"', round_home)
+        self.assertIn('Label("历史复盘"', round_home)
         self.assertIn("struct RecentRoundReviewView: View", recent_review)
         self.assertIn("package.recentHistory.rounds", recent_review)
         self.assertIn("round.toPar", recent_review)
