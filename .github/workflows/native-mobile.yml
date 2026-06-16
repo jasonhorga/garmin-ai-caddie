@@ -33,6 +33,19 @@ jobs:
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
             -destination "$IOS_DESTINATION"
+      - name: Collect design snapshots
+        if: always()
+        run: |
+          mkdir -p design-snapshots
+          find ~/Library/Developer/CoreSimulator -path "*Documents/design-snapshots/*.png" -exec cp {} design-snapshots/ \; 2>/dev/null || true
+          ls -la design-snapshots || true
+      - name: Upload design snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-snapshots
+          path: design-snapshots/
+          if-no-files-found: warn
       - name: Test Watch app target
         run: |
           xcodebuild test \
