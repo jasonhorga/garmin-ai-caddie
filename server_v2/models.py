@@ -804,6 +804,7 @@ class LiveRoundPackageResponse(BaseModel):
     coursePrep: dict[str, Any] | None = None
     geometryCoverage: dict[str, Any]
     readinessChecks: list[dict[str, Any]] = Field(default_factory=list)
+    nine: Literal["all", "front", "back"] = "all"
     caddieContextSeeds: list[dict[str, Any]]
     weatherSnapshot: dict[str, Any]
     clubProfiles: list[dict[str, Any]]
