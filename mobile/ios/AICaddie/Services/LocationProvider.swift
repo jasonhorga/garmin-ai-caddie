@@ -39,6 +39,12 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
+        AICaddieLog.location.debug("Location authorization changed: \(manager.authorizationStatus.rawValue, privacy: .public)")
+    }
+
+    public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        // Previously dropped silently — a stalled GPS on the course left no trail.
+        AICaddieLog.location.error("Location update failed: \(String(describing: error), privacy: .public)")
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

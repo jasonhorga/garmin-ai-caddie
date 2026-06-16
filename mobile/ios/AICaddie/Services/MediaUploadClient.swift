@@ -172,7 +172,7 @@ public final class MediaUploadClient {
         }
         request.httpBody = try encoder.encode(requestBody)
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(MediaCreateResponse.self, from: data)
     }
 
@@ -199,7 +199,7 @@ public final class MediaUploadClient {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(VisionAnalysisResponse.self, from: data)
     }
 
@@ -211,7 +211,7 @@ public final class MediaUploadClient {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(VisionFindingsListResponse.self, from: data)
     }
 
@@ -225,7 +225,7 @@ public final class MediaUploadClient {
         }
         request.httpBody = try encoder.encode(requestBody)
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(VisionFindingConfirmationResponse.self, from: data)
     }
 
@@ -234,9 +234,15 @@ public final class MediaUploadClient {
         return baseURL.appendingPathComponent(path)
     }
 
-    private func validate(response: URLResponse) throws {
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+    private func validate(response: URLResponse, data: Data) throws {
+        guard let http = response as? HTTPURLResponse else {
+            AICaddieLog.network.error("Media response was not an HTTP response")
+            throw SyncClientError.notHTTPResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8)
+            AICaddieLog.network.error("Media HTTP \(http.statusCode, privacy: .public): \(body ?? "<no body>", privacy: .public)")
+            throw SyncClientError.http(status: http.statusCode, body: body)
         }
     }
 }

@@ -46,7 +46,7 @@ public final class GarminSessionClient {
         }
         request.httpBody = try encoder.encode(requestBody)
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(GarminSessionImportResponse.self, from: data)
     }
 
@@ -55,9 +55,15 @@ public final class GarminSessionClient {
         return baseURL.appendingPathComponent(path)
     }
 
-    private func validate(response: URLResponse) throws {
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+    private func validate(response: URLResponse, data: Data) throws {
+        guard let http = response as? HTTPURLResponse else {
+            AICaddieLog.network.error("Garmin session response was not an HTTP response")
+            throw SyncClientError.notHTTPResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8)
+            AICaddieLog.network.error("Garmin session HTTP \(http.statusCode, privacy: .public): \(body ?? "<no body>", privacy: .public)")
+            throw SyncClientError.http(status: http.statusCode, body: body)
         }
     }
 }
