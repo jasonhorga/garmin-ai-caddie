@@ -30,9 +30,9 @@ public struct AICaddieApp: App {
                                 await model.prepareRound(roundId: roundId)
                             }
                         },
-                        onPrepareCourseRound: { globalId, roundId, teeBox in
+                        onPrepareCourseRound: { globalId, roundId, teeBox, nine in
                             Task {
-                                await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox)
+                                await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)
                             }
                         },
                         onSync: {
@@ -65,9 +65,9 @@ public struct AICaddieApp: App {
                                     await model.prepareRound(roundId: roundId)
                                 }
                             },
-                            onPrepareCourseRound: { globalId, roundId, teeBox in
+                            onPrepareCourseRound: { globalId, roundId, teeBox, nine in
                                 Task {
-                                    await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox)
+                                    await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)
                                 }
                             },
                             onSaveBackendConfiguration: { apiBaseURLText, adminTokenText in
@@ -283,7 +283,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String) async {
+    public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedRoundId.isEmpty else {
             syncStatus = "Round id is required"
@@ -297,7 +297,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
 
         do {
-            if let remotePackage = await fetchRemoteCoursePackage(globalId: globalId, roundId: requestedRoundId, teeBox: teeBox, capturedAt: preparedAt) {
+            if let remotePackage = await fetchRemoteCoursePackage(globalId: globalId, roundId: requestedRoundId, teeBox: teeBox, nine: nine, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Course package prepared")
                 return
@@ -481,13 +481,13 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    private func fetchRemoteCoursePackage(globalId courseGlobalId: Int, roundId: String, teeBox: String, capturedAt: Date = Date()) async -> LiveRoundPackage? {
+    private func fetchRemoteCoursePackage(globalId courseGlobalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date()) async -> LiveRoundPackage? {
         guard let syncClient else {
             syncStatus = "No sync server configured"
             return nil
         }
         do {
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, capturedAt: capturedAt, ensureGeometry: true)
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: true)
         } catch {
             syncStatus = "Course package sync unavailable; using cache"
             return nil

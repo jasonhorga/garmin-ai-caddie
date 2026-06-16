@@ -16,7 +16,7 @@ public struct RoundHomeView: View {
     public let isPreparingRound: Bool
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
-    public let onPrepareCourseRound: (Int, String, String) -> Void
+    public let onPrepareCourseRound: (Int, String, String, String) -> Void
     public let onSync: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
@@ -36,7 +36,7 @@ public struct RoundHomeView: View {
         isPreparingRound: Bool = false,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
-        onPrepareCourseRound: @escaping (Int, String, String) -> Void = { _, _, _ in },
+        onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onSync: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {}
