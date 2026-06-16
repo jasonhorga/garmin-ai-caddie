@@ -103,16 +103,21 @@ public final class CaddieDecisionClient {
         request.httpBody = try encoder.encode(decisionRequest)
 
         let (data, response) = try await session.data(for: request)
-        try validate(response: response)
+        try validate(response: response, data: data)
         return try decoder.decode(CaddieDecisionResponse.self, from: data)
     }
 
-    private func validate(response: URLResponse) throws {
+    // Reuses SyncClientError so callers see the HTTP status + server body instead
+    // of a generic URLError (a failed caddie call on the course was undiagnosable).
+    private func validate(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
+            AICaddieLog.caddie.error("Caddie decision response was not an HTTP response")
+            throw SyncClientError.notHTTPResponse
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+            let body = String(data: data, encoding: .utf8)
+            AICaddieLog.caddie.error("Caddie decision HTTP \(http.statusCode, privacy: .public): \(body ?? "<no body>", privacy: .public)")
+            throw SyncClientError.http(status: http.statusCode, body: body)
         }
     }
 }
