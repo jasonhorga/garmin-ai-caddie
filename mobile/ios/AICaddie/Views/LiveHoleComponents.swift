@@ -142,6 +142,9 @@ struct ClubStripView: View {
                 }
             }
         }
+        // A definite height keeps the horizontal scroller from collapsing (it
+        // rendered empty in the CI ImageRenderer snapshot without it).
+        .frame(height: 46)
     }
 }
 
