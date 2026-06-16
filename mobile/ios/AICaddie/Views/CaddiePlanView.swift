@@ -1,6 +1,40 @@
 import Foundation
 import SwiftUI
 
+/// 把球童证据里的封闭英文枚举映射成中文显示文案;未知值原样回退。
+func zhCaddieConfidence(_ value: String?) -> String? {
+    guard let value else {
+        return nil
+    }
+    switch value.lowercased() {
+    case "high":
+        return "高把握"
+    case "medium":
+        return "中把握"
+    case "low":
+        return "低把握"
+    default:
+        return value
+    }
+}
+
+func zhCaddieShotRole(_ role: String) -> String {
+    switch role.lowercased() {
+    case "tee":
+        return "开球"
+    case "approach":
+        return "攻果岭"
+    case "recovery":
+        return "解围"
+    case "layup":
+        return "铺垫"
+    case "putt":
+        return "推杆"
+    default:
+        return role.uppercased()
+    }
+}
+
 public struct CaddiePlanOption: Identifiable, Equatable {
     public let id: String
     public let label: String
@@ -21,18 +55,18 @@ public struct CaddiePlanOption: Identifiable, Equatable {
     public var qualityText: String {
         var parts: [String] = []
         if let sampleSize {
-            parts.append("\(sampleSize) samples")
+            parts.append("\(sampleSize) 样本")
         }
         if let confidence {
-            parts.append("\(confidence) confidence")
+            parts.append(zhCaddieConfidence(confidence) ?? confidence)
         }
         if let p10M, let p90M {
-            parts.append("p10/p90 \(Int(p10M))/\(Int(p90M))m")
+            parts.append("落点 \(Int(p10M))–\(Int(p90M))m")
         }
         if let coverageText {
-            parts.append("coverage \(coverageText)")
+            parts.append("覆盖 \(coverageText)")
         }
-        return parts.isEmpty ? "offline evidence unavailable" : parts.joined(separator: " / ")
+        return parts.isEmpty ? "暂无离线证据" : parts.joined(separator: " · ")
     }
 
     public var scoreImpactText: String? {
@@ -41,35 +75,35 @@ public struct CaddiePlanOption: Identifiable, Equatable {
         }
         var parts: [String] = []
         if let expectedStrokes {
-            parts.append(String(format: "exp %.2f", expectedStrokes))
+            parts.append(String(format: "期望 %.2f 杆", expectedStrokes))
         }
         if let expectedStrokesDelta {
-            parts.append(String(format: "%+.2f strokes", expectedStrokesDelta))
+            parts.append(String(format: "%+.2f 杆", expectedStrokesDelta))
         }
         if let scoreImpactModel {
             parts.append(scoreImpactModel)
         }
-        return parts.joined(separator: " / ")
+        return parts.joined(separator: " · ")
     }
 
     public var sourceRefsText: String? {
         guard !sourceRefs.isEmpty else {
             return nil
         }
-        return "src " + sourceRefs.prefix(2).joined(separator: ", ")
+        return "来源 " + sourceRefs.prefix(2).joined(separator: ", ")
     }
 
     public var missingDataText: String? {
         guard !missingDataLabels.isEmpty else {
             return nil
         }
-        return "missing " + missingDataLabels.prefix(2).joined(separator: ", ")
+        return "缺 " + missingDataLabels.prefix(2).joined(separator: ", ")
     }
 
     public static let defaultOptions = [
         CaddiePlanOption(
             id: "offline-unavailable",
-            label: "No cached plan",
+            label: "暂无缓存方案",
             carryM: 0,
             riskScore: 0,
             clubName: "-",
@@ -248,12 +282,12 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
             parts.append("\(Int(targetCarryM))m")
         }
         if let expectedRemainingM {
-            parts.append("leave \(Int(expectedRemainingM))m")
+            parts.append("留 \(Int(expectedRemainingM))m")
         }
         if let sampleSize {
-            parts.append("\(sampleSize) samples")
+            parts.append("\(sampleSize) 样本")
         }
-        return parts.joined(separator: " / ")
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -271,28 +305,28 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
     public var metaText: String {
         var parts: [String] = []
         if let expectedStrokes {
-            parts.append("\(expectedStrokes) shots")
+            parts.append("\(expectedStrokes) 杆")
         }
         if let expectedRemainingM {
-            parts.append("leave \(Int(expectedRemainingM))m")
+            parts.append("留 \(Int(expectedRemainingM))m")
         }
         if let riskScore {
-            parts.append("risk \(Int(riskScore))")
+            parts.append("风险 \(Int(riskScore))")
         }
         if let confidence {
-            parts.append("\(confidence) confidence")
+            parts.append(zhCaddieConfidence(confidence) ?? confidence)
         }
         if let coverageText {
-            parts.append("coverage \(coverageText)")
+            parts.append("覆盖 \(coverageText)")
         }
-        return parts.isEmpty ? "sequence evidence unavailable" : parts.joined(separator: " / ")
+        return parts.isEmpty ? "暂无序列证据" : parts.joined(separator: " · ")
     }
 
     public var sourceRefsText: String? {
         guard !sourceRefs.isEmpty else {
             return nil
         }
-        return "src " + sourceRefs.prefix(2).joined(separator: ", ")
+        return "来源 " + sourceRefs.prefix(2).joined(separator: ", ")
     }
 
     public static func sequences(from response: CaddieDecisionResponse) -> [CaddiePlanSequence] {
@@ -417,7 +451,7 @@ public struct CaddiePlanView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Caddie")
+            Text("球童建议")
                 .font(.headline)
             ForEach(options) { option in
                 HStack(spacing: 12) {
@@ -451,7 +485,7 @@ public struct CaddiePlanView: View {
                         }
                     }
                     Spacer()
-                    Text("Risk \(Int(option.riskScore))")
+                    Text("风险 \(Int(option.riskScore))")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
                 }
@@ -460,7 +494,7 @@ public struct CaddiePlanView: View {
             if !sequences.isEmpty {
                 Divider()
                     .padding(.vertical, 2)
-                Text("Hole plan")
+                Text("逐洞计划")
                     .font(.subheadline.weight(.semibold))
                 ForEach(sequences) { sequence in
                     let isSelected = sequence.id == selectedSequenceId
@@ -479,7 +513,7 @@ public struct CaddiePlanView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 ForEach(sequence.steps) { step in
                                     HStack(spacing: 6) {
-                                        Text(step.role.uppercased())
+                                        Text(zhCaddieShotRole(step.role))
                                             .font(.caption2.weight(.semibold))
                                             .foregroundStyle(AICaddieDesignTokens.confidenceColor(step.confidence ?? sequence.confidence ?? "low"))
                                             .frame(width: 56, alignment: .leading)
