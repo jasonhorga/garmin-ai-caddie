@@ -730,6 +730,7 @@ def mobile_course_package(
     captured_at: str | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
+    nine: str = Query(default="all", pattern="^(all|front|back)$"),
 ) -> LiveRoundPackageResponse:
     return build_mobile_course_package_response(
         global_id,
@@ -738,6 +739,7 @@ def mobile_course_package(
         captured_at=captured_at,
         client_id=client_id,
         ensure_geometry=ensure_geometry,
+        nine=nine,
     )
 
 

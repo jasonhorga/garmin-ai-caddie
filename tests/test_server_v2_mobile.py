@@ -410,6 +410,66 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["caddieContextSeeds"][0]["sourceRef"], "live-new-course:1")
         self.assertEqual(payload["caddieContextSeeds"][0]["context"]["globalId"], 55555)
 
+    def test_mobile_course_package_can_start_a_chosen_nine(self) -> None:
+        # 选9洞: a player may tee off on just the front or back nine and add the
+        # rest later. The package must restrict both the hole list and the caddie
+        # context seeds to the chosen nine, and echo which nine it returned.
+        client = TestClient(app)
+        data = HistoryData(raw_rounds=[], rounds=[], shots=[])
+
+        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": global_id,
+                "localHole": local_hole,
+                "coverage": "ready",
+                "hasHazards": True,
+                "hasMeshes": True,
+                "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}],
+                "missingData": [],
+            }
+
+        from ai_caddie import course_reference
+
+        def fetch(nine: str | None) -> dict[str, object]:
+            params = {"round_id": "live-nine", "tee_box": "blue"}
+            if nine is not None:
+                params["nine"] = nine
+            with (
+                patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
+                patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+                patch.object(
+                    course_reference,
+                    "courseview_par",
+                    return_value=[4, 5, 3, 4, 3, 4, 4, 5, 4, 4, 5, 3, 4, 3, 4, 4, 5, 4],
+                ),
+            ):
+                response = client.get("/api/v2/mobile/courses/55555/package", params=params)
+            self.assertEqual(response.status_code, 200)
+            return response.json()
+
+        full = fetch(None)
+        self.assertEqual(full["nine"], "all")
+        self.assertEqual([hole["number"] for hole in full["holes"]], list(range(1, 19)))
+
+        front = fetch("front")
+        self.assertEqual(front["nine"], "front")
+        self.assertEqual([hole["number"] for hole in front["holes"]], list(range(1, 10)))
+        self.assertTrue(front["caddieContextSeeds"])
+        self.assertTrue(all(seed["hole"] <= 9 for seed in front["caddieContextSeeds"]))
+
+        back = fetch("back")
+        self.assertEqual(back["nine"], "back")
+        self.assertEqual([hole["number"] for hole in back["holes"]], list(range(10, 19)))
+        self.assertTrue(back["caddieContextSeeds"])
+        self.assertTrue(all(seed["hole"] >= 10 for seed in back["caddieContextSeeds"]))
+
+        invalid = client.get(
+            "/api/v2/mobile/courses/55555/package",
+            params={"round_id": "live-nine", "nine": "middle"},
+        )
+        self.assertEqual(invalid.status_code, 422)
+
     def test_mobile_course_package_includes_compact_course_prep(self) -> None:
         client = TestClient(app)
         prep_rows = [{

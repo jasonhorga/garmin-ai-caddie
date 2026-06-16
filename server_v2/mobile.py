@@ -68,6 +68,7 @@ def build_mobile_course_package_response(
     captured_at: str | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
+    nine: str = "all",
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode()
     return LiveRoundPackageResponse(
@@ -83,6 +84,7 @@ def build_mobile_course_package_response(
             weather_transport=OPEN_METEO_TRANSPORT,
             client_id=client_id,
             ensure_geometry=ensure_geometry,
+            nine=nine,
         )
     )
 

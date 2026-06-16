@@ -1676,6 +1676,7 @@ def build_live_round_package_for_course(
     weather_transport: WeatherTransport | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
+    nine: str = "all",
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     selected_round_id = None
@@ -1724,7 +1725,47 @@ def build_live_round_package_for_course(
             "availableRoundCount": len(source.rounds),
             "courseFound": True,
         }
-    return package
+    return _filter_package_to_nine(package, nine)
+
+
+def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any]:
+    """Restrict a course package to a starting nine.
+
+    ``front`` keeps holes 1–9, ``back`` keeps holes 10–18; ``all`` (the default,
+    and any unrecognised value) returns the package unchanged. Filters both the
+    ``holes`` list and the ``caddieContextSeeds`` so the live screen and the
+    pre-round caddie seeds agree on which holes are in play. Standard 18-hole
+    courses only — dual-nine / composite layouts are a follow-up.
+    """
+    key = str(nine or "all").strip().lower()
+    if key not in {"front", "back"}:
+        key = "all"
+    filtered = dict(package)
+    filtered["nine"] = key
+    if key == "all":
+        return filtered
+    low, high = (1, 9) if key == "front" else (10, 18)
+
+    def in_range(value: Any) -> bool:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return True
+        return low <= number <= high
+
+    holes = package.get("holes")
+    if isinstance(holes, list):
+        filtered["holes"] = [
+            hole for hole in holes
+            if not isinstance(hole, dict) or in_range(hole.get("number"))
+        ]
+    seeds = package.get("caddieContextSeeds")
+    if isinstance(seeds, list):
+        filtered["caddieContextSeeds"] = [
+            seed for seed in seeds
+            if not isinstance(seed, dict) or in_range(seed.get("hole"))
+        ]
+    return filtered
 
 
 def mobile_event_log(root: Path | str | None = None) -> Path:
