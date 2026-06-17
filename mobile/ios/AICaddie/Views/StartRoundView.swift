@@ -1,9 +1,8 @@
 import SwiftUI
 
-/// 开始一场 — 选起始 9 洞 + 发球台,然后开始记分。
-/// 「起始 9 洞」分段对接后端 course package 的 `nine=front|back` 过滤:先打 9 洞,
-/// 开始后可在球局里随时加打另外 9 洞凑成 18(手滑加错也能撤)。手动 ID / 仅刷新离线包
-/// 收进「手动设置」段,保留给调试与离线场景。
+/// 开始一场 — 选起始 9 洞 + 球场,直接开始记分。
+/// 默认自动选中第一个真实球场(发球台随之带出),所以「开始记分」开箱即用。
+/// 手动 ID / 仅刷新离线包 / 后端连接等工程项收进折叠的「高级设置」,默认不打扰。
 public struct StartRoundView: View {
     public let defaultRoundId: String
     public let courseOptions: [MobileCourseOption]
@@ -45,9 +44,18 @@ public struct StartRoundView: View {
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
-        self._roundId = State(initialValue: defaultRoundId)
-        self._courseGlobalIdText = State(initialValue: defaultCourseGlobalId.map(String.init) ?? "")
-        self._teeBox = State(initialValue: defaultTeeBox)
+        // Pre-select a real course (the given default, else the most-played) so the
+        // primary action works out of the box instead of stranding on "manual entry".
+        let mostPlayed = courseOptions.max { $0.roundCount < $1.roundCount }
+        let resolvedCourseId = defaultCourseGlobalId.map(String.init)
+            ?? mostPlayed.map { String($0.globalId) }
+            ?? ""
+        let selected = courseOptions.first { String($0.globalId) == resolvedCourseId }
+        self._courseGlobalIdText = State(initialValue: resolvedCourseId)
+        self._roundId = State(initialValue: selected?.suggestedLiveRoundId ?? defaultRoundId)
+        let resolvedTee = selected?.teeBox.flatMap { $0 == "unknown" ? nil : $0 }
+            ?? (defaultTeeBox == "unknown" ? "" : defaultTeeBox)
+        self._teeBox = State(initialValue: resolvedTee)
         self._nine = State(initialValue: "front")
     }
 
@@ -67,8 +75,6 @@ public struct StartRoundView: View {
                 nineCard
                 courseCard
                 startCard
-                manualCard
-                connectionCard
             }
             .padding(14)
         }
@@ -92,13 +98,12 @@ public struct StartRoundView: View {
     }
 
     @ViewBuilder private var courseCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("选球场").font(.caption).foregroundStyle(.secondary)
-            if !courseOptions.isEmpty {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("球场").font(.caption).foregroundStyle(.secondary)
+            if !displayedCourses.isEmpty {
                 Picker("最近球场", selection: $courseGlobalIdText) {
-                    Text("手动输入").tag("")
-                    ForEach(courseOptions) { option in
-                        Text("\(option.name) · \(option.holes) 洞").tag(String(option.globalId))
+                    ForEach(displayedCourses) { option in
+                        Text(baseCourseName(option.name)).tag(String(option.globalId))
                     }
                 }
                 .pickerStyle(.menu)
@@ -107,10 +112,13 @@ public struct StartRoundView: View {
                     applySelectedCourse(globalIdText: nextValue)
                 }
             }
-            TextField("发球台 Tee", text: $teeBox)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 8) {
+                Text("发球台").font(.subheadline).foregroundStyle(.secondary)
+                TextField("默认", text: $teeBox)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+            }
         }
         .liveCard()
     }
@@ -132,57 +140,28 @@ public struct StartRoundView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canStart)
-            Text(syncStatus)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if isPreparing {
+                ProgressView("准备中…").font(.caption)
+            }
         }
     }
 
-    private var manualCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("手动设置").font(.caption).foregroundStyle(.secondary)
-            TextField("球局 ID", text: $roundId)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-            TextField("球场 ID", text: $courseGlobalIdText)
-                .keyboardType(.numberPad)
-                .textFieldStyle(.roundedBorder)
-            Button {
-                onPrepareRound(roundId)
-            } label: {
-                Label("仅刷新离线包", systemImage: "arrow.down.circle")
+    /// One row per overall course (drop the " ~ A/B/C" nine suffix), most-played first.
+    /// The specific nine is resolved later from the round / Garmin data, not chosen here.
+    private var displayedCourses: [MobileCourseOption] {
+        var bestByName: [String: MobileCourseOption] = [:]
+        for option in courseOptions {
+            let key = baseCourseName(option.name)
+            if let existing = bestByName[key], existing.roundCount >= option.roundCount {
+                continue
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(LiveHoleStyle.green)
-            .disabled(isPreparing || roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            bestByName[key] = option
         }
-        .liveCard()
+        return bestByName.values.sorted { $0.roundCount > $1.roundCount }
     }
 
-    private var connectionCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("连接").font(.caption).foregroundStyle(.secondary)
-            NavigationLink {
-                BackendSettingsView(
-                    apiBaseURL: apiBaseURL,
-                    adminTokenConfigured: adminTokenConfigured,
-                    syncStatus: syncStatus,
-                    onSave: onSaveBackendConfiguration,
-                    onClear: onClearBackendConfiguration
-                )
-            } label: {
-                HStack {
-                    Label(apiBaseURL?.host ?? "后端", systemImage: "server.rack")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                }
-                .foregroundStyle(.primary)
-            }
-            .buttonStyle(.plain)
-        }
-        .liveCard()
+    private func baseCourseName(_ name: String) -> String {
+        name.components(separatedBy: " ~ ").first?.trimmingCharacters(in: .whitespaces) ?? name
     }
 
     private func applySelectedCourse(globalIdText: String) {

@@ -1237,16 +1237,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",start_view)
         self.assertIn('Picker("最近球场"', start_view)
         self.assertIn("applySelectedCourse(globalIdText:", start_view)
-        self.assertIn('TextField("球场 ID"', start_view)
-        self.assertIn('TextField("发球台 Tee"', start_view)
-        self.assertIn('TextField("球局 ID"', start_view)
-        self.assertIn('Label("仅刷新离线包"', start_view)
+        self.assertIn('Text("发球台")', start_view)
         self.assertIn('Label("开始记分"', start_view)
         self.assertIn('Picker("起始 9 洞"', start_view)
         self.assertIn('.pickerStyle(.segmented)', start_view)
-        self.assertIn("onPrepareRound(roundId)", start_view)
         self.assertIn("onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)", start_view)
         self.assertIn("isPreparing", start_view)
+        # 消费化:球场列表显示整体名(去 " ~ A/B/C")、按最常打排序;工程项(手动 ID /
+        # 仅刷新离线包 / 后端地址)不再出现在 StartRoundView。
+        self.assertIn("displayedCourses", start_view)
+        self.assertIn("baseCourseName", start_view)
+        self.assertNotIn("BackendSettingsView", start_view)
+        self.assertNotIn('Label("仅刷新离线包"', start_view)
 
         self.assertIn("public let onPrepareRound: (String) -> Void", round_home)
         self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",round_home)
@@ -1558,11 +1560,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Label("Clear saved backend"', backend_view)
         self.assertNotIn("Text(adminToken", backend_view)
 
+        # 后端 URL/token 已烤入构建 → 主界面不再暴露后端入口(BackendSettingsView 仍存在,
+        # 但不从 Hub/开始一场链接);回调 prop 仍声明(由 app 注入)。
         for source in [round_home, start_view]:
-            self.assertIn("BackendSettingsView(", source)
             self.assertIn("onSaveBackendConfiguration", source)
             self.assertIn("onClearBackendConfiguration", source)
-            self.assertIn('systemImage: "server.rack"', source)
+            self.assertNotIn("BackendSettingsView(", source)
+            self.assertNotIn('systemImage: "server.rack"', source)
 
         self.assertIn("runtime Backend screen", readme)
         self.assertIn("admin token is saved in Keychain", readme)
@@ -2108,12 +2112,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundHomeView: View", round_home)
         self.assertIn("public let onEvent", round_home)
         self.assertIn("syncStatus", round_home)
-        self.assertIn("PackageReadinessSection(package: package)", round_home)
-        self.assertIn("离线就绪", round_home)
-        self.assertIn("package.offlinePackageStatus.state", round_home)
-        self.assertIn("package.readinessChecks", round_home)
-        self.assertIn("readinessColor(check.state)", round_home)
-        self.assertIn("package.missingData.isEmpty", round_home)
+        # 离线就绪诊断不再对用户暴露(工程信息);用户不关心离线。
+        self.assertNotIn("PackageReadinessSection", round_home)
         self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
         self.assertIn("RecentRoundReviewView(package: package)", round_home)
         self.assertIn('title: "历史复盘"', round_home)

@@ -2,9 +2,9 @@ import Foundation
 import SwiftUI
 
 /// 球局主页(Hub)— 已批准设计稿的「三件事」卡片版:打球(开始/继续 + 中途加/减九洞)、
-/// 备战 · 复盘磁贴、上一场速览。灰底圆角白卡(ScrollView),保留全部导航接线(实战逐洞、
-/// 赛前攻略、历史复盘、离线就绪、同步/Garmin/后端)。表现型卡片组件(Hub*)纯输入,
-/// 供 CI 设计快照复用。
+/// 备战 · 复盘磁贴、上一场速览。灰底圆角白卡(ScrollView),保留导航接线(实战逐洞、
+/// 赛前攻略、历史复盘、同步、Garmin 账号)。工程项(离线诊断、后端地址)不对用户暴露。
+/// 表现型卡片组件(Hub*)纯输入,供 CI 设计快照复用。
 public struct RoundHomeView: View {
     public let package: LiveRoundPackage
     public let pendingEventCount: Int
@@ -79,7 +79,6 @@ public struct RoundHomeView: View {
                     tilesRow
                     lastRoundCard
                     holesCard
-                    PackageReadinessSection(package: package)
                     settingsCard
                 }
                 .padding(14)
@@ -265,25 +264,11 @@ public struct RoundHomeView: View {
                 settingsRow(Label("Garmin 账号", systemImage: "key"))
             }
             .buttonStyle(.plain)
-            NavigationLink {
-                BackendSettingsView(
-                    apiBaseURL: apiBaseURL,
-                    adminTokenConfigured: adminTokenConfigured,
-                    syncStatus: syncStatus,
-                    onSave: onSaveBackendConfiguration,
-                    onClear: onClearBackendConfiguration
-                )
-            } label: {
-                settingsRow(Label("后端", systemImage: "server.rack"))
+            if pendingEventCount > 0 {
+                Label("\(pendingEventCount) 条待同步", systemImage: "tray.full")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
-            HStack {
-                Label("\(package.clubProfiles.count)", systemImage: "golfclub")
-                Spacer()
-                Label("\(pendingEventCount)", systemImage: "tray.full")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
         .liveCard()
     }
@@ -394,85 +379,5 @@ struct HubLastRoundCard: View {
             return "E"
         }
         return toPar > 0 ? "+\(toPar)" : "\(toPar)"
-    }
-}
-
-// MARK: - 离线就绪卡
-
-private struct PackageReadinessSection: View {
-    let package: LiveRoundPackage
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("离线就绪").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Label(package.offlinePackageStatus.state.capitalized, systemImage: packageStatusIcon(package.offlinePackageStatus.state))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(readinessColor(package.offlinePackageStatus.state))
-            }
-            Text("到期 \(package.offlinePackageStatus.expiresAt)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            ForEach(package.readinessChecks) { check in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(readinessLabel(check.label))
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Text(check.state.capitalized)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(readinessColor(check.state))
-                    }
-                    HStack(spacing: 10) {
-                        ProgressView(value: Double(check.ready), total: Double(max(check.total, 1)))
-                            .tint(readinessColor(check.state))
-                        Text("\(check.ready)/\(check.total)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(check.reason)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 2)
-            }
-
-            if !package.missingData.isEmpty {
-                Label("\(package.missingData.count) 项缺数据", systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(AICaddieDesignTokens.bogey)
-            }
-        }
-        .liveCard()
-    }
-
-    private func readinessLabel(_ label: String) -> String {
-        label.replacingOccurrences(of: "_", with: " ").capitalized
-    }
-
-    private func readinessColor(_ state: String) -> Color {
-        switch state.lowercased() {
-        case "ready":
-            return AICaddieDesignTokens.par
-        case "degraded", "partial", "stale":
-            return AICaddieDesignTokens.bogey
-        case "missing", "expired":
-            return AICaddieDesignTokens.doubleBogey
-        default:
-            return AICaddieDesignTokens.neutral
-        }
-    }
-
-    private func packageStatusIcon(_ state: String) -> String {
-        switch state.lowercased() {
-        case "ready":
-            return "checkmark.seal"
-        case "expired":
-            return "clock.badge.exclamationmark"
-        default:
-            return "exclamationmark.triangle"
-        }
     }
 }
