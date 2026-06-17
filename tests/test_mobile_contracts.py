@@ -1252,6 +1252,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("venueGroups", start_view)
         self.assertIn("func segmentRow(", start_view)
         self.assertIn("segment.segmentLabel", start_view)
+        # 球场用下拉菜单选(#2a),GPS 可用时按距离排序、否则最常打在前(#4a)。
+        self.assertIn('Picker("球场", selection: $selectedVenue)', start_view)
+        self.assertIn("displayVenues", start_view)
+        self.assertIn("locationProvider.latestFix", start_view)
+        self.assertIn("haversineMetres(", start_view)
+        self.assertIn("public let latitude: Double?", _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift"))
         self.assertIn("applySelectedCourse(globalIdText:", start_view)
         self.assertIn('Text("发球台")', start_view)
         self.assertIn('Label("开始记分"', start_view)
