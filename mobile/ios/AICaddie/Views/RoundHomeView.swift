@@ -17,10 +17,12 @@ public struct RoundHomeView: View {
     public let watchBridge: WatchEventBridge?
     public let liveRoundState: LiveRoundStateSnapshot?
     public let courseOptions: [MobileCourseOption]
+    public let startingNine: String?
     public let isPreparingRound: Bool
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
+    public let onChangeNine: (String) -> Void
     public let onSync: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
@@ -37,10 +39,12 @@ public struct RoundHomeView: View {
         watchBridge: WatchEventBridge? = nil,
         liveRoundState: LiveRoundStateSnapshot? = nil,
         courseOptions: [MobileCourseOption] = [],
+        startingNine: String? = nil,
         isPreparingRound: Bool = false,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
+        onChangeNine: @escaping (String) -> Void = { _ in },
         onSync: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {}
@@ -56,10 +60,12 @@ public struct RoundHomeView: View {
         self.watchBridge = watchBridge
         self.liveRoundState = liveRoundState
         self.courseOptions = courseOptions
+        self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
+        self.onChangeNine = onChangeNine
         self.onSync = onSync
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
@@ -110,6 +116,7 @@ public struct RoundHomeView: View {
                     .padding(.vertical, 4)
                 }
             }
+            nineControl
             NavigationLink {
                 StartRoundView(
                     defaultRoundId: package.roundId,
@@ -130,6 +137,39 @@ public struct RoundHomeView: View {
             }
         } header: {
             Text("打球")
+        }
+    }
+
+    /// 起始九洞的加打 / 撤销:nine 是对一局 18 洞的视图过滤,已记杆按 roundId 保留。
+    @ViewBuilder private var nineControl: some View {
+        if package.course.globalId != 0 {
+            let currentNine = package.nine ?? "all"
+            if currentNine != "all" {
+                Button {
+                    onChangeNine("all")
+                } label: {
+                    Label("＋加打另外 9 洞(凑 18)", systemImage: "plus.circle")
+                }
+                .disabled(isPreparingRound)
+            } else if let startingNine, startingNine != "all" {
+                Button {
+                    onChangeNine(startingNine)
+                } label: {
+                    Label("移除另外 9 洞 · 只打\(nineText(startingNine))", systemImage: "minus.circle")
+                }
+                .disabled(isPreparingRound)
+            }
+        }
+    }
+
+    private func nineText(_ nine: String) -> String {
+        switch nine {
+        case "front":
+            return "前九"
+        case "back":
+            return "后九"
+        default:
+            return "全 18 洞"
         }
     }
 

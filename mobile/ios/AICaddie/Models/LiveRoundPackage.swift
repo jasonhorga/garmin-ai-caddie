@@ -22,6 +22,8 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let playerProfile: PlayerProfile
     public let course: Course
     public let holes: [Hole]
+    /// 当前视图的起始九洞:"front" / "back" / "all"(缺省视为 all)。后端按此过滤 holes/seeds。
+    public let nine: String?
     public let coursePrep: CoursePrepPackage?
     public let geometryCoverage: GeometryCoverage
     public let readinessChecks: [PackageReadinessCheck]
@@ -44,6 +46,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         playerProfile: PlayerProfile,
         course: Course,
         holes: [Hole],
+        nine: String? = nil,
         coursePrep: CoursePrepPackage? = nil,
         geometryCoverage: GeometryCoverage,
         readinessChecks: [PackageReadinessCheck],
@@ -65,6 +68,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.playerProfile = playerProfile
         self.course = course
         self.holes = holes
+        self.nine = nine
         self.coursePrep = coursePrep
         self.geometryCoverage = geometryCoverage
         self.readinessChecks = readinessChecks
