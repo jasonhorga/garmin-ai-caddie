@@ -227,9 +227,10 @@ public struct RoundHomeView: View {
         }
     }
 
-    // MARK: - 本场球洞(逐洞进入实战)
+    // MARK: - 本场球洞(逐洞进入实战)— 仅进行中球局显示;无活局的主页不显示「本场」。
 
     @ViewBuilder private var holesCard: some View {
+        if liveRoundState != nil {
         VStack(alignment: .leading, spacing: 10) {
             Text("本场球洞").font(.caption).foregroundStyle(.secondary)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
@@ -253,6 +254,7 @@ public struct RoundHomeView: View {
             }
         }
         .liveCard()
+        }
     }
 
     // MARK: - 设置(同步 / 连接)
