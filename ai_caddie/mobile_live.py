@@ -14,6 +14,7 @@ from ai_caddie.fixtures import fixture_history_data
 from ai_caddie.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history import HistoryData
 from ai_caddie.history_stats import _effective_score_data
+from ai_caddie.report_labels_zh import issue_label_zh
 from ai_caddie.stats_cache import cached_build_history_stats
 from ai_caddie.llm_providers import redact_secret_text
 from ai_caddie.weather_context import (
@@ -65,6 +66,19 @@ def _event_cursor(
         }
     )
     return cursor
+
+
+def _hole_issue_label_zh(issue: dict[str, Any]) -> str:
+    """Chinese display label for a repeated-issue row shown in the mobile 复盘 screen.
+
+    Real stats rows carry the snake_case issue token (``issue``) → map via
+    ``issue_label_zh``. Legacy/test rows that only carry a pre-built ``label``/``reason``
+    fall back to it (so a tokenless row still renders something sensible).
+    """
+    token = str(issue.get("issue") or "").strip()
+    if token:
+        return issue_label_zh(token)
+    return str(issue.get("label") or issue.get("reason") or "issue")
 
 
 def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[str, Any]) -> dict[str, Any]:
@@ -132,7 +146,7 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
                 "averageToPar": hole_stats.get("averageToPar"),
                 "repeatedIssues": [
                     {
-                        "label": str(issue.get("label") or issue.get("reason") or issue.get("issue") or "issue"),
+                        "label": _hole_issue_label_zh(issue),
                         "count": int(issue.get("count") or 0),
                     }
                     for issue in (hole_stats.get("repeatedIssues") or [])[:3]
