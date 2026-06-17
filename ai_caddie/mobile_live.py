@@ -661,7 +661,17 @@ def _package_holes(
         coverage = str(source_hole.get("geometryCoverage") or stats_hole.get("geometryCoverage") or "")
         if not coverage or coverage == "missing":
             coverage = _geometry_coverage_for_package_hole(round_row, number)
-        holes.append({"number": number, "par": par, "yards": yards, "geometryCoverage": coverage or "missing"})
+        # Per-hole source course id + local hole, so the live 2D map fetches the RIGHT course's
+        # geometry per hole — incl. composite rounds where holes 10–18 live in a second loop's gid.
+        source_gid, source_local = _round_hole_geometry_ref(round_row, number)
+        holes.append({
+            "number": number,
+            "par": par,
+            "yards": yards,
+            "geometryCoverage": coverage or "missing",
+            "sourceGlobalId": int(source_gid) if source_gid else None,
+            "sourceLocalHole": int(source_local) if source_local else number,
+        })
     return holes
 
 

@@ -140,19 +140,27 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses), named: "dark-broken", dark: true)
         try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses).preferredColorScheme(.light), named: "dark-fixed", dark: true)
 
-        // 2D hole map (top-down) — synthetic hole (rough/fairway/green/bunker + tee/pin + player).
-        let demoMap = HoleMap(layers: ["surface"], coverage: "ready", features: [
-            HoleMapFeature(layer: "surface", kind: "rough", rings: [[[0, 0], [0.0011, 0], [0.0011, 0.0032], [0, 0.0032], [0, 0]]]),
-            HoleMapFeature(layer: "surface", kind: "fairway", rings: [[[0.00035, 0.0003], [0.00075, 0.0003], [0.00068, 0.0027], [0.00040, 0.0027], [0.00035, 0.0003]]]),
-            HoleMapFeature(layer: "surface", kind: "bunker", rings: [[[0.00028, 0.00250], [0.00040, 0.00250], [0.00040, 0.00266], [0.00028, 0.00266], [0.00028, 0.00250]]]),
-            HoleMapFeature(layer: "surface", kind: "green", rings: [[[0.00044, 0.00268], [0.00066, 0.00268], [0.00066, 0.00292], [0.00044, 0.00292], [0.00044, 0.00268]]]),
-            HoleMapFeature(layer: "tee", kind: nil, point: [0.00055, 0.00012]),
-            HoleMapFeature(layer: "pin", kind: nil, point: [0.00055, 0.00280]),
-        ])
-        try captureScreen(
-            VStack { HoleMapView(map: demoMap, playerCoordinate: [0.00055, 0.00070]).frame(height: 420) }.padding(24),
-            named: "hole-map"
-        )
+        // 2D hole map = server-rendered hole image + recommended route/landing/club overlay.
+        // Synthesise a green hole image + overlay route so the overlay rendering is verifiable.
+        let mapW = 240, mapH = 360
+        let holeImage = UIGraphicsImageRenderer(size: CGSize(width: mapW, height: mapH)).image { ctx in
+            UIColor(red: 0.46, green: 0.66, blue: 0.40, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: mapW, height: mapH))
+            UIColor(red: 0.60, green: 0.78, blue: 0.45, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 92, y: 40, width: 56, height: 280))
+            UIColor(red: 0.50, green: 0.80, blue: 0.43, alpha: 1).setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x: 96, y: 28, width: 48, height: 42))
+        }
+        let b64 = "data:image/jpeg;base64," + (holeImage.jpegData(compressionQuality: 0.85)?.base64EncodedString() ?? "")
+        let prepJSON = """
+        {"hole":7,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
+        "route":[[120,330],[118,180],[120,55]],"steps":[{"club":"D","note":"开球"}],\
+        "cautions":[],"hazards":{"water_carry":[],"bunkers":[]},"landing_m":150,"tee_club":"D",\
+        "map":{"image":"\(b64)","overlay":{"w":\(mapW),"h":\(mapH),"ppm":1.0,"ln":375,\
+        "route":[[120,330,0],[118,180,150],[120,55,375]]}}}
+        """
+        let prepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepJSON.utf8))
+        try captureScreen(VStack { HoleImageMapView(hole: prepHole).frame(height: 460) }.padding(24), named: "hole-map")
     }
 
     @MainActor

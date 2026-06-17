@@ -153,6 +153,10 @@ public struct Hole: Codable, Equatable, Identifiable {
     public let par: Int
     public let yards: Int?
     public let geometryCoverage: GeometryCoverageState
+    /// Source course id + local hole for this hole's geometry (composite rounds: holes 10–18 live
+    /// in a second loop's gid). Optional → older payloads decode to nil and fall back to the course.
+    public let sourceGlobalId: Int?
+    public let sourceLocalHole: Int?
 }
 
 public struct GeometryCoverage: Codable, Equatable {
