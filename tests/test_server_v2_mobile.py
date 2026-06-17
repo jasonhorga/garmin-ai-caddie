@@ -12,11 +12,20 @@ from ai_caddie import stats_cache
 from ai_caddie.annotations import add_annotation
 from ai_caddie.decision import list_decision_audits, store_decision_audit
 from ai_caddie.history import HistoryData
+from ai_caddie.mobile_live import _hole_issue_label_zh
 from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_recent_history_hole_issue_label_is_chinese_from_token(self) -> None:
+        # 复盘 holes 的 repeatedIssues label 必须中文(iOS 直接展示该字符串)。
+        self.assertEqual(_hole_issue_label_zh({"issue": "approach_short", "count": 2}), "攻果岭偏短")
+        self.assertEqual(_hole_issue_label_zh({"issue": "three_putt"}), "三推")
+        # 无 token 的旧/测试行回退到既有 label;未知 token 原样透出(与 web issueLabels 一致)。
+        self.assertEqual(_hole_issue_label_zh({"label": "approach short"}), "approach short")
+        self.assertEqual(_hole_issue_label_zh({"issue": "weird_unknown_token"}), "weird_unknown_token")
+
     def test_mobile_course_options_list_recent_courses_for_start_round(self) -> None:
         client = TestClient(app)
 
