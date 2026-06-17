@@ -23,9 +23,12 @@ public struct RoundHomeView: View {
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
     public let onChangeNine: (String) -> Void
+    public let onDiscard: () -> Void
     public let onSync: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
+
+    @State private var showDiscardConfirm = false
 
     public init(
         package: LiveRoundPackage,
@@ -45,6 +48,7 @@ public struct RoundHomeView: View {
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onChangeNine: @escaping (String) -> Void = { _ in },
+        onDiscard: @escaping () -> Void = {},
         onSync: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {}
@@ -66,6 +70,7 @@ public struct RoundHomeView: View {
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onChangeNine = onChangeNine
+        self.onDiscard = onDiscard
         self.onSync = onSync
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
@@ -85,13 +90,6 @@ public struct RoundHomeView: View {
             }
             .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
             .navigationTitle("开球吧")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Text(syncStatus)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
     }
 
@@ -110,6 +108,17 @@ public struct RoundHomeView: View {
                 )
             }
             .buttonStyle(.plain)
+            Button(role: .destructive) {
+                showDiscardConfirm = true
+            } label: {
+                Text("结束本场").font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .confirmationDialog("结束本场?未保存的记录会被丢弃。", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
+                Button("结束本场", role: .destructive) { onDiscard() }
+                Button("取消", role: .cancel) {}
+            }
         }
         nineControl
         NavigationLink {
@@ -356,7 +365,7 @@ struct HubLastRoundCard: View {
             HStack {
                 Text("上一场").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Text(date).font(.caption).foregroundStyle(.secondary)
+                Text(aiCaddieShortDate(date)).font(.caption).foregroundStyle(.secondary)
             }
             HStack(alignment: .firstTextBaseline) {
                 Text(courseName).font(.subheadline.weight(.semibold))

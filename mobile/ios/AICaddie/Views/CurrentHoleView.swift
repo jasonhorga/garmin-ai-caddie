@@ -123,7 +123,7 @@ public struct CurrentHoleView: View {
                     // Club picker + record/save (records the current GPS fix).
                     VStack(alignment: .leading, spacing: 10) {
                         Text("选球杆").font(.caption).foregroundStyle(.secondary)
-                        ClubStripView(clubs: package.clubProfiles.map(\.clubName), selected: selectedClub) { selectedClub = $0 }
+                        ClubStripView(clubs: clubNames, selected: selectedClub) { selectedClub = $0 }
                         RecordShotButton(title: "📍 保存本洞 · 含定位", lastShotText: recordHintText) { submitEvents() }
                     }
                     .liveCard()
@@ -214,6 +214,21 @@ public struct CurrentHoleView: View {
             return []
         }
         return CaddiePlanHazard.from(prep.hazards)
+    }
+
+    /// Club picker options: the player's clubs, minus empty/"Unknown" placeholders and
+    /// case-insensitive duplicates (Garmin club names are user-entered and messy).
+    private var clubNames: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for name in package.clubProfiles.map(\.clubName) {
+            let trimmed = name.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, trimmed.lowercased() != "unknown" else { continue }
+            if seen.insert(trimmed.lowercased()).inserted {
+                result.append(trimmed)
+            }
+        }
+        return result
     }
 
     private var holeToParText: String {

@@ -41,6 +41,9 @@ public struct AICaddieApp: App {
                                 await model.setActiveNine(nine)
                             }
                         },
+                        onDiscard: {
+                            model.discardActiveRound()
+                        },
                         onSync: {
                             Task {
                                 await model.syncPendingEvents()
@@ -353,6 +356,20 @@ public final class LiveRoundAppModel: ObservableObject {
             teeBox: package.course.teeBox,
             nine: nine
         )
+    }
+
+    /// Cancel/discard the active round without recording it: forget it locally and return
+    /// to 开始一场 (package = nil). Nothing for this round syncs afterwards.
+    public func discardActiveRound() {
+        guard let roundId = package?.roundId else {
+            return
+        }
+        try? offlineStore.discardRound(roundId: roundId)
+        package = nil
+        liveRoundState = nil
+        startingNine = nil
+        pendingEventCount = 0
+        syncStatus = "已结束本场"
     }
 
     public func handleEvent(_ event: LiveRoundEvent) {
