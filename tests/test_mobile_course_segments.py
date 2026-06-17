@@ -10,7 +10,37 @@ from __future__ import annotations
 import unittest
 
 from ai_caddie.history import HistoryData
-from ai_caddie.mobile_live import build_mobile_course_options
+from ai_caddie.mobile_live import _merge_nines, build_mobile_course_options
+
+
+def _nine_package(label: str, ready: int) -> dict:
+    return {
+        "course": {"globalId": 1, "name": f"黑骑士 ~ {label}", "teeBox": "blue"},
+        "holes": [
+            {"number": n, "par": 4, "geometryCoverage": "ready" if n <= ready else "missing"}
+            for n in range(1, 10)
+        ],
+        "caddieContextSeeds": [{"hole": n, "shotTypes": ["tee"]} for n in range(1, 10)],
+        "coursePrep": {"schema": "x", "holes": [{"hole": n, "par": 4} for n in range(1, 10)]},
+        "geometryCoverage": {"state": "partial", "readyHoles": ready, "totalHoles": 9},
+        "weatherSnapshot": {"label": label},
+        "nine": "all",
+    }
+
+
+class CompositeNineMergeTests(unittest.TestCase):
+    def test_merge_two_nines_renumbers_back_to_10_18(self) -> None:
+        merged = _merge_nines(_nine_package("C", 9), _nine_package("A", 4))
+        self.assertEqual([h["number"] for h in merged["holes"]], list(range(1, 19)))
+        self.assertEqual([s["hole"] for s in merged["caddieContextSeeds"]], list(range(1, 19)))
+        self.assertEqual([p["hole"] for p in merged["coursePrep"]["holes"]], list(range(1, 19)))
+
+    def test_merge_combines_geometry_and_names_front_shared_sections(self) -> None:
+        merged = _merge_nines(_nine_package("C", 9), _nine_package("A", 4))
+        self.assertEqual(merged["geometryCoverage"], {"state": "partial", "readyHoles": 13, "totalHoles": 18})
+        self.assertEqual(merged["course"]["name"], "黑骑士 ~ C/A")
+        self.assertEqual(merged["weatherSnapshot"], {"label": "C"})  # shared section from the front loop
+        self.assertEqual(merged["nine"], "all")
 
 
 def _round(rid: str, gid: int, course: str) -> dict:

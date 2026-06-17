@@ -12,12 +12,15 @@ public struct StartRoundView: View {
     public let adminTokenConfigured: Bool
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
+    /// 组合 18 洞:(front 环 globalId, back 环 globalId, teeBox, roundId)。选了第二个环时调用。
+    public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var roundId: String
     @State private var courseGlobalIdText: String
+    @State private var backGlobalIdText: String = ""
     @State private var teeBox: String
     @State private var nine: String
 
@@ -32,6 +35,7 @@ public struct StartRoundView: View {
         adminTokenConfigured: Bool = false,
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
+        onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {}
     ) {
@@ -43,6 +47,7 @@ public struct StartRoundView: View {
         self.adminTokenConfigured = adminTokenConfigured
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
+        self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         // Pre-select a real course (the given default, else the most-played) so the
@@ -75,6 +80,7 @@ public struct StartRoundView: View {
         ScrollView {
             VStack(spacing: 12) {
                 courseCard
+                secondNineCard
                 startCard
             }
             .padding(14)
@@ -98,7 +104,7 @@ public struct StartRoundView: View {
                     }
                 }
             }
-            Text("先选一个 9 洞开始;「加打另一个 9 洞凑 18」稍后更新。")
+            Text("选一个 9 洞环开始;想打 18 洞就在下方加打另一个环。")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Divider().padding(.vertical, 2)
@@ -127,6 +133,7 @@ public struct StartRoundView: View {
         let selected = String(segment.globalId) == courseGlobalIdText
         Button {
             courseGlobalIdText = String(segment.globalId)
+            backGlobalIdText = ""  // changing the front loop resets any "add second nine" choice
             applySelectedCourse(globalIdText: courseGlobalIdText)
         } label: {
             HStack(spacing: 10) {
@@ -159,6 +166,59 @@ public struct StartRoundView: View {
 
     private func segmentHolesText(_ segment: MobileCourseOption) -> String {
         "\(segment.segmentHoles ?? segment.holes) 洞"
+    }
+
+    private var selectedSegment: MobileCourseOption? {
+        courseOptions.first { String($0.globalId) == courseGlobalIdText }
+    }
+
+    /// 选中的是 9 洞环、且同球场还有可作为第二环的 9 洞环时,才提供「加打凑 18」。
+    private var secondNineCandidates: [MobileCourseOption] {
+        guard let selectedSegment, (selectedSegment.segmentHoles ?? selectedSegment.holes) == 9 else {
+            return []
+        }
+        let venue = selectedSegment.venueName ?? baseCourseName(selectedSegment.name)
+        return courseOptions
+            .filter { ($0.venueName ?? baseCourseName($0.name)) == venue && ($0.segmentHoles ?? $0.holes) == 9 }
+            .sorted { segmentSortKey($0) < segmentSortKey($1) }
+    }
+
+    /// 加打另一个 9 洞凑 18(可选):列出同球场的各 9 洞环 + 「不加打」。
+    @ViewBuilder private var secondNineCard: some View {
+        if !secondNineCandidates.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("加打另一个 9 洞(可选,凑 18 洞)").font(.caption).foregroundStyle(.secondary)
+                secondNineRow(title: "不加打 · 只打 9 洞", globalId: nil)
+                ForEach(secondNineCandidates) { segment in
+                    secondNineRow(title: "＋ \(segmentTitle(segment)) · 后九", globalId: segment.globalId)
+                }
+            }
+            .liveCard()
+        }
+    }
+
+    @ViewBuilder private func secondNineRow(title: String, globalId: Int?) -> some View {
+        let value = globalId.map(String.init) ?? ""
+        let selected = backGlobalIdText == value
+        Button {
+            backGlobalIdText = value
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(selected ? LiveHoleStyle.green : .secondary)
+                Text(title)
+                    .font(.subheadline.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? LiveHoleStyle.green.opacity(0.10) : Color.clear)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? LiveHoleStyle.green : LiveHoleStyle.line))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
     }
 
     /// 发球台:内部保留 Garmin 原始 key(传给后端),仅显示中文。当前球场的发球台并入选项。
@@ -200,7 +260,11 @@ public struct StartRoundView: View {
         VStack(spacing: 8) {
             Button {
                 if let courseGlobalId {
-                    onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)
+                    if let backGlobalId = Int(backGlobalIdText), backGlobalId != 0 {
+                        onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)
+                    } else {
+                        onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)
+                    }
                     // Pop back to the Hub; it now shows this round's 进行中 card (继续这场).
                     // When 开始一场 is the root fallback (no package), dismiss is a safe no-op
                     // and the model's new package swaps the root to the Hub.

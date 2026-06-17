@@ -1779,6 +1779,7 @@ def build_live_round_package_for_course(
     client_id: str | None = None,
     ensure_geometry: bool = False,
     nine: str = "all",
+    back_global_id: int | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     selected_round_id = None
@@ -1832,7 +1833,86 @@ def build_live_round_package_for_course(
             "availableRoundCount": len(source.rounds),
             "courseFound": True,
         }
-    return _filter_package_to_nine(package, nine)
+    front_package = _filter_package_to_nine(package, nine)
+    if back_global_id is None:
+        return front_package
+    # Composite 18: this loop (holes 1–9) + a second loop (holes 10–18). Each loop is its own
+    # CourseView course with its own holes/par/geometry; merge them into one round.
+    back_package = build_live_round_package_for_course(
+        int(back_global_id),
+        round_id=round_id,
+        tee_box=tee_box,
+        data=data,
+        data_mode=data_mode,
+        root=root,
+        annotations_root=annotations_root,
+        captured_at=captured_at,
+        weather_transport=weather_transport,
+        client_id=client_id,
+        ensure_geometry=ensure_geometry,
+        nine="all",
+    )
+    return _merge_nines(front_package, back_package)
+
+
+def _merge_geometry_coverage(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
+    ready = int((front or {}).get("readyHoles") or 0) + int((back or {}).get("readyHoles") or 0)
+    total = int((front or {}).get("totalHoles") or 0) + int((back or {}).get("totalHoles") or 0)
+    state = "ready" if total and ready == total else "partial" if ready else "missing"
+    return {"state": state, "readyHoles": ready, "totalHoles": total}
+
+
+def _composite_course_name(front_name: str, back_name: str) -> str:
+    """'…黑骑士… ~ C' + '…黑骑士… ~ A' -> '…黑骑士… ~ C/A' (falls back to the front name)."""
+    base = _venue_base_name(front_name)
+    front_label = str(front_name).split(" ~ ")[-1].strip() if " ~ " in str(front_name) else ""
+    back_label = str(back_name).split(" ~ ")[-1].strip() if " ~ " in str(back_name) else ""
+    if base and front_label and back_label:
+        return f"{base} ~ {front_label}/{back_label}"
+    return front_name or base
+
+
+def _shift_hole_number(value: Any, offset: int) -> Any:
+    try:
+        return int(value) + offset
+    except (TypeError, ValueError):
+        return value
+
+
+def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
+    """Merge two 9-hole packages into one 18-hole composite: front loop = holes 1–9, back loop =
+    holes 10–18 (back hole numbers shifted +9). Shared sections (weather / clubs / recentHistory /
+    player) come from the front package; geometry coverage + course name are combined."""
+    offset = len(front.get("holes") or [])
+
+    def _shift(rows: Any, key: str) -> list[Any]:
+        out: list[Any] = []
+        for row in rows or []:
+            if isinstance(row, dict):
+                row = dict(row)
+                row[key] = _shift_hole_number(row.get(key), offset)
+            out.append(row)
+        return out
+
+    merged = dict(front)
+    merged["holes"] = list(front.get("holes") or []) + _shift(back.get("holes"), "number")
+    merged["caddieContextSeeds"] = (
+        list(front.get("caddieContextSeeds") or []) + _shift(back.get("caddieContextSeeds"), "hole")
+    )
+    front_prep = dict(front.get("coursePrep") or {})
+    front_prep["holes"] = list(front_prep.get("holes") or []) + _shift((back.get("coursePrep") or {}).get("holes"), "hole")
+    merged["coursePrep"] = front_prep
+    merged["geometryCoverage"] = _merge_geometry_coverage(
+        front.get("geometryCoverage") or {}, back.get("geometryCoverage") or {}
+    )
+    course = dict(front.get("course") or {})
+    course["name"] = _composite_course_name(
+        str((front.get("course") or {}).get("name") or ""),
+        str((back.get("course") or {}).get("name") or ""),
+    )
+    merged["course"] = course
+    merged["nine"] = "all"
+    return merged
 
 
 def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any]:

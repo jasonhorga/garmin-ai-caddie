@@ -37,6 +37,11 @@ public struct AICaddieApp: App {
                                 await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)
                             }
                         },
+                        onPrepareCompositeRound: { globalId, backGlobalId, teeBox, roundId in
+                            Task {
+                                await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
+                            }
+                        },
                         onChangeNine: { nine in
                             Task {
                                 await model.setActiveNine(nine)
@@ -78,6 +83,11 @@ public struct AICaddieApp: App {
                             onPrepareCourseRound: { globalId, roundId, teeBox, nine in
                                 Task {
                                     await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)
+                                }
+                            },
+                            onPrepareCompositeRound: { globalId, backGlobalId, teeBox, roundId in
+                                Task {
+                                    await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
                                 }
                             },
                             onSaveBackendConfiguration: { apiBaseURLText, adminTokenText in
@@ -343,6 +353,38 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
+    /// 组合 18 洞:本环(1–9)+ 第二个环(10–18)。两个环各是独立 CourseView 球场,后端合并成一局。
+    /// 组合局已是 18 洞,不设「移除九洞」撤销目标(startingNine 保持 nil)。
+    public func prepareCompositeRound(globalId: Int, backGlobalId: Int, roundId: String, teeBox: String) async {
+        let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requestedRoundId.isEmpty else {
+            syncStatus = "Round id is required"
+            return
+        }
+        if package?.roundId != requestedRoundId {
+            startingNine = nil
+        }
+        let preparedAt = Date()
+        isPreparingRound = true
+        defer {
+            isPreparingRound = false
+        }
+        do {
+            if let remotePackage = await fetchRemoteCompositePackage(globalId: globalId, backGlobalId: backGlobalId, roundId: requestedRoundId, teeBox: teeBox, capturedAt: preparedAt) {
+                try offlineStore.saveRoundPackage(remotePackage)
+                try activatePackage(remotePackage, status: "Course package prepared")
+                return
+            }
+            if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
+                try activatePackage(cachedPackage, status: "Cached package ready")
+            } else {
+                syncStatus = "Course package unavailable"
+            }
+        } catch {
+            syncStatus = "Course package prepare failed"
+        }
+    }
+
     /// 中途改当前局的起始九洞(加打另外 9 洞 → all,或撤销回起始九洞)。
     /// 同一 roundId 重取并重新激活,已记杆/事件按 roundId 保留(restoreLiveRoundState 重建)。
     public func setActiveNine(_ nine: String) async {
@@ -568,6 +610,19 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         do {
             return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: true)
+        } catch {
+            syncStatus = "Course package sync unavailable; using cache"
+            return nil
+        }
+    }
+
+    private func fetchRemoteCompositePackage(globalId courseGlobalId: Int, backGlobalId: Int, roundId: String, teeBox: String, capturedAt: Date = Date()) async -> LiveRoundPackage? {
+        guard let syncClient else {
+            syncStatus = "No sync server configured"
+            return nil
+        }
+        do {
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: "all", capturedAt: capturedAt, ensureGeometry: true, backGlobalId: backGlobalId)
         } catch {
             syncStatus = "Course package sync unavailable; using cache"
             return nil
