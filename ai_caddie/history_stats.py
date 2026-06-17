@@ -341,6 +341,14 @@ def _source_refs(refs: list[Any]) -> list[str]:
     return out
 
 
+# Aggregate provenance (sourceRefs) on a cite-only stat row is capped to keep the
+# /history/stats payload small (full counts live in `coverage`/`confidence`, which are
+# computed from the UNCAPPED refs). Mirrors issue_taxonomy.ISSUE_REFS_CAP. Rows whose
+# refs are later FILTERED by round (decision-audit + diagnosis issue trends → per-round
+# reports) must opt out with refs_cap=None so older rounds aren't truncated away.
+STATS_AGGREGATE_REFS_CAP = 100
+
+
 def _with_aggregate_contract(
     row: dict[str, Any],
     refs: list[Any],
@@ -348,11 +356,13 @@ def _with_aggregate_contract(
     ready: int | None = None,
     total: int | None = None,
     confidence_count: int | None = None,
+    refs_cap: int | None = STATS_AGGREGATE_REFS_CAP,
 ) -> dict[str, Any]:
     source_refs = _source_refs(refs)
     ready_count = len(source_refs) if ready is None else ready
     total_count = len(refs) if total is None else total
-    row["sourceRefs"] = source_refs
+    # coverage/confidence use the FULL (uncapped) counts — only the stored list shrinks.
+    row["sourceRefs"] = source_refs if refs_cap is None else source_refs[:refs_cap]
     row["coverage"] = _coverage(ready_count, total_count)
     row["confidence"] = _confidence(len(source_refs) if confidence_count is None else confidence_count)
     return row
@@ -1062,6 +1072,7 @@ def _diagnosis(data: HistoryData, issue_rows: list[dict[str, Any]]) -> dict[str,
                 ready=len(refs),
                 total=len(refs),
                 confidence_count=len(refs),
+                refs_cap=None,  # round-filtered by per-round reports → keep full
             )
         )
 
@@ -1225,6 +1236,7 @@ def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str,
                 ready=len(source_refs),
                 total=total,
                 confidence_count=count,
+                refs_cap=None,  # round-filtered by per-round reports → keep full
             )
         )
 
@@ -1264,6 +1276,7 @@ def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str,
                 ready=len(source_refs),
                 total=total,
                 confidence_count=count,
+                refs_cap=None,  # round-filtered by per-round reports → keep full
             )
         )
 
@@ -1286,6 +1299,7 @@ def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str,
                 ready=len(source_refs),
                 total=total,
                 confidence_count=len(rows),
+                refs_cap=None,  # round-filtered by per-round reports → keep full
             )
         )
     criteria_breakdown.sort(
@@ -1315,6 +1329,7 @@ def _decision_audit_diagnosis(data: HistoryData, decision_audits: list[dict[str,
                 ready=len(source_refs),
                 total=total,
                 confidence_count=len(rows),
+                refs_cap=None,  # round-filtered by per-round reports → keep full
             )
         )
     option_outcomes.sort(key=lambda row: (-int(row["count"]), str(row["classification"]), str(row["selectedOptionId"]), str(row["actualOptionId"])))
