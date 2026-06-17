@@ -1120,6 +1120,8 @@ class MobileContractTests(unittest.TestCase):
             "$(CURRENT_PROJECT_VERSION)",
             "AICaddieAPIBaseURL",
             "$(AI_CADDIE_API_BASE_URL)",
+            "AICaddieAdminToken",
+            "$(AI_CADDIE_ADMIN_TOKEN)",
             "ITSAppUsesNonExemptEncryption",
             "NSLocationWhenInUseUsageDescription",
             "NSCameraUsageDescription",
@@ -1499,6 +1501,8 @@ class MobileContractTests(unittest.TestCase):
         media_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
 
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", app_swift)
+        # Single-owner build: admin token baked at build time, read from Info.plist.
+        self.assertIn('Bundle.main.object(forInfoDictionaryKey: "AICaddieAdminToken")', app_swift)
         self.assertIn("@Published public private(set) var adminToken: String?", app_swift)
         self.assertIn("adminToken: model.adminToken", app_swift)
         self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken)", app_swift)

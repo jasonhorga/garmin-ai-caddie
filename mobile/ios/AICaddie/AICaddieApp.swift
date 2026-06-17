@@ -175,12 +175,18 @@ public final class LiveRoundAppModel: ObservableObject {
     public func bootstrap() async {
         do {
             await refreshCourseOptions()
+            #if DEBUG
+            // Dev/simulator + CI: auto-fetch the preferred round so the harness always has
+            // a package to render. The shipped owner app skips this — it lands on 开始一场.
             if let remotePackage = await fetchRemotePackage() {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Remote package cached")
                 return
             }
-            if let cached = try offlineStore.loadCurrentRoundPackage() {
+            #endif
+            // Resume only a REAL in-progress round; skip the bundled fixture cache so the
+            // owner never lands on a placeholder (dataMode "fixture").
+            if let cached = try offlineStore.loadCurrentRoundPackage(), cached.dataMode != "fixture" {
                 switch cached.cacheState() {
                 case .expired:
                     if try canContinueExpiredPackage(cached) {
@@ -199,9 +205,12 @@ public final class LiveRoundAppModel: ObservableObject {
                     return
                 }
             }
+            #if DEBUG
             let fixture = try loadFixturePackage()
             try offlineStore.saveRoundPackage(fixture)
             try activatePackage(fixture, status: "Fixture package cached")
+            #endif
+            // Release with no real round: package stays nil → AICaddieApp shows 开始一场.
         } catch {
             syncStatus = "Offline package unavailable"
         }
@@ -472,11 +481,15 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private static func defaultAdminToken(includePersisted: Bool = true) -> String? {
-        let token = sanitizedConfigurationValue(ProcessInfo.processInfo.environment["AI_CADDIE_ADMIN_TOKEN"])
-        if let token {
+        if let token = sanitizedConfigurationValue(ProcessInfo.processInfo.environment["AI_CADDIE_ADMIN_TOKEN"]) {
             return token
         }
-        return includePersisted ? BackendConfigurationStore.loadAdminToken() : nil
+        if includePersisted, let persisted = BackendConfigurationStore.loadAdminToken() {
+            return persisted
+        }
+        // Baked at build time for the single-owner TestFlight build (Info.plist
+        // AICaddieAdminToken = $(AI_CADDIE_ADMIN_TOKEN)); empty/unexpanded → nil.
+        return sanitizedConfigurationValue(Bundle.main.object(forInfoDictionaryKey: "AICaddieAdminToken") as? String)
     }
 
     private static func defaultLiveRoundId() -> String {
