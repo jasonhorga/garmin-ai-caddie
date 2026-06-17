@@ -10,6 +10,8 @@ public struct CurrentHoleView: View {
     private let offlineDecisionEvaluator = OfflineCaddieDecisionEvaluator()
     private let caddieClient: CaddieDecisionClient?
     private let mediaUploadClient: MediaUploadClient?
+    private let caddieBaseURL: URL?
+    private let adminToken: String?
     private let offlineStore: OfflineStore?
     private let watchBridge: WatchEventBridge?
     private let liveRoundState: LiveRoundStateSnapshot?
@@ -21,6 +23,7 @@ public struct CurrentHoleView: View {
     @State private var selectedClub: String
     @State private var selectedShotType: String
     @State private var selectedStrategyMode: String = "stock"
+    @State private var holeMap: HoleMap?
     @State private var distanceToPinText: String = ""
     @State private var selectedLie: String = "fairway"
     @State private var currentCoordinate: CLLocationCoordinate2D?
@@ -49,6 +52,8 @@ public struct CurrentHoleView: View {
         self.onEvent = onEvent
         self.caddieClient = caddieClient ?? caddieBaseURL.map { CaddieDecisionClient(baseURL: $0, adminToken: adminToken) }
         self.mediaUploadClient = caddieBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
+        self.caddieBaseURL = caddieBaseURL
+        self.adminToken = adminToken
         self.offlineStore = offlineStore
         self.watchBridge = watchBridge
         self.liveRoundState = liveRoundState
@@ -90,6 +95,8 @@ public struct CurrentHoleView: View {
                 )
 
                 VStack(spacing: 12) {
+                    holeMapCard
+
                     // Caddie recommendation — the focal card. Embeds the proven
                     // CaddiePlanView for the decision content; chrome is redesigned.
                     VStack(alignment: .leading, spacing: 10) {
@@ -199,6 +206,9 @@ public struct CurrentHoleView: View {
         .task(id: hole.number) {
             await loadCaddieDecision()
         }
+        .task(id: hole.number) {
+            await loadHoleMap()
+        }
         .onChange(of: liveRoundState) { _, newState in
             applyRestoredStateIfNeeded(newState)
         }
@@ -206,6 +216,29 @@ public struct CurrentHoleView: View {
 
     private var caddieContextSeed: CaddieContextSeed? {
         package.caddieContextSeeds.first { $0.hole == hole.number }
+    }
+
+    /// 球洞俯视图(2D):后端 hole-map GeoJSON 渲球道/果岭/沙坑/水 + 我的位置。无几何时不显示。
+    @ViewBuilder private var holeMapCard: some View {
+        if let holeMap, holeMap.hasGeometry {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("球洞俯视图").font(.caption).foregroundStyle(.secondary)
+                HoleMapView(
+                    map: holeMap,
+                    playerCoordinate: currentCoordinate.map { [$0.longitude, $0.latitude] }
+                )
+                .frame(height: 260)
+            }
+            .liveCard()
+        }
+    }
+
+    private func loadHoleMap() async {
+        guard let caddieBaseURL, package.course.globalId != 0 else {
+            return
+        }
+        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
+        holeMap = try? await client.fetchHoleMap(globalId: package.course.globalId, localHole: hole.number)
     }
 
     /// 本洞避开区:取 course_prep 该洞的 hazards(沙坑/水域 米区间)供球童方案展示。

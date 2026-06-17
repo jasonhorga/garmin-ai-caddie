@@ -172,6 +172,17 @@ public final class SyncClient {
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
     }
 
+    /// Top-down hole-map geometry (GeoJSON surfaces + tee/pin) for the 2D hole view.
+    public func fetchHoleMap(globalId: Int, localHole: Int) async throws -> HoleMap {
+        var request = URLRequest(url: endpointURL("/api/v2/geometry/hole/\(globalId)/\(localHole)/map"))
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(HoleMap.self, from: data)
+    }
+
     public func fetchCoursePrep(globalId: Int, render: Bool = true) async throws -> CoursePrepResponse {
         var url = endpointURL("/api/v2/courses/\(globalId)/prep")
         if !render {

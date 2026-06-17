@@ -138,6 +138,20 @@ final class DesignSnapshotTests: XCTestCase {
         // in a Dark window — these two captures document the bug and prove the fix.
         try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses), named: "dark-broken", dark: true)
         try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses).preferredColorScheme(.light), named: "dark-fixed", dark: true)
+
+        // 2D hole map (top-down) — synthetic hole (rough/fairway/green/bunker + tee/pin + player).
+        let demoMap = HoleMap(layers: ["surface"], coverage: "ready", features: [
+            HoleMapFeature(layer: "surface", kind: "rough", rings: [[[0, 0], [0.0011, 0], [0.0011, 0.0032], [0, 0.0032], [0, 0]]]),
+            HoleMapFeature(layer: "surface", kind: "fairway", rings: [[[0.00035, 0.0003], [0.00075, 0.0003], [0.00068, 0.0027], [0.00040, 0.0027], [0.00035, 0.0003]]]),
+            HoleMapFeature(layer: "surface", kind: "bunker", rings: [[[0.00028, 0.00250], [0.00040, 0.00250], [0.00040, 0.00266], [0.00028, 0.00266], [0.00028, 0.00250]]]),
+            HoleMapFeature(layer: "surface", kind: "green", rings: [[[0.00044, 0.00268], [0.00066, 0.00268], [0.00066, 0.00292], [0.00044, 0.00292], [0.00044, 0.00268]]]),
+            HoleMapFeature(layer: "tee", kind: nil, point: [0.00055, 0.00012]),
+            HoleMapFeature(layer: "pin", kind: nil, point: [0.00055, 0.00280]),
+        ])
+        try captureScreen(
+            VStack { HoleMapView(map: demoMap, playerCoordinate: [0.00055, 0.00070]).frame(height: 420) }.padding(24),
+            named: "hole-map"
+        )
     }
 
     @MainActor
