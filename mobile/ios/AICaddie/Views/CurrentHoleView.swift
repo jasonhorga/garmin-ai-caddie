@@ -10,6 +10,8 @@ public struct CurrentHoleView: View {
     private let offlineDecisionEvaluator = OfflineCaddieDecisionEvaluator()
     private let caddieClient: CaddieDecisionClient?
     private let mediaUploadClient: MediaUploadClient?
+    private let caddieBaseURL: URL?
+    private let adminToken: String?
     private let offlineStore: OfflineStore?
     private let watchBridge: WatchEventBridge?
     private let liveRoundState: LiveRoundStateSnapshot?
@@ -50,6 +52,8 @@ public struct CurrentHoleView: View {
         self.onEvent = onEvent
         self.caddieClient = caddieClient ?? caddieBaseURL.map { CaddieDecisionClient(baseURL: $0, adminToken: adminToken) }
         self.mediaUploadClient = caddieBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
+        self.caddieBaseURL = caddieBaseURL
+        self.adminToken = adminToken
         self.offlineStore = offlineStore
         self.watchBridge = watchBridge
         self.liveRoundState = liveRoundState
