@@ -11,7 +11,15 @@ public struct AICaddieApp: App {
     public var body: some Scene {
         WindowGroup {
             Group {
-                if let package = model.package {
+                if model.isBootstrapping {
+                    ZStack {
+                        Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255).ignoresSafeArea()
+                        VStack(spacing: 12) {
+                            Image(systemName: "flag.checkered").font(.largeTitle).foregroundStyle(LiveHoleStyle.green)
+                            ProgressView()
+                        }
+                    }
+                } else if let package = model.package {
                     RoundHomeView(
                         package: package,
                         pendingEventCount: model.pendingEventCount,
@@ -128,6 +136,9 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var apiBaseURL: URL?
     @Published public private(set) var adminToken: String?
     @Published public private(set) var isPreparingRound = false
+    /// True until the first bootstrap() resolves, so the root shows a loading state instead of
+    /// flashing the 开始一场 form before the home package lands.
+    @Published public private(set) var isBootstrapping = true
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     @Published public private(set) var courseOptions: [MobileCourseOption] = []
     /// 本局的起始九洞(用于「移除另外 9 洞」撤销目标);随新 roundId 重置。
@@ -196,6 +207,7 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func bootstrap() async {
+        defer { isBootstrapping = false }
         do {
             await refreshCourseOptions()
             // 1. RESUME an in-progress round first, on EVERY build — a round the player has
