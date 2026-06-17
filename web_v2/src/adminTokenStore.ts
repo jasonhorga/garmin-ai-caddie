@@ -29,3 +29,21 @@ export function writeStoredAdminToken(token: string): void {
     // non-fatal — the in-memory token still works for the current session.
   }
 }
+
+interface AdminLocationLike {
+  readonly search: string
+}
+
+/**
+ * Read an owner admin token carried in the URL (`?admin=<token>`), mirroring the
+ * player bearer that lives in `/p/<token>`. Lets the owner bookmark ONE URL and
+ * never retype the token — durable even when iOS Safari clears localStorage. The
+ * secret stays in the owner's bookmark (their device), never in the shipped JS.
+ */
+export function readAdminTokenFromUrl(loc: AdminLocationLike = window.location): string {
+  try {
+    return new URLSearchParams(loc.search).get('admin')?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
