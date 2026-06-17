@@ -46,8 +46,13 @@ def _setup(by, tee, green, w, h, margin):
     ln = math.hypot(dx, dy) or 1
     u = (dx / ln, dy / ln)
     perp = (-u[1], u[0])
-    pb = by.get("PlayableBounds.drc") or by.get("Rough.drc")
-    pts = [_local(p) for p in pb["positions"]]
+    # Frame by the union of the surfaces we actually draw (the playing corridor), NOT PlayableBounds:
+    # PlayableBounds is a generous, per-hole-varying box that left the hole tiny in a corner and the
+    # scale inconsistent between holes. Falls back to PlayableBounds/Rough only if no surface is present.
+    pts = [_local(p) for name in ORDER if (m := by.get(name + ".drc")) for p in m["positions"]]
+    if not pts:
+        pb = by.get("PlayableBounds.drc") or by.get("Rough.drc")
+        pts = [_local(p) for p in pb["positions"]] if pb else [tee, green]
     pr = [((px - tee[0]) * u[0] + (py - tee[1]) * u[1], (px - tee[0]) * perp[0] + (py - tee[1]) * perp[1]) for px, py in pts]
     amin = min(a for a, _ in pr) - 14
     amax = max(a for a, _ in pr) + 14
