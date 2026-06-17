@@ -128,15 +128,24 @@ final class DesignSnapshotTests: XCTestCase {
             try captureScreen(NavigationStack { CurrentHoleView(package: package, hole: hole) }, named: "full-hole")
         }
         try captureScreen(RecentRoundReviewView(package: package), named: "full-review")
+
+        // Dark Mode regression guard. WITHOUT the app's fix, the light-themed screens render
+        // white-on-white in Dark Mode (cards Color.white, text semantic .primary → white).
+        // WITH the app-root fix (.preferredColorScheme(.light)) the hierarchy renders light even
+        // in a Dark window — these two captures document the bug and prove the fix.
+        try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses), named: "dark-broken", dark: true)
+        try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses).preferredColorScheme(.light), named: "dark-fixed", dark: true)
     }
 
     @MainActor
-    private func captureScreen(_ view: some View, named name: String) throws {
+    private func captureScreen(_ view: some View, named name: String, dark: Bool = false) throws {
         let size = CGSize(width: 390, height: 844)
+        let style: UIUserInterfaceStyle = dark ? .dark : .light
         let host = UIHostingController(rootView: view)
-        host.overrideUserInterfaceStyle = .light
+        host.overrideUserInterfaceStyle = style
         host.view.frame = CGRect(origin: .zero, size: size)
         let window = UIWindow(frame: host.view.frame)
+        window.overrideUserInterfaceStyle = style
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.setNeedsLayout()

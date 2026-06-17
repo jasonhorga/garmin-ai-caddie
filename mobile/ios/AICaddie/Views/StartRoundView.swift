@@ -15,6 +15,7 @@ public struct StartRoundView: View {
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @State private var roundId: String
     @State private var courseGlobalIdText: String
     @State private var teeBox: String
@@ -172,6 +173,10 @@ public struct StartRoundView: View {
             Button {
                 if let courseGlobalId {
                     onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)
+                    // Pop back to the Hub; it now shows this round's 进行中 card (继续这场).
+                    // When 开始一场 is the root fallback (no package), dismiss is a safe no-op
+                    // and the model's new package swaps the root to the Hub.
+                    dismiss()
                 }
             } label: {
                 Label("开始记分", systemImage: "flag.checkered")

@@ -1356,7 +1356,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("expiresAtDate", package_swift)
         self.assertIn("staleAfterHours", package_swift)
 
-        self.assertIn("switch cached.cacheState()", app_swift)
+        # Expiry is enforced on the by-roundId prepare path (bootstrap now resumes an
+        # in-progress round directly via hasRecordedEvents — see the resume test below).
+        self.assertIn("switch cachedPackage.cacheState()", app_swift)
         self.assertIn("case .expired:", app_swift)
         self.assertIn("Cached package expired", app_swift)
         self.assertIn("case .stale:", app_swift)
@@ -1365,16 +1367,39 @@ class MobileContractTests(unittest.TestCase):
 
     def test_ios_expired_cached_package_can_continue_active_round_offline(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
 
+        # An in-progress round (real course + actually recorded holes) RESUMES on relaunch
+        # regardless of cache freshness — recorded data must never be lost. current_package is
+        # the active-round marker; hasRecordedEvents gates "actually started".
+        self.assertIn("func hasRecordedEvents(roundId: String) throws -> Bool", offline_store)
+        self.assertIn("try offlineStore.hasRecordedEvents(roundId: active.roundId)", app_swift)
+        self.assertIn('try activatePackage(active, status: "继续进行中的球局")', app_swift)
+        # The by-roundId prepare path still offers the expired-but-continuable resume.
         self.assertIn("private func canContinueExpiredPackage(_ cachedPackage: LiveRoundPackage) throws -> Bool", app_swift)
         self.assertIn("offlineStore.loadPendingEvents(roundId: cachedPackage.roundId).isEmpty == false", app_swift)
-        self.assertIn("if try canContinueExpiredPackage(cached)", app_swift)
         self.assertIn("if try canContinueExpiredPackage(cachedPackage)", app_swift)
-        self.assertIn('try activatePackage(cached, status: "Cached package expired; continuing active round offline")', app_swift)
         self.assertIn(
             'try activatePackage(cachedPackage, status: "Cached package expired; continuing active round offline")',
             app_swift,
         )
+
+    def test_ios_lands_on_hub_with_choices_and_forces_light(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+
+        # No in-progress round → land on the Hub (choices) via a home package = the most-played
+        # course's data, which does NOT mark an active round (liveRoundState stays nil → no 进行中).
+        self.assertIn("private func fetchHomePackage() async -> LiveRoundPackage?", app_swift)
+        self.assertIn("private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws", app_swift)
+        self.assertIn("courseOptions.max { $0.roundCount < $1.roundCount }", app_swift)
+        self.assertIn("try activateHomePackage(home, status:", app_swift)
+        self.assertIn("func saveHomePackage(_ package: LiveRoundPackage) throws", offline_store)
+        # Light-only visual identity — never renders white-on-white in the system's Dark Mode.
+        self.assertIn(".preferredColorScheme(.light)", app_swift)
+        # 本场球洞 grid only shows for an active round (home with no active round omits it).
+        self.assertIn("if liveRoundState != nil {", round_home)
 
     def test_ios_restores_live_round_state_from_offline_event_log(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")

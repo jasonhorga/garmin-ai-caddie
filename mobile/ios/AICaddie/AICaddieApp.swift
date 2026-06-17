@@ -93,6 +93,10 @@ public struct AICaddieApp: App {
                     }
                 }
             }
+            // The app has a single deliberate light visual identity (green + white cards on a
+            // light gray field). Lock it to light so it never renders white-on-white in the
+            // system's Dark Mode (cards are Color.white but text is semantic .primary).
+            .preferredColorScheme(.light)
             .task {
                 await model.bootstrap()
             }
@@ -178,45 +182,39 @@ public final class LiveRoundAppModel: ObservableObject {
     public func bootstrap() async {
         do {
             await refreshCourseOptions()
+            // 1. RESUME an in-progress round first, on EVERY build — a round the player has
+            // actually recorded holes in must never be lost or clobbered on relaunch. current_package
+            // is the active-round marker; require real recorded events so a bare/home package
+            // never masquerades as an active round.
+            if let active = try offlineStore.loadCurrentRoundPackage(),
+               active.dataMode != "fixture",
+               active.course.globalId != 0,
+               try offlineStore.hasRecordedEvents(roundId: active.roundId) {
+                try activatePackage(active, status: "继续进行中的球局")
+                return
+            }
             #if DEBUG
-            // Dev/simulator + CI: auto-fetch the preferred round so the harness always has
-            // a package to render. The shipped owner app skips this — it lands on 开始一场.
+            // Dev/simulator + CI harness: auto-fetch the preferred round so snapshots/dev always
+            // have a package to render (no active round resumed above).
             if let remotePackage = await fetchRemotePackage() {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Remote package cached")
                 return
             }
             #endif
-            // Resume only a REAL in-progress round; skip the bundled fixture cache AND any
-            // degraded "Unknown course" package (globalId 0, e.g. cached before the course
-            // resolved) so reopening never strands the owner on a placeholder round.
-            if let cached = try offlineStore.loadCurrentRoundPackage(),
-               cached.dataMode != "fixture",
-               cached.course.globalId != 0 {
-                switch cached.cacheState() {
-                case .expired:
-                    if try canContinueExpiredPackage(cached) {
-                        try activatePackage(cached, status: "Cached package expired; continuing active round offline")
-                        return
-                    }
-                    syncStatus = "Cached package expired; using fallback"
-                case .stale:
-                    try activatePackage(cached, status: "Cached package stale")
-                    return
-                case .ready:
-                    try activatePackage(cached, status: "Cached package ready")
-                    return
-                case .degraded:
-                    try activatePackage(cached, status: "Cached package degraded")
-                    return
-                }
+            // 2. No in-progress round → land on the Hub (the "几个选择" home), NOT a bare form.
+            // The home package = the most-played course's data; it does NOT set liveRoundState
+            // (no 进行中 card) and is NOT the active-round pointer.
+            if let home = await fetchHomePackage() {
+                try activateHomePackage(home, status: "主页就绪")
+                return
             }
             #if DEBUG
             let fixture = try loadFixturePackage()
             try offlineStore.saveRoundPackage(fixture)
             try activatePackage(fixture, status: "Fixture package cached")
             #endif
-            // Release with no real round: package stays nil → AICaddieApp shows 开始一场.
+            // Truly offline first launch (no network, no cache): package stays nil → 开始一场 fallback.
         } catch {
             syncStatus = "Offline package unavailable"
         }
@@ -563,6 +561,39 @@ public final class LiveRoundAppModel: ObservableObject {
         liveRoundState = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
         syncStatus = status
+    }
+
+    /// Activate a HOME/landing package: populate the Hub (course, last round, choices) WITHOUT
+    /// marking an active round — liveRoundState stays nil (no 进行中 card) and it is not the
+    /// current-round pointer. Cached to home_package.json for offline relaunch.
+    private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
+        package = nextPackage
+        liveRoundState = nil
+        startingNine = nil
+        pendingEventCount = 0
+        try? offlineStore.saveHomePackage(nextPackage)
+        syncStatus = status
+    }
+
+    /// Fetch the home package = most-played course's data (for the Hub's choices + 上一场 +
+    /// 复盘 count). Falls back to the cached home package offline. Geometry not needed here.
+    private func fetchHomePackage() async -> LiveRoundPackage? {
+        let mostPlayed = courseOptions.max { $0.roundCount < $1.roundCount }
+        if let syncClient, let mostPlayed {
+            let homeRoundId = mostPlayed.suggestedLiveRoundId ?? "home-\(mostPlayed.globalId)"
+            let teeBox = mostPlayed.teeBox.flatMap { $0 == "unknown" ? nil : $0 } ?? "unknown"
+            if let fetched = try? await syncClient.fetchCoursePackage(
+                globalId: mostPlayed.globalId,
+                roundId: homeRoundId,
+                teeBox: teeBox,
+                nine: "all",
+                capturedAt: Date(),
+                ensureGeometry: false
+            ) {
+                return fetched
+            }
+        }
+        return try? offlineStore.loadHomePackage()
     }
 
     private func canContinueExpiredPackage(_ cachedPackage: LiveRoundPackage) throws -> Bool {

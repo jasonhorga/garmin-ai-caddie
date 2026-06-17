@@ -79,6 +79,7 @@ public final class OfflineStore {
     private let logURL: URL
     private let packagesDirectoryURL: URL
     private let currentPackageURL: URL
+    private let homePackageURL: URL
     private let pendingMediaDirectoryURL: URL
     private let pendingMediaIndexURL: URL
     private let encoder: JSONEncoder
@@ -89,6 +90,7 @@ public final class OfflineStore {
         self.logURL = directoryURL.appendingPathComponent("events.jsonl")
         self.packagesDirectoryURL = directoryURL.appendingPathComponent("packages", isDirectory: true)
         self.currentPackageURL = directoryURL.appendingPathComponent("current_package.json")
+        self.homePackageURL = directoryURL.appendingPathComponent("home_package.json")
         self.pendingMediaDirectoryURL = directoryURL.appendingPathComponent("pending_media", isDirectory: true)
         self.pendingMediaIndexURL = directoryURL.appendingPathComponent("pending_media.jsonl")
         self.encoder = JSONEncoder()
@@ -122,6 +124,30 @@ public final class OfflineStore {
             return nil
         }
         return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: currentPackageURL))
+    }
+
+    /// True iff the round has at least one real recorded hole event (score/putt/club/location/…),
+    /// i.e. play actually started. Used to decide whether to RESUME an in-progress round on
+    /// relaunch (and show the 进行中 card) vs treat the cached package as just home data.
+    public func hasRecordedEvents(roundId: String) throws -> Bool {
+        try loadEvents().contains { event in
+            event.roundId == roundId && event.kind != .syncMarker && event.hole > 0
+        }
+    }
+
+    /// Home/landing package (most-played course data for the Hub's choices). Persisted to a
+    /// SEPARATE file so it never becomes the "current round" pointer — only a started round
+    /// (saveRoundPackage) is the active round that resumes on relaunch.
+    public func saveHomePackage(_ package: LiveRoundPackage) throws {
+        let encoded = try encoder.encode(package)
+        try encoded.write(to: homePackageURL, options: [.atomic])
+    }
+
+    public func loadHomePackage() throws -> LiveRoundPackage? {
+        guard FileManager.default.fileExists(atPath: homePackageURL.path) else {
+            return nil
+        }
+        return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: homePackageURL))
     }
 
     /// Forget a round entirely (discard/cancel): clear the active-package pointer + its
