@@ -384,6 +384,9 @@ def build_mobile_course_options(
             geometry_coverage = "partial"
         display_name = str(latest.get("course") or latest.get("courseName") or f"Course {global_id}")
         played_holes = _course_option_hole_count(rows_sorted)
+        # Course coordinates (for GPS "nearby courses" sorting) — first round that carries them.
+        latitude = next((_safe_float(row.get("lat")) for row in rows_sorted if _safe_float(row.get("lat")) is not None), None)
+        longitude = next((_safe_float(row.get("lon")) for row in rows_sorted if _safe_float(row.get("lon")) is not None), None)
         # Authoritative loop structure from CourseView (the round-derived name is a played combo
         # like '~ C/A'; CourseView gives the clean per-gid loop name '~ C' + true 9/18 hole count).
         segment = None
@@ -400,6 +403,8 @@ def build_mobile_course_options(
                 "venueName": _venue_base_name(display_name),
                 "segmentLabel": _segment_label_from_courseview_name(clean_name),
                 "segmentHoles": int(segment_holes) if segment_holes else played_holes,
+                "latitude": latitude,
+                "longitude": longitude,
                 "roundCount": len(rows),
                 "latestRoundId": template_round_id,
                 "latestRoundDate": str(latest.get("date") or ""),

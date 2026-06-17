@@ -63,6 +63,9 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
     public let venueName: String?
     public let segmentLabel: String?
     public let segmentHoles: Int?
+    /// Course coordinates for GPS "nearby courses" sorting (nil when unknown).
+    public let latitude: Double?
+    public let longitude: Double?
 
     public init(
         globalId: Int,
@@ -79,7 +82,9 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
         sourceRefs: [String] = [],
         venueName: String? = nil,
         segmentLabel: String? = nil,
-        segmentHoles: Int? = nil
+        segmentHoles: Int? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil
     ) {
         self.globalId = globalId
         self.courseKey = courseKey
@@ -96,5 +101,7 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
         self.venueName = venueName
         self.segmentLabel = segmentLabel
         self.segmentHoles = segmentHoles
+        self.latitude = latitude
+        self.longitude = longitude
     }
 }

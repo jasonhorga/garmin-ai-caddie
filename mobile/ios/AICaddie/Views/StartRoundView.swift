@@ -18,9 +18,11 @@ public struct StartRoundView: View {
     public let onClearBackendConfiguration: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var locationProvider = LocationProvider()
     @State private var roundId: String
     @State private var courseGlobalIdText: String
     @State private var backGlobalIdText: String = ""
+    @State private var selectedVenue: String = ""
     @State private var teeBox: String
     @State private var nine: String
 
@@ -87,18 +89,74 @@ public struct StartRoundView: View {
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle("开始一场")
+        .onAppear {
+            locationProvider.requestAuthorization()
+            locationProvider.startUpdatingLocation()
+            if selectedVenue.isEmpty {
+                selectedVenue = displayVenues.first(where: { group in
+                    group.segments.contains { String($0.globalId) == courseGlobalIdText }
+                })?.venue ?? displayVenues.first?.venue ?? ""
+            }
+        }
+    }
+
+    /// Venues ordered nearest-first when GPS is available, else most-played first.
+    private var displayVenues: [(venue: String, segments: [MobileCourseOption])] {
+        let groups = venueGroups
+        guard let fix = locationProvider.latestFix else {
+            return groups
+        }
+        func distance(_ group: (venue: String, segments: [MobileCourseOption])) -> Double {
+            group.segments.compactMap { segment -> Double? in
+                guard let lat = segment.latitude, let lon = segment.longitude else { return nil }
+                return haversineMetres(fix.coordinate.latitude, fix.coordinate.longitude, lat, lon)
+            }.min() ?? .greatestFiniteMagnitude
+        }
+        return groups.sorted { distance($0) < distance($1) }
+    }
+
+    private func autoSelectFirstSegment() {
+        guard let group = displayVenues.first(where: { $0.venue == selectedVenue }) else { return }
+        if !group.segments.contains(where: { String($0.globalId) == courseGlobalIdText }) {
+            if let first = group.segments.first {
+                courseGlobalIdText = String(first.globalId)
+                backGlobalIdText = ""
+                applySelectedCourse(globalIdText: courseGlobalIdText)
+            }
+        }
+    }
+
+    private func haversineMetres(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
+        let r = 6_371_000.0
+        let dLat = (lat2 - lat1) * .pi / 180
+        let dLon = (lon2 - lon1) * .pi / 180
+        let a = sin(dLat / 2) * sin(dLat / 2)
+            + cos(lat1 * .pi / 180) * cos(lat2 * .pi / 180) * sin(dLon / 2) * sin(dLon / 2)
+        return r * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
 
     /// 按真实结构选场:每个球场列出它的各 9 洞环(黑骑士 A/B/C)或整场(北湖 18);选一个开始。
     @ViewBuilder private var courseCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("选择球场").font(.caption).foregroundStyle(.secondary)
-            if venueGroups.isEmpty {
+            if displayVenues.isEmpty {
                 Text("暂无球场,先在设置里同步 Garmin 球局。").font(.subheadline).foregroundStyle(.secondary)
-            }
-            ForEach(venueGroups, id: \.venue) { group in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(group.venue).font(.subheadline.weight(.bold))
+            } else {
+                if locationProvider.latestFix != nil {
+                    Label("已按距离排序 · 最近在前", systemImage: "location.fill")
+                        .font(.caption2).foregroundStyle(LiveHoleStyle.green)
+                }
+                // 下拉选球场(GPS 可用时最近在前,否则最常打在前)。
+                Picker("球场", selection: $selectedVenue) {
+                    ForEach(displayVenues, id: \.venue) { group in
+                        Text(group.venue).tag(group.venue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onChange(of: selectedVenue) { _, _ in autoSelectFirstSegment() }
+                // 选中球场的各 9 洞环 / 整场。
+                if let group = displayVenues.first(where: { $0.venue == selectedVenue }) ?? displayVenues.first {
                     ForEach(group.segments) { segment in
                         segmentRow(segment)
                     }
