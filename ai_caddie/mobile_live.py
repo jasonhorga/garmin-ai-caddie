@@ -300,9 +300,64 @@ def _course_option_hole_count(rows: list[dict[str, Any]]) -> int:
     return max(candidates, default=18)
 
 
-def build_mobile_course_options(data: HistoryData | None = None, *, data_mode: str = "fixture") -> dict[str, Any]:
-    """Return recent course choices for live round package preparation."""
+def _venue_base_name(name: str) -> str:
+    """Venue name without the Garmin loop/combo suffix ('…黑骑士… ~ C/A' -> '…黑骑士…')."""
+    return str(name or "").split(" ~ ")[0].strip()
 
+
+def _segment_label_from_courseview_name(clean_name: str | None) -> str | None:
+    """Loop label from a CourseView course name ('The Players Club ~ A' -> 'A'). Returns None for
+    a single whole course (no ' ~ ' suffix, e.g. a straight 18) — that course IS the segment."""
+    if not clean_name:
+        return None
+    parts = str(clean_name).split(" ~ ")
+    if len(parts) < 2:
+        return None
+    return parts[-1].strip() or None
+
+
+def _courseview_segment_resolver(global_id: int, *, allow_fetch: bool = False) -> tuple[str | None, int | None] | None:
+    """Default segment resolver: (CourseView clean name, hole count) for a globalId, cache-first.
+
+    9 holes => a playable nine (loop); 18 => a whole course. None when the CourseView release is
+    not cached and ``allow_fetch`` is False (request-time path stays offline-safe)."""
+    try:
+        from pathlib import Path
+
+        from ai_caddie.data import ROOT
+        from inspect_courseview_release import inspect_release, load_release_pb
+
+        path = Path(ROOT) / "data" / "courseview" / f"{int(global_id)}_releases.pb"
+        if path.exists():
+            pb = path.read_bytes()
+        elif allow_fetch:
+            pb = load_release_pb(int(global_id), True)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(pb)
+        else:
+            return None
+        info = inspect_release(pb)
+        holes = info.get("holes") or []
+        return (info.get("course_name"), len(holes) or None)
+    except Exception:
+        return None
+
+
+def build_mobile_course_options(
+    data: HistoryData | None = None,
+    *,
+    data_mode: str = "fixture",
+    segment_resolver: Any = None,
+) -> dict[str, Any]:
+    """Return recent course choices for live round package preparation.
+
+    Each option is enriched with the CourseView loop structure so the UI can list each playable
+    nine (黑骑士 A/B/C) under its venue: ``venueName`` (Chinese, suffix-stripped), ``segmentLabel``
+    (loop letter/name, or null for a single whole course) and ``segmentHoles`` (true 9/18 from
+    CourseView). ``segment_resolver(globalId) -> (cleanName, holes) | None`` is injectable for tests.
+    """
+
+    resolve_segment = segment_resolver or _courseview_segment_resolver
     source = data or fixture_history_data()
     grouped: dict[int, list[dict[str, Any]]] = {}
     for row in source.rounds:
@@ -327,17 +382,30 @@ def build_mobile_course_options(data: HistoryData | None = None, *, data_mode: s
             geometry_coverage = "ready"
         elif any(value == "partial" for value in geometry_rows):
             geometry_coverage = "partial"
+        display_name = str(latest.get("course") or latest.get("courseName") or f"Course {global_id}")
+        played_holes = _course_option_hole_count(rows_sorted)
+        # Authoritative loop structure from CourseView (the round-derived name is a played combo
+        # like '~ C/A'; CourseView gives the clean per-gid loop name '~ C' + true 9/18 hole count).
+        segment = None
+        try:
+            segment = resolve_segment(global_id)
+        except Exception:
+            segment = None
+        clean_name, segment_holes = segment if segment else (None, None)
         courses.append(
             {
                 "globalId": global_id,
                 "courseKey": str(latest.get("courseKey") or ""),
-                "name": str(latest.get("course") or latest.get("courseName") or f"Course {global_id}"),
+                "name": display_name,
+                "venueName": _venue_base_name(display_name),
+                "segmentLabel": _segment_label_from_courseview_name(clean_name),
+                "segmentHoles": int(segment_holes) if segment_holes else played_holes,
                 "roundCount": len(rows),
                 "latestRoundId": template_round_id,
                 "latestRoundDate": str(latest.get("date") or ""),
                 "templateRoundId": template_round_id,
                 "suggestedLiveRoundId": f"live-{global_id}",
-                "holes": _course_option_hole_count(rows_sorted),
+                "holes": played_holes,
                 "teeBox": str(latest.get("teeBox") or latest.get("tee") or "unknown"),
                 "geometryCoverage": geometry_coverage,
                 "sourceRefs": source_refs,

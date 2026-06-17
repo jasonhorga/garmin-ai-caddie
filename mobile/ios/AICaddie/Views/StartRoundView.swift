@@ -57,7 +57,8 @@ public struct StartRoundView: View {
         let resolvedTee = selected?.teeBox.flatMap { $0 == "unknown" ? nil : $0 }
             ?? (defaultTeeBox == "unknown" ? "" : defaultTeeBox)
         self._teeBox = State(initialValue: resolvedTee)
-        self._nine = State(initialValue: "front")
+        // The chosen segment (a 9-hole loop, or a whole 18) IS the unit now → no front/back slice.
+        self._nine = State(initialValue: "all")
     }
 
     private var courseGlobalId: Int? {
@@ -73,7 +74,6 @@ public struct StartRoundView: View {
     public var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                nineCard
                 courseCard
                 startCard
             }
@@ -83,36 +83,25 @@ public struct StartRoundView: View {
         .navigationTitle("开始一场")
     }
 
-    private var nineCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("起始 9 洞").font(.caption).foregroundStyle(.secondary)
-            Picker("起始 9 洞", selection: $nine) {
-                Text("前九 (1–9)").tag("front")
-                Text("后九 (10–18)").tag("back")
-            }
-            .pickerStyle(.segmented)
-            Text("先打 9 洞即可。开始后在球局里随时「＋加打另外 9 洞」凑成 18;手滑加错也能一键撤销。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .liveCard()
-    }
-
+    /// 按真实结构选场:每个球场列出它的各 9 洞环(黑骑士 A/B/C)或整场(北湖 18);选一个开始。
     @ViewBuilder private var courseCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("球场").font(.caption).foregroundStyle(.secondary)
-            if !displayedCourses.isEmpty {
-                Picker("最近球场", selection: $courseGlobalIdText) {
-                    ForEach(displayedCourses) { option in
-                        Text(baseCourseName(option.name)).tag(String(option.globalId))
+            Text("选择球场").font(.caption).foregroundStyle(.secondary)
+            if venueGroups.isEmpty {
+                Text("暂无球场,先在设置里同步 Garmin 球局。").font(.subheadline).foregroundStyle(.secondary)
+            }
+            ForEach(venueGroups, id: \.venue) { group in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(group.venue).font(.subheadline.weight(.bold))
+                    ForEach(group.segments) { segment in
+                        segmentRow(segment)
                     }
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .onChange(of: courseGlobalIdText) { _, nextValue in
-                    applySelectedCourse(globalIdText: nextValue)
-                }
             }
+            Text("先选一个 9 洞开始;「加打另一个 9 洞凑 18」稍后更新。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Divider().padding(.vertical, 2)
             HStack(spacing: 8) {
                 Text("发球台").font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
@@ -131,6 +120,45 @@ public struct StartRoundView: View {
             }
         }
         .liveCard()
+    }
+
+    /// 单个可打段(9 洞环 / 整场)的可选行;选中绿描边高亮。
+    @ViewBuilder private func segmentRow(_ segment: MobileCourseOption) -> some View {
+        let selected = String(segment.globalId) == courseGlobalIdText
+        Button {
+            courseGlobalIdText = String(segment.globalId)
+            applySelectedCourse(globalIdText: courseGlobalIdText)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(selected ? LiveHoleStyle.green : .secondary)
+                Text(segmentTitle(segment))
+                    .font(.subheadline.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text(segmentHolesText(segment))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? LiveHoleStyle.green.opacity(0.10) : Color.clear)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? LiveHoleStyle.green : LiveHoleStyle.line))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func segmentTitle(_ segment: MobileCourseOption) -> String {
+        if let label = segment.segmentLabel, !label.isEmpty {
+            return "\(label) 场"
+        }
+        return "全场"
+    }
+
+    private func segmentHolesText(_ segment: MobileCourseOption) -> String {
+        "\(segment.segmentHoles ?? segment.holes) 洞"
     }
 
     /// 发球台:内部保留 Garmin 原始 key(传给后端),仅显示中文。当前球场的发球台并入选项。
@@ -195,18 +223,24 @@ public struct StartRoundView: View {
         }
     }
 
-    /// One row per overall course (drop the " ~ A/B/C" nine suffix), most-played first.
-    /// The specific nine is resolved later from the round / Garmin data, not chosen here.
-    private var displayedCourses: [MobileCourseOption] {
-        var bestByName: [String: MobileCourseOption] = [:]
+    /// Group options by venue → each venue lists its playable segments (9-hole loops A/B/C, or a
+    /// whole 18). Loops sorted by label (A/B/C…), single course last; venues by most-played first.
+    private var venueGroups: [(venue: String, segments: [MobileCourseOption])] {
+        var byVenue: [String: [MobileCourseOption]] = [:]
         for option in courseOptions {
-            let key = baseCourseName(option.name)
-            if let existing = bestByName[key], existing.roundCount >= option.roundCount {
-                continue
-            }
-            bestByName[key] = option
+            let venue = option.venueName ?? baseCourseName(option.name)
+            byVenue[venue, default: []].append(option)
         }
-        return bestByName.values.sorted { $0.roundCount > $1.roundCount }
+        return byVenue
+            .map { entry in
+                (venue: entry.key, segments: entry.value.sorted { segmentSortKey($0) < segmentSortKey($1) })
+            }
+            .sorted { ($0.segments.map(\.roundCount).max() ?? 0) > ($1.segments.map(\.roundCount).max() ?? 0) }
+    }
+
+    private func segmentSortKey(_ segment: MobileCourseOption) -> String {
+        // Labelled loops first (A < B < C), a single whole course (nil label) last.
+        segment.segmentLabel ?? "~~"
     }
 
     private func baseCourseName(_ name: String) -> String {
