@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Caddie · iOS 重做设计稿(5 屏)</title>
+<style>
+  :root{
+    --green:#15803d; --green2:#22c55e; --tint:#e7f3ec;
+    --ink:#0f1720; --muted:#6b7280; --line:#e7e9ec; --bg:#f6f7f8; --panel:#fff;
+    --bogey:#d9a441; --double:#c2553f; --par:#2f8f5f; --birdie:#5aa8d8;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#0c1311;font-family:-apple-system,"PingFang SC",system-ui,sans-serif;color:var(--ink)}
+  h1.title{color:#eaf3ee;text-align:center;font-size:20px;margin:22px 0 2px}
+  p.sub{color:#9fb3aa;text-align:center;font-size:13px;margin:0 0 20px}
+  .gallery{display:flex;flex-wrap:wrap;gap:30px;justify-content:center;padding:0 14px 40px}
+  .frame{width:372px}
+  .phone{width:372px;height:806px;background:var(--bg);border-radius:40px;border:10px solid #1b2420;
+    box-shadow:0 16px 44px rgba(0,0,0,.5);overflow:hidden;display:flex;flex-direction:column}
+  .cap{color:#cfe0d7;font-size:13px;font-weight:600;text-align:center;margin:12px 0 0}
+  .capd{color:#8aa093;font-size:12px;text-align:center;margin:2px 0 0;line-height:1.4}
+  .scroll{flex:1;overflow:auto}
+  /* shared bits */
+  .topbar{background:var(--green);color:#fff;padding:14px 18px}
+  .topbar .k{font-size:12px;opacity:.9}
+  .topbar h2{margin:2px 0 0;font-size:24px;font-weight:800}
+  .pad{padding:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}
+  .card.hi{border:1.5px solid var(--green);box-shadow:0 4px 16px rgba(21,128,61,.10)}
+  .eyebrow{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--green);font-weight:700}
+  .muted{color:var(--muted)}
+  .row{display:flex;align-items:center;justify-content:space-between}
+  .chip{font-size:12px;border-radius:999px;padding:5px 10px;background:var(--tint);color:#14532d;display:inline-block}
+  .chip.warn{background:#f7e2dd;color:#a23f2c}.chip.mut{background:#eef0f2;color:#475569}
+  .btn{display:block;width:100%;border:1px solid var(--line);background:#fff;border-radius:14px;
+    padding:13px;font-size:15px;font-weight:600;color:var(--ink);text-align:center;margin-top:8px}
+  .btn.primary{background:var(--green);color:#fff;border-color:var(--green)}
+  .btn.big{font-size:17px;padding:16px}
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;text-align:center}
+  .tile .ic{font-size:24px}.tile .t{font-weight:700;margin-top:6px;font-size:14px}.tile .s{font-size:11px;color:var(--muted)}
+  .seg{display:flex;background:#eef0f2;border-radius:12px;padding:3px;margin-top:8px}
+  .seg button{flex:1;border:0;background:transparent;padding:9px;border-radius:9px;font-size:14px;font-weight:600;color:var(--muted)}
+  .seg button.on{background:#fff;color:var(--green);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .clubs{display:flex;gap:8px;overflow:auto}
+  .clubs button{flex:0 0 auto;border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px 13px;font-weight:600}
+  .clubs button.on{background:var(--green);color:#fff;border-color:var(--green)}
+  .strip{display:flex;gap:3px;margin-top:8px}
+  .strip i{flex:1;height:26px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-style:normal}
+  .b-par{background:var(--par)}.b-bog{background:var(--bogey)}.b-dbl{background:var(--double)}.b-bir{background:var(--birdie)}
+  table.alt{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
+  table.alt th{color:var(--muted);font-weight:600;text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);font-size:11px}
+  table.alt td{padding:8px 4px;border-bottom:1px solid var(--line)}
+  table.alt tr.pick td{background:var(--tint);font-weight:700}
+  .dist{display:flex;gap:10px}.dist .d{flex:1;background:rgba(255,255,255,.15);border-radius:12px;padding:8px;text-align:center}
+  .dist .d b{display:block;font-size:20px;font-weight:800}.dist .d span{font-size:11px;opacity:.92}
+  .stepper{flex:1;border:1px solid var(--line);border-radius:14px;padding:9px;text-align:center}
+  .stepper .t{font-size:12px;color:var(--muted)}.stepper .v{display:flex;align-items:center;justify-content:space-between;margin-top:3px}
+  .stepper .v b{font-size:24px;font-weight:800}.stepper .v button{width:32px;height:32px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--green);font-size:18px}
+  .locate{width:100%;border:0;background:var(--green);color:#fff;font-weight:800;border-radius:14px;padding:15px;font-size:16px;margin-top:6px}
+  .listrow{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line)}
+  .listrow:last-child{border-bottom:0}
+</style>
+</head>
+<body>
+  <h1 class="title">AI Caddie · iOS 原生重做设计稿</h1>
+  <p class="sub">mockup(非真机)· 核心 5 屏 · 统一设计系统 · 沿用 app 绿色调</p>
+  <div class="gallery">
+
+    <!-- 1. 球局主页 -->
+    <div class="frame">
+      <div class="phone"><div class="scroll">
+        <div class="topbar"><div class="k">下午好 ☀️</div><h2>开球吧,我</h2></div>
+        <div class="pad">
+          <div class="card hi">
+            <div class="row"><span class="eyebrow">进行中</span><span class="chip">前九 · 第 7/9 洞</span></div>
+            <div style="font-size:18px;font-weight:800;margin:6px 0 2px">北京丽宫 · 前九</div>
+            <div class="muted" style="font-size:13px">已记 6 洞 · +1 · 用时 1:42</div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn primary" style="margin-top:0;flex:2">继续这场 →</button>
+              <button class="btn" style="margin-top:0;flex:1">＋加打后九</button>
+            </div>
+            <div class="muted" style="font-size:11px;margin-top:7px">加错了?在球局菜单里可移除某个九。</div>
+          </div>
+          <div class="muted" style="font-size:11px;margin:2px 0 8px">没有进行中的球局时,上面这张卡会变成大按钮「开始一场」。</div>
+          <div class="tiles">
+            <div class="tile"><div class="ic">🎯</div><div class="t">备战</div><div class="s">逐洞攻略 · 试算一杆</div></div>
+            <div class="tile"><div class="ic">📈</div><div class="t">历史复盘</div><div class="s">441 场</div></div>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <div class="row"><b>上一场</b><span class="muted" style="font-size:12px">06-12</span></div>
+            <div class="row" style="margin-top:6px"><div style="font-size:30px;font-weight:800">51 <span class="chip warn">+14</span></div>
+            <span class="muted" style="font-size:13px;text-align:right">差点(估)<br><b style="color:var(--ink);font-size:18px">22.3</b></span></div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap">1 · 球局主页(Hub)</div>
+      <div class="capd">进行中可直接续打;四个入口 + 上一场/差点速览</div>
+    </div>
+
+    <!-- 2. 开始一场:选九洞 + Tee -->
+    <div class="frame">
+      <div class="phone"><div class="scroll">
+        <div class="topbar"><div class="k">开始一场</div><h2>北京丽宫体育公园</h2></div>
+        <div class="pad">
+          <div class="card">
+            <div class="eyebrow">起始 9 洞</div>
+            <div class="seg"><button class="on">前九 (1–9)</button><button>后九 (10–18)</button></div>
+            <div class="muted" style="font-size:12px;margin-top:8px">先打 9 洞即可。开始后在球局里随时「＋加打另外 9 洞」凑成 18;手滑加错也能一键撤销。</div>
+          </div>
+          <div class="card">
+            <div class="eyebrow">发球台 (Tee)</div>
+            <div class="clubs" style="margin-top:8px">
+              <button>黑</button><button class="on">蓝 6,412</button><button>白 6,003</button><button>金 5,540</button><button>红 5,102</button>
+            </div>
+            <div class="muted" style="font-size:12px;margin-top:8px">蓝 Tee · Par 36 · 前九约 3,180 码</div>
+          </div>
+          <div class="card">
+            <div class="eyebrow">天气</div>
+            <div class="row" style="margin-top:6px"><span>🌤 26°C · 风 3 m/s ↗ 东北</span><span class="chip mut">已载入</span></div>
+          </div>
+          <button class="btn primary big">开始记分</button>
+          <button class="btn">先看备战攻略</button>
+        </div>
+      </div></div>
+      <div class="cap">2 · 开始一场(选九洞 + Tee)</div>
+      <div class="capd">把待办的 W4b「选九洞/Tee」收进原生开局流程</div>
+    </div>
+
+    <!-- 3. 实战/记分 -->
+    <div class="frame">
+      <div class="phone"><div class="scroll">
+        <div class="topbar">
+          <div class="row"><span class="k">北京丽宫 · 前九</span><span class="k">⛳︎ 第 7/9</span></div>
+          <h2>第 7 洞 · Par 4</h2>
+          <div class="dist" style="margin-top:12px">
+            <div class="d"><b>152</b><span>到旗杆(码)</span></div>
+            <div class="d"><b>138</b><span>过前缘</span></div>
+            <div class="d"><b>+1</b><span>本场</span></div>
+          </div>
+        </div>
+        <div class="pad">
+          <div class="card hi">
+            <div class="row"><span class="eyebrow">球童建议 · 保守(护分)</span><span class="chip">采用</span></div>
+            <div style="font-size:24px;font-weight:800;margin:6px 0 2px">7 号铁 · 上果岭中心偏左</div>
+            <div class="muted" style="font-size:13px;line-height:1.5">右侧沙坑 138–150 码,落点避开;球道偏窄,优先保帕。</div>
+            <div style="margin-top:9px"><span class="chip">期望失分最低</span> <span class="chip">命中 64%</span> <span class="chip warn">右沙坑</span></div>
+            <button class="btn">看完整方案 / 换打法 →</button>
+          </div>
+          <div class="card">
+            <div class="muted" style="font-size:12px;margin-bottom:7px">选球杆</div>
+            <div class="clubs"><button>5i</button><button>6i</button><button class="on">7i</button><button>8i</button><button>9i</button><button>PW</button></div>
+            <button class="locate">📍 记一杆 · GPS</button>
+            <div class="muted" style="font-size:12px;margin-top:7px">本洞已记 <b style="color:var(--ink)">1</b> 杆 · 上杆 7i · ±4m</div>
+          </div>
+          <div class="card">
+            <div class="muted" style="font-size:12px;margin-bottom:7px">本洞成绩</div>
+            <div style="display:flex;gap:10px">
+              <div class="stepper"><div class="t">杆数</div><div class="v"><button>−</button><b>4</b><button>+</button></div></div>
+              <div class="stepper"><div class="t">推杆</div><div class="v"><button>−</button><b>2</b><button>+</button></div></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap">3 · 实战/记分</div>
+      <div class="capd">球童建议优先 · 记一杆 GPS · 紧凑成绩(替代 454 行 God view)</div>
+    </div>
+
+    <!-- 4. 球童方案 -->
+    <div class="frame">
+      <div class="phone"><div class="scroll">
+        <div class="topbar"><div class="k">第 7 洞 · 152 码 · 球道</div><h2>球童方案</h2></div>
+        <div class="pad">
+          <div class="card hi">
+            <div class="eyebrow">推荐 · 保守</div>
+            <div style="font-size:22px;font-weight:800;margin:6px 0">7 号铁 → 果岭中心偏左</div>
+            <div class="row"><span class="chip">期望 4.0 杆</span><span class="chip">上果岭 64%</span><span class="chip warn">沙坑 11%</span></div>
+            <div class="muted" style="font-size:13px;margin-top:9px;line-height:1.5">理由:右侧球道沙坑在你的 7 铁落点带(138–150 码);左侧开阔,瞄左中可吃下偏差。</div>
+          </div>
+          <div class="card">
+            <div class="muted" style="font-size:12px;margin-bottom:4px">备选打法</div>
+            <table class="alt">
+              <tr><th>打法</th><th>球杆</th><th>带球</th><th>风险</th></tr>
+              <tr class="pick"><td>稳妥</td><td>7i</td><td>150</td><td>低</td></tr>
+              <tr><td>进攻搏鸟</td><td>6i</td><td>165</td><td>中(过果岭)</td></tr>
+              <tr><td>放置短切</td><td>9i</td><td>120</td><td>低(留 30 码)</td></tr>
+            </table>
+          </div>
+          <div class="card">
+            <div class="muted" style="font-size:12px;margin-bottom:6px">避开区</div>
+            <div class="listrow"><span>🏖 右前沙坑</span><span class="chip warn">138–150 码</span></div>
+            <div class="listrow"><span>💧 左侧水</span><span class="chip warn">越线 175 码</span></div>
+          </div>
+          <button class="btn primary big">采用此方案</button>
+        </div>
+      </div></div>
+      <div class="cap">4 · 球童方案(实战中 & 备战「试算一杆」共用)</div>
+      <div class="capd">推荐 + 备选对比表 + 避开区;原"球童沙盘"能力并入此处,备战逐洞和实战都能调出</div>
+    </div>
+
+    <!-- 5. 赛后复盘 -->
+    <div class="frame">
+      <div class="phone"><div class="scroll">
+        <div class="topbar"><div class="k">06-11 · 北京天竺黑骑士 C/A</div><h2>赛后复盘</h2></div>
+        <div class="pad">
+          <div class="card">
+            <div class="row"><div style="font-size:34px;font-weight:800">89 <span class="chip warn">+17</span></div>
+            <span class="muted" style="font-size:12px;text-align:right">18 洞 · 击球齐全<br>vs 近10均 94.5 <b style="color:var(--green)">▼5.5</b></span></div>
+            <div class="strip">
+              <i class="b-bog">5</i><i class="b-par">3</i><i class="b-bog">5</i><i class="b-dbl">7</i><i class="b-bog">5</i><i class="b-par">4</i><i class="b-par">5</i><i class="b-bog">4</i><i class="b-bog">5</i>
+            </div>
+            <div class="strip">
+              <i class="b-par">4</i><i class="b-bir">3</i><i class="b-bog">5</i><i class="b-bog">5</i><i class="b-par">4</i><i class="b-dbl">7</i><i class="b-bog">5</i><i class="b-par">3</i><i class="b-bog">5</i>
+            </div>
+          </div>
+          <div class="card">
+            <div class="muted" style="font-size:12px;margin-bottom:4px">本场要点</div>
+            <div class="listrow"><span>三推</span><span class="chip warn">×3 · 失 3 杆</span></div>
+            <div class="listrow"><span>沙坑救球</span><span class="chip warn">×2 · 失 2 杆</span></div>
+            <div class="listrow"><span>开球偏右</span><span class="chip mut">×4</span></div>
+          </div>
+          <div class="card">
+            <div class="muted" style="font-size:12px;margin-bottom:4px">亮点</div>
+            <div class="listrow"><span>🐦 第 11 洞 抓鸟</span><span class="chip">Par 3</span></div>
+          </div>
+          <button class="btn primary big">看完整事实报告</button>
+          <button class="btn">逐洞回放</button>
+        </div>
+      </div></div>
+      <div class="cap">5 · 赛后复盘</div>
+      <div class="capd">成绩条 + 本场要点(中文 issue 标签)+ 入口到完整报告/逐洞</div>
+    </div>
+
+  </div>
+</body>
+</html>

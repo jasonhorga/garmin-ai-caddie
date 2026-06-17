@@ -139,13 +139,13 @@ public struct CurrentHoleView: View {
                     DisclosureGroup("更多调整(打法 / 球位 / 距离 / 目标 / 备注)") {
                         VStack(spacing: 10) {
                             Picker("打法", selection: $selectedShotType) {
-                                ForEach(shotTypeOptions, id: \.self) { Text($0.capitalized).tag($0) }
+                                ForEach(shotTypeOptions, id: \.self) { Text(zhShotType($0)).tag($0) }
                             }
                             Picker("策略", selection: $selectedStrategyMode) {
                                 ForEach(strategyModeOptions, id: \.self) { Text(strategyModeLabel($0)).tag($0) }
                             }
                             Picker("球位", selection: $selectedLie) {
-                                ForEach(lieOptions, id: \.self) { Text($0.capitalized).tag($0) }
+                                ForEach(lieOptions, id: \.self) { Text(zhLie($0)).tag($0) }
                             }
                             TextField("到旗杆距离(米)", text: $distanceToPinText)
                                 .keyboardType(.decimalPad)
@@ -260,11 +260,48 @@ public struct CurrentHoleView: View {
     private func strategyModeLabel(_ mode: String) -> String {
         switch mode {
         case "protect_score":
-            return "Protect"
+            return "护分"
         case "attack":
-            return "Attack"
+            return "进攻"
         default:
-            return "Stock"
+            return "标准"
+        }
+    }
+
+    /// 击球类型 / 球位的封闭英文枚举 → 中文(更多调整里的选择器)。未知值原样回退。
+    private func zhShotType(_ value: String) -> String {
+        switch value.lowercased() {
+        case "tee":
+            return "开球"
+        case "approach":
+            return "攻果岭"
+        case "recovery":
+            return "解围"
+        case "layup":
+            return "铺垫"
+        case "putt":
+            return "推杆"
+        default:
+            return value.capitalized
+        }
+    }
+
+    private func zhLie(_ value: String) -> String {
+        switch value.lowercased() {
+        case "fairway":
+            return "球道"
+        case "rough":
+            return "长草"
+        case "bunker":
+            return "沙坑"
+        case "green":
+            return "果岭"
+        case "tee":
+            return "发球台"
+        case "recovery":
+            return "解围"
+        default:
+            return value.capitalized
         }
     }
 

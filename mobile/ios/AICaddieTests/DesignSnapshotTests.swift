@@ -113,11 +113,14 @@ final class DesignSnapshotTests: XCTestCase {
             MobileCourseOption(globalId: 31793, courseKey: "lg", name: "北京丽宫体育公园高尔夫俱乐部", roundCount: 6, latestRoundId: "r2", latestRoundDate: "2026-06-12", templateRoundId: "r2", suggestedLiveRoundId: "live-31793", holes: 18, teeBox: "blue", geometryCoverage: "missing", sourceRefs: []),
         ]
 
-        try captureScreen(RoundHomeView(package: package, courseOptions: courses), named: "full-home")
+        // Pass a non-nil apiBaseURL so the 备战 tile (gated on apiBaseURL) renders — without it
+        // the snapshot hides 备战 and misrepresents the real app.
+        let apiBaseURL = URL(string: "https://caddie.example")
+        try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses), named: "full-home")
         // Hub WITH an in-progress round → shows the 进行中 card + 「结束本场」(cancel) button.
         let activeState = LiveRoundStateSnapshot(roundId: package.roundId, activeHole: package.holes.first?.number ?? 1, holes: [])
         try captureScreen(
-            RoundHomeView(package: package, liveRoundState: activeState, courseOptions: courses, startingNine: "front"),
+            RoundHomeView(package: package, apiBaseURL: apiBaseURL, liveRoundState: activeState, courseOptions: courses, startingNine: "front"),
             named: "full-home-active"
         )
         try captureScreen(NavigationStack { StartRoundView(courseOptions: courses) }, named: "full-start")

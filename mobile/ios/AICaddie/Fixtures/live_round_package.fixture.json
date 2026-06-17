@@ -150,7 +150,7 @@
         },
         "historicalHoleIssues": [
           {
-            "label": "approach short",
+            "label": "攻果岭偏短",
             "count": 2
           }
         ]
@@ -313,7 +313,7 @@
         "averageToPar": 0.2,
         "repeatedIssues": [
           {
-            "label": "approach short",
+            "label": "攻果岭偏短",
             "count": 2
           }
         ]
