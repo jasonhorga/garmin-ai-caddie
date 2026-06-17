@@ -101,9 +101,6 @@ struct RecentReviewContent: View {
                 if let par = round.par {
                     Text("Par \(par)")
                 }
-                if !round.sourceRefs.isEmpty {
-                    Text(round.sourceRefs.joined(separator: " / ")).lineLimit(1)
-                }
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
