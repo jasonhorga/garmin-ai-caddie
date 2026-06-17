@@ -108,9 +108,12 @@ final class DesignSnapshotTests: XCTestCase {
             .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
         let package = try JSONDecoder().decode(LiveRoundPackage.self, from: Data(contentsOf: fixtureURL))
 
+        // 黑骑士 = A/B/C 三个 9 洞环 + 北湖 = 单一 18 洞,验证按球场列环的选场 UI。
         let courses = [
-            MobileCourseOption(globalId: 31796, courseKey: "bk", name: "北京天竺黑骑士球员俱乐部 ~ C/A", roundCount: 58, latestRoundId: "r1", latestRoundDate: "2026-06-11", templateRoundId: "r1", suggestedLiveRoundId: "live-31796", holes: 18, teeBox: "blue", geometryCoverage: "missing", sourceRefs: []),
-            MobileCourseOption(globalId: 31793, courseKey: "lg", name: "北京丽宫体育公园高尔夫俱乐部", roundCount: 6, latestRoundId: "r2", latestRoundDate: "2026-06-12", templateRoundId: "r2", suggestedLiveRoundId: "live-31793", holes: 18, teeBox: "blue", geometryCoverage: "missing", sourceRefs: []),
+            MobileCourseOption(globalId: 31794, name: "北京天竺黑骑士球员俱乐部 ~ A", roundCount: 40, suggestedLiveRoundId: "live-31794", holes: 9, teeBox: "blue", geometryCoverage: "ready", venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "A", segmentHoles: 9),
+            MobileCourseOption(globalId: 31795, name: "北京天竺黑骑士球员俱乐部 ~ B", roundCount: 30, suggestedLiveRoundId: "live-31795", holes: 9, teeBox: "blue", geometryCoverage: "ready", venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "B", segmentHoles: 9),
+            MobileCourseOption(globalId: 31796, name: "北京天竺黑骑士球员俱乐部 ~ C", roundCount: 58, suggestedLiveRoundId: "live-31796", holes: 9, teeBox: "blue", geometryCoverage: "ready", venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "C", segmentHoles: 9),
+            MobileCourseOption(globalId: 41825, name: "北京北湖九号国际高尔夫俱乐部", roundCount: 40, suggestedLiveRoundId: "live-41825", holes: 18, teeBox: "blue", geometryCoverage: "ready", venueName: "北京北湖九号国际高尔夫俱乐部", segmentLabel: nil, segmentHoles: 18),
         ]
 
         // Pass a non-nil apiBaseURL so the 备战 tile (gated on apiBaseURL) renders — without it

@@ -1235,17 +1235,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let courseOptions: [MobileCourseOption]", start_view)
         self.assertIn("public let onPrepareRound: (String) -> Void", start_view)
         self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",start_view)
-        self.assertIn('Picker("最近球场"', start_view)
+        # 按真实结构选场:球场 → 列出它的各 9 洞环(segmentLabel)/ 整场,选一个开始(不再
+        # 用「最近球场」下拉 + 前九/后九 segmented;那是 18 洞洞号切片的旧错模型)。
+        self.assertIn("选择球场", start_view)
+        self.assertIn("venueGroups", start_view)
+        self.assertIn("func segmentRow(", start_view)
+        self.assertIn("segment.segmentLabel", start_view)
         self.assertIn("applySelectedCourse(globalIdText:", start_view)
         self.assertIn('Text("发球台")', start_view)
         self.assertIn('Label("开始记分"', start_view)
-        self.assertIn('Picker("起始 9 洞"', start_view)
-        self.assertIn('.pickerStyle(.segmented)', start_view)
         self.assertIn("onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)", start_view)
         self.assertIn("isPreparing", start_view)
-        # 消费化:球场列表显示整体名(去 " ~ A/B/C")、按最常打排序;工程项(手动 ID /
-        # 仅刷新离线包 / 后端地址)不再出现在 StartRoundView。
-        self.assertIn("displayedCourses", start_view)
+        self.assertNotIn('Picker("起始 9 洞"', start_view)
         self.assertIn("baseCourseName", start_view)
         self.assertNotIn("BackendSettingsView", start_view)
         self.assertNotIn('Label("仅刷新离线包"', start_view)
