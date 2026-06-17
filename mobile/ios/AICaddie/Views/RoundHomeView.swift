@@ -29,6 +29,7 @@ public struct RoundHomeView: View {
     public let onClearBackendConfiguration: () -> Void
 
     @State private var showDiscardConfirm = false
+    @State private var showSettings = false
 
     public init(
         package: LiveRoundPackage,
@@ -84,12 +85,23 @@ public struct RoundHomeView: View {
                     tilesRow
                     lastRoundCard
                     holesCard
-                    settingsCard
                 }
                 .padding(14)
             }
             .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
             .navigationTitle("开球吧")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
+            }
+            .sheet(isPresented: $showSettings) {
+                settingsSheet
+            }
         }
     }
 
@@ -257,40 +269,45 @@ public struct RoundHomeView: View {
         }
     }
 
-    // MARK: - 设置(同步 / 连接)
+    // MARK: - 设置 sheet(齿轮入口)— Garmin 账号 + 手动同步兜底。记分时已自动同步,
+    // 主页不再放 Garmin/同步(用户要求:同步自动化、Garmin 不写在主页)。
 
-    @ViewBuilder private var settingsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("设置").font(.caption).foregroundStyle(.secondary)
-            Button {
-                onSync()
-            } label: {
-                Label("同步", systemImage: "arrow.triangle.2.circlepath")
+    private var settingsSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    NavigationLink {
+                        GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)
+                    } label: {
+                        Label("Garmin 账号", systemImage: "key")
+                    }
+                    Button {
+                        onSync()
+                    } label: {
+                        Label("同步", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .foregroundStyle(LiveHoleStyle.green)
+                    if pendingEventCount > 0 {
+                        Label("\(pendingEventCount) 条待同步", systemImage: "tray.full")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("数据")
+                } footer: {
+                    Text("记分时会自动同步到 Garmin / 后端;这里可手动触发或管理账号。")
+                }
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(LiveHoleStyle.green)
-            NavigationLink {
-                GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)
-            } label: {
-                settingsRow(Label("Garmin 账号", systemImage: "key"))
-            }
-            .buttonStyle(.plain)
-            if pendingEventCount > 0 {
-                Label("\(pendingEventCount) 条待同步", systemImage: "tray.full")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            .navigationTitle("设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") {
+                        showSettings = false
+                    }
+                }
             }
         }
-        .liveCard()
-    }
-
-    private func settingsRow(_ label: some View) -> some View {
-        HStack {
-            label
-            Spacer()
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-        }
-        .foregroundStyle(.primary)
     }
 }
 
