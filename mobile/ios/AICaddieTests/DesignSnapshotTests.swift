@@ -132,10 +132,14 @@ final class DesignSnapshotTests: XCTestCase {
         window.makeKeyAndVisible()
         host.view.setNeedsLayout()
         host.view.layoutIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.7))
+        // Pump the runloop so SwiftUI commits its first render, then capture the layer tree
+        // (synchronous; works headless, unlike drawHierarchy(afterScreenUpdates:) which needs
+        // a live display and renders blank in CI).
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))
+        host.view.layoutIfNeeded()
         let renderer = UIGraphicsImageRenderer(size: size)
-        let image = renderer.image { _ in
-            _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        let image = renderer.image { ctx in
+            window.layer.render(in: ctx.cgContext)
         }
         guard let data = image.pngData() else {
             XCTFail("no png for \(name)")
