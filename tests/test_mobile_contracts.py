@@ -972,6 +972,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let recentHistory: RecentHistory", package_swift)
         self.assertIn("let cachedCaddieRules: CachedCaddieRules", package_swift)
         self.assertIn("let coursePrep: CoursePrepPackage?", package_swift)
+        self.assertIn("let nine: String?", package_swift)
         self.assertIn("let caddieContextSeeds: [CaddieContextSeed]", package_swift)
         self.assertIn("struct CaddieContextSeed: Codable", package_swift)
         self.assertIn("let selectedOfflineOptionId: String?", package_swift)
@@ -1250,6 +1251,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let courseOptions: [MobileCourseOption]", round_home)
         self.assertIn("StartRoundView(", round_home)
         self.assertIn('Label("开始一场"', round_home)
+
+        # 选9洞 中途加打 / 撤销: nine 是对一局 18 洞的视图过滤,改 nine 重取同 roundId 保留已记杆。
+        self.assertIn("@Published public private(set) var startingNine", app_swift)
+        self.assertIn("public func setActiveNine(", app_swift)
+        self.assertIn("await model.setActiveNine(nine)", app_swift)
+        self.assertIn("public let startingNine: String?", round_home)
+        self.assertIn("public let onChangeNine: (String) -> Void", round_home)
+        self.assertIn('onChangeNine("all")', round_home)
+        self.assertIn("加打另外 9 洞", round_home)
+        self.assertIn("package.nine ?? \"all\"", round_home)
 
     def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
         course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")

@@ -23,6 +23,7 @@ public struct AICaddieApp: App {
                         watchBridge: model.watchBridge,
                         liveRoundState: model.liveRoundState,
                         courseOptions: model.courseOptions,
+                        startingNine: model.startingNine,
                         isPreparingRound: model.isPreparingRound,
                         onEvent: model.handleEvent,
                         onPrepareRound: { roundId in
@@ -33,6 +34,11 @@ public struct AICaddieApp: App {
                         onPrepareCourseRound: { globalId, roundId, teeBox, nine in
                             Task {
                                 await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)
+                            }
+                        },
+                        onChangeNine: { nine in
+                            Task {
+                                await model.setActiveNine(nine)
                             }
                         },
                         onSync: {
@@ -101,6 +107,8 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var isPreparingRound = false
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     @Published public private(set) var courseOptions: [MobileCourseOption] = []
+    /// 本局的起始九洞(用于「移除另外 9 洞」撤销目标);随新 roundId 重置。
+    @Published public private(set) var startingNine: String?
     public let watchBridge: WatchEventBridge?
     public let offlineStore: OfflineStore
     public let garminSessionStore: GarminSessionStore?
@@ -289,6 +297,10 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "Round id is required"
             return
         }
+        // 新的一局才记录起始九洞;同一 roundId 改九洞(加打/撤销)时保留撤销目标。
+        if package?.roundId != requestedRoundId {
+            startingNine = (nine == "all") ? nil : nine
+        }
         let preparedAt = Date()
 
         isPreparingRound = true
@@ -310,6 +322,25 @@ public final class LiveRoundAppModel: ObservableObject {
         } catch {
             syncStatus = "Course package prepare failed"
         }
+    }
+
+    /// 中途改当前局的起始九洞(加打另外 9 洞 → all,或撤销回起始九洞)。
+    /// 同一 roundId 重取并重新激活,已记杆/事件按 roundId 保留(restoreLiveRoundState 重建)。
+    public func setActiveNine(_ nine: String) async {
+        guard let package, package.course.globalId != 0 else {
+            return
+        }
+        // 首次扩展到 18 洞时,记下当前九洞作为「移除」撤销目标(覆盖 bootstrap 恢复的局)。
+        if nine == "all", startingNine == nil {
+            let current = package.nine ?? "all"
+            startingNine = (current == "all") ? nil : current
+        }
+        await prepareCourseRound(
+            globalId: package.course.globalId,
+            roundId: package.roundId,
+            teeBox: package.course.teeBox,
+            nine: nine
+        )
     }
 
     public func handleEvent(_ event: LiveRoundEvent) {
