@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readAdminTokenFromUrl } from './adminTokenStore'
+import { readAdminTokenFromUrl, readBakedAdminToken } from './adminTokenStore'
 
 describe('readAdminTokenFromUrl', () => {
   afterEach(() => {
@@ -30,5 +30,20 @@ describe('readAdminTokenFromUrl', () => {
   it('defaults to window.location when no argument is provided', () => {
     vi.stubGlobal('location', { search: '?admin=windowtok' })
     expect(readAdminTokenFromUrl()).toBe('windowtok')
+  })
+})
+
+describe('readBakedAdminToken', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('is empty when the build-time env var is unset', () => {
+    expect(readBakedAdminToken()).toBe('')
+  })
+
+  it('returns the trimmed build-time token when set', () => {
+    vi.stubEnv('VITE_AI_CADDIE_DEFAULT_ADMIN_TOKEN', '  baked-tok  ')
+    expect(readBakedAdminToken()).toBe('baked-tok')
   })
 })
