@@ -78,7 +78,7 @@ import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
-import { readStoredAdminToken, writeStoredAdminToken } from './adminTokenStore'
+import { readAdminTokenFromUrl, readStoredAdminToken, writeStoredAdminToken } from './adminTokenStore'
 import { isLinkRequired, readPlayerToken } from './playerContext'
 import type {
   AnnotationCreateRequest,
@@ -186,9 +186,19 @@ export default function App() {
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
   const [sessionSaveState, setSessionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null)
-  // Hydrate the owner's admin token from localStorage so the boot load below
-  // already carries it (owner mode: bare URL, private profile → otherwise 401).
-  const [adminToken, setAdminToken] = useState(() => readStoredAdminToken())
+  // Hydrate the owner's admin token. Prefer a token carried in the URL
+  // (`?admin=<token>`, like the player `/p/<token>` link) so the owner can
+  // bookmark ONE URL and never retype — durable even if iOS Safari clears
+  // localStorage. Fall back to the persisted token. A URL token is also persisted
+  // so SPA navigation that drops the query keeps working within the session.
+  const [adminToken, setAdminToken] = useState(() => {
+    const fromUrl = readAdminTokenFromUrl()
+    if (fromUrl) {
+      writeStoredAdminToken(fromUrl)
+      return fromUrl
+    }
+    return readStoredAdminToken()
+  })
 
   useEffect(() => {
     // Locked out: a link is required, the URL carries no player token, and no
