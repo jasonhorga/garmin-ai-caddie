@@ -104,7 +104,7 @@ public struct StartRoundView: View {
                     }
                 }
             }
-            Text("先选一个 9 洞开始;「加打另一个 9 洞凑 18」稍后更新。")
+            Text("选一个 9 洞环开始;想打 18 洞就在下方加打另一个环。")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Divider().padding(.vertical, 2)
