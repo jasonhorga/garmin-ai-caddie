@@ -78,7 +78,7 @@ import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
-import { readAdminTokenFromUrl, readStoredAdminToken, writeStoredAdminToken } from './adminTokenStore'
+import { readAdminTokenFromUrl, readBakedAdminToken, readStoredAdminToken, writeStoredAdminToken } from './adminTokenStore'
 import { isLinkRequired, readPlayerToken } from './playerContext'
 import type {
   AnnotationCreateRequest,
@@ -197,7 +197,9 @@ export default function App() {
       writeStoredAdminToken(fromUrl)
       return fromUrl
     }
-    return readStoredAdminToken()
+    // URL → previously entered → build-time baked default (owner's private homeserver
+    // build only). The baked default lets the bare URL auto-load the owner profile.
+    return readStoredAdminToken() || readBakedAdminToken()
   })
 
   useEffect(() => {

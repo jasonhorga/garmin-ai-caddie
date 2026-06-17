@@ -47,3 +47,15 @@ export function readAdminTokenFromUrl(loc: AdminLocationLike = window.location):
     return ''
   }
 }
+
+/**
+ * Build-time default admin token, inlined by Vite from
+ * `VITE_AI_CADDIE_DEFAULT_ADMIN_TOKEN`. Set ONLY in the owner's private homeserver
+ * build so the bare URL auto-loads the owner profile with no entry. Empty in the
+ * repo / CI build. NOTE: this inlines the token into the shipped JS — enable it only
+ * for a deployment whose URL is the owner's alone (it is readable by anyone who
+ * loads that URL).
+ */
+export function readBakedAdminToken(): string {
+  return String(import.meta.env.VITE_AI_CADDIE_DEFAULT_ADMIN_TOKEN ?? '').trim()
+}
