@@ -1468,7 +1468,7 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("if let apiBaseURL, package.course.globalId != 0", round_home)
         self.assertIn("globalId: package.course.globalId", round_home)
-        self.assertIn('Label("赛前攻略", systemImage: "map")', round_home)
+        self.assertIn('title: "赛前攻略"', round_home)
 
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
@@ -2105,14 +2105,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let onEvent", round_home)
         self.assertIn("syncStatus", round_home)
         self.assertIn("PackageReadinessSection(package: package)", round_home)
-        self.assertIn("Section(\"Offline Package\")", round_home)
+        self.assertIn("离线就绪", round_home)
         self.assertIn("package.offlinePackageStatus.state", round_home)
         self.assertIn("package.readinessChecks", round_home)
         self.assertIn("readinessColor(check.state)", round_home)
         self.assertIn("package.missingData.isEmpty", round_home)
         self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
         self.assertIn("RecentRoundReviewView(package: package)", round_home)
-        self.assertIn('Label("历史复盘"', round_home)
+        self.assertIn('title: "历史复盘"', round_home)
         self.assertIn("struct RecentRoundReviewView: View", recent_review)
         self.assertIn("package.recentHistory.rounds", recent_review)
         self.assertIn("round.toPar", recent_review)

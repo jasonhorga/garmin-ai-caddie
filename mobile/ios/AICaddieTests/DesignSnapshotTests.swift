@@ -54,6 +54,22 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderRoundHome() throws {
+        let view = VStack(spacing: 12) {
+            HubInProgressCard(courseName: "北京丽宫 · 前九", activeHole: 7, recorded: 6, total: 9)
+            HStack(spacing: 10) {
+                HubTile(icon: "map", title: "赛前攻略", subtitle: "逐洞攻略 · 试算一杆")
+                HubTile(icon: "chart.line.uptrend.xyaxis", title: "历史复盘", subtitle: "441 场近况")
+            }
+            HubLastRoundCard(courseName: "北京天竺黑骑士 C/A", date: "06-11", score: 89, toPar: 17)
+        }
+        .padding(14)
+        .frame(width: 390)
+        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        try render(view, named: "round-home")
+    }
+
+    @MainActor
     private func render(_ view: some View, named name: String) throws {
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
