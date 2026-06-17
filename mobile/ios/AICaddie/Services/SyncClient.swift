@@ -130,14 +130,14 @@ public final class SyncClient {
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 
-    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date(), ensureGeometry: Bool = false) async throws -> LiveRoundPackage {
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date(), ensureGeometry: Bool = false, backGlobalId: Int? = nil) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
         ) else {
             throw URLError(.badURL)
         }
-        components.queryItems = [
+        var items = [
             URLQueryItem(name: "round_id", value: roundId),
             URLQueryItem(name: "tee_box", value: teeBox),
             URLQueryItem(name: "nine", value: nine),
@@ -145,6 +145,11 @@ public final class SyncClient {
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
         ]
+        if let backGlobalId {
+            // Composite 18: play this loop (holes 1–9) + a second loop (holes 10–18).
+            items.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
+        }
+        components.queryItems = items
         guard let url = components.url else {
             throw URLError(.badURL)
         }

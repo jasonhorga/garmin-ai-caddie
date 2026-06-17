@@ -22,6 +22,7 @@ public struct RoundHomeView: View {
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
+    public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     public let onChangeNine: (String) -> Void
     public let onDiscard: () -> Void
     public let onSync: () -> Void
@@ -48,6 +49,7 @@ public struct RoundHomeView: View {
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
+        onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onChangeNine: @escaping (String) -> Void = { _ in },
         onDiscard: @escaping () -> Void = {},
         onSync: @escaping () -> Void = {},
@@ -70,6 +72,7 @@ public struct RoundHomeView: View {
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
+        self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onChangeNine = onChangeNine
         self.onDiscard = onDiscard
         self.onSync = onSync
@@ -145,6 +148,7 @@ public struct RoundHomeView: View {
                 adminTokenConfigured: adminTokenConfigured,
                 onPrepareRound: onPrepareRound,
                 onPrepareCourseRound: onPrepareCourseRound,
+                onPrepareCompositeRound: onPrepareCompositeRound,
                 onSaveBackendConfiguration: onSaveBackendConfiguration,
                 onClearBackendConfiguration: onClearBackendConfiguration
             )

@@ -69,6 +69,7 @@ def build_mobile_course_package_response(
     client_id: str | None = None,
     ensure_geometry: bool = False,
     nine: str = "all",
+    back_global_id: int | None = None,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode()
     return LiveRoundPackageResponse(
@@ -85,6 +86,7 @@ def build_mobile_course_package_response(
             client_id=client_id,
             ensure_geometry=ensure_geometry,
             nine=nine,
+            back_global_id=back_global_id,
         )
     )
 

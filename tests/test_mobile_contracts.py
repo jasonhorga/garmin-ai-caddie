@@ -1231,6 +1231,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
         self.assertIn("await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)", app_swift)
 
+        # Composite 18: front loop + a second loop (holes 10–18). Wired front→model→SyncClient→backend.
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        self.assertIn("public func prepareCompositeRound(globalId: Int, backGlobalId: Int, roundId: String, teeBox: String) async", app_swift)
+        self.assertIn("await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)", app_swift)
+        self.assertIn("backGlobalId: Int? = nil", sync_client)
+        self.assertIn('URLQueryItem(name: "back_global_id"', sync_client)
+        self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", start_view)
+        self.assertIn("onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)", start_view)
+        self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", round_home)
+        self.assertIn("onPrepareCompositeRound: onPrepareCompositeRound", round_home)
+
         self.assertIn("struct StartRoundView: View", start_view)
         self.assertIn("public let courseOptions: [MobileCourseOption]", start_view)
         self.assertIn("public let onPrepareRound: (String) -> Void", start_view)
