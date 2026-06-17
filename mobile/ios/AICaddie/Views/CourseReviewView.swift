@@ -72,12 +72,8 @@ struct HolePrepCard: View {
                 Spacer()
                 Text("Par 来源：\(sourceLabel)").font(.caption2).foregroundColor(.secondary)
             }
-            #if canImport(UIKit)
-            if let image = holeImage {
-                Image(uiImage: image).resizable().scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            #endif
+            // 服务端真实球场图 + 推荐打法(route + 推荐落点 + 球杆)叠加。
+            HoleImageMapView(hole: hole)
             ForEach(Array(hole.steps.enumerated()), id: \.offset) { _, step in
                 Text(step.club.map { "• \($0)  \(step.note)" } ?? "• \(step.note)").font(.subheadline)
             }
@@ -142,14 +138,4 @@ struct HolePrepCard: View {
         return Color.gray.opacity(0.12)
         #endif
     }
-
-    #if canImport(UIKit)
-    private var holeImage: UIImage? {
-        guard let dataUri = hole.map?.image,
-              let comma = dataUri.firstIndex(of: ","),
-              let data = Data(base64Encoded: String(dataUri[dataUri.index(after: comma)...]))
-        else { return nil }
-        return UIImage(data: data)
-    }
-    #endif
 }

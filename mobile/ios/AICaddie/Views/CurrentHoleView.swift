@@ -23,7 +23,7 @@ public struct CurrentHoleView: View {
     @State private var selectedClub: String
     @State private var selectedShotType: String
     @State private var selectedStrategyMode: String = "stock"
-    @State private var holeMap: HoleMap?
+    @State private var holePrep: CoursePrepHole?
     @State private var distanceToPinText: String = ""
     @State private var selectedLie: String = "fairway"
     @State private var currentCoordinate: CLLocationCoordinate2D?
@@ -218,27 +218,29 @@ public struct CurrentHoleView: View {
         package.caddieContextSeeds.first { $0.hole == hole.number }
     }
 
-    /// 球洞俯视图(2D):后端 hole-map GeoJSON 渲球道/果岭/沙坑/水 + 我的位置。无几何时不显示。
+    /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时不显示。
     @ViewBuilder private var holeMapCard: some View {
-        if let holeMap, holeMap.hasGeometry {
+        if let holePrep, holePrep.map?.overlay != nil {
             VStack(alignment: .leading, spacing: 8) {
                 Text("球洞俯视图").font(.caption).foregroundStyle(.secondary)
-                HoleMapView(
-                    map: holeMap,
-                    playerCoordinate: currentCoordinate.map { [$0.longitude, $0.latitude] }
-                )
-                .frame(height: 260)
+                HoleImageMapView(hole: holePrep)
             }
             .liveCard()
         }
     }
 
     private func loadHoleMap() async {
-        guard let caddieBaseURL, package.course.globalId != 0 else {
+        guard let caddieBaseURL else {
+            return
+        }
+        // 每洞用自己的 source 球场 + 本地洞号(组合局后九在第二个环的 gid)。
+        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
+        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        guard mapGlobalId != 0 else {
             return
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
-        holeMap = try? await client.fetchHoleMap(globalId: package.course.globalId, localHole: hole.number)
+        holePrep = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
     }
 
     /// 本洞避开区:取 course_prep 该洞的 hazards(沙坑/水域 米区间)供球童方案展示。

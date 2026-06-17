@@ -1415,15 +1415,17 @@ class MobileContractTests(unittest.TestCase):
 
     def test_ios_hole_2d_map_wired(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
-        hole_map_view = _read_required_source(self, IOS_DIR / "Views" / "HoleMapView.swift")
-        hole_map_model = _read_required_source(self, IOS_DIR / "Models" / "HoleMap.swift")
+        hole_map_view = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
+        course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
-        # 2D top-down hole map fetched from the geometry hole-map GeoJSON + rendered in the live screen.
-        self.assertIn("struct HoleMapView", hole_map_view)
-        self.assertIn("struct HoleMap", hole_map_model)
-        self.assertIn("func fetchHoleMap(globalId: Int, localHole: Int) async throws -> HoleMap", sync_client)
-        self.assertIn("/api/v2/geometry/hole/", sync_client)
-        self.assertIn("HoleMapView(", current_hole)
+        # 2D hole map = server-rendered hole image + recommended route/club overlay; shared by
+        # 实战 (CurrentHoleView) + 备战 (CourseReviewView). Per-hole source gid → composite back
+        # nines fetch the right loop's geometry.
+        self.assertIn("struct HoleImageMapView", hole_map_view)
+        self.assertIn("func fetchHolePrep(globalId: Int, localHole: Int) async throws -> CoursePrepHole?", sync_client)
+        self.assertIn("HoleImageMapView(hole:", current_hole)
+        self.assertIn("HoleImageMapView(hole: hole)", course_review)
+        self.assertIn("hole.sourceGlobalId ?? package.course.globalId", current_hole)
         self.assertIn("func loadHoleMap()", current_hole)
 
     def test_ios_restores_live_round_state_from_offline_event_log(self) -> None:

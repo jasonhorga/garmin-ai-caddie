@@ -258,6 +258,12 @@
           "geometryCoverage": {
             "type": "string",
             "enum": ["ready", "partial", "missing"]
+          },
+          "sourceGlobalId": {
+            "type": ["integer", "null"]
+          },
+          "sourceLocalHole": {
+            "type": ["integer", "null"]
           }
         }
       }
