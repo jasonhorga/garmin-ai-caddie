@@ -70,6 +70,34 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderCaddiePlan() throws {
+        func option(_ id: String, _ label: String, _ club: String, _ carry: Double, _ risk: Double) -> CaddiePlanOption {
+            CaddiePlanOption(
+                id: id, label: label, carryM: carry, riskScore: risk, clubName: club,
+                p10M: nil, p90M: nil, sampleSize: 42, confidence: "high", coverageText: "8/10",
+                expectedStrokes: 4.0, expectedStrokesDelta: -0.2, scoreImpactModel: nil,
+                sourceRefs: ["geometry:31795:7"], missingDataLabels: []
+            )
+        }
+        let view = CaddiePlanView(
+            options: [
+                option("stock", "稳妥", "7i", 150, 1),
+                option("attack", "进攻搏鸟", "6i", 165, 3),
+                option("layup", "放置短切", "9i", 120, 1),
+            ],
+            selectedOptionId: "stock",
+            hazards: [
+                CaddiePlanHazard(id: "b0", icon: "🏖", label: "沙坑", detail: "138–150m"),
+                CaddiePlanHazard(id: "w0", icon: "💧", label: "水域", detail: "越线 175m"),
+            ]
+        )
+        .padding(14)
+        .frame(width: 390)
+        .background(Color.white)
+        try render(view, named: "caddie-plan")
+    }
+
+    @MainActor
     private func render(_ view: some View, named name: String) throws {
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2

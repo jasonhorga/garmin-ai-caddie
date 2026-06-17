@@ -419,78 +419,83 @@ public struct CaddiePlanView: View {
     public let selectedOptionId: String
     public let sequences: [CaddiePlanSequence]
     public let selectedSequenceId: String?
+    public let hazards: [CaddiePlanHazard]
 
     public init(
         options: [CaddiePlanOption],
         selectedOptionId: String,
         sequences: [CaddiePlanSequence] = [],
-        selectedSequenceId: String? = nil
+        selectedSequenceId: String? = nil,
+        hazards: [CaddiePlanHazard] = []
     ) {
         self.options = options
         self.selectedOptionId = selectedOptionId
         self.sequences = sequences
         self.selectedSequenceId = selectedSequenceId
+        self.hazards = hazards
     }
 
-    public init(response: CaddieDecisionResponse) {
+    public init(response: CaddieDecisionResponse, hazards: [CaddiePlanHazard] = []) {
         let responseOptions = CaddiePlanOption.options(from: response)
         let responseSequences = CaddiePlanSequence.sequences(from: response)
         self.options = responseOptions
         self.selectedOptionId = response.selectedOptionId ?? responseOptions.first?.id ?? "stock"
         self.sequences = responseSequences
         self.selectedSequenceId = CaddiePlanSequence.selectedSequenceId(from: response) ?? response.selectedOptionId
+        self.hazards = hazards
     }
 
-    public init(seed: CaddieContextSeed?) {
+    public init(seed: CaddieContextSeed?, hazards: [CaddiePlanHazard] = []) {
         let seedOptions = CaddiePlanOption.options(from: seed)
         self.options = seedOptions
         self.selectedOptionId = seed?.selectedOfflineOptionId ?? seedOptions.first?.id ?? "stock"
         self.sequences = []
         self.selectedSequenceId = nil
+        self.hazards = hazards
+    }
+
+    private var recommended: CaddiePlanOption? {
+        options.first { $0.id == selectedOptionId } ?? options.first
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("球童建议")
                 .font(.headline)
-            ForEach(options) { option in
-                HStack(spacing: 12) {
-                    Image(systemName: option.id == selectedOptionId ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(
-                            option.id == selectedOptionId ? AICaddieDesignTokens.strategyColor(option.id) : .secondary
-                        )
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(option.label)
-                            .font(.subheadline.weight(.semibold))
-                        Text("\(option.clubName) / \(Int(option.carryM))m")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(option.qualityText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        if let scoreImpactText = option.scoreImpactText {
-                            Text(scoreImpactText)
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(AICaddieDesignTokens.confidenceColor(option.confidence ?? "low"))
-                        }
-                        if let sourceRefsText = option.sourceRefsText {
-                            Text(sourceRefsText)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                        }
-                        if let missingDataText = option.missingDataText {
-                            Text(missingDataText)
-                                .font(.caption2)
-                                .foregroundStyle(AICaddieDesignTokens.riskColor(4))
+
+            Text("备选打法")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            altTable
+
+            if let recommended {
+                recommendedDetail(recommended)
+            }
+
+            if !hazards.isEmpty {
+                Text("避开区")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(hazards) { hazard in
+                    HStack(spacing: 8) {
+                        Text(hazard.icon)
+                        Text(hazard.label)
+                            .font(.subheadline)
+                        Spacer()
+                        if let detail = hazard.detail {
+                            Text(detail)
+                                .font(.caption.monospacedDigit())
+                                .padding(.vertical, 3)
+                                .padding(.horizontal, 8)
+                                .background(AICaddieDesignTokens.bogey.opacity(0.16))
+                                .foregroundStyle(AICaddieDesignTokens.bogey)
+                                .clipShape(Capsule())
                         }
                     }
-                    Spacer()
-                    Text("风险 \(Int(option.riskScore))")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
+                    .padding(.vertical, 2)
                 }
-                .padding(.vertical, 6)
             }
+
             if !sequences.isEmpty {
                 Divider()
                     .padding(.vertical, 2)
@@ -535,5 +540,112 @@ public struct CaddiePlanView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// 备选打法对比表:打法 / 球杆 / 带球 / 风险;推荐行(选中)高亮。
+    private var altTable: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("打法").frame(maxWidth: .infinity, alignment: .leading)
+                Text("球杆").frame(width: 52, alignment: .leading)
+                Text("带球").frame(width: 60, alignment: .trailing)
+                Text("风险").frame(width: 48, alignment: .trailing)
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 6)
+            Divider()
+            ForEach(options) { option in
+                let isSelected = option.id == selectedOptionId
+                HStack {
+                    HStack(spacing: 5) {
+                        if isSelected {
+                            Text("推荐")
+                                .font(.caption2.weight(.bold))
+                                .padding(.vertical, 2)
+                                .padding(.horizontal, 6)
+                                .background(AICaddieDesignTokens.strategyColor(option.id).opacity(0.18))
+                                .foregroundStyle(AICaddieDesignTokens.strategyColor(option.id))
+                                .clipShape(Capsule())
+                        }
+                        Text(option.label)
+                            .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(option.clubName).font(.subheadline).frame(width: 52, alignment: .leading)
+                    Text("\(Int(option.carryM))m").font(.subheadline.monospacedDigit()).frame(width: 60, alignment: .trailing)
+                    Text("\(Int(option.riskScore))")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
+                        .frame(width: 48, alignment: .trailing)
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 6)
+                .background(isSelected ? AICaddieDesignTokens.strategyColor(option.id).opacity(0.10) : Color.clear)
+                Divider()
+            }
+        }
+    }
+
+    /// 推荐打法的证据明细(保留 quality / score / source / missing 文案)。
+    @ViewBuilder private func recommendedDetail(_ option: CaddiePlanOption) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(option.qualityText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if let scoreImpactText = option.scoreImpactText {
+                Text(scoreImpactText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(AICaddieDesignTokens.confidenceColor(option.confidence ?? "low"))
+            }
+            if let sourceRefsText = option.sourceRefsText {
+                Text(sourceRefsText)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            if let missingDataText = option.missingDataText {
+                Text(missingDataText)
+                    .font(.caption2)
+                    .foregroundStyle(AICaddieDesignTokens.riskColor(4))
+            }
+        }
+    }
+}
+
+/// 避开区项:emoji 图标 + 中文标签 + 距离区间(由 CoursePrep 的 hazards 区间生成)。
+public struct CaddiePlanHazard: Identifiable, Equatable {
+    public let id: String
+    public let icon: String
+    public let label: String
+    public let detail: String?
+
+    public init(id: String, icon: String, label: String, detail: String?) {
+        self.id = id
+        self.icon = icon
+        self.label = label
+        self.detail = detail
+    }
+
+    /// 从 course_prep 的 hazards(米区间)生成避开区列表:沙坑在前、水域在后。
+    public static func from(_ hazards: CoursePrepHazards) -> [CaddiePlanHazard] {
+        var out: [CaddiePlanHazard] = []
+        for (index, interval) in hazards.bunkers.enumerated() {
+            out.append(CaddiePlanHazard(id: "bunker-\(index)", icon: "🏖", label: "沙坑", detail: rangeText(interval)))
+        }
+        for (index, interval) in hazards.waterCarry.enumerated() {
+            out.append(CaddiePlanHazard(id: "water-\(index)", icon: "💧", label: "水域", detail: rangeText(interval)))
+        }
+        return out
+    }
+
+    private static func rangeText(_ interval: [Double]) -> String? {
+        guard let start = interval.first else {
+            return nil
+        }
+        if interval.count >= 2 {
+            return "\(Int(start))–\(Int(interval[1]))m"
+        }
+        return "越线 \(Int(start))m"
     }
 }

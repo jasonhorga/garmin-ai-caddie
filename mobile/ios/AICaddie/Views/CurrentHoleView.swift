@@ -97,9 +97,9 @@ public struct CurrentHoleView: View {
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(LiveHoleStyle.green)
                         if let caddieDecision {
-                            CaddiePlanView(response: caddieDecision)
+                            CaddiePlanView(response: caddieDecision, hazards: caddiePlanHazards)
                         } else {
-                            CaddiePlanView(seed: caddieContextSeed)
+                            CaddiePlanView(seed: caddieContextSeed, hazards: caddiePlanHazards)
                         }
                         if isLoadingCaddieDecision {
                             ProgressView("更新球童建议…")
@@ -206,6 +206,14 @@ public struct CurrentHoleView: View {
 
     private var caddieContextSeed: CaddieContextSeed? {
         package.caddieContextSeeds.first { $0.hole == hole.number }
+    }
+
+    /// 本洞避开区:取 course_prep 该洞的 hazards(沙坑/水域 米区间)供球童方案展示。
+    private var caddiePlanHazards: [CaddiePlanHazard] {
+        guard let prep = package.coursePrep?.holes.first(where: { $0.hole == hole.number }) else {
+            return []
+        }
+        return CaddiePlanHazard.from(prep.hazards)
     }
 
     private var holeToParText: String {
