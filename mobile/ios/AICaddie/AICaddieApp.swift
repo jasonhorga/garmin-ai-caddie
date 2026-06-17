@@ -4,6 +4,7 @@ import SwiftUI
 @main
 public struct AICaddieApp: App {
     @StateObject private var model = LiveRoundAppModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     public init() {}
 
@@ -99,6 +100,11 @@ public struct AICaddieApp: App {
             .preferredColorScheme(.light)
             .task {
                 await model.bootstrap()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    model.syncOnForeground()
+                }
             }
         }
     }
@@ -378,9 +384,21 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
             syncStatus = "Offline event saved"
+            // Auto-sync: push to Garmin/backend in the background after each recorded hole, so the
+            // player never manages sync manually. Silently no-ops offline (events stay pending and
+            // sync on the next event / app foreground).
+            Task { await self.syncPendingEvents() }
         } catch {
             syncStatus = "Event save failed"
         }
+    }
+
+    /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
+    public func syncOnForeground() {
+        guard package != nil, pendingEventCount > 0 else {
+            return
+        }
+        Task { await self.syncPendingEvents() }
     }
 
     public func syncPendingEvents() async {
