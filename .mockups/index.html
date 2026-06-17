@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Caddie iOS 重做稿 · 实战/记分屏</title>
+<style>
+  :root{
+    --green:#15803d; --green-bright:#22c55e; --green-tint:#e7f3ec;
+    --ink:#0f1720; --muted:#6b7280; --line:#e7e9ec; --bg:#f6f7f8; --panel:#fff;
+    --bogey:#d9a441; --double:#c2553f; --birdie:#5aa8d8;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#0c1311;font-family:-apple-system,"PingFang SC",system-ui,sans-serif;color:var(--ink);
+    display:flex;flex-wrap:wrap;gap:28px;justify-content:center;padding:28px 12px}
+  .cap{color:#9fb3aa;text-align:center;font-size:13px;margin:4px 0 14px;width:100%}
+  .phone{width:390px;background:var(--bg);border-radius:42px;border:11px solid #1b2420;
+    box-shadow:0 18px 50px rgba(0,0,0,.5);overflow:hidden;height:844px;display:flex;flex-direction:column}
+  .label{color:#9fb3aa;font-size:12px;text-align:center;margin-top:6px}
+  /* status/nav */
+  .nav{background:var(--green);color:#fff;padding:14px 18px 16px}
+  .nav .row{display:flex;align-items:center;justify-content:space-between}
+  .nav .course{font-size:13px;opacity:.9}
+  .nav .hole{font-size:30px;font-weight:800;letter-spacing:.5px;margin-top:2px}
+  .nav .par{font-size:13px;opacity:.92;margin-top:1px}
+  .holepips{display:flex;gap:4px;margin-top:12px}
+  .pip{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.28)}
+  .pip.done{background:#fff}.pip.now{background:#fde68a}
+  .dist{display:flex;gap:16px;margin-top:14px}
+  .dist .d{background:rgba(255,255,255,.14);border-radius:12px;padding:8px 12px;flex:1;text-align:center}
+  .dist .d b{display:block;font-size:22px;font-weight:800}
+  .dist .d span{font-size:11px;opacity:.9}
+  /* body */
+  .body{flex:1;overflow:auto;padding:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}
+  .card.caddie{border:1.5px solid var(--green);box-shadow:0 4px 16px rgba(21,128,61,.10)}
+  .eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--green);font-weight:700}
+  .rec{display:flex;align-items:baseline;gap:10px;margin:6px 0 2px}
+  .rec b{font-size:26px;font-weight:800}
+  .rec .mode{font-size:12px;font-weight:700;color:#fff;background:var(--green);border-radius:999px;padding:3px 10px}
+  .rec-sub{color:var(--muted);font-size:13px;line-height:1.5;margin:6px 0 0}
+  .why{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .chip{font-size:12px;border-radius:999px;padding:5px 10px;background:var(--green-tint);color:#14532d}
+  .chip.warn{background:#f7e2dd;color:#a23f2c}
+  .alt{margin-top:10px;display:flex;gap:8px}
+  .alt button{flex:1;border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px;font-size:13px;color:var(--ink)}
+  .sec-h{font-size:13px;font-weight:700;color:var(--muted);margin:2px 0 8px}
+  .clubs{display:flex;gap:8px;overflow:auto;padding-bottom:2px}
+  .clubs button{flex:0 0 auto;border:1px solid var(--line);background:#fff;border-radius:12px;
+    padding:10px 14px;font-size:15px;font-weight:600;color:var(--ink)}
+  .clubs button.on{background:var(--green);color:#fff;border-color:var(--green)}
+  .locate{width:100%;border:0;background:var(--green);color:#fff;font-size:18px;font-weight:800;
+    border-radius:16px;padding:18px;margin-top:4px;display:flex;align-items:center;justify-content:center;gap:8px}
+  .locate small{font-weight:600;font-size:12px;opacity:.9}
+  .scorerow{display:flex;gap:10px;margin-top:4px}
+  .stepper{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 12px;text-align:center}
+  .stepper .t{font-size:12px;color:var(--muted)}
+  .stepper .v{display:flex;align-items:center;justify-content:space-between;margin-top:4px}
+  .stepper .v b{font-size:26px;font-weight:800}
+  .stepper .v button{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:20px;color:var(--green)}
+  /* bottom */
+  .foot{display:flex;gap:10px;padding:12px 14px;border-top:1px solid var(--line);background:#fff}
+  .foot button{flex:1;border:1px solid var(--line);background:#fff;border-radius:14px;padding:13px;font-size:15px;font-weight:600;color:var(--ink)}
+  .foot button.primary{background:var(--green);color:#fff;border-color:var(--green)}
+  .shots{margin-top:8px;font-size:12px;color:var(--muted)}
+  .shots b{color:var(--ink)}
+</style>
+</head>
+<body>
+  <div class="cap">AI Caddie · iOS 重做设计稿(mockup,非真机)· 实战/记分屏</div>
+
+  <div>
+    <div class="phone">
+      <div class="nav">
+        <div class="row">
+          <span class="course">北京丽宫体育公园 · 前九</span>
+          <span class="course">⛳︎ 我</span>
+        </div>
+        <div class="hole">第 7 洞</div>
+        <div class="par">Par 4 · 368 码</div>
+        <div class="holepips">
+          <span class="pip done"></span><span class="pip done"></span><span class="pip done"></span>
+          <span class="pip done"></span><span class="pip done"></span><span class="pip done"></span>
+          <span class="pip now"></span><span class="pip"></span><span class="pip"></span>
+        </div>
+        <div class="dist">
+          <div class="d"><b>152</b><span>到旗杆(码)</span></div>
+          <div class="d"><b>138</b><span>过前缘</span></div>
+          <div class="d"><b>+1</b><span>本场</span></div>
+        </div>
+      </div>
+
+      <div class="body">
+        <div class="card caddie">
+          <div class="eyebrow">球童建议 · 保守(护分)</div>
+          <div class="rec"><b>7 号铁</b><span class="mode">稳妥上果岭</span></div>
+          <div class="rec-sub">瞄准果岭中心偏左。右侧沙坑在 138–150 码,落点避开;球道偏窄,优先保帕。</div>
+          <div class="why">
+            <span class="chip">期望失分最低</span>
+            <span class="chip">命中率 64%</span>
+            <span class="chip warn">右沙坑风险</span>
+          </div>
+          <div class="alt">
+            <button>进攻:6 铁 · 搏鸟</button>
+            <button>放置:8 铁 · 短切</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="sec-h">选球杆</div>
+          <div class="clubs">
+            <button>5i</button><button>6i</button><button class="on">7i</button>
+            <button>8i</button><button>9i</button><button>PW</button>
+          </div>
+          <button class="locate">📍 记一杆 · GPS <small>记录球位坐标</small></button>
+          <div class="shots">本洞已记 <b>1</b> 杆 · 上一杆 7i · 精度 ±4m</div>
+        </div>
+
+        <div class="card">
+          <div class="sec-h">本洞成绩</div>
+          <div class="scorerow">
+            <div class="stepper"><div class="t">杆数</div><div class="v"><button>−</button><b>4</b><button>+</button></div></div>
+            <div class="stepper"><div class="t">推杆</div><div class="v"><button>−</button><b>2</b><button>+</button></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="foot">
+        <button>← 第 6 洞</button>
+        <button class="primary">第 8 洞 →</button>
+      </div>
+    </div>
+    <div class="label">A · 实战/记分屏(球童建议为主、记一杆 GPS、紧凑成绩)</div>
+  </div>
+</body>
+</html>

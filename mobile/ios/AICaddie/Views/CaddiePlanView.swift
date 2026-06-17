@@ -35,6 +35,28 @@ func zhCaddieShotRole(_ role: String) -> String {
     }
 }
 
+/// 把球童「备选打法」的封闭英文路线枚举(Safe / Stock / Attack …)映射成中文。
+/// 未知值原样回退,容忍下划线 / 空格 / 大小写。
+func zhCaddieRouteLabel(_ label: String) -> String {
+    let key = label.lowercased()
+        .replacingOccurrences(of: "_", with: " ")
+        .trimmingCharacters(in: .whitespaces)
+    switch key {
+    case "safe", "conservative", "protect", "protect score", "lay back":
+        return "稳妥"
+    case "stock", "standard", "neutral":
+        return "标准"
+    case "attack", "aggressive", "go for it":
+        return "进攻"
+    case "layup", "lay up":
+        return "铺垫"
+    case "punch", "recovery", "escape":
+        return "解围"
+    default:
+        return label
+    }
+}
+
 public struct CaddiePlanOption: Identifiable, Equatable {
     public let id: String
     public let label: String
@@ -562,7 +584,7 @@ public struct CaddiePlanView: View {
                                 .foregroundStyle(AICaddieDesignTokens.strategyColor(option.id))
                                 .clipShape(Capsule())
                         }
-                        Text(option.label)
+                        Text(zhCaddieRouteLabel(option.label))
                             .font(.subheadline.weight(isSelected ? .semibold : .regular))
                             .lineLimit(1)
                     }

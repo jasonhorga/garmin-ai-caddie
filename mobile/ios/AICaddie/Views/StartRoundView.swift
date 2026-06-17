@@ -114,13 +114,57 @@ public struct StartRoundView: View {
             }
             HStack(spacing: 8) {
                 Text("发球台").font(.subheadline).foregroundStyle(.secondary)
-                TextField("默认", text: $teeBox)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textFieldStyle(.roundedBorder)
+                Spacer()
+                Menu {
+                    ForEach(teeOptions, id: \.self) { tee in
+                        Button(zhTeeLabel(tee)) { teeBox = tee }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(teeBox.isEmpty ? "默认" : zhTeeLabel(teeBox))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(LiveHoleStyle.green)
+                        Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .liveCard()
+    }
+
+    /// 发球台:内部保留 Garmin 原始 key(传给后端),仅显示中文。当前球场的发球台并入选项。
+    private var teeOptions: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for tee in [teeBox, "blue", "white", "red", "gold", "black", "green", "yellow", "silver"] {
+            let trimmed = tee.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, seen.insert(trimmed.lowercased()).inserted else { continue }
+            result.append(trimmed)
+        }
+        return result
+    }
+
+    private func zhTeeLabel(_ tee: String) -> String {
+        switch tee.lowercased() {
+        case "blue":
+            return "蓝 T"
+        case "white":
+            return "白 T"
+        case "red":
+            return "红 T"
+        case "gold":
+            return "金 T"
+        case "black", "championship", "tips":
+            return "黑 T(锦标)"
+        case "green":
+            return "绿 T"
+        case "yellow":
+            return "黄 T"
+        case "silver":
+            return "银 T"
+        default:
+            return tee
+        }
     }
 
     private var startCard: some View {
