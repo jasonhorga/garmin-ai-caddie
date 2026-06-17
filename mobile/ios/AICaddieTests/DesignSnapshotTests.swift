@@ -114,6 +114,12 @@ final class DesignSnapshotTests: XCTestCase {
         ]
 
         try captureScreen(RoundHomeView(package: package, courseOptions: courses), named: "full-home")
+        // Hub WITH an in-progress round → shows the 进行中 card + 「结束本场」(cancel) button.
+        let activeState = LiveRoundStateSnapshot(roundId: package.roundId, activeHole: package.holes.first?.number ?? 1, holes: [])
+        try captureScreen(
+            RoundHomeView(package: package, liveRoundState: activeState, courseOptions: courses, startingNine: "front"),
+            named: "full-home-active"
+        )
         try captureScreen(NavigationStack { StartRoundView(courseOptions: courses) }, named: "full-start")
         if let hole = package.holes.first {
             try captureScreen(NavigationStack { CurrentHoleView(package: package, hole: hole) }, named: "full-hole")
