@@ -184,9 +184,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             #endif
-            // Resume only a REAL in-progress round; skip the bundled fixture cache so the
-            // owner never lands on a placeholder (dataMode "fixture").
-            if let cached = try offlineStore.loadCurrentRoundPackage(), cached.dataMode != "fixture" {
+            // Resume only a REAL in-progress round; skip the bundled fixture cache AND any
+            // degraded "Unknown course" package (globalId 0, e.g. cached before the course
+            // resolved) so reopening never strands the owner on a placeholder round.
+            if let cached = try offlineStore.loadCurrentRoundPackage(),
+               cached.dataMode != "fixture",
+               cached.course.globalId != 0 {
                 switch cached.cacheState() {
                 case .expired:
                     if try canContinueExpiredPackage(cached) {

@@ -97,6 +97,62 @@ final class DesignSnapshotTests: XCTestCase {
         try render(view, named: "caddie-plan")
     }
 
+    /// Full-screen capture of a REAL screen (NavigationStack + ScrollView render fully here,
+    /// unlike SwiftUI ImageRenderer). Hosts the view in an on-screen UIWindow and snapshots
+    /// the rendered hierarchy — what the running app actually draws (top viewport).
+    @MainActor
+    func testCaptureLiveScreens() throws {
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        let package = try JSONDecoder().decode(LiveRoundPackage.self, from: Data(contentsOf: fixtureURL))
+
+        let courses = [
+            MobileCourseOption(globalId: 31796, courseKey: "bk", name: "北京天竺黑骑士球员俱乐部 ~ C/A", roundCount: 58, latestRoundId: "r1", latestRoundDate: "2026-06-11", templateRoundId: "r1", suggestedLiveRoundId: "live-31796", holes: 18, teeBox: "blue", geometryCoverage: "missing", sourceRefs: []),
+            MobileCourseOption(globalId: 31793, courseKey: "lg", name: "北京丽宫体育公园高尔夫俱乐部", roundCount: 6, latestRoundId: "r2", latestRoundDate: "2026-06-12", templateRoundId: "r2", suggestedLiveRoundId: "live-31793", holes: 18, teeBox: "blue", geometryCoverage: "missing", sourceRefs: []),
+        ]
+
+        try captureScreen(RoundHomeView(package: package, courseOptions: courses), named: "full-home")
+        try captureScreen(NavigationStack { StartRoundView(courseOptions: courses) }, named: "full-start")
+        if let hole = package.holes.first {
+            try captureScreen(NavigationStack { CurrentHoleView(package: package, hole: hole) }, named: "full-hole")
+        }
+        try captureScreen(RecentRoundReviewView(package: package), named: "full-review")
+    }
+
+    @MainActor
+    private func captureScreen(_ view: some View, named name: String) throws {
+        let size = CGSize(width: 390, height: 844)
+        let host = UIHostingController(rootView: view)
+        host.overrideUserInterfaceStyle = .light
+        host.view.frame = CGRect(origin: .zero, size: size)
+        let window = UIWindow(frame: host.view.frame)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        // Pump the runloop so SwiftUI commits its first render, then capture the layer tree
+        // (synchronous; works headless, unlike drawHierarchy(afterScreenUpdates:) which needs
+        // a live display and renders blank in CI).
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))
+        host.view.layoutIfNeeded()
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { ctx in
+            window.layer.render(in: ctx.cgContext)
+        }
+        guard let data = image.pngData() else {
+            XCTFail("no png for \(name)")
+            return
+        }
+        let dir = try FileManager.default
+            .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("design-snapshots", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try data.write(to: dir.appendingPathComponent("\(name).png"))
+        print("WROTE_SCREEN \(name)")
+    }
+
     @MainActor
     private func render(_ view: some View, named name: String) throws {
         let renderer = ImageRenderer(content: view)
