@@ -419,6 +419,43 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["caddieContextSeeds"][0]["sourceRef"], "live-new-course:1")
         self.assertEqual(payload["caddieContextSeeds"][0]["context"]["globalId"], 55555)
 
+    def test_mobile_course_package_resolves_course_without_geometry_bundle(self) -> None:
+        # Geometry bundle absent (e.g. homeserver) but CourseView par present → the course
+        # must still resolve (real name + par + courseFound), NOT collapse to "Unknown
+        # course". Only the hole maps/distances degrade.
+        round_row = {
+            "id": "r-31796-1", "date": "2026-06-10", "course": "黑骑士 ~ C/A", "courseKey": "bk",
+            "globalId": 31796, "holesCompleted": 18, "strokes": 89, "par": 72, "holes": [], "hasShots": True,
+        }
+        data = HistoryData(raw_rounds=[{"id": "r-31796-1", "hasShots": True}], rounds=[round_row], shots=[])
+
+        def missing_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1", "globalId": int(global_id), "localHole": local_hole,
+                "coverage": "missing", "hasHazards": False, "hasMeshes": False, "evidence": [],
+                "missingData": [{"label": "geometry", "reason": "no geometry bundle on this deployment"}],
+            }
+
+        from ai_caddie import course_reference
+
+        with (
+            patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "local")),
+            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
+            patch.object(course_reference, "courseview_par", return_value=[4, 3, 4, 5, 4, 4, 5, 3, 4]),
+        ):
+            response = self.client_get_course_package(31796, round_id="live-31796", nine="front")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        # The key fix: the course resolves instead of collapsing to "Unknown course".
+        self.assertEqual(payload["course"]["name"], "黑骑士 ~ C/A")  # real name, not "Unknown course"
+        self.assertEqual(payload["course"]["globalId"], 31796)
+        self.assertTrue(payload["sourceCoverage"]["courseFound"])
+        self.assertEqual(len(payload["holes"]), 9)  # front nine in play
+
+    def client_get_course_package(self, global_id: int, *, round_id: str, nine: str):
+        return TestClient(app).get(f"/api/v2/mobile/courses/{global_id}/package", params={"round_id": round_id, "nine": nine})
+
     def test_mobile_course_package_can_start_a_chosen_nine(self) -> None:
         # 选9洞: a player may tee off on just the front or back nine and add the
         # rest later. The package must restrict both the hole list and the caddie

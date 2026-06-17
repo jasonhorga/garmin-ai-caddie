@@ -1646,7 +1646,9 @@ def build_live_round_package(
     }
 
 
-def _geometry_only_course_template(global_id: int, *, round_id: str, tee_box: str | None = None) -> dict[str, Any] | None:
+def _geometry_only_course_template(
+    global_id: int, *, round_id: str, tee_box: str | None = None, course_name: str | None = None
+) -> dict[str, Any] | None:
     from ai_caddie import course_reference
     holes = []
     cv_par = course_reference.courseview_par(int(global_id), allow_fetch=False)
@@ -1661,13 +1663,17 @@ def _geometry_only_course_template(global_id: int, *, round_id: str, tee_box: st
             has_geometry_source = True
         par = cv_par[local_hole - 1] if (cv_par and local_hole - 1 < len(cv_par)) else 4
         holes.append({"number": local_hole, "par": par, "yards": None, "geometryCoverage": state})
-    if not has_geometry_source:
+    # Anchor the course on EITHER geometry OR a CourseView par table. Geometry being
+    # absent (e.g. a deployment without the geometry bundle) must NOT collapse the whole
+    # course to "Unknown course" — the par + name still resolve a usable round; only the
+    # hole maps/distances degrade.
+    if not has_geometry_source and not cv_par:
         return None
     return {
         "id": round_id,
         "ids": [round_id],
         "date": "",
-        "course": f"Course {int(global_id)}",
+        "course": course_name or f"Course {int(global_id)}",
         "courseKey": f"gid_{int(global_id)}",
         "globalId": int(global_id),
         "holesCompleted": len(holes),
@@ -1675,6 +1681,20 @@ def _geometry_only_course_template(global_id: int, *, round_id: str, tee_box: st
         "holes": holes,
         "_source": "geometry_only_course_package",
     }
+
+
+def _course_display_name(source: HistoryData, global_id: int) -> str | None:
+    """Real course name for a globalId from history (latest round on that course)."""
+    rows = [
+        row
+        for row in source.rounds
+        if _safe_int(row.get("globalId") or row.get("courseGlobalId") or row.get("courseId")) == global_id
+    ]
+    if not rows:
+        return None
+    latest = max(rows, key=lambda row: str(row.get("date") or ""))
+    name = str(latest.get("course") or latest.get("courseName") or "").strip()
+    return name or None
 
 
 def build_live_round_package_for_course(
@@ -1707,7 +1727,12 @@ def build_live_round_package_for_course(
     if selected_round_id is None:
         if ensure_geometry:
             geometry_ensure = _ensure_geometry_for_course(int(global_id))
-        template_round = _geometry_only_course_template(int(global_id), round_id=live_round_id, tee_box=tee_box)
+        template_round = _geometry_only_course_template(
+            int(global_id),
+            round_id=live_round_id,
+            tee_box=tee_box,
+            course_name=_course_display_name(source, int(global_id)),
+        )
         if template_round is not None:
             package_source = HistoryData(
                 raw_rounds=source.raw_rounds,
