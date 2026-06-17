@@ -14,6 +14,16 @@ enum LiveHoleStyle {
     static let line = Color(red: 231 / 255, green: 233 / 255, blue: 236 / 255)
 }
 
+/// Trim a raw ISO datetime ("2026-05-20T08:00:00+08:00") to a clean date ("2026-05-20")
+/// for display — the live screens show user-facing dates, never raw timestamps.
+func aiCaddieShortDate(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespaces)
+    if let tIndex = trimmed.firstIndex(of: "T") {
+        return String(trimmed[..<tIndex])
+    }
+    return trimmed
+}
+
 /// A small rounded chip; `warn` flips it to the risk palette.
 struct HoleChip: View {
     let text: String

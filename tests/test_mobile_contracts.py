@@ -2120,7 +2120,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RecentRoundReviewView: View", recent_review)
         self.assertIn("package.recentHistory.rounds", recent_review)
         self.assertIn("round.toPar", recent_review)
-        self.assertIn("round.sourceRefs", recent_review)
+        self.assertIn("aiCaddieShortDate(round.date)", recent_review)  # clean date, not raw ISO; round ref not shown
         self.assertIn("package.recentHistory.course", recent_review)
         self.assertIn("package.recentHistory.holes", recent_review)
         self.assertIn("struct CurrentHoleView: View", current_hole)

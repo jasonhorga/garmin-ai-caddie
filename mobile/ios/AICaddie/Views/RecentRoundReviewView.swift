@@ -84,7 +84,7 @@ struct RecentReviewContent: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(round.courseName).font(.subheadline.weight(.semibold))
-                    Text(round.date).font(.caption).foregroundStyle(.secondary)
+                    Text(aiCaddieShortDate(round.date)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text("\(round.score)").font(.title3.monospacedDigit().weight(.bold))
@@ -100,9 +100,6 @@ struct RecentReviewContent: View {
                 Text("\(round.holesCompleted) 洞")
                 if let par = round.par {
                     Text("Par \(par)")
-                }
-                if !round.sourceRefs.isEmpty {
-                    Text(round.sourceRefs.joined(separator: " / ")).lineLimit(1)
                 }
             }
             .font(.caption2)

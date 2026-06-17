@@ -80,9 +80,8 @@ public struct CaddiePlanOption: Identifiable, Equatable {
         if let expectedStrokesDelta {
             parts.append(String(format: "%+.2f 杆", expectedStrokesDelta))
         }
-        if let scoreImpactModel {
-            parts.append(scoreImpactModel)
-        }
+        // scoreImpactModel (e.g. "calibrated_history_club_v2") is an internal model id —
+        // kept on the type for provenance but never shown to the player.
         return parts.joined(separator: " · ")
     }
 
@@ -529,11 +528,6 @@ public struct CaddiePlanView: View {
                                 }
                             }
                         }
-                        if let sourceRefsText = sequence.sourceRefsText {
-                            Text(sourceRefsText)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                        }
                     }
                     .padding(.vertical, 4)
                 }
@@ -588,7 +582,8 @@ public struct CaddiePlanView: View {
         }
     }
 
-    /// 推荐打法的证据明细(保留 quality / score / source / missing 文案)。
+    /// 推荐打法的证据明细。只显示对玩家有意义的:样本/把握/期望杆。来源 ref、模型名、
+    /// 缺数据标签等工程 provenance 留在类型上(sourceRefsText/missingDataText)但不渲染。
     @ViewBuilder private func recommendedDetail(_ option: CaddiePlanOption) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(option.qualityText)
@@ -598,16 +593,6 @@ public struct CaddiePlanView: View {
                 Text(scoreImpactText)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(AICaddieDesignTokens.confidenceColor(option.confidence ?? "low"))
-            }
-            if let sourceRefsText = option.sourceRefsText {
-                Text(sourceRefsText)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            if let missingDataText = option.missingDataText {
-                Text(missingDataText)
-                    .font(.caption2)
-                    .foregroundStyle(AICaddieDesignTokens.riskColor(4))
             }
         }
     }

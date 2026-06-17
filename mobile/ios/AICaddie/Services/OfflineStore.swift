@@ -124,6 +124,26 @@ public final class OfflineStore {
         return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: currentPackageURL))
     }
 
+    /// Forget a round entirely (discard/cancel): clear the active-package pointer + its
+    /// cached package, and drop its events from the log so a discarded round never
+    /// resurfaces on relaunch or syncs to the backend.
+    public func discardRound(roundId: String) throws {
+        try? FileManager.default.removeItem(at: currentPackageURL)
+        try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
+        let remaining = (try? loadEvents())?.filter { $0.roundId != roundId } ?? []
+        if remaining.isEmpty {
+            try? FileManager.default.removeItem(at: logURL)
+        } else {
+            var data = Data()
+            for event in remaining {
+                data.append(try encoder.encode(event))
+                data.append(Data([0x0A]))
+            }
+            try data.write(to: logURL, options: [.atomic])
+        }
+        AICaddieLog.storage.debug("Discarded round \(roundId, privacy: .public)")
+    }
+
     public func appendEvent(_ event: LiveRoundEvent) throws {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let encoded = try encoder.encode(event)
