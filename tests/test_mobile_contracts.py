@@ -1413,6 +1413,19 @@ class MobileContractTests(unittest.TestCase):
         # 本场球洞 grid only shows for an active round (home with no active round omits it).
         self.assertIn("if liveRoundState != nil {", round_home)
 
+    def test_ios_hole_2d_map_wired(self) -> None:
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        hole_map_view = _read_required_source(self, IOS_DIR / "Views" / "HoleMapView.swift")
+        hole_map_model = _read_required_source(self, IOS_DIR / "Models" / "HoleMap.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        # 2D top-down hole map fetched from the geometry hole-map GeoJSON + rendered in the live screen.
+        self.assertIn("struct HoleMapView", hole_map_view)
+        self.assertIn("struct HoleMap", hole_map_model)
+        self.assertIn("func fetchHoleMap(globalId: Int, localHole: Int) async throws -> HoleMap", sync_client)
+        self.assertIn("/api/v2/geometry/hole/", sync_client)
+        self.assertIn("HoleMapView(", current_hole)
+        self.assertIn("func loadHoleMap()", current_hole)
+
     def test_ios_restores_live_round_state_from_offline_event_log(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
