@@ -213,11 +213,12 @@ public struct RoundHomeView: View {
 
     @ViewBuilder private var tilesRow: some View {
         HStack(spacing: 10) {
-            if let apiBaseURL, package.course.globalId != 0 {
+            if let apiBaseURL {
                 NavigationLink {
-                    CourseReviewView(client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken), globalId: package.course.globalId)
+                    // 备战先选球场,而不是锁死在当前球场。
+                    PrepCoursePickerView(courseOptions: courseOptions, apiBaseURL: apiBaseURL, adminToken: adminToken)
                 } label: {
-                    HubTile(icon: "map", title: "赛前攻略", subtitle: "逐洞攻略 · 试算一杆")
+                    HubTile(icon: "map", title: "赛前攻略", subtitle: "选球场 · 逐洞攻略")
                 }
                 .buttonStyle(.plain)
             }

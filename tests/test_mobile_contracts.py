@@ -1517,12 +1517,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
         self.assertIn("MediaUploadClient(baseURL:", current_hole)
 
-    def test_ios_course_prep_link_requires_real_course_global_id(self) -> None:
+    def test_ios_prep_picks_course_before_review(self) -> None:
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        prep_picker = _read_required_source(self, IOS_DIR / "Views" / "PrepCoursePickerView.swift")
 
-        self.assertIn("if let apiBaseURL, package.course.globalId != 0", round_home)
-        self.assertIn("globalId: package.course.globalId", round_home)
+        # 备战先选球场(PrepCoursePickerView)再进赛前攻略,而不是锁死在当前球场。
         self.assertIn('title: "赛前攻略"', round_home)
+        self.assertIn("PrepCoursePickerView(courseOptions: courseOptions", round_home)
+        self.assertIn("struct PrepCoursePickerView", prep_picker)
+        self.assertIn("courseVenueGroups(courseOptions)", prep_picker)
+        self.assertIn("CourseReviewView(client:", prep_picker)
+        self.assertIn("globalId: segment.globalId", prep_picker)
 
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")

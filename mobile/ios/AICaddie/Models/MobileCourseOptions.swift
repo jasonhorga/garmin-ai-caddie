@@ -8,6 +8,40 @@ public struct MobileCourseOptionsResponse: Codable, Equatable {
     public let generatedAt: String
 }
 
+public extension MobileCourseOption {
+    /// Venue name without the loop suffix (falls back to stripping " ~ …" from `name`).
+    var venueDisplayName: String {
+        venueName ?? (name.components(separatedBy: " ~ ").first?.trimmingCharacters(in: .whitespaces) ?? name)
+    }
+
+    /// Segment row title: a loop ("A 场") or a whole course ("全场").
+    var segmentDisplayTitle: String {
+        if let label = segmentLabel, !label.isEmpty {
+            return "\(label) 场"
+        }
+        return "全场"
+    }
+
+    /// True 9/18 hole count for this segment (CourseView), falling back to the played count.
+    var resolvedHoles: Int {
+        segmentHoles ?? holes
+    }
+}
+
+/// Group course options by venue → each venue's playable segments (loops A/B/C, or a whole 18),
+/// loops first (A<B<C), single course last; venues ordered by most-played first.
+public func courseVenueGroups(_ options: [MobileCourseOption]) -> [(venue: String, segments: [MobileCourseOption])] {
+    var byVenue: [String: [MobileCourseOption]] = [:]
+    for option in options {
+        byVenue[option.venueDisplayName, default: []].append(option)
+    }
+    return byVenue
+        .map { entry in
+            (venue: entry.key, segments: entry.value.sorted { ($0.segmentLabel ?? "~~") < ($1.segmentLabel ?? "~~") })
+        }
+        .sorted { ($0.segments.map(\.roundCount).max() ?? 0) > ($1.segments.map(\.roundCount).max() ?? 0) }
+}
+
 public struct MobileCourseOption: Codable, Equatable, Identifiable {
     public var id: Int { globalId }
 
