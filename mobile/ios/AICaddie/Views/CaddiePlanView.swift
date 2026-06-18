@@ -481,81 +481,107 @@ public struct CaddiePlanView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("球童建议")
-                .font(.headline)
-
-            Text("备选打法")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            altTable
-
+            // 重点突出:推荐这一杆(球杆大字 + 带球 + 打法)。其余收进「点击查看」,不堆满一屏。
             if let recommended {
-                recommendedDetail(recommended)
+                recommendedSummary(recommended)
             }
-
-            if !hazards.isEmpty {
-                Text("避开区")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(hazards) { hazard in
-                    HStack(spacing: 8) {
-                        Text(hazard.icon)
-                        Text(hazard.label)
-                            .font(.subheadline)
-                        Spacer()
-                        if let detail = hazard.detail {
-                            Text(detail)
-                                .font(.caption.monospacedDigit())
-                                .padding(.vertical, 3)
-                                .padding(.horizontal, 8)
-                                .background(AICaddieDesignTokens.bogey.opacity(0.16))
-                                .foregroundStyle(AICaddieDesignTokens.bogey)
-                                .clipShape(Capsule())
-                        }
+            DisclosureGroup("备选打法 · 避开区") {
+                VStack(alignment: .leading, spacing: 10) {
+                    altTable
+                    if let recommended {
+                        recommendedDetail(recommended)
                     }
-                    .padding(.vertical, 2)
+                    if !hazards.isEmpty {
+                        hazardsSection
+                    }
+                    if !sequences.isEmpty {
+                        sequencesSection
+                    }
+                }
+                .padding(.top, 6)
+            }
+            .font(.subheadline)
+            .tint(LiveHoleStyle.green)
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// 推荐这一杆的醒目摘要:球杆 + 带球 + 打法标签。
+    @ViewBuilder private func recommendedSummary(_ option: CaddiePlanOption) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(zhClubName(option.clubName)).font(.title3.weight(.bold)).foregroundStyle(.primary)
+            Text("\(Int(option.carryM)) m").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+            Spacer()
+            Text(zhCaddieRouteLabel(option.label))
+                .font(.caption.weight(.semibold))
+                .padding(.vertical, 3)
+                .padding(.horizontal, 8)
+                .background(AICaddieDesignTokens.strategyColor(option.id).opacity(0.16))
+                .foregroundStyle(AICaddieDesignTokens.strategyColor(option.id))
+                .clipShape(Capsule())
+        }
+    }
+
+    @ViewBuilder private var hazardsSection: some View {
+        Text("避开区")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        ForEach(hazards) { hazard in
+            HStack(spacing: 8) {
+                Text(hazard.icon)
+                Text(hazard.label)
+                    .font(.subheadline)
+                Spacer()
+                if let detail = hazard.detail {
+                    Text(detail)
+                        .font(.caption.monospacedDigit())
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 8)
+                        .background(AICaddieDesignTokens.bogey.opacity(0.16))
+                        .foregroundStyle(AICaddieDesignTokens.bogey)
+                        .clipShape(Capsule())
                 }
             }
+            .padding(.vertical, 2)
+        }
+    }
 
-            if !sequences.isEmpty {
-                Divider()
-                    .padding(.vertical, 2)
-                Text("逐洞计划")
-                    .font(.subheadline.weight(.semibold))
-                ForEach(sequences) { sequence in
-                    let isSelected = sequence.id == selectedSequenceId
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Image(systemName: isSelected ? "checkmark.seal.fill" : "point.topleft.down.curvedto.point.bottomright.up")
-                                .foregroundStyle(isSelected ? AICaddieDesignTokens.strategyColor(sequence.id) : .secondary)
-                            Text(sequence.label)
-                                .font(.caption.weight(.semibold))
-                            Spacer()
-                        }
-                        Text(sequence.metaText)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        if !sequence.steps.isEmpty {
-                            VStack(alignment: .leading, spacing: 2) {
-                                ForEach(sequence.steps) { step in
-                                    HStack(spacing: 6) {
-                                        Text(zhCaddieShotRole(step.role))
-                                            .font(.caption2.weight(.semibold))
-                                            .foregroundStyle(AICaddieDesignTokens.confidenceColor(step.confidence ?? sequence.confidence ?? "low"))
-                                            .frame(width: 56, alignment: .leading)
-                                        Text(step.summaryText)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
+    @ViewBuilder private var sequencesSection: some View {
+        Divider()
+            .padding(.vertical, 2)
+        Text("逐洞计划")
+            .font(.subheadline.weight(.semibold))
+        ForEach(sequences) { sequence in
+            let isSelected = sequence.id == selectedSequenceId
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: isSelected ? "checkmark.seal.fill" : "point.topleft.down.curvedto.point.bottomright.up")
+                        .foregroundStyle(isSelected ? AICaddieDesignTokens.strategyColor(sequence.id) : .secondary)
+                    Text(sequence.label)
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                }
+                Text(sequence.metaText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if !sequence.steps.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(sequence.steps) { step in
+                            HStack(spacing: 6) {
+                                Text(zhCaddieShotRole(step.role))
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(AICaddieDesignTokens.confidenceColor(step.confidence ?? sequence.confidence ?? "low"))
+                                    .frame(width: 56, alignment: .leading)
+                                Text(step.summaryText)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
-                    .padding(.vertical, 4)
                 }
             }
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
     }
 
     /// 备选打法对比表:打法 / 球杆 / 带球 / 风险;推荐行(选中)高亮。
