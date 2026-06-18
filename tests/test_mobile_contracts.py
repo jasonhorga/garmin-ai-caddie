@@ -1257,7 +1257,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("displayVenues", start_view)
         self.assertIn("locationProvider.latestFix", start_view)
         self.assertIn("haversineMetres(", start_view)
-        self.assertIn("public let latitude: Double?", _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift"))
+        # 发球台用所选球场的真实 Tee(Garmin CourseView 颜色:金/黑/蓝/白/红…),#2d。
+        self.assertIn("selectedSegment?.tees", start_view)
+        course_options_model = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
+        self.assertIn("public let latitude: Double?", course_options_model)
+        self.assertIn("public let tees: [String]?", course_options_model)
         self.assertIn("applySelectedCourse(globalIdText:", start_view)
         self.assertIn('Text("发球台")', start_view)
         self.assertIn('Label("开始记分"', start_view)
