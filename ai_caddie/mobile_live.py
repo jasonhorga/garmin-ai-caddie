@@ -1585,6 +1585,7 @@ def build_live_round_package(
     client_id: str | None = None,
     ensure_geometry: bool = False,
     geometry_ensure: dict[str, Any] | None = None,
+    include_course_prep: bool = True,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
@@ -1733,7 +1734,7 @@ def build_live_round_package(
         )
     package_state = "ready" if not package_missing_data and all(row["state"] == "ready" for row in readiness_checks) else "degraded"
     course_global_id = int(round_row.get("globalId") or 0)
-    course_prep_package = _course_prep_package(course_global_id, holes) if preparation_mode == "course" else None
+    course_prep_package = _course_prep_package(course_global_id, holes) if (preparation_mode == "course" and include_course_prep) else None
     return {
         "schema": "ai-caddie-live-round-package-v1",
         "roundId": round_id,
@@ -1836,6 +1837,7 @@ def build_live_round_package_for_course(
     ensure_geometry: bool = False,
     nine: str = "all",
     back_global_id: int | None = None,
+    include_course_prep: bool = True,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     selected_round_id = None
@@ -1879,6 +1881,7 @@ def build_live_round_package_for_course(
         client_id=client_id,
         ensure_geometry=ensure_geometry and selected_round_id is not None,
         geometry_ensure=geometry_ensure,
+        include_course_prep=include_course_prep,
     )
     if template_round is not None and selected_round_id is None:
         package["sourceCoverage"] = {
@@ -1889,7 +1892,25 @@ def build_live_round_package_for_course(
             "availableRoundCount": len(source.rounds),
             "courseFound": True,
         }
-    front_package = _filter_package_to_nine(package, nine)
+    # A 9-hole loop gid (CourseView) must yield only its 9 holes even though its played rounds were
+    # 18-hole combos — the loop is the front nine of that combo. Otherwise picking "C 场(9洞)" wrongly
+    # opens 18 holes (and holes 10–18 are bogus, which also broke "随便选一个洞进去").
+    effective_nine = nine
+    is_loop_cap = False
+    if nine == "all":
+        segment = None
+        try:
+            segment = _courseview_segment_resolver(int(global_id))
+        except Exception:
+            segment = None
+        if segment and segment[1] == 9:
+            effective_nine = "front"
+            is_loop_cap = True
+    front_package = _filter_package_to_nine(package, effective_nine)
+    if is_loop_cap:
+        # A 9-hole loop is a complete round in itself, not "the front of an 18" — label it "all"
+        # so the app offers "加打另一个9洞" (a second loop) rather than a front/back toggle.
+        front_package["nine"] = "all"
     if back_global_id is None:
         return front_package
     # Composite 18: this loop (holes 1–9) + a second loop (holes 10–18). Each loop is its own
@@ -1907,6 +1928,7 @@ def build_live_round_package_for_course(
         client_id=client_id,
         ensure_geometry=ensure_geometry,
         nine="all",
+        include_course_prep=include_course_prep,
     )
     return _merge_nines(front_package, back_package)
 

@@ -243,12 +243,13 @@ public struct CurrentHoleView: View {
         holePrep = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
     }
 
-    /// 本洞避开区:取 course_prep 该洞的 hazards(沙坑/水域 米区间)供球童方案展示。
+    /// 本洞避开区:取按洞拉取的 prep 的 hazards(沙坑/水域 米区间)供球童方案展示。
+    /// (live 包为提速不再内置全洞 coursePrep;按洞 prep 随 2D 图一起加载。)
     private var caddiePlanHazards: [CaddiePlanHazard] {
-        guard let prep = package.coursePrep?.holes.first(where: { $0.hole == hole.number }) else {
+        guard let holePrep else {
             return []
         }
-        return CaddiePlanHazard.from(prep.hazards)
+        return CaddiePlanHazard.from(holePrep.hazards)
     }
 
     /// Club picker options: the player's clubs, minus empty/"Unknown" placeholders and

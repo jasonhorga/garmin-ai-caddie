@@ -187,6 +187,7 @@ public struct RoundHomeView: View {
             }
         }
         nineControl
+        loopAddControl
         NavigationLink(value: HubRoute.start) {
             Label("开始一场", systemImage: "flag.checkered")
                 .font(.headline)
@@ -241,6 +242,72 @@ public struct RoundHomeView: View {
             return "后九"
         default:
             return "全 18 洞"
+        }
+    }
+
+    // MARK: - 9 洞环:开局后再加打 / 移除另一个 9 洞(凑 18)
+    // 用户要求:开始时不一定知道要打哪个后九,开局没选后面也能加;且同一局已记杆不丢。
+    // 实现:同 roundId 重取组合包(prepareCompositeRound)/单环包(prepareCourseRound),
+    // restoreLiveRoundState 按 roundId 从离线事件重建已记的前 9 洞。
+
+    /// 当前局对应的 CourseView 选项(用 course.globalId 反查;组合局的 globalId = 前环)。
+    private var activeCourseOption: MobileCourseOption? {
+        courseOptions.first { $0.globalId == package.course.globalId }
+    }
+
+    /// 同球场可作为「另一个 9 洞」的环(9 洞、同球场、非当前环),按 A/B/C 排序。
+    private var siblingLoops: [MobileCourseOption] {
+        guard let venue = activeCourseOption?.venueName else { return [] }
+        return courseOptions
+            .filter { ($0.venueName ?? "") == venue
+                && ($0.segmentHoles ?? $0.holes) == 9
+                && $0.globalId != package.course.globalId }
+            .sorted { ($0.segmentLabel ?? "~~") < ($1.segmentLabel ?? "~~") }
+    }
+
+    private func loopLabel(_ option: MobileCourseOption) -> String {
+        if let label = option.segmentLabel, !label.isEmpty {
+            return "\(label) 场"
+        }
+        return "另一个 9 洞"
+    }
+
+    @ViewBuilder private var loopAddControl: some View {
+        // 仅进行中、且当前局是某球场的一个 9 洞环时显示。
+        if liveRoundState != nil, let active = activeCourseOption, (active.segmentHoles ?? active.holes) == 9 {
+            if package.holes.count <= 9 {
+                if !siblingLoops.isEmpty {
+                    // 单 9 洞环进行中 → 选另一个环加打凑 18(同一局,已记杆保留)。
+                    Menu {
+                        ForEach(siblingLoops) { loop in
+                            Button("＋ \(loopLabel(loop)) · 凑 18 洞") {
+                                onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)
+                            }
+                        }
+                    } label: {
+                        Label("＋加打另一个 9 洞(凑 18)", systemImage: "plus.circle")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundStyle(LiveHoleStyle.green)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.green))
+                    }
+                    .disabled(isPreparingRound)
+                }
+            } else {
+                // 已是组合 18(两个 9 洞环)→ 移除加打的后 9,只打起始 9 洞(前 9 已记杆保留)。
+                Button {
+                    onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")
+                } label: {
+                    Label("移除加打的 9 洞 · 只打前 9", systemImage: "minus.circle")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(.secondary)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
+                }
+                .disabled(isPreparingRound)
+            }
         }
     }
 
