@@ -1922,6 +1922,15 @@ def build_live_round_package_for_course(
         # A 9-hole loop is a complete round in itself, not "the front of an 18" — label it "all"
         # so the app offers "加打另一个9洞" (a second loop) rather than a front/back toggle.
         front_package["nine"] = "all"
+        # Name it as just this loop ("…黑骑士… ~ C"), not the played combo ("…~ C/A"): the round
+        # name is the historical combo, but we're only playing this loop. Use the Chinese venue base
+        # (from the round name) + the loop label from CourseView (its clean name is English, so take
+        # only the label). This also yields a correct composite name "…~ C/A" (front "C" + back "A")
+        # instead of "…~ C/A/A".
+        loop_label = _segment_label_from_courseview_name(segment[0]) if segment else None
+        base = _venue_base_name(str((front_package.get("course") or {}).get("name") or ""))
+        if loop_label and base:
+            front_package["course"] = {**front_package["course"], "name": f"{base} ~ {loop_label}"}
     if back_global_id is None:
         return front_package
     # Composite 18: this loop (holes 1–9) + a second loop (holes 10–18). Each loop is its own
