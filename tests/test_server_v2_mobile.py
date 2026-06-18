@@ -565,6 +565,44 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual([h["number"] for h in payload["holes"]], list(range(1, 10)))
         self.assertEqual(payload["nine"], "all")  # a complete 9-hole loop, not a partial of an 18
 
+    def test_live_course_package_builds_stats_from_unaugmented_history(self) -> None:
+        # Never-played courses get a synthetic template round added to the package data so the holes
+        # resolve, but that round must NOT reach the stats build: its per-request id would change the
+        # stats-cache fingerprint and evict every other course's cached stats, turning every course
+        # switch back into a ~8s cold rebuild. Stats must be built from the ORIGINAL history.
+        from ai_caddie import course_reference, mobile_live
+
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[{"id": "r1", "globalId": 12345, "course": "X",
+                     "holes": [{"number": n, "par": 4} for n in range(1, 19)]}],
+            shots=[],
+        )
+        seen_round_ids: list[list[str]] = []
+        real = mobile_live.cached_build_history_stats
+
+        def spy(stats_data, **kwargs):
+            seen_round_ids.append([str(r.get("id")) for r in stats_data.rounds])
+            return real(stats_data, **kwargs)
+
+        def missing_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {"schema": "ai-caddie-geometry-evidence-v1", "globalId": int(global_id),
+                    "localHole": local_hole, "coverage": "missing", "hasHazards": False,
+                    "hasMeshes": False, "evidence": [], "missingData": []}
+
+        with (
+            patch.object(mobile_live, "cached_build_history_stats", side_effect=spy),
+            patch.object(mobile_live, "geometry_coverage_for_hole", side_effect=missing_geometry),
+            patch.object(course_reference, "courseview_par", return_value=[4] * 18),
+        ):
+            # gid 55555 is never-played → a template round (id = round_id) is added to the package data.
+            mobile_live.build_live_round_package_for_course(55555, round_id="live-a", data=data, data_mode="local", include_course_prep=False)
+            mobile_live.build_live_round_package_for_course(55555, round_id="live-b", data=data, data_mode="local", include_course_prep=False)
+
+        # Both stats builds saw ONLY the real history (["r1"]) — the per-request template round
+        # ("live-a"/"live-b") never entered the stats input, so the cache fingerprint is stable.
+        self.assertEqual(seen_round_ids, [["r1"], ["r1"]])
+
     def test_mobile_round_package_endpoint_selects_weather_at_prepared_time(self) -> None:
         client = TestClient(app)
 

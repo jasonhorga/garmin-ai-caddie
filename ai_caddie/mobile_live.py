@@ -1586,13 +1586,21 @@ def build_live_round_package(
     ensure_geometry: bool = False,
     geometry_ensure: dict[str, Any] | None = None,
     include_course_prep: bool = True,
+    stats_data: HistoryData | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
     annotations = list_annotations(root=annotation_lookup_root)
     scored_source = _effective_score_data(source, annotations)
+    # History stats are about the player's PAST rounds — independent of which course is being
+    # prepared. For a never-played course the caller augments `data` with a synthetic template
+    # round; that round has no shots and contributes nothing to stats, but its per-request id
+    # would change the stats-cache fingerprint and evict every other course's cached stats
+    # (turning every course switch back into a ~8s cold rebuild). So build stats from the
+    # ORIGINAL un-augmented history when the caller provides it.
+    stats_source = stats_data if stats_data is not None else source
     stats = cached_build_history_stats(
-        source,
+        stats_source,
         data_mode=data_mode,
         annotations_root=annotation_lookup_root,
         weather_root=root,
@@ -1882,6 +1890,9 @@ def build_live_round_package_for_course(
         ensure_geometry=ensure_geometry and selected_round_id is not None,
         geometry_ensure=geometry_ensure,
         include_course_prep=include_course_prep,
+        # Build stats from the ORIGINAL history (not the template-augmented package_source) so the
+        # stats cache stays warm across every course/round — see note in build_live_round_package.
+        stats_data=source,
     )
     if template_round is not None and selected_round_id is None:
         package["sourceCoverage"] = {
