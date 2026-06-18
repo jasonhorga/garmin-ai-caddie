@@ -87,6 +87,10 @@ def build_mobile_course_package_response(
             ensure_geometry=ensure_geometry,
             nine=nine,
             back_global_id=back_global_id,
+            # Live start must be fast: skip the heavy all-hole course_prep build (per-hole route /
+            # hazard point-in-polygon over big meshes). The app fetches per-hole prep on demand
+            # (the 2D map + hazards), so the round opens immediately.
+            include_course_prep=False,
         )
     )
 

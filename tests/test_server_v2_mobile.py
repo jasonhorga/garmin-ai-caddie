@@ -516,39 +516,54 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         self.assertEqual(invalid.status_code, 422)
 
-    def test_mobile_course_package_includes_compact_course_prep(self) -> None:
+    def test_mobile_course_package_omits_course_prep_for_fast_start(self) -> None:
+        # Live start must open instantly, so the course package no longer embeds the heavy
+        # all-hole course_prep (per-hole route + hazard point-in-polygon over big meshes).
+        # The app fetches each hole's prep on demand via /api/v2/courses/{id}/prep?holes=N.
+        # Guard: prep_nine must NOT be called while building the live course package.
         client = TestClient(app)
-        prep_rows = [{
-            "globalId": 31795,
-            "localHole": 1,
-            "hole": 1,
-            "par": 4,
-            "par_source": "courseview",
-            "blue_yards": 410,
-            "route_len_m": 375.0,
-            "route": [[0.0, 0.0, 0.0], [0.0, 375.0, 375.0]],
-            "geometryCoverage": "ready",
-            "sourceRefs": ["course:31795", "geometry:31795:1"],
-            "missingData": [],
-            "candidateRoutes": [{"id": "stock", "carryM": 200.0, "riskScore": 1}],
-            "carryTargets": [{"kind": "landing", "distanceM": 200.0}],
-            "steps": [{"club": "1W", "note": "stock tee"}],
-            "cautions": [],
-            "landing_m": 200.0,
-            "tee_club": "1W",
-            "hazards": {"water_carry": [], "bunkers": []},
-        }]
 
         with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}), \
-                patch("ai_caddie.course_prep.prep_nine", return_value=prep_rows):
+                patch("ai_caddie.course_prep.prep_nine") as prep_nine:
             response = client.get("/api/v2/mobile/courses/31795/package", params={"round_id": "live-31795"})
 
         self.assertEqual(response.status_code, 200)
-        course_prep = response.json()["coursePrep"]
-        self.assertEqual(course_prep["schema"], "ai-caddie-course-prep-package-v1")
-        self.assertEqual(course_prep["globalId"], 31795)
-        self.assertEqual(course_prep["holes"][0]["candidateRoutes"][0]["id"], "stock")
-        self.assertEqual(course_prep["holes"][0]["sourceRefs"], ["course:31795", "geometry:31795:1"])
+        self.assertIsNone(response.json()["coursePrep"])
+        prep_nine.assert_not_called()
+
+    def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:
+        # A 9-hole CourseView loop (黑骑士 C / gid 31796) whose played rounds were 18-hole combos
+        # must open as 9 holes — not 18 with bogus holes 10–18 ("不选后九洞也显示18洞" + "随便选一个
+        # 洞进去也有问题"). The cap keys off the CourseView hole count, so the resolver is patched
+        # for hermeticity. A capped loop reports nine="all" (it's complete in itself).
+        round_row = {
+            "id": "r-31796-1", "date": "2026-06-10", "course": "黑骑士 ~ C/A", "courseKey": "bk",
+            "globalId": 31796, "holesCompleted": 18, "strokes": 89, "par": 72, "holes": [], "hasShots": True,
+        }
+        data = HistoryData(raw_rounds=[{"id": "r-31796-1", "hasShots": True}], rounds=[round_row], shots=[])
+
+        def missing_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1", "globalId": int(global_id), "localHole": local_hole,
+                "coverage": "missing", "hasHazards": False, "hasMeshes": False, "evidence": [],
+                "missingData": [{"label": "geometry", "reason": "no geometry bundle on this deployment"}],
+            }
+
+        from ai_caddie import course_reference
+
+        with (
+            patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "local")),
+            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
+            patch.object(course_reference, "courseview_par", return_value=[4, 3, 4, 5, 4, 4, 5, 3, 4]),
+            patch("ai_caddie.mobile_live._courseview_segment_resolver", return_value=("黑骑士 ~ C", 9)),
+        ):
+            response = self.client_get_course_package(31796, round_id="live-31796", nine="all")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload["holes"]), 9)
+        self.assertEqual([h["number"] for h in payload["holes"]], list(range(1, 10)))
+        self.assertEqual(payload["nine"], "all")  # a complete 9-hole loop, not a partial of an 18
 
     def test_mobile_round_package_endpoint_selects_weather_at_prepared_time(self) -> None:
         client = TestClient(app)

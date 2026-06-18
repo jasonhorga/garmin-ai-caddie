@@ -1295,6 +1295,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("加打另外 9 洞", round_home)
         self.assertIn("package.nine ?? \"all\"", round_home)
 
+        # 开局后再加打/移除另一个 9 洞环(凑 18):用户要求开始时不一定知道后九,开局没选后面也能加。
+        # 同 roundId 重取(组合包/单环包)+ restoreLiveRoundState 保留已记前 9 洞。
+        self.assertIn("loopAddControl", round_home)
+        self.assertIn("private var siblingLoops: [MobileCourseOption]", round_home)
+        self.assertIn("onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)", round_home)
+        self.assertIn('onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")', round_home)
+        self.assertIn("加打另一个 9 洞", round_home)
+        self.assertIn("移除加打的 9 洞", round_home)
+
     def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
         course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
@@ -2249,7 +2258,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)", current_hole)
         self.assertIn("CaddiePlanView(response: caddieDecision, hazards: caddiePlanHazards)", current_hole)
         self.assertIn("CaddiePlanView(seed: caddieContextSeed, hazards: caddiePlanHazards)", current_hole)
-        self.assertIn("CaddiePlanHazard.from(prep.hazards)", current_hole)
+        # Live package no longer embeds all-hole coursePrep (fast start); hazards come from the
+        # per-hole prep fetched on demand alongside the 2D map.
+        self.assertIn("CaddiePlanHazard.from(holePrep.hazards)", current_hole)
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
         self.assertIn("watchBridge?.sendStateToWatch", current_hole)
