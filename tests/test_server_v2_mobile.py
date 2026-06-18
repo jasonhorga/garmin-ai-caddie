@@ -555,7 +555,9 @@ class ServerV2MobileTests(unittest.TestCase):
             patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "local")),
             patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
             patch.object(course_reference, "courseview_par", return_value=[4, 3, 4, 5, 4, 4, 5, 3, 4]),
-            patch("ai_caddie.mobile_live._courseview_segment_resolver", return_value=("黑骑士 ~ C", 9)),
+            # Real CourseView clean names are English; the resolver returns that. The package name
+            # must stay Chinese (venue base from the round name) + the loop label from CourseView.
+            patch("ai_caddie.mobile_live._courseview_segment_resolver", return_value=("The Players Club ~ C", 9)),
         ):
             response = self.client_get_course_package(31796, round_id="live-31796", nine="all")
 
@@ -564,6 +566,45 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(len(payload["holes"]), 9)
         self.assertEqual([h["number"] for h in payload["holes"]], list(range(1, 10)))
         self.assertEqual(payload["nine"], "all")  # a complete 9-hole loop, not a partial of an 18
+        # Named as just this loop ("黑骑士 ~ C"), not the played combo ("黑骑士 ~ C/A").
+        self.assertEqual(payload["course"]["name"], "黑骑士 ~ C")
+
+    def test_composite_loop_round_name_has_no_duplicate_label(self) -> None:
+        # 加打另一个9洞 (C + A): each loop is name-capped to its own label, so the composite reads
+        # "黑骑士 ~ C/A" — not "黑骑士 ~ C/A/A" (the bug where the front loop kept its combo name).
+        from ai_caddie import course_reference, mobile_live
+
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {"id": "rC", "course": "黑骑士 ~ C/A", "courseKey": "c", "globalId": 31796,
+                 "holesCompleted": 18, "par": 72, "holes": [], "hasShots": True},
+                {"id": "rA", "course": "黑骑士 ~ A/B", "courseKey": "a", "globalId": 31794,
+                 "holesCompleted": 18, "par": 72, "holes": [], "hasShots": True},
+            ],
+            shots=[],
+        )
+
+        def resolver(gid, *, allow_fetch=False):
+            return {31796: ("The Players Club ~ C", 9), 31794: ("The Players Club ~ A", 9)}.get(int(gid))
+
+        def missing_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {"schema": "ai-caddie-geometry-evidence-v1", "globalId": int(global_id),
+                    "localHole": local_hole, "coverage": "missing", "hasHazards": False,
+                    "hasMeshes": False, "evidence": [], "missingData": []}
+
+        with (
+            patch.object(mobile_live, "geometry_coverage_for_hole", side_effect=missing_geometry),
+            patch.object(mobile_live, "_courseview_segment_resolver", side_effect=resolver),
+            patch.object(course_reference, "courseview_par", return_value=[4] * 9),
+        ):
+            pkg = mobile_live.build_live_round_package_for_course(
+                31796, round_id="live-x", data=data, data_mode="local",
+                back_global_id=31794, include_course_prep=False,
+            )
+
+        self.assertEqual([h["number"] for h in pkg["holes"]], list(range(1, 19)))
+        self.assertEqual(pkg["course"]["name"], "黑骑士 ~ C/A")
 
     def test_live_course_package_builds_stats_from_unaugmented_history(self) -> None:
         # Never-played courses get a synthetic template round added to the package data so the holes
