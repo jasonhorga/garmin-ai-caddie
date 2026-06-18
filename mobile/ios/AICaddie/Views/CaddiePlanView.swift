@@ -563,7 +563,7 @@ public struct CaddiePlanView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("打法").frame(maxWidth: .infinity, alignment: .leading)
-                Text("球杆").frame(width: 52, alignment: .leading)
+                Text("球杆").frame(width: 60, alignment: .leading)
                 Text("带球").frame(width: 60, alignment: .trailing)
                 Text("风险").frame(width: 48, alignment: .trailing)
             }
@@ -589,7 +589,7 @@ public struct CaddiePlanView: View {
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(option.clubName).font(.subheadline).frame(width: 52, alignment: .leading)
+                    Text(zhClubName(option.clubName)).font(.subheadline).frame(width: 60, alignment: .leading)
                     Text("\(Int(option.carryM))m").font(.subheadline.monospacedDigit()).frame(width: 60, alignment: .trailing)
                     Text("\(Int(option.riskScore))")
                         .font(.subheadline.monospacedDigit())
