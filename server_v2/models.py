@@ -820,6 +820,9 @@ class MobileCourseOption(BaseModel):
     globalId: int
     courseKey: str | None = None
     name: str
+    venueName: str | None = None
+    segmentLabel: str | None = None
+    segmentHoles: int | None = None
     roundCount: int
     latestRoundId: str | None = None
     latestRoundDate: str | None = None
@@ -829,6 +832,9 @@ class MobileCourseOption(BaseModel):
     teeBox: str | None = None
     geometryCoverage: str
     sourceRefs: list[str] = Field(default_factory=list)
+    latitude: float | None = None
+    longitude: float | None = None
+    tees: list[str] = Field(default_factory=list)
 
 
 class MobileCourseOptionsResponse(BaseModel):
