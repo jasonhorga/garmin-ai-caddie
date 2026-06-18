@@ -219,12 +219,28 @@ public final class LiveRoundAppModel: ObservableObject {
 
     public func bootstrap() async {
         defer { isBootstrapping = false }
+        // Phase 1 — INSTANT (no network): show a cached package so the menu appears immediately.
+        // This is the fix for slow startup — we never block the menu on a network package build.
         do {
-            await refreshCourseOptions()
-            // 1. RESUME an in-progress round first, on EVERY build — a round the player has
-            // actually recorded holes in must never be lost or clobbered on relaunch. current_package
-            // is the active-round marker; require real recorded events so a bare/home package
-            // never masquerades as an active round.
+            if let active = try offlineStore.loadCurrentRoundPackage(),
+               active.dataMode != "fixture",
+               active.course.globalId != 0,
+               try offlineStore.hasRecordedEvents(roundId: active.roundId) {
+                try activatePackage(active, status: "继续进行中的球局")
+                isBootstrapping = false
+            } else if let cachedHome = try offlineStore.loadHomePackage() {
+                try activateHomePackage(cachedHome, status: "主页就绪(缓存)")
+                isBootstrapping = false
+            }
+        } catch {
+            // ignore — phase 2 will populate (or fall back)
+        }
+
+        // Phase 2 — BACKGROUND refresh (network): course options + a fresh active/home package.
+        // Runs after the menu is already on screen (when a cache existed), so it never delays it.
+        await refreshCourseOptions()
+        do {
+            // RESUME an in-progress round first — recorded holes must never be lost/clobbered.
             if let active = try offlineStore.loadCurrentRoundPackage(),
                active.dataMode != "fixture",
                active.course.globalId != 0,
@@ -233,17 +249,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             #if DEBUG
-            // Dev/simulator + CI harness: auto-fetch the preferred round so snapshots/dev always
-            // have a package to render (no active round resumed above).
+            // Dev/simulator + CI harness: auto-fetch the preferred round so snapshots/dev render.
             if let remotePackage = await fetchRemotePackage() {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Remote package cached")
                 return
             }
             #endif
-            // 2. No in-progress round → land on the Hub (the "几个选择" home), NOT a bare form.
-            // The home package = the most-played course's data; it does NOT set liveRoundState
-            // (no 进行中 card) and is NOT the active-round pointer.
+            // No in-progress round → land on the Hub with a fresh home package (most-played course).
             if let home = await fetchHomePackage() {
                 try activateHomePackage(home, status: "主页就绪")
                 return
