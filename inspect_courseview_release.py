@@ -78,7 +78,7 @@ def load_release_pb(course_id: int, live: bool) -> bytes:
 
 
 def inspect_release(pb: bytes) -> dict:
-    info: dict = {"holes": []}
+    info: dict = {"holes": [], "tees": []}
     for field_no, wire_type, value, raw in parse_fields(pb):
         if field_no == 1 and wire_type == 0:
             info["course_id"] = value
@@ -88,6 +88,19 @@ def inspect_release(pb: bytes) -> dict:
             info["release_id"] = value
         elif field_no == 4 and wire_type == 2:
             info["course_name"] = value
+        elif field_no == 6 and wire_type == 2 and raw is not None:
+            # Tee box definitions (repeated): f1=name (Gold/Black/Blue/White/Red…), f4=gender
+            # (MEN/WOMEN), f5=ordering index. This is what Garmin's "new round" tee picker uses.
+            tee: dict = {}
+            for sub_no, sub_wire, sub_value, _sub_raw in parse_fields(raw):
+                if sub_no == 1 and sub_wire == 2:
+                    tee["name"] = sub_value
+                elif sub_no == 4 and sub_wire == 2:
+                    tee["gender"] = sub_value
+                elif sub_no == 5 and sub_wire == 0:
+                    tee["index"] = sub_value
+            if tee.get("name"):
+                info["tees"].append(tee)
         elif field_no == 8 and wire_type == 0:
             info["course_lat_raw"] = value
         elif field_no == 9 and wire_type == 0:

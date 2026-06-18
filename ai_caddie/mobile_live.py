@@ -343,11 +343,46 @@ def _courseview_segment_resolver(global_id: int, *, allow_fetch: bool = False) -
         return None
 
 
+def _courseview_tee_names(global_id: int, *, allow_fetch: bool = False) -> list[str]:
+    """Course tee colours (Gold/Black/Blue/White/Red…) from the CourseView release, cache-first —
+    the same list Garmin's own 'new round' tee picker shows. MEN tees, deduped, ordered by index.
+    Empty when the release is not cached and allow_fetch is False."""
+    try:
+        from pathlib import Path
+
+        from ai_caddie.data import ROOT
+        from inspect_courseview_release import inspect_release, load_release_pb
+
+        path = Path(ROOT) / "data" / "courseview" / f"{int(global_id)}_releases.pb"
+        if path.exists():
+            pb = path.read_bytes()
+        elif allow_fetch:
+            pb = load_release_pb(int(global_id), True)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(pb)
+        else:
+            return []
+        tees = inspect_release(pb).get("tees") or []
+        men = sorted(
+            (t for t in tees if str(t.get("gender") or "").upper() == "MEN"),
+            key=lambda t: t.get("index") or 0,
+        )
+        names: list[str] = []
+        for tee in (men or tees):
+            name = str(tee.get("name") or "").strip()
+            if name and name not in names:
+                names.append(name)
+        return names
+    except Exception:
+        return []
+
+
 def build_mobile_course_options(
     data: HistoryData | None = None,
     *,
     data_mode: str = "fixture",
     segment_resolver: Any = None,
+    tee_resolver: Any = None,
 ) -> dict[str, Any]:
     """Return recent course choices for live round package preparation.
 
@@ -358,6 +393,7 @@ def build_mobile_course_options(
     """
 
     resolve_segment = segment_resolver or _courseview_segment_resolver
+    resolve_tees = tee_resolver or _courseview_tee_names
     source = data or fixture_history_data()
     grouped: dict[int, list[dict[str, Any]]] = {}
     for row in source.rounds:
@@ -395,6 +431,10 @@ def build_mobile_course_options(
         except Exception:
             segment = None
         clean_name, segment_holes = segment if segment else (None, None)
+        try:
+            course_tees = resolve_tees(global_id)
+        except Exception:
+            course_tees = []
         courses.append(
             {
                 "globalId": global_id,
@@ -405,6 +445,7 @@ def build_mobile_course_options(
                 "segmentHoles": int(segment_holes) if segment_holes else played_holes,
                 "latitude": latitude,
                 "longitude": longitude,
+                "tees": course_tees,
                 "roundCount": len(rows),
                 "latestRoundId": template_round_id,
                 "latestRoundDate": str(latest.get("date") or ""),

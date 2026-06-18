@@ -279,11 +279,14 @@ public struct StartRoundView: View {
         .buttonStyle(.plain)
     }
 
-    /// 发球台:内部保留 Garmin 原始 key(传给后端),仅显示中文。当前球场的发球台并入选项。
+    /// 发球台:优先用所选球场 Garmin CourseView 的真实 Tee(金/黑/蓝/白/红…),没有才回退通用集。
+    /// 内部保留原始 key(传给后端),仅显示中文。
     private var teeOptions: [String] {
+        let courseTees = selectedSegment?.tees ?? []
+        let base = courseTees.isEmpty ? ["blue", "white", "red", "gold", "black", "green", "yellow", "silver"] : courseTees
         var seen = Set<String>()
         var result: [String] = []
-        for tee in [teeBox, "blue", "white", "red", "gold", "black", "green", "yellow", "silver"] {
+        for tee in [teeBox] + base {
             let trimmed = tee.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, seen.insert(trimmed.lowercased()).inserted else { continue }
             result.append(trimmed)
@@ -377,6 +380,11 @@ public struct StartRoundView: View {
         roundId = option.suggestedLiveRoundId ?? "live-\(option.globalId)"
         if let optionTeeBox = option.teeBox, optionTeeBox != "unknown" {
             teeBox = optionTeeBox
+        }
+        // Default to a sensible real tee for the chosen course (Blue/White, else the first).
+        let tees = option.tees ?? []
+        if !tees.isEmpty, !tees.contains(where: { $0.lowercased() == teeBox.lowercased() }) {
+            teeBox = tees.first(where: { ["blue", "white"].contains($0.lowercased()) }) ?? tees.first ?? teeBox
         }
     }
 }

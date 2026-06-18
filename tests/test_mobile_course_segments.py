@@ -100,6 +100,26 @@ class MobileCourseSegmentTests(unittest.TestCase):
         loop_gids = sorted(g for g, c in opts.items() if c["venueName"] == "北京天竺黑骑士球员俱乐部")
         self.assertEqual(loop_gids, [31794, 31795, 31796])
 
+    def test_course_options_carry_real_tee_colours(self) -> None:
+        # Real tee colours come from Garmin CourseView (release field 6) — what Garmin's own
+        # new-round tee picker shows. Injected here so the test is hermetic.
+        fake_tees = {31794: ["Gold", "Blue", "White", "Red"], 41825: ["Black", "Blue", "White", "Red"]}
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                _round("r1", 31794, "北京天竺黑骑士球员俱乐部 ~ A"),
+                _round("r2", 41825, "北京北湖九号国际高尔夫俱乐部"),
+            ],
+            shots=[],
+        )
+        resp = build_mobile_course_options(
+            data, data_mode="played", segment_resolver=_resolver,
+            tee_resolver=lambda gid, **_: fake_tees.get(int(gid), []),
+        )
+        opts = {c["globalId"]: c for c in resp["courses"]}
+        self.assertEqual(opts[31794]["tees"], ["Gold", "Blue", "White", "Red"])
+        self.assertEqual(opts[41825]["tees"], ["Black", "Blue", "White", "Red"])
+
     def test_missing_courseview_falls_back_to_played_holes(self) -> None:
         # gid with no CourseView record → segmentLabel None, segmentHoles falls back to played count.
         data = HistoryData(

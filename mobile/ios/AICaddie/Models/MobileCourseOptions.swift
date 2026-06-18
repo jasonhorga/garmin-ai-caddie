@@ -66,6 +66,9 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
     /// Course coordinates for GPS "nearby courses" sorting (nil when unknown).
     public let latitude: Double?
     public let longitude: Double?
+    /// Real tee colours for this course (Gold/Black/Blue/White/Red…) from Garmin CourseView —
+    /// the same list Garmin's own new-round tee picker shows. Empty when unknown.
+    public let tees: [String]?
 
     public init(
         globalId: Int,
@@ -84,7 +87,8 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
         segmentLabel: String? = nil,
         segmentHoles: Int? = nil,
         latitude: Double? = nil,
-        longitude: Double? = nil
+        longitude: Double? = nil,
+        tees: [String]? = nil
     ) {
         self.globalId = globalId
         self.courseKey = courseKey
@@ -103,5 +107,6 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
         self.segmentHoles = segmentHoles
         self.latitude = latitude
         self.longitude = longitude
+        self.tees = tees
     }
 }
