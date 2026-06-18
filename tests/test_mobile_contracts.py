@@ -1245,6 +1245,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('URLQueryItem(name: "back_global_id"', sync_client)
         self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", start_view)
         self.assertIn("onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)", start_view)
+        # The "加打" list must exclude the already-selected front loop (no C+C when C is the front).
+        self.assertIn("$0.globalId != selectedSegment.globalId", start_view)
         self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", round_home)
         self.assertIn("onPrepareCompositeRound: onPrepareCompositeRound", round_home)
 
