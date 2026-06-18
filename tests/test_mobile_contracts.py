@@ -1259,8 +1259,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func segmentRow(", start_view)
         self.assertIn("segment.segmentLabel", start_view)
         # 球场用下拉菜单选(#2a),GPS 可用时按距离排序、否则最常打在前(#4a)。
-        self.assertIn('Picker("球场", selection: $selectedVenue)', start_view)
+        self.assertIn('Picker("球场", selection: selectedVenueBinding)', start_view)
         self.assertIn("displayVenues", start_view)
+        self.assertIn("selectedVenueName", start_view)  # venue derived from the selected segment (no desync)
         self.assertIn("locationProvider.latestFix", start_view)
         self.assertIn("haversineMetres(", start_view)
         # 发球台用所选球场的真实 Tee(Garmin CourseView 颜色:金/黑/蓝/白/红…),#2d。

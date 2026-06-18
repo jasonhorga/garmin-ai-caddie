@@ -21,7 +21,7 @@ public struct StartRoundView: View {
     @State private var roundId: String
     @State private var courseGlobalIdText: String
     @State private var backGlobalIdText: String = ""
-    @State private var selectedVenue: String = ""
+    @State private var userPickedVenue = false
     @State private var teeBox: String
     @State private var nine: String
 
@@ -60,7 +60,11 @@ public struct StartRoundView: View {
         let selected = courseOptions.first { String($0.globalId) == resolvedCourseId }
         self._courseGlobalIdText = State(initialValue: resolvedCourseId)
         self._roundId = State(initialValue: selected?.suggestedLiveRoundId ?? defaultRoundId)
-        let resolvedTee = selected?.teeBox.flatMap { $0 == "unknown" ? nil : $0 }
+        // Default to the course's real tee (prefer Blue/White), else the given/played tee.
+        let courseTees = selected?.tees ?? []
+        let resolvedTee = courseTees.first(where: { ["blue", "white"].contains($0.lowercased()) })
+            ?? courseTees.first
+            ?? selected?.teeBox.flatMap { $0 == "unknown" ? nil : $0 }
             ?? (defaultTeeBox == "unknown" ? "" : defaultTeeBox)
         self._teeBox = State(initialValue: resolvedTee)
         // The chosen segment (a 9-hole loop, or a whole 18) IS the unit now → no front/back slice.
@@ -91,11 +95,51 @@ public struct StartRoundView: View {
         .onAppear {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
-            if selectedVenue.isEmpty {
-                selectedVenue = displayVenues.first(where: { group in
-                    group.segments.contains { String($0.globalId) == courseGlobalIdText }
-                })?.venue ?? displayVenues.first?.venue ?? ""
-            }
+            ensureDefaultSelection()
+        }
+        .onChange(of: locationProvider.latestFix?.coordinate.latitude) { _, _ in
+            // GPS arrived → if the player hasn't picked yet, jump to the nearest course.
+            ensureDefaultSelection()
+        }
+    }
+
+    /// The venue of the currently selected segment — the single source of truth (no separate state
+    /// that can desync from courseGlobalIdText). Falls back to the top venue when nothing is selected.
+    private var selectedVenueName: String {
+        selectedSegment.map { $0.venueName ?? baseCourseName($0.name) } ?? displayVenues.first?.venue ?? ""
+    }
+
+    private var selectedVenueBinding: Binding<String> {
+        Binding(
+            get: { selectedVenueName },
+            set: { newVenue in selectVenue(newVenue, userInitiated: true) }
+        )
+    }
+
+    /// Select a venue → switch the chosen segment to that venue's first segment (keeps venue +
+    /// segment list + 加打 + tee all consistent).
+    private func selectVenue(_ venue: String, userInitiated: Bool) {
+        guard let group = displayVenues.first(where: { $0.venue == venue }) ?? displayVenues.first,
+              let first = group.segments.first else {
+            return
+        }
+        if userInitiated {
+            userPickedVenue = true
+        }
+        courseGlobalIdText = String(first.globalId)
+        backGlobalIdText = ""
+        applySelectedCourse(globalIdText: courseGlobalIdText)
+    }
+
+    /// Default to the top venue (nearest when GPS is available, else most-played) until the player
+    /// picks one — and recover if the current selection isn't a real course.
+    private func ensureDefaultSelection() {
+        guard let top = displayVenues.first else { return }
+        let currentIsValid = selectedSegment != nil
+        if !currentIsValid {
+            selectVenue(top.venue, userInitiated: false)
+        } else if !userPickedVenue, !top.segments.contains(where: { String($0.globalId) == courseGlobalIdText }) {
+            selectVenue(top.venue, userInitiated: false)
         }
     }
 
@@ -112,17 +156,6 @@ public struct StartRoundView: View {
             }.min() ?? .greatestFiniteMagnitude
         }
         return groups.sorted { distance($0) < distance($1) }
-    }
-
-    private func autoSelectFirstSegment() {
-        guard let group = displayVenues.first(where: { $0.venue == selectedVenue }) else { return }
-        if !group.segments.contains(where: { String($0.globalId) == courseGlobalIdText }) {
-            if let first = group.segments.first {
-                courseGlobalIdText = String(first.globalId)
-                backGlobalIdText = ""
-                applySelectedCourse(globalIdText: courseGlobalIdText)
-            }
-        }
     }
 
     private func haversineMetres(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
@@ -145,17 +178,16 @@ public struct StartRoundView: View {
                     Label("已按距离排序 · 最近在前", systemImage: "location.fill")
                         .font(.caption2).foregroundStyle(LiveHoleStyle.green)
                 }
-                // 下拉选球场(GPS 可用时最近在前,否则最常打在前)。
-                Picker("球场", selection: $selectedVenue) {
+                // 下拉选球场(GPS 可用时最近在前,否则最常打在前)。球场名从选中环派生,不会空白。
+                Picker("球场", selection: selectedVenueBinding) {
                     ForEach(displayVenues, id: \.venue) { group in
                         Text(group.venue).tag(group.venue)
                     }
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .onChange(of: selectedVenue) { _, _ in autoSelectFirstSegment() }
                 // 选中球场的各 9 洞环 / 整场。
-                if let group = displayVenues.first(where: { $0.venue == selectedVenue }) ?? displayVenues.first {
+                if let group = displayVenues.first(where: { $0.venue == selectedVenueName }) ?? displayVenues.first {
                     ForEach(group.segments) { segment in
                         segmentRow(segment)
                     }
@@ -189,6 +221,7 @@ public struct StartRoundView: View {
     @ViewBuilder private func segmentRow(_ segment: MobileCourseOption) -> some View {
         let selected = String(segment.globalId) == courseGlobalIdText
         Button {
+            userPickedVenue = true
             courseGlobalIdText = String(segment.globalId)
             backGlobalIdText = ""  // changing the front loop resets any "add second nine" choice
             applySelectedCourse(globalIdText: courseGlobalIdText)
