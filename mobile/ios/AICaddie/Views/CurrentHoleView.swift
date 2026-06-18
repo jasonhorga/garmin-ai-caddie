@@ -62,7 +62,7 @@ public struct CurrentHoleView: View {
         self._score = State(initialValue: restoredHoleState?.score ?? hole.par)
         self._puttCount = State(initialValue: restoredHoleState?.putts ?? 2)
         self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)
-        self._selectedClub = State(initialValue: restoredHoleState?.selectedClub ?? package.clubProfiles.first?.clubName ?? "")
+        self._selectedClub = State(initialValue: zhClubName(restoredHoleState?.selectedClub ?? package.clubProfiles.first?.clubName ?? ""))
         self._selectedShotType = State(initialValue: restoredHoleState?.selectedShotType ?? seed?.shotTypes.first ?? "approach")
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
         self._distanceToPinText = State(initialValue: restoredHoleState?.distanceToPinM.map(Self.distanceText) ?? "")
@@ -253,17 +253,20 @@ public struct CurrentHoleView: View {
 
     /// Club picker options: the player's clubs, minus empty/"Unknown" placeholders and
     /// case-insensitive duplicates (Garmin club names are user-entered and messy).
+    /// Player's clubs from the backend (real bag): normalized to clear Chinese names (zhClubName),
+    /// deduped (keep the most-sampled profile per club), filtered by lie (no 一号木 off the tee),
+    /// and ordered longest→shortest. Drops empty/"Unknown".
     private var clubNames: [String] {
-        var seen = Set<String>()
-        var result: [String] = []
-        for name in package.clubProfiles.map(\.clubName) {
-            let trimmed = name.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty, trimmed.lowercased() != "unknown" else { continue }
-            if seen.insert(trimmed.lowercased()).inserted {
-                result.append(trimmed)
-            }
+        var best: [String: ClubProfile] = [:]
+        for profile in package.clubProfiles {
+            let raw = profile.clubName.trimmingCharacters(in: .whitespaces)
+            guard !raw.isEmpty, raw.lowercased() != "unknown" else { continue }
+            let name = zhClubName(raw)
+            if clubIsTeeOnly(name), selectedLie != "tee" { continue }
+            if let existing = best[name], existing.sampleSize >= profile.sampleSize { continue }
+            best[name] = profile
         }
-        return result
+        return best.sorted { $0.value.medianM > $1.value.medianM }.map(\.key)
     }
 
     private var holeToParText: String {

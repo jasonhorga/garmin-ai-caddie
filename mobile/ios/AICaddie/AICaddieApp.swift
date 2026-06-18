@@ -72,6 +72,10 @@ public struct AICaddieApp: App {
                             Task {
                                 await model.clearBackendConfiguration()
                             }
+                        },
+                        pendingLiveHole: model.pendingLiveHole,
+                        onConsumePendingLiveHole: {
+                            model.consumePendingLiveHole()
                         }
                     )
                 } else {
@@ -139,6 +143,13 @@ public final class LiveRoundAppModel: ObservableObject {
     /// True until the first bootstrap() resolves, so the root shows a loading state instead of
     /// flashing the 开始一场 form before the home package lands.
     @Published public private(set) var isBootstrapping = true
+    /// When a NEW round is freshly prepared, the hole to jump straight into (so 开始记分 enters
+    /// the live screen directly instead of bouncing back to the Hub). UI consumes + clears it.
+    @Published public private(set) var pendingLiveHole: Int?
+
+    public func consumePendingLiveHole() {
+        pendingLiveHole = nil
+    }
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     @Published public private(set) var courseOptions: [MobileCourseOption] = []
     /// 本局的起始九洞(用于「移除另外 9 洞」撤销目标);随新 roundId 重置。
@@ -208,12 +219,28 @@ public final class LiveRoundAppModel: ObservableObject {
 
     public func bootstrap() async {
         defer { isBootstrapping = false }
+        // Phase 1 — INSTANT (no network): show a cached package so the menu appears immediately.
+        // This is the fix for slow startup — we never block the menu on a network package build.
         do {
-            await refreshCourseOptions()
-            // 1. RESUME an in-progress round first, on EVERY build — a round the player has
-            // actually recorded holes in must never be lost or clobbered on relaunch. current_package
-            // is the active-round marker; require real recorded events so a bare/home package
-            // never masquerades as an active round.
+            if let active = try offlineStore.loadCurrentRoundPackage(),
+               active.dataMode != "fixture",
+               active.course.globalId != 0,
+               try offlineStore.hasRecordedEvents(roundId: active.roundId) {
+                try activatePackage(active, status: "继续进行中的球局")
+                isBootstrapping = false
+            } else if let cachedHome = try offlineStore.loadHomePackage() {
+                try activateHomePackage(cachedHome, status: "主页就绪(缓存)")
+                isBootstrapping = false
+            }
+        } catch {
+            // ignore — phase 2 will populate (or fall back)
+        }
+
+        // Phase 2 — BACKGROUND refresh (network): course options + a fresh active/home package.
+        // Runs after the menu is already on screen (when a cache existed), so it never delays it.
+        await refreshCourseOptions()
+        do {
+            // RESUME an in-progress round first — recorded holes must never be lost/clobbered.
             if let active = try offlineStore.loadCurrentRoundPackage(),
                active.dataMode != "fixture",
                active.course.globalId != 0,
@@ -222,17 +249,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             #if DEBUG
-            // Dev/simulator + CI harness: auto-fetch the preferred round so snapshots/dev always
-            // have a package to render (no active round resumed above).
+            // Dev/simulator + CI harness: auto-fetch the preferred round so snapshots/dev render.
             if let remotePackage = await fetchRemotePackage() {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Remote package cached")
                 return
             }
             #endif
-            // 2. No in-progress round → land on the Hub (the "几个选择" home), NOT a bare form.
-            // The home package = the most-played course's data; it does NOT set liveRoundState
-            // (no 进行中 card) and is NOT the active-round pointer.
+            // No in-progress round → land on the Hub with a fresh home package (most-played course).
             if let home = await fetchHomePackage() {
                 try activateHomePackage(home, status: "主页就绪")
                 return
@@ -339,7 +363,8 @@ public final class LiveRoundAppModel: ObservableObject {
             return
         }
         // 新的一局才记录起始九洞;同一 roundId 改九洞(加打/撤销)时保留撤销目标。
-        if package?.roundId != requestedRoundId {
+        let isNewRound = package?.roundId != requestedRoundId
+        if isNewRound {
             startingNine = (nine == "all") ? nil : nine
         }
         let preparedAt = Date()
@@ -353,16 +378,23 @@ public final class LiveRoundAppModel: ObservableObject {
             if let remotePackage = await fetchRemoteCoursePackage(globalId: globalId, roundId: requestedRoundId, teeBox: teeBox, nine: nine, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Course package prepared")
+                if isNewRound { signalFreshRoundEntry() }
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
                 try activatePackage(cachedPackage, status: "Cached package ready")
+                if isNewRound { signalFreshRoundEntry() }
             } else {
                 syncStatus = "Course package unavailable"
             }
         } catch {
             syncStatus = "Course package prepare failed"
         }
+    }
+
+    /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
+    private func signalFreshRoundEntry() {
+        pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
     }
 
     /// 组合 18 洞:本环(1–9)+ 第二个环(10–18)。两个环各是独立 CourseView 球场,后端合并成一局。
@@ -373,7 +405,8 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "Round id is required"
             return
         }
-        if package?.roundId != requestedRoundId {
+        let isNewRound = package?.roundId != requestedRoundId
+        if isNewRound {
             startingNine = nil
         }
         let preparedAt = Date()
@@ -385,10 +418,12 @@ public final class LiveRoundAppModel: ObservableObject {
             if let remotePackage = await fetchRemoteCompositePackage(globalId: globalId, backGlobalId: backGlobalId, roundId: requestedRoundId, teeBox: teeBox, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Course package prepared")
+                if isNewRound { signalFreshRoundEntry() }
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
                 try activatePackage(cachedPackage, status: "Cached package ready")
+                if isNewRound { signalFreshRoundEntry() }
             } else {
                 syncStatus = "Course package unavailable"
             }

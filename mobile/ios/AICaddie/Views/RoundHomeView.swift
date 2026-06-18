@@ -5,6 +5,13 @@ import SwiftUI
 /// 备战 · 复盘磁贴、上一场速览。灰底圆角白卡(ScrollView),保留导航接线(实战逐洞、
 /// 赛前攻略、历史复盘、同步、Garmin 账号)。工程项(离线诊断、后端地址)不对用户暴露。
 /// 表现型卡片组件(Hub*)纯输入,供 CI 设计快照复用。
+/// Hub navigation routes driven by a path, so the app can jump straight into the live hole after
+/// 开始记分 (instead of bouncing back to the Hub). 备战/复盘 stay simple leaf links.
+public enum HubRoute: Hashable {
+    case start
+    case hole(Int)
+}
+
 public struct RoundHomeView: View {
     public let package: LiveRoundPackage
     public let pendingEventCount: Int
@@ -28,9 +35,13 @@ public struct RoundHomeView: View {
     public let onSync: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
+    /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
+    public let pendingLiveHole: Int?
+    public let onConsumePendingLiveHole: () -> Void
 
     @State private var showDiscardConfirm = false
     @State private var showSettings = false
+    @State private var path: [HubRoute] = []
 
     public init(
         package: LiveRoundPackage,
@@ -54,7 +65,9 @@ public struct RoundHomeView: View {
         onDiscard: @escaping () -> Void = {},
         onSync: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
-        onClearBackendConfiguration: @escaping () -> Void = {}
+        onClearBackendConfiguration: @escaping () -> Void = {},
+        pendingLiveHole: Int? = nil,
+        onConsumePendingLiveHole: @escaping () -> Void = {}
     ) {
         self.package = package
         self.pendingEventCount = pendingEventCount
@@ -78,10 +91,12 @@ public struct RoundHomeView: View {
         self.onSync = onSync
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
+        self.pendingLiveHole = pendingLiveHole
+        self.onConsumePendingLiveHole = onConsumePendingLiveHole
     }
 
     public var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 VStack(spacing: 12) {
                     playCard
@@ -93,6 +108,14 @@ public struct RoundHomeView: View {
             }
             .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
             .navigationTitle("开球吧")
+            .navigationDestination(for: HubRoute.self) { route in
+                switch route {
+                case .start:
+                    startRoundView
+                case .hole(let number):
+                    currentHoleView(number)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -106,15 +129,43 @@ public struct RoundHomeView: View {
                 settingsSheet
             }
         }
+        .onChange(of: pendingLiveHole) { _, hole in
+            // 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
+            guard let hole else { return }
+            path = [.hole(hole)]
+            onConsumePendingLiveHole()
+        }
+    }
+
+    @ViewBuilder private func currentHoleView(_ number: Int) -> some View {
+        if let hole = package.holes.first(where: { $0.number == number }) {
+            CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)
+        }
+    }
+
+    private var startRoundView: some View {
+        StartRoundView(
+            defaultRoundId: package.roundId,
+            defaultCourseGlobalId: package.course.globalId == 0 ? nil : package.course.globalId,
+            defaultTeeBox: package.course.teeBox,
+            courseOptions: courseOptions,
+            syncStatus: syncStatus,
+            isPreparing: isPreparingRound,
+            apiBaseURL: apiBaseURL,
+            adminTokenConfigured: adminTokenConfigured,
+            onPrepareRound: onPrepareRound,
+            onPrepareCourseRound: onPrepareCourseRound,
+            onPrepareCompositeRound: onPrepareCompositeRound,
+            onSaveBackendConfiguration: onSaveBackendConfiguration,
+            onClearBackendConfiguration: onClearBackendConfiguration
+        )
     }
 
     // MARK: - 打球(开始 / 继续 + 加打/移除九洞)
 
     @ViewBuilder private var playCard: some View {
-        if let liveRoundState, let hole = package.holes.first(where: { $0.number == liveRoundState.activeHole }) {
-            NavigationLink {
-                CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)
-            } label: {
+        if let liveRoundState, package.holes.contains(where: { $0.number == liveRoundState.activeHole }) {
+            NavigationLink(value: HubRoute.hole(liveRoundState.activeHole)) {
                 HubInProgressCard(
                     courseName: package.course.name,
                     activeHole: liveRoundState.activeHole,
@@ -136,23 +187,7 @@ public struct RoundHomeView: View {
             }
         }
         nineControl
-        NavigationLink {
-            StartRoundView(
-                defaultRoundId: package.roundId,
-                defaultCourseGlobalId: package.course.globalId == 0 ? nil : package.course.globalId,
-                defaultTeeBox: package.course.teeBox,
-                courseOptions: courseOptions,
-                syncStatus: syncStatus,
-                isPreparing: isPreparingRound,
-                apiBaseURL: apiBaseURL,
-                adminTokenConfigured: adminTokenConfigured,
-                onPrepareRound: onPrepareRound,
-                onPrepareCourseRound: onPrepareCourseRound,
-                onPrepareCompositeRound: onPrepareCompositeRound,
-                onSaveBackendConfiguration: onSaveBackendConfiguration,
-                onClearBackendConfiguration: onClearBackendConfiguration
-            )
-        } label: {
+        NavigationLink(value: HubRoute.start) {
             Label("开始一场", systemImage: "flag.checkered")
                 .font(.headline)
                 .frame(maxWidth: .infinity)
@@ -252,9 +287,7 @@ public struct RoundHomeView: View {
             Text("本场球洞").font(.caption).foregroundStyle(.secondary)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                 ForEach(package.holes) { hole in
-                    NavigationLink {
-                        CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)
-                    } label: {
+                    NavigationLink(value: HubRoute.hole(hole.number)) {
                         HStack(spacing: 6) {
                             Text("\(hole.number)").font(.subheadline.monospacedDigit().weight(.bold))
                             Text("Par \(hole.par)").font(.caption2).foregroundStyle(.secondary)

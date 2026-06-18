@@ -1230,6 +1230,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("StartRoundView(", app_swift)
         self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
         self.assertIn("await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)", app_swift)
+        # 1d: 开始记分后直接进实战屏(pendingLiveHole → Hub 路径导航到该洞),不弹回 Hub。
+        self.assertIn("var pendingLiveHole: Int?", app_swift)
+        self.assertIn("signalFreshRoundEntry()", app_swift)
+        self.assertIn("enum HubRoute", round_home)
+        self.assertIn("path = [.hole(hole)]", round_home)
+        self.assertIn("onConsumePendingLiveHole()", round_home)
 
         # Composite 18: front loop + a second loop (holes 10–18). Wired front→model→SyncClient→backend.
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
@@ -1438,6 +1444,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("hole.sourceGlobalId ?? package.course.globalId", current_hole)
         self.assertIn("func loadHoleMap()", current_hole)
 
+    def test_ios_club_naming_and_lie_filter(self) -> None:
+        golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        caddie_plan = _read_required_source(self, IOS_DIR / "Views" / "CaddiePlanView.swift")
+        # 3c 球杆命名规范化(一号木/三号木/三号小鸡腿/五号铁/P杆/挖起杆…)+ 3b lie 过滤(球道不出一号木)。
+        self.assertIn("func zhClubName(", golf_club)
+        self.assertIn("号小鸡腿", golf_club)
+        self.assertIn("挖起杆", golf_club)
+        self.assertIn("func clubIsTeeOnly(", golf_club)
+        self.assertIn("zhClubName(", current_hole)
+        self.assertIn("clubIsTeeOnly(name), selectedLie != \"tee\"", current_hole)
+        self.assertIn("medianM > $1.value.medianM", current_hole)  # longest→shortest
+        self.assertIn("zhClubName(option.clubName)", caddie_plan)
+
     def test_ios_restores_live_round_state_from_offline_event_log(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
@@ -1492,7 +1512,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("self._score = State(initialValue: restoredHoleState?.score ?? hole.par)", current_hole)
         self.assertIn("self._puttCount = State(initialValue: restoredHoleState?.putts ?? 2)", current_hole)
         self.assertIn("self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)", current_hole)
-        self.assertIn("self._selectedClub = State(initialValue: restoredHoleState?.selectedClub ?? package.clubProfiles.first?.clubName ?? \"\")", current_hole)
+        self.assertIn("self._selectedClub = State(initialValue: zhClubName(restoredHoleState?.selectedClub ?? package.clubProfiles.first?.clubName ?? \"\"))", current_hole)
         self.assertIn("@State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?", current_hole)
         self.assertIn("self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)", current_hole)
         self.assertIn("applyRestoredStateIfNeeded(newState)", current_hole)
