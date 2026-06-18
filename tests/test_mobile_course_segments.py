@@ -120,6 +120,24 @@ class MobileCourseSegmentTests(unittest.TestCase):
         self.assertEqual(opts[31794]["tees"], ["Gold", "Blue", "White", "Red"])
         self.assertEqual(opts[41825]["tees"], ["Black", "Blue", "White", "Red"])
 
+    def test_pydantic_response_preserves_enriched_fields(self) -> None:
+        # REGRESSION: the Pydantic response model must carry venueName/segmentLabel/segmentHoles/
+        # latitude/longitude/tees — else they're silently stripped before reaching the app (which
+        # is exactly why 黑骑士 showed "全场" + the tee picker showed the generic list on device).
+        from server_v2.models import MobileCourseOption
+
+        option = MobileCourseOption(
+            globalId=31794, name="北京天竺黑骑士球员俱乐部 ~ A", roundCount=40, holes=9,
+            geometryCoverage="ready", venueName="北京天竺黑骑士球员俱乐部", segmentLabel="A",
+            segmentHoles=9, latitude=40.02, longitude=116.58, tees=["Gold", "Blue", "White", "Red"],
+        )
+        dumped = option.model_dump()
+        self.assertEqual(dumped["venueName"], "北京天竺黑骑士球员俱乐部")
+        self.assertEqual(dumped["segmentLabel"], "A")
+        self.assertEqual(dumped["segmentHoles"], 9)
+        self.assertEqual(dumped["tees"], ["Gold", "Blue", "White", "Red"])
+        self.assertEqual(dumped["latitude"], 40.02)
+
     def test_missing_courseview_falls_back_to_played_holes(self) -> None:
         # gid with no CourseView record → segmentLabel None, segmentHoles falls back to played count.
         data = HistoryData(
