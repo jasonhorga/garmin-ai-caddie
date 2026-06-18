@@ -72,6 +72,10 @@ public struct AICaddieApp: App {
                             Task {
                                 await model.clearBackendConfiguration()
                             }
+                        },
+                        pendingLiveHole: model.pendingLiveHole,
+                        onConsumePendingLiveHole: {
+                            model.consumePendingLiveHole()
                         }
                     )
                 } else {
@@ -139,6 +143,13 @@ public final class LiveRoundAppModel: ObservableObject {
     /// True until the first bootstrap() resolves, so the root shows a loading state instead of
     /// flashing the 开始一场 form before the home package lands.
     @Published public private(set) var isBootstrapping = true
+    /// When a NEW round is freshly prepared, the hole to jump straight into (so 开始记分 enters
+    /// the live screen directly instead of bouncing back to the Hub). UI consumes + clears it.
+    @Published public private(set) var pendingLiveHole: Int?
+
+    public func consumePendingLiveHole() {
+        pendingLiveHole = nil
+    }
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     @Published public private(set) var courseOptions: [MobileCourseOption] = []
     /// 本局的起始九洞(用于「移除另外 9 洞」撤销目标);随新 roundId 重置。
@@ -339,7 +350,8 @@ public final class LiveRoundAppModel: ObservableObject {
             return
         }
         // 新的一局才记录起始九洞;同一 roundId 改九洞(加打/撤销)时保留撤销目标。
-        if package?.roundId != requestedRoundId {
+        let isNewRound = package?.roundId != requestedRoundId
+        if isNewRound {
             startingNine = (nine == "all") ? nil : nine
         }
         let preparedAt = Date()
@@ -353,16 +365,23 @@ public final class LiveRoundAppModel: ObservableObject {
             if let remotePackage = await fetchRemoteCoursePackage(globalId: globalId, roundId: requestedRoundId, teeBox: teeBox, nine: nine, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Course package prepared")
+                if isNewRound { signalFreshRoundEntry() }
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
                 try activatePackage(cachedPackage, status: "Cached package ready")
+                if isNewRound { signalFreshRoundEntry() }
             } else {
                 syncStatus = "Course package unavailable"
             }
         } catch {
             syncStatus = "Course package prepare failed"
         }
+    }
+
+    /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
+    private func signalFreshRoundEntry() {
+        pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
     }
 
     /// 组合 18 洞:本环(1–9)+ 第二个环(10–18)。两个环各是独立 CourseView 球场,后端合并成一局。
@@ -373,7 +392,8 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "Round id is required"
             return
         }
-        if package?.roundId != requestedRoundId {
+        let isNewRound = package?.roundId != requestedRoundId
+        if isNewRound {
             startingNine = nil
         }
         let preparedAt = Date()
@@ -385,10 +405,12 @@ public final class LiveRoundAppModel: ObservableObject {
             if let remotePackage = await fetchRemoteCompositePackage(globalId: globalId, backGlobalId: backGlobalId, roundId: requestedRoundId, teeBox: teeBox, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Course package prepared")
+                if isNewRound { signalFreshRoundEntry() }
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
                 try activatePackage(cachedPackage, status: "Cached package ready")
+                if isNewRound { signalFreshRoundEntry() }
             } else {
                 syncStatus = "Course package unavailable"
             }
