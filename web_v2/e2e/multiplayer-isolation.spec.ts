@@ -326,9 +326,10 @@ test.describe('player-facing deployment (link required)', () => {
     await page.getByRole('button', { name: '球局' }).click()
     await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
 
-    // Both rounds list by course name (raw round-id refs are owner-diagnostics-only now)…
-    await expect(page.getByText('梅花山 A')).toBeVisible()
-    await expect(page.getByText('观澜湖 B')).toBeVisible()
+    // Both rounds list as cards (raw round-id refs are owner-diagnostics-only now); the
+    // course name is the card heading (disambiguated from the filter <option> of the same text).
+    await expect(page.getByRole('heading', { name: '梅花山 A' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '观澜湖 B' })).toBeVisible()
     // …but only the manual one carries the 手动 chip.
     await expect(page.getByLabel('手动录入的球局')).toHaveCount(1)
     // and still no other player's round leaks into this player's history.
