@@ -364,35 +364,35 @@ def _phase_summary(
         {
             "phase": "Tee",
             "state": "ready" if tee_shots or fairways else "missing",
-            "primary": f"{fairways_hit}/{len(fairways)} fairways" if fairways else f"{len(tee_shots)} tee shots",
+            "primary": f"{fairways_hit}/{len(fairways)} 球道命中" if fairways else f"{len(tee_shots)} 次开球",
             "metrics": {"shots": len(tee_shots), "fairwaysHit": fairways_hit, "fairwaysRecorded": len(fairways)},
             "sourceRefs": _dedupe([_shot_ref(shot, index) for index, shot in tee_shots]),
         },
         {
             "phase": "Approach",
             "state": "ready" if approach_shots or gir_recorded else "missing",
-            "primary": f"{gir_hit}/{len(gir_recorded)} GIR" if gir_recorded else f"{len(approach_shots)} approach shots",
+            "primary": f"{gir_hit}/{len(gir_recorded)} 标准杆上果岭" if gir_recorded else f"{len(approach_shots)} 次攻果岭",
             "metrics": {"shots": len(approach_shots), "gir": gir_hit, "girRecorded": len(gir_recorded)},
             "sourceRefs": _dedupe([_shot_ref(shot, index) for index, shot in approach_shots]),
         },
         {
             "phase": "Short Game",
             "state": "ready" if short_game_shots else "missing",
-            "primary": f"{len(short_game_shots)} short shots",
+            "primary": f"{len(short_game_shots)} 次短杆",
             "metrics": {"shots": len(short_game_shots)},
             "sourceRefs": _dedupe([_shot_ref(shot, index) for index, shot in short_game_shots]),
         },
         {
             "phase": "Putting",
             "state": "ready" if putt_cells or putt_shots else "missing",
-            "primary": f"{putts_total} putts" if putt_cells else f"{len(putt_shots)} putt shots",
+            "primary": f"{putts_total} 推" if putt_cells else f"{len(putt_shots)} 次推击",
             "metrics": {"totalPutts": putts_total if putt_cells else None, "holesWithPutts": len(putt_cells), "threePutts": three_putts},
             "sourceRefs": _dedupe([_hole_ref(_round_id(row), int(cell["hole"])) for cell in putt_cells]),
         },
         {
             "phase": "Penalty / Damage",
             "state": "partial" if score_penalties else "missing",
-            "primary": f"{score_penalties} double-or-worse holes",
+            "primary": f"{score_penalties} 个双柏忌及以上",
             "metrics": {"doubleOrWorseHoles": score_penalties},
             "sourceRefs": _dedupe([str(cell.get("holeRef")) for cell in scorecard if (cell.get("toPar") or 0) >= 2]),
         },
@@ -433,16 +433,16 @@ def _related_refs(row: dict[str, Any], shots: list[tuple[int, dict[str, Any]]], 
 def _missing_data(row: dict[str, Any], scorecard: list[dict[str, Any]], shots: list[tuple[int, dict[str, Any]]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if not scorecard:
-        rows.append({"label": "scorecard", "state": "missing", "reason": "round has no scorecard holes"})
+        rows.append({"label": "scorecard", "state": "missing", "reason": "这一局没有记分卡洞数据"})
     elif any(cell.get("score") is None for cell in scorecard):
         missing = sum(1 for cell in scorecard if cell.get("score") is None)
-        rows.append({"label": "hole scores", "state": "partial", "reason": f"{missing} scorecard cells have no score"})
+        rows.append({"label": "hole scores", "state": "partial", "reason": f"{missing} 个洞没有成绩"})
     if not shots:
-        rows.append({"label": "shot rows", "state": "missing", "reason": "no normalized Garmin shot rows for this round"})
+        rows.append({"label": "shot rows", "state": "missing", "reason": "这一局没有逐杆 GPS 数据"})
     if not any(cell.get("putts") is not None for cell in scorecard):
-        rows.append({"label": "putts", "state": "missing", "reason": "scorecard holes do not include putt counts"})
+        rows.append({"label": "putts", "state": "missing", "reason": "记分卡没有推杆数"})
     if row.get("par") is None:
-        rows.append({"label": "round par", "state": "missing", "reason": "round par is not available"})
+        rows.append({"label": "round par", "state": "missing", "reason": "没有标准杆数据"})
     return rows
 
 
@@ -452,14 +452,14 @@ def _missing_round_detail(ref: str) -> dict[str, Any]:
         "roundRef": ref,
         "requestedRef": ref,
         "found": False,
-        "title": "Round not found",
+        "title": "未找到这一局",
         "round": None,
         "scorecard": [],
         "phaseSummary": [],
         "holeDetails": [],
         "relatedRefs": {"roundRefs": [], "holeRefs": [], "shotRefs": [], "sourceRefs": []},
         "sourceFields": {},
-        "missingData": [{"label": "round_ref", "state": "missing", "reason": f"{ref} was not found in loaded history data"}],
+        "missingData": [{"label": "round_ref", "state": "missing", "reason": f"{ref} 在历史数据里没找到"}],
         "annotations": [],
         "corrections": [],
     }
