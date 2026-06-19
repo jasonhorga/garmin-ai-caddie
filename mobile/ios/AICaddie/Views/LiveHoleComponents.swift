@@ -24,6 +24,21 @@ func aiCaddieShortDate(_ raw: String) -> String {
     return trimmed
 }
 
+/// Full-screen centered loading — fills the area so the parent's background shows uniformly, with a
+/// spinner + caption. Replaces the sparse "white screen + lonely spinner + grey strip" look that a
+/// bare ProgressView inside a ScrollView produced while a fetch was in flight.
+struct AICaddieLoadingView: View {
+    var text: String = "载入中…"
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+            Text(text).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 /// A small rounded chip; `warn` flips it to the risk palette.
 struct HoleChip: View {
     let text: String

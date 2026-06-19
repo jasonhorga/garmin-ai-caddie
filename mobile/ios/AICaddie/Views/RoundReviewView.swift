@@ -22,8 +22,14 @@ public struct RoundReviewView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            RoundReviewContent(detail: detail, isLoading: isLoading, errorText: errorText, fallbackCourseName: fallbackCourseName)
+        Group {
+            if isLoading && detail == nil {
+                AICaddieLoadingView(text: "载入这场…")
+            } else {
+                ScrollView {
+                    RoundReviewContent(detail: detail, isLoading: isLoading, errorText: errorText, fallbackCourseName: fallbackCourseName)
+                }
+            }
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle("单场复盘")
