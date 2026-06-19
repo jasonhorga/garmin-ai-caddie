@@ -41,6 +41,7 @@ public struct RoundHomeView: View {
 
     @State private var showDiscardConfirm = false
     @State private var showSettings = false
+    @State private var showManage = false
     @State private var path: [HubRoute] = []
 
     public init(
@@ -100,14 +101,16 @@ public struct RoundHomeView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     playCard
+                    if liveRoundState != nil || package.course.globalId != 0 {
+                        manageSection
+                    }
                     tilesRow
                     lastRoundCard
-                    holesCard
                 }
                 .padding(14)
             }
             .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
-            .navigationTitle("开球吧")
+            .navigationTitle("AI 球童")
             .navigationDestination(for: HubRoute.self) { route in
                 switch route {
                 case .start:
@@ -178,20 +181,7 @@ public struct RoundHomeView: View {
                 )
             }
             .buttonStyle(.plain)
-            Button(role: .destructive) {
-                showDiscardConfirm = true
-            } label: {
-                Text("结束本场").font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 6)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .confirmationDialog("结束本场?未保存的记录会被丢弃。", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
-                Button("结束本场", role: .destructive) { onDiscard() }
-                Button("取消", role: .cancel) {}
-            }
         }
-        nineControl
-        loopAddControl
         NavigationLink(value: HubRoute.start) {
             Label("开始一场", systemImage: "flag.checkered")
                 .font(.headline)
@@ -202,6 +192,35 @@ public struct RoundHomeView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+
+    /// 球局调整(加打/减九洞、结束本场)—— 收进折叠区,不再占首页主流程(用户反馈:这些该在球局里、
+    /// 不放首页;本场逐洞跳转也从首页移除,进球局后逐洞推进)。控件与闭包保持不变,仅换容器。
+    @ViewBuilder private var manageSection: some View {
+        DisclosureGroup(isExpanded: $showManage) {
+            VStack(spacing: 8) {
+                nineControl
+                loopAddControl
+                if let live = liveRoundState, package.holes.contains(where: { $0.number == live.activeHole }) {
+                    Button(role: .destructive) {
+                        showDiscardConfirm = true
+                    } label: {
+                        Text("结束本场").font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
+                    .confirmationDialog("结束本场?未保存的记录会被丢弃。", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
+                        Button("结束本场", role: .destructive) { onDiscard() }
+                        Button("取消", role: .cancel) {}
+                    }
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            Label("球局调整 · 加打 / 结束本场", systemImage: "slider.horizontal.3")
+                .font(.subheadline).foregroundStyle(.secondary)
+        }
+        .liveCard()
     }
 
     /// 起始九洞的加打 / 撤销:nine 是对一局 18 洞的视图过滤,已记杆按 roundId 保留。
@@ -356,33 +375,8 @@ public struct RoundHomeView: View {
         }
     }
 
-    // MARK: - 本场球洞(逐洞进入实战)— 仅进行中球局显示;无活局的主页不显示「本场」。
-
-    @ViewBuilder private var holesCard: some View {
-        if liveRoundState != nil {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("本场球洞").font(.caption).foregroundStyle(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                ForEach(package.holes) { hole in
-                    NavigationLink(value: HubRoute.hole(hole.number)) {
-                        HStack(spacing: 6) {
-                            Text("\(hole.number)").font(.subheadline.monospacedDigit().weight(.bold))
-                            Text("Par \(hole.par)").font(.caption2).foregroundStyle(.secondary)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.vertical, 9)
-                        .padding(.horizontal, 10)
-                        .frame(maxWidth: .infinity)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(LiveHoleStyle.line))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.primary)
-                }
-            }
-        }
-        .liveCard()
-        }
-    }
+    // 本场逐洞跳转网格已从首页移除(用户反馈:首页这块「不知道干嘛用的」)。进行中的球局从「继续这场」
+    // 卡进入实战屏,逐洞推进;首页只保留 打球 / 球局调整 / 备战·复盘·统计 / 上一场,更精简。
 
     // MARK: - 设置 sheet(齿轮入口)— Garmin 账号 + 手动同步兜底。记分时已自动同步,
     // 主页不再放 Garmin/同步(用户要求:同步自动化、Garmin 不写在主页)。

@@ -1440,8 +1440,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func saveHomePackage(_ package: LiveRoundPackage) throws", offline_store)
         # Light-only visual identity — never renders white-on-white in the system's Dark Mode.
         self.assertIn(".preferredColorScheme(.light)", app_swift)
-        # 本场球洞 grid only shows for an active round (home with no active round omits it).
-        self.assertIn("if liveRoundState != nil {", round_home)
+        # round-9 E (首页精简): 本场逐洞网格移除;加打/结束本场收进折叠的「球局调整」;标题更清晰。
+        self.assertNotIn("本场球洞", round_home)
+        self.assertIn("private var manageSection", round_home)
+        self.assertIn('navigationTitle("AI 球童")', round_home)
 
     def test_ios_hole_2d_map_wired(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
