@@ -395,6 +395,21 @@ class MobileStatsResponse(BaseModel):
     dataQuality: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ClubBagResponse(BaseModel):
+    """The player's REAL Garmin club bag, fetched by the pipeline from Garmin's `/club/player`
+    roster + `/club/types` dictionary. Each club carries the authoritative ``clubTypeId``, the
+    player's custom name (e.g. "Pw"/"50") when set, the standard type name + loft, and
+    retired/deleted flags. Display names resolve to Chinese on the client. ``clubs`` is a dict
+    passthrough so no field is silently dropped."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-club-bag-v1"] = Field(alias="schema")
+    found: bool = False
+    playerProfileId: int | None = None
+    clubs: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class RoundHoleShotMapResponse(BaseModel):
     """Per-hole 复盘 shot map: this round's actual shots projected onto the hole's 2D render.
     map/shots passed through as dict/list (image is a big data URI; shots carry start/end px)."""

@@ -128,6 +128,10 @@ public struct RoundHomeView: View {
             .sheet(isPresented: $showSettings) {
                 settingsSheet
             }
+            // Prefetch the real Garmin bag so the live picker uses it even if 球杆设置 is never opened.
+            .task {
+                await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken)
+            }
         }
         .onChange(of: pendingLiveHole) { _, hole in
             // 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
@@ -388,14 +392,14 @@ public struct RoundHomeView: View {
             List {
                 Section {
                     NavigationLink {
-                        ClubSettingsView(clubProfiles: package.clubProfiles)
+                        ClubSettingsView(clubProfiles: package.clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken)
                     } label: {
                         Label("球杆设置", systemImage: "bag")
                     }
                 } header: {
                     Text("球包")
                 } footer: {
-                    Text("按 Garmin 标准勾选你真实有的球杆;实战选杆和球童建议只用这些。")
+                    Text("默认就是你 Garmin 里在用的那套球杆(真实名字),可手动增减;实战选杆和球童建议只用这些。")
                 }
                 Section {
                     NavigationLink {

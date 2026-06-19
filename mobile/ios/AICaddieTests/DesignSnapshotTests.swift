@@ -202,14 +202,19 @@ final class DesignSnapshotTests: XCTestCase {
         let mobileStats = try JSONDecoder().decode(MobileStats.self, from: Data(statsJSON.utf8))
         try captureScreen(StatsContent(stats: mobileStats, isLoading: false, errorText: nil), named: "stats")
 
-        // 球杆设置: Garmin-standard catalog with the configured bag checked + history distances (码).
+        // 球杆设置: defaults to the player's REAL Garmin bag (real names, incl 自定义 50/54/58 挖起杆)
+        // resolved from /club/player + /club/types, with history distances (码).
         let bagProfiles = [
             ClubProfile(clubName: "Driver", sampleSize: 120, medianM: 210, p10M: 195, p90M: 225),
             ClubProfile(clubName: "5I", sampleSize: 60, medianM: 165, p10M: 158, p90M: 172),
             ClubProfile(clubName: "7I", sampleSize: 90, medianM: 140, p10M: 132, p90M: 148),
             ClubProfile(clubName: "PW", sampleSize: 70, medianM: 110, p10M: 102, p90M: 118),
         ]
-        let bag: Set<String> = ["一号木", "三号木", "五号铁", "七号铁", "九号铁", "P 杆", "S 杆", "推杆"]
+        // The owner's actual 14-club bag resolved from Garmin (clubTypeId map + custom 50/54/58 wedges).
+        let bag: Set<String> = [
+            "一号木", "三号木", "三号小鸡腿", "五号铁", "六号铁", "七号铁", "八号铁", "九号铁",
+            "P 杆", "A 杆", "50° 挖起杆", "54° 挖起杆", "58° 挖起杆", "推杆",
+        ]
         try captureScreen(ClubSettingsContent(selected: bag, clubProfiles: bagProfiles), named: "club-settings")
 
         // 复盘逐洞落点图: this round's actual shots (tee→landing→green) on the hole, dots by lie.

@@ -6,15 +6,21 @@ import SwiftUI
 /// (码)。改动即时本地保存。首次进入默认从击球历史出现过的杆预填。
 public struct ClubSettingsView: View {
     public let clubProfiles: [ClubProfile]
+    public let apiBaseURL: URL?
+    public let adminToken: String?
     @State private var selected: Set<String>
+    @State private var didLoadRealBag = false
 
-    public init(clubProfiles: [ClubProfile] = []) {
+    public init(clubProfiles: [ClubProfile] = [], apiBaseURL: URL? = nil, adminToken: String? = nil) {
         self.clubProfiles = clubProfiles
+        self.apiBaseURL = apiBaseURL
+        self.adminToken = adminToken
         let derived = Set(clubProfiles.compactMap { profile -> String? in
             let name = zhClubName(profile.clubName.trimmingCharacters(in: .whitespaces))
             return ClubCatalog.names.contains(name) ? name : nil
         })
-        _selected = State(initialValue: ClubBagStore.bag() ?? derived)
+        // Manual override wins; else the cached real Garmin bag; else derive from shot history.
+        _selected = State(initialValue: ClubBagStore.bag() ?? ClubBagStore.realBag() ?? derived)
     }
 
     public var body: some View {
@@ -23,6 +29,18 @@ public struct ClubSettingsView: View {
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle("球杆设置")
+        .task { await loadRealBag() }
+    }
+
+    /// Fetch the real Garmin bag once. If the player hasn't manually configured their bag, pre-check
+    /// the real bag so the default reflects what they actually carry — with real names.
+    private func loadRealBag() async {
+        guard !didLoadRealBag else { return }
+        didLoadRealBag = true
+        guard let names = await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken) else { return }
+        if ClubBagStore.bag() == nil {
+            selected = names
+        }
     }
 
     private func toggle(_ name: String) {

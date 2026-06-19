@@ -184,6 +184,19 @@ public final class SyncClient {
         return try decoder.decode(MobileStats.self, from: data)
     }
 
+    /// The player's real Garmin club bag (`GET /api/v2/history/clubs/bag`): the canonical roster
+    /// (clubTypeId + custom name + retired/deleted) the backend pulls from Garmin's `/club/player`
+    /// + `/club/types`. Resolved to Chinese catalog names on-device; powers the bag default + picker.
+    public func fetchClubBag() async throws -> ClubBagResponse {
+        var request = URLRequest(url: endpointURL("/api/v2/history/clubs/bag"))
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(ClubBagResponse.self, from: data)
+    }
+
     /// Per-hole 复盘 shot map (`GET /api/v2/history/rounds/{ref}/holes/{hole}/shotmap`): this round's
     /// actual shots projected onto the hole's 2D render. Fetched on demand when a hole is opened.
     public func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap {

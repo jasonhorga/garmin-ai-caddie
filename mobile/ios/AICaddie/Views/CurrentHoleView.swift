@@ -267,9 +267,10 @@ public struct CurrentHoleView: View {
             if let existing = best[name], existing.sampleSize >= profile.sampleSize { continue }
             best[name] = profile
         }
-        // Restrict to the player's configured bag (球杆设置) when set — so clubs they don't actually
-        // carry (a stray mis-tagged "二号小鸡腿") never appear. Unconfigured → all data-backed clubs.
-        if let bag = ClubBagStore.bag() {
+        // Restrict to the player's bag — manual override (球杆设置) if set, else the real Garmin bag —
+        // so clubs they don't actually carry (a stray mis-tagged "二号小鸡腿") never appear. Neither
+        // known yet → all data-backed clubs.
+        if let bag = ClubBagStore.effectiveBag() {
             best = best.filter { bag.contains($0.key) }
         }
         // Only the 3 clubs most relevant to THIS shot: nearest to the to-pin distance when known

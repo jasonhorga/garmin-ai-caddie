@@ -62,6 +62,7 @@ from .players_api import (
     current_player_id,
     has_valid_player_token,
     is_player_scoped_route,
+    OWNER_ID,
 )
 from .prep_tips import load_prep_tips_response
 from .weather import load_weather_snapshot_response
@@ -76,6 +77,7 @@ from .models import (
     CaddieDecisionAuditLatestResponse,
     CaddieDecisionAuditRequest,
     CaddieDecisionAuditStoreResponse,
+    ClubBagResponse,
     CourseGeometryCoverageResponse,
     GarminSessionImportRequest,
     GarminSessionImportResponse,
@@ -458,6 +460,17 @@ def history_stats_mobile(
     # Compact 统计 payload for the phone: the deep / periodic / per-course / per-club slices of the
     # full build, without the ~11MB per-hole table — sliced from the same cached stats (cache hit).
     return load_mobile_stats_response(player_id=player_id)
+
+
+@app.get("/api/v2/history/clubs/bag", response_model=ClubBagResponse)
+def history_clubs_bag(
+    player_id: str = Depends(current_player_id),
+) -> ClubBagResponse:
+    # The player's real Garmin bag (clubTypeId + custom name + retired/deleted), pulled by the sync
+    # from Garmin's /club/player + /club/types. Owner-scoped; names resolve to Chinese on-device.
+    from ai_caddie.club_bag import build_club_bag_response
+
+    return ClubBagResponse(**build_club_bag_response(player_id=player_id, owner_id=OWNER_ID))
 
 
 @app.get("/api/v2/history/drilldown/{source_ref}", response_model=HistoryDrilldownResponse)

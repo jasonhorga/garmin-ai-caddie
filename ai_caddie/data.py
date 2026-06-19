@@ -19,6 +19,9 @@ MANUAL_DIR = DATA_DIR / "manual_rounds"
 HAZARD_DIR = ROOT / "output" / "prodgeometry_hazards"
 MESH_DIR = ROOT / "output" / "prodgeometry"
 CLUBS_FILE = ROOT / "clubs.json"
+# The real Garmin bag fetched by the pipeline (fetch.fetch_clubs). Distinct from CLUBS_FILE, which is
+# the manual override map. See ai_caddie/club_bag.py for the served response builder.
+CLUBS_BAG_FILE = DATA_DIR / "club_bag.json"
 
 SEMI31_TO_DEG = 180.0 / (1 << 31)
 EARTH_RADIUS_M = 6_371_000.0
@@ -78,6 +81,21 @@ def load_club_overrides() -> dict[int, dict[str, Any]]:
         except ValueError:
             continue
     return out
+
+
+def load_club_bag() -> dict[str, Any] | None:
+    """The player's real Garmin bag fetched by the pipeline (``data/club_bag.json``), or ``None``
+    when it hasn't been synced yet. Each club: ``id, clubTypeId, customName, typeName, loftAngle,
+    shaftLength, retired, deleted`` (see ``fetch.fetch_clubs``)."""
+    if not CLUBS_BAG_FILE.exists():
+        return None
+    try:
+        raw = read_json(CLUBS_BAG_FILE)
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("clubs"), list):
+        return None
+    return raw
 
 
 def club_name_from_details(club_id: int | None, shot_data: dict[str, Any]) -> str:
