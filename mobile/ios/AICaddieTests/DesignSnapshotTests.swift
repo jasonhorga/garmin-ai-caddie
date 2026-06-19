@@ -175,8 +175,11 @@ final class DesignSnapshotTests: XCTestCase {
         {"hole":4,"par":4,"score":6,"toPar":2,"className":"double","putts":3,"fairway":"left","status":"complete"},\
         {"hole":5,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"status":"complete"}],\
         "phaseSummary":[\
-        {"phase":"Tee","state":"ready","primary":"5/9 fairways"},\
-        {"phase":"Putting","state":"ready","primary":"16 putts"}],\
+        {"phase":"Tee","state":"ready","primary":"5/9 球道命中"},\
+        {"phase":"Approach","state":"ready","primary":"3/9 标准杆上果岭(GIR)"},\
+        {"phase":"Short Game","state":"ready","primary":"2 次短杆"},\
+        {"phase":"Putting","state":"ready","primary":"31 推"},\
+        {"phase":"Penalty / Damage","state":"partial","primary":"1 个双柏忌及以上"}],\
         "missingData":[{"label":"shot rows","state":"missing","reason":"no normalized Garmin shot rows for this round"}]}
         """
         let roundDetail = try JSONDecoder().decode(RoundDetail.self, from: Data(roundJSON.utf8))

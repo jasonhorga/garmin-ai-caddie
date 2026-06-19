@@ -353,26 +353,49 @@ def _phase_summary(
 
     fairways = [cell for cell in scorecard if cell.get("fairway") is not None]
     fairways_hit = sum(1 for cell in fairways if _fairway_hit(cell.get("fairway")))
+    fairways_recorded = len(fairways)
     gir_recorded = [cell for cell in scorecard if cell.get("gir") is not None]
     gir_hit = sum(1 for cell in gir_recorded if bool(cell.get("gir")))
+    gir_total = len(gir_recorded)
     putt_cells = [cell for cell in scorecard if cell.get("putts") is not None]
     putts_total = sum(int(cell["putts"]) for cell in putt_cells)
     three_putts = sum(1 for cell in putt_cells if int(cell["putts"]) >= 3)
     score_penalties = sum(1 for cell in scorecard if (cell.get("toPar") or 0) >= 2)
+    holes_completed = int(
+        row.get("holesCompleted") or len([c for c in scorecard if c.get("score") is not None]) or len(scorecard) or 0
+    )
 
+    # Garmin records fairways/GIR/putts at the ROUND level, not per hole — so when the scorecard has
+    # no per-hole fairway/gir/putt cells (the common case for synced rounds), fall back to the round
+    # aggregates (fh/frec/gir/putts) instead of rendering 0/0. GIR denominator = holes played.
+    has_round_fairways = not fairways and row.get("frec") is not None
+    has_round_gir = not gir_recorded and row.get("gir") is not None
+    has_round_putts = not putt_cells and row.get("putts") is not None
+    if has_round_fairways:
+        fairways_hit = int(row.get("fh") or 0)
+        fairways_recorded = int(row.get("frec") or 0)
+    if has_round_gir:
+        gir_hit = int(row.get("gir") or 0)
+        gir_total = holes_completed
+    if has_round_putts:
+        putts_total = int(row.get("putts") or 0)
+
+    has_fairways = fairways_recorded > 0
+    has_gir = gir_total > 0
+    has_putts = bool(putt_cells) or has_round_putts
     return [
         {
             "phase": "Tee",
-            "state": "ready" if tee_shots or fairways else "missing",
-            "primary": f"{fairways_hit}/{len(fairways)} 球道命中" if fairways else f"{len(tee_shots)} 次开球",
-            "metrics": {"shots": len(tee_shots), "fairwaysHit": fairways_hit, "fairwaysRecorded": len(fairways)},
+            "state": "ready" if tee_shots or has_fairways else "missing",
+            "primary": f"{fairways_hit}/{fairways_recorded} 球道命中" if has_fairways else f"{len(tee_shots)} 次开球",
+            "metrics": {"shots": len(tee_shots), "fairwaysHit": fairways_hit, "fairwaysRecorded": fairways_recorded},
             "sourceRefs": _dedupe([_shot_ref(shot, index) for index, shot in tee_shots]),
         },
         {
             "phase": "Approach",
-            "state": "ready" if approach_shots or gir_recorded else "missing",
-            "primary": f"{gir_hit}/{len(gir_recorded)} 标准杆上果岭" if gir_recorded else f"{len(approach_shots)} 次攻果岭",
-            "metrics": {"shots": len(approach_shots), "gir": gir_hit, "girRecorded": len(gir_recorded)},
+            "state": "ready" if approach_shots or has_gir else "missing",
+            "primary": f"{gir_hit}/{gir_total} 标准杆上果岭(GIR)" if has_gir else f"{len(approach_shots)} 次攻果岭",
+            "metrics": {"shots": len(approach_shots), "gir": gir_hit, "girRecorded": gir_total},
             "sourceRefs": _dedupe([_shot_ref(shot, index) for index, shot in approach_shots]),
         },
         {
@@ -384,9 +407,9 @@ def _phase_summary(
         },
         {
             "phase": "Putting",
-            "state": "ready" if putt_cells or putt_shots else "missing",
-            "primary": f"{putts_total} 推" if putt_cells else f"{len(putt_shots)} 次推击",
-            "metrics": {"totalPutts": putts_total if putt_cells else None, "holesWithPutts": len(putt_cells), "threePutts": three_putts},
+            "state": "ready" if has_putts or putt_shots else "missing",
+            "primary": f"{putts_total} 推" if has_putts else f"{len(putt_shots)} 次推击",
+            "metrics": {"totalPutts": putts_total if has_putts else None, "holesWithPutts": len(putt_cells), "threePutts": three_putts},
             "sourceRefs": _dedupe([_hole_ref(_round_id(row), int(cell["hole"])) for cell in putt_cells]),
         },
         {
