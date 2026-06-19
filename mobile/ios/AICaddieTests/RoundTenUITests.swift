@@ -10,11 +10,15 @@ final class RoundTenUITests: XCTestCase {
         )
         let bunkers = hazards.filter { $0.icon == "🏖" }
         XCTAssertEqual(bunkers.count, 2)
-        // numbered + nearest carry first (138 before 210), so three zones aren't all just "沙坑".
+        // numbered + nearest carry first (138m before 210m), so three zones aren't all just "沙坑".
         XCTAssertEqual(bunkers[0].label, "沙坑 1")
         XCTAssertEqual(bunkers[1].label, "沙坑 2")
-        XCTAssertTrue(bunkers[0].detail?.contains("138") == true)
-        XCTAssertTrue(bunkers[1].detail?.contains("210") == true)
+        // detail is shown in 码 (CoursePrepRoute.yards), so assert via the same conversion, not raw metres.
+        let nearYards = CoursePrepRoute.yards(fromMetres: 138)
+        let farYards = CoursePrepRoute.yards(fromMetres: 210)
+        XCTAssertTrue(bunkers[0].detail?.contains("\(nearYards)") == true)
+        XCTAssertTrue(bunkers[1].detail?.contains("\(farYards)") == true)
+        XCTAssertLessThan(nearYards, farYards)  // sort order: nearer bunker first
     }
 
     func testSingleHazardOfAKindIsNotNumbered() {
