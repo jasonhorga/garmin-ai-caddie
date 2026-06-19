@@ -41,10 +41,19 @@ public struct RoundReviewView: View {
         .task(id: roundRef) { await load() }
         .sheet(item: $shotMapHole) { item in
             NavigationStack {
-                RoundHoleShotMapScreen(roundRef: roundRef, hole: item.hole, apiBaseURL: apiBaseURL, adminToken: adminToken)
-                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { shotMapHole = nil } } }
+                RoundShotMapPagerScreen(
+                    roundRef: roundRef, holes: roundHoles, startHole: item.hole,
+                    apiBaseURL: apiBaseURL, adminToken: adminToken
+                )
+                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { shotMapHole = nil } } }
             }
         }
+    }
+
+    /// The holes to page through in the shot-map (this round's scorecard holes; fallback 1–18).
+    private var roundHoles: [Int] {
+        let holes = (detail?.scorecard ?? []).map(\.hole)
+        return holes.isEmpty ? Array(1...18) : holes
     }
 
     struct ShotMapHole: Identifiable {

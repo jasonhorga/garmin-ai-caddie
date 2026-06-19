@@ -2256,7 +2256,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundShotMapView", shot_map_view)
         self.assertIn("struct RoundHoleShotMapScreen", shot_map_view)
         self.assertIn("onSelectHole(hole.hole)", round_review)
-        self.assertIn("RoundHoleShotMapScreen(roundRef: roundRef, hole: item.hole", round_review)
+        # round-9 B: color legend + 横滑翻洞 (TabView .page over the round's holes) + unknown lie → 「—」.
+        self.assertIn("struct RoundShotMapPagerScreen", shot_map_view)
+        self.assertIn("struct RoundShotMapLegend", shot_map_view)
+        self.assertIn("func shotLieColor(", shot_map_view)
+        self.assertIn("func shotLieLabel(", shot_map_view)
+        self.assertIn(".tabViewStyle(.page", shot_map_view)
+        self.assertIn("RoundShotMapPagerScreen(", round_review)
         # 数据统计(历史宏观,与复盘分开): consume the compact /history/stats/mobile endpoint.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
         mobile_stats_model = _read_required_source(self, IOS_DIR / "Models" / "MobileStats.swift")
