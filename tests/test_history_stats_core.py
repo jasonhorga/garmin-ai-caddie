@@ -1771,6 +1771,18 @@ class HistoryStatsCoreTests(unittest.TestCase):
         if putting.get("averagePuttsPerRound") and putting.get("averagePutts"):
             self.assertGreater(putting["averagePuttsPerRound"], putting["averagePutts"])  # per-round >> per-hole
 
+    def test_effective_shots_memoized_within_build_cleared_across(self) -> None:
+        # round-10 perf: effective shots are recomputed ~7× per build (~30s); memoize within a build,
+        # clear across builds so no stale cross-build data leaks.
+        from ai_caddie.history import HistoryData
+        from ai_caddie.history_stats import _clear_effective_shots_cache, _effective_shots
+        data = HistoryData(raw_rounds=[], rounds=[], shots=[{"hole": 1, "club": "7I", "meters": 140}])
+        _clear_effective_shots_cache()
+        first = _effective_shots(data)
+        self.assertIs(first, _effective_shots(data))  # same object → not recomputed
+        _clear_effective_shots_cache()
+        self.assertIsNot(first, _effective_shots(data))  # cleared → recomputed
+
 
 if __name__ == "__main__":
     unittest.main()
