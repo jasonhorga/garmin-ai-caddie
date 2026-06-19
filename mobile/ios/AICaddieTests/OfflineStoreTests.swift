@@ -239,6 +239,51 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(base).hasSameRestorableFields(as: changedScore))
     }
 
+    func testLoadResumablePackageResumesFromEventLogWithoutPointer() throws {
+        // round-10 bug: an offline/cached start records events but never writes current_package.json.
+        // Resume must still find the in-progress round via the event log (continue card survives quit).
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try fixturePackage()
+        try store.saveRoundPackage(package)
+        // Simulate the missing pointer: drop current_package.json, keep packages/<id>.json + events.
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("current_package.json"))
+        try store.appendEvent(
+            LiveRoundEvent(eventId: "s1", roundId: package.roundId, timestamp: "2026-06-19T00:00:00Z",
+                           hole: 1, kind: .score, payload: ["strokes": .number(4)])
+        )
+
+        XCTAssertNil(try store.loadCurrentRoundPackage())  // pointer gone
+        XCTAssertEqual(try store.inProgressRoundId(), package.roundId)
+        XCTAssertEqual(try store.loadResumablePackage()?.roundId, package.roundId)  // resumes from the log
+        XCTAssertTrue(try store.hasRecordedEvents(roundId: package.roundId))
+    }
+
+    func testRestoreClampsActiveHoleToPackageHoles() throws {
+        // round-10: after「移除加打的 9 洞」the package is narrowed but events span more holes — activeHole
+        // must stay within package.holes or the Hub's 继续这场 card (needs activeHole ∈ holes) vanishes.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try fixturePackage()
+        let firstHole = try XCTUnwrap(package.holes.first?.number)
+        let outOfRange = (package.holes.map(\.number).max() ?? 9) + 3
+
+        try store.appendEvent(
+            LiveRoundEvent(eventId: "s-in", roundId: package.roundId, timestamp: "2026-06-19T00:00:00Z",
+                           hole: firstHole, kind: .score, payload: ["strokes": .number(4)])
+        )
+        try store.appendEvent(
+            LiveRoundEvent(eventId: "s-out", roundId: package.roundId, timestamp: "2026-06-19T00:01:00Z",
+                           hole: outOfRange, kind: .score, payload: ["strokes": .number(5)])
+        )
+
+        let snapshot = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        XCTAssertTrue(package.holes.contains { $0.number == snapshot.activeHole })  // clamped to package
+        XCTAssertNotEqual(snapshot.activeHole, outOfRange)
+    }
+
     private func fixturePackage() throws -> LiveRoundPackage {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

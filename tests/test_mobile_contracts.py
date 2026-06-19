@@ -1065,7 +1065,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("private let preferredRoundId: String", app_swift)
         self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
         self.assertIn("offlineStore.saveRoundPackage(remotePackage)", app_swift)
-        self.assertIn("loadCurrentRoundPackage", app_swift)
+        self.assertIn("loadResumablePackage", app_swift)  # event-log-driven resume (round-10 bug fix)
         self.assertIn("live_round_package.fixture", app_swift)
         self.assertIn("saveRoundPackage", app_swift)
         self.assertIn("offlineStore.appendEvent", app_swift)
@@ -1438,6 +1438,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("courseOptions.max { $0.roundCount < $1.roundCount }", app_swift)
         self.assertIn("try activateHomePackage(home, status:", app_swift)
         self.assertIn("func saveHomePackage(_ package: LiveRoundPackage) throws", offline_store)
+        # round-10 bug fix: cold-launch resume is driven by the EVENT LOG (not the fragile pointer),
+        # so a round started offline/cached still shows 继续这场 after a quit.
+        self.assertIn("func inProgressRoundId() throws -> String?", offline_store)
+        self.assertIn("func loadResumablePackage() throws -> LiveRoundPackage?", offline_store)
+        self.assertIn("offlineStore.loadResumablePackage()", app_swift)
         # Light-only visual identity — never renders white-on-white in the system's Dark Mode.
         self.assertIn(".preferredColorScheme(.light)", app_swift)
         # round-9 E (首页精简): 本场逐洞网格移除;加打/结束本场收进折叠的「球局调整」;标题更清晰。
