@@ -35,17 +35,45 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
-function frequentCourses(courseOptions: MobileCourseOptionsResponse | null): MobileCourseOption[] {
+function validCourses(courseOptions: MobileCourseOptionsResponse | null): MobileCourseOption[] {
   if (!courseOptions || !Array.isArray(courseOptions.courses)) return []
-  return courseOptions.courses
-    .filter(
-      (course): course is MobileCourseOption =>
-        course !== null &&
-        typeof course === 'object' &&
-        typeof course.globalId === 'number' &&
-        typeof course.name === 'string',
-    )
-    .sort((a, b) => (asNumber(b.roundCount) ?? 0) - (asNumber(a.roundCount) ?? 0))
+  return courseOptions.courses.filter(
+    (course): course is MobileCourseOption =>
+      course !== null &&
+      typeof course === 'object' &&
+      typeof course.globalId === 'number' &&
+      typeof course.name === 'string',
+  )
+}
+
+// Garmin lists each 9-hole loop as its own entry ("…黑骑士 ~ C/A", "~ A"). The
+// owner asked to pick the COURSE first, then which nine — so group by base name
+// (strip the " ~ <nine>" suffix) into one card whose nine variants are chips.
+interface BaseCourse {
+  base: string
+  rounds: number
+  variants: { globalId: number; nine: string | null; name: string; rounds: number }[]
+}
+
+function splitNine(name: string): { base: string; nine: string | null } {
+  const match = name.match(/^(.*?)\s*~\s*(.+)$/)
+  if (match) return { base: match[1].trim(), nine: match[2].trim() }
+  return { base: name.trim(), nine: null }
+}
+
+function frequentBaseCourses(courseOptions: MobileCourseOptionsResponse | null): BaseCourse[] {
+  const byBase = new Map<string, BaseCourse>()
+  for (const course of validCourses(courseOptions)) {
+    const { base, nine } = splitNine(course.name)
+    const rounds = asNumber(course.roundCount) ?? 0
+    const group = byBase.get(base) ?? { base, rounds: 0, variants: [] }
+    group.rounds += rounds
+    group.variants.push({ globalId: course.globalId, nine, name: course.name, rounds })
+    byBase.set(base, group)
+  }
+  return [...byBase.values()]
+    .map((group) => ({ ...group, variants: group.variants.sort((a, b) => b.rounds - a.rounds) }))
+    .sort((a, b) => b.rounds - a.rounds)
     .slice(0, 3)
 }
 
@@ -82,7 +110,7 @@ export function CourseFinder({
     }
   }
 
-  const frequents = frequentCourses(courseOptions)
+  const frequents = frequentBaseCourses(courseOptions)
 
   return (
     <>
@@ -117,13 +145,34 @@ export function CourseFinder({
         <div className="home-frequent">
           <span className="home-frequent-label">常打球场</span>
           <div className="home-frequent-cards">
-            {frequents.map((course) => (
-              <article key={course.globalId} className="home-course-card">
-                <b className="home-course-name">{course.name}</b>
-                <span className="home-course-meta">打过 {asNumber(course.roundCount) ?? 0} 次</span>
-                <button type="button" aria-label={`${ctaLabel} ${course.name}`} onClick={() => onSelectCourse(course.globalId, course.name)}>
-                  {ctaLabel}
-                </button>
+            {frequents.map((group) => (
+              <article key={group.base} className="home-course-card">
+                <b className="home-course-name">{group.base}</b>
+                <span className="home-course-meta">打过 {group.rounds} 次</span>
+                {group.variants.length === 1 && group.variants[0].nine === null ? (
+                  <button
+                    type="button"
+                    aria-label={`${ctaLabel} ${group.base}`}
+                    onClick={() => onSelectCourse(group.variants[0].globalId, group.variants[0].name)}
+                  >
+                    {ctaLabel}
+                  </button>
+                ) : (
+                  <div className="home-course-nines">
+                    <span className="home-course-nines-label">选 9 洞</span>
+                    {group.variants.map((variant) => (
+                      <button
+                        key={variant.globalId}
+                        type="button"
+                        className="home-course-nine"
+                        aria-label={`${ctaLabel} ${variant.name}`}
+                        onClick={() => onSelectCourse(variant.globalId, variant.name)}
+                      >
+                        {variant.nine ?? '全场'}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </article>
             ))}
           </div>
