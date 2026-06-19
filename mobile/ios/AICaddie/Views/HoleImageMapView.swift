@@ -112,25 +112,27 @@ public struct HoleImageMapView: View {
         return overlay.route.last
     }
 
-    /// Catmull-Rom spline through the route points → a smooth curved play line (golf routes bend
-    /// around doglegs; a straight polyline misrepresents them).
+    /// Smooth play line through the route centreline points. Quadratic-through-midpoints: each
+    /// interior route point is a control point and the curve passes through the midpoints between
+    /// consecutive points. Unlike a Catmull-Rom spline this stays INSIDE the control polygon, so it
+    /// never overshoots/bulges outside the fairway at a dogleg (the earlier curve's problem) while
+    /// still rounding the corners (a hard polyline looked wrong).
     static func smoothPath(through points: [CGPoint]) -> Path {
         var path = Path()
         guard points.count >= 2 else { return path }
         path.move(to: points[0])
-        guard points.count >= 3 else {
+        if points.count == 2 {
             path.addLine(to: points[1])
             return path
         }
-        for index in 0 ..< points.count - 1 {
-            let p0 = points[max(index - 1, 0)]
-            let p1 = points[index]
-            let p2 = points[index + 1]
-            let p3 = points[min(index + 2, points.count - 1)]
-            let control1 = CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6)
-            let control2 = CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6)
-            path.addCurve(to: p2, control1: control1, control2: control2)
+        for index in 1 ..< points.count - 1 {
+            let midpoint = CGPoint(
+                x: (points[index].x + points[index + 1].x) / 2,
+                y: (points[index].y + points[index + 1].y) / 2
+            )
+            path.addQuadCurve(to: midpoint, control: points[index])
         }
+        path.addLine(to: points[points.count - 1])
         return path
     }
 }

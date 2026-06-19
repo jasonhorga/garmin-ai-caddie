@@ -18,8 +18,14 @@ public struct StatsView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            StatsContent(stats: stats, isLoading: isLoading, errorText: errorText)
+        Group {
+            if isLoading && stats == nil {
+                AICaddieLoadingView(text: "载入统计…")
+            } else {
+                ScrollView {
+                    StatsContent(stats: stats, isLoading: isLoading, errorText: errorText)
+                }
+            }
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle("数据统计")
