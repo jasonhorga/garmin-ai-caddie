@@ -222,7 +222,7 @@ public final class LiveRoundAppModel: ObservableObject {
         // Phase 1 — INSTANT (no network): show a cached package so the menu appears immediately.
         // This is the fix for slow startup — we never block the menu on a network package build.
         do {
-            if let active = try offlineStore.loadCurrentRoundPackage(),
+            if let active = try offlineStore.loadResumablePackage(),
                active.dataMode != "fixture",
                active.course.globalId != 0,
                try offlineStore.hasRecordedEvents(roundId: active.roundId) {
@@ -241,7 +241,7 @@ public final class LiveRoundAppModel: ObservableObject {
         await refreshCourseOptions()
         do {
             // RESUME an in-progress round first — recorded holes must never be lost/clobbered.
-            if let active = try offlineStore.loadCurrentRoundPackage(),
+            if let active = try offlineStore.loadResumablePackage(),
                active.dataMode != "fixture",
                active.course.globalId != 0,
                try offlineStore.hasRecordedEvents(roundId: active.roundId) {
@@ -382,6 +382,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
+                // Persist the active-round pointer for the offline/cached start too, so a round
+                // started without network still resumes on relaunch (continue card survives quit).
+                try offlineStore.saveRoundPackage(cachedPackage)
                 try activatePackage(cachedPackage, status: "Cached package ready")
                 if isNewRound { signalFreshRoundEntry() }
             } else {
@@ -422,6 +425,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
+                // Persist the active-round pointer for the offline/cached start too, so a round
+                // started without network still resumes on relaunch (continue card survives quit).
+                try offlineStore.saveRoundPackage(cachedPackage)
                 try activatePackage(cachedPackage, status: "Cached package ready")
                 if isNewRound { signalFreshRoundEntry() }
             } else {

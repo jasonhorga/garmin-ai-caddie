@@ -126,6 +126,28 @@ public final class OfflineStore {
         return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: currentPackageURL))
     }
 
+    /// The roundId of the most recent REAL hole event (score/putt/club/location, hole > 0), or nil.
+    /// The event log is the source of truth for "a round is in progress" — so resume is driven by it,
+    /// not by the `current_package.json` pointer (which non-remote/cached start paths can fail to write).
+    public func inProgressRoundId() throws -> String? {
+        var roundId: String?
+        for event in try loadEvents() where event.kind != .syncMarker && event.hole > 0 {
+            roundId = event.roundId
+        }
+        return roundId
+    }
+
+    /// The package to resume on launch: the in-progress round derived from the EVENT LOG (its saved
+    /// package always exists — a round can't start without one), falling back to the current-package
+    /// pointer. This makes resume robust even when the pointer is missing/stale (e.g. an offline start
+    /// that never wrote it, or a schema-skewed pointer after an app update) — recorded holes survive.
+    public func loadResumablePackage() throws -> LiveRoundPackage? {
+        if let roundId = try inProgressRoundId(), let package = try loadRoundPackage(roundId: roundId) {
+            return package
+        }
+        return try loadCurrentRoundPackage()
+    }
+
     /// True iff the round has at least one real recorded hole event (score/putt/club/location/…),
     /// i.e. play actually started. Used to decide whether to RESUME an in-progress round on
     /// relaunch (and show the 进行中 card) vs treat the cached package as just home data.
@@ -277,7 +299,12 @@ public final class OfflineStore {
                 selectedClub: defaultClubName,
                 selectedShotType: defaultShotType(package: package, hole: event.hole)
             )
-            activeHole = event.hole
+            // Only advance activeHole to a hole that's actually in this package — after「移除加打的 9 洞」
+            // the package is 1–9 but events may span 1–12, and the Hub's 继续这场 card requires
+            // activeHole ∈ package.holes.
+            if package.holes.contains(where: { $0.number == event.hole }) {
+                activeHole = event.hole
+            }
 
             switch event.kind {
             case .score:
