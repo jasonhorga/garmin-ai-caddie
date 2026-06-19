@@ -25,7 +25,12 @@ public struct ClubSettingsView: View {
 
     public var body: some View {
         ScrollView {
-            ClubSettingsContent(selected: selected, clubProfiles: clubProfiles, onToggle: toggle)
+            ClubSettingsContent(
+                selected: selected,
+                clubProfiles: clubProfiles,
+                onToggle: toggle,
+                onReset: (apiBaseURL != nil || ClubBagStore.realBag() != nil) ? resetToGarminBag : nil
+            )
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle("球杆设置")
@@ -40,6 +45,19 @@ public struct ClubSettingsView: View {
         guard let names = await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken) else { return }
         if ClubBagStore.bag() == nil {
             selected = names
+        }
+    }
+
+    /// Drop any manual customization and snap back to the real Garmin bag (re-fetched if possible,
+    /// else the cached copy). Fixes a stale manual selection (e.g. an old default that had 三/四号铁).
+    private func resetToGarminBag() {
+        ClubBagStore.clearManual()
+        Task {
+            if let names = await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken) {
+                selected = names
+            } else if let cached = ClubBagStore.realBag() {
+                selected = cached
+            }
         }
     }
 
@@ -58,6 +76,7 @@ struct ClubSettingsContent: View {
     let selected: Set<String>
     let clubProfiles: [ClubProfile]
     var onToggle: (String) -> Void = { _ in }
+    var onReset: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 12) {
@@ -68,6 +87,17 @@ struct ClubSettingsContent: View {
                 categoryCard(category)
             }
             Text("已选 \(selected.count) 支").font(.caption2).foregroundStyle(.secondary)
+            if let onReset {
+                Button(action: onReset) {
+                    Label("用 Garmin 球包重置", systemImage: "arrow.clockwise")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(LiveHoleStyle.green)
+                .liveCard()
+            }
         }
         .padding(14)
     }

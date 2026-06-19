@@ -209,5 +209,83 @@ class ClubBagRouteTests(unittest.TestCase):
         self.assertEqual(payload["clubs"], [])
 
 
+class CanonicalClubNameTests(unittest.TestCase):
+    def test_normalizes_real_garmin_forms(self) -> None:
+        cases = {
+            "Driver": "driver", "1W": "driver", "3W": "wood3", "3 Wood": "wood3", "三号木": "wood3",
+            "5I": "iron5", "5 Iron": "iron5", "九号铁": "iron9",
+            "二号小鸡腿": "hybrid2", "2I/Hybrid": "hybrid2", "3 Hybrid": "hybrid3",
+            "Pw": "pw", "PW": "pw", "Aw": "gw", "GW": "gw", "A杆": "gw", "SW": "sw", "LW": "lw",
+            "50": "wedge50", "54°": "wedge54", "58": "wedge58",
+            "Putter": "putter", "推杆": "putter",
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(club_bag.canonical_club_name(raw), expected, raw)
+
+    def test_unknown_and_empty(self) -> None:
+        self.assertIsNone(club_bag.canonical_club_name(""))
+        self.assertIsNone(club_bag.canonical_club_name(None))
+        self.assertIsNone(club_bag.canonical_club_name("banana"))
+
+
+# The owner's real bag (in-use) + one retired club to prove it's excluded.
+_OWNER_BAG = {
+    "clubs": [
+        {"id": 1, "clubTypeId": 1, "customName": None, "retired": False, "deleted": False},   # driver
+        {"id": 2, "clubTypeId": 2, "customName": None, "retired": False, "deleted": False},   # wood3
+        {"id": 3, "clubTypeId": 6, "customName": None, "retired": False, "deleted": False},   # hybrid3
+        {"id": 4, "clubTypeId": 14, "customName": None, "retired": False, "deleted": False},  # iron5
+        {"id": 5, "clubTypeId": 18, "customName": None, "retired": False, "deleted": False},  # iron9
+        {"id": 6, "clubTypeId": 18, "customName": "Pw", "retired": False, "deleted": False},  # iron9 + pw
+        {"id": 7, "clubTypeId": 19, "customName": "Aw", "retired": False, "deleted": False},  # pw + gw
+        {"id": 8, "clubTypeId": 20, "customName": "50", "retired": False, "deleted": False},  # gw + wedge50
+        {"id": 9, "clubTypeId": 23, "customName": None, "retired": False, "deleted": False},  # putter
+        {"id": 10, "clubTypeId": 5, "customName": None, "retired": True, "deleted": False},   # 2-hybrid, retired
+    ]
+}
+
+
+class InUseCanonicalTests(unittest.TestCase):
+    def test_includes_clubtype_and_custom_tokens_excludes_retired(self) -> None:
+        with patch.object(club_bag, "load_club_bag", return_value=_OWNER_BAG):
+            names = club_bag.in_use_canonical_names()
+        self.assertIn("driver", names)
+        self.assertIn("hybrid3", names)
+        self.assertIn("iron9", names)
+        self.assertIn("pw", names)        # from clubTypeId 19 AND custom "Pw"
+        self.assertIn("gw", names)        # from custom "Aw" AND clubTypeId 20
+        self.assertIn("wedge50", names)   # from custom "50"
+        self.assertIn("putter", names)
+        self.assertNotIn("hybrid2", names)  # the retired 2-hybrid is excluded
+
+    def test_no_bag_returns_none(self) -> None:
+        with patch.object(club_bag, "load_club_bag", return_value=None):
+            self.assertIsNone(club_bag.in_use_canonical_names())
+
+
+class RestrictToBagTests(unittest.TestCase):
+    LADDER = [("1W", 230), ("3W", 210), ("2I/Hybrid", 195), ("5I", 165), ("9I", 130), ("PW", 110)]
+
+    def test_drops_clubs_not_in_bag(self) -> None:
+        with patch.object(club_bag, "load_club_bag", return_value=_OWNER_BAG):
+            kept = club_bag.restrict_to_bag(self.LADDER, lambda kv: kv[0])
+        names = [n for n, _ in kept]
+        self.assertIn("1W", names)        # driver, carried
+        self.assertIn("5I", names)        # iron5, carried
+        self.assertNotIn("2I/Hybrid", names)  # NOT in bag -> dropped (the bug the user hit)
+
+    def test_no_bag_keeps_everything(self) -> None:
+        with patch.object(club_bag, "load_club_bag", return_value=None):
+            kept = club_bag.restrict_to_bag(self.LADDER, lambda kv: kv[0])
+        self.assertEqual(kept, self.LADDER)
+
+    def test_falls_back_when_intersection_too_small(self) -> None:
+        sparse_bag = {"clubs": [{"id": 1, "clubTypeId": 1, "retired": False, "deleted": False}]}  # only driver
+        ladder = [("5I", 165), ("9I", 130)]  # none match -> would be empty
+        with patch.object(club_bag, "load_club_bag", return_value=sparse_bag):
+            kept = club_bag.restrict_to_bag(ladder, lambda kv: kv[0])
+        self.assertEqual(kept, ladder)  # fallback to full list, never strand the caddie
+
+
 if __name__ == "__main__":
     unittest.main()

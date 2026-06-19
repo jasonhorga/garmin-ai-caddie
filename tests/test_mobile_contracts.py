@@ -2289,6 +2289,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func resolvedBagNames(", club_bag)
         self.assertIn("func refreshRealClubBag(", club_bag)
         self.assertIn("refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        # 用 Garmin 球包重置 (A1): clear a stale manual selection back to the real bag.
+        self.assertIn("func clearManual()", club_bag)
+        self.assertIn("用 Garmin 球包重置", club_settings)
+        self.assertIn("ClubBagStore.clearManual()", club_settings)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)

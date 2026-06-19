@@ -94,6 +94,12 @@ public enum ClubBagStore {
         encodeBag(bag, into: key)
     }
 
+    /// Drop the manual override so the player snaps back to the auto `realBag` default. Used by the
+    /// 「用 Garmin 球包重置」 action when a stale manual selection no longer matches the real bag.
+    public static func clearManual() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
     /// The real Garmin bag, auto-fetched from the backend and cached. Used as the default everywhere
     /// the player hasn't manually overridden their bag. Refreshed whenever `refreshRealClubBag` runs.
     public static func realBag() -> Set<String>? {
