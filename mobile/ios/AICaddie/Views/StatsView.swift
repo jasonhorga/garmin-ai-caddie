@@ -1,3 +1,4 @@
+import Charts
 import Foundation
 import SwiftUI
 
@@ -55,8 +56,10 @@ struct StatsContent: View {
         VStack(spacing: 12) {
             if let stats {
                 if let s = stats.summary { overviewCard(s) }
-                if let sc = stats.scoring { outcomesCard(sc) }
-                if let byPar = stats.scoring?.byPar, !byPar.isEmpty { byParCard(byPar) }
+                if let trend = stats.trend, !trend.points.isEmpty { trendCard(trend) }
+                if let bands = stats.scoring?.scoreBands, !bands.isEmpty { distributionCard(bands) }
+                let byPar = (stats.scoring?.byPar ?? []).filter { (3...5).contains($0.par ?? 0) }
+                if !byPar.isEmpty { byParCard(byPar) }
                 if let putting = stats.scoring?.putting { puttingCard(putting) }
                 if let trends = stats.diagnosis?.issueTrends, !trends.isEmpty { trendsCard(trends) }
                 if let q = stats.time?.byQuarter, !q.isEmpty { periodCard(q) }
@@ -91,28 +94,55 @@ struct StatsContent: View {
         .liveCard()
     }
 
-    // MARK: 得分构成
+    // MARK: 近场走势(折线图 + 窗口内抓鸟/柏忌)
 
-    private func outcomesCard(_ sc: StatsScoring) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("得分构成").font(.caption).foregroundStyle(.secondary)
-            if let o = sc.outcomes {
-                HStack(spacing: 8) {
-                    outcomeChip("抓鸟+", (o.birdie ?? 0) + (o.eagleOrBetter ?? 0), color: Color(red: 56 / 255, green: 152 / 255, blue: 236 / 255))
-                    outcomeChip("保帕", o.par ?? 0, color: LiveHoleStyle.green)
-                    outcomeChip("柏忌", o.bogey ?? 0, color: Color(red: 202 / 255, green: 138 / 255, blue: 4 / 255))
-                    outcomeChip("双柏+", o.doubleOrWorse ?? 0, color: Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
+    private func trendCard(_ trend: StatsTrend) -> some View {
+        let points = trend.points
+        let scores = points.compactMap(\.score)
+        let birdies = points.compactMap(\.birdies).reduce(0, +)
+        let bogeys = points.compactMap(\.bogeys).reduce(0, +)
+        let doubles = points.compactMap(\.doublesPlus).reduce(0, +)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("近 \(points.count) 场走势 · 18 洞").font(.caption).foregroundStyle(.secondary)
+            Chart {
+                ForEach(Array(points.enumerated()), id: \.offset) { index, point in
+                    if let score = point.score {
+                        LineMark(x: .value("场次", index), y: .value("成绩", score))
+                            .foregroundStyle(LiveHoleStyle.green)
+                            .interpolationMethod(.catmullRom)
+                        PointMark(x: .value("场次", index), y: .value("成绩", score))
+                            .foregroundStyle(LiveHoleStyle.green).symbolSize(36)
+                    }
                 }
             }
-            if !sc.scoreBands.isEmpty {
-                Divider()
-                Text("成绩分布").font(.caption2).foregroundStyle(.secondary)
-                ForEach(sc.scoreBands) { band in
-                    HStack {
-                        Text(band.label).font(.subheadline).frame(width: 56, alignment: .leading)
-                        bandBar(count: band.count ?? 0, maxCount: sc.scoreBands.map { $0.count ?? 0 }.max() ?? 1)
-                        Text("\(band.count ?? 0)").font(.subheadline.monospacedDigit().weight(.semibold)).frame(width: 40, alignment: .trailing)
-                    }
+            .frame(height: 150)
+            .chartXAxis(.hidden)
+            .chartYScale(domain: scoreDomain(scores))
+            .chartYAxis { AxisMarks(position: .leading) }
+            HStack(spacing: 8) {
+                outcomeChip("抓鸟", birdies, color: Color(red: 56 / 255, green: 152 / 255, blue: 236 / 255))
+                outcomeChip("柏忌", bogeys, color: Color(red: 202 / 255, green: 138 / 255, blue: 4 / 255))
+                outcomeChip("双柏+", doubles, color: Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
+            }
+        }
+        .liveCard()
+    }
+
+    private func scoreDomain(_ scores: [Int]) -> ClosedRange<Int> {
+        guard let lo = scores.min(), let hi = scores.max(), lo < hi else { return 70...100 }
+        return (lo - 2)...(hi + 2)
+    }
+
+    // MARK: 成绩分布
+
+    private func distributionCard(_ bands: [StatsScoreBand]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("成绩分布").font(.caption).foregroundStyle(.secondary)
+            ForEach(bands) { band in
+                HStack {
+                    Text(band.label).font(.subheadline).frame(width: 56, alignment: .leading)
+                    bandBar(count: band.count ?? 0, maxCount: bands.map { $0.count ?? 0 }.max() ?? 1)
+                    Text("\(band.count ?? 0)").font(.subheadline.monospacedDigit().weight(.semibold)).frame(width: 40, alignment: .trailing)
                 }
             }
         }
@@ -205,20 +235,33 @@ struct StatsContent: View {
     private func coursesCard(_ courses: [StatsCourse]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("各球场").font(.caption).foregroundStyle(.secondary)
-            ForEach(courses.prefix(10)) { c in
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(c.courseName ?? c.courseKey).font(.subheadline.weight(.semibold)).lineLimit(1)
-                        Text("\(c.roundCount ?? 0) 场 · 最佳 \(c.bestScore.map(String.init) ?? "—")").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text(c.average18.map { String(format: "%.1f", $0) } ?? "—").font(.subheadline.monospacedDigit().weight(.bold)).frame(width: 56, alignment: .trailing)
+            Text("点进去看在这球场打过的各九洞组合 →").font(.caption2).foregroundStyle(LiveHoleStyle.green)
+            ForEach(courses.prefix(12)) { c in
+                NavigationLink {
+                    CourseStatsDetailView(course: c)
+                } label: {
+                    courseRow(c)
                 }
-                .padding(.vertical, 5)
-                .overlay(alignment: .bottom) { Divider() }
+                .buttonStyle(.plain)
+                .foregroundStyle(.primary)
             }
         }
         .liveCard()
+    }
+
+    private func courseRow(_ c: StatsCourse) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(c.courseName ?? c.courseKey).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text("\(c.roundCount ?? 0) 次 · 最佳 \(c.bestScore.map(String.init) ?? "—")").font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(c.average18.map { String(format: "%.1f", $0) } ?? "—").font(.subheadline.monospacedDigit().weight(.bold)).frame(width: 56, alignment: .trailing)
+            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     // MARK: 各球杆(距离按码)
@@ -312,5 +355,62 @@ struct StatsContent: View {
         case "short_game": return "短杆"
         default: return issue.replacingOccurrences(of: "_", with: " ")
         }
+    }
+}
+
+/// Drill-in for one course (D1): overall play count + per nine-combo breakdown (A / C/A / B/C …),
+/// so the 各球场 list aggregates by BASE course and the detail shows how many times each nine.
+struct CourseStatsDetailView: View {
+    let course: StatsCourse
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("总览").font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        kpi("打过", "\(course.roundCount ?? 0) 次")
+                        kpi("均杆", course.average18.map { String(format: "%.1f", $0) } ?? "—")
+                        kpi("最佳", course.bestScore.map(String.init) ?? "—")
+                    }
+                }
+                .liveCard()
+                if let breakdown = course.nineBreakdown, !breakdown.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("各九洞组合").font(.caption).foregroundStyle(.secondary)
+                        ForEach(breakdown) { n in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(n.label).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                    Text("\(n.roundCount ?? 0) 次").font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if let best = n.bestScore { Text("最佳 \(best)").font(.caption2).foregroundStyle(.secondary) }
+                                Text(n.average.map { String(format: "%.1f", $0) } ?? "—")
+                                    .font(.subheadline.monospacedDigit().weight(.bold)).frame(width: 56, alignment: .trailing)
+                            }
+                            .padding(.vertical, 6)
+                            .overlay(alignment: .bottom) { Divider() }
+                        }
+                    }
+                    .liveCard()
+                } else {
+                    Text("暂无各九洞明细").font(.subheadline).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 30).liveCard()
+                }
+            }
+            .padding(14)
+        }
+        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        .navigationTitle(course.courseName ?? "球场")
+    }
+
+    private func kpi(_ title: String, _ value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.title3.weight(.heavy))
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 10)
+        .background(LiveHoleStyle.tint).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

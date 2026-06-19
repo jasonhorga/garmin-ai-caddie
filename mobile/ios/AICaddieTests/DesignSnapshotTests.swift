@@ -185,16 +185,21 @@ final class DesignSnapshotTests: XCTestCase {
             named: "round-review"
         )
 
-        // 数据统计: overview KPIs + outcomes/distribution + by-par + putting + trends + quarter +
-        // courses + clubs (距离按码), from a compact mobile-stats fixture.
+        // 数据统计: overview KPIs + 近场折线图 + 成绩分布 + by-par(3/4/5) + putting + trends + quarter +
+        // courses(按球场聚合,可钻取各九洞) + clubs (距离按码), from a compact mobile-stats fixture.
         let statsJSON = """
         {"summary":{"totalRounds":423,"average18":92.4,"median18":92,"recent10Average":94.6,"bestScore":82,"worstScore":106,"handicapEstimate":18.2},\
+        "trend":{"points":[\
+        {"date":"2026-05-01","score":95,"toPar":23,"birdies":1,"pars":6,"bogeys":7,"doublesPlus":4},\
+        {"date":"2026-05-10","score":91,"toPar":19,"birdies":2,"pars":7,"bogeys":7,"doublesPlus":2},\
+        {"date":"2026-05-20","score":89,"toPar":17,"birdies":1,"pars":9,"bogeys":6,"doublesPlus":2},\
+        {"date":"2026-06-01","score":86,"toPar":14,"birdies":3,"pars":9,"bogeys":5,"doublesPlus":1}]},\
         "scoring":{"outcomes":{"eagleOrBetter":1,"birdie":40,"par":300,"bogey":250,"doubleOrWorse":120},\
         "scoreBands":[{"label":"80s","count":42},{"label":"90s","count":171},{"label":"100+","count":93}],\
-        "byPar":[{"par":3,"averageToPar":0.62,"parOrBetterPct":38},{"par":4,"averageToPar":0.44,"parOrBetterPct":42},{"par":5,"averageToPar":0.21,"parOrBetterPct":55}],\
+        "byPar":[{"par":3,"averageToPar":0.62,"parOrBetterPct":38},{"par":4,"averageToPar":0.44,"parOrBetterPct":42},{"par":5,"averageToPar":0.21,"parOrBetterPct":55},{"par":6,"averageToPar":1.1,"parOrBetterPct":10}],\
         "putting":{"averagePutts":33.1,"threePutts":4}},\
         "time":{"byQuarter":[{"key":"2026-Q2","roundCount":12,"average18":92.4,"bestScore":84,"outcomes":{"birdie":14,"doubleOrWorse":31}}]},\
-        "courses":[{"courseKey":"bk","courseName":"北京天竺黑骑士 ~ C/A","roundCount":40,"average18":91.0,"bestScore":82,"worstScore":99}],\
+        "courses":[{"courseKey":"bk","courseName":"北京天竺黑骑士","roundCount":128,"average18":91.0,"bestScore":82,"worstScore":99,"nineBreakdown":[{"label":"北京天竺黑骑士 ~ C/A","roundCount":58,"average":89.0,"bestScore":82},{"label":"北京天竺黑骑士 ~ B/C","roundCount":40,"average":92.0,"bestScore":85},{"label":"北京天竺黑骑士 ~ A/B","roundCount":30,"average":93.0,"bestScore":88}]}],\
         "clubs":[{"club":"Driver","sampleCount":120,"median":210,"p10":195,"p90":225,"consistency":"high","distanceTrend":"stable"},\
         {"club":"7I","sampleCount":90,"median":138,"p10":130,"p90":146,"consistency":"high","distanceTrend":"up"}],\
         "diagnosis":{"topIssue":"double_or_worse","issueTrends":[{"issue":"tee_miss","direction":"worsening","estimatedStrokesLost":1.2},{"issue":"three_putt","direction":"improving","estimatedStrokesLost":-0.6}]}}
