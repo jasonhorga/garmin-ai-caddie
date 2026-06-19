@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { fmtYd } from '../units'
+import { phaseZh, confidenceZh, missDirectionZh } from '../zhLabels'
+import { useDiagnostics } from '../diagnosticsContext'
 import type {
   CaddieDecisionAuditRecord,
   CaddieContextParams,
@@ -17,6 +19,37 @@ import type {
   VisionFindingRecord,
 } from '../types'
 import { SourceRefs } from './SourceRefs'
+
+const OPTION_LABEL_ZH: Record<string, string> = {
+  safe: '稳妥',
+  stock: '标准',
+  attack: '进攻',
+  protect_score: '保守',
+  conservative_layup: '保守上道',
+  stock_line: '标准路线',
+  aggressive_line: '激进路线',
+}
+
+function optionLabelZh(id: string): string {
+  return OPTION_LABEL_ZH[id] ?? id
+}
+
+const HAZARD_KIND_ZH: Record<string, string> = {
+  bunker: '沙坑',
+  water: '水域',
+  ob: 'OB',
+  rough: '长草',
+}
+
+function hazardKindZh(kind: string): string {
+  return HAZARD_KIND_ZH[kind] ?? kind
+}
+
+const WIND_CARDINAL_ZH = ['北', '东北', '东', '东南', '南', '西南', '西', '西北']
+
+function windCardinalZh(deg: number): string {
+  return WIND_CARDINAL_ZH[Math.round(deg / 45) % 8]
+}
 
 type AuditState =
   | { status: 'idle' }
@@ -85,6 +118,7 @@ export function CaddiePage({
   onSelectRef = () => undefined,
   selectedSourceRef,
 }: CaddiePageProps) {
+  const diagnostics = useDiagnostics()
   const [shotType, setShotType] = useState<CaddieShotType>('approach')
   const initialSelectedSourceRef = selectedSourceRef?.trim() || '900001:7'
   const previousSelectedSourceRef = useRef(selectedSourceRef?.trim() || '')
@@ -160,47 +194,51 @@ export function CaddiePage({
       </section>
 
       {onLoadWeather ? <WeatherContextPanel state={weatherState} /> : null}
-      <CaddieContextPanel
-        state={contextState}
-        sourceRef={contextSourceRef}
-        distance={contextDistance}
-        lie={contextLie}
-        currentLatitude={currentLatitude}
-        currentLongitude={currentLongitude}
-        targetLatitude={targetLatitude}
-        targetLongitude={targetLongitude}
-        strategyMode={strategyMode}
-        routeStartX={routeStartX}
-        routeStartY={routeStartY}
-        routeTargetX={routeTargetX}
-        routeTargetY={routeTargetY}
-        landingRadius={landingRadius}
-        shotType={shotType}
-        onSourceRefChange={setContextSourceRef}
-        onDistanceChange={setContextDistance}
-        onLieChange={setContextLie}
-        onCurrentLatitudeChange={setCurrentLatitude}
-        onCurrentLongitudeChange={setCurrentLongitude}
-        onTargetLatitudeChange={setTargetLatitude}
-        onTargetLongitudeChange={setTargetLongitude}
-        onStrategyModeChange={setStrategyMode}
-        onRouteStartXChange={setRouteStartX}
-        onRouteStartYChange={setRouteStartY}
-        onRouteTargetXChange={setRouteTargetX}
-        onRouteTargetYChange={setRouteTargetY}
-        onLandingRadiusChange={setLandingRadius}
-        onLoadCaddieContext={onLoadCaddieContext}
-      />
-      <MediaContextPanel
-        key={`${mediaTarget.targetType}:${mediaTarget.targetId}`}
-        state={mediaState}
-        defaultTarget={mediaTarget}
-        onLoadMediaContext={onLoadMediaContext}
-        onAttachMedia={onAttachMedia}
-        onAnalyzeMedia={onAnalyzeMedia}
-        onRedactMedia={onRedactMedia}
-        onConfirmVisionFinding={onConfirmVisionFinding}
-      />
+      {diagnostics ? (
+        <CaddieContextPanel
+          state={contextState}
+          sourceRef={contextSourceRef}
+          distance={contextDistance}
+          lie={contextLie}
+          currentLatitude={currentLatitude}
+          currentLongitude={currentLongitude}
+          targetLatitude={targetLatitude}
+          targetLongitude={targetLongitude}
+          strategyMode={strategyMode}
+          routeStartX={routeStartX}
+          routeStartY={routeStartY}
+          routeTargetX={routeTargetX}
+          routeTargetY={routeTargetY}
+          landingRadius={landingRadius}
+          shotType={shotType}
+          onSourceRefChange={setContextSourceRef}
+          onDistanceChange={setContextDistance}
+          onLieChange={setContextLie}
+          onCurrentLatitudeChange={setCurrentLatitude}
+          onCurrentLongitudeChange={setCurrentLongitude}
+          onTargetLatitudeChange={setTargetLatitude}
+          onTargetLongitudeChange={setTargetLongitude}
+          onStrategyModeChange={setStrategyMode}
+          onRouteStartXChange={setRouteStartX}
+          onRouteStartYChange={setRouteStartY}
+          onRouteTargetXChange={setRouteTargetX}
+          onRouteTargetYChange={setRouteTargetY}
+          onLandingRadiusChange={setLandingRadius}
+          onLoadCaddieContext={onLoadCaddieContext}
+        />
+      ) : null}
+      {diagnostics ? (
+        <MediaContextPanel
+          key={`${mediaTarget.targetType}:${mediaTarget.targetId}`}
+          state={mediaState}
+          defaultTarget={mediaTarget}
+          onLoadMediaContext={onLoadMediaContext}
+          onAttachMedia={onAttachMedia}
+          onAnalyzeMedia={onAnalyzeMedia}
+          onRedactMedia={onRedactMedia}
+          onConfirmVisionFinding={onConfirmVisionFinding}
+        />
+      ) : null}
       <DecisionDetail state={decisionState} auditState={auditState} onCreateAudit={onCreateAudit} onSelectRef={onSelectRef} />
     </section>
   )
@@ -520,7 +558,7 @@ function WeatherContextPanel({ state }: { state: WeatherLoadState }) {
   if (state.status === 'loading') {
     return (
       <section className="weather-context-panel" aria-label="Weather context">
-        <h2>Loading weather</h2>
+        <h2>天气加载中</h2>
       </section>
     )
   }
@@ -528,7 +566,7 @@ function WeatherContextPanel({ state }: { state: WeatherLoadState }) {
   if (state.status === 'error') {
     return (
       <section className="weather-context-panel" aria-label="Weather context">
-        <h2>Weather unavailable</h2>
+        <h2>天气暂不可用</h2>
         <p>{state.message}</p>
       </section>
     )
@@ -537,23 +575,30 @@ function WeatherContextPanel({ state }: { state: WeatherLoadState }) {
   if (state.status === 'idle') {
     return (
       <section className="weather-context-panel" aria-label="Weather context">
-        <h2>Weather Context</h2>
-        <p>No weather snapshot loaded.</p>
+        <h2>天气</h2>
+        <p>暂无天气</p>
       </section>
     )
   }
+
+  const windKph = state.data.windSpeedMps !== undefined && state.data.windSpeedMps !== null
+    ? Math.round(Number(state.data.windSpeedMps) * 3.6)
+    : null
+  const windDir = state.data.windDirectionDeg !== undefined && state.data.windDirectionDeg !== null
+    ? windCardinalZh(Number(state.data.windDirectionDeg))
+    : null
 
   return (
     <section className="weather-context-panel" aria-label="Weather context">
       <div>
         <p className="eyebrow">{state.data.source}</p>
-        <h2>Weather Context</h2>
+        <h2>天气</h2>
       </div>
       <div className="weather-context-facts">
-        <span>{state.data.windSpeedMps ?? '-'} m/s</span>
-        <span>{state.data.windDirectionDeg ?? '-'} deg</span>
-        <span>{state.data.temperatureC ?? '-'} C</span>
-        <span>{state.data.confidence} confidence</span>
+        <span>风 {windKph !== null ? `${windKph} km/h` : '-'}</span>
+        <span>{windDir ?? '-'}</span>
+        <span>{state.data.temperatureC !== undefined && state.data.temperatureC !== null ? `${state.data.temperatureC}°C` : '-'}</span>
+        <span>{confidenceZh(String(state.data.confidence))} 置信度</span>
       </div>
     </section>
   )
@@ -573,7 +618,7 @@ function DecisionDetail({
   if (state.status === 'loading') {
     return (
       <section className="decision-detail" aria-label="Caddie decision">
-        <h2>Loading caddie plan</h2>
+        <h2>球童方案加载中</h2>
       </section>
     )
   }
@@ -581,7 +626,7 @@ function DecisionDetail({
   if (state.status === 'error') {
     return (
       <section className="decision-detail" aria-label="Caddie decision">
-        <h2>Caddie unavailable</h2>
+        <h2>球童方案暂不可用</h2>
         <p>{state.message}</p>
       </section>
     )
@@ -590,8 +635,8 @@ function DecisionDetail({
   if (state.status === 'idle') {
     return (
       <section className="decision-detail" aria-label="Caddie decision">
-        <h2>No caddie plan loaded</h2>
-        <p>Request a plan to inspect options and evidence.</p>
+        <h2>尚未加载球童方案</h2>
+        <p>请求方案以查看选项与依据。</p>
       </section>
     )
   }
@@ -602,20 +647,20 @@ function DecisionDetail({
     <section className="decision-detail" aria-label="Caddie decision">
       <div className="report-title-row">
         <div>
-          <p className="eyebrow">{decision.phase}</p>
-          <h2>{decision.selectedOptionId ?? 'No selected plan'}</h2>
+          <p className="eyebrow">{phaseZh(String(decision.phase ?? ''))}</p>
+          <h2>{decision.selectedOptionId ? optionLabelZh(String(decision.selectedOptionId)) : '尚无方案'}</h2>
         </div>
-        <span className={`confidence-pill ${confidence}`}>{confidence} confidence</span>
+        <span className={`confidence-pill ${confidence}`}>{confidenceZh(confidence)} 置信度</span>
       </div>
 
       <div className="decision-options">
         {decision.options.map((option) => {
           const id = String(option.id ?? option.label ?? 'option')
           return (
-            <article className="decision-option" key={id}>
+            <article className={`decision-option strategy-${id}`} key={id}>
               <div>
-                <h3>{String(option.label ?? id)}</h3>
-                {decision.selectedOptionId === id ? <span className="selected-pill">selected</span> : null}
+                <h3>{optionLabelZh(id)}</h3>
+                {decision.selectedOptionId === id ? <span className="selected-pill">已选</span> : null}
               </div>
               <strong>{optionClubLabel(option)}</strong>
               <p>{formatOptionMeta(option)}</p>
@@ -631,10 +676,10 @@ function DecisionDetail({
       <DecisionExplanation explanation={decision.explanation} onSelectRef={onSelectRef} />
 
       <div className="report-evidence-grid">
-        <EvidenceList title="Evidence" rows={decision.evidence} />
-        <EvidenceList title="Missing Data" rows={decision.missingData} />
-        <EvidenceList title="Avoid Zones" rows={decision.avoidZones} />
-        <EvidenceList title="Audit" rows={decision.auditCriteria} />
+        <EvidenceList title="证据" rows={decision.evidence} />
+        <EvidenceList title="缺失数据" rows={decision.missingData} />
+        <AvoidZonesList rows={decision.avoidZones} />
+        <EvidenceList title="审计条件" rows={decision.auditCriteria} />
       </div>
       {onCreateAudit ? (
         <DecisionAuditPanel
@@ -680,8 +725,8 @@ function DecisionScoreImpact({
     <section className="decision-score-impact" aria-label="Decision score impact">
       <div className="report-title-row">
         <div>
-          <p className="eyebrow">Expected outcome</p>
-          <h3>Score Impact</h3>
+          <p className="eyebrow">预期结果</p>
+          <h3>得分影响</h3>
         </div>
         {model ? <span className="fact-chip muted">{model}</span> : null}
       </div>
@@ -689,13 +734,13 @@ function DecisionScoreImpact({
         {expectedStrokes !== null ? (
           <div>
             <strong>{formatStrokes(expectedStrokes)}</strong>
-            <span>expected strokes</span>
+            <span>预期得杆</span>
           </div>
         ) : null}
         {expectedDelta !== null ? (
           <div>
             <strong>{formatSignedStrokes(expectedDelta)}</strong>
-            <span>vs baseline</span>
+            <span>对比基准</span>
           </div>
         ) : null}
         <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
@@ -704,7 +749,7 @@ function DecisionScoreImpact({
         <div className="decision-score-components" aria-label="Score impact components">
           {componentRows.map((row) => (
             <span className="fact-chip muted" key={row.key}>
-              {formatMissDirection(row.key)} {formatSignedStrokes(row.value)}
+              {missDirectionZh(row.key)} {formatSignedStrokes(row.value)}
             </span>
           ))}
         </div>
@@ -751,21 +796,21 @@ function DecisionExplanation({
     <section className="decision-explanation" aria-label="Decision explanation">
       <div className="report-title-row">
         <div>
-          <p className="eyebrow">Fact-bound AI</p>
-          <h3>Decision Explanation</h3>
+          <p className="eyebrow">事实绑定 AI</p>
+          <h3>决策说明</h3>
         </div>
-        <span className={`confidence-pill ${confidence}`}>{confidence} explanation confidence</span>
+        <span className={`confidence-pill ${confidence}`}>{confidenceZh(confidence)} 置信度</span>
       </div>
       <div className="decision-explanation-identity">
-        <span className="fact-chip muted">provider</span>
+        <span className="fact-chip muted">供应方</span>
         <span className="fact-chip">{provider}</span>
-        <span className="fact-chip muted">{`${bindingState} binding`}</span>
+        <span className="fact-chip muted">{`${bindingState} 绑定`}</span>
         <SourceRefs refs={sourceRefs} onSelectRef={onSelectRef} />
       </div>
       <div className="decision-explanation-grid">
-        <ExplanationRows title="Facts" rows={facts} onSelectRef={onSelectRef} />
-        <ExplanationRows title="Missing Data" rows={missingData} onSelectRef={onSelectRef} />
-        <ExplanationRows title="Unsupported Claims" rows={unsupportedClaims} onSelectRef={onSelectRef} />
+        <ExplanationRows title="依据" rows={facts} onSelectRef={onSelectRef} />
+        <ExplanationRows title="缺失数据" rows={missingData} onSelectRef={onSelectRef} />
+        <ExplanationRows title="无依据判断" rows={unsupportedClaims} onSelectRef={onSelectRef} />
       </div>
       {narrative ? <p className="decision-explanation-narrative">{narrative}</p> : null}
     </section>
@@ -795,7 +840,7 @@ function ExplanationRows({
           </div>
         ))
       ) : (
-        <p>None</p>
+        <p>无</p>
       )}
     </section>
   )
@@ -816,8 +861,8 @@ function DecisionSequences({
     <section className="decision-sequences" aria-label="Decision club sequences">
       <div className="report-title-row">
         <div>
-          <p className="eyebrow">Route sequencing</p>
-          <h3>Club Sequences</h3>
+          <p className="eyebrow">路线排序</p>
+          <h3>逐杆序列</h3>
         </div>
       </div>
       <div className="decision-sequence-grid">
@@ -827,8 +872,8 @@ function DecisionSequences({
           return (
             <article className={`decision-sequence ${isSelected ? 'is-selected' : ''}`} key={id}>
               <div>
-                <strong>{String(sequence.label ?? '-')}</strong>
-                {isSelected ? <span className="selected-pill">selected</span> : null}
+                <strong>{optionLabelZh(String(sequence.label ?? id))}</strong>
+                {isSelected ? <span className="selected-pill">已选</span> : null}
               </div>
               <p>{formatSequenceMeta(sequence)}</p>
               <SequenceQualityChips sequence={sequence} onSelectRef={onSelectRef} />
@@ -859,10 +904,10 @@ function SequenceQualityChips({
     <div className="decision-option-chips">
       {ready !== undefined || total !== undefined ? (
         <span className="fact-chip muted">
-          coverage {String(ready ?? '-')}/{String(total ?? '-')}
+          覆盖 {String(ready ?? '-')}/{String(total ?? '-')}
         </span>
       ) : null}
-      {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidence} sequence confidence</span> : null}
+      {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidenceZh(confidence)} 序列置信度</span> : null}
       <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
     </div>
   )
@@ -881,7 +926,7 @@ function SequenceStepList({
     <div className="decision-sequence-steps" aria-label="Sequence shot steps">
       {steps.map((step, index) => {
         const club = stringValue(step.clubName) || '-'
-        const role = stringValue(step.role) || `shot ${index + 1}`
+        const role = stringValue(step.role) || `第${index + 1}杆`
         const confidence = stringValue(step.confidence)
         const refs = stringRows(step.sourceRefs)
         return (
@@ -891,8 +936,8 @@ function SequenceStepList({
               <span>{sequenceStepLabel(step)}</span>
             </div>
             <div className="decision-option-chips">
-              {step.sampleSize !== undefined ? <span className="fact-chip muted">{String(step.sampleSize)} samples</span> : null}
-              {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidence}</span> : null}
+              {step.sampleSize !== undefined ? <span className="fact-chip muted">{String(step.sampleSize)} 样本</span> : null}
+              {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidenceZh(confidence)}</span> : null}
               <SourceRefs refs={refs} maxVisible={1} onSelectRef={onSelectRef} />
             </div>
           </div>
@@ -924,20 +969,20 @@ function DecisionAcceptableMiss({
     <section className="decision-acceptable-miss" aria-label="Decision acceptable miss">
       <div className="report-title-row">
         <div>
-          <p className="eyebrow">Target discipline</p>
-          <h3>Acceptable Miss</h3>
+          <p className="eyebrow">目标纪律</p>
+          <h3>可接受偏差</h3>
         </div>
-        <span className="fact-chip muted">{selectedOptionId}</span>
+        <span className="fact-chip muted">{optionLabelZh(selectedOptionId)}</span>
       </div>
       <div className="decision-miss-summary">
-        <strong>{formatMissDirection(direction)}</strong>
-        <span>{rationale || 'No rationale supplied.'}</span>
+        <strong>{missDirectionZh(direction)}</strong>
+        <span>{rationale || '未提供理由。'}</span>
       </div>
       <div className="decision-option-chips">
-        {avoidRiskKinds.length ? <span className="fact-chip muted">avoid {avoidRiskKinds.join(', ')}</span> : null}
-        {stringValue(preferredMiss.side) ? <span className="fact-chip muted">prefer side {stringValue(preferredMiss.side)}</span> : null}
-        {stringValue(preferredMiss.depth) ? <span className="fact-chip muted">prefer depth {stringValue(preferredMiss.depth)}</span> : null}
-        {avoidPatterns.length ? <span className="fact-chip muted">avoid pattern {avoidPatterns.join(', ')}</span> : null}
+        {avoidRiskKinds.length ? <span className="fact-chip muted">避开 {avoidRiskKinds.join(', ')}</span> : null}
+        {stringValue(preferredMiss.side) ? <span className="fact-chip muted">偏向侧面 {stringValue(preferredMiss.side)}</span> : null}
+        {stringValue(preferredMiss.depth) ? <span className="fact-chip muted">偏向深度 {stringValue(preferredMiss.depth)}</span> : null}
+        {avoidPatterns.length ? <span className="fact-chip muted">避开模式 {avoidPatterns.join(', ')}</span> : null}
         <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
       </div>
     </section>
@@ -965,21 +1010,21 @@ function OptionQualityChips({
       : typeof historyDeltaRaw === 'string' && Number.isFinite(Number(historyDeltaRaw))
         ? Number(historyDeltaRaw)
         : null
-  const historyText = historyDelta && historyDelta !== 0 ? `history ${historyDelta > 0 ? '+' : ''}${historyDelta} risk` : null
+  const historyText = historyDelta && historyDelta !== 0 ? `历史 ${historyDelta > 0 ? '+' : ''}${historyDelta} 风险` : null
   const refs = uniqueStrings([...stringRows(option.sourceRefs), ...stringRows(historyAdjustment.sourceRefs)])
   if (sampleSize === null && ready === undefined && !confidence && missingCount === 0 && !historyText && refs.length === 0) return null
 
   return (
     <div className="decision-option-chips">
-      {sampleSize !== null ? <span className="fact-chip muted">sample {sampleSize}</span> : null}
+      {sampleSize !== null ? <span className="fact-chip muted">样本 {sampleSize}</span> : null}
       {ready !== undefined || total !== undefined ? (
         <span className="fact-chip muted">
-          coverage {String(ready ?? '-')}/{String(total ?? '-')}
+          覆盖 {String(ready ?? '-')}/{String(total ?? '-')}
         </span>
       ) : null}
-      {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidence} option confidence</span> : null}
+      {confidence ? <span className={`fact-chip confidence-${confidence}`}>{confidenceZh(confidence)} 方案置信度</span> : null}
       {historyText ? <span className="fact-chip muted">{historyText}</span> : null}
-      {missingCount ? <span className="fact-chip muted">missing {missingCount}</span> : null}
+      {missingCount ? <span className="fact-chip muted">缺失 {missingCount}</span> : null}
       <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
     </div>
   )
@@ -1014,53 +1059,53 @@ function DecisionAuditPanel({
   const canAudit = actualClub.trim().length > 0 && actualCarryMeters !== undefined
   const auditControls = (
     <div className="decision-audit-controls">
-      <label htmlFor="actual-club">Actual club</label>
+      <label htmlFor="actual-club">实际球杆</label>
       <input id="actual-club" value={actualClub} onChange={(event) => setActualClub(event.target.value)} />
-      <label htmlFor="actual-carry">Actual carry (m)</label>
+      <label htmlFor="actual-carry">实际带球 (米)</label>
       <input id="actual-carry" inputMode="decimal" value={actualCarry} onChange={(event) => setActualCarry(event.target.value)} />
-      <label htmlFor="result-lie">Result lie</label>
+      <label htmlFor="result-lie">落位</label>
       <select id="result-lie" value={resultLie} onChange={(event) => setResultLie(event.target.value)}>
-        <option value="green">Green</option>
-        <option value="fringe">Fringe</option>
-        <option value="fairway">Fairway</option>
-        <option value="rough">Rough</option>
-        <option value="bunker">Bunker</option>
-        <option value="water">Water</option>
-        <option value="penalty">Penalty</option>
+        <option value="green">果岭</option>
+        <option value="fringe">果岭边</option>
+        <option value="fairway">球道</option>
+        <option value="rough">长草</option>
+        <option value="bunker">沙坑</option>
+        <option value="water">水</option>
+        <option value="penalty">罚杆</option>
       </select>
-      <label htmlFor="actual-second-club">Shot 2 club</label>
+      <label htmlFor="actual-second-club">第2杆球杆</label>
       <input id="actual-second-club" value={secondClub} onChange={(event) => setSecondClub(event.target.value)} />
-      <label htmlFor="actual-second-carry">Shot 2 carry (m)</label>
+      <label htmlFor="actual-second-carry">第2杆带球 (米)</label>
       <input id="actual-second-carry" inputMode="decimal" value={secondCarry} onChange={(event) => setSecondCarry(event.target.value)} />
-      <label htmlFor="actual-second-lie">Shot 2 result lie</label>
+      <label htmlFor="actual-second-lie">第2杆落位</label>
       <select id="actual-second-lie" value={secondLie} onChange={(event) => setSecondLie(event.target.value)}>
-        <option value="green">Green</option>
-        <option value="fringe">Fringe</option>
-        <option value="fairway">Fairway</option>
-        <option value="rough">Rough</option>
-        <option value="bunker">Bunker</option>
-        <option value="water">Water</option>
-        <option value="penalty">Penalty</option>
+        <option value="green">果岭</option>
+        <option value="fringe">果岭边</option>
+        <option value="fairway">球道</option>
+        <option value="rough">长草</option>
+        <option value="bunker">沙坑</option>
+        <option value="water">水</option>
+        <option value="penalty">罚杆</option>
       </select>
-      <label htmlFor="actual-third-club">Shot 3 club</label>
+      <label htmlFor="actual-third-club">第3杆球杆</label>
       <input id="actual-third-club" value={thirdClub} onChange={(event) => setThirdClub(event.target.value)} />
-      <label htmlFor="actual-third-carry">Shot 3 carry (m)</label>
+      <label htmlFor="actual-third-carry">第3杆带球 (米)</label>
       <input id="actual-third-carry" inputMode="decimal" value={thirdCarry} onChange={(event) => setThirdCarry(event.target.value)} />
-      <label htmlFor="actual-third-lie">Shot 3 result lie</label>
+      <label htmlFor="actual-third-lie">第3杆落位</label>
       <select id="actual-third-lie" value={thirdLie} onChange={(event) => setThirdLie(event.target.value)}>
-        <option value="green">Green</option>
-        <option value="fringe">Fringe</option>
-        <option value="fairway">Fairway</option>
-        <option value="rough">Rough</option>
-        <option value="bunker">Bunker</option>
-        <option value="water">Water</option>
-        <option value="penalty">Penalty</option>
+        <option value="green">果岭</option>
+        <option value="fringe">果岭边</option>
+        <option value="fairway">球道</option>
+        <option value="rough">长草</option>
+        <option value="bunker">沙坑</option>
+        <option value="water">水</option>
+        <option value="penalty">罚杆</option>
       </select>
-      <label htmlFor="actual-score-to-par">Actual score to par</label>
+      <label htmlFor="actual-score-to-par">实际相对标准杆</label>
       <input id="actual-score-to-par" inputMode="numeric" value={actualScoreToPar} onChange={(event) => setActualScoreToPar(event.target.value)} />
       <label className="decision-audit-checkbox" htmlFor="actual-penalty">
         <input id="actual-penalty" type="checkbox" checked={penalty} onChange={(event) => setPenalty(event.target.checked)} />
-        Penalty occurred
+        发生罚杆
       </label>
       <button
         type="button"
@@ -1081,7 +1126,7 @@ function DecisionAuditPanel({
           }))
         }
       >
-        Audit outcome
+        复盘结果
       </button>
     </div>
   )
@@ -1091,8 +1136,8 @@ function DecisionAuditPanel({
       <section className="decision-outcome-audit" aria-label="Decision outcome audit">
         <div className="report-title-row">
           <div>
-            <p className="eyebrow">Outcome audit</p>
-            <h3>Auditing outcome</h3>
+            <p className="eyebrow">复盘审计</p>
+            <h3>复盘处理中</h3>
           </div>
         </div>
       </section>
@@ -1104,8 +1149,8 @@ function DecisionAuditPanel({
       <section className="decision-outcome-audit" aria-label="Decision outcome audit">
         <div className="report-title-row">
           <div>
-            <p className="eyebrow">Outcome audit</p>
-            <h3>Audit unavailable</h3>
+            <p className="eyebrow">复盘审计</p>
+            <h3>复盘暂不可用</h3>
             <p>{state.message}</p>
           </div>
         </div>
@@ -1130,9 +1175,9 @@ function DecisionAuditPanel({
     <section className="decision-outcome-audit" aria-label="Decision outcome audit">
       <div className="report-title-row">
         <div>
-          <p className="eyebrow">Outcome audit</p>
-          <h3>{audit ? 'Latest decision audit' : 'No outcome audit yet'}</h3>
-          <p>{audit ? `planned ${planned} -> actual ${actual}` : 'Compare the selected plan with the first actual shot.'}</p>
+          <p className="eyebrow">复盘审计</p>
+          <h3>{audit ? '最新决策复盘' : '尚无复盘'}</h3>
+          <p>{audit ? `计划 ${planned} → 实际 ${actual}` : '将已选方案与实际首杆对比。'}</p>
         </div>
       </div>
       {auditControls}
@@ -1140,17 +1185,17 @@ function DecisionAuditPanel({
       {audit ? (
         <div className="decision-audit-summary">
           <div className="report-row">
-            <strong>actual shot</strong>
+            <strong>实际击球</strong>
             <SourceRefs refs={actualShotRefs} onSelectRef={onSelectRef} />
           </div>
           <div className="report-row">
-            <strong>evidence</strong>
+            <strong>依据</strong>
             <SourceRefs refs={evidenceRefs} onSelectRef={onSelectRef} />
           </div>
           <div className="decision-audit-facts" aria-label="Decision audit execution facts">
-            <span className="fact-chip">club match {booleanLabel(executionMatch.clubMatch)}</span>
-            <span className="fact-chip">distance {metersLabel(executionMatch.distanceDelta_m)}</span>
-            <span className="fact-chip">risk {booleanLabel(executionMatch.riskTriggered)}</span>
+            <span className="fact-chip">选杆一致 {booleanLabel(executionMatch.clubMatch)}</span>
+            <span className="fact-chip">距离 {metersLabel(executionMatch.distanceDelta_m)}</span>
+            <span className="fact-chip">风险 {booleanLabel(executionMatch.riskTriggered)}</span>
           </div>
           <DecisionAuditCriteria rows={criteriaResults} />
           {Object.keys(result).length ? (
@@ -1269,7 +1314,38 @@ function EvidenceList({ title, rows }: { title: string; rows: Array<Record<strin
           </div>
         ))
       ) : (
-        <p>None</p>
+        <p>无</p>
+      )}
+    </section>
+  )
+}
+
+function AvoidZonesList({ rows }: { rows: Array<Record<string, unknown>> }) {
+  const kindCounts: Record<string, number> = {}
+  for (const row of rows) {
+    const kind = stringValue(row.kind) || 'zone'
+    kindCounts[kind] = (kindCounts[kind] ?? 0) + 1
+  }
+  const kindSeen: Record<string, number> = {}
+  const labels = rows.map((row) => {
+    const kind = stringValue(row.kind)
+    if (!kind) return stringValue(row.label) || stringValue(row.id) || '项目'
+    const zhKind = hazardKindZh(kind)
+    kindSeen[kind] = (kindSeen[kind] ?? 0) + 1
+    return kindCounts[kind] > 1 ? `${zhKind} ${kindSeen[kind]}` : zhKind
+  })
+  return (
+    <section aria-label="Decision 避开区">
+      <h3>避开区</h3>
+      {rows.length ? (
+        rows.map((row, index) => (
+          <div className="report-row" key={`${String(row.label ?? row.id ?? row.kind ?? 'zone')}-${index}`}>
+            <strong>{labels[index]}</strong>
+            <span>{String(row.value ?? row.reason ?? row.text ?? row.distance_m ?? row.carryToClear_m ?? '')}</span>
+          </div>
+        ))
+      ) : (
+        <p>无</p>
       )}
     </section>
   )
@@ -1287,7 +1363,7 @@ function ContextRows({ title, rows }: { title: string; rows: Array<Record<string
           </div>
         ))
       ) : (
-        <p>None</p>
+        <p>无</p>
       )}
     </section>
   )
@@ -1345,15 +1421,6 @@ function uniqueStrings(rows: string[]): string[] {
   return rows.filter((row, index, refs) => row && refs.indexOf(row) === index)
 }
 
-function formatMissDirection(value: string): string {
-  return value
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .split(/[_\s-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-}
-
 function formatStrokes(value: number): string {
   return Number.isInteger(value) ? `${value}` : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
 }
@@ -1361,7 +1428,7 @@ function formatStrokes(value: number): string {
 function formatSignedStrokes(value: number): string {
   const formatted = formatStrokes(Math.abs(value))
   const sign = value > 0 ? '+' : value < 0 ? '-' : ''
-  return `${sign}${formatted} strokes`
+  return `${sign}${formatted} 杆`
 }
 
 function selectedDecisionOption(decision: CaddieDecisionResponse): Record<string, unknown> {
@@ -1400,13 +1467,13 @@ function formatExplanationValue(value: unknown): string {
 }
 
 function booleanLabel(value: unknown): string {
-  if (value === true) return 'yes'
-  if (value === false) return 'no'
-  return 'unknown'
+  if (value === true) return '是'
+  if (value === false) return '否'
+  return '未知'
 }
 
 function metersLabel(value: unknown): string {
-  if (value === undefined || value === null || value === '') return 'unknown'
+  if (value === undefined || value === null || value === '') return '未知'
   const num = Number(value)
   return Number.isFinite(num) ? fmtYd(num) : String(value)
 }
@@ -1414,8 +1481,8 @@ function metersLabel(value: unknown): string {
 function auditCriterionText(row: Record<string, unknown>): string {
   const expected = formatExplanationValue(row.expected ?? row.expected_m ?? row.expectedRange_m)
   const actual = formatExplanationValue(row.actual ?? row.actual_m ?? row.actualScoreToPar ?? row.surface)
-  const delta = row.distanceDelta_m !== undefined && row.distanceDelta_m !== null ? `delta ${metersLabel(row.distanceDelta_m)}` : ''
-  const parts = [expected ? `expected ${expected}` : '', actual ? `actual ${actual}` : '', delta].filter(Boolean)
+  const delta = row.distanceDelta_m !== undefined && row.distanceDelta_m !== null ? `差值 ${metersLabel(row.distanceDelta_m)}` : ''
+  const parts = [expected ? `预期 ${expected}` : '', actual ? `实际 ${actual}` : '', delta].filter(Boolean)
   return parts.length ? parts.join(' - ') : String(row.rule ?? '')
 }
 
@@ -1647,9 +1714,9 @@ function formatSequenceMeta(sequence: Record<string, unknown>): string {
   const remaining = sequence.expectedRemaining_m
   const risk = sequence.riskScore
   const parts = []
-  if (strokes !== undefined) parts.push(`${String(strokes)} shots`)
-  if (remaining !== undefined) parts.push(`${fmtYd(Number(remaining))} remaining`)
-  if (risk !== undefined) parts.push(`risk ${String(risk)}`)
+  if (strokes !== undefined) parts.push(`${String(strokes)} 杆`)
+  if (remaining !== undefined) parts.push(`${fmtYd(Number(remaining))} 剩余`)
+  if (risk !== undefined) parts.push(`风险 ${String(risk)}`)
   return parts.join(' - ') || '-'
 }
 
@@ -1657,8 +1724,8 @@ function sequenceStepLabel(step: Record<string, unknown>): string {
   const carry = step.targetCarry_m ?? step.carry_m
   const remaining = step.expectedRemaining_m
   return [
-    carry === undefined ? null : `${fmtYd(Number(carry))} carry`,
-    remaining === undefined ? null : `${fmtYd(Number(remaining))} left`,
+    carry === undefined ? null : `${fmtYd(Number(carry))} 带球`,
+    remaining === undefined ? null : `${fmtYd(Number(remaining))} 剩余`,
   ]
     .filter(Boolean)
     .join(' - ') || '-'
@@ -1709,9 +1776,9 @@ function formatOptionMeta(option: Record<string, unknown>): string {
   const clearance = hazardClearance?.minimumClearance_m
   return [
     carry === undefined ? null : fmtYd(Number(carry)),
-    risk === undefined ? null : `risk ${String(risk)}`,
-    expected === undefined ? null : `${String(expected)} exp`,
-    clearance === undefined || clearance === null ? null : `${fmtYd(Number(clearance))} clear`,
+    risk === undefined ? null : `风险 ${String(risk)}`,
+    expected === undefined ? null : `${String(expected)} 预期`,
+    clearance === undefined || clearance === null ? null : `${fmtYd(Number(clearance))} 余量`,
   ]
     .filter(Boolean)
     .join(' - ')

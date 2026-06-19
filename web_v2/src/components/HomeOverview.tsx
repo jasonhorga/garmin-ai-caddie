@@ -131,7 +131,7 @@ export function HomeOverview({
           <CourseFinder courseOptions={courseOptions} onSearchCourses={onSearchCourses} onSelectCourse={onPrepCourse} />
           {onStartRecord ? (
             <button type="button" className="home-link home-record-link" onClick={onStartRecord}>
-              📍 手机记分(GPS) →
+              📍 手机记分 →
             </button>
           ) : null}
         </section>

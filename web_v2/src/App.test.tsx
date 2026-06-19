@@ -2499,7 +2499,7 @@ describe('App navigation', () => {
     expect(screen.queryByRole('heading', { name: '选择球场开始备战' })).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '加载天气' }))
-    expect(await screen.findByText('5.4 m/s')).toBeInTheDocument()
+    expect(await screen.findByText('风 19 km/h')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Load caddie context' }))
     expect(await screen.findByText('history_drilldown')).toBeInTheDocument()
@@ -2539,7 +2539,7 @@ describe('App navigation', () => {
       }),
     )
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decision', expect.objectContaining({ method: 'POST' }))
-    expect(await screen.findByText('Latest decision audit')).toBeInTheDocument()
+    expect(await screen.findByText('最新决策复盘')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/caddie/decisions/fixture-round%3A4%3Aapproach/audit/latest')
     const decisionPost = fetchMock.mock.calls.find(([path]) => path === '/api/v2/caddie/decision')?.[1] as RequestInit
     const decisionBody = JSON.parse(String(decisionPost.body))
@@ -2548,12 +2548,12 @@ describe('App navigation', () => {
     expect(decisionBody.context.visionFindings[0].findingType).toBe('visible_bunker')
 
     expect(screen.queryByRole('button', { name: 'Audit with fixture outcome' })).not.toBeInTheDocument()
-    await userEvent.clear(screen.getByLabelText('Actual club'))
-    await userEvent.type(screen.getByLabelText('Actual club'), '9I')
-    await userEvent.clear(screen.getByLabelText('Actual carry (m)'))
-    await userEvent.type(screen.getByLabelText('Actual carry (m)'), '137')
-    await userEvent.selectOptions(screen.getByLabelText('Result lie'), 'fringe')
-    await userEvent.click(screen.getByRole('button', { name: 'Audit outcome' }))
+    await userEvent.clear(screen.getByLabelText('实际球杆'))
+    await userEvent.type(screen.getByLabelText('实际球杆'), '9I')
+    await userEvent.clear(screen.getByLabelText('实际带球 (米)'))
+    await userEvent.type(screen.getByLabelText('实际带球 (米)'), '137')
+    await userEvent.selectOptions(screen.getByLabelText('落位'), 'fringe')
+    await userEvent.click(screen.getByRole('button', { name: '复盘结果' }))
 
     expect(await screen.findByText('execution')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
