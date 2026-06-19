@@ -13,6 +13,7 @@ public struct RoundReviewView: View {
     @State private var detail: RoundDetail?
     @State private var isLoading = true
     @State private var errorText: String?
+    @State private var shotMapHole: ShotMapHole?
 
     public init(roundRef: String, fallbackCourseName: String? = nil, apiBaseURL: URL? = nil, adminToken: String? = nil) {
         self.roundRef = roundRef
@@ -27,13 +28,28 @@ public struct RoundReviewView: View {
                 AICaddieLoadingView(text: "载入这场…")
             } else {
                 ScrollView {
-                    RoundReviewContent(detail: detail, isLoading: isLoading, errorText: errorText, fallbackCourseName: fallbackCourseName)
+                    RoundReviewContent(
+                        detail: detail, isLoading: isLoading, errorText: errorText,
+                        fallbackCourseName: fallbackCourseName,
+                        onSelectHole: { shotMapHole = ShotMapHole(hole: $0) }
+                    )
                 }
             }
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle("单场复盘")
         .task(id: roundRef) { await load() }
+        .sheet(item: $shotMapHole) { item in
+            NavigationStack {
+                RoundHoleShotMapScreen(roundRef: roundRef, hole: item.hole, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { shotMapHole = nil } } }
+            }
+        }
+    }
+
+    struct ShotMapHole: Identifiable {
+        let hole: Int
+        var id: Int { hole }
     }
 
     @MainActor
@@ -60,6 +76,7 @@ struct RoundReviewContent: View {
     let isLoading: Bool
     let errorText: String?
     let fallbackCourseName: String?
+    var onSelectHole: (Int) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -133,28 +150,41 @@ struct RoundReviewContent: View {
     private func scorecardCard(_ holes: [RoundDetailHole]) -> some View {
         VStack(spacing: 0) {
             HStack {
-                Text("洞").frame(width: 36, alignment: .leading)
-                Text("Par").frame(width: 44, alignment: .trailing)
-                Text("成绩").frame(width: 52, alignment: .trailing)
-                Text("推").frame(width: 36, alignment: .trailing)
+                Text("点一洞看落点图 →").font(.caption2).foregroundStyle(LiveHoleStyle.green)
+                Spacer()
+            }
+            .padding(.bottom, 4)
+            HStack {
+                Text("洞").frame(width: 32, alignment: .leading)
+                Text("Par").frame(width: 40, alignment: .trailing)
+                Text("成绩").frame(width: 48, alignment: .trailing)
+                Text("推").frame(width: 32, alignment: .trailing)
                 Text("果岭/球道").frame(maxWidth: .infinity, alignment: .trailing)
             }
             .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             .padding(.vertical, 6)
             Divider()
             ForEach(holes) { hole in
-                HStack {
-                    Text("\(hole.hole)").font(.subheadline.monospacedDigit().weight(.semibold)).frame(width: 36, alignment: .leading)
-                    Text(hole.par.map(String.init) ?? "–").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
-                    Text(hole.score.map(String.init) ?? "–")
-                        .font(.subheadline.monospacedDigit().weight(.bold))
-                        .foregroundStyle(scoreColor(hole))
-                        .frame(width: 52, alignment: .trailing)
-                    Text(hole.putts.map(String.init) ?? "–").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
-                    Text(girFairwayText(hole)).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .trailing)
+                Button {
+                    onSelectHole(hole.hole)
+                } label: {
+                    HStack {
+                        Text("\(hole.hole)").font(.subheadline.monospacedDigit().weight(.semibold)).frame(width: 32, alignment: .leading)
+                        Text(hole.par.map(String.init) ?? "–").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                        Text(hole.score.map(String.init) ?? "–")
+                            .font(.subheadline.monospacedDigit().weight(.bold))
+                            .foregroundStyle(scoreColor(hole))
+                            .frame(width: 48, alignment: .trailing)
+                        Text(hole.putts.map(String.init) ?? "–").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).frame(width: 32, alignment: .trailing)
+                        Text(girFairwayText(hole)).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .trailing)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                    .overlay(alignment: .bottom) { Divider() }
                 }
-                .padding(.vertical, 7)
-                .overlay(alignment: .bottom) { Divider() }
+                .buttonStyle(.plain)
+                .foregroundStyle(.primary)
             }
             totalRow(holes)
         }

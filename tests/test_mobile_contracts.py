@@ -2245,6 +2245,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("detail.scorecard", round_review)
         self.assertIn("detail.missingData", round_review)  # graceful, never blank
         self.assertIn("RoundReviewView(roundRef: round.roundId", recent_review)
+        # 复盘逐洞落点图: tap a scorecard hole → that hole's 2D map with this round's actual shots.
+        shot_map_view = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        shot_map_model = _read_required_source(self, IOS_DIR / "Models" / "RoundShotMap.swift")
+        self.assertIn("struct RoundHoleShotMap", shot_map_model)
+        self.assertIn("struct RoundShot", shot_map_model)
+        self.assertIn("func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap", sync_client)
+        self.assertIn("/holes/\\(hole)/shotmap", sync_client)
+        self.assertIn("struct RoundShotMapView", shot_map_view)
+        self.assertIn("struct RoundHoleShotMapScreen", shot_map_view)
+        self.assertIn("onSelectHole(hole.hole)", round_review)
+        self.assertIn("RoundHoleShotMapScreen(roundRef: roundRef, hole: item.hole", round_review)
         # 数据统计(历史宏观,与复盘分开): consume the compact /history/stats/mobile endpoint.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
         mobile_stats_model = _read_required_source(self, IOS_DIR / "Models" / "MobileStats.swift")

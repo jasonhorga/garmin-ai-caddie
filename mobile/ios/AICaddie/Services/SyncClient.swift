@@ -184,6 +184,19 @@ public final class SyncClient {
         return try decoder.decode(MobileStats.self, from: data)
     }
 
+    /// Per-hole 复盘 shot map (`GET /api/v2/history/rounds/{ref}/holes/{hole}/shotmap`): this round's
+    /// actual shots projected onto the hole's 2D render. Fetched on demand when a hole is opened.
+    public func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap {
+        let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
+        var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)/holes/\(hole)/shotmap"))
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(RoundHoleShotMap.self, from: data)
+    }
+
     /// Single-round 复盘 detail (`GET /api/v2/history/rounds/{ref}`): hole-by-hole scorecard +
     /// phase summary + graceful missing-data. Used by RoundReviewView when the player taps a round.
     public func fetchRoundDetail(roundRef: String) async throws -> RoundDetail {
