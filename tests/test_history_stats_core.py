@@ -1723,6 +1723,26 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(records["bestHoleOutcomes"][0]["holeRef"], "900003:2")
         self.assertEqual(records["bestHoleOutcomes"][0]["sourceRefs"], ["900003:2"])
 
+    def test_score_trend_counts_outcomes_from_holepars_when_hole_par_missing(self) -> None:
+        # round-9 D5: real rounds carry per-hole strokes but no per-hole `par` — the birdie/par/bogey
+        # counts must fall back to the round's `holePars` string (else 抓鸟/帕 all render 0).
+        from ai_caddie.history import HistoryData
+        from ai_caddie.history_stats import _score_trend
+
+        round_row = {
+            "id": "r1", "date": "2026-06-01", "holesCompleted": 18, "strokes": 90, "par": 72,
+            "holePars": "345" + "4" * 15,
+            "holes": [{"number": 1, "strokes": 2}, {"number": 2, "strokes": 4}, {"number": 3, "strokes": 7}]
+            + [{"number": n, "strokes": 5} for n in range(4, 19)],
+        }
+        points = _score_trend(HistoryData(raw_rounds=[], rounds=[round_row], shots=[]))["points"]
+        self.assertEqual(len(points), 1)
+        point = points[0]
+        self.assertEqual(point["birdies"], 1)       # hole 1: par 3, strokes 2
+        self.assertEqual(point["pars"], 1)          # hole 2: par 4, strokes 4
+        self.assertEqual(point["doublesPlus"], 1)   # hole 3: par 5, strokes 7 (+2)
+        self.assertEqual(point["bogeys"], 15)       # holes 4–18: par 4, strokes 5
+
 
 if __name__ == "__main__":
     unittest.main()

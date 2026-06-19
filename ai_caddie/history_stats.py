@@ -3622,9 +3622,15 @@ def _score_trend(data: HistoryData, limit: int = 20) -> dict[str, Any]:
         score = int(row["strokes"])
         par = row.get("par")
         birdies = pars = bogeys = doubles = 0
-        for hole in row.get("holes") or []:
+        # Per-hole strokes are present but per-hole `par` usually is NOT — fall back to the round's
+        # `holePars` string (one digit per hole, in hole order) so 抓鸟/帕/柏忌 counts aren't all 0.
+        hole_pars = str(row.get("holePars") or "")
+        holes = sorted(row.get("holes") or [], key=lambda hole: int(hole.get("number") or 0))
+        for index, hole in enumerate(holes):
             strokes = hole.get("strokes")
             hole_par = hole.get("par")
+            if hole_par is None and index < len(hole_pars) and hole_pars[index].isdigit():
+                hole_par = int(hole_pars[index])
             if strokes is None or hole_par is None:
                 continue
             delta = int(strokes) - int(hole_par)
