@@ -2223,14 +2223,28 @@ class MobileContractTests(unittest.TestCase):
         # 离线就绪诊断不再对用户暴露(工程信息);用户不关心离线。
         self.assertNotIn("PackageReadinessSection", round_home)
         self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
-        self.assertIn("RecentRoundReviewView(package: package)", round_home)
+        self.assertIn("RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
         self.assertIn('title: "历史复盘"', round_home)
         self.assertIn("struct RecentRoundReviewView: View", recent_review)
         self.assertIn("package.recentHistory.rounds", recent_review)
         self.assertIn("round.toPar", recent_review)
-        self.assertIn("aiCaddieShortDate(round.date)", recent_review)  # clean date, not raw ISO; round ref not shown
+        self.assertIn("aiCaddieShortDate(round.date)", recent_review)  # clean date, not raw ISO
         self.assertIn("package.recentHistory.course", recent_review)
         self.assertIn("package.recentHistory.holes", recent_review)
+        # 单场复盘: tap a recent round → fetch /history/rounds/{ref} → hole-by-hole scorecard.
+        # Fixes "复盘点进去没数据": the round detail renders the scorecard + graceful missing-data.
+        round_review = _read_required_source(self, IOS_DIR / "Views" / "RoundReviewView.swift")
+        round_detail_model = _read_required_source(self, IOS_DIR / "Models" / "RoundDetail.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        self.assertIn("struct RoundDetail", round_detail_model)
+        self.assertIn("struct RoundDetailHole", round_detail_model)
+        self.assertIn("func fetchRoundDetail(roundRef: String) async throws -> RoundDetail", sync_client)
+        self.assertIn("/api/v2/history/rounds/", sync_client)
+        self.assertIn("struct RoundReviewView: View", round_review)
+        self.assertIn("fetchRoundDetail(roundRef:", round_review)
+        self.assertIn("detail.scorecard", round_review)
+        self.assertIn("detail.missingData", round_review)  # graceful, never blank
+        self.assertIn("RoundReviewView(roundRef: round.roundId", recent_review)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)

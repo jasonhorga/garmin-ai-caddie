@@ -325,7 +325,7 @@ public struct RoundHomeView: View {
                 .buttonStyle(.plain)
             }
             NavigationLink {
-                RecentRoundReviewView(package: package)
+                RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)
             } label: {
                 HubTile(icon: "chart.line.uptrend.xyaxis", title: "历史复盘", subtitle: "\(package.recentHistory.rounds.count) 场近况")
             }
