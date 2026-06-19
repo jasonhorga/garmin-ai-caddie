@@ -1,3 +1,4 @@
+import { useDiagnostics } from '../diagnosticsContext'
 import { confidenceZh } from '../zhLabels'
 import { asNumber, asRows, asString, formatNumber, semanticClass } from './statsValues'
 
@@ -18,6 +19,9 @@ function coverageText(value: unknown): string | null {
 }
 
 export function AggregateEvidence({ row, showConfidence = true, showReason = true }: AggregateEvidenceProps) {
+  const diagnostics = useDiagnostics()
+  // Coverage / 信心 / 缺失 chips are ETL diagnostics — owner diagnostics mode only.
+  if (!diagnostics) return null
   const coverage = coverageText(row.coverage)
   const confidence = asString(row.confidence)
   const reason = asString(row.reason) ?? asString(row.detail)

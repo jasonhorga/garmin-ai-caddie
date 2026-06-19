@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useDiagnostics } from '../diagnosticsContext'
 
 interface SourceRefsProps {
   refs: unknown
@@ -12,7 +13,11 @@ function normalizeRefs(value: unknown): string[] {
 }
 
 export function SourceRefs({ refs, maxVisible, onSelectRef }: SourceRefsProps) {
+  const diagnostics = useDiagnostics()
   const [expanded, setExpanded] = useState(false)
+  // Raw internal refs (round/hole/shot ids) are owner diagnostics only — the
+  // product never shows them. One gate here cleans every call site across the app.
+  if (!diagnostics) return null
   const normalizedRefs = normalizeRefs(refs)
   if (normalizedRefs.length === 0) return <span className="source-refs-empty">-</span>
   const visibleCount = !expanded && maxVisible && maxVisible > 0 ? maxVisible : normalizedRefs.length

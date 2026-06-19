@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
 function overviewPayload() {
@@ -998,6 +998,14 @@ function holeMapPayload() {
 }
 
 describe('App navigation', () => {
+  beforeEach(() => {
+    // Most existing tests exercise the owner power-user view (raw refs, source
+    // drilldown, data-quality) which is now gated behind diagnostics mode. Default
+    // it ON here so those owner-functionality tests keep asserting that surface;
+    // the clean default (diagnostics off) is covered by dedicated tests that clear
+    // this first.
+    localStorage.setItem('ai-caddie.diagnostics', '1')
+  })
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
@@ -1859,7 +1867,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
     expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 82' }))
 
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/rounds/1')).toHaveLength(2)
   })
@@ -1941,7 +1949,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
     expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add correction for round 1' }))
+    await userEvent.click(screen.getByRole('button', { name: '为这一局添加订正' }))
 
     expect(await screen.findByRole('heading', { name: '订正' })).toBeInTheDocument()
     expect(screen.getByLabelText('目标类型')).toHaveValue('round')
@@ -2641,7 +2649,7 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/round/1')
 
     // Scorecard refs open the same drilldown panel as on history pages, below LivePage.
-    await userEvent.click(screen.getByRole('button', { name: 'Open hole 1 detail 1:1' }))
+    await userEvent.click(screen.getByRole('button', { name: '第1洞详情' }))
     expect(await screen.findByText('Black Knight B H1')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1%3A1')
   })

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { HistoryRoundsResponse, MonthRoundGroup, RoundsFilters } from '../types'
+import { cleanCourseName } from '../units'
 import { RoundCard } from './RoundCard'
 
 interface HistoryTimelineProps {
@@ -117,7 +118,7 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
             >
               <option value="">全部球场</option>
               {(data.availableCourses ?? []).map((course) => (
-                <option key={course.key} value={course.key}>{course.label}</option>
+                <option key={course.key} value={course.key}>{cleanCourseName(course.label)}</option>
               ))}
             </select>
           </label>

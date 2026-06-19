@@ -1,4 +1,11 @@
-import { render, screen, within } from '@testing-library/react'
+import { render as baseRender, screen, within } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { DiagnosticsProvider } from '../diagnosticsContext'
+function Diag({ children }: { children: ReactNode }) {
+  return <DiagnosticsProvider value={true}>{children}</DiagnosticsProvider>
+}
+const render = (ui: Parameters<typeof baseRender>[0], options?: Parameters<typeof baseRender>[1]) =>
+  baseRender(ui, { wrapper: Diag, ...options })
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { HistoryStatsResponse } from '../types'

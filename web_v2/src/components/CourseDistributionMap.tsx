@@ -149,7 +149,7 @@ function formatLocation(value: { latitude: number; longitude: number }): string 
 
 function roundLabel(value: unknown): string {
   const number = asNumber(value)
-  return `${number === null ? '-' : number} rounds`
+  return `${number === null ? '-' : number} 场`
 }
 
 function refsFor(row: Record<string, unknown>) {

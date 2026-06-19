@@ -1,4 +1,6 @@
 import type { RoundCard as RoundCardType } from '../types'
+import { useDiagnostics } from '../diagnosticsContext'
+import { cleanCourseName, shortRoundDate } from '../units'
 import { DataQualityChips } from './DataQualityChips'
 import { ScoreStrip } from './ScoreStrip'
 import { SourceRefs } from './SourceRefs'
@@ -10,7 +12,7 @@ function formatToPar(value: number | null) {
 }
 
 function roundActionLabel(round: RoundCardType) {
-  return `打开球局 ${round.courseName}, ${round.date ?? '未知日期'}, score ${round.score ?? '-'}, ref ${round.id}`
+  return `打开球局 ${cleanCourseName(round.courseName)}，${shortRoundDate(round.date)}，成绩 ${round.score ?? '-'}`
 }
 
 interface RoundCardProps {
@@ -20,13 +22,14 @@ interface RoundCardProps {
 }
 
 export function RoundCard({ round, onSelectRef, onOpenRoundDetail }: RoundCardProps) {
+  const diagnostics = useDiagnostics()
   return (
     <article className="round-card">
       <div className="round-card-head">
         <div>
-          <h3>{round.courseName}</h3>
+          <h3>{cleanCourseName(round.courseName)}</h3>
           <p>
-            {round.date ?? 'Unknown date'} - {round.holesCompleted ?? '-'}H
+            {shortRoundDate(round.date)} · {round.holesCompleted ?? '-'} 洞
           </p>
           {round.source === 'manual' ? (
             <span className="quality-chip round-source-chip" aria-label="手动录入的球局">
@@ -50,11 +53,13 @@ export function RoundCard({ round, onSelectRef, onOpenRoundDetail }: RoundCardPr
         </button>
       ) : null}
       <ScoreStrip cells={round.scoreStrip} />
-      <div className="round-card-source">
-        <span>来源</span>
-        <SourceRefs refs={[round.id]} maxVisible={1} onSelectRef={onSelectRef} />
-      </div>
-      <DataQualityChips badges={round.badges} />
+      {diagnostics ? (
+        <div className="round-card-source">
+          <span>来源</span>
+          <SourceRefs refs={[round.id]} maxVisible={1} onSelectRef={onSelectRef} />
+        </div>
+      ) : null}
+      {diagnostics ? <DataQualityChips badges={round.badges} /> : null}
     </article>
   )
 }

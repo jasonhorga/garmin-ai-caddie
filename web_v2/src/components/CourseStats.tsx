@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { HistoryStatsResponse, MobileCourseOptionsResponse } from '../types'
+import { useDiagnostics } from '../diagnosticsContext'
 import { issueLabel } from '../issueLabels'
 import { coverageZh, dataModeZh, formDirectionZh, missDirectionZh, phaseZh } from '../zhLabels'
 import { AggregateEvidence } from './AggregateEvidence'
@@ -88,6 +89,7 @@ interface CourseRowProps {
 function CourseRow({ course, prepGlobalId, onSelectRef, onPrepCourse }: CourseRowProps) {
   // The heavy sub-blocks render ONLY while the <details> is open — the
   // summary stays informative without paying their render cost up front.
+  const diagnostics = useDiagnostics()
   const [showBreakdown, setShowBreakdown] = useState(false)
   const recentForm = asRecord(course.recentForm)
   const teeDirection = asRecord(course.teeDirection)
@@ -122,7 +124,7 @@ function CourseRow({ course, prepGlobalId, onSelectRef, onPrepCourse }: CourseRo
     <article className="stats-item">
       <div className="stats-item-main">
         <h2>{asString(course.courseName) ?? '未知球场'}</h2>
-        <p>{courseKey ?? 'unknown'}</p>
+        {diagnostics ? <p className="stats-item-key">{courseKey ?? 'unknown'}</p> : null}
       </div>
       <div className="stats-item-facts" aria-label={`${asString(course.courseName) ?? '球场'} 数据`}>
         <span>{formatNumber(course.roundCount)} 场次</span>
@@ -154,7 +156,7 @@ function CourseRow({ course, prepGlobalId, onSelectRef, onPrepCourse }: CourseRo
             差分 {formDirectionZh(differentialDirection)} {formatSigned(recentForm.deltaAverageDifferential)}
           </span>
         ) : null}
-        {asString(course.geometryCoverage) ? (
+        {diagnostics && asString(course.geometryCoverage) ? (
           <span className={`semantic-chip ${semanticClass('quality', course.geometryCoverage)}`}>几何 {coverageZh(asString(course.geometryCoverage) ?? '')}</span>
         ) : null}
         <AggregateEvidence row={course} />
