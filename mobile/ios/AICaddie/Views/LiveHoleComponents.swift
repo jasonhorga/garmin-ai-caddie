@@ -76,7 +76,7 @@ struct HoleDistanceHeader: View {
             }
             Text("第 \(holeNumber) 洞 · Par \(par)").font(.title2.weight(.bold))
             HStack(spacing: 10) {
-                HeaderStat(value: toPinYards.map(String.init) ?? "—", label: "到旗杆(米)")
+                HeaderStat(value: toPinYards.map(String.init) ?? "—", label: "到旗杆(码)")
                 HeaderStat(value: carryFrontYards.map(String.init) ?? "—", label: "过前缘")
                 HeaderStat(value: toParText, label: "本洞")
             }

@@ -65,7 +65,7 @@ public struct CurrentHoleView: View {
         self._selectedClub = State(initialValue: zhClubName(restoredHoleState?.selectedClub ?? package.clubProfiles.first?.clubName ?? ""))
         self._selectedShotType = State(initialValue: restoredHoleState?.selectedShotType ?? seed?.shotTypes.first ?? "approach")
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
-        self._distanceToPinText = State(initialValue: restoredHoleState?.distanceToPinM.map(Self.distanceText) ?? "")
+        self._distanceToPinText = State(initialValue: restoredHoleState?.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? "")
         self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
         self._currentHorizontalAccuracyM = State(initialValue: restoredHoleState?.horizontalAccuracyM)
         self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)
@@ -154,7 +154,7 @@ public struct CurrentHoleView: View {
                             Picker("球位", selection: $selectedLie) {
                                 ForEach(lieOptions, id: \.self) { Text(zhLie($0)).tag($0) }
                             }
-                            TextField("到旗杆距离(米)", text: $distanceToPinText)
+                            TextField("到旗杆距离(码)", text: $distanceToPinText)
                                 .keyboardType(.decimalPad)
                             Button {
                                 targetCoordinate = currentCoordinate
@@ -223,7 +223,7 @@ public struct CurrentHoleView: View {
         if let holePrep, holePrep.map?.overlay != nil {
             VStack(alignment: .leading, spacing: 8) {
                 Text("球洞俯视图").font(.caption).foregroundStyle(.secondary)
-                HoleImageMapView(hole: holePrep)
+                HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres)
             }
             .liveCard()
         }
@@ -267,7 +267,28 @@ public struct CurrentHoleView: View {
             if let existing = best[name], existing.sampleSize >= profile.sampleSize { continue }
             best[name] = profile
         }
-        return best.sorted { $0.value.medianM > $1.value.medianM }.map(\.key)
+        // Only the 3 clubs most relevant to THIS shot: nearest to the to-pin distance when known
+        // (so a 150-yard approach never offers chip/putt), else the 3 longest. Always keep the
+        // currently-selected club visible so the highlight isn't lost.
+        let ordered: [String]
+        if let target = distanceToPinMetres {
+            ordered = best.sorted { abs($0.value.medianM - target) < abs($1.value.medianM - target) }.map(\.key)
+        } else {
+            ordered = best.sorted { $0.value.medianM > $1.value.medianM }.map(\.key)
+        }
+        var top = Array(ordered.prefix(3))
+        if best[selectedClub] != nil, !top.contains(selectedClub) {
+            top = [selectedClub] + top.prefix(2)
+        }
+        return top
+    }
+
+    /// The selected club's typical distance (metres) from the bag model — drives the live map marker.
+    private var selectedClubMetres: Double? {
+        guard let profile = package.clubProfiles.first(where: { zhClubName($0.clubName) == selectedClub }) else {
+            return nil
+        }
+        return profile.medianM
     }
 
     private var holeToParText: String {
@@ -352,7 +373,7 @@ public struct CurrentHoleView: View {
             seed: caddieContextSeed,
             input: LiveCaddieInput(
                 shotType: selectedShotType,
-                distanceToPinM: Double(distanceToPinText),
+                distanceToPinM: distanceToPinMetres,
                 lie: selectedLie,
                 coordinate: currentCoordinate,
                 targetCoordinate: targetCoordinate,
@@ -430,7 +451,7 @@ public struct CurrentHoleView: View {
             selectedClub: selectedClub,
             decision: decision,
             offlineOption: offlineOption,
-            distanceToPinM: Double(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
+            distanceToPinM: distanceToPinMetres,
             targetLatitude: targetCoordinate?.latitude,
             targetLongitude: targetCoordinate?.longitude,
             targetKind: targetCoordinate == nil ? nil : "pin"
@@ -458,7 +479,7 @@ public struct CurrentHoleView: View {
         selectedShotType = restoredHoleState.selectedShotType
         selectedStrategyMode = restoredHoleState.selectedStrategyMode
         selectedLie = restoredHoleState.lie
-        distanceToPinText = restoredHoleState.distanceToPinM.map(Self.distanceText) ?? ""
+        distanceToPinText = restoredHoleState.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? ""
         if let latitude = restoredHoleState.latitude, let longitude = restoredHoleState.longitude {
             currentCoordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         } else {
@@ -528,10 +549,10 @@ public struct CurrentHoleView: View {
     }
 
     private func distanceToPinPayload() -> JSONValue {
-        guard let distanceToPin = Double(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        guard let metres = distanceToPinMetres else {
             return .null
         }
-        return .number(distanceToPin)
+        return .number(metres)
     }
 
     private func actualShotPayload() -> [String: JSONValue] {
@@ -540,8 +561,8 @@ public struct CurrentHoleView: View {
             "shotOrder": .number(1),
             "end": .object(["lie": .string(selectedLie)]),
         ]
-        if let distanceToPin = Double(distanceToPinText) {
-            payload["remainingToTarget_m"] = .number(distanceToPin)
+        if let metres = distanceToPinMetres {
+            payload["remainingToTarget_m"] = .number(metres)
         }
         if let currentCoordinate {
             payload["position"] = .object([
@@ -575,10 +596,16 @@ public struct CurrentHoleView: View {
         )
     }
 
-    private static func distanceText(_ value: Double) -> String {
-        if value.rounded(.towardZero) == value {
-            return String(Int(value))
+    /// 到旗杆距离在 UI 里以「码」输入/显示;后端事件/球童请求用米,这里在边界换算回米。
+    private var distanceToPinMetres: Double? {
+        guard let yards = Double(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return nil
         }
-        return String(value)
+        return CoursePrepRoute.metres(fromYards: yards)
+    }
+
+    /// 后端存的米 → 前端显示的整码(恢复已记距离时用)。
+    private static func yardsText(fromMetres metres: Double) -> String {
+        String(CoursePrepRoute.yards(fromMetres: metres))
     }
 }

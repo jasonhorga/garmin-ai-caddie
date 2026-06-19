@@ -262,8 +262,8 @@ public struct StartRoundView: View {
         courseOptions.first { String($0.globalId) == courseGlobalIdText }
     }
 
-    /// 选中的是 9 洞环、且同球场还有**另一个**可作为第二环的 9 洞环时,才提供「加打凑 18」。
-    /// 排除已选的前环本身(否则会列出「＋C 场」当你正打 C → 误成 C+C)。
+    /// 选中的是 9 洞环、且同球场有 9 洞环可作第二环时,提供「加打凑 18」。
+    /// 含已选环本身 —— 同一个 9 洞环打两轮(A+A/B+B/C+C)是真实打法,不排除。
     private var secondNineCandidates: [MobileCourseOption] {
         guard let selectedSegment, (selectedSegment.segmentHoles ?? selectedSegment.holes) == 9 else {
             return []
@@ -271,8 +271,7 @@ public struct StartRoundView: View {
         let venue = selectedSegment.venueName ?? baseCourseName(selectedSegment.name)
         return courseOptions
             .filter { ($0.venueName ?? baseCourseName($0.name)) == venue
-                && ($0.segmentHoles ?? $0.holes) == 9
-                && $0.globalId != selectedSegment.globalId }
+                && ($0.segmentHoles ?? $0.holes) == 9 }
             .sorted { segmentSortKey($0) < segmentSortKey($1) }
     }
 

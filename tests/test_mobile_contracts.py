@@ -1245,8 +1245,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('URLQueryItem(name: "back_global_id"', sync_client)
         self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", start_view)
         self.assertIn("onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)", start_view)
-        # The "加打" list must exclude the already-selected front loop (no C+C when C is the front).
-        self.assertIn("$0.globalId != selectedSegment.globalId", start_view)
+        # The "加打" list includes the same loop (A+A/B+B/C+C is a real way to play 18 on a 27-hole
+        # course), so it must NOT filter the selected loop out.
+        self.assertNotIn("$0.globalId != selectedSegment.globalId", start_view)
         self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", round_home)
         self.assertIn("onPrepareCompositeRound: onPrepareCompositeRound", round_home)
 
@@ -1451,10 +1452,15 @@ class MobileContractTests(unittest.TestCase):
         # nines fetch the right loop's geometry.
         self.assertIn("struct HoleImageMapView", hole_map_view)
         self.assertIn("func fetchHolePrep(globalId: Int, localHole: Int) async throws -> CoursePrepHole?", sync_client)
-        self.assertIn("HoleImageMapView(hole:", current_hole)
         self.assertIn("HoleImageMapView(hole: hole)", course_review)
         self.assertIn("hole.sourceGlobalId ?? package.course.globalId", current_hole)
         self.assertIn("func loadHoleMap()", current_hole)
+        # Play line is a smooth curve, not a polyline; landing marker + club label track the
+        # currently-selected club in real time (switching clubs moves the marker).
+        self.assertIn("static func smoothPath(through points: [CGPoint]) -> Path", hole_map_view)
+        self.assertIn("selectedClubMetres ?? hole.landingM", hole_map_view)
+        self.assertIn("HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres)", current_hole)
+        self.assertIn("private var selectedClubMetres: Double?", current_hole)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
         golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")
@@ -1467,7 +1473,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func clubIsTeeOnly(", golf_club)
         self.assertIn("zhClubName(", current_hole)
         self.assertIn("clubIsTeeOnly(name), selectedLie != \"tee\"", current_hole)
-        self.assertIn("medianM > $1.value.medianM", current_hole)  # longest→shortest
+        self.assertIn("medianM > $1.value.medianM", current_hole)  # longest→shortest (no-distance fallback)
+        # Only the 3 clubs most relevant to this shot: nearest the to-pin distance when known.
+        self.assertIn("ordered.prefix(3)", current_hole)
+        self.assertIn("abs($0.value.medianM - target) < abs($1.value.medianM - target)", current_hole)
         self.assertIn("zhClubName(option.clubName)", caddie_plan)
 
     def test_ios_restores_live_round_state_from_offline_event_log(self) -> None:
@@ -1532,7 +1541,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("lastAppliedRestoredHoleState?.hasSameRestorableFields(as: restoredHoleState) != true", current_hole)
         self.assertIn("lastAppliedRestoredHoleState = restoredHoleState", current_hole)
         self.assertIn("guard let latestFix else", current_hole)
-        self.assertIn("distanceToPinText = restoredHoleState.distanceToPinM.map(Self.distanceText) ?? \"\"", current_hole)
+        self.assertIn("distanceToPinText = restoredHoleState.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? \"\"", current_hole)
         self.assertIn('payload["distanceToPinM"] = distanceToPinPayload()', current_hole)
         self.assertIn("private func distanceToPinPayload() -> JSONValue", current_hole)
 
@@ -2236,13 +2245,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("locationProvider.startUpdatingLocation()", current_hole)
         self.assertIn("locationProvider.$latestFix", current_hole)
         self.assertIn('Picker("打法"', current_hole)
-        self.assertIn('TextField("到旗杆距离(米)"', current_hole)
+        # Distances are shown/entered in yards (码), converted to metres at the backend boundary.
+        live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
+        self.assertIn('TextField("到旗杆距离(码)"', current_hole)
+        self.assertIn('label: "到旗杆(码)"', live_components)
+        self.assertNotIn('label: "到旗杆(米)"', live_components)
+        self.assertIn("private var distanceToPinMetres: Double?", current_hole)
+        self.assertIn("CoursePrepRoute.metres(fromYards:", current_hole)
         self.assertIn('Label("设为目标点", systemImage: "mappin.and.ellipse")', current_hole)
         self.assertIn("penaltyCount", current_hole)
         self.assertIn("CaddieDecisionRequestBuilder", current_hole)
         self.assertIn("caddieContextSeed", current_hole)
         self.assertIn("makeCaddieDecisionRequest", current_hole)
-        self.assertIn("distanceToPinM: Double(distanceToPinText)", current_hole)
+        self.assertIn("distanceToPinM: distanceToPinMetres", current_hole)
         self.assertIn("lie: selectedLie", current_hole)
         self.assertIn("coordinate: currentCoordinate", current_hole)
         self.assertIn("targetCoordinate: targetCoordinate", current_hole)
