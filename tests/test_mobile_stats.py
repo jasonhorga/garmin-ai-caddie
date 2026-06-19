@@ -22,18 +22,20 @@ def _full_stats() -> dict:
         "dataMode": "local",
         "summary": {"totalRounds": 442, "average18": 92.4, "bestScore": 79, "handicapEstimate": 18.2},
         "time": {
-            "byQuarter": [{"key": "2026-Q2", "roundCount": 12, "average18": 92.0, "birdies": 14, "doubles": 31, "roundIds": ["r1", "r2"]}],
-            "byMonth": [{"key": "2026-05", "roundCount": 4, "average18": 91.0, "roundIds": ["r1"]}],
+            # outcomeRows + roundOverRoundDeltas are heavy nested data the compact view never renders.
+            "byQuarter": [{"key": "2026-Q2", "roundCount": 12, "average18": 92.0, "birdies": 14, "doubles": 31, "roundIds": ["r1", "r2"], "outcomeRows": [{"big": "x"}] * 50}],
+            "byMonth": [{"key": "2026-05", "roundCount": 4, "average18": 91.0, "roundIds": ["r1"], "bestRoundRef": "r1", "outcomeRows": [{"big": "x"}] * 50, "scoreHistogram": [1] * 50, "sourceRefs": ["s"] * 50}],
             "byYear": [{"key": "2026", "roundCount": 40, "average18": 92.5}],
-            "improvement": {"trend": "down", "delta": -1.2},
+            "improvement": {"trend": "down", "delta": -1.2, "roundOverRoundDeltas": [0.1] * 400, "roundRefs": ["r"] * 400},
             "playFrequency": {"perMonth": 3.2},
         },
         "scoring": {
-            "scoreBands": [{"label": "90s", "count": 171, "roundIds": ["r1", "r2", "r3"]}],
+            "scoreBands": [{"label": "90s", "count": 171, "roundIds": ["r1", "r2", "r3"], "roundRefs": ["x"] * 100, "sourceRefs": ["y"] * 100}],
             "outcomes": {"birdie": 40, "par": 300, "bogey": 250, "doubleOrWorse": 120},
-            "byPar": [{"par": 3, "averageToPar": 0.6}, {"par": 4, "averageToPar": 0.4}, {"par": 5, "averageToPar": 0.2}],
-            "phaseStats": [{"phase": "putting", "trend": "up"}],
-            "putting": {"averagePutts": 33.1},
+            # par rows carry huge holeRefs/bogeyOrWorseRefs on real data — must be stripped.
+            "byPar": [{"par": 3, "averageToPar": 0.6, "holeRefs": ["h"] * 300, "bogeyOrWorseRefs": ["b"] * 200}, {"par": 4, "averageToPar": 0.4}, {"par": 5, "averageToPar": 0.2}],
+            "phaseStats": [{"phase": "putting", "trend": "up", "holeRefs": ["h"] * 100}],
+            "putting": {"averagePutts": 33.1, "holeRefs": ["h"] * 500, "threePuttRefs": ["t"] * 60},
         },
         "records": {"best18": {"score": 79, "roundId": "r9"}, "longestShots": [{"club": "1W", "m": 250}]},
         "courses": [
@@ -92,10 +94,29 @@ class BuildMobileStatsTests(unittest.TestCase):
         self.assertNotIn("refs", self.out["dataQuality"][0])
         self.assertNotIn("decisionAuditTrends", self.out["diagnosis"])
 
+    def test_strips_nested_ref_arrays_but_keeps_drill_ids(self) -> None:
+        # The real bloat is per-row *Refs arrays + outcomeRows/deltas; strip them wherever nested.
+        by_par = self.out["scoring"]["byPar"][0]
+        self.assertNotIn("holeRefs", by_par)
+        self.assertNotIn("bogeyOrWorseRefs", by_par)
+        self.assertEqual(by_par["averageToPar"], 0.6)  # scalar kept
+        self.assertNotIn("holeRefs", self.out["scoring"]["putting"])
+        self.assertNotIn("threePuttRefs", self.out["scoring"]["putting"])
+        self.assertNotIn("outcomeRows", self.out["time"]["byMonth"][0])
+        self.assertNotIn("scoreHistogram", self.out["time"]["byMonth"][0])
+        self.assertNotIn("sourceRefs", self.out["time"]["byMonth"][0])
+        self.assertNotIn("roundOverRoundDeltas", self.out["time"]["improvement"])
+        self.assertNotIn("roundRefs", self.out["time"]["improvement"])
+        self.assertNotIn("roundRefs", self.out["scoring"]["scoreBands"][0])
+        # Drill ids survive: roundIds + the singular bestRoundRef.
+        self.assertEqual(self.out["scoring"]["scoreBands"][0]["roundIds"], ["r1", "r2", "r3"])
+        self.assertEqual(self.out["time"]["byMonth"][0]["bestRoundRef"], "r1")
+        self.assertEqual(self.out["time"]["byMonth"][0]["roundIds"], ["r1"])
+
     def test_is_far_smaller_than_full(self) -> None:
         full_size = len(json.dumps(_full_stats()))
         compact_size = len(json.dumps(self.out))
-        self.assertLess(compact_size, full_size // 2)
+        self.assertLess(compact_size, full_size // 5)
 
     def test_tolerates_missing_sections(self) -> None:
         out = build_mobile_stats({"schema": "x"})
