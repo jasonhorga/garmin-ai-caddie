@@ -395,6 +395,22 @@ class MobileStatsResponse(BaseModel):
     dataQuality: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class RoundHoleShotMapResponse(BaseModel):
+    """Per-hole 复盘 shot map: this round's actual shots projected onto the hole's 2D render.
+    map/shots passed through as dict/list (image is a big data URI; shots carry start/end px)."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-round-hole-shotmap-v1"] = Field(alias="schema")
+    found: bool
+    roundRef: str
+    hole: int
+    par: int | None = None
+    map: dict[str, Any] | None = None
+    shots: list[dict[str, Any]] = Field(default_factory=list)
+    missingData: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class HistoryDrilldownResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
