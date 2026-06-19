@@ -388,6 +388,17 @@ public struct RoundHomeView: View {
             List {
                 Section {
                     NavigationLink {
+                        ClubSettingsView(clubProfiles: package.clubProfiles)
+                    } label: {
+                        Label("球杆设置", systemImage: "bag")
+                    }
+                } header: {
+                    Text("球包")
+                } footer: {
+                    Text("按 Garmin 标准勾选你真实有的球杆;实战选杆和球童建议只用这些。")
+                }
+                Section {
+                    NavigationLink {
                         GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)
                     } label: {
                         Label("Garmin 账号", systemImage: "key")
