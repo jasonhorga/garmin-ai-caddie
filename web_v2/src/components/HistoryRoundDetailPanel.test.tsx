@@ -175,6 +175,7 @@ describe('HistoryRoundDetailPanel', () => {
     expect(onRetryRound).toHaveBeenCalledWith('700001')
 
     render(
+      <DiagnosticsProvider value={true}>
       <HistoryRoundDetailPanel
         state={{ status: 'ready', data: payload }}
         onCreateAnnotationForRound={onCreateAnnotationForRound}
@@ -232,7 +233,8 @@ describe('HistoryRoundDetailPanel', () => {
             confidence: 'medium',
           },
         }}
-      />,
+      />
+      </DiagnosticsProvider>,
     )
     await userEvent.click(screen.getByRole('button', { name: '为这一局添加订正' }))
     await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))

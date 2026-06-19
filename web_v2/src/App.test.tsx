@@ -1949,7 +1949,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
     expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add correction for round 1' }))
+    await userEvent.click(screen.getByRole('button', { name: '为这一局添加订正' }))
 
     expect(await screen.findByRole('heading', { name: '订正' })).toBeInTheDocument()
     expect(screen.getByLabelText('目标类型')).toHaveValue('round')
