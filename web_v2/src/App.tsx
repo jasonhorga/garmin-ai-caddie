@@ -768,19 +768,23 @@ export default function App() {
           onLoadRoundReport={handleLoadRoundReport}
           onGenerateRoundReport={handleGenerateRoundReport}
         />
-        <HistoryDrilldownPanel
-          state={drilldownState}
-          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-          onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-          onCreateAnnotationForSource={handleCreateAnnotationForSource}
-        />
-        {holeEvidenceState.status === 'idle' ? null : (
+        {/* Drilldown + geometry-evidence panels are pure debugging tools (raw refs,
+            JSON dumps, English geometry) — owner diagnostics mode only. */}
+        {diagnostics ? (
+          <HistoryDrilldownPanel
+            state={drilldownState}
+            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onCreateAnnotationForSource={handleCreateAnnotationForSource}
+          />
+        ) : null}
+        {diagnostics && holeEvidenceState.status !== 'idle' ? (
           <HoleEvidencePanel
             state={holeEvidenceState}
             ensureState={geometryEnsureState}
             onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
           />
-        )}
+        ) : null}
       </>
     )
   }

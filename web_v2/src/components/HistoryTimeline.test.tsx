@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { HistoryTimeline } from './HistoryTimeline'
+import { DiagnosticsProvider } from '../diagnosticsContext'
 import type { HistoryRoundsResponse, RoundCard } from '../types'
 
 const payload: HistoryRoundsResponse = {
@@ -123,9 +124,14 @@ describe('HistoryTimeline', () => {
     const onSelectRef = vi.fn()
     const onOpenRoundDetail = vi.fn()
 
-    render(<HistoryTimeline data={payload} onSelectRef={onSelectRef} onOpenRoundDetail={onOpenRoundDetail} />)
+    // The raw 来源 ref chip on a round card is owner-diagnostics-only now.
+    render(
+      <DiagnosticsProvider value={true}>
+        <HistoryTimeline data={payload} onSelectRef={onSelectRef} onOpenRoundDetail={onOpenRoundDetail} />
+      </DiagnosticsProvider>,
+    )
 
-    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B, 2026-05-20T08:00:00, score 82, ref 1' }))
+    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 82' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 1' }))
 
     expect(onOpenRoundDetail).toHaveBeenCalledWith('1')

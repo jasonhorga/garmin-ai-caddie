@@ -2,7 +2,26 @@ import { useEffect, useRef, type CSSProperties } from 'react'
 import type { AnnotationRecord, AnnotationTargetType, HistoryRoundDetailResponse, ReviewReportResponse } from '../types'
 import { issueLabel } from '../issueLabels'
 import { annotationKindZh, confidenceZh, coverageZh, phaseZh, stateZh } from '../zhLabels'
+import { useDiagnostics } from '../diagnosticsContext'
 import { SourceRefs } from './SourceRefs'
+
+// Reformat the backend round title ("Kawana Hotel Golf Course ~ Oshima Left -
+// 2025-09-02T08:47:59+09:00") into product copy: friendly date (strip time/zone),
+// single nine separator. Falls through to the raw string if it doesn't parse.
+// Uses a deterministic date slice (no locale/ICU dependence) so it's test-stable.
+function formatRoundTitle(title: string): string {
+  if (!title) return title
+  let courseAndNine = title
+  let dateText = ''
+  const isoMatch = title.match(/^(.*?)\s*[-–]\s*((\d{4}-\d{2}-\d{2})(?:T[0-9:+.Z-]+)?)\s*$/)
+  if (isoMatch) {
+    courseAndNine = isoMatch[1]
+    dateText = isoMatch[3]
+  }
+  // Normalize the "~" nine separator between course and nine to " · ".
+  const course = courseAndNine.replace(/\s*[~]\s*/g, ' · ').replace(/\s{2,}/g, ' ').trim()
+  return dateText ? `${course} · ${dateText}` : course
+}
 
 export type HistoryRoundDetailPanelState =
   | { status: 'idle' }
@@ -131,19 +150,25 @@ function activeIssueTags(records: AnnotationRecord[]): string[] {
   return seenOrder.filter((tag) => active.get(tag))
 }
 
-function RoundFacts({ data }: { data: HistoryRoundDetailResponse }) {
+function RoundFacts({ data, diagnostics }: { data: HistoryRoundDetailResponse; diagnostics: boolean }) {
   const round = data.round ?? {}
   const coverage = typeof round.coverage === 'object' && round.coverage !== null ? round.coverage as Record<string, unknown> : {}
+  // Default: only real golf stats. Coverage/confidence are ETL completeness flags
+  // (记分卡/击球数据/推杆数 齐全, 置信度) → diagnostics-only.
   const facts: Array<[string, string]> = [
     ['成绩', valueText(round.score)],
     ['对标准杆', toParText(round.toPar)],
     ['洞数', valueText(round.holesScored ?? round.holesCompleted)],
     ['击球数', valueText(round.shotCount)],
-    ['记分卡', factValueZh(coverage.scorecard, coverageZh)],
-    ['击球数据', factValueZh(coverage.shots, coverageZh)],
-    ['推杆数', factValueZh(coverage.putts, coverageZh)],
-    ['置信度', factValueZh(round.confidence, confidenceZh)],
   ]
+  if (diagnostics) {
+    facts.push(
+      ['记分卡', factValueZh(coverage.scorecard, coverageZh)],
+      ['击球数据', factValueZh(coverage.shots, coverageZh)],
+      ['推杆数', factValueZh(coverage.putts, coverageZh)],
+      ['置信度', factValueZh(round.confidence, confidenceZh)],
+    )
+  }
 
   return (
     <section className="round-detail-facts" aria-label="球局数据">
@@ -185,7 +210,7 @@ function ScorecardGrid({ data, onSelectRef }: { data: HistoryRoundDetailResponse
               type="button"
               className={`round-detail-cell score-${cell.className}`}
               onClick={() => onSelectRef(cell.holeRef)}
-              aria-label={`Open hole ${cell.hole} detail ${cell.holeRef}`}
+              aria-label={`第${cell.hole}洞详情`}
             >
               {content}
             </button>
@@ -218,7 +243,7 @@ function PhaseSummary({ rows }: { rows: Array<Record<string, unknown>> }) {
   )
 }
 
-function HoleDetails({ rows, onSelectRef }: { rows: Array<Record<string, unknown>>; onSelectRef?: (sourceRef: string) => void }) {
+function HoleDetails({ rows, onSelectRef, diagnostics }: { rows: Array<Record<string, unknown>>; onSelectRef?: (sourceRef: string) => void; diagnostics: boolean }) {
   if (rows.length === 0) return null
   return (
     <section className="round-detail-section" aria-label="逐洞详情">
@@ -244,7 +269,11 @@ function HoleDetails({ rows, onSelectRef }: { rows: Array<Record<string, unknown
             </div>
             <div className="round-hole-sources">
               <span>击球</span>
-              <SourceRefs refs={row.shotRefs} maxVisible={3} onSelectRef={onSelectRef} />
+              {diagnostics ? (
+                <SourceRefs refs={row.shotRefs} maxVisible={3} onSelectRef={onSelectRef} />
+              ) : (
+                <b>{Array.isArray(row.shotRefs) && row.shotRefs.length ? `${row.shotRefs.length} 杆` : '—'}</b>
+              )}
             </div>
           </div>
         ))}
@@ -278,8 +307,16 @@ function RelatedSources({ data, onSelectRef }: { data: HistoryRoundDetailRespons
   )
 }
 
-function MissingDataRows({ rows }: { rows: Array<Record<string, unknown>> }) {
+function MissingDataRows({ rows, diagnostics }: { rows: Array<Record<string, unknown>>; diagnostics: boolean }) {
   if (rows.length === 0) return null
+  // Default: one graceful sentence. The per-row ETL gap detail is diagnostics-only.
+  if (!diagnostics) {
+    return (
+      <section className="round-detail-section" aria-label="数据说明">
+        <p className="round-detail-missing-note">部分数据不完整，分析可能略有缺失。</p>
+      </section>
+    )
+  }
   return (
     <section className="round-detail-section" aria-label="缺失数据">
       <h3>缺失数据</h3>
@@ -312,7 +349,7 @@ function IssueTags({ annotations }: { annotations: AnnotationRecord[] }) {
   )
 }
 
-function ShotSummary({ data }: { data: HistoryRoundDetailResponse }) {
+function ShotSummary({ data, diagnostics }: { data: HistoryRoundDetailResponse; diagnostics: boolean }) {
   const round = data.round ?? {}
   const shotCount = typeof round.shotCount === 'number' ? round.shotCount : 0
   const holesWithShots = data.scorecard.filter((cell) => cell.shotRefs.length > 0).length
@@ -321,8 +358,9 @@ function ShotSummary({ data }: { data: HistoryRoundDetailResponse }) {
   const facts: Array<[string, string]> = [
     ['记录击球', String(shotCount)],
     ['有击球的洞数', String(holesWithShots)],
-    ['有路径图的洞数', String(holesWithRoute)],
   ]
+  // 有路径图的洞数 = geometry coverage jargon → diagnostics-only.
+  if (diagnostics) facts.push(['有路径图的洞数', String(holesWithRoute)])
   return (
     <section className="round-detail-section" aria-label="击球汇总">
       <h3>击球汇总</h3>
@@ -512,12 +550,14 @@ function RoundAiReview({
   onLoadRoundReport,
   onGenerateRoundReport,
   onSelectRef,
+  diagnostics,
 }: {
   roundRef: string
   reportState?: HistoryRoundDetailPanelProps['reportState']
   onLoadRoundReport?: (roundRef: string) => void
   onGenerateRoundReport?: (roundRef: string) => void
   onSelectRef?: (sourceRef: string) => void
+  diagnostics: boolean
 }) {
   if (!onLoadRoundReport && !onGenerateRoundReport && (!reportState || reportState.status === 'idle')) return null
   const loadedReport =
@@ -552,13 +592,13 @@ function RoundAiReview({
       {loadedReport ? (
         <div className="round-ai-review-body">
           <div className="round-ai-review-meta">
-            <span>{loadedReport.provider}</span>
-            <span>{loadedReport.model}</span>
-            <span>{loadedReport.confidence} confidence</span>
+            <span>置信度：{confidenceZh(loadedReport.confidence)}</span>
+            {diagnostics ? <span>{loadedReport.provider}</span> : null}
+            {diagnostics ? <span>{loadedReport.model}</span> : null}
           </div>
           <p>{loadedReport.narrative}</p>
-          <SourceRefs refs={loadedReport.sourceRefs} onSelectRef={onSelectRef} />
-          <RoundAiEvidence report={loadedReport} onSelectRef={onSelectRef} />
+          {diagnostics ? <SourceRefs refs={loadedReport.sourceRefs} onSelectRef={onSelectRef} /> : null}
+          {diagnostics ? <RoundAiEvidence report={loadedReport} onSelectRef={onSelectRef} /> : null}
         </div>
       ) : null}
     </section>
@@ -574,6 +614,7 @@ export function HistoryRoundDetailPanel({
   onLoadRoundReport,
   onGenerateRoundReport,
 }: HistoryRoundDetailPanelProps) {
+  const diagnostics = useDiagnostics()
   const rootRef = useRef<HTMLElement | null>(null)
   // The panel mounts below the full timeline — without this, 打开 on a card up
   // top looks like a no-op because the detail appears thousands of pixels down.
@@ -592,7 +633,7 @@ export function HistoryRoundDetailPanel({
     return (
       <section ref={rootRef} className="panel round-detail-panel" aria-live="polite">
         <h2>球局回顾</h2>
-        <p>加载中 {state.roundRef}</p>
+        <p>正在加载球局…</p>
       </section>
     )
   }
@@ -601,7 +642,6 @@ export function HistoryRoundDetailPanel({
     return (
       <section ref={rootRef} className="panel round-detail-panel" aria-live="polite">
         <h2>球局回顾</h2>
-        <p>{state.roundRef}</p>
         <p>{state.message}</p>
         {onRetryRound ? (
           <button type="button" className="drilldown-action-button" onClick={() => onRetryRound(state.roundRef)}>
@@ -620,17 +660,17 @@ export function HistoryRoundDetailPanel({
         <div>
           <p className="eyebrow">球局记分卡</p>
           <h2>{data.found ? '球局回顾' : '球局不可用'}</h2>
-          <p>{data.title}</p>
+          <p>{formatRoundTitle(data.title)}</p>
         </div>
         <div className="drilldown-meta">
-          <span>{data.roundRef}</span>
-          <span>{data.found ? '已找到' : '未找到'}</span>
+          {diagnostics ? <span>{data.roundRef}</span> : null}
+          {diagnostics ? <span>{data.found ? '已找到' : '未找到'}</span> : null}
           {canAnnotate ? (
             <button
               type="button"
               className="drilldown-action-button"
               onClick={() => onCreateAnnotationForRound?.({ targetType: 'round', targetId: data.roundRef })}
-              aria-label={`Add correction for round ${data.roundRef}`}
+              aria-label="为这一局添加订正"
             >
               添加订正
             </button>
@@ -638,10 +678,10 @@ export function HistoryRoundDetailPanel({
         </div>
       </div>
 
-      {data.found ? <RoundFacts data={data} /> : null}
+      {data.found ? <RoundFacts data={data} diagnostics={diagnostics} /> : null}
       {data.found ? <IssueTags annotations={data.annotations ?? []} /> : null}
-      <ScorecardGrid data={data} onSelectRef={onSelectRef} />
-      {data.found ? <ShotSummary data={data} /> : null}
+      <ScorecardGrid data={data} onSelectRef={diagnostics ? onSelectRef : undefined} />
+      {data.found ? <ShotSummary data={data} diagnostics={diagnostics} /> : null}
       {data.found ? (
         <RoundAiReview
           roundRef={data.roundRef}
@@ -649,14 +689,15 @@ export function HistoryRoundDetailPanel({
           onLoadRoundReport={onLoadRoundReport}
           onGenerateRoundReport={onGenerateRoundReport}
           onSelectRef={onSelectRef}
+          diagnostics={diagnostics}
         />
       ) : null}
       <PhaseSummary rows={data.phaseSummary} />
-      <HoleDetails rows={data.holeDetails} onSelectRef={onSelectRef} />
-      <RelatedSources data={data} onSelectRef={onSelectRef} />
+      <HoleDetails rows={data.holeDetails} onSelectRef={onSelectRef} diagnostics={diagnostics} />
+      {diagnostics ? <RelatedSources data={data} onSelectRef={onSelectRef} /> : null}
       <AnnotationRows title="球局标注" rows={data.annotations ?? []} />
       <AnnotationRows title="已应用订正" rows={data.corrections ?? []} />
-      <MissingDataRows rows={data.missingData} />
+      <MissingDataRows rows={data.missingData} diagnostics={diagnostics} />
     </section>
   )
 }

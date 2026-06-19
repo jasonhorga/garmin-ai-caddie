@@ -2,7 +2,13 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { HistoryRoundDetailPanel } from './HistoryRoundDetailPanel'
+import { DiagnosticsProvider } from '../diagnosticsContext'
 import type { HistoryRoundDetailResponse } from '../types'
+
+// These tests assert the owner power-user surface (raw refs, source drilldown,
+// coverage facts, AI evidence) which now renders only in diagnostics mode → wrap.
+const renderPanel = (ui: Parameters<typeof render>[0]) =>
+  render(<DiagnosticsProvider value={true}>{ui}</DiagnosticsProvider>)
 
 const payload: HistoryRoundDetailResponse = {
   schema: 'ai-caddie-history-round-detail-v1',
@@ -80,10 +86,10 @@ const payload: HistoryRoundDetailResponse = {
 
 describe('HistoryRoundDetailPanel', () => {
   it('renders scorecard-first round review with phase and hole evidence', () => {
-    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
+    renderPanel(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
 
     expect(screen.getByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
-    expect(screen.getByText('Scorecard Links - 2026-05-25')).toBeInTheDocument()
+    expect(screen.getByText('Scorecard Links · 2026-05-25')).toBeInTheDocument()
     expect(screen.getByLabelText('球局数据')).toHaveTextContent('成绩')
     expect(screen.getByLabelText('记分卡')).toHaveTextContent('H1')
     expect(screen.getByLabelText('记分卡')).toHaveTextContent('3推')
@@ -102,7 +108,7 @@ describe('HistoryRoundDetailPanel', () => {
   })
 
   it('renders active issue tags as a dedicated section and excludes retracted ones', () => {
-    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
+    renderPanel(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
 
     const issues = screen.getByLabelText('问题标签')
     expect(within(issues).getByText('three_putts')).toBeInTheDocument()
@@ -112,7 +118,7 @@ describe('HistoryRoundDetailPanel', () => {
   })
 
   it('does not duplicate issue tags inside the generic annotations rows', () => {
-    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
+    renderPanel(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
 
     // issue tags live only in the dedicated section, not the raw round annotations list
     const annotations = screen.getByLabelText('球局标注')
@@ -122,7 +128,7 @@ describe('HistoryRoundDetailPanel', () => {
   })
 
   it('shows a compact round shot summary', () => {
-    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
+    renderPanel(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} />)
 
     const summary = screen.getByLabelText('击球汇总')
     expect(summary).toHaveTextContent('记录击球 42')
@@ -139,7 +145,7 @@ describe('HistoryRoundDetailPanel', () => {
         { id: 'note-9', createdAt: '2026-05-25T12:00:00Z', targetType: 'round', targetId: '700001', kind: 'round_note', payload: { text: 'no issues here' }, source: 'manual' },
       ],
     }
-    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: empty }} />)
+    renderPanel(<HistoryRoundDetailPanel state={{ status: 'ready', data: empty }} />)
 
     expect(screen.queryByLabelText('问题标签')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('击球汇总')).not.toBeInTheDocument()
@@ -148,9 +154,9 @@ describe('HistoryRoundDetailPanel', () => {
   it('opens hole and shot source refs from the round detail', async () => {
     const onSelectRef = vi.fn()
 
-    render(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} onSelectRef={onSelectRef} />)
+    renderPanel(<HistoryRoundDetailPanel state={{ status: 'ready', data: payload }} onSelectRef={onSelectRef} />)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Open hole 1 detail 700001:1' }))
+    await userEvent.click(screen.getByRole('button', { name: '第1洞详情' }))
     const holeDetails = screen.getByLabelText('逐洞详情')
     await userEvent.click(within(holeDetails).getByRole('button', { name: 'Open source 700001:1:0' }))
 
@@ -164,7 +170,7 @@ describe('HistoryRoundDetailPanel', () => {
     const onLoadRoundReport = vi.fn()
     const onGenerateRoundReport = vi.fn()
 
-    render(<HistoryRoundDetailPanel state={{ status: 'error', roundRef: '700001', message: '401' }} onRetryRound={onRetryRound} />)
+    renderPanel(<HistoryRoundDetailPanel state={{ status: 'error', roundRef: '700001', message: '401' }} onRetryRound={onRetryRound} />)
     await userEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(onRetryRound).toHaveBeenCalledWith('700001')
 
@@ -228,14 +234,14 @@ describe('HistoryRoundDetailPanel', () => {
         }}
       />,
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Add correction for round 700001' }))
+    await userEvent.click(screen.getByRole('button', { name: '为这一局添加订正' }))
     await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
     await userEvent.click(screen.getByRole('button', { name: '生成 AI 回顾' }))
     expect(onCreateAnnotationForRound).toHaveBeenCalledWith({ targetType: 'round', targetId: '700001' })
     expect(onLoadRoundReport).toHaveBeenCalledWith('700001')
     expect(onGenerateRoundReport).toHaveBeenCalledWith('700001')
     expect(screen.getByText('Round review from scorecard facts.')).toBeInTheDocument()
-    expect(screen.getByText('medium confidence')).toBeInTheDocument()
+    expect(screen.getByText('置信度：中')).toBeInTheDocument()
     expect(screen.getByLabelText('Round AI facts')).toHaveTextContent('score')
     expect(screen.getByLabelText('Round AI facts')).toHaveTextContent('score 82')
     expect(screen.getByLabelText('Round AI inferences')).toHaveTextContent('Putting cost strokes late in the round.')
@@ -249,7 +255,7 @@ describe('HistoryRoundDetailPanel', () => {
     const spy = vi.fn()
     Element.prototype.scrollIntoView = spy
     try {
-      render(<HistoryRoundDetailPanel state={{ status: 'loading', roundRef: '900001' }} />)
+      renderPanel(<HistoryRoundDetailPanel state={{ status: 'loading', roundRef: '900001' }} />)
       expect(spy).toHaveBeenCalled()
     } finally {
       Element.prototype.scrollIntoView = original
