@@ -12,6 +12,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import requests
 
@@ -25,6 +26,9 @@ DATA_DIR = ROOT / "data"
 SUMMARY_FILE = DATA_DIR / "summary.json"
 SCORECARD_DIR = DATA_DIR / "scorecards"
 SHOT_DIR = DATA_DIR / "shots"
+# Fetched real Garmin bag. Deliberately NOT the root clubs.json (that is the manual override map,
+# gitignored + private-root-symlinked); this is canonical sync output alongside summary.json.
+CLUBS_BAG_FILE = DATA_DIR / "club_bag.json"
 
 GOLF_BASE = "https://connect.garmin.cn/golf-api/gcs-golfcommunity/api/v2"
 
@@ -72,6 +76,63 @@ def fetch_summary(s: requests.Session, limit: int = 10000) -> list[dict]:
     SUMMARY_FILE.write_text(json.dumps(raw, ensure_ascii=False, indent=2))
     print(f"[ok] saved {len(cards)} summaries (totalRows={raw.get('totalRows')}) -> {SUMMARY_FILE.relative_to(ROOT)}")
     return cards
+
+
+def fetch_clubs(s: requests.Session) -> dict:
+    """Fetch the player's real club bag (`/club/player`) + the clubType dictionary
+    (`/club/types`), merge them into a resolved roster, and save to ``data/club_bag.json``.
+
+    Each club carries the Garmin ``clubTypeId``, the player's custom name (when they renamed it,
+    e.g. "Pw"/"50"), the clubType's standard English name + loft, and retired/deleted flags. The
+    display name is resolved to Chinese on the client (iOS owns the catalog), so this stays
+    language-neutral. Both endpoints require the cookie session (else 401) — refreshes once on auth
+    failure, mirroring ``fetch_summary``.
+    """
+    DATA_DIR.mkdir(exist_ok=True)
+    print("[..] fetching club bag + clubType dictionary")
+
+    def _get(path: str) -> Any:
+        url = f"{GOLF_BASE}/{path}"
+        r = s.get(url, params={"user-locale": "zh_CN"}, timeout=30)
+        if r.status_code in (401, 403):
+            print(f"[!!] {path} auth-failed ({r.status_code}); refreshing browser auth once")
+            if refresh_session_auth(s):
+                r = s.get(url, params={"user-locale": "zh_CN"}, timeout=30)
+        r.raise_for_status()
+        return r.json()
+
+    bag = _get("club/player") or []
+    types = _get("club/types") or []
+    type_map = {t.get("value"): t for t in types if isinstance(t, dict)}
+
+    clubs: list[dict] = []
+    for club in bag:
+        if not isinstance(club, dict):
+            continue
+        type_id = club.get("clubTypeId")
+        club_type = type_map.get(type_id, {})
+        clubs.append(
+            {
+                "id": club.get("id"),
+                "clubTypeId": type_id,
+                "customName": club.get("name"),
+                "typeName": club_type.get("name"),
+                "loftAngle": club_type.get("loftAngle"),
+                "shaftLength": club.get("shaftLength") or club_type.get("shaftLength"),
+                "retired": bool(club.get("retired")),
+                "deleted": bool(club.get("deleted")),
+            }
+        )
+
+    out = {"schema": "ai-caddie-club-bag-v1", "clubs": clubs}
+    CLUBS_BAG_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=2))
+    in_use = sum(1 for c in clubs if not c["retired"] and not c["deleted"])
+    try:
+        dest = CLUBS_BAG_FILE.relative_to(ROOT)
+    except ValueError:
+        dest = CLUBS_BAG_FILE
+    print(f"[ok] saved {len(clubs)} clubs ({in_use} in use) -> {dest}")
+    return out
 
 
 def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = False) -> None:

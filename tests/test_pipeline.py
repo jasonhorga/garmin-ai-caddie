@@ -100,13 +100,25 @@ class PipelineSyncTests(unittest.TestCase):
         session = object()
         with patch("fetch.make_session", return_value=session) as make_session, \
                 patch("fetch.fetch_summary", return_value=[{"id": 1}]) as summary, \
-                patch("fetch.fetch_details") as details:
+                patch("fetch.fetch_details") as details, \
+                patch("fetch.fetch_clubs") as clubs:
             rounds = pipeline._fetch_history(True, force_refresh_auth=True)
 
         self.assertEqual(rounds, 1)
         make_session.assert_called_once_with(force_refresh_auth=True)
         summary.assert_called_once_with(session)
         details.assert_called_once_with(session, [{"id": 1}], with_shots=True)
+        clubs.assert_called_once_with(session)  # club bag reuses the same session
+
+    def test_fetch_history_club_fetch_failure_is_non_fatal(self) -> None:
+        session = object()
+        with patch("fetch.make_session", return_value=session), \
+                patch("fetch.fetch_summary", return_value=[{"id": 1}, {"id": 2}]), \
+                patch("fetch.fetch_details"), \
+                patch("fetch.fetch_clubs", side_effect=RuntimeError("club endpoint down")):
+            rounds = pipeline._fetch_history(False)
+
+        self.assertEqual(rounds, 2)  # history sync survives a club-fetch failure
 
     def test_main_parses_refresh_auth_shots_and_geometry_limit(self) -> None:
         stdout = io.StringIO()

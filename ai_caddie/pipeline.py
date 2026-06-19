@@ -57,6 +57,12 @@ def _fetch_history(with_shots: bool, *, force_refresh_auth: bool = False) -> int
     session = fetch.make_session(force_refresh_auth=force_refresh_auth)
     cards = fetch.fetch_summary(session)
     fetch.fetch_details(session, cards, with_shots=with_shots)
+    # The player's real club bag (names) — reuses the same session. Non-fatal: a club-fetch failure
+    # must never block the history sync, which is the critical path.
+    try:
+        fetch.fetch_clubs(session)
+    except Exception as exc:  # noqa: BLE001 - best-effort enrichment
+        print(f"[!!] club bag fetch failed (non-fatal): {exc}")
     return len(cards)
 
 
