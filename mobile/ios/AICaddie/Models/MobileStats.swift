@@ -8,6 +8,7 @@ public struct MobileStats: Codable, Equatable {
     public let summary: StatsSummary?
     public let scoring: StatsScoring?
     public let time: StatsTime?
+    public let trend: StatsTrend?
     public let courses: [StatsCourse]
     public let clubs: [StatsClub]
     public let diagnosis: StatsDiagnosis?
@@ -17,22 +18,51 @@ public struct MobileStats: Codable, Equatable {
         summary = try? c.decodeIfPresent(StatsSummary.self, forKey: .summary)
         scoring = try? c.decodeIfPresent(StatsScoring.self, forKey: .scoring)
         time = try? c.decodeIfPresent(StatsTime.self, forKey: .time)
+        trend = try? c.decodeIfPresent(StatsTrend.self, forKey: .trend)
         courses = (try? c.decodeIfPresent([StatsCourse].self, forKey: .courses)) ?? []
         clubs = (try? c.decodeIfPresent([StatsClub].self, forKey: .clubs)) ?? []
         diagnosis = try? c.decodeIfPresent(StatsDiagnosis.self, forKey: .diagnosis)
     }
 
     public init(summary: StatsSummary? = nil, scoring: StatsScoring? = nil, time: StatsTime? = nil,
-                courses: [StatsCourse] = [], clubs: [StatsClub] = [], diagnosis: StatsDiagnosis? = nil) {
+                trend: StatsTrend? = nil, courses: [StatsCourse] = [], clubs: [StatsClub] = [],
+                diagnosis: StatsDiagnosis? = nil) {
         self.summary = summary
         self.scoring = scoring
         self.time = time
+        self.trend = trend
         self.courses = courses
         self.clubs = clubs
         self.diagnosis = diagnosis
     }
 
-    private enum CodingKeys: String, CodingKey { case summary, scoring, time, courses, clubs, diagnosis }
+    private enum CodingKeys: String, CodingKey { case summary, scoring, time, trend, courses, clubs, diagnosis }
+}
+
+/// Per-round trend series (近 N 场 18 洞) for the line chart — oldest→newest.
+public struct StatsTrend: Codable, Equatable {
+    public let points: [StatsTrendPoint]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        points = (try? c.decodeIfPresent([StatsTrendPoint].self, forKey: .points)) ?? []
+    }
+
+    public init(points: [StatsTrendPoint]) { self.points = points }
+
+    private enum CodingKeys: String, CodingKey { case points }
+}
+
+public struct StatsTrendPoint: Codable, Equatable, Identifiable {
+    public var id: String { roundId ?? date }
+    public let date: String
+    public let score: Int?
+    public let toPar: Int?
+    public let birdies: Int?
+    public let pars: Int?
+    public let bogeys: Int?
+    public let doublesPlus: Int?
+    public let roundId: String?
 }
 
 public struct StatsSummary: Codable, Equatable {
@@ -132,6 +162,17 @@ public struct StatsCourse: Codable, Equatable, Identifiable {
     public let bestScore: Int?
     public let worstScore: Int?
     public let averageDifferential: Double?
+    public let recentRoundId: String?
+    /// Per nine-combo breakdown (黑骑士 ~ A / ~ C/A …) shown when you drill into a course.
+    public let nineBreakdown: [StatsNineBreakdown]?
+}
+
+public struct StatsNineBreakdown: Codable, Equatable, Identifiable {
+    public var id: String { label }
+    public let label: String
+    public let roundCount: Int?
+    public let average: Double?
+    public let bestScore: Int?
     public let recentRoundId: String?
 }
 

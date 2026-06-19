@@ -2267,6 +2267,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchMobileStats()", stats_view)
         self.assertIn('title: "数据统计"', round_home)
         self.assertIn("StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        # round-9 D: trend line chart + per-course drill-in (各九洞); 得分构成 dropped, byPar filtered 3-5.
+        self.assertIn("struct StatsTrend", mobile_stats_model)
+        self.assertIn("nineBreakdown", mobile_stats_model)
+        self.assertIn("import Charts", stats_view)
+        self.assertIn("func trendCard(", stats_view)
+        self.assertIn("struct CourseStatsDetailView", stats_view)
+        self.assertNotIn("得分构成", stats_view)
         # 球杆设置(Garmin 标准球包): the live picker uses only the configured bag — no fake clubs.
         club_bag = _read_required_source(self, IOS_DIR / "Views" / "ClubBag.swift")
         club_settings = _read_required_source(self, IOS_DIR / "Views" / "ClubSettingsView.swift")
