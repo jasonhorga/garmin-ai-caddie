@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { OWNER_ONLY_PAGES, PAGE_TO_SECTION, SECTION_LABELS, subnavForPage, type ProductPage } from '../navigation'
+import { PAGE_TO_SECTION, SECTION_LABELS, subnavForPage, type ProductPage } from '../navigation'
 import type { CurrentPlayer } from '../types'
 import { AppSidebar } from './AppSidebar'
 import { CurrentPlayerBadge } from './CurrentPlayerBadge'
@@ -9,12 +9,11 @@ interface AppShellProps {
   activePage: ProductPage
   onNavigate: (page: ProductPage) => void
   children: ReactNode
-  // Owner mode = bare URL (no per-player token). A player share link is not owner
-  // mode → the 设置 section and every owner-only sub-page are hidden from it.
+  // Owner mode = bare URL (no per-player token). Only gates the owner-only
+  // diagnostics switch in the topbar; player links never see that switch.
   isOwnerMode?: boolean
-  // Owner-only 球员管理 tab. Shown only once an admin token is present (owner mode
-  // + authenticated); the rest of 设置 stays reachable pre-auth so the owner can
-  // enter the token.
+  // Owner-only 球员管理 tab. Hidden by default so a per-player link never exposes
+  // the management surface; App turns it on only in owner mode (admin token).
   playersAdminVisible?: boolean
   // Owner-only "diagnostics mode": reveal internal refs / source panels / data
   // quality. Default off; the topbar switch is shown only in owner mode.
@@ -36,18 +35,10 @@ export function AppShell({
   currentPlayer = null,
 }: AppShellProps) {
   const subnav = subnavForPage(activePage)
-  const items = subnav
-    ? subnav.filter((item) => {
-        // Player links never see owner-only pages; pre-auth owners see 设置 but not
-        // the data-bearing 球员管理 until a token is entered.
-        if (!isOwnerMode && OWNER_ONLY_PAGES.includes(item.page)) return false
-        if (item.page === 'players' && !playersAdminVisible) return false
-        return true
-      })
-    : subnav
+  const items = subnav && !playersAdminVisible ? subnav.filter((item) => item.page !== 'players') : subnav
   return (
     <div className="app-layout">
-      <AppSidebar activePage={activePage} onNavigate={onNavigate} isOwnerMode={isOwnerMode} />
+      <AppSidebar activePage={activePage} onNavigate={onNavigate} />
       <div className="app-main">
         <header className="app-topbar">
           <h1 className="app-topbar-title">{SECTION_LABELS[PAGE_TO_SECTION[activePage]]}</h1>

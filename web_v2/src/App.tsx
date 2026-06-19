@@ -77,7 +77,7 @@ import { SettingsPage } from './components/SettingsPage'
 import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
-import { isOwnerOnlyPage, type ProductPage } from './navigation'
+import type { ProductPage } from './navigation'
 import { readAdminTokenFromUrl, readBakedAdminToken, readStoredAdminToken, writeStoredAdminToken } from './adminTokenStore'
 import { readStoredDiagnostics, writeStoredDiagnostics } from './diagnosticsStore'
 import { DiagnosticsProvider } from './diagnosticsContext'
@@ -528,11 +528,6 @@ export default function App() {
   }
 
   function navigate(page: ProductPage) {
-    // Player links can't reach owner ops even if a stale state points there.
-    if (!isOwnerMode && isOwnerOnlyPage(page)) {
-      setActivePage('overview')
-      return
-    }
     if (page !== 'corrections') {
       setCorrectionTarget(null)
     }

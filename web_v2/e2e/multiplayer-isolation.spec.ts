@@ -326,9 +326,9 @@ test.describe('player-facing deployment (link required)', () => {
     await page.getByRole('button', { name: '球局' }).click()
     await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
 
-    // Both rounds list (their ids surface as source-ref tokens)…
-    await expect(page.getByText(PLAYER_A_MANUAL_ROUND, { exact: true })).toBeVisible()
-    await expect(page.getByText(PLAYER_A_GARMIN_ROUND, { exact: true })).toBeVisible()
+    // Both rounds list by course name (raw round-id refs are owner-diagnostics-only now)…
+    await expect(page.getByText('梅花山 A')).toBeVisible()
+    await expect(page.getByText('观澜湖 B')).toBeVisible()
     // …but only the manual one carries the 手动 chip.
     await expect(page.getByLabel('手动录入的球局')).toHaveCount(1)
     // and still no other player's round leaks into this player's history.
