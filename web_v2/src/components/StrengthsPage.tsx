@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { HistoryStatsResponse } from '../types'
+import { useDiagnostics } from '../diagnosticsContext'
 import { issueLabel } from '../issueLabels'
 import { fmtYd } from '../units'
 import { clubLabelZh, confidenceZh, coverageZh, PAR_LABEL_ZH, phaseZh } from '../zhLabels'
@@ -268,6 +269,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
   const visibleClubs = clubsExpanded ? data.clubs : data.clubs.slice(0, CLUBS_CAP)
   const visibleIssues = issuesExpanded ? data.issues : data.issues.slice(0, ISSUES_CAP)
 
+  const diagnostics = useDiagnostics()
   const phaseRows = asRows((data.scoring as Record<string, unknown>).phaseStats)
   const teeRow = phaseRows.find((row) => asString(row.phase) === 'Tee')
   const approachRow = phaseRows.find((row) => asString(row.phase) === 'Approach')
@@ -277,7 +279,13 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
   const fairwayPct = fairwaysHit !== null && teeSamples !== null && teeSamples > 0 ? Math.round((fairwaysHit / teeSamples) * 100) : null
   const girPct = asNumber(approachRow?.girPct)
   const approachSamples = asNumber(approachRow?.sampleCount)
-  const averagePutts = asNumber(puttingRow?.averagePutts)
+  // Per-ROUND putts (~33) is the meaningful KPI (matches iOS); fall back to the
+  // per-hole phase value only if the per-round field is absent.
+  const puttingStats = asRecord((data.scoring as Record<string, unknown>).putting)
+  const averagePuttsPerRound = asNumber(puttingStats.averagePuttsPerRound)
+  const averagePuttsPerHole = asNumber(puttingRow?.averagePutts)
+  const puttsKpiValue = averagePuttsPerRound ?? averagePuttsPerHole
+  const puttsKpiSub = averagePuttsPerRound !== null ? '每场 · 估算' : '每洞 · 估算'
 
   const courseNames = new Map(
     asRows(data.courses).flatMap((course) => {
@@ -336,7 +344,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
         ))}
       </div>
 
-      {fairwayPct !== null || girPct !== null || averagePutts !== null ? (
+      {fairwayPct !== null || girPct !== null || puttsKpiValue !== null ? (
         <section className="trends-kpis strengths-kpis" aria-label="总体数字">
           {fairwayPct !== null ? (
             <article className="trends-kpi">
@@ -354,11 +362,11 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
               {approachSamples !== null ? <span className="trends-kpi-sub">{approachSamples} 洞样本</span> : null}
             </article>
           ) : null}
-          {averagePutts !== null ? (
+          {puttsKpiValue !== null ? (
             <article className="trends-kpi">
               <span className="trends-kpi-label">平均推杆</span>
-              <b className="trends-kpi-value">{averagePutts}</b>
-              <span className="trends-kpi-sub">每洞 · 估算</span>
+              <b className="trends-kpi-value">{puttsKpiValue}</b>
+              <span className="trends-kpi-sub">{puttsKpiSub}</span>
             </article>
           ) : null}
         </section>
@@ -583,7 +591,7 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
         ) : null}
       </section>
 
-      {hasAudit ? (
+      {hasAudit && diagnostics ? (
         <details className="strengths-audit">
           <summary>引擎自检（高级）</summary>
           <div className="stats-list">
