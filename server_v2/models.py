@@ -386,6 +386,7 @@ class MobileStatsResponse(BaseModel):
     dataMode: str | None = None
     summary: dict[str, Any] = Field(default_factory=dict)
     time: dict[str, Any] = Field(default_factory=dict)
+    trend: dict[str, Any] = Field(default_factory=dict)
     scoring: dict[str, Any] = Field(default_factory=dict)
     records: dict[str, Any] = Field(default_factory=dict)
     courses: list[dict[str, Any]] = Field(default_factory=list)

@@ -600,6 +600,14 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(course["roundCount"], 2)
         self.assertEqual(course["bestScore"], 77)
         self.assertEqual(course["roundIds"], ["900001", "900002"])
+        # round-9 D1: courseName is the BASE course (no "~ A" combo) + a per-combo breakdown summing to total.
+        self.assertNotIn("~", course["courseName"])
+        self.assertEqual(sum(n["roundCount"] for n in course["nineBreakdown"]), 2)
+        # round-9 D5: a per-round trend series (18-hole rounds, recent window) for the line chart.
+        trend_points = stats["trend"]["points"]
+        self.assertIsInstance(trend_points, list)
+        if trend_points:
+            self.assertEqual(set(trend_points[0]) >= {"date", "score", "toPar", "birdies", "pars", "bogeys"}, True)
         self.assertIn(course["geometryCoverage"], {"ready", "partial", "missing"})
         self.assertEqual(course["recentForm"]["baselineAverage18"], 95.0)
         self.assertEqual(course["recentForm"]["recentAverage18"], 77.0)
