@@ -255,13 +255,13 @@ public struct RoundHomeView: View {
         courseOptions.first { $0.globalId == package.course.globalId }
     }
 
-    /// 同球场可作为「另一个 9 洞」的环(9 洞、同球场、非当前环),按 A/B/C 排序。
+    /// 同球场可作为「另一个 9 洞」的环(9 洞、同球场),含当前环本身 —— 同一个环打两轮
+    /// (A+A/B+B/C+C)是真实打法,不排除。按 A/B/C 排序。
     private var siblingLoops: [MobileCourseOption] {
         guard let venue = activeCourseOption?.venueName else { return [] }
         return courseOptions
             .filter { ($0.venueName ?? "") == venue
-                && ($0.segmentHoles ?? $0.holes) == 9
-                && $0.globalId != package.course.globalId }
+                && ($0.segmentHoles ?? $0.holes) == 9 }
             .sorted { ($0.segmentLabel ?? "~~") < ($1.segmentLabel ?? "~~") }
     }
 

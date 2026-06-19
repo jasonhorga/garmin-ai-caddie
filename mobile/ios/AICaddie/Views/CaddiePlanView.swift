@@ -83,7 +83,7 @@ public struct CaddiePlanOption: Identifiable, Equatable {
             parts.append(zhCaddieConfidence(confidence) ?? confidence)
         }
         if let p10M, let p90M {
-            parts.append("落点 \(Int(p10M))–\(Int(p90M))m")
+            parts.append("落点 \(CoursePrepRoute.yards(fromMetres: p10M))–\(CoursePrepRoute.yards(fromMetres: p90M)) 码")
         }
         if let coverageText {
             parts.append("覆盖 \(coverageText)")
@@ -300,10 +300,10 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
     public var summaryText: String {
         var parts: [String] = [clubName]
         if let targetCarryM {
-            parts.append("\(Int(targetCarryM))m")
+            parts.append("\(CoursePrepRoute.yards(fromMetres: targetCarryM)) 码")
         }
         if let expectedRemainingM {
-            parts.append("留 \(Int(expectedRemainingM))m")
+            parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemainingM)) 码")
         }
         if let sampleSize {
             parts.append("\(sampleSize) 样本")
@@ -329,7 +329,7 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
             parts.append("\(expectedStrokes) 杆")
         }
         if let expectedRemainingM {
-            parts.append("留 \(Int(expectedRemainingM))m")
+            parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemainingM)) 码")
         }
         if let riskScore {
             parts.append("风险 \(Int(riskScore))")
@@ -510,7 +510,7 @@ public struct CaddiePlanView: View {
     @ViewBuilder private func recommendedSummary(_ option: CaddiePlanOption) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(zhClubName(option.clubName)).font(.title3.weight(.bold)).foregroundStyle(.primary)
-            Text("\(Int(option.carryM)) m").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+            Text("\(CoursePrepRoute.yards(fromMetres: option.carryM)) 码").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
             Spacer()
             Text(zhCaddieRouteLabel(option.label))
                 .font(.caption.weight(.semibold))
@@ -616,7 +616,7 @@ public struct CaddiePlanView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Text(zhClubName(option.clubName)).font(.subheadline).frame(width: 60, alignment: .leading)
-                    Text("\(Int(option.carryM))m").font(.subheadline.monospacedDigit()).frame(width: 60, alignment: .trailing)
+                    Text("\(CoursePrepRoute.yards(fromMetres: option.carryM)) 码").font(.subheadline.monospacedDigit()).frame(width: 60, alignment: .trailing)
                     Text("\(Int(option.riskScore))")
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
@@ -677,8 +677,8 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             return nil
         }
         if interval.count >= 2 {
-            return "\(Int(start))–\(Int(interval[1]))m"
+            return "\(CoursePrepRoute.yards(fromMetres: start))–\(CoursePrepRoute.yards(fromMetres: interval[1])) 码"
         }
-        return "越线 \(Int(start))m"
+        return "越线 \(CoursePrepRoute.yards(fromMetres: start)) 码"
     }
 }

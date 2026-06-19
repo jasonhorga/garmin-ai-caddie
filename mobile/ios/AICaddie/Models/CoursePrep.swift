@@ -84,6 +84,11 @@ public enum CoursePrepRoute {
         Int((metres * yard).rounded())
     }
 
+    /// 码 → 米(用户在前端以「码」输入距离时,转回后端用的米)。
+    public static func metres(fromYards yards: Double) -> Double {
+        yards / Self.yard
+    }
+
     public static func intervalReadout(currentMetres: Double, startMetres: Double, endMetres: Double) -> CoursePrepHazardIntervalReadout {
         let start = min(startMetres, endMetres)
         let end = max(startMetres, endMetres)
