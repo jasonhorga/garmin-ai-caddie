@@ -231,7 +231,12 @@ final class DesignSnapshotTests: XCTestCase {
         {"start":[110,120],"end":[119,60],"club":"SW","lie":"Bunker","endLie":"Green","shotType":"APPROACH","order":3,"synthetic":false}]}
         """
         let shotMap = try JSONDecoder().decode(RoundHoleShotMap.self, from: Data(shotMapJSON.utf8))
-        try captureScreen(VStack { RoundShotMapView(shotMap: shotMap).frame(height: 460) }.padding(24), named: "round-shot-map")
+        try captureScreen(
+            VStack(spacing: 12) { RoundShotMapView(shotMap: shotMap).frame(height: 420); RoundShotMapLegend() }
+                .padding(24)
+                .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255)),
+            named: "round-shot-map"
+        )
     }
 
     @MainActor
