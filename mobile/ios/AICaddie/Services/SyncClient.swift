@@ -172,6 +172,18 @@ public final class SyncClient {
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
     }
 
+    /// Compact 统计 payload (`GET /api/v2/history/stats/mobile`): basic / deep / periodic / course /
+    /// club slices of the full stats build (~180KB, not the ~11MB full one). Used by StatsView.
+    public func fetchMobileStats() async throws -> MobileStats {
+        var request = URLRequest(url: endpointURL("/api/v2/history/stats/mobile"))
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(MobileStats.self, from: data)
+    }
+
     /// Single-round 复盘 detail (`GET /api/v2/history/rounds/{ref}`): hole-by-hole scorecard +
     /// phase summary + graceful missing-data. Used by RoundReviewView when the player taps a round.
     public func fetchRoundDetail(roundRef: String) async throws -> RoundDetail {

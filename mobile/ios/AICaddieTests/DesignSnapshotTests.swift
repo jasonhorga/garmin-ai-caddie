@@ -184,6 +184,23 @@ final class DesignSnapshotTests: XCTestCase {
             RoundReviewContent(detail: roundDetail, isLoading: false, errorText: nil, fallbackCourseName: "Fixture Links"),
             named: "round-review"
         )
+
+        // 数据统计: overview KPIs + outcomes/distribution + by-par + putting + trends + quarter +
+        // courses + clubs (距离按码), from a compact mobile-stats fixture.
+        let statsJSON = """
+        {"summary":{"totalRounds":423,"average18":92.4,"median18":92,"recent10Average":94.6,"bestScore":82,"worstScore":106,"handicapEstimate":18.2},\
+        "scoring":{"outcomes":{"eagleOrBetter":1,"birdie":40,"par":300,"bogey":250,"doubleOrWorse":120},\
+        "scoreBands":[{"label":"80s","count":42},{"label":"90s","count":171},{"label":"100+","count":93}],\
+        "byPar":[{"par":3,"averageToPar":0.62,"parOrBetterPct":38},{"par":4,"averageToPar":0.44,"parOrBetterPct":42},{"par":5,"averageToPar":0.21,"parOrBetterPct":55}],\
+        "putting":{"averagePutts":33.1,"threePutts":4}},\
+        "time":{"byQuarter":[{"key":"2026-Q2","roundCount":12,"average18":92.4,"bestScore":84,"outcomes":{"birdie":14,"doubleOrWorse":31}}]},\
+        "courses":[{"courseKey":"bk","courseName":"北京天竺黑骑士 ~ C/A","roundCount":40,"average18":91.0,"bestScore":82,"worstScore":99}],\
+        "clubs":[{"club":"Driver","sampleCount":120,"median":210,"p10":195,"p90":225,"consistency":"high","distanceTrend":"stable"},\
+        {"club":"7I","sampleCount":90,"median":138,"p10":130,"p90":146,"consistency":"high","distanceTrend":"up"}],\
+        "diagnosis":{"topIssue":"double_or_worse","issueTrends":[{"issue":"tee_miss","direction":"worsening","estimatedStrokesLost":1.2},{"issue":"three_putt","direction":"improving","estimatedStrokesLost":-0.6}]}}
+        """
+        let mobileStats = try JSONDecoder().decode(MobileStats.self, from: Data(statsJSON.utf8))
+        try captureScreen(StatsContent(stats: mobileStats, isLoading: false, errorText: nil), named: "stats")
     }
 
     @MainActor

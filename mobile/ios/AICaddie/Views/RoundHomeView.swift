@@ -311,7 +311,7 @@ public struct RoundHomeView: View {
         }
     }
 
-    // MARK: - 备战 · 复盘 磁贴
+    // MARK: - 备战 · 复盘 · 统计 磁贴(复盘=单场逐洞,统计=历史宏观,分开)
 
     @ViewBuilder private var tilesRow: some View {
         HStack(spacing: 10) {
@@ -320,14 +320,20 @@ public struct RoundHomeView: View {
                     // 备战先选球场,而不是锁死在当前球场。
                     PrepCoursePickerView(courseOptions: courseOptions, apiBaseURL: apiBaseURL, adminToken: adminToken)
                 } label: {
-                    HubTile(icon: "map", title: "赛前攻略", subtitle: "选球场 · 逐洞攻略")
+                    HubTile(icon: "map", title: "赛前攻略", subtitle: "选球场 · 逐洞")
                 }
                 .buttonStyle(.plain)
             }
             NavigationLink {
                 RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)
             } label: {
-                HubTile(icon: "chart.line.uptrend.xyaxis", title: "历史复盘", subtitle: "\(package.recentHistory.rounds.count) 场近况")
+                HubTile(icon: "list.bullet.rectangle", title: "历史复盘", subtitle: "逐场逐洞")
+            }
+            .buttonStyle(.plain)
+            NavigationLink {
+                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
+            } label: {
+                HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势 · 球杆")
             }
             .buttonStyle(.plain)
         }
