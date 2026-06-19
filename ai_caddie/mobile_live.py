@@ -923,52 +923,118 @@ def _decision_club_profiles(club_profiles: list[dict[str, Any]]) -> dict[str, di
     return rows
 
 
-def _tee_candidate_routes(hole: dict[str, Any], club_profiles: list[dict[str, Any]], hazards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _club_nearest(rows: list[dict[str, Any]], target_m: float) -> dict[str, Any] | None:
+    """The club profile whose median carry is closest to target_m (rows non-empty)."""
+    if not rows:
+        return None
+    return min(rows, key=lambda profile: abs(float(profile.get("median_m") or 0) - target_m))
+
+
+def _shot_option_clubs(
+    rows: list[dict[str, Any]], *, par: int, target_m: float
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    """Pick (safe, stock, attack) club profiles for the shot by DISTANCE, not "always the longest".
+    Par 3 → around the green distance (stock=match, safe=one more club, attack=one less); par 4/5 tee
+    → control club / driver / driver. Falls back to the longest-based pick when no target distance."""
+    if not rows:
+        return None, None, None
+    longest = rows[0]
+    if not target_m or target_m <= 0:
+        safe = next((row for row in rows[1:] if float(row.get("median_m") or 0) >= 120.0), longest)
+        return safe, longest, longest
+    if par == 3:
+        stock = _club_nearest(rows, target_m)
+        safe = _club_nearest(rows, target_m + 9.0)  # one more club — don't come up short
+        attack = _club_nearest(rows, max(50.0, target_m - 9.0))  # one less — aggressive
+    else:
+        stock = longest
+        attack = longest  # same club off the tee, aggressive carry/line (see riskScore)
+        safe = _club_nearest(rows, float(longest.get("median_m") or 0) * 0.82)  # control / lay-up club
+    return safe, stock, attack
+
+
+def _option_risks(avoid_zones: list[dict[str, Any]] | None, carry_m: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Per-option (near, line) risks derived from the route's distance-aware avoidZones, so each
+    option surfaces the hazards ITS carry brings into play — not the hole's one dominant hazard on
+    every option. near = lands by it; line = a carry hazard this carry is near/just clearing."""
+    near: list[dict[str, Any]] = []
+    line: list[dict[str, Any]] = []
+    for zone in avoid_zones or []:
+        kind = str(zone.get("kind") or "hazard")
+        zone_id = str(zone.get("id") or "hazard")
+        center = zone.get("distanceToCenter_m")
+        clear = zone.get("carryToClear_m")
+        if center is not None and abs(float(center) - carry_m) <= 18.0:
+            near.append({"kind": kind, "id": zone_id})
+        elif clear is not None and -10.0 <= (float(clear) - carry_m) <= 30.0:
+            line.append({"kind": kind, "id": zone_id})
+    return near, line
+
+
+def _tee_candidate_routes(
+    hole: dict[str, Any],
+    club_profiles: list[dict[str, Any]],
+    hazards: list[dict[str, Any]],
+    *,
+    par: int = 4,
+    target_m: float = 0.0,
+    avoid_zones: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     rows = sorted(
         [profile for profile in club_profiles if float(profile.get("median_m") or 0) > 0],
         key=lambda profile: (-float(profile.get("median_m") or 0), str(profile.get("clubName") or "")),
     )
     if not rows:
         return []
-    longest = rows[0]
-    safe = next((row for row in rows[1:] if float(row.get("median_m") or 0) >= 120.0), longest)
-    stock_carry = float(longest.get("median_m") or 0)
-    safe_carry = float(safe.get("median_m") or stock_carry * 0.85)
-    attack_carry = max(stock_carry, float(longest.get("p90_m") or stock_carry))
-    risk_kind = str((hazards[0] or {}).get("kind") or "hazard") if hazards else "hazard"
-    attack_risks = [{"kind": risk_kind, "id": str((hazards[0] or {}).get("id") or "mapped_hazard")}] if hazards else []
+    safe_p, stock_p, attack_p = _shot_option_clubs(rows, par=par, target_m=target_m)
+
+    def _carry(profile: dict[str, Any] | None, *, aggressive: bool = False) -> float:
+        if not profile:
+            return 0.0
+        median = float(profile.get("median_m") or 0)
+        return round(max(median, float(profile.get("p90_m") or median)) if aggressive else median, 1)
+
+    safe_carry = _carry(safe_p)
+    stock_carry = _carry(stock_p)
+    attack_carry = _carry(attack_p, aggressive=True)
+    safe_near, safe_line = _option_risks(avoid_zones, safe_carry)
+    stock_near, stock_line = _option_risks(avoid_zones, stock_carry)
+    attack_near, attack_line = _option_risks(avoid_zones, attack_carry)
+    # Only when route geometry has NO distance-aware avoid zones, fall back to the hole's mapped hazard.
+    if not avoid_zones and hazards and not attack_line:
+        attack_line = [{"kind": str((hazards[0] or {}).get("kind") or "hazard"), "id": str((hazards[0] or {}).get("id") or "mapped_hazard")}]
     return [
         {
             "id": "conservative_layup",
             "label": "safe layup",
-            "carry_m": round(safe_carry, 1),
+            "carry_m": safe_carry,
             "landingLocal": None,
             "expectedSurface": {"kind": "fairway"},
-            "nearRisks": [],
-            "lineRisks": [],
-            "riskScore": 0,
+            "nearRisks": safe_near,
+            "lineRisks": safe_line,
+            "riskScore": round(len(safe_near) * 1.5 + len(safe_line), 1),
             "source": "offline_package_seed",
         },
         {
             "id": "stock_line",
             "label": "stock line",
-            "carry_m": round(stock_carry, 1),
+            "carry_m": stock_carry,
             "landingLocal": None,
             "expectedSurface": {"kind": "fairway"},
-            "nearRisks": [],
-            "lineRisks": [],
-            "riskScore": 1,
+            "nearRisks": stock_near,
+            "lineRisks": stock_line,
+            "riskScore": round(1 + len(stock_near) * 1.5 + len(stock_line), 1),
             "source": "offline_package_seed",
         },
         {
             "id": "aggressive_line",
             "label": "attack line",
-            "carry_m": round(attack_carry, 1),
+            "carry_m": attack_carry,
             "landingLocal": None,
-            "expectedSurface": {"kind": "fairway" if not hazards else "risk_edge"},
-            "nearRisks": [],
-            "lineRisks": attack_risks,
-            "riskScore": 4 if hazards else 3,
+            "expectedSurface": {"kind": "risk_edge" if (attack_near or attack_line) else "fairway"},
+            "nearRisks": attack_near,
+            "lineRisks": attack_line,
+            "riskScore": round(3 + len(attack_near) * 1.5 + len(attack_line), 1),
             "source": "offline_package_seed",
         },
     ]
@@ -979,6 +1045,9 @@ def _offline_caddie_options(
     *,
     source_ref: str,
     hazards: list[dict[str, Any]],
+    par: int = 4,
+    target_m: float = 0.0,
+    avoid_zones: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     valid_profiles = []
     for profile in club_profiles:
@@ -991,20 +1060,21 @@ def _offline_caddie_options(
     )
     if not rows:
         return []
-    longest = rows[0]
-    safe = next((row for row in rows[1:] if float(row.get("median_m") or 0) >= 120.0), longest)
-    risk_bump = 1.0 if hazards else 0.0
-    option_specs = [
-        ("safe", "Safe", safe, 1.0),
-        ("stock", "Stock", longest, 2.0 + risk_bump),
-        ("attack", "Attack", longest, 4.0 + risk_bump),
-    ]
+    # Pick clubs by DISTANCE (par 3 around the green, par 4/5 control/driver) — not "always longest",
+    # which made every hole (incl. par 3s) recommend the driver and collapsed safe==stock.
+    safe_p, stock_p, attack_p = _shot_option_clubs(rows, par=par, target_m=target_m)
+    base_risk = {"safe": 0.8, "stock": 1.5, "attack": 3.0}
+    option_specs = [("safe", "Safe", safe_p), ("stock", "Stock", stock_p), ("attack", "Attack", attack_p)]
     options: list[dict[str, Any]] = []
-    for option_id, label, profile, risk_score in option_specs:
+    for option_id, label, profile in option_specs:
+        if profile is None:
+            continue
         median = float(profile.get("median_m") or 0)
         p10 = float(profile.get("p10_m") or median)
         p90 = float(profile.get("p90_m") or median)
         carry = max(median, p90) if option_id == "attack" else median
+        near_risks, line_risks = _option_risks(avoid_zones, carry)
+        risk_score = base_risk[option_id] + len(near_risks) * 1.5 + len(line_risks) * 1.0
         sample_size = int(profile.get("sampleSize") or 0)
         sample_refs = _compact_source_refs(profile.get("sampleRefs") or profile.get("validShotRefs") or [], limit=OFFLINE_OPTION_SAMPLE_REF_LIMIT)
         missing_data = _offline_option_missing_data(str(profile.get("clubName") or ""), sample_size)
@@ -1020,6 +1090,8 @@ def _offline_caddie_options(
                 "confidence": _offline_option_confidence(sample_size),
                 "coverage": _offline_option_coverage(sample_size),
                 "riskScore": round(risk_score, 1),
+                "nearRisks": near_risks,
+                "lineRisks": line_risks,
                 "source": "offline_package_seed",
                 "sourceRefs": [source_ref],
                 "sampleRefs": sample_refs,
@@ -1296,6 +1368,14 @@ def _caddie_context_seeds(
             source_ref,
             club_profiles,
         )
+        # Distance + distance-aware avoid zones for picking sensible (safe/stock/attack) clubs and
+        # per-option risks (instead of "always the longest club" + the hole's one dominant hazard).
+        par_value = int(hole.get("par") or 4)
+        hole_yards = hole.get("yards")
+        target_distance_m = float((route_evidence or {}).get("routeLength_m") or 0.0) or (
+            round(float(hole_yards) / 1.09361, 1) if hole_yards else 0.0
+        )
+        avoid_zones = (route_evidence or {}).get("avoidZones") or []
         manual_notes = _manual_notes_for_seed(
             annotations_root=annotations_root,
             round_id=round_id,
@@ -1322,7 +1402,10 @@ def _caddie_context_seeds(
             "weatherSnapshot": seed_weather_snapshot,
             "clubProfiles": decision_clubs,
             "playerProfile": player_profile or {},
-            "candidateRoutes": _tee_candidate_routes(hole, club_profiles, geometry.get("hazards") or []),
+            "candidateRoutes": _tee_candidate_routes(
+                hole, club_profiles, geometry.get("hazards") or [],
+                par=par_value, target_m=target_distance_m, avoid_zones=avoid_zones,
+            ),
             "historicalHole": {
                 "courseKey": hole_stats.get("courseKey") or course_key,
                 "hole": number,
@@ -1346,6 +1429,9 @@ def _caddie_context_seeds(
             club_profiles,
             source_ref=source_ref,
             hazards=geometry.get("hazards") or [],
+            par=par_value,
+            target_m=target_distance_m,
+            avoid_zones=avoid_zones,
         )
         evidence_rows = [
             {"label": "live_round_package", "value": "offline_seed"},
