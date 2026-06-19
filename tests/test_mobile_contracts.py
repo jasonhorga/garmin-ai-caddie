@@ -2245,6 +2245,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("detail.scorecard", round_review)
         self.assertIn("detail.missingData", round_review)  # graceful, never blank
         self.assertIn("RoundReviewView(roundRef: round.roundId", recent_review)
+        # 数据统计(历史宏观,与复盘分开): consume the compact /history/stats/mobile endpoint.
+        stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
+        mobile_stats_model = _read_required_source(self, IOS_DIR / "Models" / "MobileStats.swift")
+        self.assertIn("struct MobileStats", mobile_stats_model)
+        self.assertIn("func fetchMobileStats() async throws -> MobileStats", sync_client)
+        self.assertIn("/api/v2/history/stats/mobile", sync_client)
+        self.assertIn("struct StatsView: View", stats_view)
+        self.assertIn("fetchMobileStats()", stats_view)
+        self.assertIn('title: "数据统计"', round_home)
+        self.assertIn("StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)
