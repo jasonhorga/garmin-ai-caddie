@@ -467,6 +467,20 @@
                 "riskScore": {
                   "type": "number"
                 },
+                "nearRisks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "lineRisks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
                 "source": {
                   "type": "string"
                 },
