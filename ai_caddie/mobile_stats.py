@@ -57,6 +57,23 @@ _PROFILE_KEYS = ("topStrength", "topWeakness", "strengths", "weaknesses", "caddi
 _QUALITY_KEYS = ("label", "state", "ready", "total")
 
 
+# Heavy evidence arrays that balloon the payload but the compact 统计 screens never render: the
+# real bulk on live data is the per-row ``*Refs`` arrays (``holeRefs`` ~50KB on putting,
+# ``bogeyOrWorseRefs`` ~21KB per par row, …) plus a few named deltas/histograms. We strip every
+# key ending in ``Refs`` (plural) wherever it is nested — but KEEP the small singular drill ids
+# (``bestRoundRef``/``worstRoundRef`` don't end in "Refs", and ``roundIds`` is kept) so a stat can
+# still open its round.
+_DROP_KEYS = {"roundOverRoundDeltas", "outcomeRows", "scoreHistogram", "decisionAuditTrends"}
+
+
+def _strip_refs(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _strip_refs(v) for k, v in value.items() if not k.endswith("Refs") and k not in _DROP_KEYS}
+    if isinstance(value, list):
+        return [_strip_refs(item) for item in value]
+    return value
+
+
 def _pick(row: Any, keys: tuple[str, ...]) -> dict[str, Any]:
     if not isinstance(row, dict):
         return {}
@@ -72,7 +89,7 @@ def build_mobile_stats(stats: dict[str, Any]) -> dict[str, Any]:
     courses = stats.get("courses") if isinstance(stats.get("courses"), list) else []
     clubs = stats.get("clubs") if isinstance(stats.get("clubs"), list) else []
     quality = stats.get("dataQuality") if isinstance(stats.get("dataQuality"), list) else []
-    return {
+    payload = {
         "schema": SCHEMA,
         "dataMode": stats.get("dataMode"),
         "summary": stats.get("summary") if isinstance(stats.get("summary"), dict) else {},
@@ -85,3 +102,7 @@ def build_mobile_stats(stats: dict[str, Any]) -> dict[str, Any]:
         "playerProfile": _pick(profile, _PROFILE_KEYS),
         "dataQuality": [_pick(row, _QUALITY_KEYS) for row in quality],
     }
+    # Drop the heavy per-row evidence arrays nested anywhere (holeRefs/*Refs/outcomeRows/…) — on real
+    # data these are ~90% of the bytes and the compact screens never use them; roundIds + the singular
+    # bestRoundRef/recentRoundId survive for drill-down.
+    return _strip_refs(payload)
