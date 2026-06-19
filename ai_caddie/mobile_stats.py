@@ -25,6 +25,7 @@ SCHEMA = "ai-caddie-mobile-stats-v1"
 _COURSE_KEYS = (
     "courseKey",
     "courseName",
+    "nineBreakdown",
     "roundCount",
     "average18",
     "bestScore",
@@ -94,6 +95,7 @@ def build_mobile_stats(stats: dict[str, Any]) -> dict[str, Any]:
         "dataMode": stats.get("dataMode"),
         "summary": stats.get("summary") if isinstance(stats.get("summary"), dict) else {},
         "time": _pick(time, _TIME_KEYS),
+        "trend": stats.get("trend") if isinstance(stats.get("trend"), dict) else {},
         "scoring": _pick(scoring, _SCORING_KEYS),
         "records": stats.get("records") if isinstance(stats.get("records"), dict) else {},
         "courses": [_pick(course, _COURSE_KEYS) for course in courses],

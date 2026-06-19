@@ -2402,12 +2402,34 @@ def _courses(
         ]
         issue_profile = _course_issue_profile(rows, effective_shots, annotations, report_records)
         difficulty = _difficulty_adjusted_stats(rows)
+        # Per nine-combo breakdown (黑骑士 ~ A / ~ C/A …) so the course row aggregates by BASE course
+        # but a drill-in can still show "how many times each nine".
+        nine_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for combo_row in rows_sorted:
+            nine_groups[str(combo_row.get("course") or combo_row.get("courseName") or "")].append(combo_row)
+        nine_breakdown = []
+        for label, combo_rows in nine_groups.items():
+            combo_scores = [int(r["strokes"]) for r in combo_rows if r.get("strokes") is not None]
+            nine_breakdown.append(
+                {
+                    "label": label,
+                    "roundCount": len(combo_rows),
+                    "average": round(average(combo_scores), 1) if combo_scores else None,
+                    "bestScore": min(combo_scores) if combo_scores else None,
+                    "recentRoundId": _round_id(combo_rows[0]),
+                }
+            )
+        nine_breakdown.sort(key=lambda r: (-r["roundCount"], r["label"]))
         out.append(
             _with_aggregate_contract(
                 {
                     "courseKey": course_key,
-                    "courseName": str(rows_sorted[0].get("course") or rows_sorted[0].get("courseName") or "Unknown course"),
+                    # BASE course name (collapsing the nine combo) — the count spans the whole course.
+                    "courseName": str(
+                        rows_sorted[0].get("courseCanonical") or rows_sorted[0].get("course") or "Unknown course"
+                    ),
                     "roundCount": len(rows),
+                    "nineBreakdown": nine_breakdown,
                     "average18": average(scores18),
                     "bestScore": min(scores18) if scores18 else None,
                     "worstScore": max(scores18) if scores18 else None,
@@ -3586,6 +3608,49 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
     )
 
 
+def _score_trend(data: HistoryData, limit: int = 20) -> dict[str, Any]:
+    """Last N full (18-hole) rounds as a date→score series for the trend line chart (oldest→newest),
+    with per-round birdie/par/bogey/double counts for an optional outcome-trend view."""
+    rows = [
+        row
+        for row in data.rounds
+        if row.get("date") and row.get("holesCompleted") == 18 and row.get("strokes") is not None
+    ]
+    rows.sort(key=lambda row: str(row.get("date") or ""))
+    points: list[dict[str, Any]] = []
+    for row in rows[-limit:]:
+        score = int(row["strokes"])
+        par = row.get("par")
+        birdies = pars = bogeys = doubles = 0
+        for hole in row.get("holes") or []:
+            strokes = hole.get("strokes")
+            hole_par = hole.get("par")
+            if strokes is None or hole_par is None:
+                continue
+            delta = int(strokes) - int(hole_par)
+            if delta <= -1:
+                birdies += 1
+            elif delta == 0:
+                pars += 1
+            elif delta == 1:
+                bogeys += 1
+            else:
+                doubles += 1
+        points.append(
+            {
+                "date": str(row.get("date") or ""),
+                "score": score,
+                "toPar": score - int(par) if par is not None else None,
+                "birdies": birdies,
+                "pars": pars,
+                "bogeys": bogeys,
+                "doublesPlus": doubles,
+                "roundId": _round_id(row),
+            }
+        )
+    return {"points": points, "windowSize": len(points)}
+
+
 def build_history_stats(
     data: HistoryData,
     *,
@@ -3611,6 +3676,7 @@ def build_history_stats(
         "dataMode": data_mode,
         "summary": _summary(scored_data),
         "time": _time_stats(scored_data),
+        "trend": _score_trend(scored_data),
         "scoring": scoring,
         "courseDistribution": _course_distribution(scored_data),
         "records": _records(scored_data, annotations),
