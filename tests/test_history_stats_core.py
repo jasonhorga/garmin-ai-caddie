@@ -1743,6 +1743,34 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(point["doublesPlus"], 1)   # hole 3: par 5, strokes 7 (+2)
         self.assertEqual(point["bogeys"], 15)       # holes 4–18: par 4, strokes 5
 
+    def test_canonical_nine_label_normalizes_separator(self) -> None:
+        # round-10: "C+A" (merged halves) and "C/A" (single scorecard) are the same combo → one row.
+        from ai_caddie.history_stats import _canonical_nine_label
+        self.assertEqual(_canonical_nine_label("黑骑士 ~ C+A"), "C/A")
+        self.assertEqual(_canonical_nine_label("黑骑士 ~ C/A"), "C/A")
+        self.assertEqual(_canonical_nine_label("黑骑士 ~ A/C"), "A/C")  # front/back order kept
+        self.assertEqual(_canonical_nine_label("北湖九号"), "")
+
+    def test_score_trend_excludes_abnormal_rounds(self) -> None:
+        # round-10: a +59 (131-stroke) data-error round must not enter the trend line.
+        from ai_caddie.history import HistoryData
+        from ai_caddie.history_stats import _score_trend
+        good = {"id": "g", "date": "2026-06-01", "holesCompleted": 18, "strokes": 90, "par": 72,
+                "holePars": "4" * 18, "holes": [{"number": n, "strokes": 5} for n in range(1, 19)]}
+        junk = {"id": "j", "date": "2026-06-02", "holesCompleted": 18, "strokes": 131, "par": 72,
+                "holePars": "4" * 18, "holes": [{"number": n, "strokes": 7} for n in range(1, 19)]}
+        ids = [p["roundId"] for p in _score_trend(HistoryData(raw_rounds=[], rounds=[good, junk], shots=[]))["points"]]
+        self.assertIn("g", ids)
+        self.assertNotIn("j", ids)
+
+    def test_putting_exposes_per_round_average(self) -> None:
+        # round-10 P0: 场均推杆 needs a per-ROUND number, not the per-hole averagePutts.
+        stats = build_history_stats(fixture_history_data(), data_mode="fixture")
+        putting = stats["scoring"]["putting"]
+        self.assertIn("averagePuttsPerRound", putting)
+        if putting.get("averagePuttsPerRound") and putting.get("averagePutts"):
+            self.assertGreater(putting["averagePuttsPerRound"], putting["averagePutts"])  # per-round >> per-hole
+
 
 if __name__ == "__main__":
     unittest.main()
