@@ -17,7 +17,8 @@ public struct RecentRoundReviewView: View {
             RecentReviewContent(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
-        .navigationTitle("赛后复盘")
+        // 与首页磁贴「历史复盘」一致(原为「赛后复盘」,单场仍叫「单场复盘」)。
+        .navigationTitle("历史复盘")
     }
 }
 
@@ -136,7 +137,7 @@ struct RecentReviewContent: View {
             if !hole.repeatedIssues.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(hole.repeatedIssues, id: \.label) { issue in
-                        HoleChip(text: "\(issue.label) ×\(issue.count)", warn: true)
+                        HoleChip(text: "\(zhIssueLabel(issue.label)) ×\(issue.count)", warn: true)
                     }
                     Spacer(minLength: 0)
                 }

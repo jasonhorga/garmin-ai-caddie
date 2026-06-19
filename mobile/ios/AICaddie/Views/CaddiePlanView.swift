@@ -660,14 +660,19 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
         self.detail = detail
     }
 
-    /// 从 course_prep 的 hazards(米区间)生成避开区列表:沙坑在前、水域在后。
+    /// 从 course_prep 的 hazards(米区间)生成避开区列表:沙坑在前、水域在后,各自按越线距离近→远排序。
+    /// 同类多于一处时编号(沙坑 1 / 沙坑 2 …),避免三个都只写「沙坑」看不出区别(round-10 反馈)。
     public static func from(_ hazards: CoursePrepHazards) -> [CaddiePlanHazard] {
         var out: [CaddiePlanHazard] = []
-        for (index, interval) in hazards.bunkers.enumerated() {
-            out.append(CaddiePlanHazard(id: "bunker-\(index)", icon: "🏖", label: "沙坑", detail: rangeText(interval)))
+        let bunkers = hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+        for (index, interval) in bunkers.enumerated() {
+            let label = bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
+            out.append(CaddiePlanHazard(id: "bunker-\(index)", icon: "🏖", label: label, detail: rangeText(interval)))
         }
-        for (index, interval) in hazards.waterCarry.enumerated() {
-            out.append(CaddiePlanHazard(id: "water-\(index)", icon: "💧", label: "水域", detail: rangeText(interval)))
+        let water = hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+        for (index, interval) in water.enumerated() {
+            let label = water.count > 1 ? "水域 \(index + 1)" : "水域"
+            out.append(CaddiePlanHazard(id: "water-\(index)", icon: "💧", label: label, detail: rangeText(interval)))
         }
         return out
     }

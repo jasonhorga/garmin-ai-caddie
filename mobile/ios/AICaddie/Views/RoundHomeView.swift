@@ -366,12 +366,18 @@ public struct RoundHomeView: View {
 
     @ViewBuilder private var lastRoundCard: some View {
         if let last = package.recentHistory.rounds.first {
-            HubLastRoundCard(
-                courseName: last.courseName,
-                date: last.date,
-                score: last.score,
-                toPar: last.toPar
-            )
+            NavigationLink {
+                RoundReviewView(roundRef: last.roundId, fallbackCourseName: last.courseName,
+                                apiBaseURL: apiBaseURL, adminToken: adminToken)
+            } label: {
+                HubLastRoundCard(
+                    courseName: last.courseName,
+                    date: last.date,
+                    score: last.score,
+                    toPar: last.toPar
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 

@@ -5,6 +5,7 @@ import SwiftUI
 public struct AICaddieApp: App {
     @StateObject private var model = LiveRoundAppModel()
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showNoPackageSettings = false
 
     public init() {}
 
@@ -113,6 +114,17 @@ public struct AICaddieApp: App {
                                 }
                             }
                         )
+                        // First launch with no data is a dead-end otherwise: the empty state tells the
+                        // user to "sync Garmin in settings" but had no settings button. Surface a gear
+                        // to log into Garmin + reload so they can pull their rounds.
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button { showNoPackageSettings = true } label: { Image(systemName: "gearshape") }
+                            }
+                        }
+                        .sheet(isPresented: $showNoPackageSettings) {
+                            noPackageSettingsSheet
+                        }
                     }
                 }
             }
@@ -126,6 +138,38 @@ public struct AICaddieApp: App {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
                     model.syncOnForeground()
+                }
+            }
+        }
+    }
+
+    /// 无数据首启时的设置 sheet:登录 Garmin + 重新载入,这样用户才能拉到自己的球场/球局。
+    private var noPackageSettingsSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    NavigationLink {
+                        GarminSessionView(apiBaseURL: model.apiBaseURL, adminToken: model.adminToken, sessionStore: model.garminSessionStore)
+                    } label: {
+                        Label("Garmin 账号", systemImage: "key")
+                    }
+                    Button {
+                        Task { await model.bootstrap() }
+                    } label: {
+                        Label("重新载入", systemImage: "arrow.clockwise")
+                    }
+                    .foregroundStyle(LiveHoleStyle.green)
+                } header: {
+                    Text("数据")
+                } footer: {
+                    Text("先登录 Garmin 账号,再「重新载入」,就能拉到你的球场和历史球局。")
+                }
+            }
+            .navigationTitle("设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { showNoPackageSettings = false }
                 }
             }
         }

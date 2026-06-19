@@ -24,7 +24,8 @@ public struct StatsView: View {
                 AICaddieLoadingView(text: "载入统计…")
             } else {
                 ScrollView {
-                    StatsContent(stats: stats, isLoading: isLoading, errorText: errorText)
+                    StatsContent(stats: stats, isLoading: isLoading, errorText: errorText,
+                                 apiBaseURL: apiBaseURL, adminToken: adminToken)
                 }
             }
         }
@@ -51,6 +52,8 @@ struct StatsContent: View {
     let stats: MobileStats?
     let isLoading: Bool
     let errorText: String?
+    var apiBaseURL: URL? = nil
+    var adminToken: String? = nil
 
     var body: some View {
         VStack(spacing: 12) {
@@ -164,7 +167,7 @@ struct StatsContent: View {
                 HStack {
                     Text(parLabel(row)).font(.subheadline.weight(.semibold)).frame(width: 64, alignment: .leading)
                     Text(row.averageToPar.map { String(format: "%+.2f", $0) } ?? "—").font(.subheadline.monospacedDigit()).frame(maxWidth: .infinity, alignment: .trailing)
-                    Text(row.parOrBetterPct.map { String(format: "%.0f%%", $0 * (($0 <= 1) ? 100 : 1)) } ?? "—").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+                    Text(row.parOrBetterPct.map { String(format: "%.0f%%", $0) } ?? "—").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
                 }
                 .padding(.vertical, 5)
                 .overlay(alignment: .bottom) { Divider() }
@@ -176,11 +179,19 @@ struct StatsContent: View {
     // MARK: 推杆
 
     private func puttingCard(_ p: StatsPutting) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // 场均推杆 = per-ROUND total (~33), not the per-hole average (~1.9). 场均三推 = three-putts/round.
+        let perRoundThreePutts: String = {
+            guard let tp = p.threePutts, let rounds = p.roundsWithPutts, rounds > 0 else { return "—" }
+            return String(format: "%.1f", Double(tp) / Double(rounds))
+        }()
+        return VStack(alignment: .leading, spacing: 10) {
             Text("推杆").font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 8) {
-                kpi("场均推杆", p.averagePutts.map { String(format: "%.1f", $0) } ?? "—")
-                kpi("三推次数", p.threePutts.map(String.init) ?? "—")
+                kpi("场均推杆", p.averagePuttsPerRound.map { String(format: "%.1f", $0) } ?? "—")
+                kpi("场均三推", perRoundThreePutts)
+            }
+            if let total = p.threePutts {
+                Text("累计三推 \(total) 次").font(.caption2).foregroundStyle(.secondary)
             }
         }
         .liveCard()
@@ -194,7 +205,7 @@ struct StatsContent: View {
             ForEach(trends.prefix(6)) { t in
                 HStack {
                     Image(systemName: directionIcon(t.direction)).foregroundStyle(directionColor(t.direction)).font(.caption)
-                    Text(zhIssue(t.issue)).font(.subheadline)
+                    Text(zhIssueLabel(t.issue)).font(.subheadline)
                     Spacer()
                     if let lost = t.estimatedStrokesLost, abs(lost) >= 0.1 {
                         Text(String(format: "%+.1f 杆", lost)).font(.caption.monospacedDigit()).foregroundStyle(directionColor(t.direction))
@@ -211,16 +222,17 @@ struct StatsContent: View {
 
     private func periodCard(_ periods: [StatsPeriod]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("季度走势").font(.caption).foregroundStyle(.secondary)
+            Text("季度走势 · 每场平均").font(.caption).foregroundStyle(.secondary)
             ForEach(periods.prefix(8)) { p in
+                let rc = p.roundCount ?? 0
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(p.key).font(.subheadline.weight(.semibold))
-                        Text("\(p.roundCount ?? 0) 场").font(.caption2).foregroundStyle(.secondary)
+                        Text("\(rc) 场").font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if let birdie = p.outcomes?.birdie { Text("鸟 \(birdie)").font(.caption2).foregroundStyle(.secondary) }
-                    if let dbl = p.outcomes?.doubleOrWorse { Text("双柏+ \(dbl)").font(.caption2).foregroundStyle(.secondary) }
+                    if let birdie = p.outcomes?.birdie { Text("鸟 \(perRound(birdie, rc))").font(.caption2).foregroundStyle(.secondary) }
+                    if let dbl = p.outcomes?.doubleOrWorse { Text("双柏+ \(perRound(dbl, rc))").font(.caption2).foregroundStyle(.secondary) }
                     Text(p.average18.map { String(format: "%.1f", $0) } ?? "—").font(.subheadline.monospacedDigit().weight(.bold)).frame(width: 56, alignment: .trailing)
                 }
                 .padding(.vertical, 5)
@@ -230,15 +242,21 @@ struct StatsContent: View {
         .liveCard()
     }
 
+    /// Per-round average of a quarter total (用户:季度想看"平均每场"而不是累计次数).
+    private func perRound(_ total: Int, _ rounds: Int) -> String {
+        guard rounds > 0 else { return "—" }
+        return String(format: "%.1f", Double(total) / Double(rounds))
+    }
+
     // MARK: 各球场专项
 
     private func coursesCard(_ courses: [StatsCourse]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("各球场").font(.caption).foregroundStyle(.secondary)
-            Text("点进去看在这球场打过的各九洞组合 →").font(.caption2).foregroundStyle(LiveHoleStyle.green)
-            ForEach(courses.prefix(12)) { c in
+            Text("各球场 · \(courses.count) 个").font(.caption).foregroundStyle(.secondary)
+            Text("点进去看各九洞组合,并列出每一场(点单场看复盘)→").font(.caption2).foregroundStyle(LiveHoleStyle.green)
+            ForEach(courses) { c in
                 NavigationLink {
-                    CourseStatsDetailView(course: c)
+                    CourseStatsDetailView(course: c, apiBaseURL: apiBaseURL, adminToken: adminToken)
                 } label: {
                     courseRow(c)
                 }
@@ -344,24 +362,14 @@ struct StatsContent: View {
         }
     }
 
-    private func zhIssue(_ issue: String) -> String {
-        switch issue.lowercased() {
-        case "double_or_worse": return "双柏忌及以上"
-        case "tee_miss", "tee_direction": return "开球偏差"
-        case "hazard_result", "hazard": return "下水/沙坑"
-        case "missing_shots": return "缺击球数据"
-        case "three_putt", "three_putts": return "三推"
-        case "approach_miss": return "攻果岭偏差"
-        case "short_game": return "短杆"
-        default: return issue.replacingOccurrences(of: "_", with: " ")
-        }
-    }
 }
 
 /// Drill-in for one course (D1): overall play count + per nine-combo breakdown (A / C/A / B/C …),
 /// so the 各球场 list aggregates by BASE course and the detail shows how many times each nine.
 struct CourseStatsDetailView: View {
     let course: StatsCourse
+    var apiBaseURL: URL? = nil
+    var adminToken: String? = nil
 
     var body: some View {
         ScrollView {
@@ -375,6 +383,7 @@ struct CourseStatsDetailView: View {
                     }
                 }
                 .liveCard()
+                roundsSection
                 if let breakdown = course.nineBreakdown, !breakdown.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("各九洞组合").font(.caption).foregroundStyle(.secondary)
@@ -403,6 +412,61 @@ struct CourseStatsDetailView: View {
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle(course.courseName ?? "球场")
+    }
+
+    // MARK: 所有比赛(用户:直接列出每一场 时间·成绩,点单场看复盘)
+
+    @ViewBuilder private var roundsSection: some View {
+        let rounds = course.rounds ?? []
+        if rounds.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("所有比赛 · \(rounds.count) 场").font(.caption).foregroundStyle(.secondary)
+                ForEach(rounds) { r in
+                    if let ref = r.roundId, !ref.isEmpty {
+                        NavigationLink {
+                            RoundReviewView(roundRef: ref, fallbackCourseName: course.courseName,
+                                            apiBaseURL: apiBaseURL, adminToken: adminToken)
+                        } label: { roundRow(r) }
+                        .buttonStyle(.plain).foregroundStyle(.primary)
+                    } else {
+                        roundRow(r)
+                    }
+                }
+            }
+            .liveCard()
+        }
+    }
+
+    private func roundRow(_ r: StatsCourseRound) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(prettyDate(r.date)).font(.subheadline.weight(.semibold))
+                let nineText = (r.nine?.isEmpty == false) ? "\(r.nine!) 九洞" : nil
+                let parts = [nineText, r.holesCompleted.map { "\($0) 洞" }].compactMap { $0 }
+                if !parts.isEmpty {
+                    Text(parts.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if let toPar = r.toPar {
+                Text(toPar == 0 ? "E" : String(format: "%+d", toPar))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(toPar > 0 ? Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255) : LiveHoleStyle.green)
+            }
+            Text(r.score.map(String.init) ?? "—").font(.subheadline.monospacedDigit().weight(.bold)).frame(width: 44, alignment: .trailing)
+            if r.roundId?.isEmpty == false { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary) }
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// Trim an ISO/`YYYY-MM-DD` date to the day part for the round list.
+    private func prettyDate(_ raw: String) -> String {
+        if raw.isEmpty { return "—" }
+        return String(raw.prefix(10))
     }
 
     private func kpi(_ title: String, _ value: String) -> some View {

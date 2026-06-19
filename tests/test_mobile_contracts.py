@@ -2022,8 +2022,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("OfflineCaddieDecisionEvaluator()", current_hole)
         self.assertIn("private func makeOfflineCaddieDecision() -> CaddieDecisionResponse?", current_hole)
         self.assertIn("caddieDecision = makeOfflineCaddieDecision()", current_hole)
-        self.assertIn("Network caddie unavailable. Using cached offline decision.", current_hole)
-        self.assertIn("Offline caddie using cached package.", current_hole)
+        self.assertIn("联网球童暂不可用 · 已切换到离线缓存建议。", current_hole)
+        self.assertIn("离线模式 · 使用已缓存的球局方案。", current_hole)
         self.assertIn("offlineDecisionEvaluator.selectedOption(in: seed, strategyMode: selectedStrategyMode)", current_hole)
 
         self.assertIn("testMakesAuditableOfflineDecisionFromSeedAndStrategy", evaluator_tests)
