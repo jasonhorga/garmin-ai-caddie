@@ -37,6 +37,16 @@ export const PAGE_TO_SECTION: Record<ProductPage, ProductSection> = {
 
 export const SECTION_ORDER: ProductSection[] = ['home', 'history', 'prep', 'live', 'settings']
 
+// Pages that only make sense for the owner (Garmin connector ops, player admin,
+// data corrections, backend config). A per-player share link never sees these —
+// the whole 设置 section is owner-mode only. Used to filter nav + guard routes.
+export const OWNER_ONLY_PAGES: ProductPage[] = ['sync-quality', 'players', 'corrections', 'settings']
+
+/** Owner-mode = bare URL (no per-player token). Player links are not owner mode. */
+export function isOwnerOnlyPage(page: ProductPage): boolean {
+  return OWNER_ONLY_PAGES.includes(page)
+}
+
 export const SECTION_LABELS: Record<ProductSection, string> = {
   home: '概览',
   history: '历史',

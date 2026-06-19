@@ -54,17 +54,21 @@ function SectionIcon({ section }: { section: ProductSection }): ReactElement {
 interface AppSidebarProps {
   activePage: ProductPage
   onNavigate: (page: ProductPage) => void
+  // Owner mode = bare URL (no per-player token). A player share link is not owner
+  // mode → the whole 设置 section (Garmin ops / admin) is hidden from it.
+  isOwnerMode?: boolean
 }
 
-export function AppSidebar({ activePage, onNavigate }: AppSidebarProps) {
+export function AppSidebar({ activePage, onNavigate, isOwnerMode = true }: AppSidebarProps) {
   const activeSection = PAGE_TO_SECTION[activePage]
+  const sections = isOwnerMode ? SECTION_ORDER : SECTION_ORDER.filter((section) => section !== 'settings')
   return (
     <nav className="app-sidebar" aria-label="主导航">
       <div className="sidebar-brand">
         <span className="sidebar-logo" aria-hidden="true" />
         AI Caddie
       </div>
-      {SECTION_ORDER.map((section) => {
+      {sections.map((section) => {
         const active = section === activeSection
         const classes = ['sidebar-item']
         if (section === 'settings') classes.push('sidebar-item--footer')

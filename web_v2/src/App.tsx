@@ -77,8 +77,10 @@ import { SettingsPage } from './components/SettingsPage'
 import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
-import type { ProductPage } from './navigation'
+import { isOwnerOnlyPage, type ProductPage } from './navigation'
 import { readAdminTokenFromUrl, readBakedAdminToken, readStoredAdminToken, writeStoredAdminToken } from './adminTokenStore'
+import { readStoredDiagnostics, writeStoredDiagnostics } from './diagnosticsStore'
+import { DiagnosticsProvider } from './diagnosticsContext'
 import { isLinkRequired, readPlayerToken } from './playerContext'
 import type {
   AnnotationCreateRequest,
@@ -134,7 +136,12 @@ export default function App() {
   // invalid/expired player link (first auth 401) flips accessDenied below.
   const playerToken = readPlayerToken()
   const linkRequired = isLinkRequired()
+  // Owner mode = bare URL (no per-player token). Players never get owner ops or
+  // the diagnostics switch. Diagnostics defaults OFF so the owner sees a clean
+  // product; it is only ever true in owner mode with the switch flipped on.
+  const isOwnerMode = !playerToken
   const [accessDenied, setAccessDenied] = useState(false)
+  const [diagnostics, setDiagnostics] = useState(() => isOwnerMode && readStoredDiagnostics())
   const [activePage, setActivePage] = useState<ProductPage>('overview')
   const [overviewState, setOverviewState] = useState<LoadState<HistoryOverviewResponse>>({ status: 'loading' })
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
@@ -512,7 +519,20 @@ export default function App() {
     }
   }
 
+  function toggleDiagnostics() {
+    setDiagnostics((on) => {
+      const next = !on
+      writeStoredDiagnostics(next)
+      return next
+    })
+  }
+
   function navigate(page: ProductPage) {
+    // Player links can't reach owner ops even if a stale state points there.
+    if (!isOwnerMode && isOwnerOnlyPage(page)) {
+      setActivePage('overview')
+      return
+    }
     if (page !== 'corrections') {
       setCorrectionTarget(null)
     }
@@ -1481,14 +1501,19 @@ export default function App() {
   }
 
   return (
-    <AppShell
-      activePage={activePage}
-      onNavigate={navigate}
-      playersAdminVisible={!playerToken && Boolean(currentAdminToken())}
-      currentPlayer={overviewState.status === 'ready' ? overviewState.data.currentPlayer ?? null : null}
-    >
-      {renderActivePage()}
-    </AppShell>
+    <DiagnosticsProvider value={diagnostics}>
+      <AppShell
+        activePage={activePage}
+        onNavigate={navigate}
+        isOwnerMode={isOwnerMode}
+        playersAdminVisible={!playerToken && Boolean(currentAdminToken())}
+        diagnostics={diagnostics}
+        onToggleDiagnostics={toggleDiagnostics}
+        currentPlayer={overviewState.status === 'ready' ? overviewState.data.currentPlayer ?? null : null}
+      >
+        {renderActivePage()}
+      </AppShell>
+    </DiagnosticsProvider>
   )
 }
 
