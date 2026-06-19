@@ -3,14 +3,18 @@ import SwiftUI
 
 public struct RecentRoundReviewView: View {
     public let package: LiveRoundPackage
+    public let apiBaseURL: URL?
+    public let adminToken: String?
 
-    public init(package: LiveRoundPackage) {
+    public init(package: LiveRoundPackage, apiBaseURL: URL? = nil, adminToken: String? = nil) {
         self.package = package
+        self.apiBaseURL = apiBaseURL
+        self.adminToken = adminToken
     }
 
     public var body: some View {
         ScrollView {
-            RecentReviewContent(package: package)
+            RecentReviewContent(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle("赛后复盘")
@@ -21,6 +25,8 @@ public struct RecentRoundReviewView: View {
 /// in the CI design-snapshot (ImageRenderer does not render ScrollView content).
 struct RecentReviewContent: View {
     let package: LiveRoundPackage
+    var apiBaseURL: URL? = nil
+    var adminToken: String? = nil
 
     var body: some View {
         VStack(spacing: 12) {
@@ -57,8 +63,15 @@ struct RecentReviewContent: View {
             if package.recentHistory.rounds.isEmpty {
                 Text("暂无缓存的最近球局").font(.subheadline).foregroundStyle(.secondary)
             } else {
+                Text("点一场看逐洞复盘 →").font(.caption2).foregroundStyle(LiveHoleStyle.green)
                 ForEach(package.recentHistory.rounds) { round in
-                    roundRow(round)
+                    NavigationLink {
+                        RoundReviewView(roundRef: round.roundId, fallbackCourseName: round.courseName, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                    } label: {
+                        roundRow(round)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.primary)
                 }
             }
         }

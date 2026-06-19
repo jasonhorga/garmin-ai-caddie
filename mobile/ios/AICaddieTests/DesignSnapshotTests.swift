@@ -162,6 +162,28 @@ final class DesignSnapshotTests: XCTestCase {
         """
         let prepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepJSON.utf8))
         try captureScreen(VStack { HoleImageMapView(hole: prepHole).frame(height: 460) }.padding(24), named: "hole-map")
+
+        // 单场复盘: hole-by-hole scorecard + score strip + phase summary + graceful missing-data,
+        // rendered from a round-detail fixture (mirrors /api/v2/history/rounds/{ref}).
+        let roundJSON = """
+        {"roundRef":"r1","found":true,"title":"Fixture Links",\
+        "round":{"courseName":"Fixture Links","date":"2026-05-20","score":81,"par":72,"toPar":9,"holesCompleted":9,"confidence":"high"},\
+        "scorecard":[\
+        {"hole":1,"par":4,"score":5,"toPar":1,"className":"bogey","putts":2,"status":"complete"},\
+        {"hole":2,"par":3,"score":3,"toPar":0,"className":"par","putts":2,"gir":true,"status":"complete"},\
+        {"hole":3,"par":5,"score":4,"toPar":-1,"className":"birdie","putts":1,"status":"complete"},\
+        {"hole":4,"par":4,"score":6,"toPar":2,"className":"double","putts":3,"fairway":"left","status":"complete"},\
+        {"hole":5,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"status":"complete"}],\
+        "phaseSummary":[\
+        {"phase":"Tee","state":"ready","primary":"5/9 fairways"},\
+        {"phase":"Putting","state":"ready","primary":"16 putts"}],\
+        "missingData":[{"label":"shot rows","state":"missing","reason":"no normalized Garmin shot rows for this round"}]}
+        """
+        let roundDetail = try JSONDecoder().decode(RoundDetail.self, from: Data(roundJSON.utf8))
+        try captureScreen(
+            RoundReviewContent(detail: roundDetail, isLoading: false, errorText: nil, fallbackCourseName: "Fixture Links"),
+            named: "round-review"
+        )
     }
 
     @MainActor

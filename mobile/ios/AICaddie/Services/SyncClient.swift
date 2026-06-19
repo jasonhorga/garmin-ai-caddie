@@ -172,6 +172,19 @@ public final class SyncClient {
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
     }
 
+    /// Single-round 复盘 detail (`GET /api/v2/history/rounds/{ref}`): hole-by-hole scorecard +
+    /// phase summary + graceful missing-data. Used by RoundReviewView when the player taps a round.
+    public func fetchRoundDetail(roundRef: String) async throws -> RoundDetail {
+        let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
+        var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)"))
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(RoundDetail.self, from: data)
+    }
+
     public func fetchCoursePrep(globalId: Int, render: Bool = true) async throws -> CoursePrepResponse {
         var url = endpointURL("/api/v2/courses/\(globalId)/prep")
         if !render {
