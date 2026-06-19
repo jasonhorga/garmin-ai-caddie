@@ -92,7 +92,10 @@ struct HoleDistanceHeader: View {
             Text("第 \(holeNumber) 洞 · Par \(par)").font(.title2.weight(.bold))
             HStack(spacing: 10) {
                 HeaderStat(value: toPinYards.map(String.init) ?? "—", label: "到旗杆(码)")
-                HeaderStat(value: carryFrontYards.map(String.init) ?? "—", label: "过前缘")
+                // 过前缘只在有数据时显示,空着写「—」是噪声(round-10 反馈)。
+                if let carryFrontYards {
+                    HeaderStat(value: String(carryFrontYards), label: "过前缘")
+                }
                 HeaderStat(value: toParText, label: "本洞")
             }
         }

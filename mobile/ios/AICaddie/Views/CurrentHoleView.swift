@@ -100,9 +100,14 @@ public struct CurrentHoleView: View {
                     // Caddie recommendation — the focal card. Embeds the proven
                     // CaddiePlanView for the decision content; chrome is redesigned.
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("球童建议 · \(strategyModeLabel(selectedStrategyMode))")
+                        Text("球童建议")
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(LiveHoleStyle.green)
+                        // 策略开关移到球童卡上(原埋在「更多调整」里):护分/标准/进攻直接切,建议随即重算。
+                        Picker("策略", selection: $selectedStrategyMode) {
+                            ForEach(strategyModeOptions, id: \.self) { Text(strategyModeLabel($0)).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
                         if let caddieDecision {
                             CaddiePlanView(response: caddieDecision, hazards: caddiePlanHazards)
                         } else {
@@ -147,9 +152,6 @@ public struct CurrentHoleView: View {
                         VStack(spacing: 10) {
                             Picker("打法", selection: $selectedShotType) {
                                 ForEach(shotTypeOptions, id: \.self) { Text(zhShotType($0)).tag($0) }
-                            }
-                            Picker("策略", selection: $selectedStrategyMode) {
-                                ForEach(strategyModeOptions, id: \.self) { Text(strategyModeLabel($0)).tag($0) }
                             }
                             Picker("球位", selection: $selectedLie) {
                                 ForEach(lieOptions, id: \.self) { Text(zhLie($0)).tag($0) }
@@ -211,6 +213,9 @@ public struct CurrentHoleView: View {
         }
         .onChange(of: liveRoundState) { _, newState in
             applyRestoredStateIfNeeded(newState)
+        }
+        .onChange(of: selectedStrategyMode) { _, _ in
+            Task { await loadCaddieDecision() }
         }
     }
 
@@ -396,13 +401,13 @@ public struct CurrentHoleView: View {
         guard let caddieClient else {
             caddieDecision = makeOfflineCaddieDecision()
             caddieErrorMessage = caddieDecision == nil
-                ? "No cached caddie decision is available for this hole."
-                : "Offline caddie using cached package."
+                ? "本洞暂无缓存的球童建议。"
+                : "离线模式 · 使用已缓存的球局方案。"
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             return
         }
         guard let request = makeCaddieDecisionRequest() else {
-            caddieErrorMessage = "No caddie context seed for this hole."
+            caddieErrorMessage = "本洞缺少球童上下文,暂无法给建议。"
             sendWatchState(decision: nil, offlineOption: selectedOfflineOption)
             return
         }
@@ -419,9 +424,9 @@ public struct CurrentHoleView: View {
         } catch {
             if let offlineDecision = makeOfflineCaddieDecision() {
                 caddieDecision = offlineDecision
-                caddieErrorMessage = "Network caddie unavailable. Using cached offline decision."
+                caddieErrorMessage = "联网球童暂不可用 · 已切换到离线缓存建议。"
             } else {
-                caddieErrorMessage = "Caddie decision unavailable. Cached plan remains visible."
+                caddieErrorMessage = "球童建议暂取不到 · 仍显示已缓存的方案。"
             }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         }
@@ -481,7 +486,8 @@ public struct CurrentHoleView: View {
         score = restoredHoleState.score
         puttCount = restoredHoleState.putts
         penaltyCount = restoredHoleState.penaltyCount
-        selectedClub = restoredHoleState.selectedClub
+        // Normalise to the same zhClubName the picker uses (init does this) so the ClubStrip highlight matches.
+        selectedClub = zhClubName(restoredHoleState.selectedClub)
         selectedShotType = restoredHoleState.selectedShotType
         selectedStrategyMode = restoredHoleState.selectedStrategyMode
         selectedLie = restoredHoleState.lie

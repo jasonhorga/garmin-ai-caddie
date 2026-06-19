@@ -86,10 +86,11 @@ final class DesignSnapshotTests: XCTestCase {
                 option("layup", "放置短切", "9i", 120, 1),
             ],
             selectedOptionId: "stock",
-            hazards: [
-                CaddiePlanHazard(id: "b0", icon: "🏖", label: "沙坑", detail: "138–150m"),
-                CaddiePlanHazard(id: "w0", icon: "💧", label: "水域", detail: "越线 175m"),
-            ]
+            // round-10: multiple bunkers are numbered + sorted near→far (CaddiePlanHazard.from), so
+            // three avoid zones aren't all just "沙坑". Build via .from to exercise that real logic.
+            hazards: CaddiePlanHazard.from(
+                CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[210, 225], [138, 150]])
+            )
         )
         .padding(14)
         .frame(width: 390)
@@ -200,15 +201,23 @@ final class DesignSnapshotTests: XCTestCase {
         "scoring":{"outcomes":{"eagleOrBetter":1,"birdie":40,"par":300,"bogey":250,"doubleOrWorse":120},\
         "scoreBands":[{"label":"80s","count":42},{"label":"90s","count":171},{"label":"100+","count":93}],\
         "byPar":[{"par":3,"averageToPar":0.62,"parOrBetterPct":38},{"par":4,"averageToPar":0.44,"parOrBetterPct":42},{"par":5,"averageToPar":0.21,"parOrBetterPct":55},{"par":6,"averageToPar":1.1,"parOrBetterPct":10}],\
-        "putting":{"averagePutts":33.1,"threePutts":4}},\
+        "putting":{"averagePutts":1.9,"averagePuttsPerRound":32.5,"roundsWithPutts":120,"threePutts":240}},\
         "time":{"byQuarter":[{"key":"2026-Q2","roundCount":12,"average18":92.4,"bestScore":84,"outcomes":{"birdie":14,"doubleOrWorse":31}}]},\
-        "courses":[{"courseKey":"bk","courseName":"北京天竺黑骑士","roundCount":128,"average18":91.0,"bestScore":82,"worstScore":99,"nineBreakdown":[{"label":"北京天竺黑骑士 ~ C/A","roundCount":58,"average":89.0,"bestScore":82},{"label":"北京天竺黑骑士 ~ B/C","roundCount":40,"average":92.0,"bestScore":85},{"label":"北京天竺黑骑士 ~ A/B","roundCount":30,"average":93.0,"bestScore":88}]}],\
+        "courses":[{"courseKey":"bk","courseName":"北京天竺黑骑士","roundCount":128,"average18":91.0,"bestScore":82,"worstScore":99,\
+        "rounds":[{"roundId":"r-901","date":"2026-06-11","score":89,"toPar":17,"holesCompleted":18,"nine":"北京天竺黑骑士 ~ C/A"},\
+        {"roundId":"r-880","date":"2026-05-28","score":86,"toPar":14,"holesCompleted":18,"nine":"北京天竺黑骑士 ~ B/C"},\
+        {"roundId":"r-855","date":"2026-05-12","score":94,"toPar":22,"holesCompleted":18,"nine":"北京天竺黑骑士 ~ A/B"}],\
+        "nineBreakdown":[{"label":"北京天竺黑骑士 ~ C/A","roundCount":58,"average":89.0,"bestScore":82},{"label":"北京天竺黑骑士 ~ B/C","roundCount":40,"average":92.0,"bestScore":85},{"label":"北京天竺黑骑士 ~ A/B","roundCount":30,"average":93.0,"bestScore":88}]}],\
         "clubs":[{"club":"Driver","sampleCount":120,"median":210,"p10":195,"p90":225,"consistency":"high","distanceTrend":"stable"},\
         {"club":"7I","sampleCount":90,"median":138,"p10":130,"p90":146,"consistency":"high","distanceTrend":"up"}],\
         "diagnosis":{"topIssue":"double_or_worse","issueTrends":[{"issue":"tee_miss","direction":"worsening","estimatedStrokesLost":1.2},{"issue":"three_putt","direction":"improving","estimatedStrokesLost":-0.6}]}}
         """
         let mobileStats = try JSONDecoder().decode(MobileStats.self, from: Data(statsJSON.utf8))
         try captureScreen(StatsContent(stats: mobileStats, isLoading: false, errorText: nil), named: "stats")
+        // 球场钻取(round-10):各九洞组合 + 所有比赛(时间·成绩,点单场看复盘)。
+        if let course = mobileStats.courses.first {
+            try captureScreen(NavigationStack { CourseStatsDetailView(course: course) }, named: "course-detail")
+        }
 
         // 球杆设置: defaults to the player's REAL Garmin bag (real names, incl 自定义 50/54/58 挖起杆)
         // resolved from /club/player + /club/types, with history distances (码).

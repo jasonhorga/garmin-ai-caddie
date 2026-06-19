@@ -126,7 +126,11 @@ public struct StatsByPar: Codable, Equatable, Identifiable {
 
 public struct StatsPutting: Codable, Equatable {
     public let totalPutts: Int?
+    /// Per-HOLE average (~1.9). The 统计 KPI shows per-ROUND via `averagePuttsPerRound`.
     public let averagePutts: Double?
+    /// Per-ROUND putts (~33) — what 场均推杆 should display.
+    public let averagePuttsPerRound: Double?
+    public let roundsWithPutts: Int?
     public let threePutts: Int?
 }
 
@@ -165,6 +169,19 @@ public struct StatsCourse: Codable, Equatable, Identifiable {
     public let recentRoundId: String?
     /// Per nine-combo breakdown (黑骑士 ~ A / ~ C/A …) shown when you drill into a course.
     public let nineBreakdown: [StatsNineBreakdown]?
+    /// Every round at this course (newest→oldest) for the drill-in list: 时间·成绩, tap → 单场复盘.
+    public let rounds: [StatsCourseRound]?
+}
+
+/// One round in a course's drill-in list (date + score; opens 单场复盘 on tap).
+public struct StatsCourseRound: Codable, Equatable, Identifiable {
+    public var id: String { roundId ?? "\(date)-\(score ?? 0)" }
+    public let roundId: String?
+    public let date: String
+    public let score: Int?
+    public let holesCompleted: Int?
+    public let toPar: Int?
+    public let nine: String?
 }
 
 public struct StatsNineBreakdown: Codable, Equatable, Identifiable {

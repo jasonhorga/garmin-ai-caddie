@@ -41,17 +41,21 @@ public enum AICaddieDesignTokens {
         }
     }
 
+    /// Colour a strategy/route by SEMANTICS, matching both the offline option ids (safe/stock/attack)
+    /// and the live decision route ids (conservative_layup / stock_line / aggressive_line) — the old
+    /// exact-match switch left every live route neutral.
     public static func strategyColor(_ strategy: String) -> Color {
-        switch strategy.lowercased() {
-        case "safe", "protect", "protect_score":
-            return par
-        case "attack":
+        let s = strategy.lowercased()
+        if s.contains("attack") || s.contains("aggressive") || s.contains("go_for") {
             return eagle
-        case "stock":
-            return birdie
-        default:
-            return neutral
         }
+        if s.contains("safe") || s.contains("conservative") || s.contains("protect") || s.contains("layup") || s.contains("lay_up") {
+            return par
+        }
+        if s.contains("stock") || s.contains("standard") || s.contains("neutral") {
+            return birdie
+        }
+        return neutral
     }
 
     public static func riskColor(_ riskScore: Double) -> Color {
