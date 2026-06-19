@@ -11,6 +11,7 @@ import type {
 } from '../types'
 import { fetchCaddieContext, fetchCaddieDecision, fetchCoursePrep, fetchHistoryRoundDetail } from '../api'
 import { LivePage } from './LivePage'
+import { DiagnosticsProvider } from '../diagnosticsContext'
 
 vi.mock('../api', () => ({
   fetchCoursePrep: vi.fn(),
@@ -165,7 +166,12 @@ function renderLive(overrides: Partial<ComponentProps<typeof LivePage>> = {}) {
     },
     ...overrides,
   }
-  const view = render(<LivePage {...props} />)
+  // Owner power-user surface (raw refs, clickable scorecard cells) is diagnostics-only now.
+  const view = render(
+    <DiagnosticsProvider value={true}>
+      <LivePage {...props} />
+    </DiagnosticsProvider>,
+  )
   return { onSearchCourses, onRequestDecision, view }
 }
 
@@ -462,7 +468,7 @@ describe('LivePage 最近回放 detail', () => {
     await userEvent.click(liveTabs().getByRole('button', { name: '最近回放' }))
     expect(await screen.findByText('详情 900001')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Open hole 1 detail 900001:1' }))
+    await userEvent.click(screen.getByRole('button', { name: '第1洞详情' }))
     expect(onSelectRef).toHaveBeenCalledWith('900001:1')
 
     await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
