@@ -201,6 +201,16 @@ final class DesignSnapshotTests: XCTestCase {
         """
         let mobileStats = try JSONDecoder().decode(MobileStats.self, from: Data(statsJSON.utf8))
         try captureScreen(StatsContent(stats: mobileStats, isLoading: false, errorText: nil), named: "stats")
+
+        // 球杆设置: Garmin-standard catalog with the configured bag checked + history distances (码).
+        let bagProfiles = [
+            ClubProfile(clubName: "Driver", sampleSize: 120, medianM: 210, p10M: 195, p90M: 225),
+            ClubProfile(clubName: "5I", sampleSize: 60, medianM: 165, p10M: 158, p90M: 172),
+            ClubProfile(clubName: "7I", sampleSize: 90, medianM: 140, p10M: 132, p90M: 148),
+            ClubProfile(clubName: "PW", sampleSize: 70, medianM: 110, p10M: 102, p90M: 118),
+        ]
+        let bag: Set<String> = ["一号木", "三号木", "五号铁", "七号铁", "九号铁", "P 杆", "S 杆", "推杆"]
+        try captureScreen(ClubSettingsContent(selected: bag, clubProfiles: bagProfiles), named: "club-settings")
     }
 
     @MainActor

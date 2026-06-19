@@ -267,6 +267,11 @@ public struct CurrentHoleView: View {
             if let existing = best[name], existing.sampleSize >= profile.sampleSize { continue }
             best[name] = profile
         }
+        // Restrict to the player's configured bag (球杆设置) when set — so clubs they don't actually
+        // carry (a stray mis-tagged "二号小鸡腿") never appear. Unconfigured → all data-backed clubs.
+        if let bag = ClubBagStore.bag() {
+            best = best.filter { bag.contains($0.key) }
+        }
         // Only the 3 clubs most relevant to THIS shot: nearest to the to-pin distance when known
         // (so a 150-yard approach never offers chip/putt), else the 3 longest. Always keep the
         // currently-selected club visible so the highlight isn't lost.
