@@ -5,10 +5,11 @@ import threading
 from pathlib import Path
 
 from ai_caddie.history import OWNER_ID
+from ai_caddie.mobile_stats import build_mobile_stats
 from ai_caddie.stats_cache import cached_build_history_stats, cached_load_history_data
 
 from .data_source import load_history_data_for_mode
-from .models import HistoryStatsResponse, HistoryStatsSummaryResponse
+from .models import HistoryStatsResponse, HistoryStatsSummaryResponse, MobileStatsResponse
 
 DECISION_AUDIT_ROOT = Path(".")
 
@@ -38,6 +39,19 @@ def load_history_summary_response(*, player_id: str = OWNER_ID) -> HistoryStatsS
         if isinstance(candidate, str):
             top_issue = candidate
     return HistoryStatsSummaryResponse(schema="ai-caddie-history-summary-v1", summary=stats.summary, topIssue=top_issue)
+
+
+def load_mobile_stats_response(*, player_id: str = OWNER_ID) -> MobileStatsResponse:
+    """Compact 统计 payload for the phone: the deep / periodic / per-course / per-club slices of the
+    full (window=all) stats build, minus the giant per-hole table and heavy refs. Reuses the same
+    cached build as ``/history/stats`` (a hit after warm) — calling ``cached_build_history_stats``
+    directly returns the raw dict so ``build_mobile_stats`` slices it with no second Pydantic pass.
+    """
+    data, mode = load_history_data_for_mode(player_id=player_id)
+    stats = cached_build_history_stats(
+        data, data_mode=mode, player_id=player_id, decision_audit_root=DECISION_AUDIT_ROOT, window="all"
+    )
+    return MobileStatsResponse(**build_mobile_stats(stats))
 
 
 def warm_stats_cache() -> None:

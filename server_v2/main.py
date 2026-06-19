@@ -30,6 +30,7 @@ from .history_drilldown import load_history_drilldown_response
 from .history_stats import (
     load_history_stats_response,
     load_history_summary_response,
+    load_mobile_stats_response,
     warm_stats_cache_in_background,
 )
 from .geometry import (
@@ -87,6 +88,7 @@ from .models import (
     HistoryRoundsResponse,
     HistoryStatsResponse,
     HistoryStatsSummaryResponse,
+    MobileStatsResponse,
     LiveRoundEventBatchRequest,
     LiveRoundEventBatchResponse,
     LiveRoundEventAckRequest,
@@ -437,6 +439,15 @@ def history_summary(
     # 概览 landing: the few summary numbers + top issue, sliced from the cached
     # full build so the home does not download the ~20MB /history/stats payload.
     return load_history_summary_response(player_id=player_id)
+
+
+@app.get("/api/v2/history/stats/mobile", response_model=MobileStatsResponse)
+def history_stats_mobile(
+    player_id: str = Depends(current_player_id),
+) -> MobileStatsResponse:
+    # Compact 统计 payload for the phone: the deep / periodic / per-course / per-club slices of the
+    # full build, without the ~11MB per-hole table — sliced from the same cached stats (cache hit).
+    return load_mobile_stats_response(player_id=player_id)
 
 
 @app.get("/api/v2/history/drilldown/{source_ref}", response_model=HistoryDrilldownResponse)

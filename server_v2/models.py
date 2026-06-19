@@ -374,6 +374,27 @@ class HistoryStatsSummaryResponse(BaseModel):
     topIssue: str | None = None
 
 
+class MobileStatsResponse(BaseModel):
+    """Compact mobile 统计 payload: the deep / periodic / per-course / per-club slices of the full
+    stats blob, WITHOUT the giant per-hole table (``holes[]``) or the heavy per-row evidence refs —
+    hundreds of KB instead of ~11MB. Nested sections are passed through as dicts/lists so no field
+    is silently dropped (the MobileCourseOption regression: a typed model stripping enriched fields)."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-mobile-stats-v1"] = Field(alias="schema")
+    dataMode: str | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+    time: dict[str, Any] = Field(default_factory=dict)
+    scoring: dict[str, Any] = Field(default_factory=dict)
+    records: dict[str, Any] = Field(default_factory=dict)
+    courses: list[dict[str, Any]] = Field(default_factory=list)
+    clubs: list[dict[str, Any]] = Field(default_factory=list)
+    diagnosis: dict[str, Any] = Field(default_factory=dict)
+    playerProfile: dict[str, Any] = Field(default_factory=dict)
+    dataQuality: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class HistoryDrilldownResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
