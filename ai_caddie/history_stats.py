@@ -2119,6 +2119,13 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                 "totalPutts": sum(putts),
                 "holesWithPutts": len(putts),
                 "averagePutts": average(putts),
+                # Per-ROUND putts (what the 场均推杆 KPI should show, ~33) — averagePutts above is
+                # per-HOLE (~1.9). Divide by rounds that actually have putt data (mix of 9/18-hole),
+                # not by 18, so 9-hole rounds aren't double-counted.
+                "averagePuttsPerRound": (
+                    round(sum(putts) / len({ref.split(":")[0] for ref in putt_refs}), 1) if putt_refs else None
+                ),
+                "roundsWithPutts": len({ref.split(":")[0] for ref in putt_refs}),
                 "threePutts": len(three_putt_refs),
                 "holeRefs": putt_refs,
                 "threePuttRefs": three_putt_refs,
@@ -2381,6 +2388,16 @@ def _course_toughest_holes(
     )
 
 
+def _canonical_nine_label(course_name: str) -> str:
+    """The nine-combo label after the "<canon> ~ " prefix, with the separator normalized so
+    "C+A" (merged same-day halves) and "C/A" (single scorecard) collapse to one combo. Front/back
+    ORDER is kept (A/C ≠ C/A — different starting nine). Empty string if there's no nine suffix."""
+    for sep in (" ~ ", " ~", "~"):
+        if sep in course_name:
+            return course_name.split(sep, 1)[1].strip().replace("+", "/")
+    return ""
+
+
 def _courses(
     data: HistoryData,
     annotations: list[dict[str, Any]] | None = None,
@@ -2402,11 +2419,11 @@ def _courses(
         ]
         issue_profile = _course_issue_profile(rows, effective_shots, annotations, report_records)
         difficulty = _difficulty_adjusted_stats(rows)
-        # Per nine-combo breakdown (黑骑士 ~ A / ~ C/A …) so the course row aggregates by BASE course
-        # but a drill-in can still show "how many times each nine".
+        # Per nine-combo breakdown, grouped by a CANONICAL label so "C+A" and "C/A" (same combo,
+        # different source) don't show as two rows. Falls under "全部" when a round has no nine suffix.
         nine_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for combo_row in rows_sorted:
-            nine_groups[str(combo_row.get("course") or combo_row.get("courseName") or "")].append(combo_row)
+            nine_groups[_canonical_nine_label(str(combo_row.get("course") or "")) or "全部"].append(combo_row)
         nine_breakdown = []
         for label, combo_rows in nine_groups.items():
             combo_scores = [int(r["strokes"]) for r in combo_rows if r.get("strokes") is not None]
@@ -2420,6 +2437,20 @@ def _courses(
                 }
             )
         nine_breakdown.sort(key=lambda r: (-r["roundCount"], r["label"]))
+        # Compact per-round list for the course drill-in (date + score, tap → that round). Tiny.
+        course_rounds = [
+            {
+                "roundId": _round_id(r),
+                "date": str(r.get("date") or ""),
+                "score": int(r["strokes"]) if r.get("strokes") is not None else None,
+                "holesCompleted": int(r.get("holesCompleted") or 0),
+                "toPar": (int(r["strokes"]) - int(r["par"]))
+                if (r.get("strokes") is not None and r.get("par") is not None)
+                else None,
+                "nine": _canonical_nine_label(str(r.get("course") or "")),
+            }
+            for r in rows_sorted
+        ]
         out.append(
             _with_aggregate_contract(
                 {
@@ -2430,6 +2461,7 @@ def _courses(
                     ),
                     "roundCount": len(rows),
                     "nineBreakdown": nine_breakdown,
+                    "rounds": course_rounds,
                     "average18": average(scores18),
                     "bestScore": min(scores18) if scores18 else None,
                     "worstScore": max(scores18) if scores18 else None,
@@ -3611,11 +3643,18 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
 def _score_trend(data: HistoryData, limit: int = 20) -> dict[str, Any]:
     """Last N full (18-hole) rounds as a date→score series for the trend line chart (oldest→newest),
     with per-round birdie/par/bogey/double counts for an optional outcome-trend view."""
-    rows = [
-        row
-        for row in data.rounds
-        if row.get("date") and row.get("holesCompleted") == 18 and row.get("strokes") is not None
-    ]
+    def _is_trendable(row: dict[str, Any]) -> bool:
+        # Only complete, sane 18-hole rounds — a +50 "round" (data error / abandoned) or one with
+        # unplayed holes would spike the line. (Real bad rounds ≤ +45 are kept honestly.)
+        if not row.get("date") or row.get("holesCompleted") != 18 or row.get("strokes") is None:
+            return False
+        holes = row.get("holes") or []
+        if sum(1 for hole in holes if hole.get("strokes") is not None) < 18:
+            return False
+        par = row.get("par")
+        return par is None or int(row["strokes"]) - int(par) <= 45
+
+    rows = [row for row in data.rounds if _is_trendable(row)]
     rows.sort(key=lambda row: str(row.get("date") or ""))
     points: list[dict[str, Any]] = []
     for row in rows[-limit:]:
@@ -3623,15 +3662,18 @@ def _score_trend(data: HistoryData, limit: int = 20) -> dict[str, Any]:
         par = row.get("par")
         birdies = pars = bogeys = doubles = 0
         # Per-hole strokes are present but per-hole `par` usually is NOT — fall back to the round's
-        # `holePars` string (one digit per hole, in hole order) so 抓鸟/帕/柏忌 counts aren't all 0.
+        # `holePars` string keyed by hole NUMBER (not list position, which miscounts if a hole is
+        # missing) so 抓鸟/帕/柏忌 counts are right.
         hole_pars = str(row.get("holePars") or "")
-        holes = sorted(row.get("holes") or [], key=lambda hole: int(hole.get("number") or 0))
-        for index, hole in enumerate(holes):
+        for hole in row.get("holes") or []:
             strokes = hole.get("strokes")
+            number = hole.get("number")
+            if strokes is None or number is None:
+                continue
             hole_par = hole.get("par")
-            if hole_par is None and index < len(hole_pars) and hole_pars[index].isdigit():
-                hole_par = int(hole_pars[index])
-            if strokes is None or hole_par is None:
+            if hole_par is None:
+                hole_par = _par_from_string(hole_pars, int(number))
+            if hole_par is None:
                 continue
             delta = int(strokes) - int(hole_par)
             if delta <= -1:
