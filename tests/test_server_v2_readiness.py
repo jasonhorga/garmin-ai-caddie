@@ -642,8 +642,15 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(seed_quality["seedCount"], 18)
         self.assertEqual(seed_quality["selectedOptionCount"], 18)
         self.assertEqual(seed_quality["optionCount"], 54)
-        self.assertEqual(seed_quality["selectedConfidenceCounts"]["medium"], 18)
-        self.assertEqual(seed_quality["minSelectedCoveragePct"], 20.0)
+        # Distance-aware club selection (mobile_live._shot_option_clubs) now picks the club that fits
+        # each hole's distance rather than always the longest, so some holes (e.g. par 3 / short
+        # approaches) select a less-sampled club → 14 medium + 4 low (was a flat 18 medium when every
+        # hole selected the same long, well-sampled club). Counts still sum to the 18 selected options.
+        selected_conf = seed_quality["selectedConfidenceCounts"]
+        self.assertEqual(selected_conf["medium"], 14)
+        self.assertEqual(selected_conf["low"], 4)
+        self.assertEqual(sum(selected_conf.values()), 18)
+        self.assertEqual(seed_quality["minSelectedCoveragePct"], 10.0)
         self.assertEqual(seed_quality["state"], "degraded")
         readiness_checks = {row["label"]: row for row in mobile_package["evidence"]["readinessChecks"]}
         self.assertEqual(set(readiness_checks), {"source", "geometry", "weather", "club_profiles", "recent_history", "caddie_seeds"})
