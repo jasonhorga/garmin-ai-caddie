@@ -1644,6 +1644,11 @@ def build_live_round_package(
         for row in stats["clubs"]
         if row.get("club") and row.get("median") is not None
     ]
+    # Caddie options only from clubs the player actually carries (real Garmin bag); falls back to the
+    # full list if the bag is unknown or the intersection is too small (see club_bag.restrict_to_bag).
+    from ai_caddie.club_bag import restrict_to_bag
+
+    club_profiles = restrict_to_bag(club_profiles, lambda c: c.get("clubName"))
     if not club_profiles:
         club_profiles = [{"clubName": "8I", "sampleSize": 0, "median_m": 140.0, "p10_m": 130.0, "p90_m": 150.0}]
     ready_holes = sum(1 for hole in holes if hole["geometryCoverage"] == "ready")

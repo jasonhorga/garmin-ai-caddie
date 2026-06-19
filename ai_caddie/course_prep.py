@@ -167,7 +167,12 @@ def club_ladder(path=None) -> list[tuple[str, int]]:
                 }
     except Exception:
         pass
-    return sorted(ladder.items(), key=lambda kv: -kv[1])
+    ordered = sorted(ladder.items(), key=lambda kv: -kv[1])
+    # Only recommend clubs the player actually carries (real Garmin bag), so a stale mis-tagged
+    # club from shot history (e.g. a "2 Hybrid" no longer in the bag) never gets suggested.
+    from ai_caddie.club_bag import restrict_to_bag
+
+    return restrict_to_bag(ordered, lambda kv: kv[0])
 
 
 def club_for(distance_m: float, ladder, *, exclude=()):
