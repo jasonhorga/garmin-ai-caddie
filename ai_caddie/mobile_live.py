@@ -82,7 +82,19 @@ def _hole_issue_label_zh(issue: dict[str, Any]) -> str:
 
 
 def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[str, Any]) -> dict[str, Any]:
+    from ai_caddie.history import canonical_course_name, course_key as _course_key
+
     course_key = str(round_row.get("courseKey") or "")
+    # Course-mode (prep) packages carry a synthetic "gid_<id>" key that never matches the canonical
+    # "c_<hash>" keys in stats — which is why 球场近况 showed 0 场次 and 球洞规律 all 0 次. Resolve the
+    # real BASE course (collapsing the nine combo) so the panel counts the whole course, e.g. all of
+    # 黑骑士 not just 黑骑士 ~ A, and shows the base course name (not the "~ A" combo label).
+    display_name = str(round_row.get("course") or round_row.get("courseName") or "")
+    base_name = str(round_row.get("courseCanonical") or "") or (canonical_course_name(display_name) if display_name else "")
+    # Only the course-mode synthetic key needs remapping; a real history key (c_<hash> or a fixture's
+    # plain key) already matches stats and must be left alone.
+    if (course_key.startswith("gid_") or not course_key) and base_name:
+        course_key = _course_key(base_name)
     course_stats = next(
         (row for row in stats["courses"] if course_key and str(row.get("courseKey") or "") == course_key),
         {},
@@ -157,6 +169,7 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
     return {
         "course": {
             "courseKey": course_key,
+            "courseName": base_name or display_name or "Unknown course",
             "roundCount": int(course_stats.get("roundCount") or 0),
             "averageScore": course_stats.get("average18"),
             "bestScore": course_stats.get("bestScore"),

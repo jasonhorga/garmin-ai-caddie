@@ -124,6 +124,24 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(phases["Putting"]["metrics"]["totalPutts"], 8)
         self.assertEqual(phases["Penalty / Damage"]["metrics"]["doubleOrWorseHoles"], 0)
 
+    def test_phase_summary_falls_back_to_round_level_aggregates(self) -> None:
+        # round-9 C3: synced rounds carry round-level fh/frec/gir/putts but no per-hole gir/fairway —
+        # the phase metrics must use the round aggregates so GIR/球道/推杆 don't render 0/0.
+        round_row = {
+            "id": "800001", "date": "2026-06-01", "course": "黑骑士 ~ A", "courseKey": "c_x",
+            "courseId": 31795, "holesCompleted": 9, "strokes": 46, "par": 36, "holePars": "434444445",
+            "fh": 2, "frec": 7, "gir": 3, "putts": 17,
+            "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],  # no per-hole gir/fairway/putts
+        }
+        data = HistoryData(raw_rounds=[round_row], rounds=[round_row], shots=[])
+        phases = {row["phase"]: row for row in build_history_round_detail(data, "800001")["phaseSummary"]}
+        self.assertEqual(phases["Tee"]["metrics"]["fairwaysHit"], 2)
+        self.assertEqual(phases["Tee"]["metrics"]["fairwaysRecorded"], 7)
+        self.assertEqual(phases["Approach"]["metrics"]["gir"], 3)
+        self.assertEqual(phases["Approach"]["metrics"]["girRecorded"], 9)  # holes played
+        self.assertEqual(phases["Putting"]["metrics"]["totalPutts"], 17)
+        self.assertIn("GIR", phases["Approach"]["primary"])
+
     def test_round_detail_accepts_round_alias_and_attaches_round_annotations(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

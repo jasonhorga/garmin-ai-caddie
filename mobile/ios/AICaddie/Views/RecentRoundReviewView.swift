@@ -40,7 +40,8 @@ struct RecentReviewContent: View {
     private var courseFormCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("球场近况").font(.caption).foregroundStyle(.secondary)
-            Text(package.course.name).font(.title3.weight(.bold))
+            // Base course name (黑骑士), not the "~ A" nine combo — 场次/球洞规律 span the whole course.
+            Text(courseHistory.courseName ?? package.course.name).font(.title3.weight(.bold))
             HStack(spacing: 10) {
                 stat("场次", "\(courseHistory.roundCount)")
                 if let averageScore = courseHistory.averageScore {

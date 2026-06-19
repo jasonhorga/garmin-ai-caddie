@@ -751,6 +751,7 @@ class MobileContractTests(unittest.TestCase):
         package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")
 
         self.assertEqual(package["recentHistory"]["course"]["courseKey"], "black_knight")
+        self.assertTrue(package["recentHistory"]["course"].get("courseName"))  # base course name for 球场近况 (C1)
         self.assertEqual(package["recentHistory"]["course"]["roundCount"], 2)
         self.assertEqual(package["recentHistory"]["course"]["recentScores"], [77, 95])
         self.assertEqual(package["recentHistory"]["course"]["roundIds"], ["900001", "900002"])

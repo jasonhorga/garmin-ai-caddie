@@ -416,6 +416,8 @@ public struct RecentRoundSummary: Codable, Equatable, Identifiable {
 
 public struct CourseRecentHistory: Codable, Equatable {
     public let courseKey: String
+    /// The BASE course name (e.g. "黑骑士"), collapsing the nine combo — counts span the whole course.
+    public let courseName: String?
     public let roundCount: Int
     public let averageScore: Double?
     public let bestScore: Int?

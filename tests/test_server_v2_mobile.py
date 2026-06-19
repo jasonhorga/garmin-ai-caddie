@@ -26,6 +26,24 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(_hole_issue_label_zh({"label": "approach short"}), "approach short")
         self.assertEqual(_hole_issue_label_zh({"issue": "weird_unknown_token"}), "weird_unknown_token")
 
+    def test_recent_history_resolves_synthetic_course_key(self) -> None:
+        # round-9 C1/C2: a course-mode package carries a synthetic "gid_<id>" courseKey that used to
+        # match nothing → 球场近况 0 场次 + 球洞规律 全 0 次. It must resolve to the BASE course.
+        from ai_caddie.history import canonical_course_name, course_key
+        from ai_caddie.mobile_live import _recent_history
+
+        base = course_key(canonical_course_name("黑骑士 ~ A"))
+        stats = {
+            "courses": [{"courseKey": base, "roundCount": 5, "average18": 90.0, "bestScore": 80,
+                         "worstScore": 100, "roundIds": ["r1", "r2"]}],
+            "holes": [{"courseKey": base, "hole": 1, "sampleCount": 5, "averageToPar": 0.4, "repeatedIssues": []}],
+        }
+        round_row = {"courseKey": "gid_31795", "course": "黑骑士 ~ A", "holes": [{"number": 1, "par": 4}]}
+        out = _recent_history(HistoryData(raw_rounds=[], rounds=[], shots=[]), stats, round_row)
+        self.assertEqual(out["course"]["roundCount"], 5)        # was 0 before the fix
+        self.assertEqual(out["course"]["courseName"], "黑骑士")  # base name, not "~ A"
+        self.assertEqual(out["holes"][0]["sampleCount"], 5)     # was 0 before the fix
+
     def test_mobile_course_options_list_recent_courses_for_start_round(self) -> None:
         client = TestClient(app)
 
