@@ -147,7 +147,22 @@ def _effective_score_data(data: HistoryData, annotations: list[dict[str, Any]] |
     return HistoryData(raw_rounds=data.raw_rounds, rounds=rounds, shots=data.shots)
 
 
+# Memo for one build pass — `build_history_stats` recomputes effective shots ~7× (once per section)
+# over ~21K shots (~30s wasted). Keyed by object identity (HistoryData isn't hashable); CLEARED at
+# the start of every build so stale cross-build ids never leak and concurrent builds at worst recompute
+# (correct, just slower) rather than serve another build's shots.
+_EFFECTIVE_SHOTS_CACHE: dict[tuple[int, int], list[dict[str, Any]]] = {}
+
+
+def _clear_effective_shots_cache() -> None:
+    _EFFECTIVE_SHOTS_CACHE.clear()
+
+
 def _effective_shots(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    cache_key = (id(data), id(annotations))
+    cached = _EFFECTIVE_SHOTS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     club_corrections = _annotations_by_kind(annotations, "club_correction")
     lie_corrections = _annotations_by_kind(annotations, "lie_correction")
     rows = []
@@ -166,6 +181,7 @@ def _effective_shots(data: HistoryData, annotations: list[dict[str, Any]] | None
                 row["surface"] = str(lie)
                 row["_lieCorrected"] = True
         rows.append(row)
+    _EFFECTIVE_SHOTS_CACHE[cache_key] = rows
     return rows
 
 
@@ -2409,15 +2425,21 @@ def _courses(
     out = []
     total_rounds = len(data.rounds)
     effective_shots = _effective_shots(data, annotations)
+    # Bucket shots by round ONCE so each course's issue profile scans only its own shots — not all
+    # ~21K shots re-scanned per course (×71 courses ≈ 1.5M iterations, the build's biggest hotspot).
+    shots_by_round: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for shot in effective_shots:
+        shots_by_round[_shot_round_id(shot)].append(shot)
     for course_key, rows in grouped.items():
         rows_sorted = sorted(rows, key=lambda row: str(row.get("date") or ""), reverse=True)
         round_ids = [_round_id(row) for row in rows_sorted]
+        course_shots = [shot for round_id in round_ids for shot in shots_by_round.get(round_id, [])]
         scores18 = [
             int(row["strokes"])
             for row in rows
             if row.get("holesCompleted") == 18 and row.get("strokes") is not None
         ]
-        issue_profile = _course_issue_profile(rows, effective_shots, annotations, report_records)
+        issue_profile = _course_issue_profile(rows, course_shots, annotations, report_records)
         difficulty = _difficulty_adjusted_stats(rows)
         # Per nine-combo breakdown, grouped by a CANONICAL label so "C+A" and "C/A" (same combo,
         # different source) don't show as two rows. Falls under "全部" when a round has no nine suffix.
@@ -3708,6 +3730,7 @@ def build_history_stats(
     reports_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
 ) -> dict[str, Any]:
+    _clear_effective_shots_cache()  # fresh per build — memo only lives within this pass (see note above)
     annotations = list_annotations(root=annotations_root)
     weather_snapshots = list_weather_snapshots(root=weather_root)
     report_records = list_report_records(root=reports_root)
