@@ -1,0 +1,105 @@
+"""build_round_hole_shot_map: per-hole 复盘 shot map (this round's actual shots on the 2D render).
+
+Geometry (mesh/render/projector) is mocked so the test is hermetic — it pins the build logic:
+projection of recorded shots, the synthesized tee shot, round/hole matching, and graceful fallback.
+"""
+from __future__ import annotations
+
+import unittest
+from unittest.mock import patch
+
+from ai_caddie import round_shot_map as rsm
+from ai_caddie.history import HistoryData
+
+
+def _data(shots: list[dict]) -> HistoryData:
+    return HistoryData(
+        raw_rounds=[],
+        rounds=[{
+            "id": "r1", "globalId": 31794, "course": "黑骑士 ~ A", "courseKey": "bk",
+            "holePars": "4" * 18, "holes": [{"number": n, "par": 4} for n in range(1, 19)],
+        }],
+        shots=shots,
+    )
+
+
+def _geometry_mocks():
+    overlay = {"w": 720, "h": 1120, "ppm": 1.0, "route": [[300, 900, 0], [320, 500, 200], [310, 200, 360]]}
+    return [
+        patch.object(rsm.hole_render, "load_mesh", return_value=({"hole": {"RefLat": 40.0, "RefLon": 116.5}}, {})),
+        patch.object(rsm.course_prep, "derive_route", return_value=([(0.0, 0.0), (1.0, 1.0)], 360.0)),
+        patch.object(rsm.hole_render, "render_hole", return_value=("data:image/jpeg;base64,abc", overlay)),
+        patch.object(rsm.hole_render, "overlay_projector", return_value=lambda p: (p[0], p[1])),
+        # deterministic projection: lat/lon → px (clamped to overlay bounds by the builder)
+        patch.object(rsm.shot_projection, "project_world_to_pixel",
+                     side_effect=lambda lat, lon, ref_lat, ref_lon, to_px: ((lat - 40.0) * 10000, (lon - 116.0) * 600)),
+    ]
+
+
+class RoundShotMapTests(unittest.TestCase):
+    def _build(self, shots, hole=1):
+        mocks = _geometry_mocks()
+        for m in mocks:
+            m.start()
+        try:
+            return rsm.build_round_hole_shot_map(_data(shots), "r1", hole)
+        finally:
+            for m in mocks:
+                m.stop()
+
+    def test_projects_recorded_shots(self) -> None:
+        out = self._build([
+            {"scorecardId": "r1", "hole": 1, "order": 1, "clubName": "一号木", "type": "TEE",
+             "start": {"lat": 40.000, "lon": 116.50, "lie": "TeeBox"}, "end": {"lat": 40.020, "lon": 116.50, "lie": "Fairway"}, "endLie": "Fairway"},
+            {"scorecardId": "r1", "hole": 1, "order": 2, "clubName": "七号铁", "type": "APPROACH",
+             "start": {"lat": 40.020, "lon": 116.50, "lie": "Fairway"}, "end": {"lat": 40.030, "lon": 116.50, "lie": "Green"}, "endLie": "Green"},
+        ])
+        self.assertTrue(out["found"])
+        self.assertEqual(out["map"]["overlay"]["w"], 720)
+        # tee shot already recorded (lie TeeBox) → no synthetic shot prepended.
+        self.assertEqual([s["synthetic"] for s in out["shots"]], [False, False])
+        self.assertEqual(out["shots"][0]["club"], "一号木")
+        self.assertEqual(out["shots"][1]["club"], "七号铁")
+        self.assertEqual(out["shots"][0]["start"], [0, 300])  # (40.0-40)*1e4=0 ; (116.5-116)*600=300
+
+    def test_synthesizes_tee_shot_when_drive_unrecorded(self) -> None:
+        # First recorded shot starts on the Fairway → the drive off the tee was not recorded.
+        out = self._build([
+            {"scorecardId": "r1", "hole": 1, "order": 1, "clubName": "七号铁", "type": "APPROACH",
+             "start": {"lat": 40.020, "lon": 116.50, "lie": "Fairway"}, "end": {"lat": 40.030, "lon": 116.50, "lie": "Green"}, "endLie": "Green"},
+        ])
+        self.assertTrue(out["shots"][0]["synthetic"])
+        self.assertEqual(out["shots"][0]["shotType"], "TEE")
+        self.assertEqual(out["shots"][0]["start"], [300, 900])  # tee = overlay.route[0]
+        self.assertEqual(out["shots"][0]["end"], out["shots"][1]["start"])  # connects to first real shot
+        self.assertFalse(out["shots"][1]["synthetic"])
+
+    def test_synthesizes_tee_shot_when_no_shots_at_all(self) -> None:
+        out = self._build([])  # scored hole, zero recorded shots
+        self.assertEqual(len(out["shots"]), 1)
+        self.assertTrue(out["shots"][0]["synthetic"])
+        self.assertEqual(out["shots"][0]["start"], [300, 900])  # tee
+        self.assertEqual(out["shots"][0]["end"], [310, 200])  # green (route[-1])
+
+    def test_missing_round(self) -> None:
+        mocks = _geometry_mocks()
+        for m in mocks:
+            m.start()
+        try:
+            out = rsm.build_round_hole_shot_map(_data([]), "nope", 1)
+        finally:
+            for m in mocks:
+                m.stop()
+        self.assertFalse(out["found"])
+        self.assertIsNone(out["map"])
+
+    def test_missing_geometry_is_graceful(self) -> None:
+        with patch.object(rsm.hole_render, "load_mesh", side_effect=Exception("no mesh")):
+            out = rsm.build_round_hole_shot_map(_data([]), "r1", 1)
+        self.assertTrue(out["found"])
+        self.assertIsNone(out["map"])
+        self.assertTrue(any(r["label"] == "geometry" for r in out["missingData"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

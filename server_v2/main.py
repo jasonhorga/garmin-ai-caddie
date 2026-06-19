@@ -25,7 +25,7 @@ from .caddie import (
 )
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
-from .history_round_detail import load_history_round_detail_response
+from .history_round_detail import load_history_round_detail_response, load_round_hole_shot_map_response
 from .history_drilldown import load_history_drilldown_response
 from .history_stats import (
     load_history_stats_response,
@@ -85,6 +85,7 @@ from .models import (
     HoleMapResponse,
     HistoryOverviewResponse,
     HistoryRoundDetailResponse,
+    RoundHoleShotMapResponse,
     HistoryRoundsResponse,
     HistoryStatsResponse,
     HistoryStatsSummaryResponse,
@@ -422,6 +423,15 @@ def history_round_detail(
     round_ref: str, player_id: str = Depends(current_player_id)
 ) -> HistoryRoundDetailResponse:
     return load_history_round_detail_response(round_ref, player_id=player_id)
+
+
+@app.get("/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap", response_model=RoundHoleShotMapResponse)
+def round_hole_shot_map(
+    round_ref: str, hole: int, player_id: str = Depends(current_player_id)
+) -> RoundHoleShotMapResponse:
+    # 复盘 per-hole shot map: this round's actual shots on the 2D render. Rendered on demand per
+    # hole (one supersampled JPEG), not all 18 eagerly.
+    return load_round_hole_shot_map_response(round_ref, hole, player_id=player_id)
 
 
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)
