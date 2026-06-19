@@ -16,6 +16,20 @@ export function metersFromYards(yd: number): number {
 }
 
 /**
+ * Normalize a course name's nine-loop separator so the whole app reads the same.
+ * Garmin emits "Kawana Hotel Golf Course ~ Oshima Left" while the rounds filter
+ * used " - " — collapse both "~" and " - " to " · " (course · nine).
+ */
+export function cleanCourseName(name: string | null | undefined): string {
+  if (!name) return '未知球场'
+  return name
+    .replace(/\s*~\s*/g, ' · ')
+    .replace(/\s+-\s+/g, ' · ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+/**
  * Friendly day from a raw date/ISO string for product copy — strips the time +
  * timezone that Garmin emits ("2025-09-03T08:53:02+09:00" → "2025-09-03"). Raw
  * fallback if it doesn't look like a date.
