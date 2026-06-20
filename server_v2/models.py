@@ -911,6 +911,10 @@ class LiveRoundEventRecord(BaseModel):
     hole: int = Field(ge=1)
     kind: LiveRoundEventKind
     payload: dict[str, Any]
+    # round-12 sync spine: which client/device authored this event (e.g. "ios-phone", "apple-watch",
+    # "web"). Optional + backward-compatible; when present it joins the dedup key so the SAME eventId
+    # from two different clients is not collapsed. Absent → treated as "" (legacy single-client behavior).
+    clientId: str | None = None
 
     @field_validator("timestamp")
     @classmethod

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import fcntl
 import json
 from pathlib import Path
 import re
@@ -2310,55 +2311,75 @@ def append_event_batch(
             raise ValueError("event roundId does not match path")
     path = mobile_event_log(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing_keys = set()
-    existing_event_ids = set()
-    server_sequence = 0
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            server_sequence += 1
-            row_round_id = str(row.get("roundId") or "")
-            existing_keys.add((row_round_id, str(row.get("idempotencyKey") or "")))
-            event = row.get("event") or {}
-            if isinstance(event, dict) and event.get("eventId"):
-                existing_event_ids.add((row_round_id, str(event.get("eventId"))))
-    requested_event_ids = [str(event.get("eventId") or "") for event in events if event.get("eventId")]
     round_key = str(round_id)
-    if (round_key, idempotency_key) in existing_keys:
-        return {
-            "accepted": 0,
-            "duplicate": True,
-            "acceptedEventIds": [],
-            "duplicateEventIds": [event_id for event_id in requested_event_ids if (round_key, event_id) in existing_event_ids],
-            "serverSequence": server_sequence,
-        }
-    accepted_event_ids = []
-    duplicate_event_ids = []
-    with path.open("a", encoding="utf-8") as handle:
-        for event in events:
-            event = _sanitized_live_event(event)
-            event_id = str(event.get("eventId") or "")
-            event_key = (round_key, event_id)
-            if event_id and event_key in existing_event_ids:
-                duplicate_event_ids.append(event_id)
-                continue
-            server_sequence += 1
-            if event_id:
-                existing_event_ids.add(event_key)
-                accepted_event_ids.append(event_id)
-            handle.write(
-                json.dumps(
-                    {
-                        "roundId": round_id,
-                        "idempotencyKey": idempotency_key,
-                        "serverSequence": server_sequence,
-                        "event": event,
-                    },
-                    sort_keys=True,
-                ) + "\n"
-            )
+    # (eventId, clientId) for each requested event — clientId joins the dedup key so the same eventId
+    # from two different clients is not collapsed (round-12 sync spine; legacy clients send "").
+    requested_events = [
+        (str(event.get("eventId") or ""), str(event.get("clientId") or ""))
+        for event in events
+        if event.get("eventId")
+    ]
+    # round-12: the read (server_sequence + dedup sets) and the append MUST be one atomic critical
+    # section. Without it, two concurrent writers both read sequence N and both append rows with the
+    # same serverSequence + double-accept the same eventId (the read-then-write race). An exclusive
+    # flock on a sibling lock file serializes append_event_batch across processes and threads.
+    lock_path = path.with_name(path.name + ".lock")
+    with open(lock_path, "w", encoding="utf-8") as lock_handle:
+        fcntl.flock(lock_handle, fcntl.LOCK_EX)
+        existing_keys = set()
+        existing_event_ids = set()
+        server_sequence = 0
+        if path.exists():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                server_sequence += 1
+                row_round_id = str(row.get("roundId") or "")
+                existing_keys.add((row_round_id, str(row.get("idempotencyKey") or "")))
+                event = row.get("event") or {}
+                if isinstance(event, dict) and event.get("eventId"):
+                    existing_event_ids.add(
+                        (row_round_id, str(event.get("clientId") or ""), str(event.get("eventId")))
+                    )
+        if (round_key, idempotency_key) in existing_keys:
+            return {
+                "accepted": 0,
+                "duplicate": True,
+                "acceptedEventIds": [],
+                "duplicateEventIds": [
+                    event_id
+                    for event_id, client_id in requested_events
+                    if (round_key, client_id, event_id) in existing_event_ids
+                ],
+                "serverSequence": server_sequence,
+            }
+        accepted_event_ids = []
+        duplicate_event_ids = []
+        with path.open("a", encoding="utf-8") as handle:
+            for event in events:
+                event = _sanitized_live_event(event)
+                event_id = str(event.get("eventId") or "")
+                client_id = str(event.get("clientId") or "")
+                event_key = (round_key, client_id, event_id)
+                if event_id and event_key in existing_event_ids:
+                    duplicate_event_ids.append(event_id)
+                    continue
+                server_sequence += 1
+                if event_id:
+                    existing_event_ids.add(event_key)
+                    accepted_event_ids.append(event_id)
+                handle.write(
+                    json.dumps(
+                        {
+                            "roundId": round_id,
+                            "idempotencyKey": idempotency_key,
+                            "serverSequence": server_sequence,
+                            "event": event,
+                        },
+                        sort_keys=True,
+                    ) + "\n"
+                )
     return {
         "accepted": len(accepted_event_ids),
         "duplicate": False,

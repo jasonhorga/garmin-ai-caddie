@@ -1064,6 +1064,53 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertIn('"schema": "ai-caddie-live-round-event-v1"', log_text)
         self.assertNotIn("schema_", log_text)
 
+    def test_mobile_event_batch_dedup_is_scoped_by_client_id(self) -> None:
+        # round-12 sync spine: the SAME eventId from two DIFFERENT clients must BOTH be accepted (they
+        # are distinct facts); only the same (clientId, eventId) is a duplicate. Legacy events without
+        # clientId behave as before (clientId="").
+        client = TestClient(app)
+
+        def evt(client_id: str) -> dict:
+            return {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": "shared-evt",
+                "roundId": "live-round-1",
+                "clientId": client_id,
+                "timestamp": "2026-06-20T00:00:00Z",
+                "hole": 1,
+                "kind": "score",
+                "payload": {"strokes": 4},
+            }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                phone = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "b-phone"},
+                    json={"roundId": "live-round-1", "events": [evt("ios-phone")]},
+                )
+                watch = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "b-watch"},
+                    json={"roundId": "live-round-1", "events": [evt("apple-watch")]},
+                )
+                phone_again = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "b-phone-2"},
+                    json={"roundId": "live-round-1", "events": [evt("ios-phone")]},
+                )
+                log_text = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(phone.json()["accepted"], 1)
+        self.assertEqual(watch.json()["accepted"], 1)  # same eventId, different client → accepted
+        self.assertEqual(watch.json()["duplicateEventIds"], [])
+        self.assertEqual(phone_again.json()["accepted"], 0)  # same client + eventId → duplicate
+        self.assertEqual(phone_again.json()["duplicateEventIds"], ["shared-evt"])
+        self.assertEqual(log_text.count("shared-evt"), 2)  # one stored row per client
+        self.assertIn('"clientId": "ios-phone"', log_text)
+        self.assertIn('"clientId": "apple-watch"', log_text)
+
     def test_mobile_event_batch_rejects_invalid_event_envelope_without_writing(self) -> None:
         client = TestClient(app)
         valid_event = {
