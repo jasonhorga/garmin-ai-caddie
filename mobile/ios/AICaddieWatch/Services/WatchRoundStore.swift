@@ -11,12 +11,15 @@ public final class WatchRoundStore {
         public var activeHole: Int
         public var holeStates: [WatchRoundState]
         public var pendingEvents: [WatchInputEvent]
+        /// Round-level course label for the watch UI (optional — older persisted rounds decode it as nil).
+        public var courseName: String?
 
-        public init(roundId: String, activeHole: Int = 0, holeStates: [WatchRoundState] = [], pendingEvents: [WatchInputEvent] = []) {
+        public init(roundId: String, activeHole: Int = 0, holeStates: [WatchRoundState] = [], pendingEvents: [WatchInputEvent] = [], courseName: String? = nil) {
             self.roundId = roundId
             self.activeHole = activeHole
             self.holeStates = holeStates
             self.pendingEvents = pendingEvents
+            self.courseName = courseName
         }
     }
 
