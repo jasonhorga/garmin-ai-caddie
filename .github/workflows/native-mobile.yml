@@ -52,6 +52,19 @@ jobs:
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "$WATCH_DESTINATION"
+      - name: Collect Watch design snapshots
+        if: always()
+        run: |
+          mkdir -p watch-snapshots
+          find ~/Library/Developer/CoreSimulator -path "*Documents/watch-snapshots/*.png" -exec cp {} watch-snapshots/ \; 2>/dev/null || true
+          ls -la watch-snapshots || true
+      - name: Upload Watch design snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-snapshots
+          path: watch-snapshots/
+          if-no-files-found: warn
       - name: Write native build evidence
         run: python3 ops/write_native_build_evidence.py
       - name: Upload native build evidence
