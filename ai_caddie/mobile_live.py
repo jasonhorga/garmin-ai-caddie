@@ -1001,15 +1001,16 @@ def _tee_candidate_routes(
         return []
     safe_p, stock_p, attack_p = _shot_option_clubs(rows, par=par, target_m=target_m)
 
-    def _carry(profile: dict[str, Any] | None, *, aggressive: bool = False) -> float:
+    def _carry(profile: dict[str, Any] | None) -> float:
+        # round-12: ONE distance per club — a club flies its median; "attack" differs by line / risk,
+        # not by inflating the SAME club's carry to p90 (用户: 一号木不该「保守 210 / 激进 240」).
         if not profile:
             return 0.0
-        median = float(profile.get("median_m") or 0)
-        return round(max(median, float(profile.get("p90_m") or median)) if aggressive else median, 1)
+        return round(float(profile.get("median_m") or 0), 1)
 
     safe_carry = _carry(safe_p)
     stock_carry = _carry(stock_p)
-    attack_carry = _carry(attack_p, aggressive=True)
+    attack_carry = _carry(attack_p)
     safe_near, safe_line = _option_risks(avoid_zones, safe_carry)
     stock_near, stock_line = _option_risks(avoid_zones, stock_carry)
     attack_near, attack_line = _option_risks(avoid_zones, attack_carry)
