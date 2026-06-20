@@ -369,6 +369,7 @@ function ReportInventoryRow({
 }
 
 function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportState']; onSelectRef?: (sourceRef: string) => void }) {
+  const diagnostics = useDiagnostics()
   if (state.status === 'loading') {
     return (
       <section className="report-detail" aria-label="报告详情">
@@ -396,7 +397,6 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
   }
 
   const report = state.data
-  const diagnostics = useDiagnostics()
   return (
     <section className="report-detail" aria-label="报告详情">
       <div className="report-title-row">
