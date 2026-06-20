@@ -20,13 +20,13 @@ func zhCaddieConfidence(_ value: String?) -> String? {
 
 func zhCaddieShotRole(_ role: String) -> String {
     switch role.lowercased() {
-    case "tee":
+    case "tee", "advance":
         return "开球"
-    case "approach":
+    case "approach", "scoring":
         return "攻果岭"
     case "recovery":
         return "解围"
-    case "layup":
+    case "layup", "position":
         return "铺垫"
     case "putt":
         return "推杆"
@@ -479,10 +479,18 @@ public struct CaddiePlanView: View {
         options.first { $0.id == selectedOptionId } ?? options.first
     }
 
+    /// Selected打法 first, then the rest in backend order — matches the approved「整洞序列为主」mockup.
+    private var orderedSequences: [CaddiePlanSequence] {
+        sequences.sorted { ($0.id == selectedSequenceId ? 0 : 1) < ($1.id == selectedSequenceId ? 0 : 1) }
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // 重点突出:推荐这一杆(球杆大字 + 带球 + 打法)。其余收进「点击查看」,不堆满一屏。
-            if let recommended {
+            // 整洞序列为主(用户定稿):三种打法各写成 开球→攻果岭 的完整 club→club 链路。短洞 /
+            // 三杆洞 / 无序列数据时后端返回空序列 → 退化成单杆推荐摘要,不强凑。
+            if !sequences.isEmpty {
+                sequenceCards
+            } else if let recommended {
                 recommendedSummary(recommended)
             }
             DisclosureGroup("备选打法 · 避开区") {
@@ -494,9 +502,6 @@ public struct CaddiePlanView: View {
                     if !hazards.isEmpty {
                         hazardsSection
                     }
-                    if !sequences.isEmpty {
-                        sequencesSection
-                    }
                 }
                 .padding(.top, 6)
             }
@@ -504,6 +509,73 @@ public struct CaddiePlanView: View {
             .tint(LiveHoleStyle.green)
         }
         .padding(.vertical, 4)
+    }
+
+    /// 整洞打法序列:每种打法一张卡,逐杆写「角色 球杆 带球 → 留距」,选中打法高亮置顶。
+    @ViewBuilder private var sequenceCards: some View {
+        ForEach(orderedSequences) { sequence in
+            let isSelected = sequence.id == selectedSequenceId
+            let color = AICaddieDesignTokens.strategyColor(sequence.id)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                        .font(.subheadline)
+                        .foregroundStyle(isSelected ? color : Color.secondary)
+                    Text("\(zhCaddieRouteLabel(sequence.id))打法")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                    Spacer()
+                    if isSelected {
+                        Text("已选")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.vertical, 2).padding(.horizontal, 7)
+                            .background(color.opacity(0.16))
+                            .foregroundStyle(color)
+                            .clipShape(Capsule())
+                    }
+                }
+                ForEach(Array(sequence.steps.enumerated()), id: \.element.id) { index, step in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(zhCaddieShotRole(step.role))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .leading)
+                        Text(zhClubName(step.clubName))
+                            .font(.subheadline.weight(.semibold))
+                        if let carry = step.targetCarryM {
+                            Text("\(CoursePrepRoute.yards(fromMetres: carry)) 码")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if let remaining = step.expectedRemainingM {
+                            Text(remaining <= 10 ? "上果岭" : "留 \(CoursePrepRoute.yards(fromMetres: remaining)) 码")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if index < sequence.steps.count - 1 {
+                        Text("↓")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 48, alignment: .center)
+                    }
+                }
+                Text(sequence.metaText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? color.opacity(0.08) : Color(.secondarySystemBackground).opacity(0.6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isSelected ? color.opacity(0.5) : Color.clear, lineWidth: 1)
+            )
+        }
     }
 
     /// 推荐这一杆的醒目摘要:球杆 + 带球 + 打法标签。
@@ -543,44 +615,6 @@ public struct CaddiePlanView: View {
                 }
             }
             .padding(.vertical, 2)
-        }
-    }
-
-    @ViewBuilder private var sequencesSection: some View {
-        Divider()
-            .padding(.vertical, 2)
-        Text("逐洞计划")
-            .font(.subheadline.weight(.semibold))
-        ForEach(sequences) { sequence in
-            let isSelected = sequence.id == selectedSequenceId
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Image(systemName: isSelected ? "checkmark.seal.fill" : "point.topleft.down.curvedto.point.bottomright.up")
-                        .foregroundStyle(isSelected ? AICaddieDesignTokens.strategyColor(sequence.id) : .secondary)
-                    Text(sequence.label)
-                        .font(.caption.weight(.semibold))
-                    Spacer()
-                }
-                Text(sequence.metaText)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                if !sequence.steps.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(sequence.steps) { step in
-                            HStack(spacing: 6) {
-                                Text(zhCaddieShotRole(step.role))
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(AICaddieDesignTokens.confidenceColor(step.confidence ?? sequence.confidence ?? "low"))
-                                    .frame(width: 56, alignment: .leading)
-                                Text(step.summaryText)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 4)
         }
     }
 

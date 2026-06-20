@@ -58,12 +58,12 @@ public struct HoleImageMapView: View {
         let routePoints: [CGPoint] = overlay.route.compactMap { row in
             row.count >= 2 ? CGPoint(x: row[0] * sx, y: row[1] * sy) : nil
         }
-        // Recommended play line (tee → green) as a smooth curve, not a hard polyline.
+        // Recommended play line (tee → green) as a smooth SOLID curve, not a hard polyline.
         if routePoints.count >= 2 {
             context.stroke(
                 Self.smoothPath(through: routePoints),
                 with: .color(.white.opacity(0.95)),
-                style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round, dash: [7, 5])
+                style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
             )
             let tee = routePoints[0]
             context.fill(Path(ellipseIn: CGRect(x: tee.x - 5, y: tee.y - 5, width: 10, height: 10)), with: .color(.white))
