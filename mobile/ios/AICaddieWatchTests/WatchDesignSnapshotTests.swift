@@ -65,6 +65,44 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchRoundContainerHome() throws {
+        let model = makeSeededModel(scoring: false)   // hold a strong ref through render
+        let view = WatchRoundContainerView(model: model)
+            .frame(width: 198)
+            .background(Color.black)
+        try render(view, named: "watch-container-home")
+    }
+
+    @MainActor
+    func testRenderWatchRoundContainerScoring() throws {
+        let model = makeSeededModel(scoring: true)     // hold a strong ref through render
+        let view = WatchRoundContainerView(model: model)
+            .frame(width: 198)
+            .background(Color.black)
+        try render(view, named: "watch-container-scoring")
+    }
+
+    /// A standalone round seeded into a real (temp-dir) store, so the container snapshot exercises the
+    /// full `WatchRoundModel` → view wiring rather than hand-built props.
+    @MainActor
+    private func makeSeededModel(scoring: Bool) -> WatchRoundModel {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wsnap-\(UUID().uuidString)", isDirectory: true)
+        let model = WatchRoundModel(store: WatchRoundStore(directoryURL: dir))
+        let holes = [
+            WatchRoundState(roundId: "r1", hole: 1, par: 4, distanceM: 320, selectedClub: nil,
+                            score: 4, putts: 2, penaltyCount: 0, caddieConfidence: "offline"),
+            WatchRoundState(roundId: "r1", hole: 2, par: 3, distanceM: 158, selectedClub: nil,
+                            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"),
+            WatchRoundState(roundId: "r1", hole: 3, par: 5, distanceM: 480, selectedClub: nil,
+                            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"),
+        ]
+        model.seedRound(holes, activeHole: 2, courseName: "北京丽宫 · 前九")
+        if scoring { model.startScoringActiveHole() }
+        return model
+    }
+
+    @MainActor
     private func render(_ view: some View, named name: String) throws {
         // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))

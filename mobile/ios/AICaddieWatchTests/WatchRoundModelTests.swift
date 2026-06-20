@@ -138,6 +138,16 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
     }
 
+    func testCancelScoringDiscardsDraftAndReturnsHome() {
+        let model = seededModel(holes: [hole(1, par: 4)])
+        model.startScoringActiveHole()
+        model.adjustDraftScore(2)        // draft changed but not saved
+        model.cancelScoring()
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.pendingUploads, 0)   // nothing recorded
+        XCTAssertEqual(model.scoredHoles, 0)      // hole still unscored
+    }
+
     func testConfirmFinishUploadsPendingThenClearsRound() async {
         var received: [WatchInputEvent] = []
         let model = seededModel(

@@ -14,6 +14,7 @@ public struct WatchScoreHoleView: View {
     public let onPuttsDelta: (Int) -> Void
     public let onPenaltyDelta: (Int) -> Void
     public let onSave: () -> Void
+    public let onCancel: () -> Void
 
     public init(
         hole: Int,
@@ -24,7 +25,8 @@ public struct WatchScoreHoleView: View {
         onScoreDelta: @escaping (Int) -> Void = { _ in },
         onPuttsDelta: @escaping (Int) -> Void = { _ in },
         onPenaltyDelta: @escaping (Int) -> Void = { _ in },
-        onSave: @escaping () -> Void = {}
+        onSave: @escaping () -> Void = {},
+        onCancel: @escaping () -> Void = {}
     ) {
         self.hole = hole
         self.par = par
@@ -35,6 +37,7 @@ public struct WatchScoreHoleView: View {
         self.onPuttsDelta = onPuttsDelta
         self.onPenaltyDelta = onPenaltyDelta
         self.onSave = onSave
+        self.onCancel = onCancel
     }
 
     public var body: some View {
@@ -63,6 +66,10 @@ public struct WatchScoreHoleView: View {
                 Text("保存本洞").frame(maxWidth: .infinity)
             }
             .tint(AICaddieDesignTokens.par)
+            Button(action: onCancel) {
+                Text("取消").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
         }
         .padding(8)
     }

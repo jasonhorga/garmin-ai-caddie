@@ -131,6 +131,9 @@ public final class WatchRoundModel: ObservableObject {
     public func adjustDraftPutts(_ delta: Int) { draftPutts = max(0, draftPutts + delta) }
     public func adjustDraftPenalty(_ delta: Int) { draftPenalty = max(0, draftPenalty + delta) }
 
+    /// Leave the scoring screen without recording anything (the draft is discarded).
+    public func cancelScoring() { screen = .home }
+
     /// Persist the draft for the active hole as `WatchInputEvent`s (only for fields that changed), then
     /// return to the round home and advance to the next hole.
     public func saveActiveHole() {
