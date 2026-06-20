@@ -114,6 +114,57 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(payload["holeDetails"][1]["globalId"], 222222)
         self.assertEqual(payload["holeDetails"][1]["localHole"], 1)
 
+    def test_round_detail_renders_full_18_for_a_9_of_18_round(self) -> None:
+        # round-12 bug: playing 9 holes on an 18-hole course (real hole numbers spanning both nines)
+        # must render the FULL 18-hole card (played holes filled, the rest blank) — NOT collapse to a
+        # 9-hole card that drops every played hole numbered >9 and makes the per-hole total disagree
+        # with the round total.
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {
+                    "id": "nine-of-18",
+                    "date": "2026-06-12",
+                    "course": "北京丽宫体育公园高尔夫俱乐部",
+                    "courseKey": "liigong",
+                    "courseId": 333333,
+                    "holesCompleted": 9,
+                    "strokes": 51,
+                    "par": 37,
+                    "holePars": "444454434444454434",
+                    "holes": [
+                        {"number": 5, "strokes": 6, "par": 4, "putts": 2},
+                        {"number": 6, "strokes": 8, "par": 5, "putts": 2},
+                        {"number": 7, "strokes": 5, "par": 4, "putts": 2},
+                        {"number": 8, "strokes": 4, "par": 3, "putts": 2},
+                        {"number": 10, "strokes": 6, "par": 4, "putts": 2},
+                        {"number": 11, "strokes": 5, "par": 4, "putts": 2},
+                        {"number": 12, "strokes": 5, "par": 4, "putts": 2},
+                        {"number": 13, "strokes": 6, "par": 5, "putts": 2},
+                        {"number": 14, "strokes": 6, "par": 4, "putts": 2},
+                    ],
+                    "hasShots": False,
+                }
+            ],
+            shots=[],
+        )
+
+        payload = build_history_round_detail(data, "nine-of-18")
+
+        scorecard = payload["scorecard"]
+        self.assertEqual(len(scorecard), 18)  # full 18-hole card, not truncated to 9
+        self.assertEqual([cell["hole"] for cell in scorecard], list(range(1, 19)))
+        scored = [cell for cell in scorecard if cell["score"] is not None]
+        self.assertEqual(len(scored), 9)  # only the 9 played holes are filled
+        self.assertEqual(sum(cell["score"] for cell in scored), 51)  # table total == round total
+        self.assertEqual(scorecard[9]["score"], 6)   # hole 10 (back nine) survives, no longer dropped
+        self.assertEqual(scorecard[13]["score"], 6)  # hole 14 survives
+        self.assertIsNone(scorecard[0]["score"])     # hole 1 unplayed → blank
+        self.assertEqual(scorecard[0]["status"], "missing_score")
+        self.assertEqual(payload["round"]["courseHoles"], 18)
+        self.assertEqual(payload["round"]["holesScored"], 9)
+        self.assertEqual(payload["round"]["holesCompleted"], 9)
+
     def test_round_detail_summarizes_phase_coverage(self) -> None:
         payload = build_history_round_detail(round_detail_data(), "700001")
         phases = {row["phase"]: row for row in payload["phaseSummary"]}

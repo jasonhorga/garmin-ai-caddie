@@ -163,14 +163,27 @@ def _holes_by_number(row: dict[str, Any]) -> dict[int, dict[str, Any]]:
 
 
 def _scorecard_length(row: dict[str, Any], holes_by_number: dict[int, dict[str, Any]], shots_by_hole: dict[int, list[tuple[int, dict[str, Any]]]]) -> int:
-    holes_completed = row.get("holesCompleted")
-    if holes_completed in (9, 18):
-        return int(holes_completed)
+    """Width of the scorecard = the COURSE structure, never truncated below a real played hole.
+
+    round-12: a 9-of-18 round (played 9 holes on an 18-hole course, real hole numbers可含 10-18)
+    must render the full 18-hole card (Garmin-style: played holes filled, the rest blank), NOT
+    collapse to a 9-hole card. The old code returned holesCompleted (9) first, which dropped every
+    played hole numbered >9 and made the per-hole table total disagree with the round total.
+    """
+    max_played_hole = max([0, *holes_by_number.keys(), *shots_by_hole.keys()])
     hole_pars = str(row.get("holePars") or "")
     if len(hole_pars) in (9, 18):
-        return len(hole_pars)
-    max_hole = max([0, *holes_by_number.keys(), *shots_by_hole.keys()])
-    return max_hole
+        # holePars is the authoritative course width (one digit per hole).
+        return max(len(hole_pars), max_played_hole)
+    # No reliable holePars: a played hole numbered >9 means an 18-hole course; otherwise fall back to
+    # holesCompleted as a floor. Either way never return less than the largest real played hole.
+    if max_played_hole > 9:
+        return 18
+    try:
+        holes_completed = int(row.get("holesCompleted") or 0)
+    except (TypeError, ValueError):
+        holes_completed = 0
+    return max(holes_completed, max_played_hole)
 
 
 def _par_for_hole(row: dict[str, Any], hole: dict[str, Any] | None, hole_number: int) -> int | None:
@@ -302,6 +315,7 @@ def _round_summary(row: dict[str, Any], scorecard: list[dict[str, Any]], shots: 
         "toPar": score - par if score is not None and par is not None else None,
         "holesCompleted": row.get("holesCompleted"),
         "holesScored": len(scored_cells),
+        "courseHoles": len(scorecard),
         "shotCount": len(shots),
         "hasShots": shot_ready,
         "shotStatus": row.get("shotStatus") or ("ready" if shot_ready else "missing"),
