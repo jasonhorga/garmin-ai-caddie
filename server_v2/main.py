@@ -56,6 +56,7 @@ from .mobile import (
     build_mobile_round_package_response,
     reconcile_mobile_round_response,
     replay_mobile_events_response,
+    round_state_response,
 )
 from .players_api import (
     admin_router,
@@ -98,6 +99,7 @@ from .models import (
     LiveRoundEventAckResponse,
     LiveRoundEventReplayResponse,
     LiveRoundPackageResponse,
+    RoundStateResponse,
     MediaCreateRequest,
     MediaCreateResponse,
     MediaListResponse,
@@ -249,6 +251,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
             or path == "/api/v2/courses/search"
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/replay"))
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/state"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
         )
     if normalized_method != "POST":
@@ -813,6 +816,17 @@ def mobile_round_events_ack(
 ) -> LiveRoundEventAckResponse:
     require_admin_token(x_ai_caddie_admin_token)
     return ack_mobile_events_response(round_id, request)
+
+
+@app.get("/api/v2/mobile/rounds/{round_id}/state", response_model=RoundStateResponse)
+def mobile_round_state(
+    round_id: str,
+    x_ai_caddie_admin_token: AdminTokenHeader = None,
+) -> RoundStateResponse:
+    # round-12 sync spine: authoritative server-projected round state (folded from the event log).
+    # Admin-gated like POST/ack (the authoritative read), so multi-client pull is consistently authed.
+    require_admin_token(x_ai_caddie_admin_token)
+    return round_state_response(round_id)
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/reconciliation", response_model=MobileReconciliationResponse)

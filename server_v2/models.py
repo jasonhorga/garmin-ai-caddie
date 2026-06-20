@@ -964,6 +964,21 @@ class LiveRoundEventReplayResponse(BaseModel):
     events: list[LiveRoundEventReplayItem]
 
 
+class RoundStateResponse(BaseModel):
+    """round-12 sync spine: the materialized authoritative per-hole round state, folded server-side
+    from the event log. `holes`/`conflicts` are passthrough dicts so the projection can grow fields
+    without a model change (matches the per-hole shape iOS already projects locally)."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-round-state-v1"] = Field(alias="schema")
+    roundId: str
+    latestServerSequence: int
+    activeHole: int
+    holes: list[dict[str, Any]] = Field(default_factory=list)
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class LiveRoundEventAckRequest(BaseModel):
     clientId: str
     serverSequence: int
