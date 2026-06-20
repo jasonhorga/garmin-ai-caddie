@@ -30,8 +30,22 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchRoundHome() throws {
+        let view = WatchRoundHomeView(
+            courseName: "北京丽宫 · 前九",
+            hole: 7, par: 4, holeCount: 9,
+            scoredHoles: 6, toPar: 3,
+            distanceText: "139m", pendingUploads: 2
+        )
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-round-home")
+    }
+
+    @MainActor
     private func render(_ view: some View, named name: String) throws {
-        let renderer = ImageRenderer(content: view)
+        // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).
+        let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
         renderer.scale = 2
         // Use cgImage + ImageIO (UIImage/pngData isn't reliably available on watchOS).
         guard let cgImage = renderer.cgImage else {
