@@ -101,9 +101,12 @@ describe('missDirectionZh', () => {
     expect(missDirectionZh('mixed')).toBe('方向混杂')
   })
 
-  it('passes looser engine tokens through raw rather than guessing', () => {
-    expect(missDirectionZh('away_from_known_risks')).toBe('away_from_known_risks')
-    expect(missDirectionZh('wide_side')).toBe('wide_side')
+  it('maps the decision-engine loose tokens and passes unknown ones through raw', () => {
+    expect(missDirectionZh('away_from_known_risks')).toBe('避开已知风险')
+    expect(missDirectionZh('wide_side')).toBe('偏宽侧')
+    expect(missDirectionZh('history_depth_bias')).toBe('历史深度偏向')
+    // genuinely unknown tokens still pass through raw rather than guessing
+    expect(missDirectionZh('totally_unknown_token')).toBe('totally_unknown_token')
   })
 })
 

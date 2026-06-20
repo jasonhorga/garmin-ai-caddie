@@ -23,6 +23,12 @@ const MISS_DIRECTION_ZH: Record<string, string> = {
   long: '偏长',
   other: '方向不定',
   mixed: '方向混杂',
+  // Decision-engine loose tokens (decision.py acceptable-miss / score components).
+  away_from_known_risks: '避开已知风险',
+  wide_side: '偏宽侧',
+  history_depth_bias: '历史深度偏向',
+  history_width_bias: '历史宽度偏向',
+  history_side_bias: '历史侧向偏向',
 }
 
 // Issue-taxonomy phases (ai_caddie/issue_taxonomy.py) + scoring phases +
