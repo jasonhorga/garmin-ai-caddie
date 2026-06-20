@@ -43,6 +43,16 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchScoreHole() throws {
+        let view = WatchScoreHoleView(
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0
+        )
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-score-hole")
+    }
+
+    @MainActor
     private func render(_ view: some View, named name: String) throws {
         // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
