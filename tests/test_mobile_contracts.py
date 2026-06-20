@@ -1342,6 +1342,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("offlineStore.appendSyncMarker", app_swift)
         self.assertIn("pendingEventCount = try offlineStore.loadPendingEvents", app_swift)
         self.assertIn("No sync server configured", app_swift)
+        # round-12 P2.3: syncPendingEvents PULLS other clients' events (not push-only) — merge into the
+        # local log idempotently by eventId, then re-project. Wires the previously-unused fetchEventReplay.
+        self.assertIn("pullAndApplyRemoteEvents(roundId:", app_swift)
+        self.assertIn("syncClient.fetchEventReplay(roundId:", app_swift)
+        self.assertIn("offlineStore.containsEvent(eventId:", app_swift)
+        self.assertIn("liveRoundState = try? offlineStore.restoreLiveRoundState(roundId: roundId, package: package)", app_swift)
 
         self.assertIn("func loadPendingEvents(roundId:", offline_store)
         self.assertIn("lastIndex(where:", offline_store)
