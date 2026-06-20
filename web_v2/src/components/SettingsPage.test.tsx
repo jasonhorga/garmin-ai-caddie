@@ -140,7 +140,7 @@ describe('SettingsPage', () => {
     expect(within(dataSources).getByText('不存储 Garmin 密码')).toBeInTheDocument()
 
     const aiProviders = screen.getByLabelText('AI 引擎配置')
-    expect(within(aiProviders).getByText('Static')).toBeInTheDocument()
+    expect(within(aiProviders).getByText('静态规则')).toBeInTheDocument()
     expect(within(aiProviders).getByText('NVIDIA NIM')).toBeInTheDocument()
     expect(within(aiProviders).getByText('Gemini API')).toBeInTheDocument()
     expect(within(aiProviders).getByText('Gemini CLI OAuth')).toBeInTheDocument()

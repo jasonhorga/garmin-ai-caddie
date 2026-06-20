@@ -127,7 +127,7 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
             <h2>AI 引擎</h2>
             <div className="setting-chip-row">
               {activeProvider ? <span className="setting-chip setting-primary">当前:{asString(activeProvider.label) ?? settings?.aiProviders.activeProvider}</span> : null}
-              <span className="setting-chip setting-primary">Static</span>
+              <span className="setting-chip setting-primary">静态规则</span>
               <span className={providerChipClass(settings, 'nvidia_nim')}>NVIDIA NIM</span>
               <span className={providerChipClass(settings, 'gemini_api_key')}>Gemini API</span>
               <span className={providerChipClass(settings, 'gemini_cli_oauth')}>Gemini CLI OAuth</span>

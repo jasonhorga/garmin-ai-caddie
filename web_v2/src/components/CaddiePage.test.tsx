@@ -453,7 +453,7 @@ describe('CaddiePage', () => {
     expect(within(scoreImpact).getByText('club sample and dispersion are strong enough')).toBeInTheDocument()
     const acceptableMiss = screen.getByLabelText('Decision acceptable miss')
     expect(within(acceptableMiss).getByRole('heading', { name: '可接受偏差' })).toBeInTheDocument()
-    expect(within(acceptableMiss).getByText('away_from_known_risks')).toBeInTheDocument()
+    expect(within(acceptableMiss).getByText('避开已知风险')).toBeInTheDocument()
     expect(within(acceptableMiss).getByText('标准')).toBeInTheDocument()
     expect(within(acceptableMiss).getByText('避开 water')).toBeInTheDocument()
     expect(within(acceptableMiss).getByText("miss toward the side that avoids the selected route's known risk kinds")).toBeInTheDocument()
@@ -761,7 +761,7 @@ describe('CaddiePage', () => {
     render(<CaddiePage decisionState={{ status: 'ready', data: biasedDecision }} contextState={{ status: 'ready', data: caddieContext }} onRequestDecision={vi.fn()} />)
 
     const acceptableMiss = screen.getByLabelText('Decision acceptable miss')
-    expect(within(acceptableMiss).getByText('history_depth_bias')).toBeInTheDocument()
+    expect(within(acceptableMiss).getByText('历史深度偏向')).toBeInTheDocument()
     expect(within(acceptableMiss).getByText('偏向深度 long')).toBeInTheDocument()
     expect(within(acceptableMiss).getByText('避开模式 approach_short')).toBeInTheDocument()
     expect(within(acceptableMiss).getByRole('button', { name: 'Open source hist-approach-short' })).toBeInTheDocument()

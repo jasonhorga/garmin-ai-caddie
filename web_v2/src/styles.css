@@ -4802,6 +4802,31 @@ button.round-detail-cell:hover {
   cursor: pointer;
 }
 
+/* 起始9洞 chips under a base course (备战/实战 finder). */
+.home-course-nines {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.home-course-nines-label {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.home-course-card button.home-course-nine {
+  margin-top: 0;
+  padding: 4px 10px;
+}
+
+/* Diagnostics-only raw course key under the course name (球场表现). */
+.stats-item-key {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+
 .home-last-score {
   display: flex;
   align-items: center;

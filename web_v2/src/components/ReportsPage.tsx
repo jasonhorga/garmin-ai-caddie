@@ -1,8 +1,22 @@
 import { useMemo, useState } from 'react'
 import type { HistoryStatsResponse, ReviewReportIndexResponse, ReviewReportIndexItem, ReviewReportResponse } from '../types'
+import { useDiagnostics } from '../diagnosticsContext'
 import { confidenceZh } from '../zhLabels'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
+
+// Human title for a report subject (instead of a raw subjectId like recent_10 /
+// quarter:2026-Q2). Round/club/hole refs have no in-page lookup → shown raw.
+function reportSubjectZh(kind: string, subjectId: unknown): string {
+  const id = String(subjectId ?? '').trim()
+  if (!id) return reportKindZh(kind)
+  if (id === 'recent_10') return '近10场'
+  const quarter = id.match(/^(?:quarter:)?(\d{4})-Q([1-4])$/i)
+  if (quarter) return `${quarter[1]}年Q${quarter[2]}`
+  const year = id.match(/^(?:year:)?(\d{4})$/)
+  if (year) return `${year[1]}年`
+  return id
+}
 
 const REPORT_KIND_ZH: Record<string, string> = {
   trend: '趋势',
@@ -332,21 +346,22 @@ function ReportInventoryRow({
     }
   }
 
+  const diagnostics = useDiagnostics()
   return (
     <div className="report-inventory-row">
       <div className="report-inventory-main">
         <div className="report-inventory-title">
           <span className="fact-chip muted">{reportKindZh(report.kind)}</span>
-          <strong>{report.subjectId}</strong>
+          <strong>{reportSubjectZh(report.kind, report.subjectId)}</strong>
         </div>
         <div className="report-inventory-meta">
-          <span>{report.provider}</span>
-          <span>{report.model}</span>
+          {diagnostics ? <span>{report.provider}</span> : null}
+          {diagnostics ? <span>{report.model}</span> : null}
           <span>{confidenceZh(report.confidence)} 置信</span>
         </div>
         <SourceRefs refs={report.sourceRefs} onSelectRef={onSelectRef} />
       </div>
-      <button type="button" onClick={handleOpen} aria-label={`打开已存 ${reportKindZh(report.kind)} ${report.subjectId}`}>
+      <button type="button" onClick={handleOpen} aria-label={`打开已存 ${reportKindZh(report.kind)} ${reportSubjectZh(report.kind, report.subjectId)}`}>
         打开
       </button>
     </div>
@@ -381,25 +396,27 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
   }
 
   const report = state.data
+  const diagnostics = useDiagnostics()
   return (
     <section className="report-detail" aria-label="报告详情">
       <div className="report-title-row">
         <div>
           <p className="eyebrow">{reportKindZh(report.kind)}</p>
-          <h2>{report.provider}</h2>
+          <h2>{reportSubjectZh(report.kind, report.subjectId)}</h2>
         </div>
         <span className={`confidence-pill ${report.confidence}`}>{confidenceZh(report.confidence)} 置信</span>
       </div>
       <section className="report-identity" aria-label="报告信息">
-        <span className="fact-chip muted">主题</span>
-        <span className="fact-chip">{report.subjectId}</span>
-        <span className="fact-chip muted">模型</span>
-        <span className="fact-chip">{report.model}</span>
+        {/* provider/model are AI infra — owner diagnostics only. */}
+        {diagnostics ? <span className="fact-chip muted">供应方</span> : null}
+        {diagnostics ? <span className="fact-chip">{report.provider}</span> : null}
+        {diagnostics ? <span className="fact-chip muted">模型</span> : null}
+        {diagnostics ? <span className="fact-chip">{report.model}</span> : null}
         <ReportFactBinding factBinding={report.factBinding} />
         <SourceRefs refs={report.sourceRefs} onSelectRef={onSelectRef} />
       </section>
       <p className="report-narrative">{report.narrative}</p>
-      <p className="report-body-note">报告正文由引擎生成(暂英文)</p>
+      <p className="report-body-note">由 AI 生成</p>
 
       <div className="report-evidence-grid">
         <ReportInferences inferences={report.inferencesMade} onSelectRef={onSelectRef} />

@@ -816,12 +816,12 @@ describe('LiveSandbox 沙盘建议 card', () => {
 
   it('passes unmapped acceptableMiss directions through raw', async () => {
     fetchCaddieDecisionMock.mockImplementation(async () =>
-      caddieDecisionFixture({ acceptableMiss: { direction: 'away_from_known_risks', rationale: '避开已知风险侧' } }),
+      caddieDecisionFixture({ acceptableMiss: { direction: 'custom_unmapped_bias', rationale: '避开已知风险侧' } }),
     )
 
     const card = await openAdvice()
 
-    expect(within(card).getByText(/可接受偏向:away_from_known_risks — 避开已知风险侧/)).toBeInTheDocument()
+    expect(within(card).getByText(/可接受偏向:custom_unmapped_bias — 避开已知风险侧/)).toBeInTheDocument()
   })
 
   it('hides 为什么 when the explanation narrative is missing', async () => {

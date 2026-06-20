@@ -1202,10 +1202,16 @@ export default function App() {
             <button type="button" onClick={() => void loadRoundsState()}>
               重试
             </button>
-            <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
-            <button type="button" onClick={() => navigate('sync-quality')}>
-              去设置
-            </button>
+            {isOwnerMode ? (
+              <>
+                <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
+                <button type="button" onClick={() => navigate('sync-quality')}>
+                  去设置
+                </button>
+              </>
+            ) : (
+              <p className="empty-state-hint">请检查你的专属链接是否正确,或联系管理员。</p>
+            )}
           </section>
         )
       }
@@ -1303,10 +1309,16 @@ export default function App() {
             <button type="button" onClick={() => void loadStatsState()}>
               重试
             </button>
-            <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
-            <button type="button" onClick={() => navigate('sync-quality')}>
-              去设置
-            </button>
+            {isOwnerMode ? (
+              <>
+                <p className="empty-state-hint">如需配置访问密钥，请前往 设置 → 同步与数据健康。</p>
+                <button type="button" onClick={() => navigate('sync-quality')}>
+                  去设置
+                </button>
+              </>
+            ) : (
+              <p className="empty-state-hint">请检查你的专属链接是否正确,或联系管理员。</p>
+            )}
           </section>
         )
       }
@@ -1464,10 +1476,16 @@ export default function App() {
       return (
         <section className="panel empty-state">
           <h1>还看不到你的数据</h1>
-          <p>请到 设置 → 同步 填入管理令牌，或用你收到的专属链接打开本页。</p>
-          <button type="button" onClick={() => navigate('sync-quality')}>
-            去设置
-          </button>
+          {isOwnerMode ? (
+            <>
+              <p>请到 设置 → 同步 填入管理令牌，或用你收到的专属链接打开本页。</p>
+              <button type="button" onClick={() => navigate('sync-quality')}>
+                去设置
+              </button>
+            </>
+          ) : (
+            <p>请检查你的专属链接是否正确,或联系管理员。</p>
+          )}
           <button type="button" onClick={() => void refreshOverviewState()}>
             重试
           </button>
