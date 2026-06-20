@@ -1111,6 +1111,58 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertIn('"clientId": "ios-phone"', log_text)
         self.assertIn('"clientId": "apple-watch"', log_text)
 
+    def test_mobile_round_state_projects_authoritative_per_hole_state(self) -> None:
+        # round-12 sync spine: GET …/state folds the event log into per-hole state (last-write-wins by
+        # serverSequence) and flags fields two distinct clients disagree on.
+        client = TestClient(app)
+
+        def event(eid: str, hole: int, kind: str, payload: dict, client_id: str) -> dict:
+            return {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": eid,
+                "roundId": "rs-1",
+                "clientId": client_id,
+                "timestamp": "2026-06-20T00:00:00Z",
+                "hole": hole,
+                "kind": kind,
+                "payload": payload,
+            }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                client.post(
+                    "/api/v2/mobile/rounds/rs-1/events",
+                    headers={"Idempotency-Key": "b1"},
+                    json={"roundId": "rs-1", "events": [
+                        event("e1", 1, "score", {"strokes": 5}, "ios-phone"),
+                        event("e2", 1, "club", {"clubName": "7I", "shotType": "approach", "lie": "fairway"}, "ios-phone"),
+                    ]},
+                )
+                client.post(
+                    "/api/v2/mobile/rounds/rs-1/events",
+                    headers={"Idempotency-Key": "b2"},
+                    json={"roundId": "rs-1", "events": [
+                        event("e3", 1, "score", {"strokes": 4}, "apple-watch"),  # later seq → wins + conflict
+                        event("e4", 2, "score", {"strokes": 3}, "apple-watch"),
+                    ]},
+                )
+                resp = client.get("/api/v2/mobile/rounds/rs-1/state")
+
+        self.assertEqual(resp.status_code, 200)
+        state = resp.json()
+        self.assertEqual(state["schema"], "ai-caddie-round-state-v1")
+        holes = {hole["hole"]: hole for hole in state["holes"]}
+        self.assertEqual(holes[1]["score"], 4)            # last-write-wins by serverSequence
+        self.assertEqual(holes[1]["selectedClub"], "7I")
+        self.assertEqual(holes[1]["lie"], "fairway")
+        self.assertEqual(holes[2]["score"], 3)
+        self.assertEqual(state["activeHole"], 2)
+        self.assertEqual(state["latestServerSequence"], 4)
+        conflicts = {(c["hole"], c["field"]): c["clients"] for c in state["conflicts"]}
+        self.assertEqual(conflicts[(1, "score")], ["apple-watch", "ios-phone"])  # two clients set hole-1 score
+        self.assertNotIn((1, "club"), conflicts)          # only one client set the club → no conflict
+
     def test_mobile_event_batch_rejects_invalid_event_envelope_without_writing(self) -> None:
         client = TestClient(app)
         valid_event = {

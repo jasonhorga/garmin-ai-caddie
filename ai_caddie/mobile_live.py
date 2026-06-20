@@ -2389,6 +2389,98 @@ def append_event_batch(
     }
 
 
+def build_round_state(round_id: str, *, root: Path | str | None = None) -> dict[str, Any]:
+    """Materialized authoritative per-hole round state, folded from the event log in serverSequence
+    order — the server-side mirror of iOS ``OfflineStore.restoreLiveRoundState`` (round-12 sync spine).
+
+    Set-fields (score / putt / penalty / club / lie / distance / location) take the value from the
+    highest serverSequence (last-write-wins by authoritative order). A field set by >=2 distinct
+    (non-empty) clients is surfaced in ``conflicts`` — the last value still wins, but the disagreement
+    is flagged for the UI. note/photo/video/sync_marker do not change scored state.
+    """
+    rows = sorted(
+        _event_log_rows(round_id, root=root),
+        key=lambda row: int(row.get("serverSequence") or 0),
+    )
+    holes: dict[int, dict[str, Any]] = {}
+    field_clients: dict[tuple[int, str], set[str]] = {}
+    latest_sequence = 0
+    active_hole = 0
+
+    def mark(hole_no: int, field: str, client_id: str) -> None:
+        if client_id:
+            field_clients.setdefault((hole_no, field), set()).add(client_id)
+
+    for row in rows:
+        latest_sequence = max(latest_sequence, int(row.get("serverSequence") or 0))
+        event = row.get("event")
+        if not isinstance(event, dict):
+            continue
+        hole_no = int(event.get("hole") or 0)
+        if hole_no <= 0:
+            continue
+        kind = str(event.get("kind") or "")
+        client_id = str(event.get("clientId") or "")
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        state = holes.setdefault(hole_no, {"hole": hole_no})
+        active_hole = hole_no
+        if kind == "score":
+            value = _safe_float(payload.get("strokes"))
+            if value is not None:
+                state["score"] = int(value)
+                mark(hole_no, "score", client_id)
+        elif kind == "putt":
+            value = _safe_float(payload.get("putts"))
+            if value is not None:
+                state["putts"] = int(value)
+                mark(hole_no, "putts", client_id)
+        elif kind == "penalty":
+            value = _safe_float(payload.get("penalties"))
+            if value is not None:
+                state["penaltyCount"] = int(value)
+                mark(hole_no, "penalty", client_id)
+        elif kind == "club":
+            club_name = str(payload.get("clubName") or "")
+            if club_name:
+                state["selectedClub"] = club_name
+                mark(hole_no, "club", client_id)
+            if "shotType" in payload:
+                state["selectedShotType"] = str(payload.get("shotType") or "")
+            if "strategyMode" in payload:
+                state["selectedStrategyMode"] = str(payload.get("strategyMode") or "")
+            if "lie" in payload:
+                state["lie"] = str(payload.get("lie") or "")
+            if "distanceToPinM" in payload:
+                raw = payload.get("distanceToPinM")
+                state["distanceToPinM"] = _safe_float(raw) if raw is not None else None
+        elif kind == "location":
+            for key in ("latitude", "longitude", "targetLatitude", "targetLongitude"):
+                value = _safe_float(payload.get(key))
+                if value is not None:
+                    state[key] = value
+            if "targetKind" in payload:
+                state["targetKind"] = str(payload.get("targetKind") or "")
+            if "horizontalAccuracyM" in payload:
+                raw = payload.get("horizontalAccuracyM")
+                state["horizontalAccuracyM"] = _safe_float(raw) if raw is not None else None
+        if event.get("timestamp"):
+            state["updatedAt"] = event.get("timestamp")
+
+    conflicts = [
+        {"hole": hole_no, "field": field, "clients": sorted(clients)}
+        for (hole_no, field), clients in field_clients.items()
+        if len(clients) >= 2
+    ]
+    return {
+        "schema": "ai-caddie-round-state-v1",
+        "roundId": str(round_id),
+        "latestServerSequence": latest_sequence,
+        "activeHole": active_hole,
+        "holes": [holes[hole_no] for hole_no in sorted(holes)],
+        "conflicts": sorted(conflicts, key=lambda item: (item["hole"], item["field"])),
+    }
+
+
 def replay_event_log(
     round_id: str,
     *,

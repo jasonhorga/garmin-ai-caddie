@@ -10,6 +10,7 @@ from ai_caddie.mobile_live import (
     build_live_round_package,
     build_live_round_package_for_course,
     build_mobile_course_options,
+    build_round_state,
     replay_event_log,
 )
 from ai_caddie.history import OWNER_ID
@@ -25,6 +26,7 @@ from .models import (
     LiveRoundEventReplayResponse,
     LiveRoundPackageResponse,
     MobileCourseOptionsResponse,
+    RoundStateResponse,
     MobileReconciliationApplyRequest,
     MobileReconciliationApplyResponse,
     MobileReconciliationResponse,
@@ -136,6 +138,10 @@ def replay_mobile_events_response(
             root=MOBILE_ROOT,
         )
     )
+
+
+def round_state_response(round_id: str) -> RoundStateResponse:
+    return RoundStateResponse(**build_round_state(round_id, root=MOBILE_ROOT))
 
 
 def ack_mobile_events_response(round_id: str, request: LiveRoundEventAckRequest) -> LiveRoundEventAckResponse:
