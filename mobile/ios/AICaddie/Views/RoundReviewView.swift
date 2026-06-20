@@ -118,7 +118,13 @@ struct RoundReviewContent: View {
             Text(round?.courseName ?? fallbackCourseName ?? "这一场").font(.title3.weight(.bold))
             HStack(spacing: 10) {
                 if let date = round?.date { Text(aiCaddieShortDate(date)).font(.caption).foregroundStyle(.secondary) }
-                if let holes = round?.holesCompleted { Text("\(holes) 洞").font(.caption).foregroundStyle(.secondary) }
+                // round-12: 18 洞球场打了 9 洞 → 「已打 9 / 18 洞」(不再误显示成 9 洞整场)。
+                if let course = round?.courseHoles, course > 0, course != (round?.holesScored ?? round?.holesCompleted) {
+                    let played = round?.holesScored ?? round?.holesCompleted ?? 0
+                    Text("已打 \(played) / \(course) 洞").font(.caption).foregroundStyle(.secondary)
+                } else if let holes = round?.holesCompleted {
+                    Text("\(holes) 洞").font(.caption).foregroundStyle(.secondary)
+                }
                 if let par = round?.par { Text("Par \(par)").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 if let score = round?.score {

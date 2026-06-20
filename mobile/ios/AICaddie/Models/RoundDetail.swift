@@ -48,6 +48,8 @@ public struct RoundDetailSummary: Codable, Equatable {
     public let par: Int?
     public let toPar: Int?
     public let holesCompleted: Int?
+    public let holesScored: Int?
+    public let courseHoles: Int?
     public let confidence: String?
 }
 

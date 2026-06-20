@@ -160,8 +160,13 @@ public struct CurrentHoleView: View {
 
                     // Club picker + record/save (records the current GPS fix).
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("选球杆").font(.caption).foregroundStyle(.secondary)
-                        ClubStripView(clubs: clubNames, selected: selectedClub) { selectedClub = $0 }
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("选球杆").font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            clubPickerMenu  // round-12: 全杆下拉,默认推荐杆,选完即记
+                        }
+                        // 快捷:本杆最相关的 3 支(球位过滤);全部球杆走上面的下拉。
+                        ClubStripView(clubs: clubNames, selected: selectedClub) { selectClub($0) }
                         RecordShotButton(title: "📍 保存本洞 · 含定位", lastShotText: recordHintText) { submitEvents() }
                     }
                     .liveCard()
@@ -293,28 +298,31 @@ public struct CurrentHoleView: View {
 
     /// Club picker options: the player's clubs, minus empty/"Unknown" placeholders and
     /// case-insensitive duplicates (Garmin club names are user-entered and messy).
-    /// Player's clubs from the backend (real bag): normalized to clear Chinese names (zhClubName),
-    /// deduped (keep the most-sampled profile per club), filtered by lie (no 一号木 off the tee),
-    /// and ordered longest→shortest. Drops empty/"Unknown".
-    private var clubNames: [String] {
+    /// Player's clubs from the backend real bag: zhClubName-normalized, deduped (keep most-sampled),
+    /// restricted to the player's bag. `filterTeeOnly` drops 一号木 off the tee — applied to the
+    /// quick chips, but NOT to the full dropdown (which lets the player pick ANY club).
+    private func bagBest(filterTeeOnly: Bool) -> [String: ClubProfile] {
         var best: [String: ClubProfile] = [:]
         for profile in package.clubProfiles {
             let raw = profile.clubName.trimmingCharacters(in: .whitespaces)
             guard !raw.isEmpty, raw.lowercased() != "unknown" else { continue }
             let name = zhClubName(raw)
-            if clubIsTeeOnly(name), selectedLie != "tee" { continue }
+            if filterTeeOnly, clubIsTeeOnly(name), selectedLie != "tee" { continue }
             if let existing = best[name], existing.sampleSize >= profile.sampleSize { continue }
             best[name] = profile
         }
         // Restrict to the player's bag — manual override (球杆设置) if set, else the real Garmin bag —
-        // so clubs they don't actually carry (a stray mis-tagged "二号小鸡腿") never appear. Neither
-        // known yet → all data-backed clubs.
+        // so clubs they don't carry (a stray mis-tagged "二号小鸡腿") never appear. Neither known → all.
         if let bag = ClubBagStore.effectiveBag() {
             best = best.filter { bag.contains($0.key) }
         }
-        // Only the 3 clubs most relevant to THIS shot: nearest to the to-pin distance when known
-        // (so a 150-yard approach never offers chip/putt), else the 3 longest. Always keep the
-        // currently-selected club visible so the highlight isn't lost.
+        return best
+    }
+
+    /// The 3 clubs most relevant to THIS shot (quick chips): nearest to the to-pin distance when
+    /// known, else the 3 longest. Always keeps the selected club visible.
+    private var clubNames: [String] {
+        let best = bagBest(filterTeeOnly: true)
         let ordered: [String]
         if let target = distanceToPinMetres {
             ordered = best.sorted { abs($0.value.medianM - target) < abs($1.value.medianM - target) }.map(\.key)
@@ -326,6 +334,65 @@ public struct CurrentHoleView: View {
             top = [selectedClub] + top.prefix(2)
         }
         return top
+    }
+
+    /// round-12: the FULL bag for the dropdown picker — every club + its distance, longest→shortest,
+    /// so the player can choose ANY club (not just the 3 quick chips). No tee-only filter here.
+    private var allBagClubs: [(name: String, metres: Double)] {
+        bagBest(filterTeeOnly: false)
+            .sorted { $0.value.medianM > $1.value.medianM }
+            .map { (name: $0.key, metres: $0.value.medianM) }
+    }
+
+    /// The caddie's currently-recommended club (zh), used to mark it in the dropdown.
+    private var recommendedClub: String? {
+        guard let decision = caddieDecision, let raw = recommendedClubName(from: decision) else {
+            return nil
+        }
+        return zhClubName(raw)
+    }
+
+    /// round-12: full-bag dropdown — pick ANY club + its distance; recommended club marked; defaults
+    /// to the recommendation (selectedClub is synced to it). Selecting records the pick (选完即记).
+    @ViewBuilder private var clubPickerMenu: some View {
+        Menu {
+            ForEach(allBagClubs, id: \.name) { club in
+                Button {
+                    selectClub(club.name)
+                } label: {
+                    let label = "\(club.name) · \(CoursePrepRoute.yards(fromMetres: club.metres)) 码"
+                        + (club.name == recommendedClub ? " · 推荐" : "")
+                    if club.name == selectedClub {
+                        Label(label, systemImage: "checkmark")
+                    } else {
+                        Text(label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "bag").font(.caption)
+                Text(selectedClub.isEmpty ? "选择球杆" : selectedClub).font(.subheadline.weight(.semibold))
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+            .foregroundStyle(LiveHoleStyle.green)
+        }
+    }
+
+    /// Set the selected club (chips + dropdown). round-12「选完即记」: persist the pick immediately as
+    /// a lightweight club event (clubName/打法/球位/距离 — NOT a full shot/GPS record; 保存本洞 still
+    /// records the shot) so the choice survives a quit/restart and drives the map landing marker.
+    private func selectClub(_ club: String) {
+        let changed = club != selectedClub
+        selectedClub = club
+        guard changed, !club.isEmpty else { return }
+        emit(kind: .club, timestamp: ISO8601DateFormatter().string(from: Date()), payload: [
+            "clubName": .string(selectedClub),
+            "shotType": .string(selectedShotType),
+            "strategyMode": .string(selectedStrategyMode),
+            "lie": .string(selectedLie),
+            "distanceToPinM": distanceToPinPayload(),
+        ])
     }
 
     /// The selected club's typical distance (metres) from the bag model — drives the live map marker.
