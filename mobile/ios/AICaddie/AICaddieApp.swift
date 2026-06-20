@@ -557,23 +557,60 @@ public final class LiveRoundAppModel: ObservableObject {
             let uploadedMediaCount = try await syncPendingMedia(roundId: package.roundId)
             let events = try offlineStore.loadPendingEvents(roundId: package.roundId)
             pendingEventCount = events.count
-            guard !events.isEmpty else {
+            if events.isEmpty {
                 syncStatus = uploadedMediaCount > 0 ? "Synced \(uploadedMediaCount) media" : "No pending events"
-                return
+            } else {
+                syncStatus = "Syncing \(events.count) events"
+                let result = try await syncClient.postEventBatchWithRetry(
+                    events,
+                    roundId: package.roundId,
+                    idempotencyKey: idempotencyKey(roundId: package.roundId, events: events)
+                )
+                try offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)
+                _ = try? await syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)
+                pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
+                let mediaSuffix = uploadedMediaCount > 0 ? ", \(uploadedMediaCount) media" : ""
+                syncStatus = result.duplicate ? "Events already synced" : "Synced \(result.accepted) events\(mediaSuffix)"
             }
-            syncStatus = "Syncing \(events.count) events"
-            let result = try await syncClient.postEventBatchWithRetry(
-                events,
-                roundId: package.roundId,
-                idempotencyKey: idempotencyKey(roundId: package.roundId, events: events)
-            )
-            try offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)
-            _ = try? await syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)
-            pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
-            let mediaSuffix = uploadedMediaCount > 0 ? ", \(uploadedMediaCount) media" : ""
-            syncStatus = result.duplicate ? "Events already synced" : "Synced \(result.accepted) events\(mediaSuffix)"
+            // round-12 sync spine: ALWAYS pull events authored by OTHER clients (runs even with no
+            // local pending events) so a round edited on the watch/web shows up here.
+            await pullAndApplyRemoteEvents(roundId: package.roundId)
         } catch {
             syncStatus = "Sync failed"
+        }
+    }
+
+    /// round-12 sync spine (gap f): pull events authored by OTHER clients via the replay endpoint and
+    /// merge them into the local event log (idempotent by eventId), then re-project the round state.
+    /// Best-effort: a pull failure never fails the push. Today this is a no-op for a single client
+    /// (no other clients' events exist); it activates the moment the watch/web write to the same round.
+    /// NOTE: re-projection folds by local-log order; cross-client SAME-field ordering uses the
+    /// authoritative `GET …/state` projection (round-12 P2.2) — wired here when multi-client lands.
+    private func pullAndApplyRemoteEvents(roundId: String) async {
+        guard let syncClient, let package, package.roundId == roundId else { return }
+        var appliedAny = false
+        var cursor: Int? = nil  // nil → server uses THIS client's ack cursor (events since last ack)
+        var latestCursor = 0
+        for _ in 0..<20 {  // bounded pagination guard
+            guard let replay = try? await syncClient.fetchEventReplay(roundId: roundId, afterSequence: cursor, limit: 200) else {
+                return
+            }
+            for item in replay.events {
+                let alreadyLocal = (try? offlineStore.containsEvent(eventId: item.event.eventId)) ?? false
+                if !alreadyLocal {
+                    try? offlineStore.appendEvent(item.event)
+                    appliedAny = true
+                }
+            }
+            latestCursor = replay.nextCursor
+            cursor = replay.nextCursor
+            if !replay.hasMore { break }
+        }
+        if latestCursor > 0 {
+            _ = try? await syncClient.ackEventCursor(roundId: roundId, serverSequence: latestCursor)
+        }
+        if appliedAny {
+            liveRoundState = try? offlineStore.restoreLiveRoundState(roundId: roundId, package: package)
         }
     }
 
