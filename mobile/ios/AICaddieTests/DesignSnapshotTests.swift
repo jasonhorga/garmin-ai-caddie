@@ -79,6 +79,16 @@ final class DesignSnapshotTests: XCTestCase {
                 sourceRefs: ["geometry:31795:7"], missingDataLabels: []
             )
         }
+        func step(_ role: String, _ club: String, _ carry: Double, _ remaining: Double) -> CaddiePlanSequenceStep {
+            CaddiePlanSequenceStep(id: "\(role)-\(club)", role: role, clubName: club, targetCarryM: carry,
+                                   expectedRemainingM: remaining, sampleSize: 42, confidence: "high", sourceRefs: [])
+        }
+        func sequence(_ id: String, _ strokes: Int, _ confidence: String, _ steps: [CaddiePlanSequenceStep]) -> CaddiePlanSequence {
+            CaddiePlanSequence(id: id, label: steps.map(\.clubName).joined(separator: "-"), expectedStrokes: strokes,
+                               expectedRemainingM: steps.last?.expectedRemainingM, riskScore: nil, confidence: confidence,
+                               coverageText: nil, sourceRefs: [], steps: steps)
+        }
+        // round-11: 整洞序列为主 — three 打法 each a 开球→攻果岭 chain (user-approved direction).
         let view = CaddiePlanView(
             options: [
                 option("stock", "稳妥", "7i", 150, 1),
@@ -86,6 +96,12 @@ final class DesignSnapshotTests: XCTestCase {
                 option("layup", "放置短切", "9i", 120, 1),
             ],
             selectedOptionId: "stock",
+            sequences: [
+                sequence("safe", 2, "high", [step("advance", "3W", 160, 155), step("scoring", "6I", 150, 5)]),
+                sequence("stock", 2, "medium", [step("advance", "Driver", 180, 133), step("scoring", "PW", 130, 3)]),
+                sequence("attack", 2, "low", [step("advance", "Driver", 180, 133), step("scoring", "SW", 125, 8)]),
+            ],
+            selectedSequenceId: "stock",
             // round-10: multiple bunkers are numbered + sorted near→far (CaddiePlanHazard.from), so
             // three avoid zones aren't all just "沙坑". Build via .from to exercise that real logic.
             hazards: CaddiePlanHazard.from(

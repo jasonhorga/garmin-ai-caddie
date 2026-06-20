@@ -301,7 +301,10 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             #endif
             // No in-progress round → land on the Hub with a fresh home package (most-played course).
+            // Guard: never overwrite a round Phase 1 already resumed (activateHomePackage nils
+            // liveRoundState). If Phase 1 restored an active round, keep it and skip the home swap.
             if let home = await fetchHomePackage() {
+                guard liveRoundState == nil else { return }
                 try activateHomePackage(home, status: "主页就绪")
                 return
             }

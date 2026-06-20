@@ -39,9 +39,7 @@ public struct RoundHomeView: View {
     public let pendingLiveHole: Int?
     public let onConsumePendingLiveHole: () -> Void
 
-    @State private var showDiscardConfirm = false
     @State private var showSettings = false
-    @State private var showManage = false
     @State private var path: [HubRoute] = []
 
     public init(
@@ -101,9 +99,6 @@ public struct RoundHomeView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     playCard
-                    if liveRoundState != nil || package.course.globalId != 0 {
-                        manageSection
-                    }
                     tilesRow
                     lastRoundCard
                 }
@@ -146,7 +141,15 @@ public struct RoundHomeView: View {
 
     @ViewBuilder private func currentHoleView(_ number: Int) -> some View {
         if let hole = package.holes.first(where: { $0.number == number }) {
-            CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)
+            // round-11: forward the round-management closures so 球局调整(加打/减九洞/结束本场)lives
+            // inside the in-progress screen instead of the Hub.
+            CurrentHoleView(
+                package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken,
+                offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState,
+                courseOptions: courseOptions, startingNine: startingNine, isPreparingRound: isPreparingRound,
+                onChangeNine: onChangeNine, onPrepareCourseRound: onPrepareCourseRound,
+                onPrepareCompositeRound: onPrepareCompositeRound, onDiscard: onDiscard, onEvent: onEvent
+            )
         }
     }
 
@@ -192,146 +195,6 @@ public struct RoundHomeView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-    }
-
-    /// 球局调整(加打/减九洞、结束本场)—— 收进折叠区,不再占首页主流程(用户反馈:这些该在球局里、
-    /// 不放首页;本场逐洞跳转也从首页移除,进球局后逐洞推进)。控件与闭包保持不变,仅换容器。
-    @ViewBuilder private var manageSection: some View {
-        DisclosureGroup(isExpanded: $showManage) {
-            VStack(spacing: 8) {
-                nineControl
-                loopAddControl
-                if let live = liveRoundState, package.holes.contains(where: { $0.number == live.activeHole }) {
-                    Button(role: .destructive) {
-                        showDiscardConfirm = true
-                    } label: {
-                        Text("结束本场").font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
-                    .confirmationDialog("结束本场?未保存的记录会被丢弃。", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
-                        Button("结束本场", role: .destructive) { onDiscard() }
-                        Button("取消", role: .cancel) {}
-                    }
-                }
-            }
-            .padding(.top, 8)
-        } label: {
-            Label("球局调整 · 加打 / 结束本场", systemImage: "slider.horizontal.3")
-                .font(.subheadline).foregroundStyle(.secondary)
-        }
-        .liveCard()
-    }
-
-    /// 起始九洞的加打 / 撤销:nine 是对一局 18 洞的视图过滤,已记杆按 roundId 保留。
-    @ViewBuilder private var nineControl: some View {
-        if package.course.globalId != 0 {
-            let currentNine = package.nine ?? "all"
-            if currentNine != "all" {
-                Button {
-                    onChangeNine("all")
-                } label: {
-                    Label("＋加打另外 9 洞(凑 18)", systemImage: "plus.circle")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundStyle(LiveHoleStyle.green)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.green))
-                }
-                .buttonStyle(.plain)
-                .disabled(isPreparingRound)
-            } else if let startingNine, startingNine != "all" {
-                Button {
-                    onChangeNine(startingNine)
-                } label: {
-                    Label("移除另外 9 洞 · 只打\(nineText(startingNine))", systemImage: "minus.circle")
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundStyle(.secondary)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
-                }
-                .buttonStyle(.plain)
-                .disabled(isPreparingRound)
-            }
-        }
-    }
-
-    private func nineText(_ nine: String) -> String {
-        switch nine {
-        case "front":
-            return "前九"
-        case "back":
-            return "后九"
-        default:
-            return "全 18 洞"
-        }
-    }
-
-    // MARK: - 9 洞环:开局后再加打 / 移除另一个 9 洞(凑 18)
-    // 用户要求:开始时不一定知道要打哪个后九,开局没选后面也能加;且同一局已记杆不丢。
-    // 实现:同 roundId 重取组合包(prepareCompositeRound)/单环包(prepareCourseRound),
-    // restoreLiveRoundState 按 roundId 从离线事件重建已记的前 9 洞。
-
-    /// 当前局对应的 CourseView 选项(用 course.globalId 反查;组合局的 globalId = 前环)。
-    private var activeCourseOption: MobileCourseOption? {
-        courseOptions.first { $0.globalId == package.course.globalId }
-    }
-
-    /// 同球场可作为「另一个 9 洞」的环(9 洞、同球场),含当前环本身 —— 同一个环打两轮
-    /// (A+A/B+B/C+C)是真实打法,不排除。按 A/B/C 排序。
-    private var siblingLoops: [MobileCourseOption] {
-        guard let venue = activeCourseOption?.venueName else { return [] }
-        return courseOptions
-            .filter { ($0.venueName ?? "") == venue
-                && ($0.segmentHoles ?? $0.holes) == 9 }
-            .sorted { ($0.segmentLabel ?? "~~") < ($1.segmentLabel ?? "~~") }
-    }
-
-    private func loopLabel(_ option: MobileCourseOption) -> String {
-        if let label = option.segmentLabel, !label.isEmpty {
-            return "\(label) 场"
-        }
-        return "另一个 9 洞"
-    }
-
-    @ViewBuilder private var loopAddControl: some View {
-        // 仅进行中、且当前局是某球场的一个 9 洞环时显示。
-        if liveRoundState != nil, let active = activeCourseOption, (active.segmentHoles ?? active.holes) == 9 {
-            if package.holes.count <= 9 {
-                if !siblingLoops.isEmpty {
-                    // 单 9 洞环进行中 → 选另一个环加打凑 18(同一局,已记杆保留)。
-                    Menu {
-                        ForEach(siblingLoops) { loop in
-                            Button("＋ \(loopLabel(loop)) · 凑 18 洞") {
-                                onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)
-                            }
-                        }
-                    } label: {
-                        Label("＋加打另一个 9 洞(凑 18)", systemImage: "plus.circle")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .foregroundStyle(LiveHoleStyle.green)
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.green))
-                    }
-                    .disabled(isPreparingRound)
-                }
-            } else {
-                // 已是组合 18(两个 9 洞环)→ 移除加打的后 9,只打起始 9 洞(前 9 已记杆保留)。
-                Button {
-                    onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")
-                } label: {
-                    Label("移除加打的 9 洞 · 只打前 9", systemImage: "minus.circle")
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundStyle(.secondary)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
-                }
-                .disabled(isPreparingRound)
-            }
-        }
     }
 
     // MARK: - 备战 · 复盘 · 统计 磁贴(复盘=单场逐洞,统计=历史宏观,分开)

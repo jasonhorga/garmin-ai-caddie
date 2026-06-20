@@ -930,6 +930,22 @@ def _club_nearest(rows: list[dict[str, Any]], target_m: float) -> dict[str, Any]
     return min(rows, key=lambda profile: abs(float(profile.get("median_m") or 0) - target_m))
 
 
+def _caddie_clean_rows(club_profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sorted club rows for offline caddie picks: drop zero-median clubs, prefer trustworthy sample
+    sizes, and collapse same-club aliases. Mirrors the online decision engine (ai_caddie.decision)
+    so the offline seed / first-render flash never recommends a noisy low-sample club (e.g. a
+    mislabeled "9I" with 13 stray long shots). The full bag still reaches the recording strip via
+    the package's clubProfiles — this only governs what the caddie recommends."""
+    from ai_caddie.decision import _dedupe_near_clubs, _prefer_trusted_clubs
+
+    rows = [profile for profile in club_profiles if float(profile.get("median_m") or 0) > 0]
+    rows = _dedupe_near_clubs(_prefer_trusted_clubs(rows))
+    return sorted(
+        rows,
+        key=lambda profile: (-float(profile.get("median_m") or 0), str(profile.get("clubName") or "")),
+    )
+
+
 def _shot_option_clubs(
     rows: list[dict[str, Any]], *, par: int, target_m: float
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
@@ -980,10 +996,7 @@ def _tee_candidate_routes(
     target_m: float = 0.0,
     avoid_zones: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    rows = sorted(
-        [profile for profile in club_profiles if float(profile.get("median_m") or 0) > 0],
-        key=lambda profile: (-float(profile.get("median_m") or 0), str(profile.get("clubName") or "")),
-    )
+    rows = _caddie_clean_rows(club_profiles)
     if not rows:
         return []
     safe_p, stock_p, attack_p = _shot_option_clubs(rows, par=par, target_m=target_m)
@@ -1049,15 +1062,7 @@ def _offline_caddie_options(
     target_m: float = 0.0,
     avoid_zones: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    valid_profiles = []
-    for profile in club_profiles:
-        median = _safe_float(profile.get("median_m"))
-        if median is not None and median > 0:
-            valid_profiles.append(profile)
-    rows = sorted(
-        valid_profiles,
-        key=lambda profile: (-float(profile.get("median_m") or 0), str(profile.get("clubName") or "")),
-    )
+    rows = _caddie_clean_rows(club_profiles)
     if not rows:
         return []
     # Pick clubs by DISTANCE (par 3 around the green, par 4/5 control/driver) — not "always longest",

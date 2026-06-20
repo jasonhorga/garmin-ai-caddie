@@ -1218,6 +1218,8 @@ class MobileContractTests(unittest.TestCase):
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         start_view = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        # round-11: 球局调整(加打/减九洞)moved out of the Hub into the in-progress screen.
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
 
         self.assertIn("@Published public private(set) var isPreparingRound", app_swift)
         self.assertIn("public func prepareRound(roundId:", app_swift)
@@ -1295,18 +1297,23 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("await model.setActiveNine(nine)", app_swift)
         self.assertIn("public let startingNine: String?", round_home)
         self.assertIn("public let onChangeNine: (String) -> Void", round_home)
-        self.assertIn('onChangeNine("all")', round_home)
-        self.assertIn("加打另外 9 洞", round_home)
-        self.assertIn("package.nine ?? \"all\"", round_home)
+        # round-11: the nine controls now live in the in-progress screen (CurrentHoleView), the Hub
+        # only forwards the closures into it.
+        self.assertIn('onChangeNine("all")', current_hole)
+        self.assertIn("加打另外 9 洞", current_hole)
+        self.assertIn("package.nine ?? \"all\"", current_hole)
 
         # 开局后再加打/移除另一个 9 洞环(凑 18):用户要求开始时不一定知道后九,开局没选后面也能加。
         # 同 roundId 重取(组合包/单环包)+ restoreLiveRoundState 保留已记前 9 洞。
-        self.assertIn("loopAddControl", round_home)
-        self.assertIn("private var siblingLoops: [MobileCourseOption]", round_home)
-        self.assertIn("onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)", round_home)
-        self.assertIn('onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")', round_home)
-        self.assertIn("加打另一个 9 洞", round_home)
-        self.assertIn("移除加打的 9 洞", round_home)
+        self.assertIn("loopAddControl", current_hole)
+        self.assertIn("private var siblingLoops: [MobileCourseOption]", current_hole)
+        self.assertIn("onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)", current_hole)
+        self.assertIn('onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")', current_hole)
+        self.assertIn("加打另一个 9 洞", current_hole)
+        self.assertIn("移除加打的 9 洞", current_hole)
+        # The Hub forwards the round-management closures into the live screen.
+        self.assertIn("onChangeNine: onChangeNine", round_home)
+        self.assertIn("onDiscard: onDiscard", round_home)
 
     def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
         course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
@@ -1430,6 +1437,7 @@ class MobileContractTests(unittest.TestCase):
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
 
         # No in-progress round → land on the Hub (choices) via a home package = the most-played
         # course's data, which does NOT mark an active round (liveRoundState stays nil → no 进行中).
@@ -1445,9 +1453,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("offlineStore.loadResumablePackage()", app_swift)
         # Light-only visual identity — never renders white-on-white in the system's Dark Mode.
         self.assertIn(".preferredColorScheme(.light)", app_swift)
-        # round-9 E (首页精简): 本场逐洞网格移除;加打/结束本场收进折叠的「球局调整」;标题更清晰。
+        # round-9 E (首页精简): 本场逐洞网格移除;标题更清晰。
+        # round-11: 球局调整(加打/结束本场)moved OUT of the Hub into the in-progress screen.
         self.assertNotIn("本场球洞", round_home)
-        self.assertIn("private var manageSection", round_home)
+        self.assertNotIn("private var manageSection", round_home)
+        self.assertIn("private var manageSection", current_hole)
         self.assertIn('navigationTitle("AI 球童")', round_home)
 
     def test_ios_hole_2d_map_wired(self) -> None:
@@ -1541,7 +1551,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("self._score = State(initialValue: restoredHoleState?.score ?? hole.par)", current_hole)
         self.assertIn("self._puttCount = State(initialValue: restoredHoleState?.putts ?? 2)", current_hole)
         self.assertIn("self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)", current_hole)
-        self.assertIn("self._selectedClub = State(initialValue: zhClubName(restoredHoleState?.selectedClub ?? package.clubProfiles.first?.clubName ?? \"\"))", current_hole)
+        # round-11 B: a restored club is still honored; a FRESH hole defaults to a distance-matched
+        # trustworthy club (Self.defaultClub), never an arbitrary clubProfiles.first (the noisy 9I).
+        self.assertIn("self._selectedClub = State(initialValue: restoredHoleState.map { zhClubName($0.selectedClub) }", current_hole)
+        self.assertIn("Self.defaultClub(par: hole.par, holeYards: hole.yards, profiles: package.clubProfiles)", current_hole)
+        self.assertNotIn("package.clubProfiles.first?.clubName", current_hole)
         self.assertIn("@State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?", current_hole)
         self.assertIn("self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)", current_hole)
         self.assertIn("applyRestoredStateIfNeeded(newState)", current_hole)
@@ -1572,7 +1586,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let apiBaseURL: URL?", round_home)
         self.assertIn("apiBaseURL: URL? = nil", round_home)
         self.assertIn("caddieBaseURL: apiBaseURL", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(", round_home)
+        self.assertIn("liveRoundState: liveRoundState,", round_home)
 
         self.assertIn("caddieBaseURL: URL? = nil", current_hole)
         self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
@@ -1627,7 +1642,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("SyncClient(baseURL: $0, adminToken: adminToken)", app_swift)
 
         self.assertIn("public let adminToken: String?", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken", round_home)
+        self.assertIn("CurrentHoleView(", round_home)
+        self.assertIn("caddieBaseURL: apiBaseURL, adminToken: adminToken,", round_home)
 
         self.assertIn("adminToken: String? = nil", current_hole)
         self.assertIn("CaddieDecisionClient(baseURL: $0, adminToken: adminToken)", current_hole)
@@ -1718,7 +1734,8 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("public let watchBridge: WatchEventBridge?", round_home)
         self.assertIn("watchBridge: WatchEventBridge? = nil", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(", round_home)
+        self.assertIn("liveRoundState: liveRoundState,", round_home)
 
         self.assertIn("watchBridge: WatchEventBridge? = nil", current_hole)
         self.assertIn("sendWatchState(decision:", current_hole)
@@ -2230,7 +2247,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("syncStatus", round_home)
         # 离线就绪诊断不再对用户暴露(工程信息);用户不关心离线。
         self.assertNotIn("PackageReadinessSection", round_home)
-        self.assertIn("CurrentHoleView(package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState, onEvent: onEvent)", round_home)
+        self.assertIn("CurrentHoleView(", round_home)
+        self.assertIn("liveRoundState: liveRoundState,", round_home)
         self.assertIn("RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
         self.assertIn('title: "历史复盘"', round_home)
         self.assertIn("struct RecentRoundReviewView: View", recent_review)
@@ -2387,7 +2405,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("selectedSequenceId(from response", caddie_plan)
         self.assertIn("response.selectedSequence", caddie_plan)
         self.assertIn("response.sequences ?? []", caddie_plan)
-        self.assertIn("逐洞计划", caddie_plan)
+        # round-11: 整洞序列为主 — three 打法 each rendered as a 开球→攻果岭 club chain (selected on top).
+        self.assertIn("private var sequenceCards", caddie_plan)
+        self.assertIn("orderedSequences", caddie_plan)
+        self.assertIn("\\(zhCaddieRouteLabel(sequence.id))打法", caddie_plan)
         self.assertIn("sequence.steps", caddie_plan)
         self.assertIn('number(row["expectedRemaining_m"])', caddie_plan)
         self.assertIn('number(row["targetCarry_m"])', caddie_plan)

@@ -142,8 +142,14 @@ public final class OfflineStore {
     /// pointer. This makes resume robust even when the pointer is missing/stale (e.g. an offline start
     /// that never wrote it, or a schema-skewed pointer after an app update) — recorded holes survive.
     public func loadResumablePackage() throws -> LiveRoundPackage? {
-        if let roundId = try inProgressRoundId(), let package = try loadRoundPackage(roundId: roundId) {
-            return package
+        if let roundId = try inProgressRoundId() {
+            // A corrupt per-round package file must NOT abort resume: fall through to the
+            // current-package pointer rather than throwing out of bootstrap (which would land the
+            // player on the Hub with the in-progress round hidden).
+            if let package = try? loadRoundPackage(roundId: roundId) {
+                return package
+            }
+            AICaddieLog.storage.error("Resumable package unreadable for \(roundId, privacy: .public); using current pointer")
         }
         return try loadCurrentRoundPackage()
     }
@@ -223,11 +229,20 @@ public final class OfflineStore {
         guard let text = String(data: data, encoding: .utf8) else {
             return []
         }
-        return try text
-            .split(separator: "\n")
-            .map { line in
-                try decoder.decode(LiveRoundEvent.self, from: Data(line.utf8))
+        // Skip (don't throw on) malformed lines. appendEvent writes the JSON and the trailing
+        // newline as two non-atomic FileHandle writes; if iOS kills the app mid-write, the last
+        // line is a truncated JSON fragment. A throwing decode there used to abort the whole load,
+        // which silently dropped resume → the in-progress round looked lost on relaunch. Losing at
+        // most that one half-written event keeps every prior recorded score intact.
+        var events: [LiveRoundEvent] = []
+        for line in text.split(separator: "\n") {
+            do {
+                events.append(try decoder.decode(LiveRoundEvent.self, from: Data(line.utf8)))
+            } catch {
+                AICaddieLog.storage.error("Skipping malformed event line (truncation/schema): \(String(describing: error), privacy: .public)")
             }
+        }
+        return events
     }
 
     public func loadPendingEvents(roundId: String? = nil) throws -> [LiveRoundEvent] {

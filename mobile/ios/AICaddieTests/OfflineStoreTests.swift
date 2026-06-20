@@ -284,6 +284,35 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertNotEqual(snapshot.activeHole, outOfRange)
     }
 
+    func testLoadEventsSkipsTruncatedFinalLineAndStillResumes() throws {
+        // round-11 bug: appendEvent writes JSON + "\n" as two non-atomic FileHandle writes. If iOS
+        // SIGKILLs the app mid-write, the last log line is a truncated JSON fragment. loadEvents used
+        // to THROW on it, which silently aborted resume → the in-progress round looked lost (Hub
+        // showed, 继续这场 card gone). loadEvents must skip the bad line and keep every prior event.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try fixturePackage()
+        try store.saveRoundPackage(package)
+        try store.appendEvent(
+            LiveRoundEvent(eventId: "s1", roundId: package.roundId, timestamp: "2026-06-20T00:00:00Z",
+                           hole: 1, kind: .score, payload: ["strokes": .number(4)])
+        )
+        // Simulate a half-written final line from a forced quit (no closing brace, no newline).
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        let handle = try FileHandle(forWritingTo: logURL)
+        handle.seekToEndOfFile()
+        handle.write(Data("{\"eventId\":\"trunc\",\"roundId\":\"\(package.roundId)\",\"ho".utf8))
+        try handle.close()
+
+        let events = try store.loadEvents()
+        XCTAssertEqual(events.count, 1)                                  // truncated fragment skipped
+        XCTAssertEqual(events.first?.eventId, "s1")                      // recorded score survives
+        XCTAssertEqual(try store.inProgressRoundId(), package.roundId)   // resume still finds the round
+        XCTAssertEqual(try store.loadResumablePackage()?.roundId, package.roundId)
+        XCTAssertTrue(try store.hasRecordedEvents(roundId: package.roundId))  // 继续这场 card survives
+    }
+
     private func fixturePackage() throws -> LiveRoundPackage {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

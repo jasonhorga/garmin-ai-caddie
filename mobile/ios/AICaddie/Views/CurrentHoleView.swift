@@ -15,6 +15,15 @@ public struct CurrentHoleView: View {
     private let offlineStore: OfflineStore?
     private let watchBridge: WatchEventBridge?
     private let liveRoundState: LiveRoundStateSnapshot?
+    // 球局调整(加打 / 减九洞 / 结束本场)— round-11: 从首页 Hub 移进开球后的实战屏(用户反馈:
+    // 这些该在球局里、不放首页)。控件与闭包原样保留,仅换了容身的屏。
+    private let courseOptions: [MobileCourseOption]
+    private let startingNine: String?
+    private let isPreparingRound: Bool
+    private let onChangeNine: (String) -> Void
+    private let onPrepareCourseRound: (Int, String, String, String) -> Void
+    private let onPrepareCompositeRound: (Int, Int, String, String) -> Void
+    private let onDiscard: () -> Void
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var score: Int
@@ -35,6 +44,8 @@ public struct CurrentHoleView: View {
     @State private var caddieErrorMessage: String?
     @State private var visionFindings: [[String: JSONValue]] = []
     @State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?
+    @State private var showManage = false
+    @State private var showDiscardConfirm = false
 
     public init(
         package: LiveRoundPackage,
@@ -45,6 +56,13 @@ public struct CurrentHoleView: View {
         offlineStore: OfflineStore? = nil,
         watchBridge: WatchEventBridge? = nil,
         liveRoundState: LiveRoundStateSnapshot? = nil,
+        courseOptions: [MobileCourseOption] = [],
+        startingNine: String? = nil,
+        isPreparingRound: Bool = false,
+        onChangeNine: @escaping (String) -> Void = { _ in },
+        onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
+        onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
+        onDiscard: @escaping () -> Void = {},
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
         self.package = package
@@ -57,12 +75,20 @@ public struct CurrentHoleView: View {
         self.offlineStore = offlineStore
         self.watchBridge = watchBridge
         self.liveRoundState = liveRoundState
+        self.courseOptions = courseOptions
+        self.startingNine = startingNine
+        self.isPreparingRound = isPreparingRound
+        self.onChangeNine = onChangeNine
+        self.onPrepareCourseRound = onPrepareCourseRound
+        self.onPrepareCompositeRound = onPrepareCompositeRound
+        self.onDiscard = onDiscard
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
         let restoredHoleState = liveRoundState?.holeState(for: hole.number)
         self._score = State(initialValue: restoredHoleState?.score ?? hole.par)
         self._puttCount = State(initialValue: restoredHoleState?.putts ?? 2)
         self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)
-        self._selectedClub = State(initialValue: zhClubName(restoredHoleState?.selectedClub ?? package.clubProfiles.first?.clubName ?? ""))
+        self._selectedClub = State(initialValue: restoredHoleState.map { zhClubName($0.selectedClub) }
+            ?? Self.defaultClub(par: hole.par, holeYards: hole.yards, profiles: package.clubProfiles))
         self._selectedShotType = State(initialValue: restoredHoleState?.selectedShotType ?? seed?.shotTypes.first ?? "approach")
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
         self._distanceToPinText = State(initialValue: restoredHoleState?.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? "")
@@ -188,6 +214,9 @@ public struct CurrentHoleView: View {
                         )
                     }
                     .liveCard()
+
+                    // 球局调整(加打 / 减九洞 / 结束本场)— 移自首页,收在底部折叠区,不打扰记分主流程。
+                    manageSection
                 }
                 .padding(14)
             }
@@ -206,7 +235,10 @@ public struct CurrentHoleView: View {
             currentHorizontalAccuracyM = latestFix.horizontalAccuracyM
         }
         .task(id: hole.number) {
-            await loadCaddieDecision()
+            // Sync the selected club to the caddie's recommendation on a FRESH hole (so we never sit
+            // on an arbitrary default); a hole the player already recorded keeps their chosen club.
+            let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
+            await loadCaddieDecision(syncClub: !alreadyRecorded)
         }
         .task(id: hole.number) {
             await loadHoleMap()
@@ -215,7 +247,9 @@ public struct CurrentHoleView: View {
             applyRestoredStateIfNeeded(newState)
         }
         .onChange(of: selectedStrategyMode) { _, _ in
-            Task { await loadCaddieDecision() }
+            // Changing strategy re-plans the shot → adopt the new strategy's recommended club so the
+            // club strip + landing marker move with it (保守/激进 选不同杆,图上的落点要跟着变).
+            Task { await loadCaddieDecision(syncClub: true) }
         }
     }
 
@@ -300,6 +334,192 @@ public struct CurrentHoleView: View {
             return nil
         }
         return profile.medianM
+    }
+
+    /// A sensible pre-decision default club: the tee club (longest trustworthy non-tee-only club) for
+    /// par 4/5, or the club whose median matches the green distance for a par 3. Avoids defaulting to
+    /// an arbitrary clubProfiles.first (which could be a noisy short iron — owner's "9I" reads 159m
+    /// off 13 stray shots). The live caddie decision refines this to its recommendation once loaded.
+    private static func defaultClub(par: Int, holeYards: Int?, profiles: [ClubProfile]) -> String {
+        let usable = profiles.filter { profile in
+            let raw = profile.clubName.trimmingCharacters(in: .whitespaces)
+            return !raw.isEmpty && raw.lowercased() != "unknown" && profile.medianM > 0
+        }
+        // ≥20 samples mirrors the backend caddie trust filter (MIN_CADDIE_SAMPLE); fall back to all
+        // data-backed clubs for low-data players so we still pick something reasonable.
+        let trusted = usable.filter { $0.sampleSize >= 20 }
+        let pool = trusted.isEmpty ? usable : trusted
+        guard !pool.isEmpty else { return "" }
+        let pick: ClubProfile
+        if par == 3, let yards = holeYards, yards > 0 {
+            let targetM = Double(yards) * 0.9144
+            pick = pool.min { abs($0.medianM - targetM) < abs($1.medianM - targetM) } ?? pool[0]
+        } else {
+            let nonTee = pool.filter { !clubIsTeeOnly(zhClubName($0.clubName)) }
+            let candidates = nonTee.isEmpty ? pool : nonTee
+            pick = candidates.max { $0.medianM < $1.medianM } ?? candidates[0]
+        }
+        return zhClubName(pick.clubName)
+    }
+
+    /// The club the player will hit NOW under the caddie's decision: the first step of the selected
+    /// sequence (the tee/advance shot) when sequences exist, else the selected single-club option.
+    private func recommendedClubName(from decision: CaddieDecisionResponse) -> String? {
+        let sequences = CaddiePlanSequence.sequences(from: decision)
+        let selectedId = CaddiePlanSequence.selectedSequenceId(from: decision) ?? decision.selectedOptionId
+        if let sequence = sequences.first(where: { $0.id == selectedId }) ?? sequences.first,
+           let firstClub = sequence.steps.first?.clubName, firstClub != "-" {
+            return firstClub
+        }
+        let options = CaddiePlanOption.options(from: decision)
+        let club = (options.first { $0.id == decision.selectedOptionId } ?? options.first)?.clubName
+        return (club == nil || club == "-") ? nil : club
+    }
+
+    /// Adopt the caddie's recommended club as the selected club so the club strip highlight and the
+    /// hole-map landing marker follow the recommendation (and change with strategy). No-op if the
+    /// decision carries no usable club.
+    @MainActor
+    private func syncSelectedClubToRecommendation() {
+        guard let decision = caddieDecision, let club = recommendedClubName(from: decision) else {
+            return
+        }
+        selectedClub = zhClubName(club)
+    }
+
+    // MARK: - 球局调整(加打 / 减九洞 / 结束本场)— round-11 从首页移入实战屏
+
+    /// 收在实战屏底部的折叠区:加打/减九洞 + 结束本场。控件与闭包与原首页一致。
+    @ViewBuilder private var manageSection: some View {
+        DisclosureGroup(isExpanded: $showManage) {
+            VStack(spacing: 8) {
+                nineControl
+                loopAddControl
+                if let live = liveRoundState, package.holes.contains(where: { $0.number == live.activeHole }) {
+                    Button(role: .destructive) {
+                        showDiscardConfirm = true
+                    } label: {
+                        Text("结束本场").font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
+                    .confirmationDialog("结束本场?未保存的记录会被丢弃。", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
+                        Button("结束本场", role: .destructive) { onDiscard() }
+                        Button("取消", role: .cancel) {}
+                    }
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            Label("球局调整 · 加打 / 结束本场", systemImage: "slider.horizontal.3")
+                .font(.subheadline).foregroundStyle(.secondary)
+        }
+        .liveCard()
+    }
+
+    /// 起始九洞的加打 / 撤销:nine 是对一局 18 洞的视图过滤,已记杆按 roundId 保留。
+    @ViewBuilder private var nineControl: some View {
+        if package.course.globalId != 0 {
+            let currentNine = package.nine ?? "all"
+            if currentNine != "all" {
+                Button {
+                    onChangeNine("all")
+                } label: {
+                    Label("＋加打另外 9 洞(凑 18)", systemImage: "plus.circle")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(LiveHoleStyle.green)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.green))
+                }
+                .buttonStyle(.plain)
+                .disabled(isPreparingRound)
+            } else if let startingNine, startingNine != "all" {
+                Button {
+                    onChangeNine(startingNine)
+                } label: {
+                    Label("移除另外 9 洞 · 只打\(nineText(startingNine))", systemImage: "minus.circle")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(.secondary)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
+                }
+                .buttonStyle(.plain)
+                .disabled(isPreparingRound)
+            }
+        }
+    }
+
+    private func nineText(_ nine: String) -> String {
+        switch nine {
+        case "front":
+            return "前九"
+        case "back":
+            return "后九"
+        default:
+            return "全 18 洞"
+        }
+    }
+
+    /// 当前局对应的 CourseView 选项(用 course.globalId 反查;组合局的 globalId = 前环)。
+    private var activeCourseOption: MobileCourseOption? {
+        courseOptions.first { $0.globalId == package.course.globalId }
+    }
+
+    /// 同球场可作为「另一个 9 洞」的环(9 洞、同球场),含当前环本身。按 A/B/C 排序。
+    private var siblingLoops: [MobileCourseOption] {
+        guard let venue = activeCourseOption?.venueName else { return [] }
+        return courseOptions
+            .filter { ($0.venueName ?? "") == venue
+                && ($0.segmentHoles ?? $0.holes) == 9 }
+            .sorted { ($0.segmentLabel ?? "~~") < ($1.segmentLabel ?? "~~") }
+    }
+
+    private func loopLabel(_ option: MobileCourseOption) -> String {
+        if let label = option.segmentLabel, !label.isEmpty {
+            return "\(label) 场"
+        }
+        return "另一个 9 洞"
+    }
+
+    @ViewBuilder private var loopAddControl: some View {
+        // 仅进行中、且当前局是某球场的一个 9 洞环时显示。
+        if liveRoundState != nil, let active = activeCourseOption, (active.segmentHoles ?? active.holes) == 9 {
+            if package.holes.count <= 9 {
+                if !siblingLoops.isEmpty {
+                    // 单 9 洞环进行中 → 选另一个环加打凑 18(同一局,已记杆保留)。
+                    Menu {
+                        ForEach(siblingLoops) { loop in
+                            Button("＋ \(loopLabel(loop)) · 凑 18 洞") {
+                                onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)
+                            }
+                        }
+                    } label: {
+                        Label("＋加打另一个 9 洞(凑 18)", systemImage: "plus.circle")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundStyle(LiveHoleStyle.green)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.green))
+                    }
+                    .disabled(isPreparingRound)
+                }
+            } else {
+                // 已是组合 18(两个 9 洞环)→ 移除加打的后 9,只打起始 9 洞(前 9 已记杆保留)。
+                Button {
+                    onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")
+                } label: {
+                    Label("移除加打的 9 洞 · 只打前 9", systemImage: "minus.circle")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(.secondary)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
+                }
+                .disabled(isPreparingRound)
+            }
+        }
     }
 
     private var holeToParText: String {
@@ -397,12 +617,13 @@ public struct CurrentHoleView: View {
     }
 
     @MainActor
-    private func loadCaddieDecision() async {
+    private func loadCaddieDecision(syncClub: Bool = false) async {
         guard let caddieClient else {
             caddieDecision = makeOfflineCaddieDecision()
             caddieErrorMessage = caddieDecision == nil
                 ? "本洞暂无缓存的球童建议。"
                 : "离线模式 · 使用已缓存的球局方案。"
+            if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             return
         }
@@ -420,6 +641,7 @@ public struct CurrentHoleView: View {
         do {
             caddieDecision = try await caddieClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
             caddieErrorMessage = nil
+            if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         } catch {
             if let offlineDecision = makeOfflineCaddieDecision() {
@@ -428,6 +650,7 @@ public struct CurrentHoleView: View {
             } else {
                 caddieErrorMessage = "球童建议暂取不到 · 仍显示已缓存的方案。"
             }
+            if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         }
     }
