@@ -53,6 +53,18 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchFinishRound() throws {
+        let view = WatchFinishRoundView(
+            courseName: "北京丽宫 · 前九",
+            holesPlayed: 9, holeCount: 9,
+            totalStrokes: 41, toPar: 5, totalPutts: 16, pendingUploads: 2
+        )
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-finish-round")
+    }
+
+    @MainActor
     private func render(_ view: some View, named name: String) throws {
         // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
