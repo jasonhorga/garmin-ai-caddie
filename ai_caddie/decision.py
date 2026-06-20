@@ -28,6 +28,14 @@ RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
 BAD_SURFACES = {"bunker", "water", "water_edge", "tree_area"}
 EXCLUDED_TEE_CLUBS = {"unknown", "?", "putter"}
 MIN_STRONG_CLUB_SAMPLE = 5
+# A club needs at least this many recorded shots before its median distance is trustworthy
+# enough to drive a caddie recommendation. A low-sample bucket (e.g. a mislabeled "9I" holding a
+# handful of stray long shots, median 159m) otherwise poisons club selection. The club still
+# appears in the recording strip — this only governs what the caddie *recommends*.
+MIN_CADDIE_SAMPLE = 20
+# Two club rows whose medians sit within this many metres are treated as the same physical club
+# under different labels (e.g. "3W" vs "3号木杆") and collapsed to the better-sampled row.
+NEAR_DUP_CLUB_EPS_M = 3.0
 MIN_SEQUENCE_DISTANCE_M = 260.0
 SCORING_CLUB_MIN_M = 45.0
 SCORING_CLUB_MAX_M = 115.0
@@ -533,6 +541,30 @@ def _risk_score(route: dict[str, Any]) -> float:
     return _float(route.get("riskScore"), 99.0)
 
 
+def _prefer_trusted_clubs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only clubs with a trustworthy sample size, but never return empty.
+
+    Falls back to the full list when no club clears the bar (low-data players) so the caddie
+    still produces a recommendation rather than nothing.
+    """
+    trusted = [row for row in rows if int(row.get("sampleSize") or 0) >= MIN_CADDIE_SAMPLE]
+    return trusted or rows
+
+
+def _dedupe_near_clubs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse rows whose medians are within NEAR_DUP_CLUB_EPS_M (same club, different label).
+
+    Keeps the better-sampled row of each near-duplicate cluster; the caller re-sorts.
+    """
+    kept: list[dict[str, Any]] = []
+    for row in sorted(rows, key=lambda r: (-int(r.get("sampleSize") or 0), str(r.get("clubName") or ""))):
+        median_m = _float(row.get("median_m"))
+        if any(abs(_float(other.get("median_m")) - median_m) <= NEAR_DUP_CLUB_EPS_M for other in kept):
+            continue
+        kept.append(row)
+    return kept
+
+
 def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float) -> list[dict[str, Any]]:
     rows = []
     for name, profile in (profiles or {}).items():
@@ -564,6 +596,7 @@ def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float
         for key in ("hazardRate", "riskRate", "usableRate", "riskShotRefs", "usableShotRefs", "surfaceDistribution", "topSurface"):
             if key in profile:
                 rows[-1][key] = profile[key]
+    rows = _dedupe_near_clubs(_prefer_trusted_clubs(rows))
     rows.sort(key=lambda row: (abs(row["deltaToCarry_m"]), -row["sampleSize"], row["clubName"]))
     return rows
 
@@ -614,6 +647,7 @@ def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, An
             "coverage": _sample_coverage(sample_size, source_refs),
             "confidence": _sample_confidence(sample_size),
         })
+    rows = _dedupe_near_clubs(_prefer_trusted_clubs(rows))
     return sorted(rows, key=lambda row: (-row["median_m"], -row["sampleSize"], row["clubName"]))
 
 
