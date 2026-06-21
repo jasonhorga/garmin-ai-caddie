@@ -65,6 +65,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchStart() throws {
+        let view = WatchStartView(phoneReachable: false)
+            .frame(width: 198)
+            .background(Color.black)
+        try render(view, named: "watch-start")
+    }
+
+    @MainActor
     func testRenderWatchRoundContainerHome() throws {
         let model = makeSeededModel(scoring: false)   // hold a strong ref through render
         let view = WatchRoundContainerView(model: model)

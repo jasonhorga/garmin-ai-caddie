@@ -182,13 +182,31 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertFalse(model.isUploading)
     }
 
-    func testConfirmFinishWithoutConfigSetsError() async {
-        // no uploader override and no config -> upload throws notConfigured -> error, round kept
+    func testConfirmFinishWithoutConfigFinishesLocally() async {
+        // a local practice round with no backend configured just finishes cleanly (no scary error)
         let model = seededModel(holes: [hole(1, par: 4)])
         model.startScoringActiveHole()
         model.saveActiveHole()
         await model.confirmFinish()
-        XCTAssertNotNil(model.uploadError)
-        XCTAssertNotNil(model.round)
+        XCTAssertNil(model.uploadError)
+        XCTAssertNil(model.round)
+        XCTAssertEqual(model.screen, .home)
+    }
+
+    // MARK: practice round
+
+    func testStartPracticeRoundSeedsBlankHoles() {
+        let model = WatchRoundModel(
+            store: makeStore(),
+            makeEventId: sequentialIds(),
+            now: { "2026-06-21T00:00:00Z" }
+        )
+        model.startPracticeRound(holeCount: 9, par: 4)
+        XCTAssertEqual(model.holeCount, 9)
+        XCTAssertEqual(model.activeHole, 1)
+        XCTAssertEqual(model.scoredHoles, 0)
+        XCTAssertEqual(model.courseName, "练习记分")
+        XCTAssertTrue(model.round?.roundId.hasPrefix("watch-") ?? false)
+        XCTAssertEqual(model.activeHoleState?.par, 4)
     }
 }

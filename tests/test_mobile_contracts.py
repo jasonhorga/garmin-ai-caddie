@@ -2672,6 +2672,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("clubs: state.availableClubNames", watch_app)
         self.assertNotIn("defaultClubs", watch_app)
         self.assertIn("sendQuickInputEvent", watch_app)
+        # round-12 P3.3: standalone round entry alongside the companion glance.
+        self.assertIn("WatchRoundModel", watch_app)
+        self.assertIn("WatchRoundContainerView", watch_app)
+        self.assertIn("startPracticeRound", watch_app)
+        self.assertIn("WatchStartView", watch_app)
         self.assertIn("struct WatchHoleView: View", hole_view)
         self.assertIn("public let queuedEventCount: Int", hole_view)
         self.assertIn("public let phoneReachable: Bool", hole_view)

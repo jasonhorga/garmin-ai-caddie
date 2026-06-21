@@ -66,6 +66,11 @@ public final class WatchRoundModel: ObservableObject {
         self.round = store.load()
     }
 
+    /// Default standalone model backed by the on-watch document store (for `@StateObject` in the app).
+    public convenience init() {
+        self.init(store: WatchRoundStore())
+    }
+
     // MARK: - derived state (drives the views)
 
     public var activeHole: Int { round?.activeHole ?? 0 }
@@ -114,6 +119,19 @@ public final class WatchRoundModel: ObservableObject {
 
     public func refreshFromStore() {
         round = store.load()
+    }
+
+    /// Start a self-contained practice round on the watch (no phone needed) — `holeCount` blank holes at
+    /// the given par. Scores are kept locally and synced on finish if backend config is available.
+    public func startPracticeRound(holeCount: Int = 18, par: Int = 4, courseName: String = "练习记分") {
+        let roundId = "watch-\(makeEventId())"
+        let holes = (1...max(1, holeCount)).map { number in
+            WatchRoundState(
+                roundId: roundId, hole: number, par: par, distanceM: nil, selectedClub: nil,
+                score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+            )
+        }
+        seedRound(holes, activeHole: 1, courseName: courseName)
     }
 
     // MARK: - scoring draft
@@ -201,25 +219,34 @@ public final class WatchRoundModel: ObservableObject {
         screen = .home
     }
 
-    /// Upload any queued events and clear the local round. On failure the round is kept and the events
-    /// stay queued (offline-safe), with `uploadError` set for the UI.
+    /// Finish the round. When the backend is configured and there are queued events, they're uploaded
+    /// first; on upload failure the round is kept and events stay queued (offline-safe) with
+    /// `uploadError` set. A local practice round with no backend configured just finishes cleanly.
     public func confirmFinish() async {
         guard let current = round else { return }
         isUploading = true
         uploadError = nil
         defer { isUploading = false }
+        let pending = current.pendingEvents
+        guard !pending.isEmpty, canUpload else {
+            finishLocally()   // nothing to sync, or no backend configured -> local practice round
+            return
+        }
         do {
-            let pending = current.pendingEvents
-            if !pending.isEmpty {
-                let posted = try await upload(pending, roundId: current.roundId)
-                round = try store.markPosted(eventIds: posted)
-            }
-            store.clear()
-            round = nil
-            screen = .home
+            let posted = try await upload(pending, roundId: current.roundId)
+            round = try store.markPosted(eventIds: posted)
+            finishLocally()
         } catch {
             uploadError = "上传失败,已离线保存"
         }
+    }
+
+    private var canUpload: Bool { uploaderOverride != nil || config != nil }
+
+    private func finishLocally() {
+        store.clear()
+        round = nil
+        screen = .home
     }
 
     private func upload(_ events: [WatchInputEvent], roundId: String) async throws -> [String] {
