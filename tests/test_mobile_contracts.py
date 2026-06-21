@@ -1724,6 +1724,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("self.watchBridge = watchBridge", app_swift)
         self.assertIn("watchBridge?.onAcceptedLiveEvent", app_swift)
         self.assertIn("watchBridge?.activateSession()", app_swift)
+        # round-12 P3.4: phone hands the watch its backend config for standalone sync.
+        self.assertIn("watchBridge?.sendConfigToWatch", app_swift)
         self.assertIn("try await self.acceptWatchEvent(event)", app_swift)
         self.assertIn("private func acceptWatchEvent(_ event: LiveRoundEvent) throws", app_swift)
         self.assertIn("try offlineStore.appendEvent(event)", app_swift)
