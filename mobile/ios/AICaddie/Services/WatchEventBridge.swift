@@ -240,6 +240,20 @@ public final class WatchEventBridge: NSObject {
         }
     }
 
+    /// round-12 P3.4 (Watch standalone): hand the watch what it needs to reach the backend on its own
+    /// (base URL + admin token), so a standalone round can sync without the phone relaying each event.
+    /// Sent via application context — latest-wins and delivered even when the watch isn't reachable now.
+    public func sendConfigToWatch(apiBaseURL: String, adminToken: String?) {
+        guard WCSession.isSupported() else {
+            return
+        }
+        var config: [String: Any] = ["apiBaseURL": apiBaseURL]
+        if let adminToken, !adminToken.isEmpty {
+            config["adminToken"] = adminToken
+        }
+        try? WCSession.default.updateApplicationContext(["config": config])
+    }
+
     public func handleWatchInputMessage(_ message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
         guard let object = message["event"] as? [String: Any],
               JSONSerialization.isValidJSONObject(object),

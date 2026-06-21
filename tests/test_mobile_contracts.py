@@ -2195,6 +2195,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func makeWatchRoundStatePayload", bridge)
         self.assertIn("func sendStateToWatch", bridge)
         self.assertIn('sendMessage(["state": object]', bridge)
+        # round-12 P3.4: hand the watch backend config (base URL + token) via application context.
+        self.assertIn("func sendConfigToWatch", bridge)
+        self.assertIn("updateApplicationContext", bridge)
         self.assertIn("selectedOption(from decision", bridge)
         self.assertIn("offlineOption: OfflineCaddieOption?", bridge)
         self.assertIn("selectedOfflineOption(from", bridge)
@@ -2591,6 +2594,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@Published public private(set) var queuedEventCount = 0", sync_swift)
         self.assertIn("@Published public private(set) var phoneReachable = false", sync_swift)
         self.assertIn("@Published public private(set) var lastPhoneAcceptedAt: String?", sync_swift)
+        # round-12 P3.4: backend config delivered from the phone via application context.
+        self.assertIn("var config: WatchRoundConfig?", sync_swift)
+        self.assertIn("func applyApplicationContext", sync_swift)
+        self.assertIn("didReceiveApplicationContext", sync_swift)
         self.assertIn("WCSession", sync_swift)
         self.assertIn("receiveState", sync_swift)
         self.assertIn("sendQuickInputEvent", sync_swift)

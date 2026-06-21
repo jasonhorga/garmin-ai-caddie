@@ -110,6 +110,9 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     @Published public private(set) var queuedEventCount = 0
     @Published public private(set) var phoneReachable = false
     @Published public private(set) var lastPhoneAcceptedAt: String?
+    /// round-12 P3.4 (Watch standalone): backend connection info the phone delivers via application
+    /// context, so a standalone round can sync on its own. Nil until the phone sends it.
+    @Published public private(set) var config: WatchRoundConfig?
 
     private let queueURL: URL
     private let stateURL: URL
@@ -126,6 +129,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             WCSession.default.delegate = self
             WCSession.default.activate()
             phoneReachable = WCSession.default.isReachable
+            applyApplicationContext(WCSession.default.receivedApplicationContext)  // config sent before launch
         }
     }
 
@@ -304,6 +308,22 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         }
         receiveState(decoded)
     }
+
+    /// round-12 P3.4 (Watch standalone): parse the backend config the phone delivers in its application
+    /// context. Exposed (not just used inside the delegate) so it can be unit-tested without WCSession.
+    public func applyApplicationContext(_ context: [String: Any]) {
+        guard let configDict = context["config"] as? [String: Any],
+              let baseURLString = configDict["apiBaseURL"] as? String,
+              let baseURL = URL(string: baseURLString)
+        else {
+            return
+        }
+        let adminToken = configDict["adminToken"] as? String
+        let parsed = WatchRoundConfig(baseURL: baseURL, adminToken: adminToken)
+        publishStateUpdate { client in
+            client.config = parsed
+        }
+    }
 }
 
 extension WatchSyncClient: WCSessionDelegate {
@@ -337,5 +357,9 @@ extension WatchSyncClient: WCSessionDelegate {
             return
         }
         receiveStatePayload(state)
+    }
+
+    public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        applyApplicationContext(applicationContext)
     }
 }
