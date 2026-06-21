@@ -223,6 +223,36 @@ final class WatchSyncClientTests: XCTestCase {
     }
     #endif
 
+    private func tempQueueURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("queued_events.json")
+    }
+
+    func testApplyApplicationContextParsesBackendConfig() throws {
+        let client = WatchSyncClient(queueURL: tempQueueURL())
+        client.applyApplicationContext([
+            "config": ["apiBaseURL": "https://caddie.example.com", "adminToken": "tok-123"],
+        ])
+        XCTAssertEqual(client.config?.baseURL.absoluteString, "https://caddie.example.com")
+        XCTAssertEqual(client.config?.adminToken, "tok-123")
+    }
+
+    func testApplyApplicationContextAcceptsConfigWithoutToken() throws {
+        let client = WatchSyncClient(queueURL: tempQueueURL())
+        client.applyApplicationContext(["config": ["apiBaseURL": "https://caddie.example.com"]])
+        XCTAssertEqual(client.config?.baseURL.absoluteString, "https://caddie.example.com")
+        XCTAssertNil(client.config?.adminToken)
+    }
+
+    func testApplyApplicationContextIgnoresInvalidPayload() throws {
+        let client = WatchSyncClient(queueURL: tempQueueURL())
+        client.applyApplicationContext(["unrelated": 1])
+        XCTAssertNil(client.config)
+        client.applyApplicationContext(["config": ["apiBaseURL": ""]])  // URL(string: "") is nil
+        XCTAssertNil(client.config)
+    }
+
     private static func jsonObject<T: Encodable>(from value: T) throws -> Any {
         let data = try JSONEncoder().encode(value)
         return try JSONSerialization.jsonObject(with: data)
