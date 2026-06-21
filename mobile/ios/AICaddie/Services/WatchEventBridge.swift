@@ -120,6 +120,8 @@ public final class WatchEventBridge: NSObject {
     private let offlineStore: OfflineStore
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    /// Latest backend config to hand the watch; re-pushed once the session activates (round-12 P3.4).
+    private var pendingConfig: [String: Any]?
 
     public init(offlineStore: OfflineStore = OfflineStore(), autoActivate: Bool = false) {
         self.offlineStore = offlineStore
@@ -244,14 +246,24 @@ public final class WatchEventBridge: NSObject {
     /// (base URL + admin token), so a standalone round can sync without the phone relaying each event.
     /// Sent via application context — latest-wins and delivered even when the watch isn't reachable now.
     public func sendConfigToWatch(apiBaseURL: String, adminToken: String?) {
-        guard WCSession.isSupported() else {
-            return
-        }
         var config: [String: Any] = ["apiBaseURL": apiBaseURL]
         if let adminToken, !adminToken.isEmpty {
             config["adminToken"] = adminToken
         }
-        try? WCSession.default.updateApplicationContext(["config": config])
+        pendingConfig = config
+        pushPendingConfig()
+    }
+
+    /// Push the stored config via application context. No-op until the session is activated — the
+    /// activation callback re-invokes this, so a config set during launch still reaches the watch.
+    private func pushPendingConfig() {
+        guard WCSession.isSupported(), let pendingConfig else {
+            return
+        }
+        guard WCSession.default.activationState == .activated else {
+            return
+        }
+        try? WCSession.default.updateApplicationContext(["config": pendingConfig])
     }
 
     public func handleWatchInputMessage(_ message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
@@ -675,7 +687,11 @@ extension WatchEventBridge: WCSessionDelegate {
         _ session: WCSession,
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
-    ) {}
+    ) {
+        if activationState == .activated {
+            pushPendingConfig()  // deliver config queued before activation completed
+        }
+    }
 
     public func sessionDidBecomeInactive(_ session: WCSession) {}
 

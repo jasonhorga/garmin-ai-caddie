@@ -251,6 +251,16 @@ public final class LiveRoundAppModel: ObservableObject {
             try await self.acceptWatchEvent(event)
         }
         watchBridge?.activateSession()
+        syncConfigToWatch()
+    }
+
+    /// round-12 P3.4 (Watch standalone): hand the watch this phone's backend config so a standalone
+    /// round can sync on its own. The bridge stores it and re-pushes once the WCSession activates.
+    private func syncConfigToWatch() {
+        guard let apiBaseURL else {
+            return
+        }
+        watchBridge?.sendConfigToWatch(apiBaseURL: apiBaseURL.absoluteString, adminToken: adminToken)
     }
 
     public var defaultRoundId: String {
@@ -668,6 +678,7 @@ public final class LiveRoundAppModel: ObservableObject {
             self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken) }
         }
         self.mediaUploadClient = apiBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
+        syncConfigToWatch()
     }
 
     private static func defaultAPIBaseURL(includePersisted: Bool = true) -> URL? {
