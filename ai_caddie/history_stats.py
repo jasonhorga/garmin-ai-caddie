@@ -50,6 +50,20 @@ def _shot_club(shot: dict[str, Any]) -> str:
     return str(shot.get("club") or shot.get("clubName") or "Unknown")
 
 
+# Garmin shots with no club (clubId=0) surface as "Unknown" — thousands of them — and case
+# variants ("PW" vs "Pw") would otherwise split one club into two rows. _canonical_club folds
+# case/whitespace for grouping and returns None for the Unknown/empty bucket so phantom clubs
+# never appear as a real club row in the distance model.
+_UNKNOWN_CLUB_TOKENS = {"", "unknown", "0", "none", "null", "n/a"}
+
+
+def _canonical_club(name: Any) -> str | None:
+    text = " ".join(str(name or "").split())
+    if text.lower() in _UNKNOWN_CLUB_TOKENS:
+        return None
+    return text.upper()
+
+
 def _normalized_shot(shot: dict[str, Any]) -> dict[str, Any]:
     row = dict(shot)
     row["roundId"] = _shot_round_id(row)
@@ -3174,12 +3188,18 @@ def _holes(
 
 def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    raw_names: dict[str, Counter] = defaultdict(Counter)  # canonical key -> original spellings
     for shot in _effective_shots(data, annotations):
-        club = _shot_club(shot)
-        grouped[club].append(shot)
+        key = _canonical_club(_shot_club(shot))
+        if key is None:
+            continue  # drop the Unknown/clubId=0 bucket — not a real club, not a distance model
+        grouped[key].append(shot)
+        raw_names[key][_shot_club(shot)] += 1
     out = []
     round_chronology = _round_chronology(data)
-    for club, shots in grouped.items():
+    for club_key, shots in grouped.items():
+        # display the most common original spelling (so "PW"/"Pw" merge into one labelled row)
+        club = raw_names[club_key].most_common(1)[0][0] if raw_names[club_key] else club_key
         quality = _club_sample_quality_rows(shots)
         valid_ref_set = set(quality["validShotRefs"])
         valid_shots = [

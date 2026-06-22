@@ -321,6 +321,29 @@ def club_sample_quality_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "club-quality-1", "hasShots": True}], rounds=[round_row], shots=shots)
 
 
+def club_case_merge_history_data() -> HistoryData:
+    """One wedge spelled two ways (PW/Pw) + clubId=0 shots (no club name -> "Unknown"):
+    the canonicaliser must merge the case variants into one labelled row and drop Unknown."""
+    round_row = {
+        "id": "club-merge-1",
+        "date": "2026-05-25",
+        "course": "Club Merge Course",
+        "courseKey": "club_merge",
+        "holesCompleted": 18,
+        "strokes": 82,
+        "par": 72,
+        "holes": [],
+        "hasShots": True,
+    }
+    shots = (
+        [{"roundId": "club-merge-1", "hole": i + 1, "club": "PW", "distance": 110 + i, "surface": "fairway"} for i in range(3)]
+        + [{"roundId": "club-merge-1", "hole": 4, "club": "Pw", "distance": 112, "surface": "fairway"}]
+        + [{"roundId": "club-merge-1", "hole": i + 5, "club": "7I", "distance": 150 + i, "surface": "fairway"} for i in range(2)]
+        + [{"roundId": "club-merge-1", "hole": i + 7, "distance": 80 + i, "surface": "rough"} for i in range(4)]  # clubId=0 -> Unknown
+    )
+    return HistoryData(raw_rounds=[{"id": "club-merge-1", "hasShots": True}], rounds=[round_row], shots=shots)
+
+
 def club_trend_reversed_shots_history_data() -> HistoryData:
     data = club_trend_history_data()
     return HistoryData(raw_rounds=data.raw_rounds, rounds=data.rounds, shots=list(reversed(data.shots)))
@@ -822,6 +845,17 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertEqual(wedge["consistency"], "unknown")
         self.assertEqual(wedge["distanceTrend"]["direction"], "insufficient_data")
         self.assertEqual(wedge["distanceTrend"]["confidence"], "low")
+
+    def test_clubs_merge_case_variants_and_drop_unknown(self) -> None:
+        stats = build_history_stats(club_case_merge_history_data(), data_mode="fixture")
+        names = [row["club"] for row in stats["clubs"]]
+
+        self.assertNotIn("Unknown", names)  # clubId=0 bucket dropped, not a real club
+        self.assertNotIn("Pw", names)       # case variant merged away
+        self.assertEqual(names.count("PW"), 1)  # PW + Pw collapsed into one labelled row
+        self.assertIn("7I", names)
+        pw = next(row for row in stats["clubs"] if row["club"] == "PW")
+        self.assertEqual(pw["sampleCount"], 4)  # 3 PW + 1 Pw valid distances
 
     def test_tee_direction_distribution_is_drilldown_ready_overall_and_by_course(self) -> None:
         stats = build_history_stats(tee_direction_history_data(), data_mode="fixture")
