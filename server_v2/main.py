@@ -458,11 +458,13 @@ def history_summary(
 
 @app.get("/api/v2/history/stats/mobile", response_model=MobileStatsResponse)
 def history_stats_mobile(
+    window: str = Query("all", pattern="^(all|12m|last10)$"),
     player_id: str = Depends(current_player_id),
 ) -> MobileStatsResponse:
     # Compact 统计 payload for the phone: the deep / periodic / per-course / per-club slices of the
     # full build, without the ~11MB per-hole table — sliced from the same cached stats (cache hit).
-    return load_mobile_stats_response(player_id=player_id)
+    # window (all|12m|last10) mirrors /history/stats so the GolfLive 统计 view keeps windowed KPIs.
+    return load_mobile_stats_response(window=window, player_id=player_id)
 
 
 @app.get("/api/v2/history/clubs/bag", response_model=ClubBagResponse)
