@@ -118,6 +118,15 @@ const statsPayload = {
       { label: '80s', count: 7, roundRefs: ['900002'] },
     ],
     outcomes: { eagleOrBetter: 1, birdie: 14, par: 94, bogey: 76, doubleOrWorse: 31 },
+    outcomeDistribution: [
+      { key: 'eagleOrBetter', label: 'Eagle+', count: 1, pct: 0.5 },
+      { key: 'birdie', label: 'Birdie', count: 14, pct: 6.5 },
+      { key: 'par', label: 'Par', count: 94, pct: 43.5 },
+      { key: 'bogey', label: 'Bogey', count: 76, pct: 35.2 },
+      { key: 'double', label: 'Double', count: 22, pct: 10.2 },
+      { key: 'triple', label: 'Triple', count: 6, pct: 2.8 },
+      { key: 'quadPlus', label: '+4 or worse', count: 3, pct: 1.4 },
+    ],
     phaseStats: [
       { phase: 'Tee', fairwaysHit: 6, sampleCount: 10, sourceRefs: ['900001:1'] },
       { phase: 'Approach', girPct: 44, sampleCount: 18, sourceRefs: ['900001:7'] },
@@ -190,6 +199,7 @@ const statsPayload = {
       shotRefs: ['900001:7:1'],
     },
   ],
+  diagnosis: { topIssue: 'approach_short' },
   issues: [
     {
       issue: 'approach_short',
@@ -703,6 +713,19 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
 
   // exact: home 近期状态 has a 看历史 → button whose name would substring-match 历史.
   await page.getByRole('button', { name: '历史', exact: true }).click()
+
+  // 趋势 landing (R13 GolfLive): the 成绩构成 panel renders the 7-bucket spread from the
+  // compact mobile stats (scoring.outcomeDistribution), splitting 双柏忌/+3/+4 out.
+  await page.getByRole('button', { name: '趋势总览' }).click()
+  await expect(page.getByText('成绩走势')).toBeVisible()
+  const spreadPanel = page.locator('section[aria-label="成绩构成"]')
+  await expect(spreadPanel.getByText('标准杆')).toBeVisible()
+  await expect(spreadPanel.getByText('双柏忌')).toBeVisible()
+  await expect(spreadPanel.getByText('+3')).toBeVisible()
+  await expect(spreadPanel.getByText('+4')).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await captureSmokeScreenshot(page, testInfo, 'trends')
+
   for (const [tab, heading, level] of [
     ['趋势总览', '成绩走势', 2],
     ['球局', '球局', 1],
@@ -924,6 +947,9 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     if (path === '/api/v2/history/rounds') return route.fulfill({ json: roundsPayload })
     if (path === '/api/v2/history/rounds/900001') return route.fulfill({ json: replayRoundDetailPayload })
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload })
+    // 趋势 landing fetches the compact window-aware mobile stats; serve the same fixture
+    // (it carries the subset the trends view reads, incl. scoring.outcomeDistribution).
+    if (path === '/api/v2/history/stats/mobile') return route.fulfill({ json: statsPayload })
     if (path === '/api/v2/history/summary')
       return route.fulfill({
         json: { schema: 'ai-caddie-history-summary-v1', summary: statsPayload.summary, topIssue: statsPayload.issues?.[0]?.issue ?? null },
