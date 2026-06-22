@@ -384,6 +384,32 @@ def par_type_history_data() -> HistoryData:
     return HistoryData(raw_rounds=[{"id": "par-type-1", "hasShots": False}], rounds=[round_row], shots=[])
 
 
+def score_spread_history_data() -> HistoryData:
+    """One round whose par-4 holes span every par-relative bucket: eagle(-2) … +5, so the
+    7-bucket outcomeDistribution lands one in each of double/triple and two in +4-or-worse."""
+    round_row = {
+        "id": "spread-1",
+        "date": "2026-05-25",
+        "course": "Spread Course",
+        "courseKey": "spread_course",
+        "holesCompleted": 8,
+        "strokes": 44,
+        "par": 32,
+        "holes": [
+            {"number": 1, "strokes": 2, "par": 4},  # -2 eagleOrBetter
+            {"number": 2, "strokes": 3, "par": 4},  # -1 birdie
+            {"number": 3, "strokes": 4, "par": 4},  #  0 par
+            {"number": 4, "strokes": 5, "par": 4},  # +1 bogey
+            {"number": 5, "strokes": 6, "par": 4},  # +2 double
+            {"number": 6, "strokes": 7, "par": 4},  # +3 triple
+            {"number": 7, "strokes": 8, "par": 4},  # +4 quadPlus
+            {"number": 8, "strokes": 9, "par": 4},  # +5 quadPlus
+        ],
+        "hasShots": False,
+    }
+    return HistoryData(raw_rounds=[{"id": "spread-1", "hasShots": False}], rounds=[round_row], shots=[])
+
+
 def approach_miss_history_data() -> HistoryData:
     round_row = {
         "id": "approach-miss-1",
@@ -849,6 +875,33 @@ class HistoryStatsCoreTests(unittest.TestCase):
         course = next(row for row in stats["courses"] if row["courseKey"] == "par_type_course")
         self.assertEqual(course["parScoring"][0]["key"], "par3")
         self.assertEqual(course["parScoring"][2]["key"], "par5")
+
+    def test_outcome_distribution_splits_double_triple_quad_for_golflive_chips(self) -> None:
+        stats = build_history_stats(score_spread_history_data(), data_mode="fixture")
+        dist = stats["scoring"]["outcomeDistribution"]
+
+        self.assertEqual(
+            [row["key"] for row in dist],
+            ["eagleOrBetter", "birdie", "par", "bogey", "double", "triple", "quadPlus"],
+        )
+        by_key = {row["key"]: row for row in dist}
+        self.assertEqual(by_key["eagleOrBetter"]["count"], 1)
+        self.assertEqual(by_key["birdie"]["count"], 1)
+        self.assertEqual(by_key["par"]["count"], 1)
+        self.assertEqual(by_key["bogey"]["count"], 1)
+        self.assertEqual(by_key["double"]["count"], 1)
+        self.assertEqual(by_key["triple"]["count"], 1)
+        self.assertEqual(by_key["quadPlus"]["count"], 2)
+        self.assertEqual(by_key["quadPlus"]["label"], "+4 or worse")
+        self.assertEqual(by_key["quadPlus"]["pct"], 25.0)  # 2 of 8 holes
+        self.assertEqual(by_key["double"]["pct"], 12.5)
+        # each row is drilldown-ready (sourceRefs + coverage), like outcomeRows
+        self.assertEqual(by_key["double"]["holeRefs"], ["spread-1:5"])
+        self.assertIn("coverage", by_key["double"])
+        # the finer split reconciles with the untouched 5-bucket outcomes
+        outcomes = stats["scoring"]["outcomes"]
+        self.assertEqual(outcomes["doubleOrWorse"], by_key["double"]["count"] + by_key["triple"]["count"] + by_key["quadPlus"]["count"])
+        self.assertEqual(outcomes["eagleOrBetter"], 1)
 
     def test_approach_miss_distribution_is_drilldown_ready_and_feeds_issues(self) -> None:
         stats = build_history_stats(approach_miss_history_data(), data_mode="fixture")
