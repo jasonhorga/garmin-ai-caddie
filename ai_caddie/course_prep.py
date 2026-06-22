@@ -14,7 +14,7 @@ import json
 import math
 from dataclasses import asdict, dataclass, field
 
-from ai_caddie import course_reference, hole_render, shot_projection
+from ai_caddie import course_reference, elevation, hole_render, shot_projection
 from ai_caddie.data import build_club_profiles, read_json
 from ai_caddie.data import available_prep_holes as available_prep_holes  # re-export: prep's hole-list default
 from ai_caddie.geometry_evidence import geometry_coverage_for_hole
@@ -204,9 +204,24 @@ class HolePrep:
     landing_m: float | None = None
     tee_club: str | None = None
     hazards: dict = field(default_factory=dict)
+    playsLike: dict = field(default_factory=dict)  # round-13: {available, teeElevM, greenElevM, deltaM, deltaYd}
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def _hole_playslike(by: dict, route) -> dict:
+    """PlaysLike (elevation ±yd, tee/ball -> green) from the hole's mesh elevation. round-13.
+
+    Uses the same meshes the map/hazards use (no DEM); empty when route or geometry is missing.
+    ``route`` points are in the ``(-mesh_x, mesh_z)`` frame, matching ``elevation._ground``.
+    """
+    if not route or len(route) < 2:
+        return {"available": False}
+    try:
+        return elevation.playslike(by, route[0], route[-1])
+    except Exception:
+        return {"available": False}
 
 
 def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
@@ -347,6 +362,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         carryTargets=_carry_targets(landing, hazards),
         steps=steps, cautions=cautions, landing_m=(round(landing, 1) if landing else None),
         tee_club=tee_club, hazards=hazards,
+        playsLike=_hole_playslike(by, route),
     )
     result = prep.to_dict()
     if render:
