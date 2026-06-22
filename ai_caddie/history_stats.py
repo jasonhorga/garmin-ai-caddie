@@ -329,6 +329,36 @@ def _hole_score_bucket(delta: int) -> tuple[str, str, str]:
     return ("doubleOrWorse", "Double+", "double")
 
 
+# Finer par-relative buckets for the GolfLive 成绩分析 chips (老鹰/小鸟/标准杆/博忌/双博忌/+3/+4).
+# Splits the coarse "Double+" into double / triple / +4-or-worse; ``outcomes`` keeps its 5 buckets
+# so existing consumers are untouched. zh labels live in the frontend dictionaries.
+_SPREAD_BUCKETS = [
+    ("eagleOrBetter", "Eagle+", "eagle"),
+    ("birdie", "Birdie", "birdie"),
+    ("par", "Par", "par"),
+    ("bogey", "Bogey", "bogey"),
+    ("double", "Double", "double"),
+    ("triple", "Triple", "triple"),
+    ("quadPlus", "+4 or worse", "quad"),
+]
+
+
+def _hole_score_spread_bucket(delta: int) -> str:
+    if delta <= -2:
+        return "eagleOrBetter"
+    if delta == -1:
+        return "birdie"
+    if delta == 0:
+        return "par"
+    if delta == 1:
+        return "bogey"
+    if delta == 2:
+        return "double"
+    if delta == 3:
+        return "triple"
+    return "quadPlus"
+
+
 def _confidence(sample_count: int) -> str:
     if sample_count >= 10:
         return "high"
@@ -2018,6 +2048,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
     bands: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
     outcome_refs: dict[str, list[str]] = defaultdict(list)
+    spread_refs: dict[str, list[str]] = defaultdict(list)  # 7-bucket (splits double/+3/+4) for GolfLive chips
     putt_corrections = _annotations_by_kind(annotations, "putt_correction")
     score_corrections = _annotations_by_kind(annotations, "score_correction")
     putts: list[int] = []
@@ -2083,8 +2114,10 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             else:
                 outcomes["doubleOrWorse"] += 1
                 outcome_refs["doubleOrWorse"].append(ref)
+            spread_refs[_hole_score_spread_bucket(delta)].append(ref)
     total_rounds18 = sum(len(round_ids) for round_ids in bands.values())
     total_outcomes = sum(len(refs) for refs in outcome_refs.values())
+    total_spread = sum(len(refs) for refs in spread_refs.values())
     short_game_refs = [
         str(shot.get("_ref"))
         for shot in effective_shots
@@ -2111,6 +2144,21 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             ("doubleOrWorse", "Double+", "double"),
         ]
     ]
+    outcome_distribution = [
+        _with_aggregate_contract(
+            {
+                "key": key,
+                "label": label,
+                "className": class_name,
+                "count": len(spread_refs.get(key, [])),
+                "pct": round(len(spread_refs.get(key, [])) / total_spread * 100, 1) if total_spread else 0.0,
+                "holeRefs": spread_refs.get(key, []),
+            },
+            spread_refs.get(key, []),
+            total=total_spread,
+        )
+        for key, label, class_name in _SPREAD_BUCKETS
+    ]
     return {
         "scoreBands": [
             _with_aggregate_contract(
@@ -2127,6 +2175,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
         },
         "difficultyAdjusted": _difficulty_adjusted_stats(data.rounds),
         "outcomeRows": outcome_rows,
+        "outcomeDistribution": outcome_distribution,
         "byPar": _par_type_scoring(data.rounds),
         "teeDirection": _tee_direction_stats(data.rounds),
         "approachMiss": _approach_miss_stats(data.rounds),

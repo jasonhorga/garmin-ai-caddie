@@ -32,6 +32,12 @@ def _full_stats() -> dict:
         "scoring": {
             "scoreBands": [{"label": "90s", "count": 171, "roundIds": ["r1", "r2", "r3"], "roundRefs": ["x"] * 100, "sourceRefs": ["y"] * 100}],
             "outcomes": {"birdie": 40, "par": 300, "bogey": 250, "doubleOrWorse": 120},
+            # 7-bucket GolfLive chips: keep the small {key,label,count,pct}, strip the heavy refs.
+            "outcomeDistribution": [
+                {"key": "double", "label": "Double", "count": 70, "pct": 5.0, "holeRefs": ["h"] * 80, "sourceRefs": ["s"] * 80},
+                {"key": "triple", "label": "Triple", "count": 35, "pct": 2.5, "holeRefs": ["h"] * 40},
+                {"key": "quadPlus", "label": "+4 or worse", "count": 15, "pct": 1.0},
+            ],
             # par rows carry huge holeRefs/bogeyOrWorseRefs on real data — must be stripped.
             "byPar": [{"par": 3, "averageToPar": 0.6, "holeRefs": ["h"] * 300, "bogeyOrWorseRefs": ["b"] * 200}, {"par": 4, "averageToPar": 0.4}, {"par": 5, "averageToPar": 0.2}],
             "phaseStats": [{"phase": "putting", "trend": "up", "holeRefs": ["h"] * 100}],
@@ -72,6 +78,8 @@ class BuildMobileStatsTests(unittest.TestCase):
         self.assertEqual(self.out["time"]["byQuarter"][0]["birdies"], 14)
         self.assertEqual([row["par"] for row in self.out["scoring"]["byPar"]], [3, 4, 5])
         self.assertEqual(self.out["scoring"]["outcomes"]["birdie"], 40)
+        self.assertEqual([row["key"] for row in self.out["scoring"]["outcomeDistribution"]], ["double", "triple", "quadPlus"])
+        self.assertEqual(self.out["scoring"]["outcomeDistribution"][0]["count"], 70)
         self.assertEqual(self.out["courses"][0]["average18"], 91.0)
         self.assertEqual(self.out["clubs"][0]["median"], 150.0)
         self.assertEqual(self.out["diagnosis"]["topIssue"], "double_or_worse")
@@ -102,6 +110,10 @@ class BuildMobileStatsTests(unittest.TestCase):
         self.assertEqual(by_par["averageToPar"], 0.6)  # scalar kept
         self.assertNotIn("holeRefs", self.out["scoring"]["putting"])
         self.assertNotIn("threePuttRefs", self.out["scoring"]["putting"])
+        # outcomeDistribution rows keep count/pct but shed their per-row evidence refs.
+        self.assertNotIn("holeRefs", self.out["scoring"]["outcomeDistribution"][0])
+        self.assertNotIn("sourceRefs", self.out["scoring"]["outcomeDistribution"][0])
+        self.assertEqual(self.out["scoring"]["outcomeDistribution"][0]["pct"], 5.0)
         self.assertNotIn("outcomeRows", self.out["time"]["byMonth"][0])
         self.assertNotIn("scoreHistogram", self.out["time"]["byMonth"][0])
         self.assertNotIn("sourceRefs", self.out["time"]["byMonth"][0])
