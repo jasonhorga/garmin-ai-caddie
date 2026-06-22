@@ -41,15 +41,16 @@ def load_history_summary_response(*, player_id: str = OWNER_ID) -> HistoryStatsS
     return HistoryStatsSummaryResponse(schema="ai-caddie-history-summary-v1", summary=stats.summary, topIssue=top_issue)
 
 
-def load_mobile_stats_response(*, player_id: str = OWNER_ID) -> MobileStatsResponse:
+def load_mobile_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> MobileStatsResponse:
     """Compact 统计 payload for the phone: the deep / periodic / per-course / per-club slices of the
-    full (window=all) stats build, minus the giant per-hole table and heavy refs. Reuses the same
-    cached build as ``/history/stats`` (a hit after warm) — calling ``cached_build_history_stats``
-    directly returns the raw dict so ``build_mobile_stats`` slices it with no second Pydantic pass.
+    stats build, minus the giant per-hole table and heavy refs. ``window`` (all|12m|last10) mirrors
+    ``/history/stats`` so the GolfLive 统计 view keeps its windowed KPIs without the ~11MB payload;
+    the warm cache pre-builds all three windows, so each stays a cache hit — ``cached_build_history_stats``
+    returns the raw dict so ``build_mobile_stats`` slices it with no second Pydantic pass.
     """
     data, mode = load_history_data_for_mode(player_id=player_id)
     stats = cached_build_history_stats(
-        data, data_mode=mode, player_id=player_id, decision_audit_root=DECISION_AUDIT_ROOT, window="all"
+        data, data_mode=mode, player_id=player_id, decision_audit_root=DECISION_AUDIT_ROOT, window=window
     )
     return MobileStatsResponse(**build_mobile_stats(stats))
 

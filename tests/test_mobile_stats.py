@@ -149,6 +149,17 @@ class MobileStatsEndpointTests(unittest.TestCase):
         # The giant per-hole table must NOT be in the mobile payload.
         self.assertNotIn("holes", body)
 
+    def test_endpoint_accepts_window_param(self) -> None:
+        # window (all|12m|last10) mirrors /history/stats so the 统计 view keeps windowed KPIs.
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            client = TestClient(app)
+            for window in ("all", "12m", "last10"):
+                response = client.get(f"/api/v2/history/stats/mobile?window={window}")
+                self.assertEqual(response.status_code, 200, window)
+                self.assertEqual(response.json()["schema"], "ai-caddie-mobile-stats-v1")
+            # invalid windows are rejected by the same regex the full endpoint uses
+            self.assertEqual(client.get("/api/v2/history/stats/mobile?window=bogus").status_code, 422)
+
 
 if __name__ == "__main__":
     unittest.main()
