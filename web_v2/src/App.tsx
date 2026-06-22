@@ -18,6 +18,7 @@ import {
   fetchHistoryRoundDetail,
   fetchHistoryRounds,
   fetchHistoryStats,
+  fetchMobileStats,
   fetchHistorySummary,
   ingestPlayerRound,
   ROUNDS_FULL_LIMIT,
@@ -97,6 +98,7 @@ import type {
   HistoryRoundsResponse,
   HistoryStatsResponse,
   HistoryStatsSummaryResponse,
+  MobileStatsResponse,
   LiveRoundPackageResponse,
   MobileCourseOptionsResponse,
   MobileCoursePackageParams,
@@ -126,7 +128,10 @@ type LoadState<T> =
 type DeferredLoadState<T> = { status: 'idle' } | LoadState<T>
 type HoleGeometryTarget = { globalId: number; localHole: number; sourceRef: string }
 
-const statsPages: ProductPage[] = ['history', 'courses', 'holes', 'clubs', 'issues', 'reports', 'sync-quality']
+// 'history' (趋势 landing) is deliberately NOT here: it renders from the compact window-aware
+// mobile stats (trendsState), so it must not trigger the ~11MB full statsState load. The deep
+// analysis tabs below still lazy-load the full stats when first opened.
+const statsPages: ProductPage[] = ['courses', 'holes', 'clubs', 'issues', 'reports', 'sync-quality']
 
 export default function App() {
   // Access model: a per-player bearer token in the URL scopes the whole app to
@@ -157,7 +162,7 @@ export default function App() {
   // ~20MB full statsState, which now loads lazily only on the analysis pages.
   const [homeSummaryState, setHomeSummaryState] = useState<DeferredLoadState<HistoryStatsSummaryResponse>>({ status: 'idle' })
   const [trendsWindow, setTrendsWindow] = useState<StatsWindow>('last10')
-  const [trendsState, setTrendsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
+  const [trendsState, setTrendsState] = useState<DeferredLoadState<MobileStatsResponse>>({ status: 'idle' })
   // Mirrors HomeOverview's searchSeq guard: stale trends responses are discarded,
   // and refreshes always read the window the user most recently selected.
   const trendsSeq = useRef(0)
@@ -252,14 +257,10 @@ export default function App() {
         if (!cancelled) setHomeSummaryState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
       })
 
-    setStatsState({ status: 'loading' })
-    fetchHistoryStats(bootAdminToken)
-      .then((data) => {
-        if (!cancelled) setStatsState({ status: 'ready', data })
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setStatsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
-      })
+    // The full ~11MB /history/stats is NOT fetched on boot — that eager load was the slow
+    // first paint. statsState stays idle and lazy-loads only when entering a stats-backed deep
+    // tab (强弱/球场/报告/sync-quality); the 概览 home + 趋势 landing use the slim summary +
+    // the compact window-aware mobile stats instead.
 
     setMobileCourseOptionsState({ status: 'loading' })
     fetchMobileCourseOptions(bootAdminToken)
@@ -401,7 +402,7 @@ export default function App() {
     const seq = ++trendsSeq.current
     setTrendsState({ status: 'loading' })
     try {
-      const data = await fetchHistoryStats(adminTokenOverride, window)
+      const data = await fetchMobileStats(adminTokenOverride, window)
       if (trendsSeq.current !== seq) return
       setTrendsState({ status: 'ready', data })
     } catch (error: unknown) {
@@ -413,7 +414,7 @@ export default function App() {
   async function refreshTrendsState(adminTokenOverride: string | undefined = currentAdminToken()) {
     const seq = ++trendsSeq.current
     try {
-      const data = await fetchHistoryStats(adminTokenOverride, trendsWindowRef.current)
+      const data = await fetchMobileStats(adminTokenOverride, trendsWindowRef.current)
       if (trendsSeq.current !== seq) return
       setTrendsState({ status: 'ready', data })
     } catch (error: unknown) {
@@ -533,12 +534,12 @@ export default function App() {
     }
     setActivePage(page)
     if (page === 'overview' || page === 'prep') {
-      // 概览/备战 compose stats + course options on boot; if either failed at
-      // boot (e.g. backend briefly down), returning here retries instead of
-      // leaving the joined cards stuck on the stale error forever. 概览 also
-      // retries its slim summary (the card it actually renders from).
+      // 概览 renders from the slim summary (+ course options); it never needs the ~11MB full
+      // stats, so it must NOT pull it. 备战 uses the full stats only as optional "vs 全部"
+      // context (allStats, tolerates null), so it lazy-loads it on entry. Returning here also
+      // retries whatever each page actually renders from if it failed earlier.
       if (page === 'overview' && (homeSummaryState.status === 'idle' || homeSummaryState.status === 'error')) void loadHomeSummary()
-      if (statsState.status === 'idle' || statsState.status === 'error') void loadStatsState()
+      if (page === 'prep' && (statsState.status === 'idle' || statsState.status === 'error')) void loadStatsState()
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
     }
     if (page === 'caddie') {

@@ -523,6 +523,24 @@ export interface HistoryStatsSummaryResponse {
   topIssue: string | null
 }
 
+// Compact 统计 payload (see server_v2 MobileStatsResponse / ai_caddie.mobile_stats):
+// the aggregate sections the GolfLive 趋势/统计 view renders, WITHOUT the ~11MB per-hole
+// holes[] table, top-level issues[]/courseDistribution/drillDown, or per-row *Refs. The 趋势
+// landing fetches this (window-aware) instead of the full /history/stats so first paint is fast.
+export interface MobileStatsResponse {
+  schema: 'ai-caddie-mobile-stats-v1'
+  dataMode: ResolvedDataMode
+  summary: Record<string, unknown>
+  time: Record<string, unknown>
+  scoring: Record<string, unknown>
+  records: Record<string, unknown>
+  courses: Array<Record<string, unknown>>
+  clubs: Array<Record<string, unknown>>
+  diagnosis?: Record<string, unknown>
+  playerProfile?: Record<string, unknown>
+  dataQuality: Array<Record<string, unknown>>
+}
+
 // Manual ("phone") round ingest — the web GPS recorder posts a stream of these
 // live events (server: ai_caddie/round_ingest.py). A shot is a `club` event
 // followed by a `location` event carrying lat/lon; `score`/`putt` close a hole.

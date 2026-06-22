@@ -1,12 +1,12 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { HistoryStatsResponse, RoundCard as RoundCardType } from '../types'
+import type { MobileStatsResponse, RoundCard as RoundCardType } from '../types'
 import { TrendsOverview } from './TrendsOverview'
 
-function statsFixture(overrides: Partial<HistoryStatsResponse> = {}): HistoryStatsResponse {
+function statsFixture(overrides: Partial<MobileStatsResponse> = {}): MobileStatsResponse {
   return {
-    schema: 'ai-caddie-history-stats-v1',
+    schema: 'ai-caddie-mobile-stats-v1',
     dataMode: 'fixture',
     summary: {
       totalRounds: 10,
@@ -24,20 +24,27 @@ function statsFixture(overrides: Partial<HistoryStatsResponse> = {}): HistorySta
     },
     scoring: {
       outcomes: { eagleOrBetter: 0, birdie: 2, par: 7, bogey: 8, doubleOrWorse: 3, parOrBetter: 9 },
+      // 20 outcome holes: birdie 2→10%, par 7→35%, bogey 8→40%, double 2→10%, triple 1→5%
+      outcomeDistribution: [
+        { key: 'eagleOrBetter', label: 'Eagle+', count: 0, pct: 0 },
+        { key: 'birdie', label: 'Birdie', count: 2, pct: 10 },
+        { key: 'par', label: 'Par', count: 7, pct: 35 },
+        { key: 'bogey', label: 'Bogey', count: 8, pct: 40 },
+        { key: 'double', label: 'Double', count: 2, pct: 10 },
+        { key: 'triple', label: 'Triple', count: 1, pct: 5 },
+        { key: 'quadPlus', label: '+4 or worse', count: 0, pct: 0 },
+      ],
     },
-    courseDistribution: [],
     records: {},
     courses: [],
-    holes: [],
     clubs: [],
-    issues: [{ issue: 'tee_right', count: 6, refs: ['900001:3'] }],
+    diagnosis: { topIssue: 'tee_right' },
     dataQuality: [],
-    drillDown: {},
     ...overrides,
   }
 }
 
-function allStatsFixture(): HistoryStatsResponse {
+function allStatsFixture(): MobileStatsResponse {
   return statsFixture({
     summary: { totalRounds: 40, average18: 92, bestScore: 78, worstScore: 103 },
     scoring: {
@@ -179,15 +186,17 @@ describe('TrendsOverview', () => {
     renderTrends()
 
     const panel = screen.getByLabelText('成绩构成')
-    // 20 outcome holes: birdie 2→10%, par 7→35%, bogey 8→40%, double+ 3→15%, eagle 0→0%
+    // GolfLive 7-bucket spread from scoring.outcomeDistribution (pct comes straight from the contract)
     const birdie = within(panel).getByText('小鸟').closest('div') as HTMLElement
     expect(within(birdie).getByText('10%')).toBeInTheDocument()
-    const par = within(panel).getByText('帕').closest('div') as HTMLElement
+    const par = within(panel).getByText('标准杆').closest('div') as HTMLElement
     expect(within(par).getByText('35%')).toBeInTheDocument()
     const bogey = within(panel).getByText('柏忌').closest('div') as HTMLElement
     expect(within(bogey).getByText('40%')).toBeInTheDocument()
-    const double = within(panel).getByText('双+').closest('div') as HTMLElement
-    expect(within(double).getByText('15%')).toBeInTheDocument()
+    const double = within(panel).getByText('双柏忌').closest('div') as HTMLElement
+    expect(within(double).getByText('10%')).toBeInTheDocument()
+    const triple = within(panel).getByText('+3').closest('div') as HTMLElement
+    expect(within(triple).getByText('5%')).toBeInTheDocument()
   })
 
   it('labels the top issue in Chinese and falls back to the raw token', () => {
@@ -206,7 +215,7 @@ describe('TrendsOverview', () => {
 
     render(
       <TrendsOverview
-        stats={statsFixture({ issues: [{ issue: 'mystery_token', count: 1 }] })}
+        stats={statsFixture({ diagnosis: { topIssue: 'mystery_token' } })}
         allStats={null}
         window="last10"
         onWindowChange={vi.fn()}
@@ -216,8 +225,8 @@ describe('TrendsOverview', () => {
     expect(screen.getByText('mystery_token')).toBeInTheDocument()
   })
 
-  it('hides the 最吃杆 callout when there are no issues', () => {
-    renderTrends({ stats: statsFixture({ issues: [] }) })
+  it('hides the 最吃杆 callout when there is no top issue', () => {
+    renderTrends({ stats: statsFixture({ diagnosis: {} }) })
     expect(screen.queryByText(/最吃杆/)).not.toBeInTheDocument()
   })
 
