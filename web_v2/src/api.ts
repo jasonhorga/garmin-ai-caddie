@@ -23,6 +23,7 @@ import type {
   HistoryRoundsResponse,
   HistoryStatsResponse,
   HistoryStatsSummaryResponse,
+  MobileStatsResponse,
   RoundIngestRequestBody,
   RoundIngestResult,
   RoundsFilters,
@@ -298,6 +299,13 @@ export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): 
 export function fetchHistoryStats(adminToken?: string, window: StatsWindow = 'all'): Promise<HistoryStatsResponse> {
   const qs = window !== 'all' ? `?window=${window}` : ''
   return getJson<HistoryStatsResponse>(`/api/v2/history/stats${qs}`, adminToken)
+}
+
+// Compact 统计 payload (window-aware) for the GolfLive 趋势 landing — ~246KB vs the ~11MB full
+// /history/stats, so first paint is fast. Deep tabs (强弱/球场/报告) still use the full stats lazily.
+export function fetchMobileStats(adminToken?: string, window: StatsWindow = 'all'): Promise<MobileStatsResponse> {
+  const qs = window !== 'all' ? `?window=${window}` : ''
+  return getJson<MobileStatsResponse>(`/api/v2/history/stats/mobile${qs}`, adminToken)
 }
 
 // 概览 landing only needs summary + top issue; this slim endpoint avoids pulling

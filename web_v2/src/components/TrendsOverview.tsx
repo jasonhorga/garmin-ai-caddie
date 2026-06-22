@@ -1,10 +1,13 @@
 import { useState } from 'react'
-import type { HistoryStatsResponse, RoundCard as RoundCardType, StatsWindow } from '../types'
+import type { HistoryStatsResponse, MobileStatsResponse, RoundCard as RoundCardType, StatsWindow } from '../types'
 import { issueLabel } from '../issueLabels'
 
 interface TrendsOverviewProps {
-  stats: HistoryStatsResponse
-  allStats: HistoryStatsResponse | null
+  // The 趋势 landing renders from the compact window-aware mobile stats (fast first paint);
+  // allStats is the full window=all stats (for the "vs 全部" deltas) only when a deep tab has
+  // already loaded it — null on a cold landing, in which case the deltas are simply hidden.
+  stats: MobileStatsResponse
+  allStats: HistoryStatsResponse | MobileStatsResponse | null
   window: StatsWindow
   onWindowChange: (w: StatsWindow) => void
   recentRounds: RoundCardType[]
@@ -17,12 +20,25 @@ const WINDOW_OPTIONS: Array<{ key: StatsWindow; label: string }> = [
   { key: 'last10', label: '近10场' },
 ]
 
-const OUTCOME_BUCKETS: Array<{ key: string; label: string; varName: string }> = [
+// 5-bucket outcomes still drive the 帕或更好率 KPI (eagleOrBetter+birdie+par over all holes).
+const OUTCOME_BUCKETS: Array<{ key: string; label: string }> = [
+  { key: 'eagleOrBetter', label: '老鹰' },
+  { key: 'birdie', label: '小鸟' },
+  { key: 'par', label: '帕' },
+  { key: 'bogey', label: '柏忌' },
+  { key: 'doubleOrWorse', label: '双+' },
+]
+
+// GolfLive 成绩分析 chips: the 7-bucket par-relative distribution (splits 双柏忌/+3/+4),
+// fed by scoring.outcomeDistribution. Labels follow the GolfLive vocabulary the user specified.
+const SPREAD_BUCKETS: Array<{ key: string; label: string; varName: string }> = [
   { key: 'eagleOrBetter', label: '老鹰', varName: '--eagle' },
   { key: 'birdie', label: '小鸟', varName: '--green' },
-  { key: 'par', label: '帕', varName: '--green-bright' },
+  { key: 'par', label: '标准杆', varName: '--green-bright' },
   { key: 'bogey', label: '柏忌', varName: '--bogey' },
-  { key: 'doubleOrWorse', label: '双+', varName: '--double' },
+  { key: 'double', label: '双柏忌', varName: '--double' },
+  { key: 'triple', label: '+3', varName: '--double' },
+  { key: 'quadPlus', label: '+4', varName: '--double' },
 ]
 
 function asNumber(value: unknown): number | null {
@@ -61,7 +77,9 @@ function dateLabel(value: string | null): string {
   return typeof value === 'string' && value.length >= 10 ? value.slice(5, 10) : '—'
 }
 
-function outcomeCounts(stats: HistoryStatsResponse): { counts: Record<string, number>; total: number; parOrBetter: number | null } {
+type AnyStats = MobileStatsResponse | HistoryStatsResponse
+
+function outcomeCounts(stats: AnyStats): { counts: Record<string, number>; total: number; parOrBetter: number | null } {
   const outcomes = asRecord(asRecord(stats.scoring).outcomes)
   const counts: Record<string, number> = {}
   let total = 0
@@ -74,10 +92,24 @@ function outcomeCounts(stats: HistoryStatsResponse): { counts: Record<string, nu
   return { counts, total, parOrBetter }
 }
 
-function parOrBetterPct(stats: HistoryStatsResponse): number | null {
+function parOrBetterPct(stats: AnyStats): number | null {
   const { total, parOrBetter } = outcomeCounts(stats)
   if (total <= 0 || parOrBetter === null) return null
   return Math.round((parOrBetter / total) * 100)
+}
+
+// GolfLive 成绩分析: the 7-bucket spread (老鹰/小鸟/标准杆/柏忌/双柏忌/+3/+4) from
+// scoring.outcomeDistribution. Backend supplies count+pct; we keep its order/labels.
+function spreadRows(stats: AnyStats): Array<{ key: string; label: string; varName: string; count: number; pct: number }> {
+  const dist = asRows(asRecord(stats.scoring).outcomeDistribution)
+  const byKey = new Map(dist.map((row) => [asString(row.key), row]))
+  const total = dist.reduce((sum, row) => sum + (asNumber(row.count) ?? 0), 0)
+  return SPREAD_BUCKETS.map((bucket) => {
+    const row = byKey.get(bucket.key)
+    const count = asNumber(row?.count) ?? 0
+    const pct = asNumber(row?.pct) ?? (total > 0 ? Math.round((count / total) * 100) : 0)
+    return { ...bucket, count, pct }
+  })
 }
 
 interface ChartPoint {
@@ -86,7 +118,7 @@ interface ChartPoint {
 }
 
 function chartPoints(
-  stats: HistoryStatsResponse,
+  stats: AnyStats,
   recentRounds: RoundCardType[],
   statsWindow: StatsWindow,
   series: 'score' | 'differential',
@@ -163,8 +195,10 @@ export function TrendsOverview({
   const allPct = allStats ? parOrBetterPct(allStats) : null
   const pctDelta = showDeltas && windowPct !== null && allPct !== null ? windowPct - allPct : null
 
-  const { counts, total } = outcomeCounts(stats)
-  const topIssue = asString(asRows(stats.issues)[0]?.issue)
+  const spread = spreadRows(stats)
+  const spreadTotal = spread.reduce((sum, bucket) => sum + bucket.count, 0)
+  // The compact mobile payload has no issues[] table; its single top issue lives on diagnosis.
+  const topIssue = asString(asRecord(stats.diagnosis).topIssue)
   const points = chartPoints(stats, recentRounds, statsWindow, series)
   const rows = recentRounds.slice(0, 10)
   const windowLabel = WINDOW_OPTIONS.find((option) => option.key === statsWindow)?.label ?? '全部'
@@ -280,22 +314,19 @@ export function TrendsOverview({
           <div className="trends-panel-head">
             <div>
               <h2>成绩构成</h2>
-              <span className="trends-panel-sub">{windowLabel}</span>
+              <span className="trends-panel-sub">{windowLabel} · 按洞</span>
             </div>
           </div>
-          {total > 0 ? (
-            OUTCOME_BUCKETS.map((bucket) => {
-              const pct = Math.round((counts[bucket.key] / total) * 100)
-              return (
-                <div key={bucket.key} className="trends-bar">
-                  <span className="trends-bar-label">{bucket.label}</span>
-                  <span className="trends-bar-track">
-                    <span className="trends-bar-fill" style={{ width: `${pct}%`, background: `var(${bucket.varName})` }} />
-                  </span>
-                  <span className="trends-bar-pct">{pct}%</span>
-                </div>
-              )
-            })
+          {spreadTotal > 0 ? (
+            spread.map((bucket) => (
+              <div key={bucket.key} className="trends-bar">
+                <span className="trends-bar-label">{bucket.label}</span>
+                <span className="trends-bar-track">
+                  <span className="trends-bar-fill" style={{ width: `${bucket.pct}%`, background: `var(${bucket.varName})` }} />
+                </span>
+                <span className="trends-bar-pct">{bucket.pct}%</span>
+              </div>
+            ))
           ) : (
             <p className="trends-empty">暂无成绩构成数据</p>
           )}
