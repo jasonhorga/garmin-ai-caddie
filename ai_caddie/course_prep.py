@@ -205,6 +205,7 @@ class HolePrep:
     tee_club: str | None = None
     hazards: dict = field(default_factory=dict)
     playsLike: dict = field(default_factory=dict)  # round-13: {available, teeElevM, greenElevM, deltaM, deltaYd}
+    greenDistances: dict = field(default_factory=dict)  # round-13 E3: {available, front/middle/back M+Yd}
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -220,6 +221,47 @@ def _hole_playslike(by: dict, route) -> dict:
         return {"available": False}
     try:
         return elevation.playslike(by, route[0], route[-1])
+    except Exception:
+        return {"available": False}
+
+
+def _green_distances(by: dict, route) -> dict:
+    """Front/Middle/Back green distances from the tee (前/中/后果岭), flat plan-view m+yd. round-13 E3.
+
+    Reuses the green surface mesh (``by["Green.drc"]``) the map already ships — NO DEM (elevation
+    lives in ``playsLike``). ``measure_prodgeometry_distances.mesh_components`` returns components
+    whose triangles/centroid are ALREADY in the ``(-mesh_x, mesh_z)`` frame (same as ``route``), so
+    no re-projection. A Green.drc tile can include neighbour-hole greens, so we pick the component
+    whose centroid is nearest ``route[-1]`` (the dogleg/green endpoint). Front = nearest green
+    vertex to the tee, Back = farthest, Middle = the chosen component's centroid. Degrades to
+    ``{"available": False}`` on any missing route/green/usable geometry.
+    """
+    if not route:
+        return {"available": False}
+    green = (by or {}).get("Green.drc")
+    if not isinstance(green, dict) or not green.get("positions") or not green.get("faces"):
+        return {"available": False}
+    try:
+        from measure_prodgeometry_distances import mesh_components
+
+        comps = mesh_components(green)
+        if not comps:
+            return {"available": False}
+        tee = (float(route[0][0]), float(route[0][1]))
+        target = (float(route[-1][0]), float(route[-1][1]))
+        comp = min(comps, key=lambda c: math.hypot(c["centroid"][0] - target[0], c["centroid"][1] - target[1]))
+        verts = [p for tri in comp["triangles"] for p in tri]
+        dists = [math.hypot(v[0] - tee[0], v[1] - tee[1]) for v in verts]
+        if not dists:
+            return {"available": False}
+        front_m, back_m = min(dists), max(dists)
+        middle_m = math.hypot(comp["centroid"][0] - tee[0], comp["centroid"][1] - tee[1])
+        return {
+            "available": True,
+            "frontM": round(front_m, 1), "frontYd": yd(front_m),
+            "middleM": round(middle_m, 1), "middleYd": yd(middle_m),
+            "backM": round(back_m, 1), "backYd": yd(back_m),
+        }
     except Exception:
         return {"available": False}
 
@@ -363,6 +405,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         steps=steps, cautions=cautions, landing_m=(round(landing, 1) if landing else None),
         tee_club=tee_club, hazards=hazards,
         playsLike=_hole_playslike(by, route),
+        greenDistances=_green_distances(by, route),
     )
     result = prep.to_dict()
     if render:
