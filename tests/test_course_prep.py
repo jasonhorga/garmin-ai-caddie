@@ -140,7 +140,9 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(len(hazards["bunkers"]), 1)
         bunker_cum, bunker_side = hazards["bunkers"][0]
         self.assertEqual(bunker_cum, 80.0)
-        self.assertAlmostEqual(bunker_side, 10.0, places=1)
+        # side is the distance to the bunker's NEAR edge (x=8) from the route (x=0) = 8 m. The old
+        # centroid-based measure reported 10 m (the x=10 centre), over-stating the gap to the bunker.
+        self.assertAlmostEqual(bunker_side, 8.0, places=1)
 
     def test_strategy_water_caution_names_enter_and_clear_yardages(self) -> None:
         ladder = [("1W", 200), ("7I", 128), ("PW", 102)]
