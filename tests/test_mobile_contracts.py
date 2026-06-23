@@ -2584,6 +2584,12 @@ class MobileContractTests(unittest.TestCase):
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
         self.assertIn("frontGreenM:", current_hole)
         self.assertIn("geometryCoverage: hole.geometryCoverage.rawValue", current_hole)
+        # iPhone live screen (L3): the distance header renders the 前/中/后果岭 triad + 坡度.
+        live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
+        for label in ["前果岭", "中果岭", "后果岭"]:
+            self.assertIn(label, live_components)
+        self.assertIn("greenCenterYards", live_components)
+        self.assertIn("greenCenterYards:", current_hole)  # CurrentHoleView feeds the header
 
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")

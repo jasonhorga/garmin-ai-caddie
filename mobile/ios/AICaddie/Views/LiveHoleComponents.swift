@@ -81,6 +81,14 @@ struct HoleDistanceHeader: View {
     let toPinYards: Int?
     let carryFrontYards: Int?
     let toParText: String
+    // round-13 LIVE: 前/中/后果岭 (F/M/B, 码) + 坡度补偿 (±码) from the per-hole prep geometry.
+    // All optional — a hole without usable geometry shows none of them (no "—" noise).
+    var greenFrontYards: Int? = nil
+    var greenCenterYards: Int? = nil
+    var greenBackYards: Int? = nil
+    var slopeYards: Int? = nil
+
+    private var hasGreenTriad: Bool { greenFrontYards != nil || greenCenterYards != nil || greenBackYards != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -97,6 +105,16 @@ struct HoleDistanceHeader: View {
                     HeaderStat(value: String(carryFrontYards), label: "过前缘")
                 }
                 HeaderStat(value: toParText, label: "本洞")
+            }
+            if hasGreenTriad {
+                HStack(spacing: 10) {
+                    if let greenFrontYards { HeaderStat(value: String(greenFrontYards), label: "前果岭") }
+                    if let greenCenterYards { HeaderStat(value: String(greenCenterYards), label: "中果岭") }
+                    if let greenBackYards { HeaderStat(value: String(greenBackYards), label: "后果岭") }
+                    if let slopeYards, slopeYards != 0 {
+                        HeaderStat(value: "\(slopeYards > 0 ? "+" : "")\(slopeYards)", label: "坡度(码)")
+                    }
+                }
             }
         }
         .padding(16)
