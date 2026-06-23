@@ -954,6 +954,59 @@ class MobileContractTests(unittest.TestCase):
             {**base_event, "kind": "club", "payload": {"clubName": "8I", "unexpected": "drop"}},
         )
 
+    def test_live_round_event_schema_supports_optional_client_id_for_multi_device_dedup(self) -> None:
+        # round-12 sync spine: events carry the authoring clientId ("ios-phone", "apple-watch", "web")
+        # so the backend dedup key (clientId, eventId) attributes/idempotates per device. The top-level
+        # `additionalProperties: false` means clientId is REJECTED unless the schema lists it — the
+        # contract bug being fixed: the phone never sent it, so phone events fell back to the legacy
+        # empty client and broke multi-device idempotency.
+        schema = _load_schema("live_round_event.schema.json")
+
+        self.assertIn("clientId", schema["properties"])
+        self.assertEqual(schema["properties"]["clientId"]["type"], "string")
+        # Optional + backward-compatible: NOT required, so events logged before the field still validate.
+        self.assertNotIn("clientId", schema["required"])
+
+        phone_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "event-score-1",
+            "roundId": "live-round-1",
+            "clientId": "ios-phone",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+            "payload": {"strokes": 4},
+        }
+        watch_event = {**phone_event, "eventId": "event-score-2", "clientId": "apple-watch"}
+        legacy_event = {key: value for key, value in phone_event.items() if key != "clientId"}
+
+        # The phone now stamps clientId (the fix); the watch already did; legacy events omit it.
+        _assert_json_schema_accepts(self, schema, phone_event)
+        _assert_json_schema_accepts(self, schema, watch_event)
+        _assert_json_schema_accepts(self, schema, legacy_event)
+        # When present it must be a non-empty string, never another type.
+        _assert_json_schema_rejects(self, schema, {**phone_event, "clientId": 7})
+        _assert_json_schema_rejects(self, schema, {**phone_event, "clientId": ""})
+
+    def test_ios_live_round_event_and_builder_stamp_phone_client_id(self) -> None:
+        event_swift = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundEvent.swift")
+        builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
+        watch_bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
+
+        # The iOS phone event mirrors the backend LiveRoundEventRecord.clientId: optional (legacy logged
+        # events decode to nil for backward-compat) and defaulted to the stable phone client id so every
+        # NEW phone event carries it.
+        self.assertIn("let clientId: String?", event_swift)
+        self.assertIn('clientId: String? = "ios-phone"', event_swift)
+
+        # The builder stamps every phone-authored event with that client id (joins the dedup key).
+        self.assertIn('clientId: String = "ios-phone"', builder)
+        self.assertIn("clientId: clientId", builder)
+
+        # Watch-relayed events (phone bridge) keep the watch's clientId so they dedup against the same
+        # event posted by the standalone WatchBackendClient (which stamps "apple-watch").
+        self.assertIn('clientId: "apple-watch"', watch_bridge)
+
     def test_ios_fixture_json_matches_shared_contracts(self) -> None:
         package_schema = _load_schema("live_round_package.schema.json")
         event_schema = _load_schema("live_round_event.schema.json")
