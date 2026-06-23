@@ -58,20 +58,24 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         if tapContaining(["赛前攻略", "选球场 · 逐洞"]) {
             settle(9); save("06-prep-overview"); dump("06-prep-overview")
-            if tapContaining(["逐洞攻略"]) {
-                settle(7); save("07-prep-hole"); dump("07-prep-hole")
-            }
-            if tapContaining(["针对你"]) {
-                settle(6); save("08-prep-foryou"); dump("08-prep-foryou")
+            // Enter a real course (黑骑士 A 场, or the first 全场) → per-hole prep carries real geometry.
+            if tapContaining(["A 场", "全场"]) {
+                settle(9); save("07-prep-course"); dump("07-prep-course")
+                if tapContaining(["逐洞攻略"]) {
+                    settle(8); save("08-prep-hole"); dump("08-prep-hole")  // F/M/B + caddie + hazards
+                }
+                if tapContaining(["针对你"]) {
+                    settle(7); save("09-prep-foryou"); dump("09-prep-foryou")
+                }
             }
         }
 
         // ---- Section 5: continue the in-progress live round — VIEW ONLY (no save → no backend write) ----
         launchFresh()
         if tapContaining(["进行中", "继续这场"]) {
-            settle(10); save("09-live-hole"); dump("09-live-hole")
+            settle(10); save("10-live-hole"); dump("10-live-hole")
             if tapContaining(["看完整方案", "换打法", "备选打法"]) {
-                settle(3); save("10-caddie-plan"); dump("10-caddie-plan")
+                settle(3); save("11-caddie-plan"); dump("11-caddie-plan")
             }
         }
     }
