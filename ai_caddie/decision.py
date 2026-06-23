@@ -161,19 +161,47 @@ def _explicit_evidence_refs(decision: dict[str, Any], source_ref: str | None) ->
     return _evidence_refs(decision, source_ref)
 
 
+def _normalize_actual_shot(row: dict[str, Any]) -> dict[str, Any]:
+    """Canonicalise an actual (played) shot's field aliases before the audit reads it.
+
+    Real Garmin / mobile shots use ``distance`` / ``club`` / top-level ``surface``|``endLie``,
+    while the audit readers historically looked only at ``meters`` / ``clubName`` /
+    ``end.feature.surface.kind``|``end.lie`` — so real shots were silently audited as
+    ``info_gap`` (no carry), club-mismatch, and unknown-surface. Mirror history_stats'
+    ``_shot_distance`` / ``_shot_surface`` / ``_shot_club`` alias precedence. Returns a copy
+    (never mutates the caller's shot dict, which may be persisted decision-audit input).
+    """
+    shot = dict(row)
+    if shot.get("meters") is None and shot.get("distance") is not None:
+        shot["meters"] = shot["distance"]
+    if not str(shot.get("clubName") or "").strip() and str(shot.get("club") or "").strip():
+        shot["clubName"] = shot["club"]
+    # _risk_triggered reads (end.feature.surface.kind) or end.lie; fold a top-level
+    # surface/endLie into end.lie when the nested structure carries no lie of its own.
+    end = dict(shot.get("end") or {})
+    if not str(end.get("lie") or "").strip():
+        alias_surface = shot.get("surface") if shot.get("surface") is not None else shot.get("endLie")
+        if str(alias_surface or "").strip():
+            end["lie"] = alias_surface
+            shot["end"] = end
+    return shot
+
+
 def _actual_shots_from_input(actual_input: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not actual_input:
         return []
     if not isinstance(actual_input, dict):
         return []
+    raw: list[dict[str, Any]]
     for key in ("actualShots", "shots"):
         rows = actual_input.get(key)
         if isinstance(rows, list):
-            return [row for row in rows if isinstance(row, dict)]
-    first_shot = actual_input.get("actualShot") or actual_input.get("firstShot")
-    if isinstance(first_shot, dict):
-        return [first_shot]
-    return [actual_input]
+            raw = [row for row in rows if isinstance(row, dict)]
+            break
+    else:
+        first_shot = actual_input.get("actualShot") or actual_input.get("firstShot")
+        raw = [first_shot] if isinstance(first_shot, dict) else [actual_input]
+    return [_normalize_actual_shot(row) for row in raw]
 
 
 def _first_actual_shot(actual_input: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -3618,6 +3646,7 @@ def judge_decision_outcome(plan: dict[str, Any], analysis: dict[str, Any]) -> di
             "modelUpdateSuggestion": _model_update_suggestion("info_gap"),
         }
 
+    first = _normalize_actual_shot(first)  # canonicalise distance/club/surface aliases before audit
     actual_option_id = _actual_option_id(plan, first)
     risk_triggered, near_risks, surface, surface_source = _risk_triggered(first, plan)
     selected_carry = selected.get("carry_m")

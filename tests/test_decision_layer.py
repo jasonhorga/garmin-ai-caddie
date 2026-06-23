@@ -1359,6 +1359,24 @@ class DecisionLayerTests(unittest.TestCase):
         outcome = judge_decision_outcome(plan, analysis)
         self.assertEqual(outcome["failureType"], "info_gap")
 
+    def test_outcome_reads_garmin_field_aliases(self) -> None:
+        # Real Garmin/mobile shots carry distance/club/endLie instead of meters/clubName/end.lie.
+        # The audit must canonicalise them — otherwise a real attack shot into water is mis-judged
+        # as info_gap (no carry), with a missing club and an unseen water risk.
+        shot = {
+            "shotOrder": 1,
+            "club": "1W",        # alias for clubName
+            "distance": 221.0,   # alias for meters
+            "endLie": "Water",   # top-level alias for end.lie
+        }
+        analysis = analysis_fixture(stock_risk=1, first_shot=shot)
+        plan = build_decision_plan(analysis)
+        outcome = judge_decision_outcome(plan, analysis)
+        self.assertEqual(outcome["actualOptionId"], "attack")          # distance→meters resolved
+        self.assertNotEqual(outcome["failureType"], "info_gap")
+        self.assertTrue(outcome["executionMatch"]["riskTriggered"])    # endLie→surface=water resolved
+        self.assertIsNotNone(outcome["executionMatch"]["clubMatch"])   # club→clubName read (not missing)
+
     def test_audit_classifies_selected_option_failure_as_execution(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
         audit = audit_decision(
@@ -1450,6 +1468,32 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(results["avoid_zones"]["status"], "fail")
         self.assertEqual(results["penalty"]["status"], "fail")
         self.assertEqual(results["score_result"]["status"], "fail")
+
+    def test_audit_reads_garmin_field_aliases(self) -> None:
+        # Same shape as the penalty/score audit, but the actual shot uses Garmin/mobile field
+        # aliases (distance/club/endLie). Without canonicalisation the audit would report
+        # actualOptionId=None, club_match="missing", and miss the water risk — silently
+        # mis-grading every real played shot in the decision-audit trends.
+        plan = build_decision_plan(analysis_fixture(stock_risk=1))
+        audit = audit_decision(
+            plan,
+            {
+                "actualShots": [
+                    {
+                        "shotOrder": 1,
+                        "club": "1W",        # alias for clubName
+                        "distance": 221.0,   # alias for meters
+                        "endLie": "Water",   # top-level alias for end.lie
+                    }
+                ],
+            },
+        )
+
+        results = {row["label"]: row for row in audit["criteriaResults"]}
+        self.assertEqual(audit["actualOptionId"], "attack")            # distance→meters resolved
+        self.assertEqual(audit["result"]["clubName"], "1W")            # club→clubName surfaced
+        self.assertEqual(results["club_match"]["status"], "fail")      # read & compared (not "missing")
+        self.assertEqual(results["avoid_zones"]["status"], "fail")     # endLie→surface=water seen
 
     def test_audit_classifies_riskier_option_failure_as_strategy(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
