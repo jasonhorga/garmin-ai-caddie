@@ -314,6 +314,62 @@ public struct CurrentHoleView: View {
         return CaddiePlanHazard.from(holePrep.hazards)
     }
 
+    /// round-13 spec ②: the AI-caddie play options (激进/推荐/保守) to mirror onto the watch 球童打法 screen.
+    /// Reuses the same CaddiePlanOption extraction the iPhone caddie card renders, so phone/watch agree.
+    private func watchCaddieOptions(_ decision: CaddieDecisionResponse?) -> [WatchCaddieOption] {
+        guard let decision else {
+            return []
+        }
+        return CaddiePlanOption.options(from: decision).map { option in
+            WatchCaddieOption(
+                optionId: option.id,
+                label: zhPlayLabel(id: option.id, fallback: option.label),
+                clubName: option.clubName == "-" ? nil : option.clubName,
+                carryM: option.carryM > 0 ? option.carryM : nil,
+                expectedStrokes: option.expectedStrokes,
+                confidence: option.confidence
+            )
+        }
+    }
+
+    /// 稳妥/标准/进攻 label, mapped from the option id (or its label) via the shared route-label dictionary.
+    private func zhPlayLabel(id: String, fallback: String) -> String {
+        let byId = zhCaddieRouteLabel(id)
+        if byId != id {
+            return byId
+        }
+        let byLabel = zhCaddieRouteLabel(fallback)
+        return byLabel != fallback ? byLabel : fallback
+    }
+
+    /// round-13 spec ⑤: 障碍 carry intervals (沙坑/水域 米区间) to mirror onto the watch Hazard View.
+    /// Same source + ordering + numbering as the iPhone CaddiePlanHazard list; distances stay in metres.
+    private func watchHazards() -> [WatchHazard] {
+        guard let holePrep else {
+            return []
+        }
+        var out: [WatchHazard] = []
+        let bunkers = holePrep.hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+        for (index, interval) in bunkers.enumerated() {
+            out.append(WatchHazard(
+                kind: "bunker",
+                label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
+                startM: interval.first,
+                endM: interval.count >= 2 ? interval[1] : nil
+            ))
+        }
+        let water = holePrep.hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+        for (index, interval) in water.enumerated() {
+            out.append(WatchHazard(
+                kind: "water",
+                label: water.count > 1 ? "水域 \(index + 1)" : "水域",
+                startM: interval.first,
+                endM: interval.count >= 2 ? interval[1] : nil
+            ))
+        }
+        return out
+    }
+
     /// Club picker options: the player's clubs, minus empty/"Unknown" placeholders and
     /// case-insensitive duplicates (Garmin club names are user-entered and messy).
     /// Player's clubs from the backend real bag: zhClubName-normalized, deduped (keep most-sampled),
@@ -786,7 +842,9 @@ public struct CurrentHoleView: View {
             backGreenM: greenOK ? green?.backM : nil,
             playsLikeDistanceM: slopeM.flatMap { delta in distanceToPinMetres.map { $0 + delta } },
             elevationDeltaM: slopeM,
-            geometryCoverage: hole.geometryCoverage.rawValue
+            geometryCoverage: hole.geometryCoverage.rawValue,
+            caddieOptions: watchCaddieOptions(decision),
+            hazards: watchHazards()
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)

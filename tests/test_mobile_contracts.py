@@ -359,6 +359,15 @@ class MobileContractTests(unittest.TestCase):
             "greenInRegulation": False,
             "fairwayResult": "center",
             "geometryCoverage": "ready",
+            "caddieOptions": [
+                {"optionId": "safe", "label": "稳妥", "clubName": "9I", "carryM": 128.0, "expectedStrokes": 3.1, "confidence": "high"},
+                {"optionId": "stock", "label": "标准", "clubName": "8I", "carryM": 142.0, "expectedStrokes": 3.0, "confidence": "high"},
+                {"optionId": "attack", "label": "进攻", "clubName": "7I", "carryM": 156.0, "expectedStrokes": 3.2, "confidence": "medium"},
+            ],
+            "hazards": [
+                {"kind": "bunker", "label": "沙坑 1", "startM": 120.0, "endM": 140.0},
+                {"kind": "water", "label": "水域", "startM": 210.0, "endM": 235.0},
+            ],
             "score": 4,
             "putts": 2,
             "penaltyCount": 0,

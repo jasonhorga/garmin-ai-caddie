@@ -30,6 +30,53 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
+/// round-13 spec ⑤: a 障碍 carry interval pushed to the watch Hazard View. Mirrors the watch-side
+/// WatchHazard (same JSON shape); distances are along-route metres, the watch converts to 码.
+public struct WatchHazard: Codable, Equatable, Identifiable {
+    public var id: String { "\(kind)-\(label)" }
+
+    public let kind: String     // "bunker" | "water"
+    public let label: String    // 中文,如「沙坑 1」「水域」
+    public let startM: Double?
+    public let endM: Double?
+
+    public init(kind: String, label: String, startM: Double? = nil, endM: Double? = nil) {
+        self.kind = kind
+        self.label = label
+        self.startM = startM
+        self.endM = endM
+    }
+}
+
+/// round-13 spec ②: one AI-caddie play option (激进/推荐/保守) pushed to the watch 球童打法 screen.
+/// Mirrors the watch-side WatchCaddieOption (same JSON shape). No success-% (intentionally absent).
+public struct WatchCaddieOption: Codable, Equatable, Identifiable {
+    public var id: String { optionId }
+
+    public let optionId: String
+    public let label: String
+    public let clubName: String?
+    public let carryM: Double?
+    public let expectedStrokes: Double?
+    public let confidence: String?
+
+    public init(
+        optionId: String,
+        label: String,
+        clubName: String? = nil,
+        carryM: Double? = nil,
+        expectedStrokes: Double? = nil,
+        confidence: String? = nil
+    ) {
+        self.optionId = optionId
+        self.label = label
+        self.clubName = clubName
+        self.carryM = carryM
+        self.expectedStrokes = expectedStrokes
+        self.confidence = confidence
+    }
+}
+
 public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public var id: String { eventId }
 
@@ -115,6 +162,8 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let greenInRegulation: Bool?
     public let fairwayResult: String?
     public let geometryCoverage: String?
+    public let caddieOptions: [WatchCaddieOption]
+    public let hazards: [WatchHazard]
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -199,7 +248,9 @@ public final class WatchEventBridge: NSObject {
         distanceFromLastShotM: Double? = nil,
         greenInRegulation: Bool? = nil,
         fairwayResult: String? = nil,
-        geometryCoverage: String? = nil
+        geometryCoverage: String? = nil,
+        caddieOptions: [WatchCaddieOption] = [],
+        hazards: [WatchHazard] = []
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
@@ -252,6 +303,8 @@ public final class WatchEventBridge: NSObject {
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: geometryCoverage,
+            caddieOptions: caddieOptions,
+            hazards: hazards,
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
