@@ -81,19 +81,31 @@ public struct StatsSummary: Codable, Equatable {
 
 public struct StatsScoring: Codable, Equatable {
     public let outcomes: StatsOutcomes?
+    // round-13 E6: GolfLive 7-bucket spread (老鹰/小鸟/标准杆/柏忌/双柏忌/+3/+4) + the
+    // 表现 phase/tee/approach sections. Section-tolerant (one bad section never blanks the screen).
+    public let outcomeDistribution: [StatsOutcomeBucket]
     public let scoreBands: [StatsScoreBand]
     public let byPar: [StatsByPar]
     public let putting: StatsPutting?
+    public let phaseStats: [StatsPhase]
+    public let teeDirection: StatsTeeDirection?
+    public let approachMiss: StatsApproachMiss?
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         outcomes = try? c.decodeIfPresent(StatsOutcomes.self, forKey: .outcomes)
+        outcomeDistribution = (try? c.decodeIfPresent([StatsOutcomeBucket].self, forKey: .outcomeDistribution)) ?? []
         scoreBands = (try? c.decodeIfPresent([StatsScoreBand].self, forKey: .scoreBands)) ?? []
         byPar = (try? c.decodeIfPresent([StatsByPar].self, forKey: .byPar)) ?? []
         putting = try? c.decodeIfPresent(StatsPutting.self, forKey: .putting)
+        phaseStats = (try? c.decodeIfPresent([StatsPhase].self, forKey: .phaseStats)) ?? []
+        teeDirection = try? c.decodeIfPresent(StatsTeeDirection.self, forKey: .teeDirection)
+        approachMiss = try? c.decodeIfPresent(StatsApproachMiss.self, forKey: .approachMiss)
     }
 
-    private enum CodingKeys: String, CodingKey { case outcomes, scoreBands, byPar, putting }
+    private enum CodingKeys: String, CodingKey {
+        case outcomes, outcomeDistribution, scoreBands, byPar, putting, phaseStats, teeDirection, approachMiss
+    }
 }
 
 public struct StatsOutcomes: Codable, Equatable {
@@ -102,6 +114,60 @@ public struct StatsOutcomes: Codable, Equatable {
     public let par: Int?
     public let bogey: Int?
     public let doubleOrWorse: Int?
+}
+
+public struct StatsOutcomeBucket: Codable, Equatable, Identifiable {
+    public var id: String { key }
+    public let key: String
+    public let label: String?
+    public let className: String?
+    public let count: Int?
+    public let pct: Double?
+}
+
+public struct StatsPhase: Codable, Equatable, Identifiable {
+    public var id: String { phase }
+    public let phase: String
+    // Tee
+    public let fairwaysRecorded: Int?
+    public let fairwaysHit: Int?
+    public let fairwayMissLeft: Int?
+    public let fairwayMissRight: Int?
+    // Approach
+    public let girRecorded: Int?
+    public let gir: Int?
+    public let missedGir: Int?
+    public let girPct: Double?
+    // Short game
+    public let roughOrBunkerShots: Int?
+    // Putting
+    public let totalPutts: Int?
+    public let holesWithPutts: Int?
+    public let averagePutts: Double?
+    public let threePutts: Int?
+}
+
+public struct StatsTeeDirection: Codable, Equatable {
+    public let recorded: Int?
+    public let hit: Int?
+    public let left: Int?
+    public let right: Int?
+    public let hitPct: Double?
+    public let leftPct: Double?
+    public let rightPct: Double?
+    public let dominantMiss: String?
+}
+
+public struct StatsApproachMiss: Codable, Equatable {
+    public let recorded: Int?
+    public let gir: Int?
+    public let missed: Int?
+    public let short: Int?
+    public let long: Int?
+    public let left: Int?
+    public let right: Int?
+    public let girPct: Double?
+    public let dominantMiss: String?
 }
 
 public struct StatsScoreBand: Codable, Equatable, Identifiable {

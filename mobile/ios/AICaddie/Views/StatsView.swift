@@ -60,9 +60,11 @@ struct StatsContent: View {
             if let stats {
                 if let s = stats.summary { overviewCard(s) }
                 if let trend = stats.trend, !trend.points.isEmpty { trendCard(trend) }
+                if let spread = stats.scoring?.outcomeDistribution, !spread.isEmpty { spreadCard(spread) }
                 if let bands = stats.scoring?.scoreBands, !bands.isEmpty { distributionCard(bands) }
                 let byPar = (stats.scoring?.byPar ?? []).filter { (3...5).contains($0.par ?? 0) }
                 if !byPar.isEmpty { byParCard(byPar) }
+                if let phases = stats.scoring?.phaseStats, !phases.isEmpty { phaseCard(phases) }
                 if let putting = stats.scoring?.putting { puttingCard(putting) }
                 if let trends = stats.diagnosis?.issueTrends, !trends.isEmpty { trendsCard(trends) }
                 if let q = stats.time?.byQuarter, !q.isEmpty { periodCard(q) }
@@ -136,6 +138,28 @@ struct StatsContent: View {
         return (lo - 2)...(hi + 2)
     }
 
+    // MARK: 成绩构成(GolfLive 7 维,按洞)
+
+    private func spreadCard(_ buckets: [StatsOutcomeBucket]) -> some View {
+        let zh: [String: String] = [
+            "eagleOrBetter": "老鹰", "birdie": "小鸟", "par": "标准杆",
+            "bogey": "柏忌", "double": "双柏忌", "triple": "+3", "quadPlus": "+4",
+        ]
+        let maxPct = buckets.compactMap(\.pct).max() ?? 1
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("成绩构成 · 按洞").font(.caption).foregroundStyle(.secondary)
+            ForEach(buckets) { b in
+                HStack {
+                    Text(zh[b.key] ?? b.label ?? b.key).font(.subheadline).frame(width: 56, alignment: .leading)
+                    bandBar(count: Int(((b.pct ?? 0) * 10).rounded()), maxCount: Int((maxPct * 10).rounded()))
+                    Text(b.pct.map { String(format: "%.1f%%", $0) } ?? "—")
+                        .font(.subheadline.monospacedDigit().weight(.semibold)).frame(width: 56, alignment: .trailing)
+                }
+            }
+        }
+        .liveCard()
+    }
+
     // MARK: 成绩分布
 
     private func distributionCard(_ bands: [StatsScoreBand]) -> some View {
@@ -171,6 +195,29 @@ struct StatsContent: View {
                 }
                 .padding(.vertical, 5)
                 .overlay(alignment: .bottom) { Divider() }
+            }
+        }
+        .liveCard()
+    }
+
+    // MARK: 表现统计(开球 / 攻果岭)
+
+    private func phaseCard(_ phases: [StatsPhase]) -> some View {
+        let byPhase = Dictionary(phases.map { ($0.phase, $0) }, uniquingKeysWith: { a, _ in a })
+        let tee = byPhase["Tee"]
+        let approach = byPhase["Approach"]
+        let fairwayText: String = {
+            guard let rec = tee?.fairwaysRecorded, rec > 0, let hit = tee?.fairwaysHit else { return "—" }
+            return String(format: "%.0f%%", Double(hit) / Double(rec) * 100)
+        }()
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("表现统计").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                kpi("球道命中", fairwayText)
+                kpi("攻果岭 GIR", approach?.girPct.map { String(format: "%.0f%%", $0) } ?? "—")
+            }
+            if let l = tee?.fairwayMissLeft, let r = tee?.fairwayMissRight, (l + r) > 0 {
+                Text("开球偏向:偏左 \(l) · 偏右 \(r)").font(.caption2).foregroundStyle(.secondary)
             }
         }
         .liveCard()

@@ -2326,6 +2326,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func trendCard(", stats_view)
         self.assertIn("struct CourseStatsDetailView", stats_view)
         self.assertNotIn("得分构成", stats_view)
+        # round-13 E6: iPhone consumes the GolfLive compact stats — 7-bucket 成绩构成 +
+        # 表现统计 (phaseStats). Model decodes the new sections; the view renders the cards.
+        self.assertIn("struct StatsOutcomeBucket", mobile_stats_model)
+        self.assertIn("outcomeDistribution", mobile_stats_model)
+        self.assertIn("struct StatsPhase", mobile_stats_model)
+        self.assertIn("phaseStats", mobile_stats_model)
+        self.assertIn("teeDirection", mobile_stats_model)
+        self.assertIn("approachMiss", mobile_stats_model)
+        self.assertIn("func spreadCard(", stats_view)
+        self.assertIn("func phaseCard(", stats_view)
+        self.assertIn("成绩构成", stats_view)
         # 球杆设置(Garmin 标准球包): the live picker uses only the configured bag — no fake clubs.
         club_bag = _read_required_source(self, IOS_DIR / "Views" / "ClubBag.swift")
         club_settings = _read_required_source(self, IOS_DIR / "Views" / "ClubSettingsView.swift")
