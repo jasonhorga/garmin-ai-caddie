@@ -18,6 +18,7 @@ could serve stale prep for it.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 from collections import OrderedDict
@@ -35,23 +36,37 @@ _MAXSIZE = 256
 
 _lock = threading.Lock()
 _cache: "OrderedDict[tuple, tuple[Any, Any]]" = OrderedDict()
+# Per-key singleflight: while one thread builds a key (~19s), every other thread asking
+# for the SAME key waits on this Event instead of launching its own duplicate build (a
+# thundering herd of N×19s on a cold cache). Different keys get different Events, so they
+# still build in parallel. Guarded by ``_lock``; the leader pops + sets it when done.
+_inflight: dict[tuple, threading.Event] = {}
 
 
-def _dir_sig(directory: Path) -> tuple[int, int]:
-    """(file count, newest mtime_ns) — changes on add/remove and in-place edit. Cheap."""
-    count = 0
-    latest = 0
+def _dir_sig(directory: Path) -> tuple[int, str]:
+    """Per-file manifest fingerprint: ``(file_count, digest)`` where ``digest`` hashes
+    every file's ``(name, size, mtime_ns)``. Mirrors ``stats_cache._dir_sig``.
+
+    A ``(count, newest_mtime)`` pair is too coarse: it misses an in-place edit to a file
+    that is NOT the newest (count and newest-mtime both unchanged) and a same-second
+    add+delete (count unchanged) -> stale prep could be served. Hashing every file's
+    name+size+mtime_ns catches all three (add/remove, in-place edit, add+delete). Cheap:
+    one ``os.scandir`` plus the ``stat`` it already performs; file CONTENTS are never
+    read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
+    files: list[tuple[str, int, int]] = []
     try:
         with os.scandir(directory) as it:
             for entry in it:
                 if entry.is_file():
-                    count += 1
-                    mtime = entry.stat().st_mtime_ns
-                    if mtime > latest:
-                        latest = mtime
+                    st = entry.stat()
+                    files.append((entry.name, st.st_size, st.st_mtime_ns))
     except (FileNotFoundError, NotADirectoryError):
-        return (0, 0)
-    return (count, latest)
+        return (0, "")
+    files.sort()  # scandir order is unspecified; sort so the digest is order-independent
+    digest = hashlib.blake2b(digest_size=16)
+    for name, size, mtime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    return (len(files), digest.hexdigest())
 
 
 def _file_sig(path: Path) -> tuple[int, int] | None:
@@ -88,24 +103,64 @@ def cached_course_prep(
     Keyed by (course, requested holes, render, include_shots, player) — the prep response differs
     per player (owner gets the real ladder + scatter; others get the generic ladder). The build runs
     OUTSIDE the lock so a cold ~19s build never serialises concurrent distinct requests.
+
+    Singleflight: only the FIRST thread to miss a given key builds it; concurrent callers for the
+    SAME key wait on a per-key Event and then read the freshly-cached result, so a cold key is built
+    exactly once even under N simultaneous first-requests. Different keys build in parallel (each has
+    its own Event); the build never runs while holding ``_lock``, so distinct keys never serialise.
     """
     key = (int(global_id), tuple(requested), bool(render), bool(include_shots), player_id)
     fingerprint = _fingerprint(global_id)
-    with _lock:
-        hit = _cache.get(key)
-        if hit is not None and hit[0] == fingerprint:
-            _cache.move_to_end(key)  # mark recently used (LRU)
-            return hit[1]
-    value = build()
-    with _lock:
-        _cache[key] = (fingerprint, value)
-        _cache.move_to_end(key)
-        while len(_cache) > _MAXSIZE:
-            _cache.popitem(last=False)  # evict least-recently-used
-    return value
+    while True:
+        with _lock:
+            hit = _cache.get(key)
+            if hit is not None and hit[0] == fingerprint:
+                _cache.move_to_end(key)  # mark recently used (LRU)
+                return hit[1]
+            event = _inflight.get(key)
+            if event is None:
+                # No cached result and nobody building this key: become the leader.
+                event = threading.Event()
+                _inflight[key] = event
+                leader = True
+            else:
+                leader = False  # someone else is already building this exact key
+        if not leader:
+            # Waiter: block until the leader finishes, then re-loop to read the cache. If the
+            # leader built a DIFFERENT fingerprint (a sync landed mid-build) or its result was
+            # LRU-evicted, we won't find a matching entry and one waiter becomes the new leader.
+            event.wait()
+            continue
+        # Leader: build OUTSIDE the lock (so other keys keep flowing), then publish + wake waiters.
+        error: BaseException | None = None
+        value: Any = None
+        try:
+            value = build()
+        except BaseException as exc:  # never leave waiters blocked on a failed build
+            error = exc
+        with _lock:
+            if error is None:
+                _cache[key] = (fingerprint, value)
+                _cache.move_to_end(key)
+                while len(_cache) > _MAXSIZE:
+                    _cache.popitem(last=False)  # evict least-recently-used
+            if _inflight.get(key) is event:
+                # Only retract OUR own registration; a clear() mid-build may have already
+                # dropped it and a successor leader installed a fresh Event we must not eat.
+                del _inflight[key]
+            event.set()  # wake waiters: they re-check the cache (hit on success, retry on failure)
+        if error is not None:
+            raise error
+        return value
 
 
 def clear() -> None:
-    """Drop all cached prep (tests + explicit refresh)."""
+    """Drop all cached prep (tests + explicit refresh).
+
+    Also wakes + drops any in-flight waiters so a cleared cache forces a fresh build (the
+    prep-endpoint tests rely on this: each test clears, then asserts its mocked build ran)."""
     with _lock:
         _cache.clear()
+        for event in _inflight.values():
+            event.set()  # release anyone parked on a now-discarded build
+        _inflight.clear()

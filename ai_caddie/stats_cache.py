@@ -19,6 +19,7 @@ If a future change makes ``build_history_stats`` read a NEW source, add it to
 
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 from pathlib import Path
@@ -92,21 +93,30 @@ def _aux_files(
     ]
 
 
-def _dir_sig(directory: Path) -> tuple[int, int]:
-    """(file count, newest mtime) — changes on add/remove and in-place edit. Cheap."""
-    count = 0
-    latest = 0
+def _dir_sig(directory: Path) -> tuple[int, str]:
+    """Per-file manifest fingerprint: ``(file_count, digest)`` where ``digest`` hashes
+    every file's ``(name, size, mtime_ns)``.
+
+    A ``(count, newest_mtime)`` pair is too coarse: it misses an in-place edit to a file
+    that is NOT the newest (count and newest-mtime both unchanged), and a same-second
+    add+delete (count unchanged) -> stale results could be served. Hashing every file's
+    name+size+mtime_ns catches all three (add/remove, in-place edit, add+delete). Cheap:
+    one ``os.scandir`` plus the ``stat`` it already performs; file CONTENTS are never
+    read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
+    files: list[tuple[str, int, int]] = []
     try:
         with os.scandir(directory) as it:
             for entry in it:
                 if entry.is_file():
-                    count += 1
-                    mtime = entry.stat().st_mtime_ns
-                    if mtime > latest:
-                        latest = mtime
+                    st = entry.stat()
+                    files.append((entry.name, st.st_size, st.st_mtime_ns))
     except (FileNotFoundError, NotADirectoryError):
-        return (0, 0)
-    return (count, latest)
+        return (0, "")
+    files.sort()  # scandir order is unspecified; sort so the digest is order-independent
+    digest = hashlib.blake2b(digest_size=16)
+    for name, size, mtime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    return (len(files), digest.hexdigest())
 
 
 def _file_sig(path: Path) -> tuple[int, int] | None:
