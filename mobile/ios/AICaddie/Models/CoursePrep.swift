@@ -135,9 +135,12 @@ public struct CoursePrepHole: Codable, Equatable {
     public let teeClub: String?
     public let hazards: CoursePrepHazards
     public let map: CoursePrepMap?
+    // round-13 LIVE: per-hole 前/中/后果岭 (F/M/B) + plays-like slope, served on /prep (no DEM).
+    public let greenDistances: CoursePrepGreenDistances?
+    public let playsLike: CoursePrepPlaysLike?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, route, geometryCoverage, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map
+        case hole, par, route, geometryCoverage, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike
         case parSource = "par_source"
         case blueYards = "blue_yards"
         case routeLenM = "route_len_m"
@@ -164,5 +167,20 @@ public struct CoursePrepHole: Codable, Equatable {
         self.teeClub = try container.decodeIfPresent(String.self, forKey: .teeClub)
         self.hazards = try container.decode(CoursePrepHazards.self, forKey: .hazards)
         self.map = try container.decodeIfPresent(CoursePrepMap.self, forKey: .map)
+        self.greenDistances = try container.decodeIfPresent(CoursePrepGreenDistances.self, forKey: .greenDistances)
+        self.playsLike = try container.decodeIfPresent(CoursePrepPlaysLike.self, forKey: .playsLike)
     }
+}
+
+public struct CoursePrepGreenDistances: Codable, Equatable {
+    public let available: Bool
+    public let frontM: Double?
+    public let middleM: Double?
+    public let backM: Double?
+}
+
+public struct CoursePrepPlaysLike: Codable, Equatable {
+    public let available: Bool
+    public let deltaM: Double?
+    public let deltaYd: Int?
 }
