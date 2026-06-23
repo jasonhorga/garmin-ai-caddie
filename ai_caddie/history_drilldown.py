@@ -26,7 +26,9 @@ def _hole_ref(round_id: str, hole_number: int) -> str:
 
 
 def _shot_ref(shot: dict[str, Any], index: int) -> str:
-    return f"{_shot_round_id(shot)}:{shot.get('hole')}:{index}"
+    # _globalIndex (stamped at load on the full shots list) keeps the ref stable under windowing —
+    # build_drilldown_index runs on the WINDOWED data, so the enumerate position would otherwise drift.
+    return f"{_shot_round_id(shot)}:{shot.get('hole')}:{shot.get('_globalIndex', index)}"
 
 
 def _shot_round_id(shot: dict[str, Any]) -> str:

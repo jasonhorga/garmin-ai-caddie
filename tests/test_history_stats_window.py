@@ -24,7 +24,12 @@ import unittest
 from datetime import date, timedelta
 
 from ai_caddie.history import HistoryData
-from ai_caddie.history_stats import build_history_stats, windowed_history_data
+from ai_caddie.history_stats import (
+    _clear_effective_shots_cache,
+    _effective_shots,
+    build_history_stats,
+    windowed_history_data,
+)
 
 
 def _round(rid, day):
@@ -98,6 +103,34 @@ class WindowedHistoryDataTests(unittest.TestCase):
         self.assertEqual(len(data.rounds), 12)
         self.assertEqual(len(data.raw_rounds), 12)
         self.assertEqual(len(data.shots), 4)
+
+    def test_windowed_shot_refs_stay_stable_for_corrections(self) -> None:
+        # round-13 regression: a shot's ref is "{roundId}:{hole}:{index}" and is the KEY corrections
+        # (club/lie) and mobile shot refs are stored under. Historically `index` was the enumerate
+        # position over data.shots — but windowing (last10/12m) filters data.shots, renumbering every
+        # surviving shot, so the SAME shot got a different ref in windowed vs full builds: corrections
+        # silently mis-applied and surfaced refs pointed at the wrong shot. The loader now stamps a
+        # stable _globalIndex (full-list position) that survives filtering; _shot_ref prefers it.
+        rounds = [_round(f"r{i}", f"2026-01-{i:02d}") for i in range(1, 13)]  # r1 oldest .. r12 newest
+        raw_rounds = [dict(row) for row in rounds]
+        shots = [{"scorecardId": f"r{i}", "hole": 1, "club": "7I"} for i in range(1, 13)]
+        for global_index, shot in enumerate(shots):  # mirror load_history_data's stamping
+            shot["_globalIndex"] = global_index
+        data = HistoryData(raw_rounds=raw_rounds, rounds=rounds, shots=shots)
+
+        _clear_effective_shots_cache()
+        full_refs = {row["roundId"]: row["_ref"] for row in _effective_shots(data)}
+        windowed = windowed_history_data(data, "last10")  # drops r1, r2
+        _clear_effective_shots_cache()
+        windowed_refs = {row["roundId"]: row["_ref"] for row in _effective_shots(windowed)}
+
+        # r3 is the OLDEST SURVIVING round: global index 2, but windowed-list position 0. The ref must
+        # stay r3:1:2 (the value corrections are keyed by), NOT drift to r3:1:0.
+        self.assertEqual(full_refs["r3"], "r3:1:2")
+        self.assertEqual(windowed_refs["r3"], "r3:1:2")
+        # every surviving shot keeps its exact full-data ref
+        for round_id, ref in windowed_refs.items():
+            self.assertEqual(ref, full_refs[round_id])
 
     def test_last10_keeps_merged_round_member_shots_and_raw_rounds(self) -> None:
         fillers = [_round(f"f{i}", f"2026-01-{i:02d}") for i in range(1, 10)]  # 9 rounds
