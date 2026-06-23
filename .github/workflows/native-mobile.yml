@@ -47,7 +47,9 @@ jobs:
           path: design-snapshots/
           if-no-files-found: warn
       - name: Real-simulator screenshots (iOS, XCUITest against live backend)
-        if: always()
+        # On-demand only (XCUITest + live-funnel + watch simctl add ~10min) — trigger with
+        # `gh workflow run native-mobile.yml --ref <branch>`; regular PRs stay fast.
+        if: github.event_name == 'workflow_dispatch'
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
@@ -68,13 +70,13 @@ jobs:
             -scheme AICaddieUITests \
             -destination "$IOS_DESTINATION" || true
       - name: Collect real screenshots
-        if: always()
+        if: github.event_name == 'workflow_dispatch'
         run: |
           mkdir -p real-screenshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
           ls -la real-screenshots || true
       - name: Upload real screenshots
-        if: always()
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: real-screenshots
@@ -100,7 +102,7 @@ jobs:
           path: watch-snapshots/
           if-no-files-found: warn
       - name: Real-simulator screenshots (watchOS via simctl — no XCUITest on watchOS)
-        if: always()
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set -x
           WATCH_UDID=$(xcrun simctl list devices available | grep "Apple Watch Series 10 (46mm)" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
@@ -122,7 +124,7 @@ jobs:
           done
           ls -la watch-real-screenshots || true
       - name: Upload watch real screenshots
-        if: always()
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: watch-real-screenshots
