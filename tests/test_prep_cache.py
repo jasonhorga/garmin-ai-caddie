@@ -8,7 +8,12 @@ inputs are unchanged but never serves stale prep after a sync. unittest on purpo
 
 from __future__ import annotations
 
+import os
+import tempfile
+import threading
+import time
 import unittest
+from pathlib import Path
 
 from ai_caddie import prep_cache
 
@@ -53,6 +58,93 @@ class PrepCacheTests(unittest.TestCase):
         # Back to a stable fingerprint → hits again (no rebuild).
         call()
         self.assertEqual(len(calls), 3)
+
+    def test_dir_sig_detects_in_place_edit_of_a_non_newest_file(self) -> None:
+        # Mirror of stats_cache: the old (count, newest-mtime) sig missed an in-place edit
+        # to a non-newest file (count + newest-mtime unchanged) and could serve stale prep.
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (older := d / "a.json").write_text("{}")
+            (newer := d / "b.json").write_text("{}")
+            os.utime(older, ns=(1_000_000_000, 1_000_000_000))  # mtime = 1s
+            os.utime(newer, ns=(5_000_000_000, 5_000_000_000))  # mtime = 5s (newest)
+            before = prep_cache._dir_sig(d)
+            os.utime(older, ns=(3_000_000_000, 3_000_000_000))  # 1s -> 3s, still < newest(5s)
+            after = prep_cache._dir_sig(d)
+            self.assertEqual(before[0], after[0], "file count must be unchanged (the trap)")
+            self.assertNotEqual(before, after, "in-place edit of a non-newest file must change the sig")
+
+    def test_singleflight_same_key_cold_cache_builds_once(self) -> None:
+        # Thundering-herd guard: N concurrent first-requests for the SAME uncached key must
+        # run the ~19s build exactly once; the late arrivals wait and read the cached result.
+        prep_cache._fingerprint = lambda gid: ("fp",)
+        calls_lock = threading.Lock()
+        calls = {"n": 0}
+        build_started = threading.Event()
+        let_finish = threading.Event()
+
+        def build() -> dict:
+            with calls_lock:
+                calls["n"] += 1
+            build_started.set()      # inflight is registered by now; signal the leader is busy
+            let_finish.wait(timeout=5)  # hold the build open so the 2nd caller arrives mid-build
+            return {"built": True}
+
+        results: dict[str, object] = {}
+
+        def call(tag: str) -> None:
+            results[tag] = prep_cache.cached_course_prep(
+                global_id=31794, requested=[1, 2, 3], render=True,
+                include_shots=False, player_id="me", build=build,
+            )
+
+        leader = threading.Thread(target=call, args=("leader",))
+        leader.start()
+        self.assertTrue(build_started.wait(timeout=5), "leader build should start")
+        waiter = threading.Thread(target=call, args=("waiter",))
+        waiter.start()
+        time.sleep(0.05)         # let the waiter reach the inflight wait (assertion holds regardless)
+        let_finish.set()
+        leader.join(timeout=5)
+        waiter.join(timeout=5)
+        self.assertFalse(leader.is_alive() or waiter.is_alive(), "no thread may deadlock")
+        self.assertEqual(calls["n"], 1, "same-key concurrent first-requests must build ONCE")
+        self.assertIs(results["leader"], results["waiter"], "both callers get the one cached result")
+
+    def test_singleflight_distinct_keys_build_in_parallel(self) -> None:
+        # Singleflight must NOT serialise different keys: two distinct uncached keys build
+        # twice AND concurrently. A Barrier(2) inside build only clears if both builds are in
+        # flight at once -> if distinct keys serialised it would time out (BrokenBarrierError).
+        prep_cache._fingerprint = lambda gid: ("fp",)
+        calls_lock = threading.Lock()
+        calls = {"n": 0}
+        barrier = threading.Barrier(2, timeout=5)
+
+        def build() -> object:
+            with calls_lock:
+                calls["n"] += 1
+            barrier.wait()  # both threads must be in build() simultaneously to pass
+            return object()
+
+        errors: list[BaseException] = []
+
+        def call(gid: int) -> None:
+            try:
+                prep_cache.cached_course_prep(
+                    global_id=gid, requested=[1], render=True,
+                    include_shots=False, player_id="me", build=build,
+                )
+            except BaseException as exc:  # BrokenBarrierError if the builds were serialised
+                errors.append(exc)
+
+        t1 = threading.Thread(target=call, args=(101,))
+        t2 = threading.Thread(target=call, args=(202,))
+        t1.start()
+        t2.start()
+        t1.join(timeout=5)
+        t2.join(timeout=5)
+        self.assertEqual(errors, [], "distinct keys must build concurrently (barrier met)")
+        self.assertEqual(calls["n"], 2, "two distinct uncached keys must build twice")
 
     def test_lru_eviction_bounds_cache_size(self) -> None:
         # A token holder enumerating many (course/holes/render) keys must not grow the cache without

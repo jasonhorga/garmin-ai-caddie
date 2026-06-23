@@ -12,6 +12,7 @@ which ignores pytest fixtures/conftest.
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 import unittest
@@ -63,6 +64,41 @@ class StatsCacheTests(unittest.TestCase):
             stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
             self.assertEqual(calls["n"], 1)
             (self.scorecards / "r2.json").write_text("{}")  # sync lands a new scorecard
+            stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            self.assertEqual(calls["n"], 2)
+
+    def test_dir_sig_detects_in_place_edit_of_a_non_newest_file(self) -> None:
+        # Regression for the too-coarse (count, newest-mtime) fingerprint: an in-place edit
+        # to a file that is NOT the newest leaves both count and newest-mtime unchanged, so
+        # the old signature missed it and could serve stale stats. The per-file manifest
+        # catches it. Two files with distinct mtimes; bump the OLDER one to a value still
+        # below the newest -> count + newest-mtime identical, only a non-newest file moved.
+        d = self.tmp / "sigdir"
+        d.mkdir()
+        (older := d / "a.json").write_text("{}")
+        (newer := d / "b.json").write_text("{}")
+        os.utime(older, ns=(1_000_000_000, 1_000_000_000))  # mtime = 1s
+        os.utime(newer, ns=(5_000_000_000, 5_000_000_000))  # mtime = 5s (the newest)
+        before = stats_cache._dir_sig(d)
+        os.utime(older, ns=(3_000_000_000, 3_000_000_000))  # 1s -> 3s, still < newest(5s)
+        after = stats_cache._dir_sig(d)
+        self.assertEqual(before[0], after[0], "file count must be unchanged (the trap)")
+        self.assertNotEqual(before, after, "in-place edit of a non-newest file must change the sig")
+
+    def test_cache_recomputes_on_in_place_edit_same_count(self) -> None:
+        # End-to-end through the public API: rewriting an existing scorecard (a manual
+        # correction) keeps the file count the same but must still force a recompute.
+        calls = {"n": 0}
+        with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)):
+            data = _dummy_data()
+            stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            self.assertEqual(calls["n"], 1)
+            target = self.scorecards / "r1.json"
+            target.write_text('{"corrected": true}')  # in-place edit, count stays at 1
+            st = target.stat()
+            bump = st.st_mtime_ns + 1_000_000_000
+            os.utime(target, ns=(bump, bump))  # ensure mtime advances regardless of FS granularity
             stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
             self.assertEqual(calls["n"], 2)
 
