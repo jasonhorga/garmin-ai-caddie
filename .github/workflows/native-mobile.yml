@@ -46,6 +46,34 @@ jobs:
           name: design-snapshots
           path: design-snapshots/
           if-no-files-found: warn
+      - name: Real-simulator screenshots (iOS, XCUITest against live backend)
+        if: always()
+        env:
+          AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          UITEST_GPS_LAT: '40.197'
+          UITEST_GPS_LON: '116.49'
+        run: |
+          # Launches the REAL app in the simulator (not ImageRenderer) pointed at the funnel with the
+          # owner token + a simulated GPS fix, navigates, and captures real screens. `|| true` while the
+          # navigation is being tightened so the screenshots/element-tree artifact is always collected.
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieUITests \
+            -destination "$IOS_DESTINATION" || true
+      - name: Collect real screenshots
+        if: always()
+        run: |
+          mkdir -p real-screenshots
+          find ~/Library/Developer/CoreSimulator -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
+          ls -la real-screenshots || true
+      - name: Upload real screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-screenshots
+          path: real-screenshots/
+          if-no-files-found: warn
       - name: Test Watch app target
         run: |
           xcodebuild test \
