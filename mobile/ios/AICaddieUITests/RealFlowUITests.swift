@@ -52,31 +52,27 @@ final class RealFlowUITests: XCTestCase {
             settle(6); save("05-last-round-review"); dump("05-last-round-review")
         }
 
-        // ---- Section 4: start a round → live hole (the real round simulation) ----
+        // ---- Section 4: pre-round prep on the nearest real course (黑骑士 via injected GPS) ----
+        // READ-ONLY (GET /courses/{id}/prep) — shows real geometry F/M/B + caddie + hazards WITHOUT
+        // starting a live round, so CI never writes a junk round into the owner's real history.
         launchFresh()
-        // Prefer continuing a real in-progress round straight into the live hole; else start fresh.
-        if tapContaining(["进行中", "继续这场"]) {
-            settle(8); save("06-live-hole"); dump("06-live-hole")
-            captureLiveHoleDetails()
-        } else if tapButton(exact: "开始一场") {
-            settle(6); save("06a-start-round"); dump("06a-start-round")
-            // Pick the first real course, then start scoring.
-            _ = tapFirstCourseRow()
-            settle(3)
-            if tapContaining(["开始记分"]) {
-                settle(8); save("07-live-hole"); dump("07-live-hole")
-                captureLiveHoleDetails()
+        if tapContaining(["赛前攻略", "选球场 · 逐洞"]) {
+            settle(9); save("06-prep-overview"); dump("06-prep-overview")
+            if tapContaining(["逐洞攻略"]) {
+                settle(7); save("07-prep-hole"); dump("07-prep-hole")
+            }
+            if tapContaining(["针对你"]) {
+                settle(6); save("08-prep-foryou"); dump("08-prep-foryou")
             }
         }
-    }
 
-    /// On the live hole, expand the caddie / more-adjustments so the recommendation + sequence show.
-    private func captureLiveHoleDetails() {
-        if tapContaining(["看完整方案", "换打法", "备选打法"]) {
-            settle(3); save("08-caddie-plan"); dump("08-caddie-plan")
-        }
-        if tapContaining(["更多调整"]) {
-            settle(2); save("09-more-adjust"); dump("09-more-adjust")
+        // ---- Section 5: continue the in-progress live round — VIEW ONLY (no save → no backend write) ----
+        launchFresh()
+        if tapContaining(["进行中", "继续这场"]) {
+            settle(10); save("09-live-hole"); dump("09-live-hole")
+            if tapContaining(["看完整方案", "换打法", "备选打法"]) {
+                settle(3); save("10-caddie-plan"); dump("10-caddie-plan")
+            }
         }
     }
 
@@ -91,13 +87,6 @@ final class RealFlowUITests: XCTestCase {
     }
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
-
-    @discardableResult
-    private func tapButton(exact label: String) -> Bool {
-        let b = app.buttons[label]
-        if b.waitForExistence(timeout: 6), b.isHittable { b.tap(); return true }
-        return false
-    }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
     @discardableResult
@@ -121,22 +110,6 @@ final class RealFlowUITests: XCTestCase {
         let predicate = NSPredicate(format: "label CONTAINS '杆' OR label CONTAINS '20' OR label MATCHES '.*[0-9]+.*'")
         let row = app.buttons.matching(predicate).firstMatch
         if row.waitForExistence(timeout: 4), row.isHittable { row.tap(); return true }
-        return false
-    }
-
-    @discardableResult
-    private func tapFirstCourseRow() -> Bool {
-        // The course list rows are buttons/cells carrying a course name; tap the first hittable one
-        // that isn't the start/tee control.
-        for query in [app.cells, app.buttons] {
-            for i in 0..<min(query.count, 8) {
-                let el = query.element(boundBy: i)
-                guard el.exists, el.isHittable else { continue }
-                let label = el.label
-                if label.contains("开始记分") || label.contains("发球台") || label.contains("T") { continue }
-                el.tap(); return true
-            }
-        }
         return false
     }
 
