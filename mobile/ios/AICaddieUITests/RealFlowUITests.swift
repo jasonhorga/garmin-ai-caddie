@@ -11,17 +11,25 @@ import XCTest
 final class RealFlowUITests: XCTestCase {
     private let app = XCUIApplication()
 
+    /// Read a config value the test runner may receive either plain or TEST_RUNNER_-prefixed (xcodebuild
+    /// reliably forwards TEST_RUNNER_<VAR> into the UI-test runner environment; the plain form is a
+    /// fallback in case it propagates too).
+    private func cfg(_ key: String) -> String? {
+        let env = ProcessInfo.processInfo.environment
+        return env[key] ?? env["TEST_RUNNER_\(key)"]
+    }
+
     override func setUpWithError() throws {
         continueAfterFailure = true
-        let env = ProcessInfo.processInfo.environment
-        app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = env["AI_CADDIE_API_BASE_URL"] ?? ""
-        app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = env["AI_CADDIE_ADMIN_TOKEN"] ?? ""
-        app.launchEnvironment["UITEST_GPS_LAT"] = env["UITEST_GPS_LAT"] ?? "40.083"
-        app.launchEnvironment["UITEST_GPS_LON"] = env["UITEST_GPS_LON"] ?? "116.585"
+        app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = cfg("AI_CADDIE_API_BASE_URL") ?? ""
+        app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
+        app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.083"
+        app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.585"
         app.launchEnvironment["UITEST_MODE"] = "1"
     }
 
     func testCaptureRealAppFlow() throws {
+        writeDiagnostics()
         // ---- Section 1: home + the two macro tiles (stats) ----
         launchFresh()
         save("01-home"); dump("01-home")
@@ -130,6 +138,41 @@ final class RealFlowUITests: XCTestCase {
             }
         }
         return false
+    }
+
+    // MARK: - diagnostics
+
+    /// Writes what the test runner resolved for backend config + a live probe of the funnel, so a
+    /// "still showing fixtures" result is immediately diagnosable as env-not-propagated vs.
+    /// funnel-unreachable vs. bad-token (without leaking the token — only its length is recorded).
+    private func writeDiagnostics() {
+        let url = cfg("AI_CADDIE_API_BASE_URL") ?? ""
+        let token = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
+        var lines = [
+            "resolvedURL=\(url)",
+            "tokenLen=\(token.count)",
+            "gps=\(cfg("UITEST_GPS_LAT") ?? "-"),\(cfg("UITEST_GPS_LON") ?? "-")",
+        ]
+        if let probeURL = URL(string: url + "/api/v2/history/summary") {
+            var request = URLRequest(url: probeURL)
+            request.timeoutInterval = 40
+            request.setValue(token, forHTTPHeaderField: "x-ai-caddie-admin-token")
+            let semaphore = DispatchSemaphore(value: 0)
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                lines.append("probe.status=\(code)")
+                if let error { lines.append("probe.error=\(error.localizedDescription)") }
+                if let data, let body = String(data: data, encoding: .utf8) {
+                    lines.append("probe.body=\(String(body.prefix(240)))")
+                }
+                semaphore.signal()
+            }.resume()
+            _ = semaphore.wait(timeout: .now() + 45)
+        } else {
+            lines.append("probe.skipped=invalid-url")
+        }
+        try? lines.joined(separator: "\n").data(using: .utf8)?
+            .write(to: realShotsDir().appendingPathComponent("diagnostics.txt"))
     }
 
     // MARK: - capture helpers

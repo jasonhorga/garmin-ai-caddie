@@ -19,6 +19,21 @@ public struct AICaddieWatchApp: App {
 
     @ViewBuilder
     private var content: some View {
+#if DEBUG
+        if let uitestScreen = WatchUITestRoot.requestedScreen() {
+            // `simctl launch ... -uitest-screen <name>`: render the real view with demo data so
+            // `simctl io screenshot` captures it (watchOS has no XCUITest). DEBUG-only.
+            WatchUITestRoot(screen: uitestScreen)
+        } else {
+            standardContent
+        }
+#else
+        standardContent
+#endif
+    }
+
+    @ViewBuilder
+    private var standardContent: some View {
         if roundModel.round != nil {
             // round-12 P3.3: a standalone round in progress takes over the whole watch.
             WatchRoundContainerView(model: roundModel)

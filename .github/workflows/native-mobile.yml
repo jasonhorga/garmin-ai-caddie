@@ -49,6 +49,12 @@ jobs:
       - name: Real-simulator screenshots (iOS, XCUITest against live backend)
         if: always()
         env:
+          # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
+          # (the plain forms are a fallback in case they propagate too). The test reads both.
+          TEST_RUNNER_AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          TEST_RUNNER_UITEST_GPS_LAT: '40.083'
+          TEST_RUNNER_UITEST_GPS_LON: '116.585'
           AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
           UITEST_GPS_LAT: '40.083'
@@ -92,6 +98,35 @@ jobs:
         with:
           name: watch-snapshots
           path: watch-snapshots/
+          if-no-files-found: warn
+      - name: Real-simulator screenshots (watchOS via simctl — no XCUITest on watchOS)
+        if: always()
+        run: |
+          set -x
+          WATCH_UDID=$(xcrun simctl list devices available | grep "Apple Watch Series 10 (46mm)" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          echo "watch udid: $WATCH_UDID"
+          [ -z "$WATCH_UDID" ] && { echo "no watch sim"; exit 0; }
+          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$WATCH_UDID" || true
+          # Install the Debug watch build (test already built it; install is idempotent + robust).
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -name "AICaddieWatch.app" -path "*Debug-watchsimulator*" 2>/dev/null | head -1)
+          echo "watch app: $APP"
+          [ -n "$APP" ] && xcrun simctl install "$WATCH_UDID" "$APP" || true
+          BID=com.ai-caddie.mobile.watchkitapp
+          mkdir -p watch-real-screenshots
+          for screen in home caddie-options hazards glance scorecard hole-select menu score finish start; do
+            xcrun simctl terminate "$WATCH_UDID" "$BID" 2>/dev/null || true
+            xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$screen" 2>/dev/null || true
+            sleep 4
+            xcrun simctl io "$WATCH_UDID" screenshot "watch-real-screenshots/watch-$screen.png" 2>/dev/null || true
+          done
+          ls -la watch-real-screenshots || true
+      - name: Upload watch real screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-real-screenshots
+          path: watch-real-screenshots/
           if-no-files-found: warn
       - name: Write native build evidence
         run: python3 ops/write_native_build_evidence.py
