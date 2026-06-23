@@ -127,11 +127,14 @@ AI Caddie 把你的 **Garmin 高尔夫数据**(球局、逐杆、球场几何)�
 **已落地(CI 绿 + 截图复核 + 部分已部署)**
 - Web:GolfLive 统计改版 + 提速、备战、复盘、实战沙盘、设置、诊断模式 —— **已部署上线**。
 - iPhone:实战屏(距离头含 F/M/B + 坡度)、球童卡 + 策略 + 障碍、GPS 记分、GolfLive 统计屏 —— 完整。
-- Watch:HOME(F/M/B + 坡度 + 18 洞环)、计分卡、选洞、菜单 hub、记分、结束、独立局 —— 核心完整。
-- 后端:坡度 / 果岭距离 / 7 维分布 / 紧凑统计契约 / 球杆清洗 / WatchRoundState 扩字段 —— 完整、已部署。
+- Watch:HOME(F/M/B + 坡度 + 18 洞环)、计分卡、选洞、菜单 hub、记分、结束、独立局、**球童三选项(激进/推荐/保守)、障碍 Hazard View** —— 核心完整。
+- 后端:坡度 / 果岭距离 / 7 维分布 / 紧凑统计契约 / 球杆清洗 / WatchRoundState 扩字段(含 caddieOptions/hazards 数组)—— 完整、已部署。
+- 正确性修复(2026-06-23):窗口化统计 shot-ref 稳定化(last10/12m 订正/refs 不再错位)、decision audit 认 Garmin 字段别名 —— 已部署。
+
+**质量验证**:除单元/契约/设计快照外,iOS 用 **XCUITest 在真模拟器启动真 app 对接 live 后端**导航截真屏、watch 用 **simctl io screenshot** 截真运行时屏(按需 `gh workflow run native-mobile.yml`);GPS 经 env 注入模拟在场。
 
 **后续 backlog(需契约 plumbing 或真机传感器)**
-- Watch:记分方位(偏左/中/右,需新输入事件类型)、障碍 Hazard View 与球童三选项(需把 hazards / options 数组推到表)、结束屏 GIR/球道汇总(需净新 outcome 分类)、果岭调旗 + 靠近果岭放大(地图交互)。
+- Watch:记分方位(偏左/中/右,需新输入事件类型 + 后端 ingest)、结束屏 GIR/球道汇总(需净新 outcome 分类)、果岭调旗 + 靠近果岭放大(地图拖拽交互,真机)。
 - **AutoShot 自动记杆**(watchOS 高频运动 API + GPS + HealthKit workout 自动检测每杆):可行但**检测调优需真机**(空挥/推杆/球车误报 + 续航)。
 - **距上一杆**实时距离:需持久化上一杆 GPS 坐标 + 端上算距。
 - 两路(standalone / companion)数据完全统一是更大重构。

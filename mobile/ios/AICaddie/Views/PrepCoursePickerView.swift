@@ -51,8 +51,13 @@ public struct PrepCoursePickerView: View {
                 .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(LiveHoleStyle.line))
+                // Make the WHOLE row (incl. the Spacer gap) the tap target — without this a tap on the
+                // empty middle of the row doesn't trigger the NavigationLink (real users tapping the gap
+                // + XCUITest, whose synthetic tap lands on the row centre, both missed it).
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("prep-course-row")
         }
     }
 }

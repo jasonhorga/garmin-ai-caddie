@@ -109,12 +109,13 @@ final class RealFlowUITests: XCTestCase {
     /// so the prep detail actually opens. Exact labels first (黑骑士 A 场 / a 全场), then any "…场" button.
     @discardableResult
     private func tapCourseSegment() -> Bool {
+        // Prefer the stable accessibilityIdentifier (now a full-row tap target) → reliable navigation.
+        let byId = app.buttons.matching(identifier: "prep-course-row").firstMatch
+        if byId.waitForExistence(timeout: 6) { byId.tap(); return true }
         for label in ["A 场, 9 洞", "全场, 18 洞"] {
             let button = app.buttons[label]
-            if button.waitForExistence(timeout: 5) { button.tap(); return true }
+            if button.waitForExistence(timeout: 4) { button.tap(); return true }
         }
-        let button = app.buttons.matching(NSPredicate(format: "label CONTAINS '场'")).firstMatch
-        if button.waitForExistence(timeout: 4) { button.tap(); return true }
         return false
     }
 
