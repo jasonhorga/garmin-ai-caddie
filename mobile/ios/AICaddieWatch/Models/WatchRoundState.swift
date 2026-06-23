@@ -21,6 +21,54 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
+/// round-13 spec ⑤: a single 障碍 (bunker/water) carry interval to surface on the watch Hazard View.
+/// Distances are along-route metres (start = near edge / 越线前沿, end = far edge / 越线后沿); the watch
+/// converts to 码. Pushed from the phone — mirrors the iPhone CaddiePlanHazard list.
+public struct WatchHazard: Codable, Equatable, Identifiable {
+    public var id: String { "\(kind)-\(label)" }
+
+    public let kind: String     // "bunker" | "water"
+    public let label: String    // 中文,如「沙坑 1」「水域」
+    public let startM: Double?
+    public let endM: Double?
+
+    public init(kind: String, label: String, startM: Double? = nil, endM: Double? = nil) {
+        self.kind = kind
+        self.label = label
+        self.startM = startM
+        self.endM = endM
+    }
+}
+
+/// round-13 spec ②: one AI-caddie play option (激进/推荐/保守) to surface on the watch 球童打法 screen.
+/// Pushed from the phone — mirrors the iPhone CaddiePlanOption set. No success-% (intentionally absent).
+public struct WatchCaddieOption: Codable, Equatable, Identifiable {
+    public var id: String { optionId }
+
+    public let optionId: String          // safe/stock/attack(或 option-N)
+    public let label: String             // 稳妥/标准/进攻
+    public let clubName: String?
+    public let carryM: Double?
+    public let expectedStrokes: Double?
+    public let confidence: String?
+
+    public init(
+        optionId: String,
+        label: String,
+        clubName: String? = nil,
+        carryM: Double? = nil,
+        expectedStrokes: Double? = nil,
+        confidence: String? = nil
+    ) {
+        self.optionId = optionId
+        self.label = label
+        self.clubName = clubName
+        self.carryM = carryM
+        self.expectedStrokes = expectedStrokes
+        self.confidence = confidence
+    }
+}
+
 public struct WatchRoundState: Codable, Equatable, Identifiable {
     public var id: String { "\(roundId)-\(hole)" }
     public var availableClubNames: [String] {
@@ -62,6 +110,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let greenInRegulation: Bool?
     public let fairwayResult: String?
     public let geometryCoverage: String?
+    // round-13 spec ②⑤: AI-caddie play options (激进/推荐/保守) + 障碍 carry intervals, pushed from
+    // the phone. Additive/optional — default [] so older payloads decode unchanged.
+    public let caddieOptions: [WatchCaddieOption]
+    public let hazards: [WatchHazard]
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -101,6 +153,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case greenInRegulation
         case fairwayResult
         case geometryCoverage
+        case caddieOptions
+        case hazards
         case score
         case putts
         case penaltyCount
@@ -140,6 +194,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         greenInRegulation: Bool? = nil,
         fairwayResult: String? = nil,
         geometryCoverage: String? = nil,
+        caddieOptions: [WatchCaddieOption] = [],
+        hazards: [WatchHazard] = [],
         score: Int,
         putts: Int,
         penaltyCount: Int,
@@ -177,6 +233,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.greenInRegulation = greenInRegulation
         self.fairwayResult = fairwayResult
         self.geometryCoverage = geometryCoverage
+        self.caddieOptions = caddieOptions
+        self.hazards = hazards
         self.score = score
         self.putts = putts
         self.penaltyCount = penaltyCount
@@ -217,6 +275,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.greenInRegulation = try container.decodeIfPresent(Bool.self, forKey: .greenInRegulation)
         self.fairwayResult = try container.decodeIfPresent(String.self, forKey: .fairwayResult)
         self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage)
+        self.caddieOptions = try container.decodeIfPresent([WatchCaddieOption].self, forKey: .caddieOptions) ?? []
+        self.hazards = try container.decodeIfPresent([WatchHazard].self, forKey: .hazards) ?? []
         self.score = try container.decode(Int.self, forKey: .score)
         self.putts = try container.decode(Int.self, forKey: .putts)
         self.penaltyCount = try container.decode(Int.self, forKey: .penaltyCount)
@@ -277,6 +337,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: geometryCoverage,
+            caddieOptions: caddieOptions,
+            hazards: hazards,
             score: nextScore,
             putts: nextPutts,
             penaltyCount: nextPenaltyCount,

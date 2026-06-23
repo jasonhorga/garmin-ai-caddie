@@ -59,6 +59,16 @@ public struct WatchHoleView: View {
                 .font(.caption2)
                 .foregroundStyle(queuedEventCount > 0 ? AICaddieDesignTokens.confidenceColor("low") : .secondary)
                 WatchCaddieGlanceView(state: state)
+                if !state.caddieOptions.isEmpty {
+                    NavigationLink("球童打法") {
+                        ScrollView { WatchCaddieOptionsView(options: state.caddieOptions, recommendedId: state.offlineOptionId).padding(8) }
+                    }
+                }
+                if !state.hazards.isEmpty {
+                    NavigationLink("障碍") {
+                        ScrollView { WatchHazardView(hazards: state.hazards).padding(8) }
+                    }
+                }
                 NavigationLink("Input") {
                     WatchInputView(state: state, clubs: clubs, onEvent: onEvent)
                 }

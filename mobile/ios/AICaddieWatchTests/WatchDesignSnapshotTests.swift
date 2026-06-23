@@ -32,6 +32,39 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchCaddieOptions() throws {
+        // round-13 spec ②: 激进/推荐/保守 options pushed from the phone; 标准 (stock) highlighted.
+        let view = WatchCaddieOptionsView(
+            options: [
+                WatchCaddieOption(optionId: "safe", label: "稳妥", clubName: "9号铁", carryM: 128, expectedStrokes: 3.1, confidence: "high"),
+                WatchCaddieOption(optionId: "stock", label: "标准", clubName: "8号铁", carryM: 142, expectedStrokes: 3.0, confidence: "high"),
+                WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "7号铁", carryM: 156, expectedStrokes: 3.2, confidence: "medium"),
+            ],
+            recommendedId: "stock"
+        )
+        .padding(8)
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-caddie-options")
+    }
+
+    @MainActor
+    func testRenderWatchHazards() throws {
+        // round-13 spec ⑤: bunkers then water, near→far, carry interval in 码.
+        let view = WatchHazardView(
+            hazards: [
+                WatchHazard(kind: "bunker", label: "沙坑 1", startM: 120, endM: 140),
+                WatchHazard(kind: "bunker", label: "沙坑 2", startM: 165, endM: 178),
+                WatchHazard(kind: "water", label: "水域", startM: 210, endM: 235),
+            ]
+        )
+        .padding(8)
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-hazards")
+    }
+
+    @MainActor
     func testRenderWatchRoundHome() throws {
         // round-13: home now carries the 18-hole edge ring; current hole 7 highlighted, holes 1–6
         // scored (colored by to-par), 8–18 not yet played (grey).
