@@ -117,7 +117,11 @@ public struct CurrentHoleView: View {
                     par: hole.par,
                     toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
                     carryFrontYards: nil,
-                    toParText: holeToParText
+                    toParText: holeToParText,
+                    greenFrontYards: greenYards(liveGreenDistances?.frontM),
+                    greenCenterYards: greenYards(liveGreenDistances?.middleM),
+                    greenBackYards: greenYards(liveGreenDistances?.backM),
+                    slopeYards: holePrep?.playsLike?.available == true ? holePrep?.playsLike?.deltaYd : nil
                 )
 
                 VStack(spacing: 12) {
@@ -288,6 +292,17 @@ public struct CurrentHoleView: View {
         // Re-push to the watch now that F/M/B + plays-like are available — the first push in
         // loadCaddieDecision can beat this fetch and would otherwise send nil green distances.
         if holePrep != nil { sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption) }
+    }
+
+    /// round-13 LIVE: 本洞前/中/后果岭(F/M/B),仅在 prep 几何可用时。tee→green 静态值。
+    private var liveGreenDistances: CoursePrepGreenDistances? {
+        guard let gd = holePrep?.greenDistances, gd.available else { return nil }
+        return gd
+    }
+
+    /// 米 → 码(F/M/B 显示按码,与 R13 设计一致)。
+    private func greenYards(_ metres: Double?) -> Int? {
+        metres.map { Int(($0 * 1.09361).rounded()) }
     }
 
     /// 本洞避开区:取按洞拉取的 prep 的 hazards(沙坑/水域 米区间)供球童方案展示。
