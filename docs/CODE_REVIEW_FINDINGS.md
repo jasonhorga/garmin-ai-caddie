@@ -42,6 +42,16 @@
 - `ai_caddie_web.py`、`build_dashboard.py`、`ai_caddie/analysis.py` 大部分是 legacy/原型;活跃产品路径是 `server_v2/`、`web_v2/`、mobile。冻结或移 `tools/prototype/`(更新测试后)。
 - `ai_caddie/llm.py` 是 `llm_providers` 的薄包装;生产多直接 import `llm_providers`。仅 legacy CLI 需要则保留,否则弃用。
 
+## 5. 第二轮复查(2026-06-23,独立子代理 — codex CLI 认证失效 401,用 Claude 子代理替代)
+
+> codex CLI 在 homeserver 401 Unauthorized(`~/.codex/` 无 auth.json,需用户 `codex login`/OPENAI_API_KEY)→ 用两个独立 Claude 子代理做替代复查(代码正确性 + 仓库结构)。
+
+- **✅ 已修 MEDIUM — prep_cache 无上限**:`/courses/{id}/prep` 缓存 key 含自由的 `holes` query 参数,`render=True` 每条内嵌 ~1MB base64 球洞图,token 持有者可枚举撑爆内存(OOM)。→ 改 `OrderedDict` + `_MAXSIZE=256` LRU 驱逐(prep_cache.py)。
+- **✅ 已修 LOW — prep_cache fingerprint 不全**:漏 `CLUBS_FILE`(clubs.json 人工球杆 override)+ `SCORECARD_DIR`(your-shots scatter 也读 scorecards)→ 补入 `_fingerprint`。
+- **未做 LOW — `_globalIndex` 在非 loader 数据源不全**:`load_history_data` 是唯一 stamp 处;`load_latest_snapshot_history`(owner 本地无 rounds 时的快照 fallback)+ `fixtures.py` 建 shots 不带 `_globalIndex` → 窗口化统计在快照/fixture 上回退位置索引(§1 HIGH 同类错位,仅 owner 恢复/demo fallback,故 LOW)。修法:在 `load_latest_snapshot_history`+`fixture_history_data` stamp,或 `build_history_stats` 入口集中 stamp。
+- **CLEAN**:decision `_normalize_actual_shot`(返回深拷贝 end、两入口都归一)、watch caddieOptions/hazards 契约(schema↔Swift parity)、端点鉴权(player token 不泄 owner 数据)。
+- **仓库结构**:根脚本 **21→9**(#138 文档归位 + #142 + 本次共移 12 个工具入 `tools/`)。剩 9 .py + 2 .js 中 **8 .py + 2 .js 架构 pinned 必须留根**(Docker `COPY *.py` glob + prodgeometry 裸名 subprocess,清单见 README 项目结构)、`ai_caddie_web.py`(legacy,暂留)。已提交树无 pycache/venv/data/output 杂物(均 gitignored)。
+
 ---
 
-*Codex 全库复查,2026-06-23。本会话已处置:文档归位 + 本文档记录;代码 bug 与工具重组按上方分阶段计划执行。*
+*Codex 全库复查 + 第二轮独立子代理复查(codex 认证失效替代),2026-06-23。处置:文档+工具归位、prep_cache 加固、正确性 bug(shot-ref/audit 别名)已修;剩余 LOW(snapshot `_globalIndex`)+ 阶段1(auth/sync 进包,需用户在场部署)待续。*

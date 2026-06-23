@@ -161,8 +161,8 @@ uv run python tools/reports/ai_caddie_analyze.py --latest --round --llm  # 需�
 批量补常打球场的 prodgeometry hazard index：
 
 ```bash
-uv run python ai_caddie_batch_geometry.py --limit 10 --dry-run
-uv run python ai_caddie_batch_geometry.py --limit 10
+uv run python tools/reports/ai_caddie_batch_geometry.py --limit 10 --dry-run
+uv run python tools/reports/ai_caddie_batch_geometry.py --limit 10
 ```
 
 `--llm` 只会发送 `llmBrief` 里的结构化事实，不会把 Garmin token/cookie 或原始本地 JSON 发给模型。
@@ -177,7 +177,7 @@ uv run python ai_caddie_batch_geometry.py --limit 10
 | `uv run python tools/courseview/render_courseview.py` | `output/courseview/` | 渲染 CourseView IMG 几何 |
 | `uv run python tools/courseview/build_hole_view.py` | `output/hole_views/` | 把 IMG 几何叠到 Esri 卫星图 |
 | `uv run python tools/prototype/segment_hole.py` | `output/segmentation/` | 对 Garmin 730×730 raster 做 HSV 分割调试 |
-| `uv run python ai_review.py` | `output/ai_reviews/` | 单场 AI 点评，需要 `ANTHROPIC_API_KEY` |
+| `uv run python tools/reports/ai_review.py` | `output/ai_reviews/` | 单场 AI 点评，需要 `ANTHROPIC_API_KEY` |
 
 ## CourseView prodgeometry 几何层
 
@@ -241,15 +241,27 @@ open output/dashboard.html
 
 ```
 .
-├── fetch.py                    # 拉 scorecard（生产 import / 必须留根）
-├── garmin_auth.py              # web 会话认证 + 自愈（生产 import / 必须留根）
-├── batch_prodgeometry_course.py # prodgeometry 几何流水线 orchestrator（生产按裸名 subprocess / 必须留根）
-├── decode_courseview_geometry.js # Draco mesh 解码（同上）
-├── measure_prodgeometry_distances.py # tee/target 到 hazard 距离（生产 import + subprocess）
-├── tools/                      # 独立工具（不被生产 import；按 script 运行）
+# ── 必须留根的脚本 ──────────────────────────────────────────────
+#   Dockerfile 用 `COPY *.py ./` + `COPY *.js ./` glob 把根脚本铺进镜像(这是
+#   ai_caddie/* 能 import 根模块的机制);prodgeometry 链(geometry_sync.ensure_
+#   prodgeometry → batch_prodgeometry_course.process_hole)按【裸文件名 cwd=ROOT】
+#   subprocess。以下任一移走都会断生产 import 或裸名 subprocess —— 整理时勿动。
+├── fetch.py                       # 拉 scorecard(pipeline/garmin_cn import)
+├── garmin_auth.py                 # web 会话认证 + 自愈(pipeline/garmin_cn import)
+├── garmin_playwright_login.py     # cookie 自愈铸造(garmin_auth import)
+├── inspect_courseview_release.py  # CourseView release 解析(course_search/reference/geometry_sync/mobile_live import)
+├── batch_prodgeometry_course.py   # prodgeometry 流水线 orchestrator(geometry_sync import)
+├── measure_prodgeometry_distances.py # tee/target→hazard 距离(analysis/course_prep/hole_render import + 裸名 subprocess)
+├── export_prodgeometry_hazards.py # hazard index 导出(orchestrator 裸名 subprocess)
+├── overlay_prodgeometry_on_raster.py # 几何叠 raster 校验(orchestrator 裸名 subprocess)
+├── fetch_courseview_geometry_key.js  # prodgeometry zip key(orchestrator 裸名 `node`)
+├── decode_courseview_geometry.js  # Draco mesh 解码(orchestrator 裸名 `node`)
+├── ai_caddie_web.py               # legacy v1 web UI(已被 server_v2+web_v2 取代;test 引用,暂留根)
+# ── 独立工具(不被生产 import;按 script 运行;可移) ────────────────
+├── tools/
 │   ├── courseview/             #   IMG/protobuf 拉取·解析·渲染·叠图(parse_courseview 等)
 │   ├── prototype/              #   原型/调试(build_dashboard·segment_hole·build_hole_overlay)
-│   └── reports/                #   离线分析 CLI(ai_caddie_analyze)
+│   └── reports/                #   离线分析 CLI(ai_caddie_analyze·ai_review·ai_caddie_batch_geometry)
 ├── pyproject.toml / uv.lock    # Python 依赖
 ├── package.json / package-lock.json # Node / draco3d 依赖
 ├── clubs.example.json          # 杆包映射示例；本地用 clubs.json
