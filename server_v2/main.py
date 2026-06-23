@@ -281,6 +281,12 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         ("/api/v2/mobile/rounds/", "/reconciliation/apply"),
         ("/api/v2/reports/round/", "/generate"),
         ("/api/v2/reports/trend/", "/generate"),
+        # codex MEDIUM #4: these report-generation POSTs (persist owner reports, may call an LLM) were
+        # missing from the admin gate — caught by the route-policy guardrail test. Gate them like the
+        # round/trend generators.
+        ("/api/v2/reports/club/", "/generate"),
+        ("/api/v2/reports/course/", "/generate"),
+        ("/api/v2/reports/hole/", "/generate"),
     )
     return any(path.startswith(prefix) and path.endswith(suffix) for prefix, suffix in protected_prefix_suffix)
 
@@ -301,6 +307,16 @@ async def enforce_admin_token_before_body_validation(request: Request, call_next
             except HTTPException as exc:
                 return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     return await call_next(request)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    # codex MEDIUM #10: high-privilege tokens can end up in a URL (?admin= / /p/<token>); a no-referrer
+    # policy stops them leaking via the Referer header to any third party the page links to. Defined
+    # after the auth middleware so it wraps it — the header is set on every response, including 401s.
+    response = await call_next(request)
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
 
 
 @app.get("/")
