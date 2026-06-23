@@ -17,6 +17,7 @@ public struct WatchRoundHomeView: View {
     public let onPreviousHole: () -> Void
     public let onNextHole: () -> Void
     public let onFinish: () -> Void
+    public let onMenu: () -> Void
 
     public init(
         courseName: String,
@@ -30,7 +31,8 @@ public struct WatchRoundHomeView: View {
         onScoreHole: @escaping () -> Void = {},
         onPreviousHole: @escaping () -> Void = {},
         onNextHole: @escaping () -> Void = {},
-        onFinish: @escaping () -> Void = {}
+        onFinish: @escaping () -> Void = {},
+        onMenu: @escaping () -> Void = {}
     ) {
         self.courseName = courseName
         self.hole = hole
@@ -44,6 +46,7 @@ public struct WatchRoundHomeView: View {
         self.onPreviousHole = onPreviousHole
         self.onNextHole = onNextHole
         self.onFinish = onFinish
+        self.onMenu = onMenu
     }
 
     public var body: some View {
@@ -81,6 +84,9 @@ public struct WatchRoundHomeView: View {
                 }
                 Button(action: onNextHole) {
                     Image(systemName: "chevron.right")
+                }
+                Button(action: onMenu) {
+                    Image(systemName: "list.bullet")
                 }
                 Spacer()
                 Button(role: .destructive, action: onFinish) {

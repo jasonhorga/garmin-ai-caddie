@@ -45,6 +45,39 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchScorecard() throws {
+        let view = WatchScorecardView(
+            holes: [
+                WatchScorecardRow(hole: 1, par: 4, score: 4),
+                WatchScorecardRow(hole: 2, par: 5, score: 6),
+                WatchScorecardRow(hole: 3, par: 3, score: 2),
+                WatchScorecardRow(hole: 4, par: 4, score: 5),
+                WatchScorecardRow(hole: 5, par: 4, score: 0),
+            ],
+            totalToPar: 2
+        )
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-scorecard")
+    }
+
+    @MainActor
+    func testRenderWatchHoleSelect() throws {
+        let view = WatchHoleSelectView(holes: Array(1...18), activeHole: 7)
+            .frame(width: 198)
+            .background(Color.black)
+        try render(view, named: "watch-hole-select")
+    }
+
+    @MainActor
+    func testRenderWatchMenu() throws {
+        let view = WatchMenuView()
+            .frame(width: 198)
+            .background(Color.black)
+        try render(view, named: "watch-menu")
+    }
+
+    @MainActor
     func testRenderWatchScoreHole() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0
