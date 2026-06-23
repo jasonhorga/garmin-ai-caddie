@@ -1,62 +1,138 @@
 import XCTest
 
-/// Real running-app screenshots from the iOS Simulator (XCUITest), NOT ImageRenderer view snapshots.
-/// The test launches the ACTUAL app pointed at the live backend (funnel) with the owner admin token and
-/// a simulated on-course GPS fix (all via launchEnvironment), then navigates and captures real screens
-/// with `XCUIScreen.main.screenshot()`. PNGs + a UI element-tree dump are written to the test process
-/// Documents dir; native-mobile.yml collects `*Documents/real-screenshots/*` as the `real-screenshots`
-/// artifact.
+/// Real running-app screenshots from the iOS Simulator (XCUITest) — NOT ImageRenderer view snapshots.
+/// Launches the ACTUAL app pointed at the live backend (funnel) with the owner admin token and a
+/// simulated on-course GPS fix (all via launchEnvironment), navigates the real UI, and captures real
+/// screens with `XCUIScreen.main.screenshot()`. PNGs + per-screen accessibility-tree dumps are written
+/// to the test process Documents dir; native-mobile.yml collects `*Documents/real-screenshots/*`.
 ///
-/// Phase 1a: launch → home screenshot → dump the element tree (so the exact tappable labels/identifiers
-/// are known for the deeper start-round / play-hole / history navigation added next). Taps are
-/// best-effort — a missing element never fails the run, it just limits how far we get this round.
+/// Each section relaunches from a known home state (back-navigation in SwiftUI is fragile), captures the
+/// screen, and dumps its element tree so any tap that misses is fixable next iteration without guessing.
 final class RealFlowUITests: XCTestCase {
     private let app = XCUIApplication()
 
     override func setUpWithError() throws {
         continueAfterFailure = true
         let env = ProcessInfo.processInfo.environment
-        // Backend config the app already reads from its process environment (AICaddieApp.defaultAdminToken /
-        // defaultAPIBaseURL). Forward what CI injected so the real app talks to the real backend.
         app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = env["AI_CADDIE_API_BASE_URL"] ?? ""
         app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = env["AI_CADDIE_ADMIN_TOKEN"] ?? ""
-        // Simulated on-course GPS so the live hole renders real distances (LocationProvider env path).
-        app.launchEnvironment["UITEST_GPS_LAT"] = env["UITEST_GPS_LAT"] ?? "40.197"
-        app.launchEnvironment["UITEST_GPS_LON"] = env["UITEST_GPS_LON"] ?? "116.49"
+        app.launchEnvironment["UITEST_GPS_LAT"] = env["UITEST_GPS_LAT"] ?? "40.083"
+        app.launchEnvironment["UITEST_GPS_LON"] = env["UITEST_GPS_LON"] ?? "116.585"
         app.launchEnvironment["UITEST_MODE"] = "1"
     }
 
     func testCaptureRealAppFlow() throws {
-        app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "app did not reach foreground")
-        // Home package is fetched from the funnel on launch; give it time to render real data.
-        Thread.sleep(forTimeInterval: 10)
-        save("01-home")
-        dumpElementTree("01-home")
+        // ---- Section 1: home + the two macro tiles (stats) ----
+        launchFresh()
+        save("01-home"); dump("01-home")
+        if tapContaining(["数据统计", "均杆 · 趋势"]) {
+            settle(7); save("02-stats"); dump("02-stats")
+        }
 
-        // Best-effort: tap into pre-round prep / start a round if a recognizable control is present.
-        // Exact labels are confirmed from the element-tree dump and tightened in the next iteration.
-        if tapFirst(labels: ["开始打球", "开始一场", "去备战", "继续这场", "手机记分"]) {
-            Thread.sleep(forTimeInterval: 6)
-            save("02-after-start")
-            dumpElementTree("02-after-start")
+        // ---- Section 2: history list → a round review ----
+        launchFresh()
+        if tapContaining(["历史复盘", "逐场逐洞"]) {
+            settle(6); save("03-history-list"); dump("03-history-list")
+            if tapFirstRoundRow() {
+                settle(6); save("04-round-review"); dump("04-round-review")
+            }
+        }
+
+        // ---- Section 3: last-round review shortcut from home ----
+        launchFresh()
+        if tapContaining(["上一场"]) {
+            settle(6); save("05-last-round-review"); dump("05-last-round-review")
+        }
+
+        // ---- Section 4: start a round → live hole (the real round simulation) ----
+        launchFresh()
+        // Prefer continuing a real in-progress round straight into the live hole; else start fresh.
+        if tapContaining(["进行中", "继续这场"]) {
+            settle(8); save("06-live-hole"); dump("06-live-hole")
+            captureLiveHoleDetails()
+        } else if tapButton(exact: "开始一场") {
+            settle(6); save("06a-start-round"); dump("06a-start-round")
+            // Pick the first real course, then start scoring.
+            _ = tapFirstCourseRow()
+            settle(3)
+            if tapContaining(["开始记分"]) {
+                settle(8); save("07-live-hole"); dump("07-live-hole")
+                captureLiveHoleDetails()
+            }
         }
     }
 
-    // MARK: - helpers
+    /// On the live hole, expand the caddie / more-adjustments so the recommendation + sequence show.
+    private func captureLiveHoleDetails() {
+        if tapContaining(["看完整方案", "换打法", "备选打法"]) {
+            settle(3); save("08-caddie-plan"); dump("08-caddie-plan")
+        }
+        if tapContaining(["更多调整"]) {
+            settle(2); save("09-more-adjust"); dump("09-more-adjust")
+        }
+    }
+
+    // MARK: - navigation helpers
+
+    private func launchFresh() {
+        if app.state == .runningForeground { app.terminate() }
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "app did not foreground")
+        // Home renders cached/fixture instantly, then the funnel fetch (Phase 2) swaps in real data.
+        settle(20)
+    }
+
+    private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
 
     @discardableResult
-    private func tapFirst(labels: [String]) -> Bool {
-        for label in labels {
-            let byId = app.descendants(matching: .any).matching(identifier: label).firstMatch
-            if byId.exists && byId.isHittable { byId.tap(); return true }
-            let button = app.buttons[label]
-            if button.exists && button.isHittable { button.tap(); return true }
-            let staticText = app.staticTexts[label]
-            if staticText.exists && staticText.isHittable { staticText.tap(); return true }
+    private func tapButton(exact label: String) -> Bool {
+        let b = app.buttons[label]
+        if b.waitForExistence(timeout: 6), b.isHittable { b.tap(); return true }
+        return false
+    }
+
+    /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
+    @discardableResult
+    private func tapContaining(_ fragments: [String]) -> Bool {
+        for fragment in fragments {
+            let predicate = NSPredicate(format: "label CONTAINS %@", fragment)
+            for query in [app.buttons, app.cells, app.staticTexts, app.otherElements] {
+                let match = query.matching(predicate).firstMatch
+                if match.waitForExistence(timeout: 4), match.isHittable { match.tap(); return true }
+            }
         }
         return false
     }
+
+    /// First list row in a history list — try cells then buttons (SwiftUI List rows surface either way).
+    @discardableResult
+    private func tapFirstRoundRow() -> Bool {
+        let cell = app.cells.firstMatch
+        if cell.waitForExistence(timeout: 6), cell.isHittable { cell.tap(); return true }
+        // a date/score-bearing button row
+        let predicate = NSPredicate(format: "label CONTAINS '杆' OR label CONTAINS '20' OR label MATCHES '.*[0-9]+.*'")
+        let row = app.buttons.matching(predicate).firstMatch
+        if row.waitForExistence(timeout: 4), row.isHittable { row.tap(); return true }
+        return false
+    }
+
+    @discardableResult
+    private func tapFirstCourseRow() -> Bool {
+        // The course list rows are buttons/cells carrying a course name; tap the first hittable one
+        // that isn't the start/tee control.
+        for query in [app.cells, app.buttons] {
+            for i in 0..<min(query.count, 8) {
+                let el = query.element(boundBy: i)
+                guard el.exists, el.isHittable else { continue }
+                let label = el.label
+                if label.contains("开始记分") || label.contains("发球台") || label.contains("T") { continue }
+                el.tap(); return true
+            }
+        }
+        return false
+    }
+
+    // MARK: - capture helpers
 
     private func realShotsDir() -> URL {
         let base = (try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
@@ -68,9 +144,7 @@ final class RealFlowUITests: XCTestCase {
 
     private func save(_ name: String) {
         let shot = XCUIScreen.main.screenshot()
-        // Write a PNG for artifact collection (the design-snapshot pipeline collects Documents PNGs).
         try? shot.pngRepresentation.write(to: realShotsDir().appendingPathComponent("\(name).png"))
-        // Also attach to the .xcresult for local inspection.
         let attachment = XCTAttachment(screenshot: shot)
         attachment.name = name
         attachment.lifetime = .keepAlways
@@ -78,9 +152,8 @@ final class RealFlowUITests: XCTestCase {
         print("WROTE_REAL_SCREENSHOT \(name)")
     }
 
-    /// Dump the accessibility element tree so the deeper-navigation iteration knows exact labels.
-    private func dumpElementTree(_ name: String) {
-        let tree = app.debugDescription
-        try? tree.data(using: .utf8)?.write(to: realShotsDir().appendingPathComponent("tree-\(name).txt"))
+    private func dump(_ name: String) {
+        try? app.debugDescription.data(using: .utf8)?
+            .write(to: realShotsDir().appendingPathComponent("tree-\(name).txt"))
     }
 }

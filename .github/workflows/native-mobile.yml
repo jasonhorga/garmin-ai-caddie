@@ -51,8 +51,8 @@ jobs:
         env:
           AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
-          UITEST_GPS_LAT: '40.197'
-          UITEST_GPS_LON: '116.49'
+          UITEST_GPS_LAT: '40.083'
+          UITEST_GPS_LON: '116.585'
         run: |
           # Launches the REAL app in the simulator (not ImageRenderer) pointed at the funnel with the
           # owner token + a simulated GPS fix, navigates, and captures real screens. `|| true` while the
