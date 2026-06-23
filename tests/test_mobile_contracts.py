@@ -349,6 +349,16 @@ class MobileContractTests(unittest.TestCase):
             "expectedRemainingM": -21.0,
             "evidenceSummary": "route: water left",
             "missingDataSummary": "wind: not cached",
+            "frontGreenM": 128.0,
+            "centerGreenM": 135.0,
+            "backGreenM": 142.0,
+            "playsLikeDistanceM": 138.0,
+            "elevationDeltaM": 3.0,
+            "lastShotDistanceM": 168.0,
+            "distanceFromLastShotM": 142.0,
+            "greenInRegulation": False,
+            "fairwayResult": "center",
+            "geometryCoverage": "ready",
             "score": 4,
             "putts": 2,
             "penaltyCount": 0,
@@ -2501,12 +2511,53 @@ class MobileContractTests(unittest.TestCase):
             "holePlanSummary",
             "expectedStrokes",
             "expectedRemainingM",
+            "frontGreenM",
+            "centerGreenM",
+            "backGreenM",
+            "playsLikeDistanceM",
+            "elevationDeltaM",
+            "lastShotDistanceM",
+            "distanceFromLastShotM",
+            "greenInRegulation",
+            "fairwayResult",
+            "geometryCoverage",
             "score",
             "putts",
             "penaltyCount",
             "caddieConfidence",
         ]:
             self.assertIn(field, state_swift)
+
+    def test_watch_state_carries_live_screen_fields_phone_and_watch(self) -> None:
+        # round-13 E4: the Apple Watch live fields (F/M/B green, plays-like/slope, last shot,
+        # GIR/fairway, geometry coverage) must be declared IDENTICALLY on the phone encoder
+        # (WatchRoundStatePayload) and the watch decoder (WatchRoundState) so the
+        # additionalProperties:false schema stays in lockstep.
+        bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
+        state_swift = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundState.swift")
+        for field in [
+            "frontGreenM", "centerGreenM", "backGreenM", "playsLikeDistanceM",
+            "elevationDeltaM", "lastShotDistanceM", "distanceFromLastShotM",
+        ]:
+            self.assertIn(f"public let {field}: Double?", bridge)
+            self.assertIn(f"public let {field}: Double?", state_swift)
+        for decl in [
+            "public let greenInRegulation: Bool?",
+            "public let fairwayResult: String?",
+            "public let geometryCoverage: String?",
+        ]:
+            self.assertIn(decl, bridge)
+            self.assertIn(decl, state_swift)
+        # watch model decodes + replays them (decodeIfPresent + applying() passthrough). The
+        # applying() forward is asserted explicitly because no XCTest exercises it with these
+        # fields set, so a field dropped only from applying() would silently nil on quick-input.
+        self.assertIn("decodeIfPresent(Double.self, forKey: .frontGreenM)", state_swift)
+        self.assertIn("decodeIfPresent(Bool.self, forKey: .greenInRegulation)", state_swift)
+        self.assertIn("frontGreenM: frontGreenM", state_swift)  # applying() rebuild passthrough
+        self.assertIn("geometryCoverage: geometryCoverage", state_swift)
+        # phone builder forwards them, defaulted nil so existing call sites compile unchanged
+        self.assertIn("frontGreenM: Double? = nil", bridge)
+        self.assertIn("geometryCoverage: String? = nil", bridge)
 
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")

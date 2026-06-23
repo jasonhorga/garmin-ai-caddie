@@ -115,6 +115,43 @@
     "missingDataSummary": {
       "type": ["string", "null"]
     },
+    "frontGreenM": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "centerGreenM": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "backGreenM": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "playsLikeDistanceM": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "elevationDeltaM": {
+      "type": ["number", "null"]
+    },
+    "lastShotDistanceM": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "distanceFromLastShotM": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "greenInRegulation": {
+      "type": ["boolean", "null"]
+    },
+    "fairwayResult": {
+      "type": ["string", "null"]
+    },
+    "geometryCoverage": {
+      "type": ["string", "null"],
+      "enum": ["ready", "partial", "missing", null]
+    },
     "score": {
       "type": "integer",
       "minimum": 1
