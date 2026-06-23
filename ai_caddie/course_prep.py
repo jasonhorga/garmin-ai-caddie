@@ -112,40 +112,124 @@ def _densify(route, step=4.0):
     return out
 
 
-def route_hazards(by: dict, route) -> dict:
-    """Water-carry intervals + greenside/fairway bunkers along the route (metres along route)."""
+WATER_MIN_M = 3.0   # ignore water clips shorter than this along the route (carry not meaningful)
+BUNKER_MAX_M = 30.0  # only report a bunker whose nearest edge is within this of the route
+
+
+def _route_segments(route) -> list[tuple[tuple[float, float], tuple[float, float], float, float]]:
+    """Route vertices as ``(a, b, cum_at_a_m, seg_len_m)`` segments (cumulative measured at ``a``)."""
+    segments = []
+    cum = 0.0
+    for i in range(len(route) - 1):
+        a = (float(route[i][0]), float(route[i][1]))
+        b = (float(route[i + 1][0]), float(route[i + 1][1]))
+        seg = math.hypot(b[0] - a[0], b[1] - a[1])
+        if seg > 0:
+            segments.append((a, b, cum, seg))
+        cum += seg
+    return segments
+
+
+def _merge_intervals(intervals, gap=1e-6) -> list[list[float]]:
+    """Merge only numerically-contiguous ``[start, end]`` metre intervals.
+
+    Adjacent mesh triangles split one contiguous water crossing into touching sub-intervals; this
+    glues them back into a single carry. Genuinely separate water bodies (a real dry gap) stay
+    split — that is the more accurate behaviour. Degenerate (zero-length) intervals are dropped.
+    """
+    merged: list[list[float]] = []
+    for start, end in sorted(intervals):
+        if end - start <= gap:
+            continue
+        if merged and start <= merged[-1][1] + gap:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return merged
+
+
+def _water_carry(lake, segments) -> list[list[float]]:
+    """Carry intervals (metres along the route) from the EXACT route-segment ∩ lake intersection.
+
+    Each route segment is intersected with every Lake mesh component via the precise
+    :func:`measure_prodgeometry_distances.line_intervals_for_component`, so a narrow water strip
+    the route crosses BETWEEN the old 4 m samples is no longer missed. Sub-``WATER_MIN_M`` clips
+    are dropped (unchanged noise filter).
+    """
+    if not lake:
+        return []
+    from measure_prodgeometry_distances import line_intervals_for_component, mesh_components
+
+    raw: list[tuple[float, float]] = []
+    for component in mesh_components(lake):
+        for a, b, cum, seg in segments:
+            for t0, t1 in line_intervals_for_component(a, b, component):
+                raw.append((cum + t0 * seg, cum + t1 * seg))
+    return [
+        [round(start, 1), round(end, 1)]
+        for start, end in _merge_intervals(raw)
+        if end - start >= WATER_MIN_M
+    ]
+
+
+def _bbox_gap(route_bbox, comp_bbox) -> float:
+    """Lower bound on the route↔component distance from their bounding boxes (safe to reject on)."""
+    dx = max(comp_bbox[0] - route_bbox[2], route_bbox[0] - comp_bbox[2], 0.0)
+    dy = max(comp_bbox[1] - route_bbox[3], route_bbox[1] - comp_bbox[3], 0.0)
+    return math.hypot(dx, dy)
+
+
+def _bunkers(bunker, route) -> list[list[float]]:
+    """``[along_route_m, side_m]`` per bunker, side = shortest distance to the bunker BOUNDARY.
+
+    Uses :func:`measure_prodgeometry_distances.point_triangle_distance` (exact point→triangle) from
+    each densified route point to the bunker's triangles, so a long bunker whose near edge hugs the
+    route is measured by that edge — not by its far-away centroid (the old approximation, which
+    over-stated the gap and could push a near-edge bunker past the ``BUNKER_MAX_M`` gate). The
+    along-route position keeps the existing 4 m route resolution.
+    """
+    if not bunker:
+        return []
+    from measure_prodgeometry_distances import mesh_components, point_triangle_distance
+
     dense = _densify(route)
-    water_carry = []
-    lake = by.get("Lake.drc")
-    if lake:
-        tris = _triangles(lake)
-        inside = [(_point_in_mesh((p[0], p[1]), tris), p[2]) for p in dense]
-        i = 0
-        while i < len(inside):
-            if inside[i][0]:
-                start = inside[i][1]
-                while i < len(inside) and inside[i][0]:
-                    i += 1
-                end = inside[i - 1][1]
-                if end - start >= 3:
-                    water_carry.append([round(start, 1), round(end, 1)])
-            else:
-                i += 1
-    bunkers = []
-    bunker = by.get("Bunker.drc")
-    if bunker:
-        from measure_prodgeometry_distances import mesh_components
-        for comp in mesh_components(bunker):
-            cen = comp.get("centroid")
-            if not cen:
-                continue
-            cx, cz = _local([cen[0], cen[1], cen[2]]) if len(cen) >= 3 else (cen[0], cen[1])
-            best = min(dense, key=lambda p: math.hypot(p[0] - cx, p[1] - cz))
-            side = math.hypot(best[0] - cx, best[1] - cz)
-            if side <= 30:
-                bunkers.append([round(best[2], 1), round(side, 1)])
+    if not dense:
+        return []
+    xs = [p[0] for p in dense]
+    ys = [p[1] for p in dense]
+    route_bbox = (min(xs), min(ys), max(xs), max(ys))
+    bunkers: list[list[float]] = []
+    for component in mesh_components(bunker):
+        if _bbox_gap(route_bbox, component["bbox"]) > BUNKER_MAX_M:
+            continue  # whole component is provably out of range — skip the per-point distance work
+        triangles = component["triangles"]
+        best_side = None
+        best_cum = None
+        for p in dense:
+            side = min(point_triangle_distance((p[0], p[1]), tri) for tri in triangles)
+            if best_side is None or side < best_side:
+                best_side, best_cum = side, p[2]
+        if best_side is not None and best_side <= BUNKER_MAX_M:
+            bunkers.append([round(best_cum, 1), round(best_side, 1)])
     bunkers.sort()
-    return {"water_carry": water_carry, "bunkers": bunkers}
+    return bunkers
+
+
+def route_hazards(by: dict, route) -> dict:
+    """Water-carry intervals + greenside/fairway bunkers along the route (metres along route).
+
+    Geometry is measured EXACTLY against the decoded meshes (same coord frame as the map/overlay).
+    Water carries come from the true route-segment ∩ Lake-component intersection (a narrow strip
+    crossed between samples is never missed); bunker ``side`` is the shortest distance to the bunker
+    BOUNDARY rather than its centroid (a long bunker is measured by its near edge). The output shape
+    is unchanged: ``water_carry`` = ``[[enter_m, clear_m], ...]`` and ``bunkers`` =
+    ``[[along_route_m, side_m], ...]``, both in metres along the route, rounded to 0.1 m.
+    """
+    segments = _route_segments(route)
+    return {
+        "water_carry": _water_carry(by.get("Lake.drc"), segments),
+        "bunkers": _bunkers(by.get("Bunker.drc"), route),
+    }
 
 
 # ---------- club ladder (player's real distances) ----------
