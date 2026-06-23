@@ -418,9 +418,14 @@ public final class WatchEventBridge: NSObject {
     ) -> LiveRoundEvent {
         var enrichedPayload = payload
         enrichedPayload["source"] = .string("apple_watch")
+        // The watch authored this event, so stamp it "apple-watch" — the SAME clientId the standalone
+        // WatchBackendClient uses. Whether the watch relays through the phone (this bridge) or posts
+        // directly, the backend `(clientId, eventId)` dedup key matches, so the shot is never
+        // double-counted. (Leaving it to the phone default would make it "ios-phone" here and collide.)
         return LiveRoundEvent(
             eventId: watchEvent.eventId,
             roundId: watchEvent.roundId,
+            clientId: "apple-watch",
             timestamp: watchEvent.createdAt,
             hole: watchEvent.hole,
             kind: kind,

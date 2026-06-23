@@ -442,6 +442,7 @@ public final class OfflineStore {
                 schema: event.schema,
                 eventId: event.eventId,
                 roundId: event.roundId,
+                clientId: event.clientId,
                 timestamp: event.timestamp,
                 hole: event.hole,
                 kind: event.kind,

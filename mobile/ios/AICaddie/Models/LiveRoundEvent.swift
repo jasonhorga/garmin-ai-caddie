@@ -64,6 +64,13 @@ public struct LiveRoundEvent: Codable, Equatable, Identifiable {
     public let schema: String
     public let eventId: String
     public let roundId: String
+    /// round-12 sync spine: the device/client that authored this event ("ios-phone", "apple-watch",
+    /// "web"). It joins the backend dedup key `(clientId, eventId)` so the SAME eventId from two
+    /// different clients is not collapsed and conflicts are attributed correctly. Optional purely for
+    /// backward-compat: events logged before this field decode to `nil` (synthesized `decodeIfPresent`),
+    /// which the backend coalesces to the legacy empty client — so re-posting a pre-upgrade event keeps
+    /// its original dedup key. Every NEW phone event now stamps "ios-phone".
+    public let clientId: String?
     public let timestamp: String
     public let hole: Int
     public let kind: LiveRoundEventKind
@@ -73,6 +80,7 @@ public struct LiveRoundEvent: Codable, Equatable, Identifiable {
         schema: String = "ai-caddie-live-round-event-v1",
         eventId: String,
         roundId: String,
+        clientId: String? = "ios-phone",
         timestamp: String,
         hole: Int,
         kind: LiveRoundEventKind,
@@ -81,6 +89,7 @@ public struct LiveRoundEvent: Codable, Equatable, Identifiable {
         self.schema = schema
         self.eventId = eventId
         self.roundId = roundId
+        self.clientId = clientId
         self.timestamp = timestamp
         self.hole = hole
         self.kind = kind

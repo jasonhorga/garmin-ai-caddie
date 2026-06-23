@@ -3,16 +3,23 @@ import Foundation
 
 public final class LiveRoundEventBuilder {
     private let roundId: String
+    /// Stable id of the client/device authoring these events. Defaults to "ios-phone" (the phone
+    /// path) so every event the builder emits joins the backend `(clientId, eventId)` dedup key —
+    /// matching the watch's "apple-watch" stamp (see WatchBackendClient) instead of the legacy empty
+    /// client that broke multi-device idempotency.
+    private let clientId: String
     private let idFactory: () -> String
     private let now: () -> Date
     private let formatter: ISO8601DateFormatter
 
     public init(
         roundId: String,
+        clientId: String = "ios-phone",
         idFactory: @escaping () -> String = { UUID().uuidString },
         now: @escaping () -> Date = Date.init
     ) {
         self.roundId = roundId
+        self.clientId = clientId
         self.idFactory = idFactory
         self.now = now
         self.formatter = ISO8601DateFormatter()
@@ -139,6 +146,7 @@ public final class LiveRoundEventBuilder {
         LiveRoundEvent(
             eventId: idFactory(),
             roundId: roundId,
+            clientId: clientId,
             timestamp: formatter.string(from: now()),
             hole: hole,
             kind: kind,
