@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import course_prep, course_reference
+from ai_caddie import course_prep, course_reference, prep_cache
 from ai_caddie.course_reference import CoursePar
 from server_v2.main import app
 
@@ -19,6 +19,10 @@ _PAR_31870 = CoursePar(31870, [5, 4, 3, 4, 4, 4, 5, 3, 4], "played", "high", rou
 class CoursePrepApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
+        # The /prep endpoint is now fingerprint-cached (prep_cache); clear it so each test's mocked
+        # prep_nine/club_ladder actually runs instead of hitting a prior test's cached response.
+        prep_cache.clear()
+        self.addCleanup(prep_cache.clear)
 
     def _prep_row(self, hole: int = 3) -> dict:
         return {

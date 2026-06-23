@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import course_prep, course_reference, history, players, stats_cache
+from ai_caddie import course_prep, course_reference, history, players, prep_cache, stats_cache
 from ai_caddie.course_reference import CoursePar
 from ai_caddie.reports import store_report
 from server_v2.main import app
@@ -62,6 +62,8 @@ class PlayerSideReportIsolationTests(unittest.TestCase):
             patch_ctx.start()
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
+        prep_cache.clear()
+        self.addCleanup(prep_cache.clear)
         created = players.create_player("Alice", root=self.root)
         self.a_token = created["token"]
         store_report(
@@ -139,6 +141,8 @@ class PlayerSidePrepIsolationTests(unittest.TestCase):
             patch_ctx.start()
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
+        prep_cache.clear()
+        self.addCleanup(prep_cache.clear)
         created = players.create_player("Alice", root=self.root)
         self.a_token = created["token"]
         self.client = TestClient(app)
