@@ -59,7 +59,7 @@ final class RealFlowUITests: XCTestCase {
         if tapContaining(["赛前攻略", "选球场 · 逐洞"]) {
             settle(9); save("06-prep-overview"); dump("06-prep-overview")
             // Enter a real course (黑骑士 A 场, or the first 全场) → per-hole prep carries real geometry.
-            if tapContaining(["A 场", "全场"]) {
+            if tapCourseSegment() {
                 settle(9); save("07-prep-course"); dump("07-prep-course")
                 if tapContaining(["逐洞攻略"]) {
                     settle(8); save("08-prep-hole"); dump("08-prep-hole")  // F/M/B + caddie + hazards
@@ -102,6 +102,19 @@ final class RealFlowUITests: XCTestCase {
                 if match.waitForExistence(timeout: 4), match.isHittable { match.tap(); return true }
             }
         }
+        return false
+    }
+
+    /// Tap a course-segment row BUTTON (not the inner static text — that wouldn't fire the NavigationLink)
+    /// so the prep detail actually opens. Exact labels first (黑骑士 A 场 / a 全场), then any "…场" button.
+    @discardableResult
+    private func tapCourseSegment() -> Bool {
+        for label in ["A 场, 9 洞", "全场, 18 洞"] {
+            let button = app.buttons[label]
+            if button.waitForExistence(timeout: 5) { button.tap(); return true }
+        }
+        let button = app.buttons.matching(NSPredicate(format: "label CONTAINS '场'")).firstMatch
+        if button.waitForExistence(timeout: 4) { button.tap(); return true }
         return false
     }
 
