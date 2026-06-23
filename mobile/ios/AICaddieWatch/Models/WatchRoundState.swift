@@ -50,6 +50,18 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let expectedRemainingM: Double?
     public let evidenceSummary: String?
     public let missingDataSummary: String?
+    // round-13 E4: Apple Watch live-screen fields (F/M/B green, plays-like/slope, last shot,
+    // GIR/fairway, geometry-coverage gating). All optional/additive; populated by a later UI PR.
+    public let frontGreenM: Double?
+    public let centerGreenM: Double?
+    public let backGreenM: Double?
+    public let playsLikeDistanceM: Double?
+    public let elevationDeltaM: Double?
+    public let lastShotDistanceM: Double?
+    public let distanceFromLastShotM: Double?
+    public let greenInRegulation: Bool?
+    public let fairwayResult: String?
+    public let geometryCoverage: String?
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -79,6 +91,16 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case expectedRemainingM
         case evidenceSummary
         case missingDataSummary
+        case frontGreenM
+        case centerGreenM
+        case backGreenM
+        case playsLikeDistanceM
+        case elevationDeltaM
+        case lastShotDistanceM
+        case distanceFromLastShotM
+        case greenInRegulation
+        case fairwayResult
+        case geometryCoverage
         case score
         case putts
         case penaltyCount
@@ -108,6 +130,16 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         expectedRemainingM: Double? = nil,
         evidenceSummary: String? = nil,
         missingDataSummary: String? = nil,
+        frontGreenM: Double? = nil,
+        centerGreenM: Double? = nil,
+        backGreenM: Double? = nil,
+        playsLikeDistanceM: Double? = nil,
+        elevationDeltaM: Double? = nil,
+        lastShotDistanceM: Double? = nil,
+        distanceFromLastShotM: Double? = nil,
+        greenInRegulation: Bool? = nil,
+        fairwayResult: String? = nil,
+        geometryCoverage: String? = nil,
         score: Int,
         putts: Int,
         penaltyCount: Int,
@@ -135,6 +167,16 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.expectedRemainingM = expectedRemainingM
         self.evidenceSummary = evidenceSummary
         self.missingDataSummary = missingDataSummary
+        self.frontGreenM = frontGreenM
+        self.centerGreenM = centerGreenM
+        self.backGreenM = backGreenM
+        self.playsLikeDistanceM = playsLikeDistanceM
+        self.elevationDeltaM = elevationDeltaM
+        self.lastShotDistanceM = lastShotDistanceM
+        self.distanceFromLastShotM = distanceFromLastShotM
+        self.greenInRegulation = greenInRegulation
+        self.fairwayResult = fairwayResult
+        self.geometryCoverage = geometryCoverage
         self.score = score
         self.putts = putts
         self.penaltyCount = penaltyCount
@@ -165,6 +207,16 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.expectedRemainingM = try container.decodeIfPresent(Double.self, forKey: .expectedRemainingM)
         self.evidenceSummary = try container.decodeIfPresent(String.self, forKey: .evidenceSummary)
         self.missingDataSummary = try container.decodeIfPresent(String.self, forKey: .missingDataSummary)
+        self.frontGreenM = try container.decodeIfPresent(Double.self, forKey: .frontGreenM)
+        self.centerGreenM = try container.decodeIfPresent(Double.self, forKey: .centerGreenM)
+        self.backGreenM = try container.decodeIfPresent(Double.self, forKey: .backGreenM)
+        self.playsLikeDistanceM = try container.decodeIfPresent(Double.self, forKey: .playsLikeDistanceM)
+        self.elevationDeltaM = try container.decodeIfPresent(Double.self, forKey: .elevationDeltaM)
+        self.lastShotDistanceM = try container.decodeIfPresent(Double.self, forKey: .lastShotDistanceM)
+        self.distanceFromLastShotM = try container.decodeIfPresent(Double.self, forKey: .distanceFromLastShotM)
+        self.greenInRegulation = try container.decodeIfPresent(Bool.self, forKey: .greenInRegulation)
+        self.fairwayResult = try container.decodeIfPresent(String.self, forKey: .fairwayResult)
+        self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage)
         self.score = try container.decode(Int.self, forKey: .score)
         self.putts = try container.decode(Int.self, forKey: .putts)
         self.penaltyCount = try container.decode(Int.self, forKey: .penaltyCount)
@@ -215,6 +267,16 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             expectedRemainingM: expectedRemainingM,
             evidenceSummary: evidenceSummary,
             missingDataSummary: missingDataSummary,
+            frontGreenM: frontGreenM,
+            centerGreenM: centerGreenM,
+            backGreenM: backGreenM,
+            playsLikeDistanceM: playsLikeDistanceM,
+            elevationDeltaM: elevationDeltaM,
+            lastShotDistanceM: lastShotDistanceM,
+            distanceFromLastShotM: distanceFromLastShotM,
+            greenInRegulation: greenInRegulation,
+            fairwayResult: fairwayResult,
+            geometryCoverage: geometryCoverage,
             score: nextScore,
             putts: nextPutts,
             penaltyCount: nextPenaltyCount,

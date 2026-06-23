@@ -103,6 +103,18 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let expectedRemainingM: Double?
     public let evidenceSummary: String?
     public let missingDataSummary: String?
+    // round-13 E4: Apple Watch live-screen fields (mirror WatchRoundState). Additive/optional;
+    // populated by a later UI PR — the builder defaults them to nil so existing call sites compile.
+    public let frontGreenM: Double?
+    public let centerGreenM: Double?
+    public let backGreenM: Double?
+    public let playsLikeDistanceM: Double?
+    public let elevationDeltaM: Double?
+    public let lastShotDistanceM: Double?
+    public let distanceFromLastShotM: Double?
+    public let greenInRegulation: Bool?
+    public let fairwayResult: String?
+    public let geometryCoverage: String?
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -177,7 +189,17 @@ public final class WatchEventBridge: NSObject {
         distanceToPinM: Double? = nil,
         targetLatitude: Double? = nil,
         targetLongitude: Double? = nil,
-        targetKind: String? = nil
+        targetKind: String? = nil,
+        frontGreenM: Double? = nil,
+        centerGreenM: Double? = nil,
+        backGreenM: Double? = nil,
+        playsLikeDistanceM: Double? = nil,
+        elevationDeltaM: Double? = nil,
+        lastShotDistanceM: Double? = nil,
+        distanceFromLastShotM: Double? = nil,
+        greenInRegulation: Bool? = nil,
+        fairwayResult: String? = nil,
+        geometryCoverage: String? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
@@ -220,6 +242,16 @@ public final class WatchEventBridge: NSObject {
             expectedRemainingM: number(selectedSequence?["expectedRemaining_m"]) ?? number(selectedSequence?["expectedRemainingM"]),
             evidenceSummary: evidenceSummary(from: decision, offlineOption: offlineSelected),
             missingDataSummary: missingDataSummary(from: decision),
+            frontGreenM: frontGreenM,
+            centerGreenM: centerGreenM,
+            backGreenM: backGreenM,
+            playsLikeDistanceM: playsLikeDistanceM,
+            elevationDeltaM: elevationDeltaM,
+            lastShotDistanceM: lastShotDistanceM,
+            distanceFromLastShotM: distanceFromLastShotM,
+            greenInRegulation: greenInRegulation,
+            fairwayResult: fairwayResult,
+            geometryCoverage: geometryCoverage,
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
