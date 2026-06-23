@@ -110,7 +110,7 @@ function statsPayload() {
         { key: 'quadPlus', label: '+4 or worse', count: 1, pct: 5.6 },
       ],
     },
-    diagnosis: { topIssue: 'missing_shots' },
+    diagnosis: { topIssue: { issue: 'missing_shots', phase: 'Tee' } },
     courseDistribution: [{ courseKey: 'black_knight', roundCount: 2, pct: 66.7, roundRefs: ['900001', '900002'] }],
     records: {},
     courses: [

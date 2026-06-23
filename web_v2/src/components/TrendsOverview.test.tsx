@@ -38,7 +38,8 @@ function statsFixture(overrides: Partial<MobileStatsResponse> = {}): MobileStats
     records: {},
     courses: [],
     clubs: [],
-    diagnosis: { topIssue: 'tee_right' },
+    // real shape: diagnosis.topIssue is a row object {issue, phase, ...}, not a bare string
+    diagnosis: { topIssue: { issue: 'tee_right', phase: 'Tee' } },
     dataQuality: [],
     ...overrides,
   }
@@ -215,7 +216,7 @@ describe('TrendsOverview', () => {
 
     render(
       <TrendsOverview
-        stats={statsFixture({ diagnosis: { topIssue: 'mystery_token' } })}
+        stats={statsFixture({ diagnosis: { topIssue: { issue: 'mystery_token' } } })}
         allStats={null}
         window="last10"
         onWindowChange={vi.fn()}
