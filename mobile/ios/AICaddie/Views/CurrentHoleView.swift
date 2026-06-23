@@ -285,6 +285,9 @@ public struct CurrentHoleView: View {
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
         holePrep = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
+        // Re-push to the watch now that F/M/B + plays-like are available — the first push in
+        // loadCaddieDecision can beat this fetch and would otherwise send nil green distances.
+        if holePrep != nil { sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption) }
     }
 
     /// 本洞避开区:取按洞拉取的 prep 的 hazards(沙坑/水域 米区间)供球童方案展示。
@@ -743,6 +746,13 @@ public struct CurrentHoleView: View {
     }
 
     private func sendWatchState(decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) {
+        // round-13 LIVE: forward the per-hole 前/中/后果岭 (F/M/B) + plays-like slope the backend
+        // already ships on /prep (holePrep), plus the geometry-coverage gate. Static tee→green
+        // distances (not live-GPS recomputed); nil on holes without usable geometry.
+        let green = holePrep?.greenDistances
+        let greenOK = green?.available == true
+        let playsLike = holePrep?.playsLike
+        let slopeM = playsLike?.available == true ? playsLike?.deltaM : nil
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
             hole: hole,
@@ -755,7 +765,13 @@ public struct CurrentHoleView: View {
             distanceToPinM: distanceToPinMetres,
             targetLatitude: targetCoordinate?.latitude,
             targetLongitude: targetCoordinate?.longitude,
-            targetKind: targetCoordinate == nil ? nil : "pin"
+            targetKind: targetCoordinate == nil ? nil : "pin",
+            frontGreenM: greenOK ? green?.frontM : nil,
+            centerGreenM: greenOK ? green?.middleM : nil,
+            backGreenM: greenOK ? green?.backM : nil,
+            playsLikeDistanceM: slopeM.flatMap { delta in distanceToPinMetres.map { $0 + delta } },
+            elevationDeltaM: slopeM,
+            geometryCoverage: hole.geometryCoverage.rawValue
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)

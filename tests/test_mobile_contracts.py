@@ -2570,6 +2570,21 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("frontGreenM: Double? = nil", bridge)
         self.assertIn("geometryCoverage: String? = nil", bridge)
 
+    def test_watch_glance_renders_and_live_screen_populates_green_distances(self) -> None:
+        # round-13 LIVE: the watch caddie glance renders 前/中/后果岭 + 坡度 from WatchRoundState,
+        # and the iPhone live screen populates them from the per-hole prep (greenDistances/playsLike,
+        # already on the /prep wire). geometryCoverage is forwarded for graceful degrade.
+        glance = _read_required_source(self, WATCH_DIR / "Views" / "WatchCaddieGlanceView.swift")
+        for field in ["state.frontGreenM", "state.centerGreenM", "state.backGreenM", "state.elevationDeltaM"]:
+            self.assertIn(field, glance)
+        prep_model = _read_required_source(self, IOS_DIR / "Models" / "CoursePrep.swift")
+        self.assertIn("struct CoursePrepGreenDistances", prep_model)
+        self.assertIn("greenDistances", prep_model)
+        self.assertIn("playsLike", prep_model)
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        self.assertIn("frontGreenM:", current_hole)
+        self.assertIn("geometryCoverage: hole.geometryCoverage.rawValue", current_hole)
+
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
         state_swift = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundState.swift")

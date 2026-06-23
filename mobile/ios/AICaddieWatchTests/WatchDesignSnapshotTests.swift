@@ -20,6 +20,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
             shotType: "approach", strategyMode: "stock", lie: "fairway",
             nextShotPrompt: "上果岭中心偏左", holePlanSummary: "开球 → 攻果岭",
             expectedStrokes: 4.1, expectedRemainingM: 8,
+            frontGreenM: 128, centerGreenM: 135, backGreenM: 142,
+            playsLikeDistanceM: 138, elevationDeltaM: 3,
             score: 4, putts: 2, penaltyCount: 0, caddieConfidence: "high"
         )
         let view = WatchCaddieGlanceView(state: state)
