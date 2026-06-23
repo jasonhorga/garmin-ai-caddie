@@ -2603,6 +2603,12 @@ class MobileContractTests(unittest.TestCase):
         container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
         for token in ["case .scorecard", "case .holeSelect", "case .menu", "WatchScorecardView", "WatchHoleSelectView", "WatchMenuView"]:
             self.assertIn(token, container)
+        # round-13 spec ①: the 18-hole edge ring on HOME (hugs the rounded-rect screen edge).
+        ring = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleRingView.swift")
+        self.assertIn("struct WatchHoleRingView", ring)
+        self.assertIn("struct WatchRingPip", ring)
+        self.assertIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift"))
+        self.assertIn("WatchRingPip(", container)  # container feeds pips from allHoleStates
 
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")

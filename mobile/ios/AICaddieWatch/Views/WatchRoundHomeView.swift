@@ -18,6 +18,7 @@ public struct WatchRoundHomeView: View {
     public let onNextHole: () -> Void
     public let onFinish: () -> Void
     public let onMenu: () -> Void
+    public let ringPips: [WatchRingPip]   // round-13: 18-hole edge ring (empty = no ring)
 
     public init(
         courseName: String,
@@ -28,6 +29,7 @@ public struct WatchRoundHomeView: View {
         toPar: Int?,
         distanceText: String? = nil,
         pendingUploads: Int = 0,
+        ringPips: [WatchRingPip] = [],
         onScoreHole: @escaping () -> Void = {},
         onPreviousHole: @escaping () -> Void = {},
         onNextHole: @escaping () -> Void = {},
@@ -42,6 +44,7 @@ public struct WatchRoundHomeView: View {
         self.toPar = toPar
         self.distanceText = distanceText
         self.pendingUploads = pendingUploads
+        self.ringPips = ringPips
         self.onScoreHole = onScoreHole
         self.onPreviousHole = onPreviousHole
         self.onNextHole = onNextHole
@@ -50,6 +53,14 @@ public struct WatchRoundHomeView: View {
     }
 
     public var body: some View {
+        if ringPips.isEmpty {
+            content
+        } else {
+            WatchHoleRingView(pips: ringPips) { content }
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(courseName)
                 .font(.caption2)

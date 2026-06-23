@@ -33,13 +33,18 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchRoundHome() throws {
+        // round-13: home now carries the 18-hole edge ring; current hole 7 highlighted, holes 1–6
+        // scored (colored by to-par), 8–18 not yet played (grey).
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 2, 5: 0, 6: 1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
         let view = WatchRoundHomeView(
             courseName: "北京丽宫 · 前九",
             hole: 7, par: 4, holeCount: 9,
             scoredHoles: 6, toPar: 3,
-            distanceText: "139m", pendingUploads: 2
+            distanceText: "139m", pendingUploads: 2,
+            ringPips: pips
         )
-        .frame(width: 198)
+        .frame(width: 198, height: 198)
         .background(Color.black)
         try render(view, named: "watch-round-home")
     }
