@@ -152,10 +152,10 @@ npx --yes -p node@24 -c 'cd web_v2 && npm run test:e2e'
 命令行单洞分析：
 
 ```bash
-uv run python ai_caddie_analyze.py --latest --hole 1
-uv run python ai_caddie_analyze.py --scorecard-id 15215497 --hole 1
-uv run python ai_caddie_analyze.py --latest --round
-uv run python ai_caddie_analyze.py --latest --round --llm  # 需要 ANTHROPIC_API_KEY
+uv run python tools/reports/ai_caddie_analyze.py --latest --hole 1
+uv run python tools/reports/ai_caddie_analyze.py --scorecard-id 15215497 --hole 1
+uv run python tools/reports/ai_caddie_analyze.py --latest --round
+uv run python tools/reports/ai_caddie_analyze.py --latest --round --llm  # 需要 ANTHROPIC_API_KEY
 ```
 
 批量补常打球场的 prodgeometry hazard index：
@@ -171,12 +171,12 @@ uv run python ai_caddie_batch_geometry.py --limit 10
 
 | 命令 | 输出 | 作用 |
 |---|---|---|
-| `uv run python build_dashboard.py` | `output/dashboard/` + `output/dashboard.html` | 完整 dashboard 和 shot-distance 视图 |
-| `uv run python fetch_courseview.py` | `data/courseview/*.pb` | 批量拉 CourseView IMG/protobuf |
-| `uv run python parse_courseview.py` | 终端 / 调试结构 | 解析 Garmin IMG / GMP / TRE / RGN |
-| `uv run python render_courseview.py` | `output/courseview/` | 渲染 CourseView IMG 几何 |
-| `uv run python build_hole_view.py` | `output/hole_views/` | 把 IMG 几何叠到 Esri 卫星图 |
-| `uv run python segment_hole.py` | `output/segmentation/` | 对 Garmin 730×730 raster 做 HSV 分割调试 |
+| `uv run python tools/prototype/build_dashboard.py` | `output/dashboard/` + `output/dashboard.html` | 完整 dashboard 和 shot-distance 视图 |
+| `uv run python tools/courseview/fetch_courseview.py` | `data/courseview/*.pb` | 批量拉 CourseView IMG/protobuf |
+| `uv run python tools/courseview/parse_courseview.py` | 终端 / 调试结构 | 解析 Garmin IMG / GMP / TRE / RGN |
+| `uv run python tools/courseview/render_courseview.py` | `output/courseview/` | 渲染 CourseView IMG 几何 |
+| `uv run python tools/courseview/build_hole_view.py` | `output/hole_views/` | 把 IMG 几何叠到 Esri 卫星图 |
+| `uv run python tools/prototype/segment_hole.py` | `output/segmentation/` | 对 Garmin 730×730 raster 做 HSV 分割调试 |
 | `uv run python ai_review.py` | `output/ai_reviews/` | 单场 AI 点评，需要 `ANTHROPIC_API_KEY` |
 
 ## CourseView prodgeometry 几何层
@@ -233,7 +233,7 @@ node decode_courseview_geometry.js \
 ```bash
 uv run python fetch.py
 uv run python fetch.py --shots      # 可选：拉每杆 GPS
-uv run python build_dashboard.py
+uv run python tools/prototype/build_dashboard.py
 open output/dashboard.html
 ```
 
@@ -241,13 +241,15 @@ open output/dashboard.html
 
 ```
 .
-├── fetch.py                    # 拉 scorecard
-├── fetch_courseview.py         # 拉 CourseView IMG / protobuf
-├── parse_courseview.py         # Garmin IMG parser
-├── decode_courseview_geometry.js # Draco mesh 解码
-├── overlay_prodgeometry_on_raster.py # prodgeometry → 730 raster overlay
-├── measure_prodgeometry_distances.py # tee/target 到 hazard 距离
-├── build_dashboard.py          # 完整 HTML dashboard
+├── fetch.py                    # 拉 scorecard（生产 import / 必须留根）
+├── garmin_auth.py              # web 会话认证 + 自愈（生产 import / 必须留根）
+├── batch_prodgeometry_course.py # prodgeometry 几何流水线 orchestrator（生产按裸名 subprocess / 必须留根）
+├── decode_courseview_geometry.js # Draco mesh 解码（同上）
+├── measure_prodgeometry_distances.py # tee/target 到 hazard 距离（生产 import + subprocess）
+├── tools/                      # 独立工具（不被生产 import；按 script 运行）
+│   ├── courseview/             #   IMG/protobuf 拉取·解析·渲染·叠图(parse_courseview 等)
+│   ├── prototype/              #   原型/调试(build_dashboard·segment_hole·build_hole_overlay)
+│   └── reports/                #   离线分析 CLI(ai_caddie_analyze)
 ├── pyproject.toml / uv.lock    # Python 依赖
 ├── package.json / package-lock.json # Node / draco3d 依赖
 ├── clubs.example.json          # 杆包映射示例；本地用 clubs.json

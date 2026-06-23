@@ -14,16 +14,20 @@
 
 ## 2. 仓库结构重组(分阶段,安全)
 
-**绝不能直接移**(被生产包 import):`fetch.py`、`garmin_auth.py`、`inspect_courseview_release.py`、`batch_prodgeometry_course.py`、`measure_prodgeometry_distances.py`(被 connectors/garmin_cn.py:11、geometry_sync.py:10、course_reference.py:17、course_search.py:14、course_prep.py 等 import)。
+> **2026-06-23 复核纠正(import 图全量审计)**:Codex 的「不可移」列表**不完整**。Docker 用 `COPY *.py ./` + `COPY *.js ./` **glob** 把根脚本铺进镜像,这是 `ai_caddie/*` 能 import 根模块的机制;prodgeometry 链(`ensure_prodgeometry`→`geometry_sync.process_hole`)**按裸文件名 `cwd=ROOT` subprocess**。因此除 Codex 原列 5 个外,还有 4 个**必须留根**:`export_prodgeometry_hazards.py`、`garmin_playwright_login.py`、`fetch_courseview_geometry_key.js`、`decode_courseview_geometry.js`。
 
-**阶段 1(先做,重构)**:把共享逻辑迁进包 —— `ai_caddie/garmin_fetch.py`、`ai_caddie/garmin_auth.py`、`ai_caddie/courseview_release.py`、`ai_caddie/prodgeometry.py`;根目录留薄 shim 过渡。每步跑 `uv run python -m unittest discover -s tests` 保绿。
-**阶段 2(再做)**:移独立/原型工具(注意工具间互相 import 需一并处理 + 更新 README 命令/目录树):
-- `tools/prodgeometry/`:ai_caddie_batch_geometry.py、export_prodgeometry_hazards.py、overlay_prodgeometry_on_raster.py、overlay_img_on_garmin_raster.py、decode_courseview_geometry.js、fetch_courseview_geometry_key.js
-- `tools/courseview/`:parse_courseview.py、fetch_courseview.py、render_courseview.py、inspect_courseview_release.py(shim 后)
-- `tools/prototype/`:ai_caddie_web.py、build_dashboard.py、build_hole_overlay.py、build_hole_view.py、segment_hole.py、cross_validate_hole.py
-- `tools/reports/`:ai_review.py、ai_caddie_analyze.py
-- `ops/` 保持原样(运维脚本)。
-**文档(本次已做)**:README 留根;FEASIBILITY.md + IMG_RESEARCH.md → `docs/research/`;REMOTE_DEV.md → `docs/deployment/`;STATUS.md → `docs/operations/`。
+**绝不能移(生产 import / 裸名 subprocess,共 9)**:`fetch.py`、`garmin_auth.py`、`garmin_playwright_login.py`、`inspect_courseview_release.py`、`batch_prodgeometry_course.py`、`measure_prodgeometry_distances.py`、`export_prodgeometry_hazards.py`、`fetch_courseview_geometry_key.js`、`decode_courseview_geometry.js`。
+
+**✅ 已做(2026-06-23)阶段 2(安全子集)**:把**零生产/ops/CI/test 入向 + 出向干净(只 stdlib/三方/`ai_caddie` 包/簇内同伴)**的 10 个独立工具移入 `tools/`,`git mv` 保历史,README 命令/目录树同步更新,全后端套件 + 移动文件 py_compile + 簇内 import 解析均验证:
+- `tools/courseview/`:`parse_courseview.py`(簇库)+ 依赖它的 `build_hole_view.py`、`cross_validate_hole.py`、`render_courseview.py`、`overlay_img_on_garmin_raster.py` + `fetch_courseview.py`(**整簇同移**,保按 script 运行时 `from parse_courseview import` 可解析)。
+- `tools/prototype/`:`build_dashboard.py`、`build_hole_overlay.py`、`segment_hole.py`。
+- `tools/reports/`:`ai_caddie_analyze.py`(只 import `ai_caddie` 包,`uv run` 可解析)。
+
+**延后(需额外接线,风险/边际)**:`ai_review.py`(test 入向 `test_ai_review_cli.py`)、`ai_caddie_web.py`(test 入向 + 出向 pinned `garmin_auth`/`inspect_courseview_release`/subprocess `fetch.py`)、`ai_caddie_batch_geometry.py`(出向裸名 subprocess `batch_prodgeometry_course.py`)、`overlay_prodgeometry_on_raster.py`(prod 走 `skip_overlay=True` 死分支,但被 pinned orchestrator 裸名引用)。
+
+**阶段 1(未做,高风险)**:把 `fetch`/`garmin_auth`/`courseview_release`/`prodgeometry` 共享逻辑迁进 `ai_caddie/` 包 + 根留 shim —— 触及 auth/sync 关键路径,uv 测试 mock 这层、无法验真实 Garmin 认证 + Docker glob + 裸名 subprocess 解析,**应在可验证部署时由用户在场再做**。
+
+**文档(已做)**:README 留根;FEASIBILITY.md + IMG_RESEARCH.md → `docs/research/`;REMOTE_DEV.md → `docs/deployment/`;STATUS.md → `docs/operations/`。
 
 ## 3. 安全 / 数据处理
 
