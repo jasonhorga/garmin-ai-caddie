@@ -145,6 +145,11 @@ def _login_once() -> GarminWebAuth | None:
 
     email, password = load_credentials()
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    # codex MEDIUM #11: the persistent Chromium profile stores Garmin session cookies — owner-only.
+    try:
+        os.chmod(PROFILE_DIR, 0o700)
+    except OSError:
+        pass
     with sync_playwright() as p:
         launch_options = {
             "headless": False,
