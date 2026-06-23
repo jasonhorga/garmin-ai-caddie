@@ -687,7 +687,9 @@ def _club_profiles(data: HistoryData, *, stats: dict[str, Any] | None = None) ->
 
 
 def _shot_ref(shot: dict[str, Any], index: int) -> str:
-    return f"{shot.get('roundId') or shot.get('scorecardId')}:{shot.get('hole')}:{index}"
+    # _globalIndex (stamped at load on the full shots list) keeps the ref stable + consistent with the
+    # windowed history-stats refs; falls back to the positional index for manually-built HistoryData.
+    return f"{shot.get('roundId') or shot.get('scorecardId')}:{shot.get('hole')}:{shot.get('_globalIndex', index)}"
 
 
 def _dedupe_strings(values: Any) -> list[str]:

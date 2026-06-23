@@ -94,7 +94,9 @@ def _shot_round_id(shot: dict[str, Any]) -> str:
 
 
 def _shot_ref(shot: dict[str, Any], index: int) -> str:
-    return f"{_shot_round_id(shot)}:{shot.get('hole')}:{index}"
+    # _globalIndex (stamped at load on the full shots list) keeps the ref stable + consistent with the
+    # windowed history-stats refs; falls back to the positional index for manually-built HistoryData.
+    return f"{_shot_round_id(shot)}:{shot.get('hole')}:{shot.get('_globalIndex', index)}"
 
 
 def _source_refs(row: dict[str, Any]) -> list[str]:

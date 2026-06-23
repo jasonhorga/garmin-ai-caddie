@@ -530,6 +530,14 @@ def load_history_data(player_id: str = OWNER_ID) -> HistoryData:
     raw_rounds = load_raw_rounds(player_id=player_id)
     rounds = merge_same_day_halves(raw_rounds)
     shots = load_shot_history(raw_rounds, player_id=player_id)
+    # round-13 fix: stamp each shot with its stable position in the FULL shots list. A shot's ref is
+    # "{roundId}:{hole}:{index}", historically the enumerate position over data.shots — but windowed
+    # stats (last10/12m) filter data.shots, which renumbers every shot and silently points corrections
+    # / mobile shot refs at the WRONG shot. Windowing keeps the same shot dicts (by reference), so a
+    # _globalIndex stamped here survives filtering; _shot_ref prefers it over the enumerate position.
+    # The full-data value equals the old enumerate position, so existing stored corrections still match.
+    for global_index, shot in enumerate(shots):
+        shot["_globalIndex"] = global_index
     # A Garmin-superseded manual duplicate is kept on disk but does not count in stats
     # (spec §4). HistoryData.raw_rounds is the counting surface read by every consumer
     # (overview totals, _data_quality, _shot_row_quality, ...), so drop superseded rows

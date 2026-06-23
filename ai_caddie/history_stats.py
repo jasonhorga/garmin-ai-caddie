@@ -31,7 +31,9 @@ def _hole_ref(row: dict[str, Any], hole_number: int) -> str:
 
 
 def _shot_ref(shot: dict[str, Any], index: int) -> str:
-    return f"{_shot_round_id(shot)}:{shot.get('hole')}:{index}"
+    # _globalIndex (stamped at load on the full shots list) keeps the ref stable under windowing;
+    # fall back to the positional index for any HistoryData built without going through the loader.
+    return f"{_shot_round_id(shot)}:{shot.get('hole')}:{shot.get('_globalIndex', index)}"
 
 
 def _shot_round_id(shot: dict[str, Any]) -> str:
