@@ -857,6 +857,14 @@ class HistoryStatsCoreTests(unittest.TestCase):
         pw = next(row for row in stats["clubs"] if row["club"] == "PW")
         self.assertEqual(pw["sampleCount"], 4)  # 3 PW + 1 Pw valid distances
 
+        # E4 follow-up: _issues + dataQuality must bucket by the SAME canonical key as the clubs
+        # panel — no contradiction (Unknown dropped, PW/Pw merged) on the deployed GolfLive screen.
+        issue_keys = {row["issue"] for row in stats["issues"]}
+        self.assertNotIn("low_confidence_club", issue_keys)  # PW has 4 (Pw merged in), not a lone 1
+        quality = {row["label"]: row for row in stats["dataQuality"]}
+        self.assertEqual(quality["club_samples"]["total"], 2)  # PW + 7I; Unknown dropped, no case split
+        self.assertEqual(quality["club_samples"]["ready"], 2)
+
     def test_tee_direction_distribution_is_drilldown_ready_overall_and_by_course(self) -> None:
         stats = build_history_stats(tee_direction_history_data(), data_mode="fixture")
 

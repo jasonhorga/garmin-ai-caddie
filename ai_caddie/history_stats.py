@@ -2723,7 +2723,11 @@ def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                 [shot.get("_ref")],
                 total=1,
             )
-            for shot in sorted(shots, key=lambda item: (-float(item.get("distance") or 0), str(item.get("_ref"))))[:5]
+            # drop clubId=0/Unknown shots — a "longest by club" record needs a real club
+            for shot in sorted(
+                (s for s in shots if _canonical_club(_shot_club(s)) is not None),
+                key=lambda item: (-float(item.get("distance") or 0), str(item.get("_ref"))),
+            )[:5]
         ],
         "bestHoleOutcomes": [
             _with_aggregate_contract(dict(item), [item.get("holeRef")], total=1)
@@ -3313,11 +3317,15 @@ def _issues(
             if shot_ref:
                 add_ref(surface, shot_ref)
 
+    # Group by the SAME canonical club key as _clubs (merge PW/Pw, drop Unknown/clubId=0) so the
+    # weak_sample_size / low_confidence_club diagnostics match the cleaned clubs panel exactly.
     shots_by_club: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for shot in effective_shots:
         if _shot_distance(shot) is None:
             continue
-        club = _shot_club(shot)
+        club = _canonical_club(_shot_club(shot))
+        if club is None:
+            continue
         shots_by_club[club].append(shot)
     for shots in shots_by_club.values():
         shot_refs = sorted(str(shot.get("_ref")) for shot in shots if shot.get("_ref") is not None)
@@ -3568,9 +3576,14 @@ def _rating_slope_quality(data: HistoryData) -> dict[str, Any]:
 
 
 def _club_sample_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    # Canonical club key (merge case variants, drop Unknown/clubId=0) so the dataQuality
+    # club-sample ready/total matches the cleaned clubs list the user sees on the same screen.
     shots_by_club: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for shot in _effective_shots(data, annotations):
-        shots_by_club[_shot_club(shot)].append(shot)
+        club = _canonical_club(_shot_club(shot))
+        if club is None:
+            continue
+        shots_by_club[club].append(shot)
     problem_refs: list[str] = []
     ready_refs: list[str] = []
     ready = 0

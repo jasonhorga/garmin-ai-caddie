@@ -163,6 +163,9 @@ export default function App() {
   const [homeSummaryState, setHomeSummaryState] = useState<DeferredLoadState<HistoryStatsSummaryResponse>>({ status: 'idle' })
   const [trendsWindow, setTrendsWindow] = useState<StatsWindow>('last10')
   const [trendsState, setTrendsState] = useState<DeferredLoadState<MobileStatsResponse>>({ status: 'idle' })
+  // All-window compact baseline for the 趋势 "vs 全部" deltas (~36KB, not the ~11MB full stats):
+  // statsState no longer loads on boot, so the windowed trends KPIs need their own all-window source.
+  const [trendsAllStats, setTrendsAllStats] = useState<MobileStatsResponse | null>(null)
   // Mirrors HomeOverview's searchSeq guard: stale trends responses are discarded,
   // and refreshes always read the window the user most recently selected.
   const trendsSeq = useRef(0)
@@ -244,10 +247,9 @@ export default function App() {
         setOverviewState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
       })
 
-    // The landing 概览 reads the slim summary (近期状态/本周该练) for a fast first
-    // paint instead of the ~20MB full stats. The full statsState still loads in
-    // the background below so the analysis pages stay warm/instant; only the
-    // home's blocking dependency on that 20MB payload is removed.
+    // The landing 概览 reads the slim summary (近期状态/本周该练) for a fast first paint.
+    // The ~11MB full statsState is NOT fetched on boot (see below) — it lazy-loads on first
+    // entry to a deep analysis tab / 备战, so those pages show a brief spinner the first time.
     setHomeSummaryState({ status: 'loading' })
     fetchHistorySummary(bootAdminToken)
       .then((data) => {
@@ -429,6 +431,16 @@ export default function App() {
     void loadTrendsState(window)
   }
 
+  // The all-window baseline for the trends "vs 全部" deltas. Window-independent, so it is fetched
+  // once on history entry (and refreshed with the other surfaces); failures just hide the deltas.
+  async function loadTrendsAllStats(adminTokenOverride: string | undefined = currentAdminToken()) {
+    try {
+      setTrendsAllStats(await fetchMobileStats(adminTokenOverride, 'all'))
+    } catch {
+      // deltas are optional context — leave the baseline null on failure
+    }
+  }
+
   async function loadReadinessState() {
     setReadinessState({ status: 'loading' })
     try {
@@ -483,6 +495,7 @@ export default function App() {
     if (roundsState.status !== 'idle') void refreshRoundsState(adminTokenOverride)
     if (statsState.status !== 'idle') void refreshStatsState(adminTokenOverride)
     if (trendsState.status !== 'idle') void refreshTrendsState(adminTokenOverride)
+    if (trendsAllStats !== null) void loadTrendsAllStats(adminTokenOverride)
     if (readinessState.status !== 'idle') void refreshReadinessState()
     if (mobileCourseOptionsState.status !== 'idle') void refreshMobileCourseOptionsState(adminTokenOverride)
     if (reportIndexState.status !== 'idle') loadReportIndex()
@@ -567,6 +580,9 @@ export default function App() {
     }
     if (page === 'history' && trendsState.status === 'idle') {
       void loadTrendsState()
+    }
+    if (page === 'history' && trendsAllStats === null) {
+      void loadTrendsAllStats()
     }
     if (page === 'sync-quality' && readinessState.status === 'idle') {
       void loadReadinessState()
@@ -1246,14 +1262,14 @@ export default function App() {
 
     if (activePage === 'history') {
       // The trends page gates on its own windowed trendsState so it is usable as
-      // soon as trends data arrives; the app-wide statsState (window=all) only
-      // feeds the optional vs-全部 deltas and may lag without blocking the page.
+      // soon as trends data arrives; trendsAllStats (compact all-window) only feeds
+      // the optional vs-全部 deltas and may lag/stay null without blocking the page.
       if (trendsState.status === 'ready') {
         return (
           <>
             <TrendsOverview
               stats={trendsState.data}
-              allStats={statsState.status === 'ready' ? statsState.data : null}
+              allStats={trendsAllStats}
               window={trendsWindow}
               onWindowChange={handleTrendsWindowChange}
               recentRounds={overviewState.status === 'ready' ? overviewState.data.recentRounds : []}

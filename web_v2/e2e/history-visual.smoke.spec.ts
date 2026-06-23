@@ -199,7 +199,7 @@ const statsPayload = {
       shotRefs: ['900001:7:1'],
     },
   ],
-  diagnosis: { topIssue: 'approach_short' },
+  diagnosis: { topIssue: { issue: 'approach_short', phase: 'Approach' } },
   issues: [
     {
       issue: 'approach_short',

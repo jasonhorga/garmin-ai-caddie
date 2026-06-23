@@ -198,7 +198,10 @@ export function TrendsOverview({
   const spread = spreadRows(stats)
   const spreadTotal = spread.reduce((sum, bucket) => sum + bucket.count, 0)
   // The compact mobile payload has no issues[] table; its single top issue lives on diagnosis.
-  const topIssue = asString(asRecord(stats.diagnosis).topIssue)
+  // diagnosis.topIssue is a row object ({issue, phase, estimatedStrokesLost, ...}) on real data —
+  // tolerate both the object form and a bare string so the 最吃杆 callout actually renders.
+  const diagnosis = asRecord(stats.diagnosis)
+  const topIssue = asString(diagnosis.topIssue) ?? asString(asRecord(diagnosis.topIssue).issue)
   const points = chartPoints(stats, recentRounds, statsWindow, series)
   const rows = recentRounds.slice(0, 10)
   const windowLabel = WINDOW_OPTIONS.find((option) => option.key === statsWindow)?.label ?? '全部'
