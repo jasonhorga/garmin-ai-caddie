@@ -3,9 +3,10 @@ from __future__ import annotations
 import contextlib
 import hmac
 import os
+import threading
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -250,6 +251,10 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
             or path == "/api/v2/courses/search"
+            # codex HIGH #1: a geometry/hole request WITH source_ref loads the owner's real shot
+            # routes/clubs/distances (geometry.py) — gate it. Pure course geometry (no source_ref)
+            # stays public (course knowledge); only the source-bound private evidence requires auth.
+            or (path.startswith("/api/v2/geometry/hole/") and bool(query_params.get("source_ref")))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/replay"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/state"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
@@ -488,7 +493,7 @@ def history_drilldown(
 @app.get("/api/v2/geometry/course/{global_id}/coverage", response_model=CourseGeometryCoverageResponse)
 def geometry_course_coverage(
     global_id: int,
-    holes: list[int] | None = Query(default=None),
+    holes: list[int] | None = Query(default=None, max_length=36),  # codex MEDIUM #6: bound item count
 ) -> CourseGeometryCoverageResponse:
     return load_course_geometry_coverage_response(global_id, holes=holes)
 
@@ -496,13 +501,13 @@ def geometry_course_coverage(
 @app.get("/api/v2/geometry/hole/{global_id}/{local_hole}", response_model=GeometryEvidenceResponse)
 def geometry_hole_evidence(
     global_id: int,
-    local_hole: int,
-    source_ref: str | None = None,
+    local_hole: int = Path(ge=1, le=36),
+    source_ref: str | None = Query(default=None, max_length=128),
     start_x: float | None = None,
     start_y: float | None = None,
     target_x: float | None = None,
     target_y: float | None = None,
-    landing_radius_m: float = 18.0,
+    landing_radius_m: float = Query(18.0, ge=0, le=300),  # codex MEDIUM #6: bound cost/abuse
 ) -> GeometryEvidenceResponse:
     return load_hole_geometry_evidence_response(
         global_id,
@@ -529,7 +534,7 @@ def geometry_hole_map(
 @app.get("/api/v2/courses/{global_id}/prep")
 def course_prep_nine(
     global_id: int,
-    holes: list[int] | None = Query(default=None),
+    holes: list[int] | None = Query(default=None, max_length=36),  # codex MEDIUM #6: bound item count
     render: bool = True,
     include_shots: bool = False,
     player_id: str = Depends(current_player_id),
@@ -957,6 +962,10 @@ def sync_status() -> SyncStatusResponse:
     return load_sync_status_response()
 
 
+# Serialises Garmin sync (it mutates process-global token/data paths — codex HIGH #2).
+_SYNC_LOCK = threading.Lock()
+
+
 @app.post("/api/v2/sync/garmin", response_model=SyncRunResponse)
 def sync_garmin(
     response: Response,
@@ -966,11 +975,19 @@ def sync_garmin(
     x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> SyncRunResponse:
     require_admin_token(x_ai_caddie_admin_token)
-    result = GarminCnWebSessionConnector().sync(
-        with_shots=with_shots,
-        force_refresh_auth=force_refresh_auth,
-        ensure_geometry=ensure_geometry,
-    )
+    # codex HIGH #2: Garmin sync mutates process-global token/data paths (connectors/garmin_cn.py),
+    # so two concurrent syncs would cross-contaminate. Serialise with a non-blocking lock — a second
+    # concurrent sync is rejected (409) rather than racing the in-flight one.
+    if not _SYNC_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="sync already in progress")
+    try:
+        result = GarminCnWebSessionConnector().sync(
+            with_shots=with_shots,
+            force_refresh_auth=force_refresh_auth,
+            ensure_geometry=ensure_geometry,
+        )
+    finally:
+        _SYNC_LOCK.release()
     if result.state == "reauth_required":
         response.status_code = 409
     elif result.state == "error":

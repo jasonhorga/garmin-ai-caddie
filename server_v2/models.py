@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def _reject_oversized(value: Any, *, label: str, max_bytes: int = 131_072) -> Any:
+    """codex MEDIUM #7: reject an arbitrarily large nested object (decision context / audit payload /
+    round meta) before it is persisted to JSONL or processed. 128 KB is far above any real payload."""
+    if value is not None and len(json.dumps(value, default=str).encode("utf-8")) > max_bytes:
+        raise ValueError(f"{label} exceeds {max_bytes} bytes")
+    return value
 
 DataQualityState = Literal["good", "partial", "missing"]
 ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
@@ -627,6 +636,11 @@ class CaddieDecisionRequest(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
     includeExplanation: bool = True
 
+    @field_validator("context")
+    @classmethod
+    def _bound_context(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _reject_oversized(value, label="context")  # codex MEDIUM #7
+
 
 class CaddieDecisionResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
@@ -668,9 +682,14 @@ class CaddieContextResponse(BaseModel):
 class CaddieDecisionAuditRequest(BaseModel):
     decision: dict[str, Any] | None = None
     actualShot: dict[str, Any] | None = None
-    actualShots: list[dict[str, Any]] | None = None
+    actualShots: list[dict[str, Any]] | None = Field(default=None, max_length=500)
     actualScoreToPar: float | None = None
     penalty: bool | None = None
+
+    @field_validator("decision", "actualShot")
+    @classmethod
+    def _bound_audit_payload(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _reject_oversized(value, label="audit payload")  # codex MEDIUM #7
 
 
 class CaddieDecisionAuditRecord(BaseModel):
@@ -1001,10 +1020,17 @@ class RoundIngestRequest(BaseModel):
     full live-event payload surface stays forward-compatible; ``ingest_round`` validates
     them and raises a 400 on malformed input."""
 
-    events: list[dict[str, Any]] = Field(min_length=1)
+    # codex MEDIUM #5/#7: bound the body so a caller can't post a giant events list (a round is
+    # ≤18 holes × a handful of shots; 5000 is generous head-room) or an oversized meta blob.
+    events: list[dict[str, Any]] = Field(min_length=1, max_length=5000)
     meta: dict[str, Any] = Field(default_factory=dict)
     idempotencyKey: str | None = None
     clientRoundId: str | None = None
+
+    @field_validator("meta")
+    @classmethod
+    def _bound_meta(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _reject_oversized(value, label="meta")
 
 
 class RoundIngestResponse(BaseModel):
