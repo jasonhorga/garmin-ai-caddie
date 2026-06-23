@@ -2591,6 +2591,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("greenCenterYards", live_components)
         self.assertIn("greenCenterYards:", current_hole)  # CurrentHoleView feeds the header
 
+    def test_watch_round_screens_scorecard_select_menu(self) -> None:
+        # round-13 LIVE: standalone watch gains 计分卡 / 选洞 / 菜单 hub screens (spec ⑧⑨⑩),
+        # wired through WatchRoundModel.screen + WatchRoundContainerView, fed by allHoleStates.
+        self.assertIn("struct WatchScorecardView: View", _read_required_source(self, WATCH_DIR / "Views" / "WatchScorecardView.swift"))
+        self.assertIn("struct WatchHoleSelectView: View", _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleSelectView.swift"))
+        self.assertIn("struct WatchMenuView: View", _read_required_source(self, WATCH_DIR / "Views" / "WatchMenuView.swift"))
+        model = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundModel.swift")
+        for token in ["case scorecard", "case holeSelect", "case menu", "func openScorecard", "func openHoleSelect", "func selectHole", "var allHoleStates"]:
+            self.assertIn(token, model)
+        container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
+        for token in ["case .scorecard", "case .holeSelect", "case .menu", "WatchScorecardView", "WatchHoleSelectView", "WatchMenuView"]:
+            self.assertIn(token, container)
+
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
         state_swift = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundState.swift")

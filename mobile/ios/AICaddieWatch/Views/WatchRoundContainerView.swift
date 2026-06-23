@@ -26,8 +26,34 @@ public struct WatchRoundContainerView: View {
                 onScoreHole: { model.startScoringActiveHole() },
                 onPreviousHole: { model.goToPreviousHole() },
                 onNextHole: { model.goToNextHole() },
-                onFinish: { model.requestFinish() }
+                onFinish: { model.requestFinish() },
+                onMenu: { model.openMenu() }
             )
+        case .menu:
+            WatchMenuView(
+                onScorecard: { model.openScorecard() },
+                onHoleSelect: { model.openHoleSelect() },
+                onFinish: { model.requestFinish() },
+                onClose: { model.backToHome() }
+            )
+        case .scorecard:
+            ScrollView {
+                WatchScorecardView(
+                    holes: model.allHoleStates.map { WatchScorecardRow(hole: $0.hole, par: $0.par, score: $0.score) },
+                    totalToPar: model.toPar,
+                    onSelectHole: { model.selectHole($0) },
+                    onBack: { model.openMenu() }
+                )
+            }
+        case .holeSelect:
+            ScrollView {
+                WatchHoleSelectView(
+                    holes: model.allHoleStates.map(\.hole),
+                    activeHole: model.activeHole,
+                    onSelect: { model.selectHole($0) },
+                    onBack: { model.openMenu() }
+                )
+            }
         case .scoring:
             WatchScoreHoleView(
                 hole: model.activeHole,

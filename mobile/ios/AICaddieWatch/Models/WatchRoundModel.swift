@@ -13,6 +13,9 @@ public enum WatchRoundScreen: Equatable {
     case home
     case scoring
     case finishing
+    case scorecard   // round-13: 计分卡逐洞列表
+    case holeSelect  // round-13: 选洞
+    case menu        // round-13: 菜单 hub(纯文字,S70 式)
 }
 
 public struct WatchRoundConfig: Equatable {
@@ -81,6 +84,21 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     public var holeCount: Int { round?.holeStates.count ?? 0 }
+
+    /// All holes' states, hole-ordered — feeds the round-13 计分卡 / 选洞 / 18洞环.
+    public var allHoleStates: [WatchRoundState] {
+        (round?.holeStates ?? []).sorted { $0.hole < $1.hole }
+    }
+
+    // round-13 navigation between the standalone round screens (menu hub → scorecard / hole select).
+    public func openScorecard() { screen = .scorecard }
+    public func openHoleSelect() { screen = .holeSelect }
+    public func openMenu() { screen = .menu }
+    public func backToHome() { screen = .home }
+    public func selectHole(_ hole: Int) {
+        setActiveHole(hole)
+        screen = .home
+    }
 
     private var scoredHoleStates: [WatchRoundState] {
         round?.holeStates.filter { $0.score > 0 } ?? []
