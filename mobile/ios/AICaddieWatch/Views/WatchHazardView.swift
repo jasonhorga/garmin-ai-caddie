@@ -51,10 +51,12 @@ public struct WatchHazardView: View {
         guard let start = hazard.startM else {
             return nil
         }
+        // Short form so the carry interval fits one watch row without truncating the 码 suffix
+        // (前 = 到前沿 / 越 = 越过后沿). Confirmed against the real watchOS-simulator screenshot.
         if let end = hazard.endM {
-            return "前沿 \(Self.yards(start)) · 越过 \(Self.yards(end)) 码"
+            return "前 \(Self.yards(start)) · 越 \(Self.yards(end)) 码"
         }
-        return "前沿 \(Self.yards(start)) 码"
+        return "前 \(Self.yards(start)) 码"
     }
 
     static func yards(_ metres: Double) -> Int { Int((metres * 1.09361).rounded()) }
