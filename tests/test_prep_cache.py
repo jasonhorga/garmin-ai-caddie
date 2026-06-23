@@ -54,6 +54,22 @@ class PrepCacheTests(unittest.TestCase):
         call()
         self.assertEqual(len(calls), 3)
 
+    def test_lru_eviction_bounds_cache_size(self) -> None:
+        # A token holder enumerating many (course/holes/render) keys must not grow the cache without
+        # bound (each render=True entry embeds ~1MB of base64 hole maps). LRU caps it at _MAXSIZE.
+        prep_cache._fingerprint = lambda gid: ("fp",)
+        for gid in range(prep_cache._MAXSIZE + 40):
+            prep_cache.cached_course_prep(
+                global_id=gid, requested=[1], render=True,
+                include_shots=False, player_id="me", build=lambda: object(),
+            )
+        self.assertLessEqual(len(prep_cache._cache), prep_cache._MAXSIZE)
+        # The most-recent key survives; the oldest (gid=0) was evicted.
+        newest = (prep_cache._MAXSIZE + 39, (1,), True, False, "me")
+        oldest = (0, (1,), True, False, "me")
+        self.assertIn(newest, prep_cache._cache)
+        self.assertNotIn(oldest, prep_cache._cache)
+
 
 if __name__ == "__main__":
     unittest.main()

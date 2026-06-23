@@ -20,15 +20,21 @@ from __future__ import annotations
 
 import os
 import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable
 
-from ai_caddie.data import CLUBS_BAG_FILE, DATA_DIR, HAZARD_DIR, MESH_DIR, SHOT_DIR
+from ai_caddie.data import CLUBS_BAG_FILE, CLUBS_FILE, DATA_DIR, HAZARD_DIR, MESH_DIR, SCORECARD_DIR, SHOT_DIR
 
 _COURSES_DIR = DATA_DIR / "courses"
 
+# Bound the cache so a token holder can't enumerate arbitrarily many (holes × render × include_shots)
+# keys — each render=True entry embeds ~1MB of base64 hole maps — and exhaust memory. LRU: ~per-course
+# (course × player × a few hole/render variants); evict the oldest beyond the cap.
+_MAXSIZE = 256
+
 _lock = threading.Lock()
-_cache: dict[tuple, tuple[Any, Any]] = {}
+_cache: "OrderedDict[tuple, tuple[Any, Any]]" = OrderedDict()
 
 
 def _dir_sig(directory: Path) -> tuple[int, int]:
@@ -61,7 +67,9 @@ def _fingerprint(global_id: int) -> tuple:
         _dir_sig(MESH_DIR),                              # mesh geometry (the ~19s cost)
         _dir_sig(HAZARD_DIR),                            # hazard intervals
         _dir_sig(SHOT_DIR),                              # club ladder (profiles) + your-shots scatter
+        _dir_sig(SCORECARD_DIR),                         # your-shots scatter reads scorecards too
         _file_sig(CLUBS_BAG_FILE),                       # restrict_to_bag (real Garmin bag)
+        _file_sig(CLUBS_FILE),                           # manual club-name overrides (clubs.json)
         _file_sig(_COURSES_DIR / f"{int(global_id)}.json"),  # par record
     )
 
@@ -86,10 +94,14 @@ def cached_course_prep(
     with _lock:
         hit = _cache.get(key)
         if hit is not None and hit[0] == fingerprint:
+            _cache.move_to_end(key)  # mark recently used (LRU)
             return hit[1]
     value = build()
     with _lock:
         _cache[key] = (fingerprint, value)
+        _cache.move_to_end(key)
+        while len(_cache) > _MAXSIZE:
+            _cache.popitem(last=False)  # evict least-recently-used
     return value
 
 
