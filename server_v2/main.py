@@ -548,25 +548,34 @@ def course_prep_nine(
     scatter; a non-owner player gets the course knowledge (par/route/hazards) with a generic
     default ladder and never the owner's projected shots (per-player engine scoping is a
     multiplayer-foundation follow-up)."""
-    from ai_caddie import course_prep
+    from ai_caddie import course_prep, prep_cache
 
     is_owner = player_id == OWNER_ID
     requested = holes or course_prep.available_prep_holes(global_id)
-    # Owner reads their real club model; a non-owner falls back to the generic default
-    # ladder so the owner's measured distances never leak.
-    ladder = course_prep.club_ladder() if is_owner else sorted(
-        course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]
+
+    # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
+    # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
+    def _build() -> dict:
+        # Owner reads their real club model; a non-owner falls back to the generic default
+        # ladder so the owner's measured distances never leak.
+        ladder = course_prep.club_ladder() if is_owner else sorted(
+            course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]
+        )
+        # Shot scatter projects the owner's real end positions — never expose it to a non-owner.
+        nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
+                                     include_shots=include_shots and is_owner)
+        return {
+            "schema": "ai-caddie-course-prep-v1",
+            "globalId": int(global_id),
+            "holeCount": len(nine),
+            "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
+            "holes": nine,
+        }
+
+    return prep_cache.cached_course_prep(
+        global_id=global_id, requested=requested, render=render,
+        include_shots=include_shots, player_id=player_id, build=_build,
     )
-    # Shot scatter projects the owner's real end positions — never expose it to a non-owner.
-    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
-                                 include_shots=include_shots and is_owner)
-    return {
-        "schema": "ai-caddie-course-prep-v1",
-        "globalId": int(global_id),
-        "holeCount": len(nine),
-        "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
-        "holes": nine,
-    }
 
 
 @app.get("/api/v2/courses/{global_id}/prep-tips")
