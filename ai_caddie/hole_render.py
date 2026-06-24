@@ -18,7 +18,7 @@ import random
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from ai_caddie.data import mesh_path
-from measure_prodgeometry_distances import mesh_components  # noqa: F401  (kept for parity / callers)
+from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components  # noqa: F401  (kept for parity / callers)
 
 import json
 

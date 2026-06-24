@@ -38,7 +38,7 @@ class SyncResult:
 def _ensure_auth(force_refresh: bool) -> bool:
     """Ensure a usable web session, refreshing (Playwright fallback on a server) if needed."""
     try:
-        from garmin_auth import ensure_web_auth, validate_web_auth
+        from ai_caddie.garmin.garmin_auth import ensure_web_auth, validate_web_auth
 
         auth = ensure_web_auth(force=force_refresh, validate=False)
         ok, _status = validate_web_auth(auth)
@@ -52,7 +52,7 @@ def _ensure_auth(force_refresh: bool) -> bool:
 
 def _fetch_history(with_shots: bool, *, force_refresh_auth: bool = False) -> int:
     """Fetch summary + details (+ shots). Returns the number of rounds in the summary."""
-    import fetch
+    from ai_caddie.garmin import fetch
 
     session = fetch.make_session(force_refresh_auth=force_refresh_auth)
     cards = fetch.fetch_summary(session)

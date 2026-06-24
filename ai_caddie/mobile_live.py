@@ -339,7 +339,7 @@ def _courseview_segment_resolver(global_id: int, *, allow_fetch: bool = False) -
         from pathlib import Path
 
         from ai_caddie.data import ROOT
-        from inspect_courseview_release import inspect_release, load_release_pb
+        from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
 
         path = Path(ROOT) / "data" / "courseview" / f"{int(global_id)}_releases.pb"
         if path.exists():
@@ -365,7 +365,7 @@ def _courseview_tee_names(global_id: int, *, allow_fetch: bool = False) -> list[
         from pathlib import Path
 
         from ai_caddie.data import ROOT
-        from inspect_courseview_release import inspect_release, load_release_pb
+        from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
 
         path = Path(ROOT) / "data" / "courseview" / f"{int(global_id)}_releases.pb"
         if path.exists():

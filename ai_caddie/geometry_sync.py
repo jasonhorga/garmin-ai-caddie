@@ -7,9 +7,9 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from inspect_courseview_release import COURSEVIEW, inspect_release, load_release_pb
+from ai_caddie.geometry.inspect_courseview_release import COURSEVIEW, inspect_release, load_release_pb
 
-from batch_prodgeometry_course import process_hole
+from ai_caddie.geometry.batch_prodgeometry_course import process_hole
 
 from .data import ROOT, hazard_path, mesh_path, scorecard_files
 

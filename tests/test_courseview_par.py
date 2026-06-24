@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from inspect_courseview_release import inspect_release
+from ai_caddie.geometry.inspect_courseview_release import inspect_release
 
 FIX = Path(__file__).parent / "fixtures"
 

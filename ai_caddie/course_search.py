@@ -11,7 +11,7 @@ import difflib
 import urllib.parse
 from dataclasses import dataclass
 
-from inspect_courseview_release import BASE, fetch_bytes, parse_fields
+from ai_caddie.geometry.inspect_courseview_release import BASE, fetch_bytes, parse_fields
 
 _MIN_QUERY = 2  # the endpoint requires >=3 ascii or >=2 CJK chars
 

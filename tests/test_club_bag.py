@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import requests
 
-import fetch
+from ai_caddie.garmin import fetch
 from ai_caddie import club_bag, data
 
 

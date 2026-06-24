@@ -98,10 +98,10 @@ class PipelineSyncTests(unittest.TestCase):
 
     def test_fetch_history_passes_force_refresh_auth_to_fetch_session(self) -> None:
         session = object()
-        with patch("fetch.make_session", return_value=session) as make_session, \
-                patch("fetch.fetch_summary", return_value=[{"id": 1}]) as summary, \
-                patch("fetch.fetch_details") as details, \
-                patch("fetch.fetch_clubs") as clubs:
+        with patch("ai_caddie.garmin.fetch.make_session", return_value=session) as make_session, \
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}]) as summary, \
+                patch("ai_caddie.garmin.fetch.fetch_details") as details, \
+                patch("ai_caddie.garmin.fetch.fetch_clubs") as clubs:
             rounds = pipeline._fetch_history(True, force_refresh_auth=True)
 
         self.assertEqual(rounds, 1)
@@ -112,10 +112,10 @@ class PipelineSyncTests(unittest.TestCase):
 
     def test_fetch_history_club_fetch_failure_is_non_fatal(self) -> None:
         session = object()
-        with patch("fetch.make_session", return_value=session), \
-                patch("fetch.fetch_summary", return_value=[{"id": 1}, {"id": 2}]), \
-                patch("fetch.fetch_details"), \
-                patch("fetch.fetch_clubs", side_effect=RuntimeError("club endpoint down")):
+        with patch("ai_caddie.garmin.fetch.make_session", return_value=session), \
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}, {"id": 2}]), \
+                patch("ai_caddie.garmin.fetch.fetch_details"), \
+                patch("ai_caddie.garmin.fetch.fetch_clubs", side_effect=RuntimeError("club endpoint down")):
             rounds = pipeline._fetch_history(False)
 
         self.assertEqual(rounds, 2)  # history sync survives a club-fetch failure

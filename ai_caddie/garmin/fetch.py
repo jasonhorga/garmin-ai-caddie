@@ -16,9 +16,9 @@ from typing import Any
 
 import requests
 
-from garmin_auth import auth_headers, ensure_web_auth
+from ai_caddie.garmin.garmin_auth import auth_headers, ensure_web_auth
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]
 TOKEN_DIR = ROOT / ".garmin_tokens"
 COOKIE_FILE = TOKEN_DIR / "web_cookie.txt"
 CSRF_FILE = TOKEN_DIR / "csrf.txt"

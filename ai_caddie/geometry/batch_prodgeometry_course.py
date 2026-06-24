@@ -22,9 +22,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from inspect_courseview_release import inspect_release, load_release_pb
+from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = Path(__file__).resolve().parent  # sibling .js/.py invoked via subprocess below
 PROD_ROOT = ROOT / "data" / "courseview" / "prodgeometry"
 OUT_ROOT = ROOT / "output" / "prodgeometry"
 HAZARD_ROOT = ROOT / "output" / "prodgeometry_hazards"
@@ -129,7 +130,7 @@ def process_hole(
 
         key_cmd = [
             "node",
-            "fetch_courseview_geometry_key.js",
+            str(SCRIPT_DIR / "fetch_courseview_geometry_key.js"),
             "--image-url",
             geometry_url,
             "--profile-id",
@@ -150,7 +151,7 @@ def process_hole(
 
         decode_cmd = [
             "node",
-            "decode_courseview_geometry.js",
+            str(SCRIPT_DIR / "decode_courseview_geometry.js"),
             "--geometry-dir",
             str(extract_dir),
             "--out",
@@ -164,7 +165,7 @@ def process_hole(
 
         distance_cmd = [
             sys.executable,
-            "measure_prodgeometry_distances.py",
+            str(SCRIPT_DIR / "measure_prodgeometry_distances.py"),
             "--mesh-json",
             str(mesh_json_path(course_id, hole_number)),
             "--out",
@@ -175,7 +176,7 @@ def process_hole(
 
         hazard_cmd = [
             sys.executable,
-            "export_prodgeometry_hazards.py",
+            str(SCRIPT_DIR / "export_prodgeometry_hazards.py"),
             "--mesh-json",
             str(mesh_json_path(course_id, hole_number)),
             "--out",
@@ -187,7 +188,7 @@ def process_hole(
         if not skip_overlay and snapshot:
             overlay_cmd = [
                 sys.executable,
-                "overlay_prodgeometry_on_raster.py",
+                str(SCRIPT_DIR / "overlay_prodgeometry_on_raster.py"),
                 "--mesh-json",
                 str(mesh_json_path(course_id, hole_number)),
                 "--snapshot",

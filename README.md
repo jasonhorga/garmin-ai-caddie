@@ -241,27 +241,20 @@ open output/dashboard.html
 
 ```
 .
-# ── 必须留根的脚本 ──────────────────────────────────────────────
-#   Dockerfile 用 `COPY *.py ./` + `COPY *.js ./` glob 把根脚本铺进镜像(这是
-#   ai_caddie/* 能 import 根模块的机制);prodgeometry 链(geometry_sync.ensure_
-#   prodgeometry → batch_prodgeometry_course.process_hole)按【裸文件名 cwd=ROOT】
-#   subprocess。以下任一移走都会断生产 import 或裸名 subprocess —— 整理时勿动。
-├── fetch.py                       # 拉 scorecard(pipeline/garmin_cn import)
-├── garmin_auth.py                 # web 会话认证 + 自愈(pipeline/garmin_cn import)
-├── garmin_playwright_login.py     # cookie 自愈铸造(garmin_auth import)
-├── inspect_courseview_release.py  # CourseView release 解析(course_search/reference/geometry_sync/mobile_live import)
-├── batch_prodgeometry_course.py   # prodgeometry 流水线 orchestrator(geometry_sync import)
-├── measure_prodgeometry_distances.py # tee/target→hazard 距离(analysis/course_prep/hole_render import + 裸名 subprocess)
-├── export_prodgeometry_hazards.py # hazard index 导出(orchestrator 裸名 subprocess)
-├── overlay_prodgeometry_on_raster.py # 几何叠 raster 校验(orchestrator 裸名 subprocess)
-├── fetch_courseview_geometry_key.js  # prodgeometry zip key(orchestrator 裸名 `node`)
-├── decode_courseview_geometry.js  # Draco mesh 解码(orchestrator 裸名 `node`)
-├── ai_caddie_web.py               # legacy v1 web UI(已被 server_v2+web_v2 取代;test 引用,暂留根)
+├── ai_caddie/                     # 引擎包(领域模块 + 数据获取/几何子包)
+│   ├── garmin/                    #   Garmin web 抓取 + 认证(fetch · garmin_auth · garmin_playwright_login)
+│   ├── geometry/                  #   CourseView/prodgeometry 链(inspect_courseview_release · batch_prodgeometry_course · measure/export/overlay · decode/fetch_*.js;orchestrator 用 SCRIPT_DIR 绝对路径 subprocess,不依赖 cwd)
+│   ├── connectors/ · scrapers/    #   数据源连接器 + 抓取
+│   ├── pipeline.py                #   同步入口(python -m ai_caddie.pipeline)
+│   └── history·caddie·courses…    #   其余领域模块(Phase 2 进一步分子包)
+├── server_v2/                     # FastAPI v2 后端  ·  web_v2/ React 前端  ·  mobile/ iOS·watchOS
 # ── 独立工具(不被生产 import;按 script 运行;可移) ────────────────
 ├── tools/
 │   ├── courseview/             #   IMG/protobuf 拉取·解析·渲染·叠图(parse_courseview 等)
 │   ├── prototype/              #   原型/调试(build_dashboard·segment_hole·build_hole_overlay)
-│   └── reports/                #   离线分析 CLI(ai_caddie_analyze·ai_review·ai_caddie_batch_geometry)
+│   ├── reports/                #   离线分析 CLI(ai_caddie_analyze·ai_review·ai_caddie_batch_geometry)
+│   ├── migrations/             #   一次性迁移脚本(reorg_codemod)
+│   └── legacy/ai_caddie_web.py #   legacy v1 web UI(已被 server_v2+web_v2 取代;仅 test 引用)
 ├── pyproject.toml / uv.lock    # Python 依赖
 ├── package.json / package-lock.json # Node / draco3d 依赖
 ├── clubs.example.json          # 杆包映射示例；本地用 clubs.json

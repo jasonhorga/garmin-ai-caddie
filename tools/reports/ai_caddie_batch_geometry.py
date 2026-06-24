@@ -64,7 +64,8 @@ def main() -> int:
             continue
         cmd = [
             sys.executable,
-            "batch_prodgeometry_course.py",
+            "-m",
+            "ai_caddie.geometry.batch_prodgeometry_course",
             str(gid),
             "--profile-id",
             profile,

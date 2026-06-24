@@ -15,7 +15,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MESH_JSON = ROOT / "output" / "prodgeometry" / "gid31795_h02_meshes.json"
 DEFAULT_OUT = ROOT / "output" / "prodgeometry" / "gid31795_h02_tee_distances.json"
 

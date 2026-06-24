@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]
 COURSEVIEW = ROOT / "data" / "courseview"
 BASE = "https://omt.garmin.cn/CourseViewData"
 

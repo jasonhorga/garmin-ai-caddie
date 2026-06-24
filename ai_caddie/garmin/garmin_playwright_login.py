@@ -28,7 +28,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from garmin_auth import (
+from ai_caddie.garmin.garmin_auth import (
     CSRF_META_RE,
     GarminWebAuth,
     TOKEN_DIR,
@@ -36,7 +36,7 @@ from garmin_auth import (
     validate_web_auth,
 )
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]
 LOGIN_FILE = TOKEN_DIR / "garmin_login.json"
 PROFILE_DIR = Path(os.getenv("AI_CADDIE_PW_PROFILE", os.path.expanduser("~/.cache/garmin_pw_profile")))
 SIGNIN_URL = "https://connect.garmin.cn/signin"
@@ -210,7 +210,7 @@ def _reexec_under_xvfb(*, validate: bool = True) -> GarminWebAuth | None:
         subprocess.run(cmd, cwd=str(ROOT), timeout=1800, check=False)
     except Exception:
         return None
-    from garmin_auth import _read_existing  # noqa: PLC0415
+    from ai_caddie.garmin.garmin_auth import _read_existing  # noqa: PLC0415
     auth = _read_existing()
     if auth and (not validate or validate_web_auth(auth)[0]):
         return auth

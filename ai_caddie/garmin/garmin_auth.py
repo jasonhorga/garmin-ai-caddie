@@ -20,7 +20,7 @@ import re
 
 import requests
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]
 TOKEN_DIR = ROOT / ".garmin_tokens"
 COOKIE_FILE = TOKEN_DIR / "web_cookie.txt"
 CSRF_FILE = TOKEN_DIR / "csrf.txt"
@@ -181,7 +181,7 @@ def _try_playwright_refresh(*, validate: bool) -> GarminWebAuth | None:
     if not (TOKEN_DIR / "garmin_login.json").exists():
         return None
     try:
-        from garmin_playwright_login import mint_web_auth
+        from ai_caddie.garmin.garmin_playwright_login import mint_web_auth
     except Exception:
         return None
     try:
