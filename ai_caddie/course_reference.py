@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from inspect_courseview_release import inspect_release, load_release_pb
+from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
 
 from ai_caddie.data import ROOT, read_json, write_json
 

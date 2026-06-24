@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from measure_prodgeometry_distances import (
+from ai_caddie.geometry.measure_prodgeometry_distances import (
     dist,
     line_intervals_for_component,
     mesh_components,
@@ -15,7 +15,7 @@ from measure_prodgeometry_distances import (
     target_point,
 )
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MESH_JSON = ROOT / "output" / "prodgeometry" / "gid31795_h02_meshes.json"
 DEFAULT_OUT_DIR = ROOT / "output" / "prodgeometry_hazards"
 

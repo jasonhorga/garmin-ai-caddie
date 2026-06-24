@@ -15,7 +15,7 @@ from ai_caddie.decision import (
     store_decision_audit,
 )
 from ai_caddie.weather_context import build_weather_snapshot
-from ai_caddie_web import INDEX_HTML
+from tools.legacy.ai_caddie_web import INDEX_HTML
 
 
 class RecordingProvider:

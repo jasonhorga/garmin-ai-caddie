@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ai_caddie.data import ROOT
-import fetch as fetch_module
-import garmin_auth as garmin_auth_module
-from fetch import GarminAuthExpired
+from ai_caddie.garmin import fetch as fetch_module
+from ai_caddie.garmin import garmin_auth as garmin_auth_module
+from ai_caddie.garmin.fetch import GarminAuthExpired
 
 from .base import ConnectorRunResult
 from .redaction import sanitize_secret_text

@@ -8,11 +8,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-import fetch as fetch_module
+from ai_caddie.garmin import fetch as fetch_module
 from requests import HTTPError
 
 from ai_caddie.connectors.garmin_cn import GarminCnFetchTransport, GarminCnWebSessionConnector
-from fetch import GarminAuthExpired, fetch_details
+from ai_caddie.garmin.fetch import GarminAuthExpired, fetch_details
 
 
 SECRET_TERMS = ("cookie", "csrf", "token", "secret", "authorization", "password", ".garmin_tokens", "/home/", "/users/")
@@ -88,8 +88,8 @@ class GarminCnConnectorTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             with (
-                patch("fetch.fetch_summary", return_value=[]),
-                patch("fetch.fetch_details") as details,
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[]),
+                patch("ai_caddie.garmin.fetch.fetch_details") as details,
             ):
                 run = transport.run(root=root, with_shots=False, force_refresh_auth=True)
 
@@ -111,8 +111,8 @@ class GarminCnConnectorTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             with (
-                patch("fetch.fetch_summary", side_effect=[auth_http_error(401), [{"id": 1}]]) as summary,
-                patch("fetch.fetch_details") as details,
+                patch("ai_caddie.garmin.fetch.fetch_summary", side_effect=[auth_http_error(401), [{"id": 1}]]) as summary,
+                patch("ai_caddie.garmin.fetch.fetch_details") as details,
             ):
                 run = transport.run(root=root, with_shots=True, force_refresh_auth=False)
 
@@ -132,8 +132,8 @@ class GarminCnConnectorTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             with (
-                patch("fetch.fetch_summary", return_value=[{"id": 1}]),
-                patch("fetch.fetch_details", side_effect=[auth_http_error(403), None]) as details,
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}]),
+                patch("ai_caddie.garmin.fetch.fetch_details", side_effect=[auth_http_error(403), None]) as details,
             ):
                 run = transport.run(root=root, with_shots=True, force_refresh_auth=False)
 
@@ -152,7 +152,7 @@ class GarminCnConnectorTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             connector = GarminCnWebSessionConnector(root=root, transport=transport)
-            with patch("fetch.fetch_summary", side_effect=auth_http_error(401)):
+            with patch("ai_caddie.garmin.fetch.fetch_summary", side_effect=auth_http_error(401)):
                 result = connector.sync(with_shots=False, force_refresh_auth=False)
 
             self.assertEqual(result.state, "reauth_required")
@@ -178,10 +178,10 @@ class GarminCnConnectorTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             with (
-                patch("fetch.SCORECARD_DIR", root / "data" / "scorecards"),
-                patch("fetch.SHOT_DIR", root / "data" / "shots"),
-                patch("fetch.refresh_session_auth", return_value=False),
-                patch("fetch.time.sleep"),
+                patch("ai_caddie.garmin.fetch.SCORECARD_DIR", root / "data" / "scorecards"),
+                patch("ai_caddie.garmin.fetch.SHOT_DIR", root / "data" / "shots"),
+                patch("ai_caddie.garmin.fetch.refresh_session_auth", return_value=False),
+                patch("ai_caddie.garmin.fetch.time.sleep"),
             ):
                 with self.assertRaises(GarminAuthExpired):
                     fetch_details(session, [{"id": 1}, {"id": 2}, {"id": 3}], with_shots=False)
@@ -199,9 +199,9 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("fetch.make_session", return_value=Mock()),
-                patch("fetch.fetch_summary", return_value=[{"id": 1}]),
-                patch("fetch.fetch_details") as fetch_details,
+                patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}]),
+                patch("ai_caddie.garmin.fetch.fetch_details") as fetch_details,
             ):
                 result = connector.sync(with_shots=True, force_refresh_auth=False)
 
@@ -234,9 +234,9 @@ class GarminCnConnectorTests(unittest.TestCase):
                     fetch_module.SHOT_DIR.joinpath("7.json").write_text("{}", encoding="utf-8")
 
             with (
-                patch("fetch.make_session", return_value=Mock()),
-                patch("fetch.fetch_summary", side_effect=write_summary),
-                patch("fetch.fetch_details", side_effect=write_details),
+                patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
+                patch("ai_caddie.garmin.fetch.fetch_summary", side_effect=write_summary),
+                patch("ai_caddie.garmin.fetch.fetch_details", side_effect=write_details),
             ):
                 result = connector.sync(with_shots=True, force_refresh_auth=False)
 
@@ -263,9 +263,9 @@ class GarminCnConnectorTests(unittest.TestCase):
 
             outer_stdout = io.StringIO()
             with (
-                patch("fetch.make_session", return_value=Mock()),
-                patch("fetch.fetch_summary", side_effect=noisy_summary),
-                patch("fetch.fetch_details", side_effect=noisy_details),
+                patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
+                patch("ai_caddie.garmin.fetch.fetch_summary", side_effect=noisy_summary),
+                patch("ai_caddie.garmin.fetch.fetch_details", side_effect=noisy_details),
                 redirect_stdout(outer_stdout),
             ):
                 result = connector.sync(with_shots=False, force_refresh_auth=False)
@@ -282,7 +282,7 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with patch(
-                "fetch.make_session",
+                "ai_caddie.garmin.fetch.make_session",
                 side_effect=SystemExit(
                     "missing or expired Garmin web auth: secret cookie abc csrf xyz token 123 authorization bearer"
                 ),
@@ -304,10 +304,10 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("fetch.make_session", return_value=Mock()),
-                patch("fetch.fetch_summary", return_value=[{"id": 1}, {"id": 2}, {"id": 3}]),
+                patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}, {"id": 2}, {"id": 3}]),
                 patch(
-                    "fetch.fetch_details",
+                    "ai_caddie.garmin.fetch.fetch_details",
                     side_effect=GarminAuthExpired("cookie expired csrf token secret authorization"),
                 ),
             ):
@@ -328,9 +328,9 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("fetch.make_session", return_value=Mock()),
-                patch("fetch.fetch_summary", return_value=[]),
-                patch("fetch.fetch_details"),
+                patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[]),
+                patch("ai_caddie.garmin.fetch.fetch_details"),
             ):
                 result = connector.sync(with_shots=False, force_refresh_auth=False)
 
@@ -347,9 +347,9 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("fetch.make_session", return_value=Mock()),
-                patch("fetch.fetch_summary", return_value=[{"id": 1}]),
-                patch("fetch.fetch_details"),
+                patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}]),
+                patch("ai_caddie.garmin.fetch.fetch_details"),
                 patch(
                     "ai_caddie.geometry_sync.ensure_prodgeometry",
                     return_value={"status": "downloaded", "ok": True, "globalId": 31795, "localHole": 1},
@@ -374,9 +374,9 @@ class GarminCnConnectorTests(unittest.TestCase):
                 connector = GarminCnWebSessionConnector(root=root)
 
                 with (
-                    patch("fetch.make_session", return_value=Mock()),
-                    patch("fetch.fetch_summary", return_value=[{"id": 1}]),
-                    patch("fetch.fetch_details"),
+                    patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
+                    patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}]),
+                    patch("ai_caddie.garmin.fetch.fetch_details"),
                 ):
                     result = connector.sync(with_shots=False, force_refresh_auth=False)
                 self.assertEqual(result.state, "ready")
@@ -388,9 +388,9 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with (
-                patch("fetch.make_session", return_value=Mock()),
+                patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
                 patch(
-                    "fetch.fetch_summary",
+                    "ai_caddie.garmin.fetch.fetch_summary",
                     side_effect=RuntimeError("network failed token abc cookie csrf secret authorization"),
                 ),
             ):

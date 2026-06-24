@@ -23,7 +23,7 @@ from ai_caddie.history import (
     merge_same_day_halves,
 )
 from ai_caddie import geometry_sync
-from garmin_auth import CSRF_META_RE, _cookie_domain_matches
+from ai_caddie.garmin.garmin_auth import CSRF_META_RE, _cookie_domain_matches
 
 
 def _require_local_garmin_tests(case: unittest.TestCase) -> None:

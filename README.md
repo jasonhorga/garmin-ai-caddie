@@ -37,14 +37,14 @@ npm install
 
 ### Step 1 — 认证
 
-推荐做法：浏览器登录 https://connect.garmin.cn 后直接运行脚本，`fetch.py`
+推荐做法：浏览器登录 https://connect.garmin.cn 后直接运行脚本 `ai_caddie/garmin/fetch.py`
 会尝试从本机 Chrome/Safari/Firefox 读取 Garmin web session，自动更新
 `.garmin_tokens/web_cookie.txt` 和 `.garmin_tokens/csrf.txt`。不会读取或保存
 Garmin 密码。
 
 ```bash
-uv run python garmin_auth.py
-uv run python fetch.py --refresh-auth
+uv run python -m ai_caddie.garmin.garmin_auth
+uv run python -m ai_caddie.garmin.fetch --refresh-auth
 ```
 
 如果自动读取失败，可以继续手动导出：
@@ -67,8 +67,8 @@ chmod 600 .garmin_tokens/*
 ### Step 2 — 拉数据
 
 ```bash
-uv run python fetch.py             # summary + 每场 detail
-uv run python fetch.py --shots     # 加上每杆 GPS 点位（慢，可选）
+uv run python -m ai_caddie.garmin.fetch             # summary + 每场 detail
+uv run python -m ai_caddie.garmin.fetch --shots     # 加上每杆 GPS 点位（慢，可选）
 ```
 
 - 增量：已下载的 scorecard 跳过，断网中断后重跑没事
@@ -81,7 +81,7 @@ JWT_WEB cookie 有效期约 ~9 小时。过期后 fetch 会 401/403。重做 Ste
 ## AI Caddie v2 / private trial
 
 当前重构后的 v2 产品是主线：API 在 `server_v2/`，Web 在 `web_v2/`，iOS/Apple Watch
-contract/source 在 `mobile/`。旧的 `ai_caddie_web.py` 和 dashboard 脚本仍可作为历史
+contract/source 在 `mobile/`。旧的 `tools/legacy/ai_caddie_web.py` 和 dashboard 脚本仍可作为历史
 验证工具，但不要再把它们当成主产品入口。
 
 常用运维入口：
@@ -188,29 +188,29 @@ uv run python tools/reports/ai_caddie_batch_geometry.py --limit 10
 示例流程：
 
 ```bash
-node fetch_courseview_geometry_key.js \
+node ai_caddie/geometry/fetch_courseview_geometry_key.js \
   --image-url '<prodgeometry zip URL or path>' \
   --profile-id '<playerProfileId>' \
   --zip data/courseview/prodgeometry/31795/hole02_220542.zip \
   --extract data/courseview/prodgeometry/31795/Hole02_220542 \
   --json
 
-node decode_courseview_geometry.js \
+node ai_caddie/geometry/decode_courseview_geometry.js \
   --geometry-dir data/courseview/prodgeometry/31795/Hole02_220542
 
-.venv/bin/python overlay_prodgeometry_on_raster.py \
+.venv/bin/python -m ai_caddie.geometry.overlay_prodgeometry_on_raster \
   --mesh-json output/prodgeometry/gid31795_h02_meshes.json \
   --snapshot logs/probe_map_bodies/snapshot_400065_hole.json \
   --hole 2
 
-.venv/bin/python measure_prodgeometry_distances.py \
+.venv/bin/python -m ai_caddie.geometry.measure_prodgeometry_distances \
   --mesh-json output/prodgeometry/gid31795_h02_meshes.json
 ```
 
 整场/9 洞批量验证：
 
 ```bash
-.venv/bin/python batch_prodgeometry_course.py 31795 \
+.venv/bin/python -m ai_caddie.geometry.batch_prodgeometry_course 31795 \
   --profile-id '<playerProfileId>' \
   --holes 1-9 \
   --live
@@ -231,8 +231,8 @@ node decode_courseview_geometry.js \
 新增数据后建议跑顺序：
 
 ```bash
-uv run python fetch.py
-uv run python fetch.py --shots      # 可选：拉每杆 GPS
+uv run python -m ai_caddie.garmin.fetch
+uv run python -m ai_caddie.garmin.fetch --shots      # 可选：拉每杆 GPS
 uv run python tools/prototype/build_dashboard.py
 open output/dashboard.html
 ```
@@ -241,27 +241,20 @@ open output/dashboard.html
 
 ```
 .
-# ── 必须留根的脚本 ──────────────────────────────────────────────
-#   Dockerfile 用 `COPY *.py ./` + `COPY *.js ./` glob 把根脚本铺进镜像(这是
-#   ai_caddie/* 能 import 根模块的机制);prodgeometry 链(geometry_sync.ensure_
-#   prodgeometry → batch_prodgeometry_course.process_hole)按【裸文件名 cwd=ROOT】
-#   subprocess。以下任一移走都会断生产 import 或裸名 subprocess —— 整理时勿动。
-├── fetch.py                       # 拉 scorecard(pipeline/garmin_cn import)
-├── garmin_auth.py                 # web 会话认证 + 自愈(pipeline/garmin_cn import)
-├── garmin_playwright_login.py     # cookie 自愈铸造(garmin_auth import)
-├── inspect_courseview_release.py  # CourseView release 解析(course_search/reference/geometry_sync/mobile_live import)
-├── batch_prodgeometry_course.py   # prodgeometry 流水线 orchestrator(geometry_sync import)
-├── measure_prodgeometry_distances.py # tee/target→hazard 距离(analysis/course_prep/hole_render import + 裸名 subprocess)
-├── export_prodgeometry_hazards.py # hazard index 导出(orchestrator 裸名 subprocess)
-├── overlay_prodgeometry_on_raster.py # 几何叠 raster 校验(orchestrator 裸名 subprocess)
-├── fetch_courseview_geometry_key.js  # prodgeometry zip key(orchestrator 裸名 `node`)
-├── decode_courseview_geometry.js  # Draco mesh 解码(orchestrator 裸名 `node`)
-├── ai_caddie_web.py               # legacy v1 web UI(已被 server_v2+web_v2 取代;test 引用,暂留根)
+├── ai_caddie/                     # 引擎包(领域模块 + 数据获取/几何子包)
+│   ├── garmin/                    #   Garmin web 抓取 + 认证(fetch · garmin_auth · garmin_playwright_login)
+│   ├── geometry/                  #   CourseView/prodgeometry 链(inspect_courseview_release · batch_prodgeometry_course · measure/export/overlay · decode/fetch_*.js;orchestrator 用 SCRIPT_DIR 绝对路径 subprocess,不依赖 cwd)
+│   ├── connectors/ · scrapers/    #   数据源连接器 + 抓取
+│   ├── pipeline.py                #   同步入口(python -m ai_caddie.pipeline)
+│   └── history·caddie·courses…    #   其余领域模块(Phase 2 进一步分子包)
+├── server_v2/                     # FastAPI v2 后端  ·  web_v2/ React 前端  ·  mobile/ iOS·watchOS
 # ── 独立工具(不被生产 import;按 script 运行;可移) ────────────────
 ├── tools/
 │   ├── courseview/             #   IMG/protobuf 拉取·解析·渲染·叠图(parse_courseview 等)
 │   ├── prototype/              #   原型/调试(build_dashboard·segment_hole·build_hole_overlay)
-│   └── reports/                #   离线分析 CLI(ai_caddie_analyze·ai_review·ai_caddie_batch_geometry)
+│   ├── reports/                #   离线分析 CLI(ai_caddie_analyze·ai_review·ai_caddie_batch_geometry)
+│   ├── migrations/             #   一次性迁移脚本(reorg_codemod)
+│   └── legacy/ai_caddie_web.py #   legacy v1 web UI(已被 server_v2+web_v2 取代;仅 test 引用)
 ├── pyproject.toml / uv.lock    # Python 依赖
 ├── package.json / package-lock.json # Node / draco3d 依赖
 ├── clubs.example.json          # 杆包映射示例；本地用 clubs.json

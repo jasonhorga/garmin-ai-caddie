@@ -9,7 +9,7 @@ import html
 import json
 import math
 
-from measure_prodgeometry_distances import (
+from ai_caddie.geometry.measure_prodgeometry_distances import (
     dist,
     line_intervals_for_component,
     mesh_components,

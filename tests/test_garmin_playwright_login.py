@@ -8,9 +8,9 @@ from http.cookiejar import Cookie, CookieJar
 from pathlib import Path
 from unittest.mock import patch
 
-import garmin_auth
-import garmin_playwright_login as gpl
-from garmin_auth import GarminWebAuth
+from ai_caddie.garmin import garmin_auth
+from ai_caddie.garmin import garmin_playwright_login as gpl
+from ai_caddie.garmin.garmin_auth import GarminWebAuth
 
 
 def _cookie(name: str, value: str, domain: str = ".garmin.cn") -> Cookie:

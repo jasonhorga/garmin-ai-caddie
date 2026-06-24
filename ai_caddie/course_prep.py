@@ -158,7 +158,7 @@ def _water_carry(lake, segments) -> list[list[float]]:
     """
     if not lake:
         return []
-    from measure_prodgeometry_distances import line_intervals_for_component, mesh_components
+    from ai_caddie.geometry.measure_prodgeometry_distances import line_intervals_for_component, mesh_components
 
     raw: list[tuple[float, float]] = []
     for component in mesh_components(lake):
@@ -190,7 +190,7 @@ def _bunkers(bunker, route) -> list[list[float]]:
     """
     if not bunker:
         return []
-    from measure_prodgeometry_distances import mesh_components, point_triangle_distance
+    from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components, point_triangle_distance
 
     dense = _densify(route)
     if not dense:
@@ -326,7 +326,7 @@ def _green_distances(by: dict, route) -> dict:
     if not isinstance(green, dict) or not green.get("positions") or not green.get("faces"):
         return {"available": False}
     try:
-        from measure_prodgeometry_distances import mesh_components
+        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
 
         comps = mesh_components(green)
         if not comps:

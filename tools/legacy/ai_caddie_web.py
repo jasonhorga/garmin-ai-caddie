@@ -24,7 +24,7 @@ import numpy as np
 import requests
 from PIL import Image, ImageDraw, ImageFilter
 
-from inspect_courseview_release import inspect_release, load_release_pb
+from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
 
 from ai_caddie.analysis import build_hole_analysis, build_round_analysis, overlay_geojson, render_svg, strategy_distances
 from ai_caddie.data import (
@@ -60,7 +60,7 @@ from ai_caddie.history import (
     history_status,
     history_trends,
 )
-from garmin_auth import auth_headers, ensure_web_auth
+from ai_caddie.garmin.garmin_auth import auth_headers, ensure_web_auth
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -3034,7 +3034,7 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             if parsed.path == "/api/sync":
                 body = self._read_json()
-                cmd = [sys.executable, "fetch.py"]
+                cmd = [sys.executable, "-m", "ai_caddie.garmin.fetch"]
                 if body.get("shots", True):
                     cmd.append("--shots")
                 proc = subprocess.run(cmd, cwd=".", text=True, capture_output=True, timeout=900)

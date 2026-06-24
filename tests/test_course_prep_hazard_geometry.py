@@ -93,7 +93,7 @@ class BunkerEdgeDistanceTests(unittest.TestCase):
         route = [(0.0, 0.0), (0.0, 200.0)]
         bunker = _rect_mesh(5.0, 98.0, 60.0, 102.0)
 
-        from measure_prodgeometry_distances import mesh_components
+        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
 
         component = mesh_components(bunker)[0]
         centroid = component["centroid"]
