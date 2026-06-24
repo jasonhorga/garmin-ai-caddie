@@ -1,0 +1,32 @@
+# Garmin sync image — the deployed API image (identical code + Python env) plus the
+# headed-Chromium cookie-minting toolchain (xvfb + Playwright). Kept as a *thin
+# extension* of garmin-ai-caddie-api so the sync pipeline can never drift from the
+# API again: rebuild both together with ops/build_sync_image.sh.
+#
+# Why this file exists: the prod sync image was historically built by an ad-hoc
+# Dockerfile that lived nowhere in the repo. It drifted 10 days behind the code,
+# silently shipping a pipeline that predated fetch.fetch_clubs — so the player's
+# club bag stopped auto-refreshing. This file makes the recipe reproducible.
+#
+# Used by ~/aicaddie-sync.sh (homeserver cron): it mounts the private data volume,
+# mints the CN web cookie via xvfb + Chromium, then runs
+#   python -m ai_caddie.pipeline --shots ...
+# which pulls scorecards/shots AND the real club bag (fetch.fetch_clubs → /club/player).
+#
+# Build (api image must exist first — see ops/build_sync_image.sh):
+#   docker build -f Dockerfile.sync -t aicaddie-sync:latest .
+ARG API_IMAGE=garmin-ai-caddie-api:latest
+FROM ${API_IMAGE}
+
+# xvfb + xauth: run the otherwise-headed Chromium that clears Cloudflare Turnstile
+# during cookie minting under a virtual framebuffer (xvfb-run in the sync entrypoint).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends xvfb xauth \
+    && rm -rf /var/lib/apt/lists/*
+
+# The `auth` dependency group (Playwright + login helpers) is excluded from the API
+# image (it builds with --no-dev). Add it here for the cookie-minting path.
+RUN uv sync --frozen --group auth
+
+# Download the Chromium browser Playwright drives, plus its OS-level dependencies.
+RUN uv run --frozen --group auth playwright install --with-deps chromium
