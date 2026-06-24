@@ -93,8 +93,8 @@ Practical options:
    then run:
 
 ```bash
-uv run python garmin_auth.py
-uv run python fetch.py --refresh-auth
+uv run python -m ai_caddie.garmin.garmin_auth
+uv run python -m ai_caddie.garmin.fetch --refresh-auth
 ```
 
 3. Manually copy cookie/CSRF into `.garmin_tokens/` on the server.
@@ -107,7 +107,7 @@ public Web endpoint.
 For private development, bind to localhost on the remote server:
 
 ```bash
-tmux new-session -d -s ai-caddie 'cd /path/to/garmin-ai-caddie && uv run python ai_caddie_web.py --host 127.0.0.1 --port 8765'
+tmux new-session -d -s ai-caddie 'cd /path/to/garmin-ai-caddie && uv run python -m tools.legacy.ai_caddie_web --host 127.0.0.1 --port 8765'
 ```
 
 Use SSH port forwarding from the local machine:
@@ -125,7 +125,7 @@ rules. The current app is a private local tool, not a public SaaS surface.
 Run:
 
 ```bash
-uv run python -m py_compile ai_caddie_web.py ai_caddie/data.py ai_caddie/analysis.py fetch.py
+uv run python -m py_compile tools/legacy/ai_caddie_web.py ai_caddie/data.py ai_caddie/analysis.py ai_caddie/garmin/fetch.py
 uv run python -m unittest discover -s tests -v
 curl http://127.0.0.1:8765/api/status
 curl 'http://127.0.0.1:8765/api/overlay-geojson?source=garmin&id=<scorecard_id>&hole=1'

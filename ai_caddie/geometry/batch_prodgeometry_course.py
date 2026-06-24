@@ -165,7 +165,8 @@ def process_hole(
 
         distance_cmd = [
             sys.executable,
-            str(SCRIPT_DIR / "measure_prodgeometry_distances.py"),
+            "-m",
+            "ai_caddie.geometry.measure_prodgeometry_distances",
             "--mesh-json",
             str(mesh_json_path(course_id, hole_number)),
             "--out",
@@ -176,7 +177,8 @@ def process_hole(
 
         hazard_cmd = [
             sys.executable,
-            str(SCRIPT_DIR / "export_prodgeometry_hazards.py"),
+            "-m",
+            "ai_caddie.geometry.export_prodgeometry_hazards",
             "--mesh-json",
             str(mesh_json_path(course_id, hole_number)),
             "--out",
@@ -188,7 +190,8 @@ def process_hole(
         if not skip_overlay and snapshot:
             overlay_cmd = [
                 sys.executable,
-                str(SCRIPT_DIR / "overlay_prodgeometry_on_raster.py"),
+                "-m",
+                "ai_caddie.geometry.overlay_prodgeometry_on_raster",
                 "--mesh-json",
                 str(mesh_json_path(course_id, hole_number)),
                 "--snapshot",

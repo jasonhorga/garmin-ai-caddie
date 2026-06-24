@@ -53,8 +53,8 @@ pgrep -af 'uvicorn server_v2.main:app'
 Use browser session import first:
 
 ```bash
-uv run python garmin_auth.py
-uv run python fetch.py --refresh-auth
+uv run python -m ai_caddie.garmin.garmin_auth
+uv run python -m ai_caddie.garmin.fetch --refresh-auth
 ```
 
 If auth is expired, API sync status should report `reauth_required`.

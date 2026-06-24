@@ -19,7 +19,7 @@
 
 Implemented the recommended history package in the local/private Web app. The
 old static `build_dashboard.py` remains as a reference, but the active product
-entry is now `ai_caddie_web.py`.
+entry is now `tools/legacy/ai_caddie_web.py`.
 
 Completed:
 

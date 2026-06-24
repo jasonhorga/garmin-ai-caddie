@@ -37,14 +37,14 @@ npm install
 
 ### Step 1 — 认证
 
-推荐做法：浏览器登录 https://connect.garmin.cn 后直接运行脚本，`fetch.py`
+推荐做法：浏览器登录 https://connect.garmin.cn 后直接运行脚本 `ai_caddie/garmin/fetch.py`
 会尝试从本机 Chrome/Safari/Firefox 读取 Garmin web session，自动更新
 `.garmin_tokens/web_cookie.txt` 和 `.garmin_tokens/csrf.txt`。不会读取或保存
 Garmin 密码。
 
 ```bash
-uv run python garmin_auth.py
-uv run python fetch.py --refresh-auth
+uv run python -m ai_caddie.garmin.garmin_auth
+uv run python -m ai_caddie.garmin.fetch --refresh-auth
 ```
 
 如果自动读取失败，可以继续手动导出：
@@ -67,8 +67,8 @@ chmod 600 .garmin_tokens/*
 ### Step 2 — 拉数据
 
 ```bash
-uv run python fetch.py             # summary + 每场 detail
-uv run python fetch.py --shots     # 加上每杆 GPS 点位（慢，可选）
+uv run python -m ai_caddie.garmin.fetch             # summary + 每场 detail
+uv run python -m ai_caddie.garmin.fetch --shots     # 加上每杆 GPS 点位（慢，可选）
 ```
 
 - 增量：已下载的 scorecard 跳过，断网中断后重跑没事
@@ -81,7 +81,7 @@ JWT_WEB cookie 有效期约 ~9 小时。过期后 fetch 会 401/403。重做 Ste
 ## AI Caddie v2 / private trial
 
 当前重构后的 v2 产品是主线：API 在 `server_v2/`，Web 在 `web_v2/`，iOS/Apple Watch
-contract/source 在 `mobile/`。旧的 `ai_caddie_web.py` 和 dashboard 脚本仍可作为历史
+contract/source 在 `mobile/`。旧的 `tools/legacy/ai_caddie_web.py` 和 dashboard 脚本仍可作为历史
 验证工具，但不要再把它们当成主产品入口。
 
 常用运维入口：
@@ -188,29 +188,29 @@ uv run python tools/reports/ai_caddie_batch_geometry.py --limit 10
 示例流程：
 
 ```bash
-node fetch_courseview_geometry_key.js \
+node ai_caddie/geometry/fetch_courseview_geometry_key.js \
   --image-url '<prodgeometry zip URL or path>' \
   --profile-id '<playerProfileId>' \
   --zip data/courseview/prodgeometry/31795/hole02_220542.zip \
   --extract data/courseview/prodgeometry/31795/Hole02_220542 \
   --json
 
-node decode_courseview_geometry.js \
+node ai_caddie/geometry/decode_courseview_geometry.js \
   --geometry-dir data/courseview/prodgeometry/31795/Hole02_220542
 
-.venv/bin/python overlay_prodgeometry_on_raster.py \
+.venv/bin/python -m ai_caddie.geometry.overlay_prodgeometry_on_raster \
   --mesh-json output/prodgeometry/gid31795_h02_meshes.json \
   --snapshot logs/probe_map_bodies/snapshot_400065_hole.json \
   --hole 2
 
-.venv/bin/python measure_prodgeometry_distances.py \
+.venv/bin/python -m ai_caddie.geometry.measure_prodgeometry_distances \
   --mesh-json output/prodgeometry/gid31795_h02_meshes.json
 ```
 
 整场/9 洞批量验证：
 
 ```bash
-.venv/bin/python batch_prodgeometry_course.py 31795 \
+.venv/bin/python -m ai_caddie.geometry.batch_prodgeometry_course 31795 \
   --profile-id '<playerProfileId>' \
   --holes 1-9 \
   --live
@@ -231,8 +231,8 @@ node decode_courseview_geometry.js \
 新增数据后建议跑顺序：
 
 ```bash
-uv run python fetch.py
-uv run python fetch.py --shots      # 可选：拉每杆 GPS
+uv run python -m ai_caddie.garmin.fetch
+uv run python -m ai_caddie.garmin.fetch --shots      # 可选：拉每杆 GPS
 uv run python tools/prototype/build_dashboard.py
 open output/dashboard.html
 ```

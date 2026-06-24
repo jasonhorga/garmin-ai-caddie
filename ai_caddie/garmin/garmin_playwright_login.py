@@ -203,7 +203,7 @@ def _reexec_under_xvfb(*, validate: bool = True) -> GarminWebAuth | None:
     if not shutil.which("xvfb-run"):
         return None
     cmd = ["xvfb-run", "-a", "--server-args=-screen 0 1280x1024x24",
-           sys.executable, str(Path(__file__).resolve())]
+           sys.executable, "-m", "ai_caddie.garmin.garmin_playwright_login"]
     if not validate:
         cmd.append("--no-validate")
     try:
