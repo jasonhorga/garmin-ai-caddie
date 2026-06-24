@@ -3034,7 +3034,7 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             if parsed.path == "/api/sync":
                 body = self._read_json()
-                cmd = [sys.executable, "fetch.py"]
+                cmd = [sys.executable, "-m", "ai_caddie.garmin.fetch"]
                 if body.get("shots", True):
                     cmd.append("--shots")
                 proc = subprocess.run(cmd, cwd=".", text=True, capture_output=True, timeout=900)

@@ -282,7 +282,7 @@ class GarminCnConnectorTests(unittest.TestCase):
             connector = GarminCnWebSessionConnector(root=root)
 
             with patch(
-                "fetch.make_session",
+                "ai_caddie.garmin.fetch.make_session",
                 side_effect=SystemExit(
                     "missing or expired Garmin web auth: secret cookie abc csrf xyz token 123 authorization bearer"
                 ),
@@ -307,7 +307,7 @@ class GarminCnConnectorTests(unittest.TestCase):
                 patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
                 patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}, {"id": 2}, {"id": 3}]),
                 patch(
-                    "fetch.fetch_details",
+                    "ai_caddie.garmin.fetch.fetch_details",
                     side_effect=GarminAuthExpired("cookie expired csrf token secret authorization"),
                 ),
             ):
@@ -390,7 +390,7 @@ class GarminCnConnectorTests(unittest.TestCase):
             with (
                 patch("ai_caddie.garmin.fetch.make_session", return_value=Mock()),
                 patch(
-                    "fetch.fetch_summary",
+                    "ai_caddie.garmin.fetch.fetch_summary",
                     side_effect=RuntimeError("network failed token abc cookie csrf secret authorization"),
                 ),
             ):

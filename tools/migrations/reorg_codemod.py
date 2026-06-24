@@ -46,9 +46,18 @@ def rewrite_text(text: str) -> str:
             line = re.sub(rf"^(\s*)import {esc}$", rf"\1from {parent} import {leaf}", line)
             # form 3b: bare `import <old>  # comment`
             line = re.sub(rf"^(\s*)import {esc}(\s*#.*)$", rf"\1from {parent} import {leaf}\2", line)
-            # string patch / import_module targets ("<old>.attr" or '<old>.attr')
-            if "patch(" in line or "import_module(" in line or "patch.object(" in line:
-                line = line.replace(f'"{old}.', f'"{new}.').replace(f"'{old}.", f"'{new}.")
+            # string mock/patch targets like "<old>.attr.attr" on ANY line — this
+            # MUST run unguarded so multi-line patch(...) continuations (where the
+            # target string sits on its own line, with no "patch(" on it) are caught.
+            # A precise regex (quote + module + dotted identifier path + quote) avoids
+            # corrupting "<old>.py"/"<old>.js" filename string literals.
+            def _retarget(m, _new=new):
+                body = m.group(2)
+                if body.endswith(".py") or body.endswith(".js"):
+                    return m.group(0)
+                return f"{m.group(1)}{_new}{body}{m.group(3)}"
+
+            line = re.sub(rf"(['\"]){esc}((?:\.[A-Za-z_]\w*)+)(['\"])", _retarget, line)
         out.append(line + nl)
     return "".join(out)
 
