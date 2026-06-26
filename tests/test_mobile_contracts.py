@@ -1940,6 +1940,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("eventId: String", offline_store)
         self.assertIn("assetLocalId: String", offline_store)
         self.assertIn("func loadPendingMedia", offline_store)
+        # P2: loadPendingMedia skips a torn final line (non-atomic append) instead of throwing and
+        # dropping ALL pending media — the same truncation guard as loadEvents.
+        self.assertIn("Skipping malformed pending-media line", offline_store)
         self.assertIn("func attachUploadedMediaId(eventId: String, mediaId: String)", offline_store)
         self.assertIn('payload["mediaId"] = .string(mediaId)', offline_store)
         self.assertIn("func removePendingMedia", offline_store)

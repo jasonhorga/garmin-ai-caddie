@@ -313,6 +313,34 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertTrue(try store.hasRecordedEvents(roundId: package.roundId))  // 继续这场 card survives
     }
 
+    func testLoadPendingMediaSkipsTruncatedFinalLine() throws {
+        // P2: pending_media.jsonl is appended non-atomically; a kill mid-write torns the last line.
+        // loadPendingMedia must skip it and still return every prior attachment, not throw and drop all.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let saved = try store.savePendingMedia(
+            data: Data("img".utf8),
+            eventId: "e1",
+            roundId: "round-1",
+            hole: 1,
+            targetId: "shot-1",
+            assetLocalId: "asset-1",
+            mediaKind: "photo",
+            fileName: "p.jpg",
+            capturedAt: "2026-05-25T00:00:00Z"
+        )
+        // Simulate a half-written final line from a forced quit (no closing brace, no newline).
+        let indexURL = directory.appendingPathComponent("pending_media.jsonl")
+        let handle = try FileHandle(forWritingTo: indexURL)
+        handle.seekToEndOfFile()
+        handle.write(Data("{\"id\":\"trunc\",\"roundId\":\"round-1\",\"ho".utf8))
+        try handle.close()
+
+        let media = try store.loadPendingMedia()
+        XCTAssertEqual(media.map(\.id), [saved.id])  // valid attachment survives, torn fragment skipped
+    }
+
     func testReconcileSaveOnlyFieldsPreservesUnsavedLocalEdits() throws {
         // P0-5: score/putts/penalty persist only on an explicit Save, so when ANY incoming
         // event or remote sync rebuilds the snapshot it still carries the OLD persisted
