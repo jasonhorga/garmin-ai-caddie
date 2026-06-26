@@ -156,6 +156,16 @@ class GarminCnFetchTransport:
                 session=session,
                 safe_meta=safe_meta,
             )
+            # Best-effort club-bag refresh — mirrors the CLI _fetch_history (P1-5): the in-app Sync
+            # used to run summary+details only, leaving a stale bag (the documented club 401). Reuses
+            # the same session; a club-fetch failure must NEVER fail the sync (summary/details are the
+            # critical path), so it is swallowed + recorded and lastStage stays on the critical path.
+            try:
+                fetch_module.fetch_clubs(session)
+                safe_meta["clubFetchOk"] = True
+            except BaseException as exc:  # noqa: BLE001 — best-effort enrichment
+                safe_meta["clubFetchOk"] = False
+                safe_meta["clubFetchError"] = sanitize_error(str(exc))
         stdout_text = stdout_buffer.getvalue()
         line_count = len([line for line in stdout_text.splitlines() if line.strip()])
         safe_meta["stdoutCaptured"] = bool(stdout_text)
