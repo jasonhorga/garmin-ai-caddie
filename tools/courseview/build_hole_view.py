@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw
 
 from parse_courseview import parse_img_all
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]  # repo root: tools/<sub>/<file>.py is 2 dirs deep (P2 reorg fix)
 TILE_CACHE = ROOT / "data" / "esri_tiles"
 TILE_CACHE.mkdir(parents=True, exist_ok=True)
 OUT = ROOT / "output" / "hole_views"

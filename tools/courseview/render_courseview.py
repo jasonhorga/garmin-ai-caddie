@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from parse_courseview import parse_img
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]  # repo root: tools/<sub>/<file>.py is 2 dirs deep (P2 reorg fix)
 OUT = ROOT / "output" / "courseview"
 OUT.mkdir(parents=True, exist_ok=True)
 

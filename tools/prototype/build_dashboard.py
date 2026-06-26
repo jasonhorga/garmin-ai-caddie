@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]  # repo root: tools/<sub>/<file>.py is 2 dirs deep (P2 reorg fix)
 SCORECARD_DIR = ROOT / "data" / "scorecards"
 SHOT_DIR = ROOT / "data" / "shots"
 OUT = ROOT / "output" / "dashboard"

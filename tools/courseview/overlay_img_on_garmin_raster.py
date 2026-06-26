@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from parse_courseview import parse_img_all
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]  # repo root: tools/<sub>/<file>.py is 2 dirs deep (P2 reorg fix)
 DEFAULT_SNAPSHOT = ROOT / "logs" / "probe_map_bodies" / "snapshot_400065_hole.json"
 RASTER_CACHE = ROOT / "output" / "hole_overlays"
 OUT = ROOT / "output" / "img_raster_overlay"
