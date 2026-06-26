@@ -10,7 +10,7 @@ import math
 import re
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data"
 SCORECARD_DIR = DATA_DIR / "scorecards"
 SHOT_DIR = DATA_DIR / "shots"

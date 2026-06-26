@@ -32,7 +32,7 @@ from ai_caddie.core.data import (
 )
 from ai_caddie.caddie.decision import build_decision_plan, judge_decision_outcome
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 ANALYSIS_OUT = ROOT / "output" / "ai_caddie"
 
 FEATURES = {
