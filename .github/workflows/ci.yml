@@ -22,7 +22,9 @@ jobs:
           # `uv cache prune` deadlocks (5 min hang -> exit 2). Skip the prune.
           prune-cache: false
       - name: Install Python dependencies
-        run: uv sync
+        # --frozen: fail if uv.lock has drifted from pyproject.toml, matching how the Docker
+        # images install (uv sync --frozen). Keeps CI and the deployed image byte-identical (P1-7).
+        run: uv sync --frozen
       - name: Compile Python sources
         run: uv run python -m py_compile $(git ls-files '*.py')
       - name: Run backend tests
@@ -77,3 +79,37 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run visual smoke
         run: npm run test:e2e
+
+  docker:
+    # P1-7: nothing used to build the Docker images, so the deployed runtime — especially the sync
+    # image's pipeline — could silently drift from the code (exactly how the club-bag sync broke for
+    # 10 days). Build BOTH images every PR and smoke-test the API container, so a Dockerfile /
+    # start_api.sh / runtime-path regression fails here instead of in production.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -f Dockerfile -t garmin-ai-caddie-api:latest .
+      - name: Build sync image (thin extension of the API image — keeps the sync pipeline from drifting)
+        run: docker build -f Dockerfile.sync --build-arg API_IMAGE=garmin-ai-caddie-api:latest -t aicaddie-sync:latest .
+      - name: API container — start, health, and geometry read smoke
+        run: |
+          # AI_CADDIE_ALLOW_OPEN=1 lets the API start with no security profile AND exercises the
+          # start_api.sh fail-closed guard (P0-1); fixture data avoids needing real Garmin state.
+          docker run -d --name aicaddie-api -p 9000:9000 \
+            -e AI_CADDIE_ALLOW_OPEN=1 -e AI_CADDIE_DATA_MODE=fixture \
+            garmin-ai-caddie-api:latest
+          ok=
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9000/api/v2/health >/dev/null; then ok=1; break; fi
+            sleep 2
+          done
+          if [ -z "$ok" ]; then docker logs aicaddie-api; exit 1; fi
+          # The geometry read path resolves ROOT and imports the node-subprocess toolchain inside the
+          # container; with no data it must return a STRUCTURED response, never a 500 crash.
+          code=$(curl -s -o /tmp/geo.json -w '%{http_code}' --max-time 30 http://127.0.0.1:9000/api/v2/geometry/hole/31795/1)
+          cat /tmp/geo.json || true
+          if [ "$code" = "500" ]; then echo "geometry read 500'd"; docker logs aicaddie-api; exit 1; fi
+      - name: Stop API container
+        if: always()
+        run: docker rm -f aicaddie-api 2>/dev/null || true
