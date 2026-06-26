@@ -5,13 +5,13 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import unittest
 
-from ai_caddie.annotations import add_annotation
-from ai_caddie.decision import store_decision_audit
-from ai_caddie.fixtures import fixture_history_data
-from ai_caddie.history import HistoryData
-from ai_caddie.history_stats import build_history_stats
-from ai_caddie.reports import store_report
-from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.reports.annotations import add_annotation
+from ai_caddie.caddie.decision import store_decision_audit
+from ai_caddie.core.fixtures import fixture_history_data
+from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history_stats import build_history_stats
+from ai_caddie.reports.reports import store_report
+from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 
 
 def improvement_history_data() -> HistoryData:
@@ -1309,7 +1309,7 @@ class HistoryStatsCoreTests(unittest.TestCase):
             )
 
             with patch(
-                "ai_caddie.history_stats.geometry_coverage_for_hole",
+                "ai_caddie.history.history_stats.geometry_coverage_for_hole",
                 return_value={"coverage": "missing"},
             ):
                 stats = build_history_stats(
@@ -1339,9 +1339,9 @@ class HistoryStatsCoreTests(unittest.TestCase):
 
     def test_geometry_coverage_accepts_course_id_and_split_nine_global_ids(self) -> None:
         with (
-            patch("ai_caddie.history_stats.geometry_coverage_for_course", return_value={"coverage": "ready"}) as course_coverage,
+            patch("ai_caddie.history.history_stats.geometry_coverage_for_course", return_value={"coverage": "ready"}) as course_coverage,
             patch(
-                "ai_caddie.history_stats.geometry_coverage_for_hole",
+                "ai_caddie.history.history_stats.geometry_coverage_for_hole",
                 side_effect=[
                     {"coverage": "ready"},
                     {"coverage": "ready"},
@@ -1821,8 +1821,8 @@ class HistoryStatsCoreTests(unittest.TestCase):
     def test_score_trend_counts_outcomes_from_holepars_when_hole_par_missing(self) -> None:
         # round-9 D5: real rounds carry per-hole strokes but no per-hole `par` — the birdie/par/bogey
         # counts must fall back to the round's `holePars` string (else 抓鸟/帕 all render 0).
-        from ai_caddie.history import HistoryData
-        from ai_caddie.history_stats import _score_trend
+        from ai_caddie.history.history import HistoryData
+        from ai_caddie.history.history_stats import _score_trend
 
         round_row = {
             "id": "r1", "date": "2026-06-01", "holesCompleted": 18, "strokes": 90, "par": 72,
@@ -1840,7 +1840,7 @@ class HistoryStatsCoreTests(unittest.TestCase):
 
     def test_canonical_nine_label_normalizes_separator(self) -> None:
         # round-10: "C+A" (merged halves) and "C/A" (single scorecard) are the same combo → one row.
-        from ai_caddie.history_stats import _canonical_nine_label
+        from ai_caddie.history.history_stats import _canonical_nine_label
         self.assertEqual(_canonical_nine_label("黑骑士 ~ C+A"), "C/A")
         self.assertEqual(_canonical_nine_label("黑骑士 ~ C/A"), "C/A")
         self.assertEqual(_canonical_nine_label("黑骑士 ~ A/C"), "A/C")  # front/back order kept
@@ -1848,8 +1848,8 @@ class HistoryStatsCoreTests(unittest.TestCase):
 
     def test_score_trend_excludes_abnormal_rounds(self) -> None:
         # round-10: a +59 (131-stroke) data-error round must not enter the trend line.
-        from ai_caddie.history import HistoryData
-        from ai_caddie.history_stats import _score_trend
+        from ai_caddie.history.history import HistoryData
+        from ai_caddie.history.history_stats import _score_trend
         good = {"id": "g", "date": "2026-06-01", "holesCompleted": 18, "strokes": 90, "par": 72,
                 "holePars": "4" * 18, "holes": [{"number": n, "strokes": 5} for n in range(1, 19)]}
         junk = {"id": "j", "date": "2026-06-02", "holesCompleted": 18, "strokes": 131, "par": 72,
@@ -1869,8 +1869,8 @@ class HistoryStatsCoreTests(unittest.TestCase):
     def test_effective_shots_memoized_within_build_cleared_across(self) -> None:
         # round-10 perf: effective shots are recomputed ~7× per build (~30s); memoize within a build,
         # clear across builds so no stale cross-build data leaks.
-        from ai_caddie.history import HistoryData
-        from ai_caddie.history_stats import _clear_effective_shots_cache, _effective_shots
+        from ai_caddie.history.history import HistoryData
+        from ai_caddie.history.history_stats import _clear_effective_shots_cache, _effective_shots
         data = HistoryData(raw_rounds=[], rounds=[], shots=[{"hole": 1, "club": "7I", "meters": 140}])
         _clear_effective_shots_cache()
         first = _effective_shots(data)

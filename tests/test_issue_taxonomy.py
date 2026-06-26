@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from ai_caddie.issue_taxonomy import classify_issue, issue_record
+from ai_caddie.caddie.issue_taxonomy import classify_issue, issue_record
 
 
 class IssueTaxonomyTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class IssueTaxonomyTests(unittest.TestCase):
         self.assertEqual(record["count"], 1)
 
     def test_issue_record_caps_example_refs_but_keeps_full_count(self) -> None:
-        from ai_caddie.issue_taxonomy import ISSUE_REFS_CAP
+        from ai_caddie.caddie.issue_taxonomy import ISSUE_REFS_CAP
 
         many = [f"r{i}:7" for i in range(ISSUE_REFS_CAP + 250)]
         record = issue_record("bunker", many)

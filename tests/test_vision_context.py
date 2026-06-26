@@ -5,9 +5,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from ai_caddie.llm_providers import LLMMediaPart, LLMMessage
-from ai_caddie.llm_providers import StaticProvider
-from ai_caddie.vision_context import (
+from ai_caddie.llm.llm_providers import LLMMediaPart, LLMMessage
+from ai_caddie.llm.llm_providers import StaticProvider
+from ai_caddie.llm.vision_context import (
     ALLOWED_FINDING_TYPES,
     analyze_media_context,
     confirm_vision_finding,

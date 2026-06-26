@@ -15,7 +15,7 @@ import time
 import unittest
 from pathlib import Path
 
-from ai_caddie import prep_cache
+from ai_caddie.courses import prep_cache
 
 
 class PrepCacheTests(unittest.TestCase):

@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ai_caddie import course_search as cs
+from ai_caddie.courses import course_search as cs
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -60,7 +60,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
         return TestClient(app)
 
     def test_search_endpoint_returns_matches(self) -> None:
-        from ai_caddie import course_search
+        from ai_caddie.courses import course_search
         canned = [course_search.CourseMatch(31936, "Nanjing Zhongshan ~ C Valley", 9, "Nanjing", "jiangsu", 0.9)]
         with patch("server_v2.main.course_search.courseview_search", return_value=canned):
             r = self._client().get("/api/v2/courses/search", params={"name": "zhongshan"})

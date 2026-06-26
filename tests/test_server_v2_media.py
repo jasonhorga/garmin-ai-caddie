@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.llm_providers import StaticProvider
+from ai_caddie.llm.llm_providers import StaticProvider
 from server_v2.main import app
 
 
@@ -218,7 +218,7 @@ class ServerV2MediaTests(unittest.TestCase):
             root = Path(tmp)
             with (
                 patch("server_v2.media.MEDIA_ROOT", root),
-                patch.dict("ai_caddie.media.MAX_MEDIA_UPLOAD_BYTES_BY_KIND", {"photo": 4, "video": 4}),
+                patch.dict("ai_caddie.core.media.MAX_MEDIA_UPLOAD_BYTES_BY_KIND", {"photo": 4, "video": 4}),
             ):
                 response = client.post(
                     "/api/v2/media",

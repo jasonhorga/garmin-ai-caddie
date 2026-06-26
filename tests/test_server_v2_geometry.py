@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.history import HistoryData
+from ai_caddie.history.history import HistoryData
 from server_v2.main import app
 
 
@@ -104,8 +104,8 @@ class ServerV2GeometryTests(unittest.TestCase):
             hazard.write_text("{}", encoding="utf-8")
             mesh.write_text("{}", encoding="utf-8")
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", side_effect=lambda _gid, hole: hazard if hole == 1 else root / "missing_hazards.json"),
-                patch("ai_caddie.geometry_evidence.mesh_path", side_effect=lambda _gid, hole: mesh if hole == 1 else root / "missing_meshes.json"),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", side_effect=lambda _gid, hole: hazard if hole == 1 else root / "missing_hazards.json"),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", side_effect=lambda _gid, hole: mesh if hole == 1 else root / "missing_meshes.json"),
             ):
                 response = client.get("/api/v2/geometry/course/31795/coverage?holes=1&holes=2")
 
@@ -127,8 +127,8 @@ class ServerV2GeometryTests(unittest.TestCase):
             hazard.write_text("{}", encoding="utf-8")
             mesh.write_text("{}", encoding="utf-8")
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
             ):
                 response = client.get("/api/v2/geometry/hole/31795/2")
 
@@ -197,8 +197,8 @@ class ServerV2GeometryTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
                 patch("server_v2.data_source.load_history_data_for_mode", return_value=(data, "fixture")),
             ):
                 response = client.get("/api/v2/geometry/hole/31795/4?source_ref=900001:4")
@@ -224,8 +224,8 @@ class ServerV2GeometryTests(unittest.TestCase):
             )
             mesh.write_text("{}", encoding="utf-8")
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
             ):
                 response = client.get(
                     "/api/v2/geometry/hole/31795/7?start_x=0&start_y=0&target_x=200&target_y=0&landing_radius_m=18"
@@ -253,8 +253,8 @@ class ServerV2GeometryTests(unittest.TestCase):
             )
             mesh.write_text("{}", encoding="utf-8")
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
             ):
                 response = client.get("/api/v2/geometry/hole/31795/7/map")
 
@@ -299,8 +299,8 @@ class ServerV2GeometryTests(unittest.TestCase):
             hazard.write_text('{"refLat":22.279,"refLon":114.162}', encoding="utf-8")
             mesh.write_text("{}", encoding="utf-8")
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
                 patch("server_v2.data_source.load_history_data_for_mode", return_value=(data, "fixture")),
             ):
                 response = client.get("/api/v2/geometry/hole/31795/4/map?source_ref=900001:4")

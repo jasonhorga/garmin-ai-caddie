@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from tools.reports import ai_review  # relocated from repo root into tools/reports/
-from ai_caddie.fixtures import fixture_history_data
-from ai_caddie.llm_providers import LLMMessage
+from ai_caddie.core.fixtures import fixture_history_data
+from ai_caddie.llm.llm_providers import LLMMessage
 
 
 class RecordingProvider:

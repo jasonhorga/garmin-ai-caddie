@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from ai_caddie.annotations import (
+from ai_caddie.reports.annotations import (
     add_annotation,
     annotation_file,
     annotations_for_target,

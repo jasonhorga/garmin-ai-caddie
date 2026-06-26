@@ -8,11 +8,11 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.annotations import add_annotation
-from ai_caddie.config import get_settings
-from ai_caddie.decision import store_decision_audit
-from ai_caddie.reports import store_report
-from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.reports.annotations import add_annotation
+from ai_caddie.core.config import get_settings
+from ai_caddie.caddie.decision import store_decision_audit
+from ai_caddie.reports.reports import store_report
+from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 
 
@@ -130,7 +130,7 @@ class ServerV2HistoryDrilldownTests(unittest.TestCase):
                 patch("server_v2.history_drilldown.REPORTS_ROOT", root),
                 patch("server_v2.history_drilldown.WEATHER_ROOT", root),
                 patch("server_v2.history_drilldown.DECISION_AUDIT_ROOT", root),
-                patch("ai_caddie.history_drilldown.geometry_coverage_for_hole", side_effect=ready_geometry),
+                patch("ai_caddie.history.history_drilldown.geometry_coverage_for_hole", side_effect=ready_geometry),
             ):
                 get_settings.cache_clear()
                 response = TestClient(app).get("/api/v2/history/drilldown/900001:7")

@@ -26,8 +26,8 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
 
-from ai_caddie.analysis import build_hole_analysis, build_round_analysis, overlay_geojson, render_svg, strategy_distances
-from ai_caddie.data import (
+from ai_caddie.caddie.analysis import build_hole_analysis, build_round_analysis, overlay_geojson, render_svg, strategy_distances
+from ai_caddie.core.data import (
     EARTH_RADIUS_M,
     ROOT,
     SHOT_DIR,
@@ -46,7 +46,7 @@ from ai_caddie.data import (
     update_manual_shot,
     write_json,
 )
-from ai_caddie.history import (
+from ai_caddie.history.history import (
     history_clubs,
     history_course_detail,
     history_courses,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from ai_caddie.weather_context import (
+from ai_caddie.llm.weather_context import (
     WeatherTransport,
     build_weather_snapshot,
     fetch_open_meteo_weather_snapshot,

@@ -16,8 +16,8 @@ import json
 import time
 from pathlib import Path
 
-from ai_caddie.history import HistoryData
-from ai_caddie.history_stats import build_history_stats
+from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history_stats import build_history_stats
 
 GOLDEN = Path(__file__).parent / "fixtures" / "history_stats_perf_golden.json"
 

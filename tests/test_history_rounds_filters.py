@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from ai_caddie.history import HistoryData
+from ai_caddie.history.history import HistoryData
 from server_v2.history_rounds import build_history_rounds_response
 
 

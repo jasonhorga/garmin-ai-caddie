@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from ai_caddie.mobile_live import (
+from ai_caddie.caddie.mobile_live import (
     ack_event_cursor,
     append_event_batch,
     build_live_round_package,
@@ -13,9 +13,9 @@ from ai_caddie.mobile_live import (
     build_round_state,
     replay_event_log,
 )
-from ai_caddie.history import OWNER_ID
-from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
-from ai_caddie.weather_context import WeatherTransport
+from ai_caddie.history.history import OWNER_ID
+from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
+from ai_caddie.llm.weather_context import WeatherTransport
 
 from .data_source import load_history_data_for_mode
 from .models import (

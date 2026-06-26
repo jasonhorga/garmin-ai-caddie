@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from ai_caddie.history import HistoryData, history_data_quality
+from ai_caddie.history.history import HistoryData, history_data_quality
 
 
 class HistoryDataQualityTests(unittest.TestCase):
@@ -70,9 +70,9 @@ class HistoryDataQualityTests(unittest.TestCase):
                 return meshes / f"gid{global_id}_h{local_hole:02d}_meshes.json"
 
             with (
-                patch("ai_caddie.history.hazard_path", side_effect=hazard_path),
-                patch("ai_caddie.history.mesh_path", side_effect=mesh_path),
-                patch("ai_caddie.history.history_reports", return_value={"reports": []}),
+                patch("ai_caddie.history.history.hazard_path", side_effect=hazard_path),
+                patch("ai_caddie.history.history.mesh_path", side_effect=mesh_path),
+                patch("ai_caddie.history.history.history_reports", return_value={"reports": []}),
             ):
                 quality = history_data_quality(data)
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from ai_caddie.media import attach_media, list_media, media_for_target, media_index_file, redact_media, resolve_media_content_path
+from ai_caddie.core.media import attach_media, list_media, media_for_target, media_index_file, redact_media, resolve_media_content_path
 
 
 class MediaContextTests(unittest.TestCase):

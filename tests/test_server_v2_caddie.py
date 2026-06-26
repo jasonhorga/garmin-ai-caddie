@@ -7,10 +7,10 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.annotations import add_annotation
-from ai_caddie.decision_api import build_decision_request_from_fixture
-from ai_caddie.vision_context import confirm_vision_finding, store_vision_findings
-from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.reports.annotations import add_annotation
+from ai_caddie.caddie.decision_api import build_decision_request_from_fixture
+from ai_caddie.llm.vision_context import confirm_vision_finding, store_vision_findings
+from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 
 
@@ -48,7 +48,7 @@ class ServerV2CaddieTests(unittest.TestCase):
         client = TestClient(app)
 
         with patch(
-            "ai_caddie.decision.build_text_provider",
+            "ai_caddie.caddie.decision.build_text_provider",
             side_effect=RuntimeError("missing password=hunter2 secret=abc /home/ubuntu/private/key.txt"),
         ):
             response = client.post("/api/v2/caddie/decision", json=build_decision_request_from_fixture("approach"))
@@ -130,7 +130,7 @@ class ServerV2CaddieTests(unittest.TestCase):
 
         with (
             patch(
-                "ai_caddie.caddie_context.geometry_coverage_for_hole",
+                "ai_caddie.caddie.caddie_context.geometry_coverage_for_hole",
                 return_value={
                     "schema": "ai-caddie-geometry-evidence-v1",
                     "globalId": 31795,
@@ -143,7 +143,7 @@ class ServerV2CaddieTests(unittest.TestCase):
                 },
             ),
             patch(
-                "ai_caddie.caddie_context.build_hole_map_dto",
+                "ai_caddie.caddie.caddie_context.build_hole_map_dto",
                 return_value={
                     "schema": "ai-caddie-hole-map-v1",
                     "globalId": 31795,
@@ -460,7 +460,7 @@ class ServerV2CaddieTests(unittest.TestCase):
         client = TestClient(app)
 
         with patch(
-            "ai_caddie.caddie_context.build_route_geometry_evidence",
+            "ai_caddie.caddie.caddie_context.build_route_geometry_evidence",
             return_value={
                 "schema": "ai-caddie-route-geometry-evidence-v1",
                 "globalId": 31795,

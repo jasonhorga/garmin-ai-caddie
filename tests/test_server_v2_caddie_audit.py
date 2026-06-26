@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.decision_api import build_decision_request_from_fixture
+from ai_caddie.caddie.decision_api import build_decision_request_from_fixture
 from server_v2.main import app
 
 

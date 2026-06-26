@@ -8,8 +8,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from ai_caddie import round_shot_map as rsm
-from ai_caddie.history import HistoryData
+from ai_caddie.rounds import round_shot_map as rsm
+from ai_caddie.history.history import HistoryData
 
 
 def _data(shots: list[dict]) -> HistoryData:

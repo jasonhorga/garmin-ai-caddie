@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ai_caddie.config import get_settings
+from ai_caddie.core.config import get_settings
 from ai_caddie.connectors.garmin_oauth import build_oauth_feasibility_status
 
 

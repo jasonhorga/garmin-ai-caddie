@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from ai_caddie.prep_tips import build_prep_tips
+from ai_caddie.courses.prep_tips import build_prep_tips
 
 
 def _prep_hole(hole: int, par: int, yards: int, *, water=None, bunkers=None) -> dict:
@@ -187,7 +187,7 @@ class BuildPrepTipsTests(unittest.TestCase):
             self.assertIn("五杆洞平均+1,保守开局", texts)
 
     def test_fmt_to_par_normalizes_negative_zero(self) -> None:
-        from ai_caddie.prep_tips import _fmt_to_par
+        from ai_caddie.courses.prep_tips import _fmt_to_par
 
         self.assertEqual(_fmt_to_par(-0.0), "+0")
         self.assertEqual(_fmt_to_par(0.0), "+0")

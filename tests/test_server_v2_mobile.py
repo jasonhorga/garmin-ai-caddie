@@ -8,12 +8,12 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import stats_cache
-from ai_caddie.annotations import add_annotation
-from ai_caddie.decision import list_decision_audits, store_decision_audit
-from ai_caddie.history import HistoryData
-from ai_caddie.mobile_live import _hole_issue_label_zh
-from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.history import stats_cache
+from ai_caddie.reports.annotations import add_annotation
+from ai_caddie.caddie.decision import list_decision_audits, store_decision_audit
+from ai_caddie.history.history import HistoryData
+from ai_caddie.caddie.mobile_live import _hole_issue_label_zh
+from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 
 
@@ -29,8 +29,8 @@ class ServerV2MobileTests(unittest.TestCase):
     def test_recent_history_resolves_synthetic_course_key(self) -> None:
         # round-9 C1/C2: a course-mode package carries a synthetic "gid_<id>" courseKey that used to
         # match nothing → 球场近况 0 场次 + 球洞规律 全 0 次. It must resolve to the BASE course.
-        from ai_caddie.history import canonical_course_name, course_key
-        from ai_caddie.mobile_live import _recent_history
+        from ai_caddie.history.history import canonical_course_name, course_key
+        from ai_caddie.caddie.mobile_live import _recent_history
 
         base = course_key(canonical_course_name("黑骑士 ~ A"))
         stats = {
@@ -87,8 +87,8 @@ class ServerV2MobileTests(unittest.TestCase):
                 root = Path(tmp)
                 with (
                     patch("server_v2.mobile.MOBILE_ROOT", root),
-                    patch("ai_caddie.history_stats.geometry_coverage_for_hole", side_effect=missing_geometry),
-                    patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
+                    patch("ai_caddie.history.history_stats.geometry_coverage_for_hole", side_effect=missing_geometry),
+                    patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
                     patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
                 ):
                     response = client.get("/api/v2/mobile/rounds/900001/package")
@@ -173,10 +173,10 @@ class ServerV2MobileTests(unittest.TestCase):
 
         with (
             patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
-            patch("ai_caddie.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
-            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
-            patch("ai_caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
-            patch("ai_caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
+            patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
+            patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+            patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
+            patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
         ):
             response = client.get(
                 "/api/v2/mobile/rounds/900001/package",
@@ -404,11 +404,11 @@ class ServerV2MobileTests(unittest.TestCase):
                 "missingData": [],
             }
 
-        from ai_caddie import course_reference
+        from ai_caddie.courses import course_reference
 
         with (
             patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
-            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+            patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
             patch.object(course_reference, "courseview_par", return_value=[4, 5, 3, 4, 3, 4, 4, 5, 4, 4, 5, 3, 4, 3, 4, 4, 5, 4]),
         ):
             response = client.get(
@@ -454,11 +454,11 @@ class ServerV2MobileTests(unittest.TestCase):
                 "missingData": [{"label": "geometry", "reason": "no geometry bundle on this deployment"}],
             }
 
-        from ai_caddie import course_reference
+        from ai_caddie.courses import course_reference
 
         with (
             patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "local")),
-            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
+            patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
             patch.object(course_reference, "courseview_par", return_value=[4, 3, 4, 5, 4, 4, 5, 3, 4]),
         ):
             response = self.client_get_course_package(31796, round_id="live-31796", nine="front")
@@ -493,7 +493,7 @@ class ServerV2MobileTests(unittest.TestCase):
                 "missingData": [],
             }
 
-        from ai_caddie import course_reference
+        from ai_caddie.courses import course_reference
 
         def fetch(nine: str | None) -> dict[str, object]:
             params = {"round_id": "live-nine", "tee_box": "blue"}
@@ -501,7 +501,7 @@ class ServerV2MobileTests(unittest.TestCase):
                 params["nine"] = nine
             with (
                 patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
-                patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+                patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
                 patch.object(
                     course_reference,
                     "courseview_par",
@@ -542,7 +542,7 @@ class ServerV2MobileTests(unittest.TestCase):
         client = TestClient(app)
 
         with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}), \
-                patch("ai_caddie.course_prep.prep_nine") as prep_nine:
+                patch("ai_caddie.courses.course_prep.prep_nine") as prep_nine:
             response = client.get("/api/v2/mobile/courses/31795/package", params={"round_id": "live-31795"})
 
         self.assertEqual(response.status_code, 200)
@@ -567,15 +567,15 @@ class ServerV2MobileTests(unittest.TestCase):
                 "missingData": [{"label": "geometry", "reason": "no geometry bundle on this deployment"}],
             }
 
-        from ai_caddie import course_reference
+        from ai_caddie.courses import course_reference
 
         with (
             patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "local")),
-            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
+            patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
             patch.object(course_reference, "courseview_par", return_value=[4, 3, 4, 5, 4, 4, 5, 3, 4]),
             # Real CourseView clean names are English; the resolver returns that. The package name
             # must stay Chinese (venue base from the round name) + the loop label from CourseView.
-            patch("ai_caddie.mobile_live._courseview_segment_resolver", return_value=("The Players Club ~ C", 9)),
+            patch("ai_caddie.caddie.mobile_live._courseview_segment_resolver", return_value=("The Players Club ~ C", 9)),
         ):
             response = self.client_get_course_package(31796, round_id="live-31796", nine="all")
 
@@ -590,7 +590,8 @@ class ServerV2MobileTests(unittest.TestCase):
     def test_composite_loop_round_name_has_no_duplicate_label(self) -> None:
         # 加打另一个9洞 (C + A): each loop is name-capped to its own label, so the composite reads
         # "黑骑士 ~ C/A" — not "黑骑士 ~ C/A/A" (the bug where the front loop kept its combo name).
-        from ai_caddie import course_reference, mobile_live
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_reference
 
         data = HistoryData(
             raw_rounds=[],
@@ -629,7 +630,8 @@ class ServerV2MobileTests(unittest.TestCase):
         # resolve, but that round must NOT reach the stats build: its per-request id would change the
         # stats-cache fingerprint and evict every other course's cached stats, turning every course
         # switch back into a ~8s cold rebuild. Stats must be built from the ORIGINAL history.
-        from ai_caddie import course_reference, mobile_live
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_reference
 
         data = HistoryData(
             raw_rounds=[],
@@ -888,7 +890,7 @@ class ServerV2MobileTests(unittest.TestCase):
         with (
             patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
             patch(
-                "ai_caddie.mobile_live.build_route_geometry_evidence",
+                "ai_caddie.caddie.mobile_live.build_route_geometry_evidence",
                 return_value={
                     "schema": "ai-caddie-route-geometry-evidence-v1",
                     "globalId": 31795,

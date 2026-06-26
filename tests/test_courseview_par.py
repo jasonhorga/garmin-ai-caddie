@@ -27,7 +27,7 @@ class ReleaseParDecodeTests(unittest.TestCase):
 
 
 from unittest.mock import patch
-from ai_caddie import course_reference as cr
+from ai_caddie.courses import course_reference as cr
 
 
 class CourseviewParTests(unittest.TestCase):

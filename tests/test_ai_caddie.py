@@ -6,8 +6,8 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import unittest
 
-from ai_caddie.analysis import build_hole_analysis, build_round_analysis, overlay_geojson, render_svg, strategy_distances
-from ai_caddie.data import (
+from ai_caddie.caddie.analysis import build_hole_analysis, build_round_analysis, overlay_geojson, render_svg, strategy_distances
+from ai_caddie.core.data import (
     ROOT,
     local_to_wgs84,
     load_scorecard,
@@ -15,14 +15,14 @@ from ai_caddie.data import (
     semicircle_to_deg,
     wgs84_to_local,
 )
-from ai_caddie.history import (
+from ai_caddie.history.history import (
     history_courses,
     history_hole,
     history_overview,
     history_rounds,
     merge_same_day_halves,
 )
-from ai_caddie import geometry_sync
+from ai_caddie.geometry import geometry_sync
 from ai_caddie.garmin.garmin_auth import CSRF_META_RE, _cookie_domain_matches
 
 
@@ -205,7 +205,7 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(merged[0]["holes"][9]["number"], 10)
 
     def test_pin_only_shot_file_is_not_marked_ready(self) -> None:
-        from ai_caddie import history as history_module
+        from ai_caddie.history import history as history_module
 
         raw = {
             "scorecardDetails": [

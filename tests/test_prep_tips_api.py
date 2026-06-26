@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import course_prep
-from ai_caddie.config import get_settings
+from ai_caddie.courses import course_prep
+from ai_caddie.core.config import get_settings
 from server_v2.main import app
 from server_v2.prep_tips import _course_key_for_global_id
 
@@ -72,7 +72,7 @@ class PrepTipsApiTests(unittest.TestCase):
 
     def test_prep_tips_contract_for_fixture_course(self) -> None:
         with TemporaryDirectory() as tmp:
-            with patch("ai_caddie.data.MESH_DIR", Path(tmp)), \
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)), \
                     patch.object(course_prep, "prep_nine", return_value=[_prep_row(1, 4, 380)]) as prep_nine:
                 resp = self._get("/api/v2/courses/31795/prep-tips")
 
@@ -99,7 +99,7 @@ class PrepTipsApiTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             for hole in range(1, 19):
                 (Path(tmp) / f"gid31795_h{hole:02d}_meshes.json").write_text("{}", encoding="utf-8")
-            with patch("ai_caddie.data.MESH_DIR", Path(tmp)), \
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)), \
                     patch.object(course_prep, "prep_nine", return_value=[_prep_row(1, 4, 380)]) as prep_nine:
                 resp = self._get("/api/v2/courses/31795/prep-tips")
 

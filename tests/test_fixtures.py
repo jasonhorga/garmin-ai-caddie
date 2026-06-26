@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from ai_caddie.fixtures import fixture_history_data
+from ai_caddie.core.fixtures import fixture_history_data
 from server_v2.history_overview import build_history_overview_response
 
 

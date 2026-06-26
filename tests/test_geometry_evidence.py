@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from ai_caddie.geometry_evidence import (
+from ai_caddie.geometry.geometry_evidence import (
     build_route_geometry_evidence,
     build_hole_map_dto,
     build_hole_geometry_evidence,
@@ -20,8 +20,8 @@ class GeometryEvidenceTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=root / "missing_hazards.json"),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=root / "missing_hazards.json"),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
             ):
                 evidence = geometry_coverage_for_hole(31795, 2)
 
@@ -40,8 +40,8 @@ class GeometryEvidenceTests(unittest.TestCase):
             hazard.write_text("{}", encoding="utf-8")
             mesh.write_text("{}", encoding="utf-8")
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
             ):
                 evidence = geometry_coverage_for_hole(31795, 2)
 
@@ -57,8 +57,8 @@ class GeometryEvidenceTests(unittest.TestCase):
             hazard = root / "gid31795_h02_hazards.json"
             hazard.write_text("{}", encoding="utf-8")
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
             ):
                 evidence = build_hole_geometry_evidence(
                     {
@@ -89,8 +89,8 @@ class GeometryEvidenceTests(unittest.TestCase):
                 return ready_mesh if local_hole == 1 else root / f"missing_{local_hole}_meshes.json"
 
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", side_effect=hazard_path_for_test),
-                patch("ai_caddie.geometry_evidence.mesh_path", side_effect=mesh_path_for_test),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", side_effect=hazard_path_for_test),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", side_effect=mesh_path_for_test),
             ):
                 coverage = geometry_coverage_for_course(31795, holes=range(1, 3))
 
@@ -129,8 +129,8 @@ class GeometryEvidenceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
             ):
                 dto = build_hole_map_dto(
                     31795,
@@ -198,8 +198,8 @@ class GeometryEvidenceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
             ):
                 water = classify_shot_surface(31795, 4, {"ref": "shot-water", "end": {"x": 10, "y": 10}})
                 green = classify_shot_surface(31795, 4, {"ref": "shot-green", "end": {"x": 35, "y": 35}})
@@ -246,8 +246,8 @@ class GeometryEvidenceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=mesh),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
             ):
                 fairway = classify_shot_surface(31795, 5, {"ref": "shot-fairway", "end": {"x": 20, "y": 20}})
                 rough = classify_shot_surface(31795, 5, {"ref": "shot-rough", "end": {"x": 60, "y": 20}})
@@ -294,8 +294,8 @@ class GeometryEvidenceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
             ):
                 route = build_route_geometry_evidence(
                     31795,
@@ -336,8 +336,8 @@ class GeometryEvidenceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
             ):
                 route = build_route_geometry_evidence(
                     31795,
@@ -395,8 +395,8 @@ class GeometryEvidenceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                patch("ai_caddie.geometry_evidence.hazard_path", return_value=hazard),
-                patch("ai_caddie.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
             ):
                 route = build_route_geometry_evidence(
                     31795,

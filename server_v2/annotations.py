@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from ai_caddie.annotations import add_annotation, annotations_for_target, list_annotations
+from ai_caddie.reports.annotations import add_annotation, annotations_for_target, list_annotations
 
 from .models import (
     AnnotationCreateRequest,

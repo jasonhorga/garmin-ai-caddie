@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from ai_caddie import players
-from ai_caddie.history import OWNER_ID, HistoryData, average
+from ai_caddie.rounds import players
+from ai_caddie.history.history import OWNER_ID, HistoryData, average
 
 from .data_source import load_history_data_for_mode
 from .models import (

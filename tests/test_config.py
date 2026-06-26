@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from ai_caddie.config import get_settings
+from ai_caddie.core.config import get_settings
 
 
 class ConfigTests(unittest.TestCase):

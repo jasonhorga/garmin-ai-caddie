@@ -7,7 +7,7 @@ import io
 from pathlib import Path
 from typing import Any, Iterator
 
-from ai_caddie.data import ROOT
+from ai_caddie.core.data import ROOT
 from ai_caddie.garmin import fetch as fetch_module
 from ai_caddie.garmin import garmin_auth as garmin_auth_module
 from ai_caddie.garmin.fetch import GarminAuthExpired
@@ -219,7 +219,7 @@ class GarminCnWebSessionConnector:
             state = "ready" if manifest.scorecard_count else "no_data"
             if state == "ready":
                 try:
-                    from ai_caddie import course_reference
+                    from ai_caddie.courses import course_reference
                     course_reference.build_played_store(root=self.root)
                 except Exception:
                     pass  # course-ref is best-effort; never fail the sync on it

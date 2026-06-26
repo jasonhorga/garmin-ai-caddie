@@ -5,8 +5,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from urllib.parse import parse_qs, urlparse
 
-import ai_caddie.weather_context as weather_context
-from ai_caddie.weather_context import (
+import ai_caddie.llm.weather_context as weather_context
+from ai_caddie.llm.weather_context import (
     build_weather_snapshot,
     fetch_open_meteo_weather_snapshot,
     latest_weather_snapshot,

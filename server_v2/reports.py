@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ai_caddie.history import OWNER_ID
-from ai_caddie.llm_providers import build_text_provider
-from ai_caddie.reports import (
+from ai_caddie.history.history import OWNER_ID
+from ai_caddie.llm.llm_providers import build_text_provider
+from ai_caddie.reports.reports import (
     audit_report_narrative,
     build_club_report_facts,
     build_course_report_facts,

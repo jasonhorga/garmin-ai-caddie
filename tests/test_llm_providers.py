@@ -10,9 +10,9 @@ from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from ai_caddie.config import get_settings
-from ai_caddie.llm import maybe_call_anthropic, maybe_call_llm
-from ai_caddie.llm_providers import (
+from ai_caddie.core.config import get_settings
+from ai_caddie.llm.llm import maybe_call_anthropic, maybe_call_llm
+from ai_caddie.llm.llm_providers import (
     GeminiApiKeyProvider,
     GeminiCliOAuthProvider,
     LLMMediaPart,
@@ -106,7 +106,7 @@ class LLMProviderTests(unittest.TestCase):
             base_url="https://integrate.api.nvidia.com/v1",
             model="meta/llama-3.2-11b-vision-instruct",
         )
-        with patch("ai_caddie.llm_providers.urllib.request.urlopen", fake_urlopen):
+        with patch("ai_caddie.llm.llm_providers.urllib.request.urlopen", fake_urlopen):
             reply = provider.chat_multimodal(
                 [
                     LLMMessage(role="system", content="facts only"),
@@ -166,7 +166,7 @@ class LLMProviderTests(unittest.TestCase):
             base_url="https://generativelanguage.googleapis.com/v1beta",
             model="gemini-2.5-flash",
         )
-        with patch("ai_caddie.llm_providers.urllib.request.urlopen", fake_urlopen):
+        with patch("ai_caddie.llm.llm_providers.urllib.request.urlopen", fake_urlopen):
             reply = provider.chat(
                 [
                     LLMMessage(role="system", content="facts only"),
@@ -218,7 +218,7 @@ class LLMProviderTests(unittest.TestCase):
             base_url="https://generativelanguage.googleapis.com/v1beta",
             model="models/gemini-2.5-flash",
         )
-        with patch("ai_caddie.llm_providers.urllib.request.urlopen", fake_urlopen):
+        with patch("ai_caddie.llm.llm_providers.urllib.request.urlopen", fake_urlopen):
             reply = provider.chat_multimodal(
                 [
                     LLMMessage(role="system", content="facts only"),
@@ -415,7 +415,7 @@ class LLMProviderTests(unittest.TestCase):
         self.assertNotIn("refresh-secret", text)
 
     def test_llm_provider_source_does_not_embed_gemini_cli_oauth_client_secret(self) -> None:
-        source = Path("ai_caddie/llm_providers.py").read_text(encoding="utf-8")
+        source = Path("ai_caddie/llm/llm_providers.py").read_text(encoding="utf-8")
 
         self.assertNotIn("GOCSPX", source)
 

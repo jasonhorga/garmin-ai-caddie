@@ -8,7 +8,7 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import players
+from ai_caddie.rounds import players
 from server_v2.main import app
 
 ADMIN_ENV = {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}

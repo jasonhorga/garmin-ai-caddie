@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ai_caddie.config import DataMode, get_settings
+from ai_caddie.core.config import DataMode, get_settings
 from ai_caddie.connectors.garmin_oauth import build_oauth_feasibility_status
 from ai_caddie.connectors.redaction import sanitize_secret_text
 from ai_caddie.connectors.snapshot import (
@@ -11,7 +11,7 @@ from ai_caddie.connectors.snapshot import (
     read_connector_status,
     read_latest_snapshot_manifest,
 )
-from ai_caddie.data import ROOT
+from ai_caddie.core.data import ROOT
 
 from .models import ConnectorStatus, SnapshotStatus, SyncLastRunStatus, SyncStatusResponse
 

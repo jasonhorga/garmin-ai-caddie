@@ -5,8 +5,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ai_caddie import history, round_ingest, stats_cache
-from ai_caddie.data import semicircle_to_deg
+from ai_caddie.history import history, stats_cache
+from ai_caddie.rounds import round_ingest
+from ai_caddie.core.data import semicircle_to_deg
 
 
 def _events() -> list[dict]:

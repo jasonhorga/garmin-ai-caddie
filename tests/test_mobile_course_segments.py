@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import unittest
 
-from ai_caddie.history import HistoryData
-from ai_caddie.mobile_live import _merge_nines, build_mobile_course_options
+from ai_caddie.history.history import HistoryData
+from ai_caddie.caddie.mobile_live import _merge_nines, build_mobile_course_options
 
 
 def _nine_package(label: str, ready: int) -> dict:

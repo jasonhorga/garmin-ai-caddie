@@ -14,7 +14,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from ai_caddie.data import HAZARD_DIR, ROOT, list_rounds
+from ai_caddie.core.data import HAZARD_DIR, ROOT, list_rounds
 
 
 def frequent_course_ids(limit: int) -> list[tuple[int, int, str]]:

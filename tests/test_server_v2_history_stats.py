@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import stats_cache
-from ai_caddie.config import get_settings
-from ai_caddie.decision import store_decision_audit
-from ai_caddie.history import HistoryData
+from ai_caddie.history import stats_cache
+from ai_caddie.core.config import get_settings
+from ai_caddie.caddie.decision import store_decision_audit
+from ai_caddie.history.history import HistoryData
 from server_v2.main import app
 
 

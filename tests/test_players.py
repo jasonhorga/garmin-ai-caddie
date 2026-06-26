@@ -2,7 +2,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 import tempfile
-from ai_caddie import players
+from ai_caddie.rounds import players
 
 
 class PlayersRegistryTests(unittest.TestCase):
