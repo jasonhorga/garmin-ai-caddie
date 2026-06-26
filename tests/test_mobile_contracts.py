@@ -2800,7 +2800,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public func receiveState(_ state: WatchRoundState) {", sync_swift)
         # P1-11: the previously-swallowing `try?` persist/flush now log on failure (the watch target
         # had no logging at all, so an on-wrist save/sync failure was undiagnosable).
-        self.assertIn("try persistState(state)", sync_swift)
+        # P1-12: a phone snapshot is dirty-merged with the watch's still-queued edits before it is
+        # applied/persisted, so on-wrist score/club edits aren't clobbered by a stale phone push.
+        self.assertIn("let merged = applyingQueuedEdits(to: state)", sync_swift)
+        self.assertIn("private func applyingQueuedEdits(to state: WatchRoundState) -> WatchRoundState", sync_swift)
+        self.assertIn("try persistState(merged)", sync_swift)
         self.assertIn('WatchLog.storage.error("Persist received state failed', sync_swift)
         self.assertIn("sessionReachabilityDidChange", sync_swift)
         self.assertIn("try flushQueue()", sync_swift)
