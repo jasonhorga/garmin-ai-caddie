@@ -21,6 +21,7 @@ DATA_PATHS = [
     Path("data") / "weather",
     Path("data") / "reports",
     Path("data") / "decision_audits",
+    Path("data") / "decisions",  # P2: the live caddie decisions ledger (decisions.jsonl) — was omitted
 ]
 
 GEOMETRY_OUTPUT_PATHS = [

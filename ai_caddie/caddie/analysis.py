@@ -438,7 +438,9 @@ def candidate_routes(hole: dict[str, Any], shots: list[dict[str, Any]], geometry
     start_local = (first or {}).get("start", {}).get("local")
     if not start_local:
         tees = hazards.get("tees") or []
-        start_local = tees[0]["position"] if tees else None
+        # P2: tees is not pre-filtered for "position" here (unlike the selected-tee paths), so a tee
+        # row without a position must degrade to None, not KeyError out of the whole route build.
+        start_local = tees[0].get("position") if tees else None
     if not start_local:
         return []
     start = tuple(start_local)
