@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ai_caddie.core.data import ROOT  # repo root; data/ lives under it
+import logging
+
+from ai_caddie.core.data import ROOT, atomic_write_json, safe_read_json  # repo root; data/ lives under it
+
+logger = logging.getLogger(__name__)
 
 OWNER_ID = "me"
 
@@ -31,25 +35,35 @@ def _now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def load_registry(root: Path | str | None = None) -> dict[str, Any]:
-    path = _registry_path(root)
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    reg = {
+def _default_registry() -> dict[str, Any]:
+    return {
         "schema": "ai-caddie-players-v1",
         "players": [
             {"id": OWNER_ID, "name": "我", "isOwner": True, "createdAt": _now(),
              "avatar": None, "tokenHash": None, "tokenLast4": None},
         ],
     }
+
+
+def load_registry(root: Path | str | None = None) -> dict[str, Any]:
+    path = _registry_path(root)
+    if path.exists():
+        reg = safe_read_json(path)
+        if isinstance(reg, dict) and "players" in reg:
+            return reg
+        # Corrupt/torn registry (e.g. a crash mid-write): never 500 the auth path.
+        # Serve an owner-only fallback in memory and leave the file intact for
+        # recovery. Player tokens stop resolving until it is fixed; the owner
+        # (admin token) is unaffected — it never reads this file.
+        logger.error("player registry at %s unreadable; serving owner-only fallback", path)
+        return _default_registry()
+    reg = _default_registry()
     _save_registry(reg, root)
     return reg
 
 
 def _save_registry(reg: dict[str, Any], root: Path | str | None) -> None:
-    path = _registry_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(reg, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(_registry_path(root), reg)
 
 
 def _issue_token() -> str:
@@ -128,7 +142,10 @@ def get_player(player_id: str, *, root: Path | str | None = None) -> dict[str, A
     """
     path = _registry_path(root)
     if path.exists():
-        reg = json.loads(path.read_text(encoding="utf-8"))
+        reg = safe_read_json(path)
+        if not isinstance(reg, dict):
+            logger.error("player registry at %s unreadable in get_player", path)
+            reg = _default_registry()
         for row in reg.get("players", []):
             if row.get("id") == player_id:
                 return {
