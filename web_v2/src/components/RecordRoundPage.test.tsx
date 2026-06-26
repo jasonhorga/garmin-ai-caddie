@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { RoundIngestRequestBody, RoundIngestResult } from '../types'
@@ -56,6 +56,25 @@ describe('RecordRoundPage', () => {
       { hole: 1, kind: 'location', payload: { latitude: 39.91, longitude: 116.41, horizontalAccuracyM: 4, source: 'web' } },
       { hole: 1, kind: 'score', payload: { strokes: 5 } },
     ])
+  })
+
+  it('uses a unique clientRoundId per round so identical rounds never collide', async () => {
+    const submitIdenticalRound = async () => {
+      const { onIngest } = renderRecord()
+      await userEvent.click(screen.getByRole('button', { name: '开始记分' }))
+      await userEvent.type(screen.getByLabelText('本洞杆数'), '4')
+      await userEvent.click(screen.getByRole('button', { name: '结束并提交' }))
+      await screen.findByRole('heading', { name: '已提交 ✅' })
+      const [, body] = onIngest.mock.calls[0] as unknown as [string, RoundIngestRequestBody]
+      cleanup()
+      return body.clientRoundId
+    }
+    const first = await submitIdenticalRound()
+    const second = await submitIdenticalRound()
+    expect(first).toMatch(/^web-/)
+    // Two identical-content rounds must NOT share an id — the old format derived
+    // it from totalShots/scoredHoles, so two real rounds collided and got merged.
+    expect(first).not.toEqual(second)
   })
 
   it('surfaces a geolocation error without losing the session', async () => {
