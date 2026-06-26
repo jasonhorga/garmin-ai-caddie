@@ -13,6 +13,7 @@ from unittest.mock import patch
 from ai_caddie.core.config import get_settings
 from ai_caddie.llm.llm import maybe_call_anthropic, maybe_call_llm
 from ai_caddie.llm.llm_providers import (
+    AnthropicProvider,
     GeminiApiKeyProvider,
     GeminiCliOAuthProvider,
     LLMMediaPart,
@@ -413,6 +414,64 @@ class LLMProviderTests(unittest.TestCase):
         text = str(raised.exception)
         self.assertIn("requires client_id and client_secret", text)
         self.assertNotIn("refresh-secret", text)
+
+    def test_gemini_cli_oauth_reloads_token_once_the_cached_one_expires(self) -> None:
+        # P1-10: a cached access token must not be reused forever. Once it expires the provider
+        # reloads from credentials instead of 401-ing with a stale token until process restart.
+        with TemporaryDirectory() as tmp:
+            credentials_file = Path(tmp) / "oauth.json"
+            _write_cli_oauth_token_cache(credentials_file)  # "test-token", valid for ~1h
+            provider = GeminiCliOAuthProvider(
+                model="gemini-test",
+                oauth_credentials_file=str(credentials_file),
+                google_cloud_project="project",
+                http_client=FakeCodeAssistHttpClient([]),
+            )
+
+            self.assertEqual(provider._auth_headers()["Authorization"], "Bearer test-token")
+
+            # Rotate the on-disk token and force the in-memory copy to look expired.
+            credentials_file.write_text(
+                json.dumps(
+                    {
+                        "access_token": "rotated-token",
+                        "expiry_date": (datetime.now(UTC) + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            provider._token_expiry = datetime.now(UTC) - timedelta(seconds=1)
+
+            self.assertEqual(provider._auth_headers()["Authorization"], "Bearer rotated-token")
+
+    def test_anthropic_chat_preserves_system_prompt_when_messages_is_a_generator(self) -> None:
+        # P1-10: chat() iterates `messages` once for messages= and again for system=. A generator
+        # would be exhausted by the first pass, dropping the system prompt — materialize it first.
+        captured: dict[str, object] = {}
+
+        class _FakeMessages:
+            def create(self, **kwargs: object) -> object:
+                captured.update(kwargs)
+                return SimpleNamespace(content=[SimpleNamespace(text="ok")])
+
+        class _FakeAnthropic:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                self.messages = _FakeMessages()
+
+        provider = AnthropicProvider(api_key_present=True, model="claude-test")
+        message_stream = (
+            message
+            for message in [
+                LLMMessage(role="system", content="be brief"),
+                LLMMessage(role="user", content="hi"),
+            ]
+        )
+        with patch.dict("sys.modules", {"anthropic": SimpleNamespace(Anthropic=_FakeAnthropic)}):
+            reply = provider.chat(message_stream)
+
+        self.assertEqual(reply, "ok")
+        self.assertEqual(captured["system"], "be brief")
+        self.assertEqual(captured["messages"], [{"role": "user", "content": "hi"}])
 
     def test_llm_provider_source_does_not_embed_gemini_cli_oauth_client_secret(self) -> None:
         source = Path("ai_caddie/llm/llm_providers.py").read_text(encoding="utf-8")
