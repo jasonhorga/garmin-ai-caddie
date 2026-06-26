@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import json
 import math
+import os
 import re
 import time
 
@@ -38,9 +39,33 @@ def read_json(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
-def write_json(path: Path, data: Any) -> None:
+def safe_read_json(path: Path, default: Any = None) -> Any:
+    """Read JSON, returning ``default`` if the file is missing, unreadable, or
+    corrupt (e.g. a last write torn by a crash). Never let one bad file 500 a
+    request path. Pair with :func:`atomic_write_json` so corruption can't arise
+    in the first place."""
+    try:
+        return json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
+        return default
+
+
+def atomic_write_json(path: Path, data: Any) -> None:
+    """Write JSON crash-safely: serialize fully to a sibling temp file, then
+    ``os.replace`` it into place. A reader therefore only ever sees the old
+    complete file or the new complete file — never a half-written/torn one."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
+def write_json(path: Path, data: Any) -> None:
+    atomic_write_json(path, data)
 
 
 def semicircle_to_deg(value: int | float | None) -> float | None:
@@ -71,7 +96,9 @@ def local_to_wgs84(x: float, y: float, ref_lat: float, ref_lon: float) -> list[f
 def load_club_overrides() -> dict[int, dict[str, Any]]:
     if not CLUBS_FILE.exists():
         return {}
-    raw = read_json(CLUBS_FILE)
+    raw = safe_read_json(CLUBS_FILE, {})  # a corrupt clubs.json must not 500 history/reports/prep
+    if not isinstance(raw, dict):
+        return {}
     out: dict[int, dict[str, Any]] = {}
     for key, value in raw.items():
         if key.startswith("_") or not isinstance(value, dict):

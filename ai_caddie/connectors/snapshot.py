@@ -8,7 +8,7 @@ import re
 import shutil
 from typing import Any
 
-from ai_caddie.core.data import ROOT, semicircle_to_deg
+from ai_caddie.core.data import ROOT, atomic_write_json, safe_read_json, semicircle_to_deg
 from ai_caddie.history.history import (
     HistoryData,
     canonical_course_name,
@@ -1181,7 +1181,7 @@ def write_connector_status(
         "errorCode": error_code,
         "updatedAt": _utc_now(),
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    atomic_write_json(path, payload)
     return path
 
 
@@ -1189,7 +1189,9 @@ def read_connector_status(*, root: Path = ROOT) -> dict[str, Any] | None:
     path = root / STATUS_FILE
     if not path.exists():
         return None
-    payload = json.loads(path.read_text())
+    payload = safe_read_json(path)  # torn/corrupt status must not 500 the public /sync/status
+    if not isinstance(payload, dict):
+        return None
     if isinstance(payload, dict) and "detail" in payload:
         payload["detail"] = sanitize_secret_text(payload.get("detail") or "")
     return payload
