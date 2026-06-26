@@ -11,7 +11,7 @@ from ai_caddie.geometry.inspect_courseview_release import COURSEVIEW, inspect_re
 
 from ai_caddie.geometry.batch_prodgeometry_course import process_hole
 
-from .data import ROOT, hazard_path, mesh_path, scorecard_files
+from ai_caddie.core.data import ROOT, hazard_path, mesh_path, scorecard_files
 
 
 _LOCK = threading.RLock()

@@ -10,8 +10,8 @@ from typing import Any
 import math
 import re
 
-from .analysis import COLORS, _component_points, _convex_hull, load_geometry
-from .data import (
+from ai_caddie.caddie.analysis import COLORS, _component_points, _convex_hull, load_geometry
+from ai_caddie.core.data import (
     HAZARD_DIR,
     MESH_DIR,
     ROOT,

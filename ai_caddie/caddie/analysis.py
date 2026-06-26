@@ -16,7 +16,7 @@ from ai_caddie.geometry.measure_prodgeometry_distances import (
     point_triangle_distance,
 )
 
-from .data import (
+from ai_caddie.core.data import (
     build_club_profiles,
     hazard_path,
     load_shot_file,
@@ -30,7 +30,7 @@ from .data import (
     wgs84_to_local,
     write_json,
 )
-from .decision import build_decision_plan, judge_decision_outcome
+from ai_caddie.caddie.decision import build_decision_plan, judge_decision_outcome
 
 ROOT = Path(__file__).resolve().parents[1]
 ANALYSIS_OUT = ROOT / "output" / "ai_caddie"
@@ -618,7 +618,7 @@ def build_hole_analysis(
 
     geometry_sync: dict[str, Any] | None = None
     if ensure_geometry:
-        from .geometry_sync import ensure_prodgeometry
+        from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
 
         geometry_sync = ensure_prodgeometry(int(hole["globalId"]), int(hole["localHole"]))
         if geometry_sync.get("ok"):

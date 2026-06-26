@@ -45,6 +45,14 @@ SCAN_DIRS = ["ai_caddie", "server_v2", "tests", "ops", "tools"]
 _MODS_RE = "|".join(sorted((re.escape(m) for m in SUBPKG), key=len, reverse=True))
 _DOTTED = re.compile(rf"\bai_caddie\.({_MODS_RE})\b")
 _FROM_PKG = re.compile(r"^(\s*)from ai_caddie import (.+?)\s*$")
+# relative imports of moved modules INSIDE ai_caddie/ (e.g. `from .data import` in a
+# module now under a subpackage) -> absolute, retargeted to the module's new subpackage.
+_REL = re.compile(rf"^(\s*)from \.+({_MODS_RE}) import ")
+
+
+def _rel_sub(m: "re.Match[str]") -> str:
+    mod = m.group(2)
+    return f"{m.group(1)}from ai_caddie.{SUBPKG[mod]}.{mod} import "
 
 
 def _dotted_sub(m: "re.Match[str]") -> str:
@@ -84,6 +92,7 @@ def rewrite_text(text: str) -> str:
             if split is not None:
                 out.append(nl.join(split) + nl)
                 continue
+        line = _REL.sub(_rel_sub, line)
         out.append(_DOTTED.sub(_dotted_sub, line) + nl)
     return "".join(out)
 
