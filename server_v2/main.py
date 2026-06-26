@@ -321,6 +321,27 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+# Comfortably exceeds the largest legitimate body — a base64 video upload (~80 MB raw ≈ 107 MB
+# encoded) — while still rejecting absurd/GB-scale payloads before any handler buffers them.
+MAX_REQUEST_BODY_BYTES = 160 * 1024 * 1024
+
+
+@app.middleware("http")
+async def reject_oversized_request_body(request: Request, call_next):
+    # P1-8 defense-in-depth: protected POSTs are already token-gated pre-body, but nothing capped
+    # body size. Refuse an over-large body by its declared Content-Length before parsing. Registered
+    # last so it is the OUTERMOST middleware and rejects before auth/handlers do any work.
+    raw_length = request.headers.get("content-length")
+    if raw_length is not None:
+        try:
+            declared = int(raw_length)
+        except ValueError:
+            declared = -1
+        if declared > MAX_REQUEST_BODY_BYTES:
+            return JSONResponse({"detail": "request body too large"}, status_code=413)
+    return await call_next(request)
+
+
 @app.get("/")
 def service_index() -> dict[str, object]:
     return {

@@ -39,8 +39,11 @@ def sanitize_safe_meta(value: Any) -> Any:
         for key, item in value.items():
             safe_key = str(key)
             if any(term in safe_key.lower() for term in SECRET_META_KEY_TERMS):
-                safe_key = "redacted"
-            sanitized[safe_key] = sanitize_safe_meta(item)
+                # P1-9: a key NAMED cookie/token/secret/… means the VALUE is the secret.
+                # Redact the value (not the key) so the meta stays legible without leaking it.
+                sanitized[safe_key] = "[redacted]"
+            else:
+                sanitized[safe_key] = sanitize_safe_meta(item)
         return sanitized
     if isinstance(value, list):
         return [sanitize_safe_meta(item) for item in value]

@@ -198,8 +198,17 @@ class ServerV2SyncRunTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 500)
         text = str(payload).lower()
-        for term in ("cookie", "csrf", "token", "secret", "authorization", ".garmin_tokens", "/home/"):
-            self.assertNotIn(term, text)
+        # P1-9: the secret VALUES must never leak — the free-text detail is scrubbed and every
+        # secret-named meta field has its value redacted (including a private path inside a value).
+        for secret_value in ("sessionid=abc", "csrf-value", "bearer abc", "xyz", ".garmin_tokens", "/home/"):
+            self.assertNotIn(secret_value, text)
+        # ...while the (non-secret) schema KEY names are kept, so the audit meta stays legible.
+        safe_meta = payload["safeMeta"]
+        self.assertEqual(safe_meta["cookie"], "[redacted]")
+        self.assertEqual(safe_meta["nested"]["csrf"], "[redacted]")
+        self.assertEqual(safe_meta["nested"]["path"], "<redacted>")
+        self.assertEqual(safe_meta["authorizationHeader"], "[redacted]")
+        self.assertIn("redacted", str(payload["detail"]).lower())
 
     def test_sync_garmin_warms_stats_cache_on_successful_sync(self) -> None:
         manifest = SnapshotManifest(

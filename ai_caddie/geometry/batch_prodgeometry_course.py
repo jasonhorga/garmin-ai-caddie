@@ -33,14 +33,35 @@ SUMMARY_ROOT = ROOT / "output" / "prodgeometry_batch"
 DEFAULT_SNAPSHOT = ROOT / "logs" / "probe_map_bodies" / "snapshot_400065_hole.json"
 
 
-def run(cmd: list[str], *, allow_fail: bool = False) -> tuple[bool, str]:
-    proc = subprocess.run(
-        cmd,
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+# node/python children here are network- AND CPU-bound (download + Draco decode). Without a
+# timeout one hung child blocks its caller forever; under the on-demand geometry path that used
+# to wedge every other hole too (P1-6). Cap each child so a hang fails fast and self-recovers.
+GEOMETRY_SUBPROCESS_TIMEOUT_S = 180.0
+
+
+def run(
+    cmd: list[str],
+    *,
+    allow_fail: bool = False,
+    timeout: float | None = GEOMETRY_SUBPROCESS_TIMEOUT_S,
+) -> tuple[bool, str]:
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial = exc.output or ""
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", "replace")
+        message = f"command timed out after {timeout}s: {' '.join(cmd)}\n{partial}"
+        if not allow_fail:
+            raise RuntimeError(message) from exc
+        return False, message
     ok = proc.returncode == 0
     if not ok and not allow_fail:
         raise RuntimeError(f"command failed ({proc.returncode}): {' '.join(cmd)}\n{proc.stdout}")
