@@ -987,7 +987,7 @@ def sync_status(request: Request) -> SyncStatusResponse | dict[str, str]:
     # global-IDs the owner plays, snapshot id) is owner-only. Anonymous callers get
     # connector liveness only — no counts, course ids, or error codes.
     if resolve_request_player(request) is None:
-        return {"status": "ok"}
+        return {"schema": "ai-caddie-sync-status-v2", "status": "ok"}
     return load_sync_status_response()
 
 
