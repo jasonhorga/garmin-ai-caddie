@@ -18,7 +18,7 @@ from pathlib import Path
 
 import requests
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]  # repo root: tools/<sub>/<file>.py is 2 dirs deep (P2 reorg fix)
 SCORECARD_DIR = ROOT / "data" / "scorecards"
 OUT = ROOT / "data" / "courseview"
 OUT.mkdir(parents=True, exist_ok=True)

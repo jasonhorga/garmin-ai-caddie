@@ -27,7 +27,7 @@ from ai_caddie.reports.reports import (
     store_report,
 )
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]  # repo root: tools/<sub>/<file>.py is 2 dirs deep (P2 reorg fix)
 SCORECARD_DIR = ROOT / "data" / "scorecards"
 OUT_DIR = ROOT / "output" / "ai_reviews"
 OUT_DIR.mkdir(parents=True, exist_ok=True)

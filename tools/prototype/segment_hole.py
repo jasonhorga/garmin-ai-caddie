@@ -15,7 +15,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]  # repo root: tools/<sub>/<file>.py is 2 dirs deep (P2 reorg fix)
 OVERLAY_DIR = ROOT / "output" / "hole_overlays"
 OUT_DIR = ROOT / "output" / "segmentation"
 OUT_DIR.mkdir(parents=True, exist_ok=True)

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]  # repo root: tools/<sub>/<file>.py is 2 dirs deep (P2 reorg fix)
 SRC = ROOT / "logs" / "probe_map_bodies" / "snapshot_400065_hole.json"
 OUT = ROOT / "output" / "hole_overlays"
 OUT.mkdir(parents=True, exist_ok=True)
