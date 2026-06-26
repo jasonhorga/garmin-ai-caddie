@@ -81,6 +81,14 @@ class FakeAuthProvider:
 
 
 class GarminCnConnectorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # P1-5: the connector now refreshes the club bag (best-effort) after details. Stub it by
+        # default so the transport/sync tests stay focused on the summary/details critical path;
+        # the club-specific tests below drive self._fetch_clubs_mock explicitly.
+        patcher = patch("ai_caddie.garmin.fetch.fetch_clubs")
+        self._fetch_clubs_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_transport_uses_injected_auth_provider_and_force_refresh_metadata(self) -> None:
         provider = FakeAuthProvider()
         transport = GarminCnFetchTransport(auth_provider=provider)
@@ -143,6 +151,41 @@ class GarminCnConnectorTests(unittest.TestCase):
         self.assertTrue(run.safe_meta["authRefreshSucceeded"])
         self.assertEqual(run.safe_meta["authRetryCount"], 1)
         self.assertEqual(run.safe_meta["lastStage"], "fetch_details")
+        assert_secret_free(self, run.safe_meta)
+
+    def test_transport_fetches_club_bag_after_details(self) -> None:
+        # P1-5: mirrors the CLI _fetch_history — the bag is refreshed on the SAME session right
+        # after details so the in-app Sync never leaves a stale club bag.
+        provider = FakeAuthProvider()
+        transport = GarminCnFetchTransport(auth_provider=provider)
+
+        with TemporaryDirectory() as tmp:
+            with (
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}]),
+                patch("ai_caddie.garmin.fetch.fetch_details"),
+            ):
+                run = transport.run(root=Path(tmp), with_shots=False, force_refresh_auth=False)
+
+        self._fetch_clubs_mock.assert_called_once_with(provider.session)
+        self.assertTrue(run.safe_meta["clubFetchOk"])
+        self.assertEqual(run.safe_meta["lastStage"], "fetch_details")  # clubs stays off the critical path
+        assert_secret_free(self, run.safe_meta)
+
+    def test_transport_club_fetch_failure_is_non_fatal(self) -> None:
+        # A club-fetch failure must never fail the sync — summary/details are the critical path.
+        provider = FakeAuthProvider()
+        transport = GarminCnFetchTransport(auth_provider=provider)
+        self._fetch_clubs_mock.side_effect = RuntimeError("club endpoint down")
+
+        with TemporaryDirectory() as tmp:
+            with (
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}, {"id": 2}]),
+                patch("ai_caddie.garmin.fetch.fetch_details"),
+            ):
+                run = transport.run(root=Path(tmp), with_shots=False, force_refresh_auth=False)
+
+        self.assertEqual(run.cards, [{"id": 1}, {"id": 2}])  # history survives a club-fetch failure
+        self.assertFalse(run.safe_meta["clubFetchOk"])
         assert_secret_free(self, run.safe_meta)
 
     def test_sync_refresh_failure_returns_reauth_required_with_retry_metadata(self) -> None:
