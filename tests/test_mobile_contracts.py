@@ -1320,6 +1320,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('URLQueryItem(name: "back_global_id"', sync_client)
         self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", start_view)
         self.assertIn("onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)", start_view)
+        # P1-3: the fallback live-round id is UUID-seeded so two real rounds on the same course don't
+        # reuse a fixed "live-<globalId>" and merge. The bare reused fallback must be gone.
+        self.assertIn("UUID().uuidString", start_view)
+        self.assertNotIn('?? "live-\\(option.globalId)"', start_view)
         # The "加打" list includes the same loop (A+A/B+B/C+C is a real way to play 18 on a 27-hole
         # course), so it must NOT filter the selected loop out.
         self.assertNotIn("$0.globalId != selectedSegment.globalId", start_view)
@@ -1420,6 +1424,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("syncClient.fetchEventReplay(roundId:", app_swift)
         self.assertIn("offlineStore.containsEvent(eventId:", app_swift)
         self.assertIn("liveRoundState = try? offlineStore.restoreLiveRoundState(roundId: roundId, package: package)", app_swift)
+        # P1-2: a failed local append must NOT advance/ack the cursor, or the server treats the dropped
+        # events as delivered and never resends them. The error-swallowing `try?` append is gone.
+        self.assertIn("try offlineStore.appendEvent(item.event)", app_swift)
+        self.assertNotIn("try? offlineStore.appendEvent(item.event)", app_swift)
 
         self.assertIn("func loadPendingEvents(roundId:", offline_store)
         self.assertIn("lastIndex(where:", offline_store)

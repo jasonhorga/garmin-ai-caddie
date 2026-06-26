@@ -605,13 +605,23 @@ public final class LiveRoundAppModel: ObservableObject {
             guard let replay = try? await syncClient.fetchEventReplay(roundId: roundId, afterSequence: cursor, limit: 200) else {
                 return
             }
+            var batchPersisted = true
             for item in replay.events {
                 let alreadyLocal = (try? offlineStore.containsEvent(eventId: item.event.eventId)) ?? false
                 if !alreadyLocal {
-                    try? offlineStore.appendEvent(item.event)
-                    appliedAny = true
+                    do {
+                        try offlineStore.appendEvent(item.event)
+                        appliedAny = true
+                    } catch {
+                        // P1-2: a local append failed — do NOT advance/ack past it, or the server treats
+                        // these events as delivered and never resends them (permanent on-disk loss).
+                        batchPersisted = false
+                        break
+                    }
                 }
             }
+            // Only advance the cursor for a fully-persisted batch; ack below covers just what's durable.
+            if !batchPersisted { break }
             latestCursor = replay.nextCursor
             cursor = replay.nextCursor
             if !replay.hasMore { break }

@@ -409,7 +409,9 @@ public struct StartRoundView: View {
               let option = courseOptions.first(where: { $0.globalId == globalId }) else {
             return
         }
-        roundId = option.suggestedLiveRoundId ?? "live-\(option.globalId)"
+        // P1-3: a fixed "live-<globalId>" fallback is reused across rounds on the same course, so two
+        // real rounds merge locally and post to the same backend round. Seed a unique id per round.
+        roundId = option.suggestedLiveRoundId ?? "live-\(option.globalId)-\(UUID().uuidString)"
         if let optionTeeBox = option.teeBox, optionTeeBox != "unknown" {
             teeBox = optionTeeBox
         }
