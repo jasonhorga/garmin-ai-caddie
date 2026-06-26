@@ -66,6 +66,7 @@ from .players_api import (
     has_valid_player_token,
     is_player_scoped_route,
     OWNER_ID,
+    resolve_request_player,
 )
 from .prep_tips import load_prep_tips_response
 from .weather import load_weather_snapshot_response
@@ -390,7 +391,13 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/v2/readiness")
-def readiness() -> dict[str, object]:
+def readiness(request: Request) -> dict[str, object]:
+    # Owner operational evidence (round ids/counts/sync errors) + a heavy per-call
+    # owner-package build are owner-only. Anonymous callers get liveness only —
+    # both a data-leak fix and a no-auth DoS-amplifier fix. (Liveness lives at
+    # GET /api/v2/health for unauthenticated monitors.)
+    if resolve_request_player(request) is None:
+        return {"schema": "ai-caddie-readiness-v1", "status": "ok"}
     return build_readiness_response()
 
 
@@ -974,8 +981,13 @@ def generate_trend_report(period: str, x_ai_caddie_admin_token: AdminTokenHeader
     return generate_trend_report_response(period)
 
 
-@app.get("/api/v2/sync/status", response_model=SyncStatusResponse)
-def sync_status() -> SyncStatusResponse:
+@app.get("/api/v2/sync/status")
+def sync_status(request: Request) -> SyncStatusResponse | dict[str, str]:
+    # Owner sync metadata (scorecard/shot counts, last-run error code, the course
+    # global-IDs the owner plays, snapshot id) is owner-only. Anonymous callers get
+    # connector liveness only — no counts, course ids, or error codes.
+    if resolve_request_player(request) is None:
+        return {"schema": "ai-caddie-sync-status-v2", "status": "ok"}
     return load_sync_status_response()
 
 
