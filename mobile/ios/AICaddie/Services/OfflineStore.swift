@@ -66,6 +66,30 @@ public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
             && targetLongitude == other.targetLongitude
             && targetKind == other.targetKind
     }
+
+    /// Save-only fields — score / putts / penalty — are persisted only on an explicit
+    /// Save (`submitEvents`), so a blanket restore on *any* incoming event or remote
+    /// sync would silently revert a value the user has edited but not yet saved (P0-5).
+    /// Reconcile field-by-field: a field whose on-screen value still matches the
+    /// snapshot we last synced to (`lastApplied`) is clean and adopts this snapshot's
+    /// value; a field that has diverged from the baseline — or has no baseline yet —
+    /// is a live local edit and is preserved.
+    public func reconciledSaveOnlyFields(
+        currentScore: Int,
+        currentPutts: Int,
+        currentPenaltyCount: Int,
+        lastApplied: LiveHoleStateSnapshot?
+    ) -> (score: Int, putts: Int, penaltyCount: Int) {
+        func resolve(_ current: Int, _ incoming: Int, _ baseline: Int?) -> Int {
+            guard let baseline, current == baseline else { return current }
+            return incoming
+        }
+        return (
+            score: resolve(currentScore, score, lastApplied?.score),
+            putts: resolve(currentPutts, putts, lastApplied?.putts),
+            penaltyCount: resolve(currentPenaltyCount, penaltyCount, lastApplied?.penaltyCount)
+        )
+    }
 }
 
 private enum NullableNumberPayload {

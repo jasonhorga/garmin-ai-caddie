@@ -862,9 +862,17 @@ public struct CurrentHoleView: View {
     }
 
     private func applyRestoredState(_ restoredHoleState: LiveHoleStateSnapshot) {
-        score = restoredHoleState.score
-        puttCount = restoredHoleState.putts
-        penaltyCount = restoredHoleState.penaltyCount
+        // Save-only fields are persisted only on explicit Save; preserve any the user
+        // has edited-but-not-saved instead of reverting them to the snapshot (P0-5).
+        let reconciled = restoredHoleState.reconciledSaveOnlyFields(
+            currentScore: score,
+            currentPutts: puttCount,
+            currentPenaltyCount: penaltyCount,
+            lastApplied: lastAppliedRestoredHoleState
+        )
+        score = reconciled.score
+        puttCount = reconciled.putts
+        penaltyCount = reconciled.penaltyCount
         // Normalise to the same zhClubName the picker uses (init does this) so the ClubStrip highlight matches.
         selectedClub = zhClubName(restoredHoleState.selectedClub)
         selectedShotType = restoredHoleState.selectedShotType

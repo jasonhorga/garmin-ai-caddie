@@ -1640,6 +1640,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn(".onChange(of: liveRoundState)", current_hole)
         self.assertIn("lastAppliedRestoredHoleState?.hasSameRestorableFields(as: restoredHoleState) != true", current_hole)
         self.assertIn("lastAppliedRestoredHoleState = restoredHoleState", current_hole)
+        # P0-5: a restore must NOT blanket-overwrite save-only fields (score/putts/penalty are
+        # persisted only on explicit Save) — it reconciles them, preserving unsaved local edits.
+        self.assertIn("restoredHoleState.reconciledSaveOnlyFields(", current_hole)
         self.assertIn("guard let latestFix else", current_hole)
         self.assertIn("distanceToPinText = restoredHoleState.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? \"\"", current_hole)
         self.assertIn('payload["distanceToPinM"] = distanceToPinPayload()', current_hole)
@@ -1648,6 +1651,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("testRestoreLiveRoundStateReplaysScoringClubAndLocationEvents", offline_tests)
         self.assertIn("testRestoreLiveRoundStateClearsNullableLiveFieldsInLogOrder", offline_tests)
         self.assertIn("testLiveHoleStateRestorableComparisonIgnoresUpdatedAt", offline_tests)
+        self.assertIn("testReconcileSaveOnlyFieldsPreservesUnsavedLocalEdits", offline_tests)
 
     def test_ios_api_base_url_feeds_live_caddie_and_media_upload(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")

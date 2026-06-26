@@ -313,6 +313,79 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertTrue(try store.hasRecordedEvents(roundId: package.roundId))  // 继续这场 card survives
     }
 
+    func testReconcileSaveOnlyFieldsPreservesUnsavedLocalEdits() throws {
+        // P0-5: score/putts/penalty persist only on an explicit Save, so when ANY incoming
+        // event or remote sync rebuilds the snapshot it still carries the OLD persisted
+        // values. A blanket restore reverted the user's unsaved edits — reconcile must keep
+        // every on-screen field the user has diverged from the baseline on.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try fixturePackage()
+        let baseline = try XCTUnwrap(
+            try store.restoreLiveRoundState(roundId: package.roundId, package: package).holeState(for: 1)
+        )
+        // Nothing was saved, so the rebuilt snapshot equals the baseline we last synced to.
+        let incoming = baseline
+        let merged = incoming.reconciledSaveOnlyFields(
+            currentScore: baseline.score + 2,
+            currentPutts: baseline.putts + 1,
+            currentPenaltyCount: baseline.penaltyCount + 1,
+            lastApplied: baseline
+        )
+        XCTAssertEqual(merged.score, baseline.score + 2)
+        XCTAssertEqual(merged.putts, baseline.putts + 1)
+        XCTAssertEqual(merged.penaltyCount, baseline.penaltyCount + 1)
+    }
+
+    func testReconcileSaveOnlyFieldsAdoptsSnapshotForUntouchedFields() throws {
+        // A field the user has NOT touched (on-screen value still equals the baseline) adopts
+        // the incoming snapshot — a remote/watch sync that legitimately advanced a value wins
+        // when there is no competing local edit.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try fixturePackage()
+        let baseline = try XCTUnwrap(
+            try store.restoreLiveRoundState(roundId: package.roundId, package: package).holeState(for: 1)
+        )
+        var incoming = baseline
+        incoming.score = baseline.score + 3
+        incoming.putts = baseline.putts + 2
+        incoming.penaltyCount = baseline.penaltyCount + 1
+        let merged = incoming.reconciledSaveOnlyFields(
+            currentScore: baseline.score,
+            currentPutts: baseline.putts,
+            currentPenaltyCount: baseline.penaltyCount,
+            lastApplied: baseline
+        )
+        XCTAssertEqual(merged.score, baseline.score + 3)
+        XCTAssertEqual(merged.putts, baseline.putts + 2)
+        XCTAssertEqual(merged.penaltyCount, baseline.penaltyCount + 1)
+    }
+
+    func testReconcileSaveOnlyFieldsKeepsLocalEditWhenNoBaseline() throws {
+        // Fresh hole: no prior live state, so there is no baseline to prove a field is clean.
+        // Save-only fields default to preserving the on-screen edit rather than clobbering it
+        // with a partial snapshot.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try fixturePackage()
+        let incoming = try XCTUnwrap(
+            try store.restoreLiveRoundState(roundId: package.roundId, package: package).holeState(for: 1)
+        )
+        let merged = incoming.reconciledSaveOnlyFields(
+            currentScore: incoming.score + 5,
+            currentPutts: incoming.putts + 1,
+            currentPenaltyCount: incoming.penaltyCount + 2,
+            lastApplied: nil
+        )
+        XCTAssertEqual(merged.score, incoming.score + 5)
+        XCTAssertEqual(merged.putts, incoming.putts + 1)
+        XCTAssertEqual(merged.penaltyCount, incoming.penaltyCount + 2)
+    }
+
     private func fixturePackage() throws -> LiveRoundPackage {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
