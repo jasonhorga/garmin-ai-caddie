@@ -342,6 +342,7 @@ class GeminiCliOAuthProvider:
         self.google_cloud_location = google_cloud_location
         self._http_client = http_client or UrllibCodeAssistHttpClient()
         self._token: str | None = None
+        self._token_expiry: datetime | None = None
         self._code_assist_loaded = False
         self._resolved_project: str | None = None
         self._session_id = str(uuid4())
@@ -388,14 +389,18 @@ class GeminiCliOAuthProvider:
         )
 
     def _auth_headers(self) -> dict[str, str]:
-        token = self._token or _load_oauth_access_token(
-            oauth_credentials_file=self.oauth_credentials_file,
-            oauth_credentials_json=self.oauth_credentials_json,
-            oauth_credentials_b64=self.oauth_credentials_b64,
-        )
-        self._token = token
+        # P1-10: reload once the cached token is missing OR within the expiry skew — never reuse a
+        # stale token forever (the old `self._token or load()` cached the first token until restart,
+        # so it 401'd ~1h later). The loader returns a non-expired file/creds token without a network
+        # call and only refreshes (and re-persists) when actually expired.
+        if self._token is None or _token_is_expired(self._token_expiry):
+            self._token, self._token_expiry = _load_oauth_access_token(
+                oauth_credentials_file=self.oauth_credentials_file,
+                oauth_credentials_json=self.oauth_credentials_json,
+                oauth_credentials_b64=self.oauth_credentials_b64,
+            )
         return {
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {self._token}",
             "Content-Type": "application/json",
         }
 
@@ -405,7 +410,7 @@ def _load_oauth_access_token(
     oauth_credentials_file: str | None,
     oauth_credentials_json: str | None = None,
     oauth_credentials_b64: str | None = None,
-) -> str:
+) -> tuple[str, datetime | None]:
     data, path = _load_oauth_credentials_data(
         oauth_credentials_file=oauth_credentials_file,
         oauth_credentials_json=oauth_credentials_json,
@@ -414,7 +419,7 @@ def _load_oauth_access_token(
     token = _optional_str(data.get("access_token")) or _optional_str(data.get("token"))
     expiry = _parse_expiry(data.get("expiry_date") or data.get("expiry"))
     if token and not _token_is_expired(expiry):
-        return token
+        return token, expiry
 
     refresh_token = _optional_str(data.get("refresh_token"))
     if not refresh_token:
@@ -425,7 +430,7 @@ def _load_oauth_access_token(
     refreshed = _refresh_oauth_token(data, refresh_token)
     if path is not None:
         _write_refreshed_token_cache(path, data, refreshed)
-    return refreshed["access_token"]
+    return refreshed["access_token"], _parse_expiry(refreshed.get("expiry_date"))
 
 
 def _load_oauth_credentials_data(
@@ -651,12 +656,15 @@ class AnthropicProvider:
     def chat(self, messages: Iterable[LLMMessage], max_tokens: int | None = None) -> str:
         import anthropic
 
+        # Materialize once (P1-10): `messages` may be a generator. Iterating it for messages= and
+        # again for system= would exhaust it on the first pass, silently dropping the system prompt.
+        message_list = list(messages)
         client = anthropic.Anthropic()
         response = client.messages.create(
             model=self.model,
             max_tokens=max_tokens or 1800,
-            messages=[{"role": item.role, "content": item.content} for item in messages if item.role != "system"],
-            system="\n\n".join(item.content for item in messages if item.role == "system") or None,
+            messages=[{"role": item.role, "content": item.content} for item in message_list if item.role != "system"],
+            system="\n\n".join(item.content for item in message_list if item.role == "system") or None,
         )
         try:
             return str(response.content[0].text)
