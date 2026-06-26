@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import os
 import WatchConnectivity
 
 public enum WatchInputKind: String, Codable, Equatable {
@@ -146,7 +147,11 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         publishStateUpdate { client in
             client.currentState = state
         }
-        try? persistState(state)
+        do {
+            try persistState(state)
+        } catch {
+            WatchLog.storage.error("Persist received state failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     public func sendQuickInputEvent(_ event: WatchInputEvent) throws {
@@ -195,7 +200,11 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         publishStateUpdate { client in
             client.currentState = updated
         }
-        try? persistState(updated)
+        do {
+            try persistState(updated)
+        } catch {
+            WatchLog.storage.error("Persist updated state failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     public func markEventsAcknowledged(_ eventIds: [String]) throws {
@@ -250,16 +259,29 @@ public final class WatchSyncClient: NSObject, ObservableObject {
                 if !acknowledgement.resolvedEventIds.isEmpty {
                     self?.publishPhoneAccepted()
                     if removeFromQueueOnAck {
-                        try? self?.markEventsAcknowledged(acknowledgement.resolvedEventIds)
+                        do {
+                            try self?.markEventsAcknowledged(acknowledgement.resolvedEventIds)
+                        } catch {
+                            WatchLog.sync.error("Mark events acknowledged failed: \(String(describing: error), privacy: .public)")
+                        }
                     }
                 } else if queueOnFailure {
-                    try? self?.queueInputEvent(event)
+                    do {
+                        try self?.queueInputEvent(event)
+                    } catch {
+                        WatchLog.sync.error("Queue input event failed: \(String(describing: error), privacy: .public)")
+                    }
                 }
             },
-            errorHandler: { [weak self] _ in
+            errorHandler: { [weak self] error in
+                WatchLog.connectivity.error("Watch→phone sendMessage failed: \(String(describing: error), privacy: .public)")
                 self?.publishPhoneReachable(false)
                 if queueOnFailure {
-                    try? self?.queueInputEvent(event)
+                    do {
+                        try self?.queueInputEvent(event)
+                    } catch {
+                        WatchLog.sync.error("Queue input event failed: \(String(describing: error), privacy: .public)")
+                    }
                 }
             }
         )
@@ -334,14 +356,22 @@ extension WatchSyncClient: WCSessionDelegate {
     ) {
         publishPhoneReachable(session.isReachable)
         if activationState == .activated, session.isReachable {
-            try? flushQueue()
+            do {
+                try flushQueue()
+            } catch {
+                WatchLog.sync.error("Flush queued events failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
     public func sessionReachabilityDidChange(_ session: WCSession) {
         publishPhoneReachable(session.isReachable)
         if session.isReachable {
-            try? flushQueue()
+            do {
+                try flushQueue()
+            } catch {
+                WatchLog.sync.error("Flush queued events failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
