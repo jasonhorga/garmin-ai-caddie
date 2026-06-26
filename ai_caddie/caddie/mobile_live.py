@@ -2189,7 +2189,10 @@ def _event_log_rows(
     for fallback_sequence, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
             continue
-        row = json.loads(line)
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # tolerate a torn final append; one bad line must not 500 replay
         if round_id is not None and str(row.get("roundId") or "") != str(round_id):
             continue
         if not row.get("serverSequence"):
@@ -2333,7 +2336,10 @@ def append_event_batch(
             for line in path.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
                     continue
-                row = json.loads(line)
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # torn final append must not 500 the events POST
                 server_sequence += 1
                 row_round_id = str(row.get("roundId") or "")
                 existing_keys.add((row_round_id, str(row.get("idempotencyKey") or "")))

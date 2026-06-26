@@ -158,7 +158,10 @@ def list_annotations(*, root: Path | str | None = None) -> list[dict[str, Any]]:
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        record = json.loads(line)
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # tolerate a torn final append; never 500 the read path
         if isinstance(record, dict):
             record = {**record, "payload": _redact_payload(record.get("payload"))}
         records.append(record)
