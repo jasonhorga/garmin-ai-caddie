@@ -1652,13 +1652,18 @@ describe('geometry API helpers', () => {
       }),
     })))
 
-    await fetchHoleGeometryEvidence(31795, 7, '900001:7')
-    await fetchHoleMap(31795, 7, 'esri_world_imagery', '900001:7')
+    await fetchHoleGeometryEvidence(31795, 7, '900001:7', {}, 'admin-secret')
+    await fetchHoleMap(31795, 7, 'esri_world_imagery', '900001:7', 'admin-secret')
 
-    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7')
+    // P1-4: source-bound (owner) geometry is admin-gated on the backend → both helpers must send
+    // the admin token, otherwise the owner per-hole drilldown 401s.
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/v2/geometry/hole/31795/7?source_ref=900001%3A7', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
     expect(fetch).toHaveBeenNthCalledWith(
       2,
       '/api/v2/geometry/hole/31795/7/map?provider=esri_world_imagery&source_ref=900001%3A7',
+      { headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' } },
     )
   })
 

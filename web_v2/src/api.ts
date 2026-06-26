@@ -349,6 +349,7 @@ export function fetchHoleGeometryEvidence(
   localHole: number,
   sourceRef?: string,
   routeParams: HoleGeometryRouteParams = {},
+  adminToken?: string,
 ): Promise<GeometryEvidenceResponse> {
   const query = new URLSearchParams()
   appendParam(query, 'source_ref', sourceRef)
@@ -358,8 +359,11 @@ export function fetchHoleGeometryEvidence(
   appendParam(query, 'target_y', routeParams.targetY)
   appendParam(query, 'landing_radius_m', routeParams.landingRadiusM)
   const suffix = query.toString()
+  // P1-4: the backend admin-gates this route whenever source_ref is present (owner per-hole
+  // drilldown), so the token must be threaded or the owner UI 401s.
   return getJson<GeometryEvidenceResponse>(
     `/api/v2/geometry/hole/${encodeURIComponent(String(globalId))}/${encodeURIComponent(String(localHole))}${suffix ? `?${suffix}` : ''}`,
+    adminToken,
   )
 }
 
@@ -384,11 +388,14 @@ export function fetchHoleMap(
   localHole: number,
   provider = 'esri_world_imagery',
   sourceRef?: string,
+  adminToken?: string,
 ): Promise<HoleMapResponse> {
   const query = new URLSearchParams({ provider })
   appendParam(query, 'source_ref', sourceRef)
+  // P1-4: admin-gated alongside the evidence route when source_ref is present — thread the token.
   return getJson<HoleMapResponse>(
     `/api/v2/geometry/hole/${encodeURIComponent(String(globalId))}/${encodeURIComponent(String(localHole))}/map?${query.toString()}`,
+    adminToken,
   )
 }
 
