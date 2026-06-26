@@ -20,7 +20,10 @@ def _event_rows(round_id: str, *, root: Path | str | None = None) -> list[dict[s
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        row = json.loads(line)
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # tolerate a torn final append; never 500 the read path
         if str(row.get("roundId")) == str(round_id):
             event = row.get("event")
             if isinstance(event, dict):

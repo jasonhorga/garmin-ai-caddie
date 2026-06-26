@@ -49,6 +49,18 @@ class JsonStoreHardeningTests(unittest.TestCase):
             status.write_text("not json")
             self.assertIsNone(snapshot.read_connector_status(root=root))
 
+    def test_jsonl_reader_skips_a_torn_final_line(self) -> None:
+        # P0-3b: JSONL stores are append-only (can't be made atomic); a crash mid-
+        # append torns the last line. Readers must skip it, not 500 the read path.
+        from ai_caddie.caddie import decision
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = decision.decision_ledger_file(root)
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text('{"decisionId": "a", "x": 1}\n{"decisionId": "b", "x":\n')
+            rows = decision.list_decision_records(root=root)
+            self.assertEqual([r.get("decisionId") for r in rows], ["a"])
+
 
 if __name__ == "__main__":
     unittest.main()

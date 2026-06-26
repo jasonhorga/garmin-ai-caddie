@@ -245,7 +245,10 @@ def list_weather_snapshots(*, root: Path | str | None = None) -> list[dict[str, 
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
-            rows.append(json.loads(line))
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # tolerate a torn final append; never 500 the read path
     return rows
 
 

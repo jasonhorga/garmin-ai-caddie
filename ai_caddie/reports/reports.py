@@ -1825,7 +1825,10 @@ def list_report_records(*, root: Path | str | None = None) -> list[dict[str, Any
     records = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
-            records.append(json.loads(line))
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # tolerate a torn final append; never 500 the read path
     return records
 
 

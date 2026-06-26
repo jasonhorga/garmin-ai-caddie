@@ -273,7 +273,10 @@ def list_media_events(*, root: Path | str | None = None) -> list[dict[str, Any]]
     records = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
-            record = json.loads(line)
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # tolerate a torn final append; never 500 the read path
             if isinstance(record, dict) and record.get("localPath") != "[redacted]":
                 record = {**record, "localPath": _relative_local_path(str(record.get("localPath") or ""), root=root)}
             records.append(record)
