@@ -706,9 +706,10 @@ export default function App() {
     activeHoleGeometryTarget.current = target
     setHoleEvidenceState({ status: 'loading', sourceRef: target.sourceRef })
     try {
+      const adminToken = currentAdminToken()
       const [evidence, map] = await Promise.all([
-        fetchHoleGeometryEvidence(target.globalId, target.localHole, target.sourceRef),
-        fetchHoleMap(target.globalId, target.localHole, 'esri_world_imagery', target.sourceRef),
+        fetchHoleGeometryEvidence(target.globalId, target.localHole, target.sourceRef, {}, adminToken),
+        fetchHoleMap(target.globalId, target.localHole, 'esri_world_imagery', target.sourceRef, adminToken),
       ])
       if (!sameHoleGeometryTarget(activeHoleGeometryTarget.current, target)) return
       setHoleEvidenceState({ status: 'ready', sourceRef: target.sourceRef, evidence, map })
