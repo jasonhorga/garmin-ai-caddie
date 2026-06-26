@@ -14,7 +14,22 @@ from ai_caddie.geometry.batch_prodgeometry_course import process_hole
 from ai_caddie.core.data import ROOT, hazard_path, mesh_path, scorecard_files
 
 
-_LOCK = threading.RLock()
+# Per-hole locks (P1-6): serialize concurrent ensure() for the SAME hole — so two requests
+# never race the same download/extract/write — WITHOUT letting one hung node-subprocess wedge
+# geometry for every OTHER hole, which the single global lock did. The registry lock is held
+# only long enough to hand out a hole's lock, never across the network/subprocess work.
+_REGISTRY_LOCK = threading.Lock()
+_HOLE_LOCKS: dict[tuple[int, int], threading.Lock] = {}
+
+
+def _hole_lock(global_id: int, local_hole: int) -> threading.Lock:
+    key = (int(global_id), int(local_hole))
+    with _REGISTRY_LOCK:
+        lock = _HOLE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _HOLE_LOCKS[key] = lock
+        return lock
 
 
 def _display_path(path: Path) -> str:
@@ -64,7 +79,7 @@ def ensure_prodgeometry(
 ) -> dict[str, Any]:
     gid = int(global_id)
     hole_no = int(local_hole)
-    with _LOCK:
+    with _hole_lock(gid, hole_no):
         if not force and geometry_present(gid, hole_no):
             return {
                 "status": "cached",

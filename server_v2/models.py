@@ -952,7 +952,9 @@ class LiveRoundEventRecord(BaseModel):
 
 class LiveRoundEventBatchRequest(BaseModel):
     roundId: str = Field(min_length=1)
-    events: list[LiveRoundEventRecord] = Field(min_length=1)
+    # max_length caps a single sync batch (P1-8). 5000 is ~18× a full 18-hole round's events,
+    # so a legit offline catch-up never hits it, but a buggy/hostile client can't post millions.
+    events: list[LiveRoundEventRecord] = Field(min_length=1, max_length=5000)
 
 
 class LiveRoundEventBatchResponse(BaseModel):
