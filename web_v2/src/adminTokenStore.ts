@@ -59,3 +59,21 @@ export function readAdminTokenFromUrl(loc: AdminLocationLike = window.location):
 export function readBakedAdminToken(): string {
   return String(import.meta.env.VITE_AI_CADDIE_DEFAULT_ADMIN_TOKEN ?? '').trim()
 }
+
+/**
+ * Resolve the admin token to hydrate at app boot, in priority order:
+ *   URL `?admin=` (memory-only)  →  previously-stored (typed)  →  build-time baked default.
+ *
+ * P1-1 N2: a URL token is returned but deliberately NOT persisted to localStorage — the
+ * high-privilege admin token shouldn't be left at rest (XSS-readable, surviving the session)
+ * when it was only ever meant to ride in the owner's bookmarked URL. A reload re-reads it from
+ * the URL; an in-session SPA navigation keeps it in React state. A token the owner TYPES into the
+ * sync panel is still persisted by the caller (writeStoredAdminToken) for the bare-URL owner UX.
+ */
+export function resolveInitialAdminToken(loc: AdminLocationLike = window.location): string {
+  const fromUrl = readAdminTokenFromUrl(loc)
+  if (fromUrl) {
+    return fromUrl
+  }
+  return readStoredAdminToken() || readBakedAdminToken()
+}

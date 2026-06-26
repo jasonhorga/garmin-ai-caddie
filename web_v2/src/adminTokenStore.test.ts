@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readAdminTokenFromUrl, readBakedAdminToken } from './adminTokenStore'
+import { readAdminTokenFromUrl, readBakedAdminToken, readStoredAdminToken, resolveInitialAdminToken } from './adminTokenStore'
 
 describe('readAdminTokenFromUrl', () => {
   afterEach(() => {
@@ -45,5 +45,35 @@ describe('readBakedAdminToken', () => {
   it('returns the trimmed build-time token when set', () => {
     vi.stubEnv('VITE_AI_CADDIE_DEFAULT_ADMIN_TOKEN', '  baked-tok  ')
     expect(readBakedAdminToken()).toBe('baked-tok')
+  })
+})
+
+describe('resolveInitialAdminToken', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+    try {
+      window.localStorage.clear()
+    } catch {
+      /* storage may be unavailable in the test env */
+    }
+  })
+
+  it('returns a URL ?admin= token WITHOUT persisting it to localStorage (P1-1 N2)', () => {
+    window.localStorage.clear()
+    expect(resolveInitialAdminToken({ search: '?admin=urltok' })).toBe('urltok')
+    // the high-privilege admin token must NOT be left at rest in localStorage
+    expect(readStoredAdminToken()).toBe('')
+  })
+
+  it('falls back to the stored token when the URL carries none', () => {
+    window.localStorage.setItem('ai-caddie.admin-token', 'stored-tok')
+    expect(resolveInitialAdminToken({ search: '' })).toBe('stored-tok')
+  })
+
+  it('falls back to the baked default when neither URL nor storage has a token', () => {
+    window.localStorage.clear()
+    vi.stubEnv('VITE_AI_CADDIE_DEFAULT_ADMIN_TOKEN', 'baked-tok')
+    expect(resolveInitialAdminToken({ search: '' })).toBe('baked-tok')
   })
 })
