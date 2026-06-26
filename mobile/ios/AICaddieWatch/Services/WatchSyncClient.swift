@@ -144,14 +144,25 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     }
 
     public func receiveState(_ state: WatchRoundState) {
+        // P1-12: a phone snapshot must not clobber the watch's own unsynced edits. Re-apply the still-
+        // queued (not-yet-acked) quick inputs on top of the snapshot so on-wrist score/club/putt/penalty
+        // edits survive until the phone has actually accepted them (dirty-field merge).
+        let merged = applyingQueuedEdits(to: state)
         publishStateUpdate { client in
-            client.currentState = state
+            client.currentState = merged
         }
         do {
-            try persistState(state)
+            try persistState(merged)
         } catch {
             WatchLog.storage.error("Persist received state failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    private func applyingQueuedEdits(to state: WatchRoundState) -> WatchRoundState {
+        let queued = (try? loadQueuedEvents()) ?? []
+        // `applying` ignores events for a different round/hole, so edits for other holes stay queued
+        // and merge in when their hole's snapshot arrives; same-hole edits replay in queue order.
+        return queued.reduce(state) { partial, event in partial.applying(event) }
     }
 
     public func sendQuickInputEvent(_ event: WatchInputEvent) throws {

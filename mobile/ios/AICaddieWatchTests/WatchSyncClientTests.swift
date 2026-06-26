@@ -196,6 +196,49 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(try client.loadPersistedState()?.selectedClub, "7I")
     }
 
+    func testReceiveStateMergesUnacknowledgedWatchEditsOverAStalePhoneSnapshot() throws {
+        // P1-12: the watch edits score on-wrist (queued, not yet acked); a phone snapshot that predates
+        // that edit must NOT clobber it — the still-queued edit is re-applied on top of the snapshot.
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let queueURL = directoryURL.appendingPathComponent("queued_events.json")
+        let stateURL = directoryURL.appendingPathComponent("current_state.json")
+        let baseline = WatchRoundState(
+            roundId: "round-1",
+            hole: 7,
+            par: 4,
+            distanceM: 142,
+            suggestedClub: "8I",
+            selectedClub: "8I",
+            score: 4,
+            putts: 2,
+            penaltyCount: 0,
+            caddieConfidence: "medium"
+        )
+        let client = WatchSyncClient(queueURL: queueURL, stateURL: stateURL)
+        client.receiveState(baseline)
+
+        // The golfer taps score=6 on the watch (queued, awaiting the phone's ack).
+        try client.queueInputEvent(
+            WatchInputEvent(
+                eventId: "watch-score",
+                roundId: "round-1",
+                hole: 7,
+                kind: .score,
+                value: "6",
+                createdAt: "2026-05-25T00:00:00Z"
+            )
+        )
+        XCTAssertEqual(client.currentState?.score, 6)
+
+        // The phone re-pushes its snapshot, which still shows the old score (it hasn't acked yet).
+        client.receiveState(baseline)
+
+        // The watch edit survives the dirty-merge instead of being reverted to 4.
+        XCTAssertEqual(client.currentState?.score, 6)
+        XCTAssertEqual(try client.loadPersistedState()?.score, 6)
+    }
+
     #if canImport(WatchConnectivity)
     func testDidReceiveUserInfoPersistsRoundStateLikeInteractiveMessage() throws {
         let directoryURL = FileManager.default.temporaryDirectory
