@@ -123,7 +123,7 @@ geometry_artifacts(course_version_id, hole_number, kind, storage_uri, sha256, de
 
 ## 7. Course catalog — shared, versioned, two-tier
 
-- **Lightweight catalog (anonymous → Postgres):** from search (`course_search.py`: globalId/name/holes/province/city) **+ a per-course release hydration** (`inspect_courseview_release.py`) for `course_lat/lon`, per-hole `lat/lon/par/handicap/yardage`, `raster_url`, `release_version/id`. `[Codex][verified]` lat/lon is **not** in the search — it needs the release fetch (still anonymous, one cheap call/course). Crawl **regionally**: `[Codex]` start from **played course ids + a home-GPS radius + an explicit province/city allowlist**, rate-limited queue + backoff (no clean bulk endpoint), ToS-aware. **Enables "start a round near me"** by `course_lat/lon`.
+- **Lightweight catalog (anonymous → Postgres):** from search (`course_search.py`: globalId/name/holes/province/city) **+ a per-course release hydration** (`inspect_courseview_release.py`) for `course_lat/lon`, per-hole `lat/lon/par/handicap/yardage`, `raster_url`, `release_version/id`. `[Codex][verified]` lat/lon is **not** in the search — it needs the release fetch (still anonymous, one cheap call/course). Crawl **China-wide (`中国境内`)** for the lightweight catalog (owner decision) — a **rate-limited, incremental, resumable queue** with backoff (the search is name-query only, no clean bulk endpoint), ToS-aware. **Enables "start a round near me"** by `course_lat/lon`.
 - **Heavy geometry (artifacts on disk + DB metadata):** Draco meshes, hazards, elevation. Decode = heavy node/Draco subprocess **+ a Garmin credential**. **On-demand** for nearby / played / prepared courses.
 - **Version model:** rounds reference `course_version_id` (per **segment** for composite); a new Garmin map never reinterprets old rounds. Cron freshness by `release_version`/`release_id` → re-pull on bump → surface "map updated".
 - `[Codex][verified]` **Elevation already exists.** `ai_caddie/geometry/elevation.py` reads mesh `y` (terrain elevation, metres) for PlaysLike (±yd) with **no external DEM**, wired into `course_prep.py`. The **Phase-0 spike validates the existing mesh-`y` reliability/coverage** (and the 8 unused CourseView fields — GPS, `unknown_10`, tee gender/index, raster thumbnails, Rough/PlayableBounds, foliage) — it does **not** ask whether elevation exists.
@@ -161,12 +161,12 @@ geometry_artifacts(course_version_id, hole_number, kind, storage_uri, sha256, de
 
 Each phase = its own spec → plan → implementation; 0–3 are the foundation.
 
-## 11. Open decisions (owner input)
+## 11. Decisions (resolved 2026-06-26)
 
-1. **Geometry-key credential:** `[Codex]` a **dedicated course-data Garmin account** (recommended; family creds only as explicit break-glass).
-2. **Crawl scope:** `[Codex]` played ids + home-GPS radius + province/city allowlist (not all-CN) — confirm the allowlist.
-3. **Elevation/DEM:** defer external DEM; **do not** defer the mesh-`y` validation spike.
-4. **Apple-native rounds → Garmin:** `[Codex]` keep **strictly one-way** permanently (Garmin = import-only) — confirm.
+1. **Geometry-key credential:** ✅ **a dedicated course-data Garmin account** (family creds only as explicit break-glass). *Registration is a Phase-6/8 prerequisite and needs a CN phone + SMS OTP (+ Turnstile) — cannot be fully self-served; either a spare CN number is provided to drive the xvfb/Playwright registration on the homeserver, or the owner registers it once and hands over the credential.*
+2. **Crawl scope:** ✅ **China-wide (`中国境内`) first** — but applies to the **lightweight catalog only** (anonymous search + per-course release hydration is cheap enough to crawl CN-wide with a rate-limited, incremental, resumable queue). **Heavy geometry stays on-demand** (nearby / played / prepared), never bulk-all-CN. International is out of scope for now.
+3. **Elevation/DEM:** ✅ **investigate the data structures first** (Phase 0). Defer any external DEM; do **not** defer the mesh-`y` validation spike — the field dictionary + mesh-`y` reliability/coverage are part of Phase 0.
+4. **Apple-native rounds → Garmin:** ✅ **strictly one-way (no write-back)** for now — Garmin is import-only. Revisit a future write-back only if explicitly needed later.
 
 ## 12. Out of scope (now)
 
