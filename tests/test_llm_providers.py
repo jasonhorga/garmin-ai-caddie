@@ -415,7 +415,7 @@ class LLMProviderTests(unittest.TestCase):
         self.assertNotIn("refresh-secret", text)
 
     def test_llm_provider_source_does_not_embed_gemini_cli_oauth_client_secret(self) -> None:
-        source = Path("ai_caddie/llm_providers.py").read_text(encoding="utf-8")
+        source = Path("ai_caddie/llm/llm_providers.py").read_text(encoding="utf-8")
 
         self.assertNotIn("GOCSPX", source)
 
