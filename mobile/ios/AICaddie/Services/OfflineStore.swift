@@ -486,14 +486,21 @@ public final class OfflineStore {
         guard let text = String(data: data, encoding: .utf8) else {
             return []
         }
-        return try text
-            .split(separator: "\n")
-            .map { line in
-                try decoder.decode(PendingMediaAttachment.self, from: Data(line.utf8))
+        // Skip (don't throw on) a torn final line — the index is appended non-atomically, so an app
+        // kill mid-write leaves a truncated JSON fragment; a throwing decode there used to drop ALL
+        // pending media (P2, same truncation guard as loadEvents).
+        var media: [PendingMediaAttachment] = []
+        for line in text.split(separator: "\n") {
+            do {
+                let attachment = try decoder.decode(PendingMediaAttachment.self, from: Data(line.utf8))
+                if roundId == nil || attachment.roundId == roundId {
+                    media.append(attachment)
+                }
+            } catch {
+                AICaddieLog.storage.error("Skipping malformed pending-media line (truncation/schema): \(String(describing: error), privacy: .public)")
             }
-            .filter { media in
-                roundId == nil || media.roundId == roundId
-            }
+        }
+        return media
     }
 
     public func removePendingMedia(ids: Set<String>) throws {
