@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftUI
 
 @main
@@ -287,7 +288,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 isBootstrapping = false
             }
         } catch {
-            // ignore — phase 2 will populate (or fall back)
+            // Phase 2 will populate (or fall back); record why the cache bootstrap was skipped (P1-11).
+            AICaddieLog.storage.info("Phase-1 cache bootstrap skipped: \(String(describing: error), privacy: .public)")
         }
 
         // Phase 2 — BACKGROUND refresh (network): course options + a fresh active/home package.
@@ -325,6 +327,7 @@ public final class LiveRoundAppModel: ObservableObject {
             #endif
             // Truly offline first launch (no network, no cache): package stays nil → 开始一场 fallback.
         } catch {
+            AICaddieLog.network.error("Offline package bootstrap failed: \(String(describing: error), privacy: .public)")
             syncStatus = "Offline package unavailable"
         }
     }
@@ -336,6 +339,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             courseOptions = try await syncClient.fetchCourseOptions().courses
         } catch {
+            AICaddieLog.network.error("Course options fetch failed: \(String(describing: error), privacy: .public)")
             courseOptions = []
         }
     }
@@ -409,6 +413,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 syncStatus = "Round package unavailable"
             }
         } catch {
+            AICaddieLog.network.error("Round package prepare failed: \(String(describing: error), privacy: .public)")
             syncStatus = "Round package prepare failed"
         }
     }
@@ -448,6 +453,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 syncStatus = "Course package unavailable"
             }
         } catch {
+            AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
             syncStatus = "Course package prepare failed"
         }
     }
@@ -491,6 +497,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 syncStatus = "Course package unavailable"
             }
         } catch {
+            AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
             syncStatus = "Course package prepare failed"
         }
     }
@@ -541,6 +548,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // sync on the next event / app foreground).
             Task { await self.syncPendingEvents() }
         } catch {
+            AICaddieLog.storage.error("Event save failed: \(String(describing: error), privacy: .public)")
             syncStatus = "Event save failed"
         }
     }
@@ -586,6 +594,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // local pending events) so a round edited on the watch/web shows up here.
             await pullAndApplyRemoteEvents(roundId: package.roundId)
         } catch {
+            AICaddieLog.network.error("Pending-event sync failed: \(String(describing: error), privacy: .public)")
             syncStatus = "Sync failed"
         }
     }
@@ -657,6 +666,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 try offlineStore.attachUploadedMediaId(eventId: media.eventId, mediaId: uploadResponse.media.id)
                 uploadedIds.insert(media.id)
             } catch {
+                AICaddieLog.network.error("Pending media upload failed: \(String(describing: error), privacy: .public)")
                 continue
             }
         }
@@ -743,6 +753,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             return try await syncClient.fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)
         } catch {
+            AICaddieLog.network.error("Round package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             syncStatus = "Package sync unavailable; using cache"
             return nil
         }
@@ -756,6 +767,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             return try await syncClient.fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)
         } catch {
+            AICaddieLog.network.error("Round package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             syncStatus = "Package sync unavailable; using cache"
             return nil
         }
@@ -769,6 +781,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: true)
         } catch {
+            AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             syncStatus = "Course package sync unavailable; using cache"
             return nil
         }
@@ -782,6 +795,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: "all", capturedAt: capturedAt, ensureGeometry: true, backGlobalId: backGlobalId)
         } catch {
+            AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             syncStatus = "Course package sync unavailable; using cache"
             return nil
         }
@@ -840,6 +854,7 @@ public final class LiveRoundAppModel: ObservableObject {
             pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
             syncStatus = "Watch event saved"
         } catch {
+            AICaddieLog.watch.error("Watch event status update failed: \(String(describing: error), privacy: .public)")
             syncStatus = "Watch event status unavailable"
         }
     }

@@ -2797,9 +2797,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("publishPhoneReachable(session.isReachable)", sync_swift)
         self.assertIn("private func publishStateUpdate(_ update: @escaping (WatchSyncClient) -> Void)", sync_swift)
         self.assertIn("DispatchQueue.main.async", sync_swift)
-        self.assertIn("public func receiveState(_ state: WatchRoundState) {\n        publishStateUpdate { client in\n            client.currentState = state\n        }\n        try? persistState(state)", sync_swift)
+        self.assertIn("public func receiveState(_ state: WatchRoundState) {", sync_swift)
+        # P1-11: the previously-swallowing `try?` persist/flush now log on failure (the watch target
+        # had no logging at all, so an on-wrist save/sync failure was undiagnosable).
+        self.assertIn("try persistState(state)", sync_swift)
+        self.assertIn('WatchLog.storage.error("Persist received state failed', sync_swift)
         self.assertIn("sessionReachabilityDidChange", sync_swift)
-        self.assertIn("try? flushQueue()", sync_swift)
+        self.assertIn("try flushQueue()", sync_swift)
+        self.assertIn('WatchLog.sync.error("Flush queued events failed', sync_swift)
         self.assertIn("struct WatchSyncAcknowledgement", sync_swift)
         self.assertIn('public let schema: String = "ai-caddie-watch-input-event-v1"', sync_swift)
         self.assertIn("acceptedEventIds", sync_swift)
@@ -2828,7 +2833,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("private func applyQuickInputToCurrentState(_ event: WatchInputEvent)", sync_swift)
         self.assertIn("let updated = currentState.applying(event)", sync_swift)
         self.assertIn("client.currentState = updated", sync_swift)
-        self.assertIn("try? persistState(updated)", sync_swift)
+        self.assertIn("try persistState(updated)", sync_swift)
+        self.assertIn('WatchLog.storage.error("Persist updated state failed', sync_swift)
 
     def test_watch_views_define_glance_and_quick_inputs(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))
