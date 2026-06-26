@@ -88,6 +88,9 @@ class MobileContractTests(unittest.TestCase):
             "schema": "ai-caddie-live-round-package-v1",
             "roundId": "live-round-1",
             "dataMode": "fixture",
+            # P2: nine was missing from the schema (additionalProperties:false) though the model emits
+            # it — a real package with a start-nine filter would have failed this strict validation.
+            "nine": "front",
             "sourceCoverage": {
                 "state": "ready",
                 "dataMode": "fixture",

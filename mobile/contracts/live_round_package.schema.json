@@ -377,6 +377,10 @@
         }
       }
     },
+    "nine": {
+      "type": "string",
+      "enum": ["all", "front", "back"]
+    },
     "caddieContextSeeds": {
       "type": "array",
       "items": {
