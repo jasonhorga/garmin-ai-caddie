@@ -6,8 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie import pipeline
-from ai_caddie.course_reference import CoursePar
-from ai_caddie.history import HistoryData
+from ai_caddie.courses.course_reference import CoursePar
+from ai_caddie.history.history import HistoryData
 
 
 class PipelineSyncTests(unittest.TestCase):
@@ -136,7 +136,7 @@ class PipelineRunsAllStepsTests(unittest.TestCase):
         with patch.object(pipeline, "_ensure_auth", return_value=True), \
                 patch.object(pipeline, "_fetch_history", return_value=5), \
                 patch.object(pipeline, "_ensure_geometry", return_value={"attempted": 0}) as geo, \
-                patch("ai_caddie.course_reference.build_played_store", return_value={1: object()}) as store, \
+                patch("ai_caddie.courses.course_reference.build_played_store", return_value={1: object()}) as store, \
                 patch.object(pipeline, "_on_disk", return_value=(5, 0)):
             result = pipeline.sync(with_shots=False)
         self.assertTrue(result.auth_ok)
@@ -147,7 +147,7 @@ class PipelineRunsAllStepsTests(unittest.TestCase):
         data = HistoryData(raw_rounds=[], rounds=[], shots=[{"globalId": 900, "localHole": 1}])
         dependencies = [{"globalId": 900, "localHole": 1, "status": "missing", "shotCount": 3}]
         with (
-            patch("ai_caddie.stats_cache.cached_load_history_data", return_value=data),
+            patch("ai_caddie.history.stats_cache.cached_load_history_data", return_value=data),
             patch("ai_caddie.connectors.snapshot.discover_played_geometry_dependencies", return_value=dependencies) as discover_played,
             patch("ai_caddie.connectors.snapshot.discover_geometry_dependencies") as discover_scorecards,
             patch("ai_caddie.connectors.snapshot.ensure_geometry_dependencies", return_value={"attempted": 1}) as ensure,

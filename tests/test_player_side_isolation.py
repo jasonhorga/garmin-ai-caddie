@@ -8,9 +8,11 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import course_prep, course_reference, history, players, prep_cache, stats_cache
-from ai_caddie.course_reference import CoursePar
-from ai_caddie.reports import store_report
+from ai_caddie.courses import course_prep, course_reference, prep_cache
+from ai_caddie.history import history, stats_cache
+from ai_caddie.rounds import players
+from ai_caddie.courses.course_reference import CoursePar
+from ai_caddie.reports.reports import store_report
 from server_v2.main import app
 
 ADMIN_ENV = {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}

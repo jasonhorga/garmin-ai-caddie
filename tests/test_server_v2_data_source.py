@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from ai_caddie.config import get_settings
-from ai_caddie.history import HistoryData
+from ai_caddie.core.config import get_settings
+from ai_caddie.history.history import HistoryData
 from server_v2.data_source import load_history_data_for_mode
 
 

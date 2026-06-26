@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
-from ai_caddie import course_reference
-from ai_caddie.data import ROOT, SCORECARD_DIR, SHOT_DIR
+from ai_caddie.courses import course_reference
+from ai_caddie.core.data import ROOT, SCORECARD_DIR, SHOT_DIR
 
 
 @dataclass
@@ -79,7 +79,7 @@ def _ensure_geometry(*, limit: int | None = None) -> dict[str, int]:
         discover_played_geometry_dependencies,
         ensure_geometry_dependencies,
     )
-    from ai_caddie.stats_cache import cached_load_history_data
+    from ai_caddie.history.stats_cache import cached_load_history_data
 
     data = cached_load_history_data()
     if data.shots:

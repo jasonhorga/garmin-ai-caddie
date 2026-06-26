@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.annotations import add_annotation
-from ai_caddie.history import HistoryData
-from ai_caddie.history_round_detail import build_history_round_detail
+from ai_caddie.reports.annotations import add_annotation
+from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history_round_detail import build_history_round_detail
 from server_v2.main import app
 
 

@@ -28,8 +28,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from ai_caddie import players
-from ai_caddie.players import OWNER_ID
+from ai_caddie.rounds import players
+from ai_caddie.rounds.players import OWNER_ID
 
 _ADMIN_TOKEN_HEADER = "x-ai-caddie-admin-token"
 # Mirrors server_v2.main._security_profile_requires_admin (kept local to avoid a

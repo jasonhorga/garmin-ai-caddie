@@ -10,7 +10,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from ai_caddie import history, players, stats_cache
+from ai_caddie.history import history, stats_cache
+from ai_caddie.rounds import players
 from server_v2 import players_api
 from server_v2.main import app
 

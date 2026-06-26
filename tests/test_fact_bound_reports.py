@@ -4,11 +4,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from ai_caddie.fixtures import fixture_history_data
-from ai_caddie.history import HistoryData
-from ai_caddie.llm_providers import LLMMessage, StaticProvider
-from ai_caddie.history_stats import build_history_stats
-from ai_caddie.reports import (
+from ai_caddie.core.fixtures import fixture_history_data
+from ai_caddie.history.history import HistoryData
+from ai_caddie.llm.llm_providers import LLMMessage, StaticProvider
+from ai_caddie.history.history_stats import build_history_stats
+from ai_caddie.reports.reports import (
     build_club_report_facts,
     build_course_report_facts,
     build_hole_report_facts,
@@ -21,7 +21,7 @@ from ai_caddie.reports import (
     report_source_refs,
     store_report,
 )
-from ai_caddie.vision_context import confirm_vision_finding, store_vision_findings
+from ai_caddie.llm.vision_context import confirm_vision_finding, store_vision_findings
 
 
 class RecordingProvider:

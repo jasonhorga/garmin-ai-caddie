@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from ai_caddie.analysis import _hole_summary, llm_brief
-from ai_caddie.decision import (
+from ai_caddie.caddie.analysis import _hole_summary, llm_brief
+from ai_caddie.caddie.decision import (
     audit_decision,
     build_decision_plan,
     generate_decision_explanation,
@@ -14,7 +14,7 @@ from ai_caddie.decision import (
     recommend_recovery,
     store_decision_audit,
 )
-from ai_caddie.weather_context import build_weather_snapshot
+from ai_caddie.llm.weather_context import build_weather_snapshot
 from tools.legacy.ai_caddie_web import INDEX_HTML
 
 
@@ -1519,7 +1519,7 @@ class DecisionLayerTests(unittest.TestCase):
     def test_audit_classifies_endpoint_geometry_surface_as_execution_risk(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
 
-        with patch("ai_caddie.geometry_evidence.classify_shot_surface") as classify:
+        with patch("ai_caddie.geometry.geometry_evidence.classify_shot_surface") as classify:
             classify.return_value = {
                 "schema": "ai-caddie-shot-surface-classification-v1",
                 "globalId": 100,

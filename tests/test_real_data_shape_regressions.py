@@ -12,7 +12,7 @@ from ai_caddie.connectors.snapshot import (
     load_latest_snapshot_history,
     write_durable_snapshot,
 )
-from ai_caddie.history import HistoryData, course_key, history_course_detail, history_data_quality
+from ai_caddie.history.history import HistoryData, course_key, history_course_detail, history_data_quality
 
 
 def _write_scorecard(
@@ -246,9 +246,9 @@ class RealDataShapeRegressionTests(unittest.TestCase):
                 return mesh_dir / f"gid{global_id}_h{local_hole:02d}_meshes.json"
 
             with (
-                patch("ai_caddie.history.hazard_path", side_effect=hazard_path),
-                patch("ai_caddie.history.mesh_path", side_effect=mesh_path),
-                patch("ai_caddie.history.history_reports", return_value={"reports": []}),
+                patch("ai_caddie.history.history.hazard_path", side_effect=hazard_path),
+                patch("ai_caddie.history.history.mesh_path", side_effect=mesh_path),
+                patch("ai_caddie.history.history.history_reports", return_value={"reports": []}),
             ):
                 quality = history_data_quality(data)
 

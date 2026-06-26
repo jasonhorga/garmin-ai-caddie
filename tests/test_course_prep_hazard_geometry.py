@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from ai_caddie import course_prep as cp
+from ai_caddie.courses import course_prep as cp
 
 
 def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float) -> dict:

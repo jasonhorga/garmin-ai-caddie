@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 from server_v2.readiness import build_readiness_response
 
@@ -625,10 +625,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
             with (
                 patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
                 patch("server_v2.mobile.MOBILE_ROOT", root),
-                patch("ai_caddie.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
-                patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
-                patch("ai_caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
-                patch("ai_caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
+                patch("ai_caddie.history.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
+                patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
+                patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
+                patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
             ):
                 response = client.get("/api/v2/readiness")
 

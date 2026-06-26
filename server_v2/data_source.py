@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from ai_caddie.config import DataMode, get_settings
+from ai_caddie.core.config import DataMode, get_settings
 from ai_caddie.connectors.snapshot import load_latest_snapshot_history
-from ai_caddie.fixtures import fixture_history_data
-from ai_caddie.history import OWNER_ID, HistoryData
-from ai_caddie.stats_cache import cached_load_history_data
+from ai_caddie.core.fixtures import fixture_history_data
+from ai_caddie.history.history import OWNER_ID, HistoryData
+from ai_caddie.history.stats_cache import cached_load_history_data
 
 ResolvedDataMode = Literal["local", "fixture"]
 

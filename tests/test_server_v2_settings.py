@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.config import get_settings
+from ai_caddie.core.config import get_settings
 from server_v2.main import app
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from ai_caddie.connectors.session_material import save_garmin_cn_web_session
-from ai_caddie.data import ROOT
+from ai_caddie.core.data import ROOT
 
 from .models import GarminSessionImportRequest, GarminSessionImportResponse
 

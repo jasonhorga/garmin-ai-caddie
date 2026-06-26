@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from ai_caddie.report_labels_zh import (
+from ai_caddie.reports.report_labels_zh import (
     audit_class_zh,
     audit_status_zh,
     data_label_zh,

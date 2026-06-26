@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ai_caddie import history
-from ai_caddie.history_stats import build_history_stats
+from ai_caddie.history import history
+from ai_caddie.history.history_stats import build_history_stats
 
 
 def _write_shots(base: Path, rid: int) -> None:

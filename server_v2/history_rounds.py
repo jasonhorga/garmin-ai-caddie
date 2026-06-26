@@ -4,8 +4,8 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-from ai_caddie.history import OWNER_ID, HistoryData, average
-from ai_caddie.reports import list_report_records
+from ai_caddie.history.history import OWNER_ID, HistoryData, average
+from ai_caddie.reports.reports import list_report_records
 
 from .data_source import load_history_data_for_mode
 from .history_overview import round_card_for_row

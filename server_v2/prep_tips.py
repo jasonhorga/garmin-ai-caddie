@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ai_caddie import course_prep
-from ai_caddie.history import OWNER_ID
-from ai_caddie.prep_tips import build_prep_tips
-from ai_caddie.stats_cache import cached_build_history_stats
+from ai_caddie.courses import course_prep
+from ai_caddie.history.history import OWNER_ID
+from ai_caddie.courses.prep_tips import build_prep_tips
+from ai_caddie.history.stats_cache import cached_build_history_stats
 
 from .data_source import load_history_data_for_mode
 

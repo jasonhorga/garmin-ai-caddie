@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import course_prep, course_reference, prep_cache
-from ai_caddie.course_reference import CoursePar
+from ai_caddie.courses import course_prep, course_reference, prep_cache
+from ai_caddie.courses.course_reference import CoursePar
 from server_v2.main import app
 
 # Canned played par for 31870 — mirrors data/courses/31870.json so tests run in CI
@@ -114,7 +114,7 @@ class CoursePrepApiTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             for hole in range(1, 19):
                 (Path(tmp) / f"gid31870_h{hole:02d}_meshes.json").write_text("{}", encoding="utf-8")
-            with patch("ai_caddie.data.MESH_DIR", Path(tmp)), \
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)), \
                     patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
                     patch.object(course_prep, "prep_nine",
                                  side_effect=lambda gid, holes, **kw: [self._prep_row(h) for h in holes]) as prep_nine:
@@ -128,7 +128,7 @@ class CoursePrepApiTests(unittest.TestCase):
 
     def test_prep_without_holes_param_falls_back_to_front_nine_without_geometry(self) -> None:
         with TemporaryDirectory() as tmp:
-            with patch("ai_caddie.data.MESH_DIR", Path(tmp)), \
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)), \
                     patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
                     patch.object(course_prep, "prep_nine",
                                  side_effect=lambda gid, holes, **kw: [self._prep_row(h) for h in holes]) as prep_nine:

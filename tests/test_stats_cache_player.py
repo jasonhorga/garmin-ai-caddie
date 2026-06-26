@@ -17,8 +17,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ai_caddie import stats_cache
-from ai_caddie.history import HistoryData
+from ai_caddie.history import stats_cache
+from ai_caddie.history.history import HistoryData
 
 
 def _dummy_data() -> HistoryData:

@@ -4,8 +4,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from ai_caddie.caddie_context import build_caddie_context
-from ai_caddie.decision import (
+from ai_caddie.caddie.caddie_context import build_caddie_context
+from ai_caddie.caddie.decision import (
     audit_decision,
     latest_decision_audit,
     latest_decision_record,
@@ -13,7 +13,7 @@ from ai_caddie.decision import (
     store_decision,
     store_decision_audit,
 )
-from ai_caddie.decision_api import build_decision_from_request
+from ai_caddie.caddie.decision_api import build_decision_from_request
 
 from .annotations import ANNOTATION_ROOT
 from .data_source import load_history_data_for_mode

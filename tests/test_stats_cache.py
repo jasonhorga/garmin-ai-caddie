@@ -19,8 +19,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ai_caddie import stats_cache
-from ai_caddie.history import HistoryData
+from ai_caddie.history import stats_cache
+from ai_caddie.history.history import HistoryData
 
 
 def _dummy_data() -> HistoryData:
@@ -182,7 +182,7 @@ class StatsCacheTests(unittest.TestCase):
             self.assertEqual(calls["n"], 2)
 
     def test_cached_output_matches_uncached(self) -> None:
-        from ai_caddie.history_stats import build_history_stats
+        from ai_caddie.history.history_stats import build_history_stats
 
         round_row = {
             "id": "rc1", "date": "2026-01-01", "course": "C", "courseKey": "c",

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from ai_caddie.history import HistoryData
-from ai_caddie.history_stats import (
+from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history_stats import (
     STATS_AGGREGATE_REFS_CAP,
     _decision_audit_diagnosis,
     _with_aggregate_contract,

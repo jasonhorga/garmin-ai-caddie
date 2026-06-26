@@ -4,8 +4,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from ai_caddie.llm_providers import TextProvider, build_text_provider, redact_secret_text
-from ai_caddie.media import (
+from ai_caddie.llm.llm_providers import TextProvider, build_text_provider, redact_secret_text
+from ai_caddie.core.media import (
     MediaUploadTooLarge,
     attach_media,
     find_media,
@@ -15,7 +15,7 @@ from ai_caddie.media import (
     resolve_media_content_path,
     store_media_content,
 )
-from ai_caddie.vision_context import (
+from ai_caddie.llm.vision_context import (
     analyze_media_context,
     confirm_vision_finding,
     list_findings_for_target,

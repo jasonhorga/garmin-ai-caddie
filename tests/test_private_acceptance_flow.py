@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.config import get_settings
-from ai_caddie.decision import list_decision_audits
-from ai_caddie.llm_providers import StaticProvider
+from ai_caddie.core.config import get_settings
+from ai_caddie.caddie.decision import list_decision_audits
+from ai_caddie.llm.llm_providers import StaticProvider
 from server_v2.main import app
 
 

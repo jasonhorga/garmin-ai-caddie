@@ -4,9 +4,9 @@ import logging
 import threading
 from pathlib import Path
 
-from ai_caddie.history import OWNER_ID
-from ai_caddie.mobile_stats import build_mobile_stats
-from ai_caddie.stats_cache import cached_build_history_stats, cached_load_history_data
+from ai_caddie.history.history import OWNER_ID
+from ai_caddie.history.mobile_stats import build_mobile_stats
+from ai_caddie.history.stats_cache import cached_build_history_stats, cached_load_history_data
 
 from .data_source import load_history_data_for_mode
 from .models import HistoryStatsResponse, HistoryStatsSummaryResponse, MobileStatsResponse

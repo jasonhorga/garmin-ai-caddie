@@ -3,13 +3,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ai_caddie.geometry_evidence import (
+from ai_caddie.geometry.geometry_evidence import (
     build_hole_map_dto,
     build_source_bound_hole_geometry_evidence,
     geometry_coverage_for_course,
 )
-from ai_caddie.geometry_sync import ensure_prodgeometry
-from ai_caddie.llm_providers import redact_secret_text
+from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
+from ai_caddie.llm.llm_providers import redact_secret_text
 
 from .models import CourseGeometryCoverageResponse, GeometryEnsureResponse, GeometryEvidenceResponse, HoleMapResponse
 from . import data_source

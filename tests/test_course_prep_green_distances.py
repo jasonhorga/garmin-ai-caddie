@@ -1,7 +1,7 @@
 """round-13 E3: course_prep exposes Front/Middle/Back green distances (前/中/后果岭), no DEM."""
 import unittest
 
-from ai_caddie import course_prep
+from ai_caddie.courses import course_prep
 
 
 # Synthetic Green.drc with TWO disconnected components (mesh positions are [x, y, z];

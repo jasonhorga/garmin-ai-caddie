@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 
-from ai_caddie.analysis import build_hole_analysis, build_round_analysis, save_analysis_artifacts
-from ai_caddie.data import latest_round_with_shots
-from ai_caddie.llm import maybe_call_llm, prompt_from_brief
+from ai_caddie.caddie.analysis import build_hole_analysis, build_round_analysis, save_analysis_artifacts
+from ai_caddie.core.data import latest_round_with_shots
+from ai_caddie.llm.llm import maybe_call_llm, prompt_from_brief
 
 
 def main() -> int:

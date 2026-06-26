@@ -1,7 +1,7 @@
 """round-13: PlaysLike/slope from prodgeometry mesh elevation (y-axis) — no DEM needed."""
 import unittest
 
-from ai_caddie import elevation
+from ai_caddie.geometry import elevation
 
 
 # Synthetic meshes mirroring the on-disk shape: positions are [x, y(elev_m), z].

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.mobile_stats import build_mobile_stats
+from ai_caddie.history.mobile_stats import build_mobile_stats
 from server_v2.main import app
 
 

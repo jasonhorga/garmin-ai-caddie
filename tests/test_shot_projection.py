@@ -8,10 +8,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from ai_caddie import course_prep, data, hole_render
-from ai_caddie import shot_projection as sp
-from ai_caddie.course_reference import CoursePar
-from ai_caddie.data import mesh_path
+from ai_caddie.core import data
+from ai_caddie.courses import course_prep
+from ai_caddie.geometry import hole_render
+from ai_caddie.geometry import shot_projection as sp
+from ai_caddie.courses.course_reference import CoursePar
+from ai_caddie.core.data import mesh_path
 
 FIXTURE = Path(__file__).parent / "fixtures" / "shots_scatter_round.json"
 # Synthetic course area baked into the fixture (semicircles synthesised around this point).
@@ -333,7 +335,7 @@ class PrepHoleYourShotsTests(unittest.TestCase):
 
 class PrepNinePassthroughTests(unittest.TestCase):
     def test_prep_nine_forwards_include_shots(self) -> None:
-        from ai_caddie import course_reference
+        from ai_caddie.courses import course_reference
 
         rec = CoursePar(777001, [4], "played", "high")
         seen: dict = {}

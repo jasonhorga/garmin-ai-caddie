@@ -4,7 +4,7 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.history import HistoryData
+from ai_caddie.history.history import HistoryData
 from server_v2.main import app
 from server_v2.history_overview import (
     build_history_overview_response,
@@ -85,7 +85,7 @@ class ServerV2HistoryOverviewTests(unittest.TestCase):
         import os
         from unittest.mock import patch
 
-        from ai_caddie.config import get_settings
+        from ai_caddie.core.config import get_settings
 
         with patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"}):
             get_settings.cache_clear()

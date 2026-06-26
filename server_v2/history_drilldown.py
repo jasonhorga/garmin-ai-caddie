@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ai_caddie.history import OWNER_ID
-from ai_caddie.history_drilldown import resolve_history_ref
+from ai_caddie.history.history import OWNER_ID
+from ai_caddie.history.history_drilldown import resolve_history_ref
 
 from .data_source import load_history_data_for_mode
 from .models import HistoryDrilldownResponse

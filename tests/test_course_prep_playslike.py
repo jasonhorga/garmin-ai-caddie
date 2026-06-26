@@ -1,7 +1,7 @@
 """round-13: course_prep exposes PlaysLike (mesh elevation) in HolePrep — no DEM."""
 import unittest
 
-from ai_caddie import course_prep
+from ai_caddie.courses import course_prep
 
 
 # meshes-by-name (the `by` shape from hole_render.load_mesh); positions = [x, y(elev_m), z].

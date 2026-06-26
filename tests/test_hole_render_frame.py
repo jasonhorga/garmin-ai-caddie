@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from ai_caddie import hole_render
+from ai_caddie.geometry import hole_render
 
 
 def _mesh(positions: list[list[float]]) -> dict:

@@ -23,8 +23,8 @@ from __future__ import annotations
 import unittest
 from datetime import date, timedelta
 
-from ai_caddie.history import HistoryData
-from ai_caddie.history_stats import (
+from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history_stats import (
     _clear_effective_shots_cache,
     _effective_shots,
     build_history_stats,

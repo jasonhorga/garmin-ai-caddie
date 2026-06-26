@@ -12,7 +12,8 @@ from unittest.mock import patch
 import requests
 
 from ai_caddie.garmin import fetch
-from ai_caddie import club_bag, data
+from ai_caddie.caddie import club_bag
+from ai_caddie.core import data
 
 
 # A subset of the owner's real bag (/club/player) — note custom names + a 2nd type-18 club.
@@ -186,7 +187,7 @@ class ClubBagRouteTests(unittest.TestCase):
                  "loftAngle": 50.0, "retired": False, "deleted": False},
             ]
         }
-        with patch("ai_caddie.club_bag.load_club_bag", return_value=bag):
+        with patch("ai_caddie.caddie.club_bag.load_club_bag", return_value=bag):
             response = self._client().get("/api/v2/history/clubs/bag")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -200,7 +201,7 @@ class ClubBagRouteTests(unittest.TestCase):
         self.assertEqual(wedge["customName"], "50")
 
     def test_unsynced_bag_is_found_false(self) -> None:
-        with patch("ai_caddie.club_bag.load_club_bag", return_value=None):
+        with patch("ai_caddie.caddie.club_bag.load_club_bag", return_value=None):
             response = self._client().get("/api/v2/history/clubs/bag")
         self.assertEqual(response.status_code, 200)
         payload = response.json()

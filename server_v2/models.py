@@ -1016,7 +1016,7 @@ class LiveRoundEventAckResponse(BaseModel):
 
 class RoundIngestRequest(BaseModel):
     """A manual ("phone") round: live capture events + round meta (see
-    ``ai_caddie.round_ingest.ingest_round``). Events are accepted as loose dicts so the
+    ``ai_caddie.rounds.round_ingest.ingest_round``). Events are accepted as loose dicts so the
     full live-event payload surface stays forward-compatible; ``ingest_round`` validates
     them and raises a 400 on malformed input."""
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ai_caddie.data import ROOT
+from ai_caddie.core.data import ROOT
 
 from .snapshot import write_connector_status
 

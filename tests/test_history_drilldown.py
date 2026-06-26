@@ -4,13 +4,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from ai_caddie.annotations import add_annotation
-from ai_caddie.decision import store_decision_audit
-from ai_caddie.fixtures import fixture_history_data
-from ai_caddie.history import HistoryData
-from ai_caddie.history_drilldown import build_drilldown_index, resolve_history_ref
-from ai_caddie.reports import store_report
-from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.reports.annotations import add_annotation
+from ai_caddie.caddie.decision import store_decision_audit
+from ai_caddie.core.fixtures import fixture_history_data
+from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history_drilldown import build_drilldown_index, resolve_history_ref
+from ai_caddie.reports.reports import store_report
+from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 
 
 def raw_garmin_drilldown_data() -> HistoryData:
@@ -266,7 +266,7 @@ class HistoryDrilldownTests(unittest.TestCase):
 
             from unittest.mock import patch
 
-            with patch("ai_caddie.history_drilldown.geometry_coverage_for_hole", side_effect=ready_geometry):
+            with patch("ai_caddie.history.history_drilldown.geometry_coverage_for_hole", side_effect=ready_geometry):
                 detail = resolve_history_ref(
                     fixture_history_data(),
                     "900001:7",

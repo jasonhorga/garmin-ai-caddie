@@ -4,12 +4,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from ai_caddie.fixtures import fixture_history_data
-from ai_caddie.annotations import list_annotations
-from ai_caddie.decision import list_decision_audits
-from ai_caddie.history import HistoryData
-from ai_caddie.mobile_live import append_event_batch
-from ai_caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
+from ai_caddie.core.fixtures import fixture_history_data
+from ai_caddie.reports.annotations import list_annotations
+from ai_caddie.caddie.decision import list_decision_audits
+from ai_caddie.history.history import HistoryData
+from ai_caddie.caddie.mobile_live import append_event_batch
+from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 
 
 class MobileReconciliationTests(unittest.TestCase):

@@ -8,8 +8,8 @@ import re
 import shutil
 from typing import Any
 
-from ai_caddie.data import ROOT, semicircle_to_deg
-from ai_caddie.history import (
+from ai_caddie.core.data import ROOT, semicircle_to_deg
+from ai_caddie.history.history import (
     HistoryData,
     canonical_course_name,
     course_key,
@@ -519,7 +519,7 @@ def discover_played_geometry_dependencies(
 
 def ensure_geometry_dependencies(dependencies: list[dict[str, object]], *, root: Path = ROOT) -> dict[str, int]:
     """Idempotently download any MISSING per-hole prodgeometry. Skips rows already 'ready'."""
-    from ai_caddie.geometry_sync import ensure_prodgeometry
+    from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
     profile_id = geometry_player_profile_id(root=root)
     summary = {"attempted": 0, "cached": 0, "downloaded": 0, "failed": 0, "skipped": 0}
     for row in dependencies:

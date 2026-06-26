@@ -6,10 +6,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from ai_caddie import course_prep as cp
-from ai_caddie import course_prep, course_reference
-from ai_caddie.course_reference import CoursePar
-from ai_caddie.data import mesh_path
+from ai_caddie.courses import course_prep as cp
+from ai_caddie.courses import course_prep, course_reference
+from ai_caddie.courses.course_reference import CoursePar
+from ai_caddie.core.data import mesh_path
 
 
 def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float) -> dict:
@@ -59,7 +59,7 @@ class PureLogicTests(unittest.TestCase):
             "7I": {"median": 133.6, "sampleSize": 12},
             "PW": {"median": 101.2, "sampleSize": 9},
         }
-        with patch("ai_caddie.course_prep.build_club_profiles", return_value=profiles):
+        with patch("ai_caddie.courses.course_prep.build_club_profiles", return_value=profiles):
             self.assertEqual(cp.club_ladder(), [("7I", 134), ("PW", 101)])
 
     def test_prep_hole_marks_out_of_range_par_record_as_estimate(self) -> None:
@@ -85,7 +85,7 @@ class PureLogicTests(unittest.TestCase):
             "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 320.0}]}],
         }}
         with patch.object(cp.hole_render, "load_mesh", return_value=(md, {})), \
-                patch("ai_caddie.course_prep.geometry_coverage_for_hole", return_value={
+                patch("ai_caddie.courses.course_prep.geometry_coverage_for_hole", return_value={
                     "coverage": "ready",
                     "evidence": [{"label": "hazards", "ref": "output/prodgeometry_hazards/gid99999_h01_hazards.json"}],
                     "missingData": [],
@@ -188,24 +188,24 @@ class AvailablePrepHolesTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             self._write_meshes(tmp, 41825, range(1, 19))
             self._write_meshes(tmp, 31870, [1])  # another course must not leak in
-            with patch("ai_caddie.data.MESH_DIR", Path(tmp)):
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)):
                 self.assertEqual(course_prep.available_prep_holes(41825), list(range(1, 19)))
 
     def test_nine_hole_geometry_returns_one_through_nine(self) -> None:
         with TemporaryDirectory() as tmp:
             self._write_meshes(tmp, 31870, range(1, 10))
-            with patch("ai_caddie.data.MESH_DIR", Path(tmp)):
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)):
                 self.assertEqual(course_prep.available_prep_holes(31870), list(range(1, 10)))
 
     def test_no_geometry_falls_back_to_front_nine(self) -> None:
         with TemporaryDirectory() as tmp:
-            with patch("ai_caddie.data.MESH_DIR", Path(tmp)):
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)):
                 self.assertEqual(course_prep.available_prep_holes(99999), list(range(1, 10)))
 
     def test_partial_geometry_returns_only_cached_holes_sorted(self) -> None:
         with TemporaryDirectory() as tmp:
             self._write_meshes(tmp, 31795, [11, 2, 7])
-            with patch("ai_caddie.data.MESH_DIR", Path(tmp)):
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)):
                 self.assertEqual(course_prep.available_prep_holes(31795), [2, 7, 11])
 
 

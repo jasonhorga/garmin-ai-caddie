@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ai_caddie import history
+from ai_caddie.history import history
 
 
 def _write_round(base: Path, rid: int, date: str, course: str, strokes: int) -> None:

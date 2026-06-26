@@ -9,12 +9,12 @@ import unittest
 
 from jsonschema import Draft202012Validator
 
-from ai_caddie import stats_cache
-from ai_caddie.annotations import add_annotation
-from ai_caddie.fixtures import fixture_history_data
-from ai_caddie.history import HistoryData
-from ai_caddie.mobile_live import build_live_round_package
-from ai_caddie.weather_context import build_weather_snapshot, store_weather_snapshot
+from ai_caddie.history import stats_cache
+from ai_caddie.reports.annotations import add_annotation
+from ai_caddie.core.fixtures import fixture_history_data
+from ai_caddie.history.history import HistoryData
+from ai_caddie.caddie.mobile_live import build_live_round_package
+from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 
 
 CONTRACT_DIR = Path("mobile") / "contracts"
@@ -458,10 +458,10 @@ class MobileContractTests(unittest.TestCase):
                     root=root,
                 )
             with (
-                patch("ai_caddie.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
-                patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
-                patch("ai_caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
-                patch("ai_caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
+                patch("ai_caddie.history.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
+                patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
+                patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
+                patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
             ):
                 package = build_live_round_package(
                     "900001",
@@ -564,10 +564,10 @@ class MobileContractTests(unittest.TestCase):
             }
 
         with (
-            patch("ai_caddie.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
-            patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
-            patch("ai_caddie.mobile_live.build_hole_map_dto", return_value={"missingData": []}),
-            patch("ai_caddie.mobile_live.build_route_geometry_evidence", return_value={"missingData": [], "coverage": "ready"}),
+            patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
+            patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+            patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", return_value={"missingData": []}),
+            patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", return_value={"missingData": [], "coverage": "ready"}),
         ):
             package = build_live_round_package(
                 "prefetch-round",
@@ -723,8 +723,8 @@ class MobileContractTests(unittest.TestCase):
         stats_cache.clear()
         try:
             with (
-                patch("ai_caddie.history_stats.geometry_coverage_for_hole", side_effect=missing_geometry),
-                patch("ai_caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
+                patch("ai_caddie.history.history_stats.geometry_coverage_for_hole", side_effect=missing_geometry),
+                patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
             ):
                 package = build_live_round_package("900001", data=fixture_history_data(), data_mode="fixture")
         finally:

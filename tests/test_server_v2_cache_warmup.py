@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie import stats_cache
+from ai_caddie.history import stats_cache
 from server_v2.history_stats import (
     load_history_stats_response,
     warm_stats_cache,
@@ -39,7 +39,7 @@ class CacheWarmupTests(unittest.TestCase):
         self._env = patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "fixture"})
         self._env.start()
         self.addCleanup(self._env.stop)
-        from ai_caddie.config import get_settings
+        from ai_caddie.core.config import get_settings
 
         get_settings.cache_clear()
         self.addCleanup(get_settings.cache_clear)

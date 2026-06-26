@@ -12,8 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
-from ai_caddie import course_search, round_ingest
-from ai_caddie.players import OWNER_ID
+from ai_caddie.courses import course_search
+from ai_caddie.rounds import round_ingest
+from ai_caddie.rounds.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
 from ai_caddie.connectors.snapshot import snapshot_to_payload
 
@@ -494,7 +495,7 @@ def history_clubs_bag(
 ) -> ClubBagResponse:
     # The player's real Garmin bag (clubTypeId + custom name + retired/deleted), pulled by the sync
     # from Garmin's /club/player + /club/types. Owner-scoped; names resolve to Chinese on-device.
-    from ai_caddie.club_bag import build_club_bag_response
+    from ai_caddie.caddie.club_bag import build_club_bag_response
 
     return ClubBagResponse(**build_club_bag_response(player_id=player_id, owner_id=OWNER_ID))
 
@@ -569,7 +570,7 @@ def course_prep_nine(
     scatter; a non-owner player gets the course knowledge (par/route/hazards) with a generic
     default ladder and never the owner's projected shots (per-player engine scoping is a
     multiplayer-foundation follow-up)."""
-    from ai_caddie import course_prep, prep_cache
+    from ai_caddie.courses import course_prep, prep_cache
 
     is_owner = player_id == OWNER_ID
     requested = holes or course_prep.available_prep_holes(global_id)

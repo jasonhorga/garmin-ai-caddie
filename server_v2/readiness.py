@@ -7,14 +7,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from ai_caddie.media import (
+from ai_caddie.core.media import (
     MAX_MEDIA_UPLOAD_BYTES_BY_KIND,
     MAX_VIDEO_DURATION_SECONDS,
     UPLOAD_DIR,
     VALID_MEDIA_KINDS,
     resolve_media_content_path,
 )
-from ai_caddie.course_reference import course_reference_coverage
+from ai_caddie.courses.course_reference import course_reference_coverage
 from ai_caddie.connectors.snapshot import validate_private_snapshot_acceptance
 
 from .history_stats import load_history_stats_response

@@ -351,7 +351,7 @@ class GarminCnConnectorTests(unittest.TestCase):
                 patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}]),
                 patch("ai_caddie.garmin.fetch.fetch_details"),
                 patch(
-                    "ai_caddie.geometry_sync.ensure_prodgeometry",
+                    "ai_caddie.geometry.geometry_sync.ensure_prodgeometry",
                     return_value={"status": "downloaded", "ok": True, "globalId": 31795, "localHole": 1},
                 ) as ensure,
             ):
@@ -363,7 +363,7 @@ class GarminCnConnectorTests(unittest.TestCase):
         ensure.assert_called_once_with(31795, 1, profile_id="player-1", force=False)
 
     def test_sync_runs_course_ref_after_ready_snapshot(self) -> None:
-        with patch("ai_caddie.course_reference.build_played_store") as store:
+        with patch("ai_caddie.courses.course_reference.build_played_store") as store:
             with TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "data" / "scorecards").mkdir(parents=True)

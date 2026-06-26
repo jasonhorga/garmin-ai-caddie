@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from ai_caddie.data import deg_to_semicircle
+from ai_caddie.core.data import deg_to_semicircle
 from ai_caddie.connectors.snapshot import (
     build_snapshot_manifest,
     discover_played_geometry_dependencies,
@@ -16,8 +16,8 @@ from ai_caddie.connectors.snapshot import (
     write_connector_status,
     write_snapshot_manifest,
 )
-from ai_caddie.history import HistoryData, history_course_detail, history_hole
-from ai_caddie.history_drilldown import build_drilldown_index, resolve_history_ref
+from ai_caddie.history.history import HistoryData, history_course_detail, history_hole
+from ai_caddie.history.history_drilldown import build_drilldown_index, resolve_history_ref
 
 
 def _write_scorecard(
