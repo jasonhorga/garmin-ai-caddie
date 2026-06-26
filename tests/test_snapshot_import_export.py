@@ -158,6 +158,30 @@ class SnapshotImportExportTests(unittest.TestCase):
                 "{}",
             )
 
+    def test_export_includes_the_decisions_ledger(self) -> None:
+        # P2: the live caddie decisions ledger (data/decisions/decisions.jsonl) was omitted from the
+        # backup, so a restore silently dropped it. It must be archived and round-trip through import.
+        with TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            (source / "data" / "decisions").mkdir(parents=True)
+            (source / "data" / "decisions" / "decisions.jsonl").write_text(
+                '{"decisionId": "d1"}\n', encoding="utf-8"
+            )
+
+            tarball = Path(tmp) / "snapshot.tar.gz"
+            export_snapshot(source_root=source, output_path=tarball)
+            with tarfile.open(tarball, "r:gz") as archive:
+                names = archive.getnames()
+
+            target = Path(tmp) / "target"
+            import_snapshot(tarball, target_root=target)
+
+            self.assertIn("data/decisions/decisions.jsonl", names)
+            self.assertEqual(
+                (target / "data" / "decisions" / "decisions.jsonl").read_text(encoding="utf-8"),
+                '{"decisionId": "d1"}\n',
+            )
+
     def test_export_can_include_clubs_when_explicit(self) -> None:
         with TemporaryDirectory() as tmp:
             source = Path(tmp) / "source"
