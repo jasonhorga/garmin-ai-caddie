@@ -75,6 +75,17 @@ function buildEvents(holes: Record<number, HoleRecord>): RoundIngestEvent[] {
   return events
 }
 
+function freshClientRoundId(): string {
+  // Unique per round (so two real rounds with the same shot/hole counts never
+  // collide on the server's idempotency key and get merged) yet stable across
+  // re-submits of the same round (so a retry dedupes instead of duplicating).
+  const rand =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `web-${rand}`
+}
+
 export function RecordRoundPage({ playerId, playerName, courseOptions, onIngest, getPosition, onExit }: RecordRoundPageProps) {
   const [phase, setPhase] = useState<'setup' | 'recording' | 'done'>('setup')
   const [courseName, setCourseName] = useState('')
@@ -87,6 +98,7 @@ export function RecordRoundPage({ playerId, playerName, courseOptions, onIngest,
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<RoundIngestResult | null>(null)
+  const [clientRoundId, setClientRoundId] = useState(freshClientRoundId)
 
   const locate = getPosition ?? browserGetPosition
   const courses = courseOptions?.courses ?? []
@@ -139,7 +151,7 @@ export function RecordRoundPage({ playerId, playerName, courseOptions, onIngest,
         holesCompleted: scoredHoles,
       }
       if (courseGlobalId !== null) meta.courseGlobalId = courseGlobalId
-      const body: RoundIngestRequestBody = { events, meta, clientRoundId: `web-${playerId}-${totalShots}-${scoredHoles}` }
+      const body: RoundIngestRequestBody = { events, meta, clientRoundId }
       const res = await onIngest(playerId, body)
       setResult(res)
       setPhase('done')
@@ -210,7 +222,7 @@ export function RecordRoundPage({ playerId, playerName, courseOptions, onIngest,
             </label>
           ) : null}
           <div className="record-actions">
-            <button type="button" className="record-primary" onClick={() => setPhase('recording')}>
+            <button type="button" className="record-primary" onClick={() => { setClientRoundId(freshClientRoundId()); setPhase('recording') }}>
               开始记分
             </button>
             <button type="button" onClick={onExit}>
