@@ -79,7 +79,7 @@ import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
-import { readAdminTokenFromUrl, readBakedAdminToken, readStoredAdminToken, writeStoredAdminToken } from './adminTokenStore'
+import { resolveInitialAdminToken, writeStoredAdminToken } from './adminTokenStore'
 import { readStoredDiagnostics, writeStoredDiagnostics } from './diagnosticsStore'
 import { DiagnosticsProvider } from './diagnosticsContext'
 import { isLinkRequired, readPlayerToken } from './playerContext'
@@ -201,21 +201,14 @@ export default function App() {
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
   const [sessionSaveState, setSessionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null)
-  // Hydrate the owner's admin token. Prefer a token carried in the URL
-  // (`?admin=<token>`, like the player `/p/<token>` link) so the owner can
-  // bookmark ONE URL and never retype — durable even if iOS Safari clears
-  // localStorage. Fall back to the persisted token. A URL token is also persisted
-  // so SPA navigation that drops the query keeps working within the session.
-  const [adminToken, setAdminToken] = useState(() => {
-    const fromUrl = readAdminTokenFromUrl()
-    if (fromUrl) {
-      writeStoredAdminToken(fromUrl)
-      return fromUrl
-    }
-    // URL → previously entered → build-time baked default (owner's private homeserver
-    // build only). The baked default lets the bare URL auto-load the owner profile.
-    return readStoredAdminToken() || readBakedAdminToken()
-  })
+  // Hydrate the owner's admin token (P1-1 N2): a token carried in the URL (`?admin=<token>`, like the
+  // player `/p/<token>` link) hydrates in MEMORY only — resolveInitialAdminToken does NOT copy it into
+  // localStorage, so the high-privilege admin token isn't left at rest there (XSS-readable, surviving
+  // the session) when it was only ever meant to ride in the owner's bookmarked URL. A reload re-reads
+  // it from the URL; an in-session SPA navigation keeps it in React state. A token the owner TYPES into
+  // the sync panel still persists (writeStoredAdminToken below) for the bare-URL owner UX. Falls back
+  // to the stored token, then the build-time baked default (owner's private homeserver build only).
+  const [adminToken, setAdminToken] = useState(() => resolveInitialAdminToken())
 
   useEffect(() => {
     // Locked out: a link is required, the URL carries no player token, and no
