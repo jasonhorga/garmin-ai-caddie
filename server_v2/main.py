@@ -273,6 +273,8 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         "/api/v2/media",
         "/api/v2/sync/garmin",
         "/api/v2/sync/garmin/session",
+        # owner-bootstrap: links an Apple Sign-in subject to the owner user.
+        "/api/v2/auth/apple/link",
     }
     if path in exact_paths:
         return True
