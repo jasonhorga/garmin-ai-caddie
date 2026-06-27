@@ -12,17 +12,21 @@
 
 A generic field-walk of the release protobuf for 3 real courses surfaced **unparsed but valuable** fields (all **anonymous** — no geometry decode/credential needed):
 
-| Field | Observed | Meaning (likely) | Action |
-|---|---|---|---|
-| **tee `.3`** (wire 5, fixed32 float) | float | **course rating** per tee | parse → `tee_boxes.rating` |
-| **tee `.2`** (varint) | 119 / 120 | **slope** per tee | parse → `tee_boxes.slope` |
-| **hole `.2` / `.3`** | nested + `"MEN"` / `"MENNotSpecified"` | par / handicap are **per-tee-gender** (we only read the first nested f1 today) | model par/handicap **per tee/gender**, not a single value |
-| **f5** (×2/course) | `…IN$MEN` strings | tee-set / gender-set definitions | decode in the spike's full dictionary |
-| **f10 `unknown_10`** | 22 / 28 / 29 (玉岛 & Players 都=22) | small int, **clusters by course** → likely a province/region code | sample more courses to confirm |
-| **f12** | present (=1) on some courses | course-level flag | sample to confirm |
-| **hole `.7` raster_url** | `birdseye…` | per-hole overhead thumbnail (anonymous) | render in prep without geometry |
+A self-contained protobuf walk (decoding `fixed32` floats) over 12 real courses **nailed** these (was "likely" in the first pass):
 
-**Schema impact:** the **lightweight (anonymous) catalog is richer than "province/city"** — `tee_boxes` gets **rating + slope**, and `course_holes` par/handicap should be modeled **per tee/gender**. None of this needs the credentialed geometry path.
+| Field | Observed | **Confirmed meaning** | Evidence |
+|---|---|---|---|
+| **tee `.3`** (fixed32 float) | 73.83, 71.9, 74.23, 70.56… | ✅ **course rating** (per tee) | values sit in the 67–77 band; **9-hole loops (`The Players Club ~ B`, `Sand River ~ B`) read 37.31 / 35.63 ≈ half of 72** — decisive |
+| **tee `.2`** (varint) | 109–121 | ✅ **slope rating** (per tee) | exactly the slope band (standard 113) |
+| **tee `.1` / `.4` / `.5`** | "Black"/"Gold", "MEN", 1/2 | ✅ tee name / gender / ordering | (already parsed) |
+| **hole `.2`** (nested) | `{f1=par, f2="MEN"}` | ✅ **par, gender-tagged** | hole-1 `{4, "MEN"}` |
+| **hole `.3`** (nested) | `{f1=index, f2="MEN", f3="NotSpecified"}` | ✅ **stroke index / handicap, gender-tagged** | par/handicap are **per gender** — today we read only the first (MEN) |
+| **f5** (×1–2/course) | `{f1="OUT"/"IN", f2=36/35, f3="MEN"}` | ✅ **front/back-nine definitions** (label + nine-par + gender) | OUT=front, IN=back; a 9-hole course has only one |
+| **hole `.7`** | `birdseye…` URL | ✅ anonymous per-hole overhead thumbnail | render in prep with no geometry decode |
+| **f12** | =1 on ~half (Mission Hills/Sand River/Dragon Valley yes; Jade Island/Clearwater no) | ⚠️ **boolean flag, meaning still undetermined** | (possibly multi-loop/facility marker — unconfirmed) |
+| **f10 `unknown_10`** | 22 / 28 / 29 | ⚠️ **small course int, NOT geographic** | **disproved** the region-code guess: Shenzhen's Mission Hills=28 but Sand River=29 — still genuinely unknown |
+
+**Schema impact (now firm):** the **anonymous catalog carries full tee ratings** — `tee_boxes` += `rating` (float) + `slope` (int); `course_holes` par/handicap are **per gender** (model with a gender discriminator / a `course_hole_pars` child); `f5` yields per-nine par. **None of this needs the credentialed geometry path.** Two fields (`f12`, `unknown_10`) remain genuinely undetermined and are flagged as such — not guessed.
 
 ### A2. Mesh-`y` elevation is real and usable (validates decision ③)
 
