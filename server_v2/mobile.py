@@ -45,13 +45,15 @@ def build_mobile_round_package_response(
     captured_at: str | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
+    player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
-    data, mode = load_history_data_for_mode()
+    data, mode = load_history_data_for_mode(player_id=player_id)
     return LiveRoundPackageResponse(
         **build_live_round_package(
             round_id,
             data=data,
             data_mode=mode,
+            player_id=player_id,
             root=MOBILE_ROOT,
             annotations_root=ANNOTATION_ROOT,
             captured_at=captured_at,
@@ -72,8 +74,9 @@ def build_mobile_course_package_response(
     ensure_geometry: bool = False,
     nine: str = "all",
     back_global_id: int | None = None,
+    player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
-    data, mode = load_history_data_for_mode()
+    data, mode = load_history_data_for_mode(player_id=player_id)
     return LiveRoundPackageResponse(
         **build_live_round_package_for_course(
             global_id,
@@ -81,6 +84,7 @@ def build_mobile_course_package_response(
             tee_box=tee_box,
             data=data,
             data_mode=mode,
+            player_id=player_id,
             root=MOBILE_ROOT,
             annotations_root=ANNOTATION_ROOT,
             captured_at=captured_at,
@@ -157,8 +161,8 @@ def ack_mobile_events_response(round_id: str, request: LiveRoundEventAckRequest)
     return LiveRoundEventAckResponse(**result)
 
 
-def reconcile_mobile_round_response(round_id: str) -> MobileReconciliationResponse:
-    data, _mode = load_history_data_for_mode()
+def reconcile_mobile_round_response(round_id: str, player_id: str = OWNER_ID) -> MobileReconciliationResponse:
+    data, _mode = load_history_data_for_mode(player_id=player_id)
     return MobileReconciliationResponse(**reconcile_mobile_round_events(round_id, data, root=MOBILE_ROOT))
 
 

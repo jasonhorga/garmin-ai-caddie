@@ -420,10 +420,10 @@ def health() -> dict[str, str]:
 @app.get("/api/v2/readiness")
 def readiness(request: Request) -> dict[str, object]:
     # Owner operational evidence (round ids/counts/sync errors) + a heavy per-call
-    # owner-package build are owner-only. Anonymous callers get liveness only —
-    # both a data-leak fix and a no-auth DoS-amplifier fix. (Liveness lives at
-    # GET /api/v2/health for unauthenticated monitors.)
-    if resolve_request_player(request) is None:
+    # owner-package build are owner-only. A non-owner caller — anonymous OR a resolved
+    # family member (Phase 1b made members resolve) — gets liveness only: both a data-leak
+    # fix and a no-auth DoS-amplifier fix. (Liveness lives at GET /api/v2/health.)
+    if resolve_request_player(request) != OWNER_ID:
         return {"schema": "ai-caddie-readiness-v1", "status": "ok"}
     return build_readiness_response()
 
@@ -692,6 +692,7 @@ def caddie_context(
     target_y: float | None = None,
     landing_radius_m: float = 18.0,
     captured_at: str | None = None,
+    player_id: str = Depends(current_player_id),
 ) -> CaddieContextResponse:
     return build_caddie_context_response(
         source_ref=source_ref,
@@ -709,6 +710,7 @@ def caddie_context(
         target_y=target_y,
         landing_radius_m=landing_radius_m,
         captured_at=captured_at,
+        player_id=player_id,
     )
 
 
@@ -812,12 +814,14 @@ def mobile_round_package(
     captured_at: str | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
+    player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
     return build_mobile_round_package_response(
         round_id,
         captured_at=captured_at,
         client_id=client_id,
         ensure_geometry=ensure_geometry,
+        player_id=player_id,
     )
 
 
@@ -836,6 +840,7 @@ def mobile_course_package(
     ensure_geometry: bool = False,
     nine: str = Query(default="all", pattern="^(all|front|back)$"),
     back_global_id: int | None = None,
+    player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
     return build_mobile_course_package_response(
         global_id,
@@ -846,6 +851,7 @@ def mobile_course_package(
         ensure_geometry=ensure_geometry,
         nine=nine,
         back_global_id=back_global_id,
+        player_id=player_id,
     )
 
 
@@ -897,8 +903,11 @@ def mobile_round_state(
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/reconciliation", response_model=MobileReconciliationResponse)
-def mobile_round_reconciliation(round_id: str) -> MobileReconciliationResponse:
-    return reconcile_mobile_round_response(round_id)
+def mobile_round_reconciliation(
+    round_id: str,
+    player_id: str = Depends(current_player_id),
+) -> MobileReconciliationResponse:
+    return reconcile_mobile_round_response(round_id, player_id=player_id)
 
 
 @app.post("/api/v2/mobile/rounds/{round_id}/reconciliation/apply", response_model=MobileReconciliationApplyResponse)
@@ -1013,7 +1022,10 @@ def sync_status(request: Request) -> SyncStatusResponse | dict[str, str]:
     # Owner sync metadata (scorecard/shot counts, last-run error code, the course
     # global-IDs the owner plays, snapshot id) is owner-only. Anonymous callers get
     # connector liveness only — no counts, course ids, or error codes.
-    if resolve_request_player(request) is None:
+    # Owner-only. A *resolved* non-owner member token (Phase 1b made members resolve)
+    # would otherwise read the owner's sync metadata, so gate on OWNER_ID — not merely
+    # "some player". Members and anonymous callers both get connector liveness only.
+    if resolve_request_player(request) != OWNER_ID:
         return {"schema": "ai-caddie-sync-status-v2", "status": "ok"}
     return load_sync_status_response()
 

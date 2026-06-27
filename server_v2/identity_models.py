@@ -54,6 +54,7 @@ class UserIdentity(Base):
 
 class LegacyPlayerMap(Base):
     __tablename__ = "legacy_player_map"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_legacy_map_user"),)
     legacy_player_id: Mapped[str] = mapped_column(String(64), primary_key=True)  # 'me' | 'p_*'
     user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"))
 

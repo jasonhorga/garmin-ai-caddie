@@ -94,6 +94,8 @@ def _player_for_session_token(token: str) -> str | None:
             sess = repo.resolve_session_token(session, token)
             if sess is None:
                 return None
+            if sess.scope != "user":  # only full user sessions authorize player-scoped routes
+                return None
             user = session.get(User, sess.user_id)
             if user is None or user.deleted_at is not None:
                 return None
@@ -137,8 +139,18 @@ def current_player_id(request: Request) -> str:
 def is_player_scoped_route(method: str, path: str) -> bool:
     """Routes whose access may be granted by a per-player token (not only admin).
 
-    These are the player-side reads: history, review reports, course prep /
-    prep-tips, and the mobile course options list.
+    These are the player-side reads keyed by the PLAYER (not by an opaque round_id):
+    history, review reports, course prep / prep-tips, and the mobile course-options
+    list. Each loads only the caller's own player-scoped HistoryData (or public course
+    data), so a family member sees only their own data.
+
+    NOTE: the mobile round/course PACKAGE reads, the reconciliation-GET, and the
+    caddie-context read are intentionally NOT here. They aggregate per-round data from
+    shared, UNPARTITIONED stores keyed by round_id / source_ref (the mobile event log,
+    weather snapshots, the annotation store), so threading player_id isolates only the
+    HistoryData half — opening them to members would leak the owner's round data
+    (weather, hand-written notes, event activity) by a guessed round_id. They stay
+    admin-only until those stores are per-user partitioned (Phase 2).
     """
     if method.upper() != "GET":
         return False

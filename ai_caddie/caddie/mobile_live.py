@@ -13,7 +13,7 @@ from ai_caddie.courses import course_prep
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
-from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.history.history_stats import _effective_score_data
 from ai_caddie.reports.report_labels_zh import issue_label_zh
 from ai_caddie.history.stats_cache import cached_build_history_stats
@@ -51,7 +51,15 @@ def _event_cursor(
     *,
     root: Path | str | None = None,
     client_id: str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
+    # The mobile event log is a single shared, UNPARTITIONED store keyed by round_id only
+    # (writes are admin-only, so it holds the OWNER's rounds). A non-owner player must not
+    # learn an owner round's event sequence / pending-count via a player-scoped package read,
+    # so a non-owner always gets the empty cursor — they have no events here until MOBILE_ROOT
+    # is per-user partitioned (Phase 2).
+    if player_id != OWNER_ID:
+        return {"serverSequence": 0, "pendingEventCount": 0}
     latest_sequence = _latest_event_sequence(round_id, root=root)
     cursor: dict[str, Any] = {"serverSequence": latest_sequence, "pendingEventCount": 0}
     clean_client_id = _clean_client_id(client_id)
@@ -1689,6 +1697,7 @@ def build_live_round_package(
     tee_box: str | None = None,
     weather_transport: WeatherTransport | None = None,
     client_id: str | None = None,
+    player_id: str = OWNER_ID,
     ensure_geometry: bool = False,
     geometry_ensure: dict[str, Any] | None = None,
     include_course_prep: bool = True,
@@ -1883,7 +1892,7 @@ def build_live_round_package(
                 "expiresAfterHours": OFFLINE_EXPIRES_AFTER_HOURS,
             },
         },
-        "eventCursor": _event_cursor(round_id, root=root, client_id=client_id),
+        "eventCursor": _event_cursor(round_id, root=root, client_id=client_id, player_id=player_id),
         "recentHistory": recent_history,
         "cachedCaddieRules": _cached_caddie_rules(),
         "generatedAt": _format_time(prepared_at),
@@ -1957,6 +1966,7 @@ def build_live_round_package_for_course(
     nine: str = "all",
     back_global_id: int | None = None,
     include_course_prep: bool = True,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     selected_round_id = None
@@ -1998,6 +2008,7 @@ def build_live_round_package_for_course(
         requested_course_global_id=int(global_id),
         tee_box=tee_box,
         client_id=client_id,
+        player_id=player_id,
         ensure_geometry=ensure_geometry and selected_round_id is not None,
         geometry_ensure=geometry_ensure,
         include_course_prep=include_course_prep,

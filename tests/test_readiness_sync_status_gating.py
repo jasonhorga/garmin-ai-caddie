@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.rounds import players
 from server_v2.main import app
 
 # private profile + no admin token = an anonymous caller on a locked deploy.
@@ -39,6 +43,32 @@ class ReadinessSyncStatusGatingTests(unittest.TestCase):
         self.assertEqual(sync.status_code, 200)
         self.assertLessEqual(set(readiness.json().keys()), {"schema", "status"})
         self.assertEqual(sync.json(), {"schema": "ai-caddie-sync-status-v2", "status": "ok"})
+        for term in _OWNER_LEAK_TERMS:
+            self.assertNotIn(term, readiness.text)
+            self.assertNotIn(term, sync.text)
+
+    def test_member_token_gets_liveness_only(self) -> None:
+        # A *resolved* non-owner member token (Phase 1b made members resolve) must receive the
+        # same liveness stub as an anonymous caller on BOTH owner-operational endpoints —
+        # sync/status AND readiness — so no owner counts / snapshot id / geometry deps /
+        # last-run / owner-package detail leaks to a family member, and the heavy owner
+        # readiness package is never built for a member.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(players, "ROOT", root):
+                member = players.create_player("FamilyMember", root=root)
+                client = TestClient(app)
+                hdrs = {"Authorization": f"Bearer {member['token']}"}
+                with patch.dict("os.environ", {"AI_CADDIE_SECURITY_PROFILE": "private",
+                                               "AI_CADDIE_ADMIN_TOKEN": "admin-secret"}):
+                    with patch("server_v2.main.build_readiness_response",
+                               side_effect=AssertionError("owner readiness package built for a member")):
+                        readiness = client.get("/api/v2/readiness", headers=hdrs)
+                    sync = client.get("/api/v2/sync/status", headers=hdrs)
+        self.assertEqual(readiness.status_code, 200)
+        self.assertEqual(sync.status_code, 200)
+        self.assertEqual(sync.json(), {"schema": "ai-caddie-sync-status-v2", "status": "ok"})
+        self.assertLessEqual(set(readiness.json().keys()), {"schema", "status"})
         for term in _OWNER_LEAK_TERMS:
             self.assertNotIn(term, readiness.text)
             self.assertNotIn(term, sync.text)
