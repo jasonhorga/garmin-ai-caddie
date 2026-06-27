@@ -2,11 +2,15 @@
 """Repository functions over a SQLAlchemy Session. No FastAPI, no module globals."""
 from __future__ import annotations
 
+import hashlib
+import secrets
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server_v2.identity_models import (
-    Family, LegacyPlayerMap, User, UserIdentity,
+    AuthSession, Family, LegacyPlayerMap, TokenRevocation, User, UserIdentity,
 )
 
 
@@ -50,3 +54,44 @@ def get_user_by_apple_subject(session: Session, subject: str) -> User | None:
         .where(UserIdentity.provider == "apple", UserIdentity.subject == subject)
     )
     return session.execute(stmt).scalars().first()
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def mint_session_token(
+    session: Session, *, user_id: str, scope: str, expires_at: datetime,
+    device_id: str | None = None, refresh_of: str | None = None,
+) -> tuple[str, AuthSession]:
+    """Create a session row; return (plaintext_token, row). Plaintext is shown ONCE."""
+    token = secrets.token_urlsafe(32)
+    row = AuthSession(
+        user_id=user_id, device_id=device_id, scope=scope,
+        token_hash=_hash_token(token), expires_at=expires_at, refresh_of=refresh_of,
+    )
+    session.add(row)
+    session.flush()
+    return token, row
+
+
+def resolve_session_token(session: Session, token: str) -> AuthSession | None:
+    """Return the live session for a bearer token, or None (unknown/expired/revoked)."""
+    row = session.execute(
+        select(AuthSession).where(AuthSession.token_hash == _hash_token(token))
+    ).scalars().first()
+    if row is None:
+        return None
+    expires = row.expires_at
+    if expires.tzinfo is None:  # SQLite returns naive datetimes
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires <= datetime.now(timezone.utc):
+        return None
+    if session.get(TokenRevocation, row.id) is not None:
+        return None
+    return row
+
+
+def revoke_session(session: Session, *, session_id: str, reason: str | None = None) -> None:
+    if session.get(TokenRevocation, session_id) is None:
+        session.add(TokenRevocation(session_id=session_id, reason=reason))
