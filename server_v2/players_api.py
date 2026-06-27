@@ -22,6 +22,7 @@ token.
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from typing import Any
 
@@ -30,6 +31,8 @@ from pydantic import BaseModel
 
 from ai_caddie.rounds import players
 from ai_caddie.rounds.players import OWNER_ID
+
+logger = logging.getLogger(__name__)
 
 _ADMIN_TOKEN_HEADER = "x-ai-caddie-admin-token"
 # Mirrors server_v2.main._security_profile_requires_admin (kept local to avoid a
@@ -54,7 +57,8 @@ def player_token_from_request(request: Request) -> str | None:
 
 
 def has_valid_player_token(request: Request) -> bool:
-    """True iff the request carries a bearer/key token that resolves to a player.
+    """True iff the request carries a bearer/key token that resolves to a player —
+    either a legacy per-player capability token or a Phase-1b Apple session token.
 
     Used by the global admin gate: a valid player token bypasses the admin
     requirement on player-side routes. Admin-token handling stays in
@@ -63,7 +67,8 @@ def has_valid_player_token(request: Request) -> bool:
     token = player_token_from_request(request)
     if not token:
         return False
-    return players.resolve_token(token) is not None
+    # The admin/dev fallback is NOT a player token, so check only the two player-credential types.
+    return players.resolve_token(token) is not None or _player_for_session_token(token) is not None
 
 
 def _admin_token_grants_owner(request: Request) -> bool:
@@ -94,6 +99,7 @@ def _player_for_session_token(token: str) -> str | None:
                 return None
             return repo.legacy_player_for_user(session, sess.user_id)
     except Exception:
+        logger.warning("identity store error during session-token resolution", exc_info=True)
         return None  # identity store unavailable → fall through to admin/dev/None
 
 

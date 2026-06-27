@@ -51,12 +51,17 @@ def _session_ttl() -> timedelta:
     return timedelta(hours=hours)
 
 
-def _resolve_session(request: Request) -> tuple[str, str]:
-    """(session_id, user_id) for a live session bearer; else 401."""
+def _bearer_token(request: Request) -> str:
     authz = request.headers.get("authorization") or ""
     token = authz[7:].strip() if authz[:7].lower() == "bearer " else ""
     if not token:
         raise HTTPException(status_code=401, detail="session token required")
+    return token
+
+
+def _resolve_session(request: Request) -> tuple[str, str]:
+    """(session_id, user_id) for a live session bearer; else 401."""
+    token = _bearer_token(request)
     with db.session_scope() as session:
         sess = repo.resolve_session_token(session, token)
         if sess is None:
@@ -92,13 +97,18 @@ def apple_link(body: AppleLinkRequest) -> dict:
 
 @auth_router.post("/refresh")
 def refresh(request: Request) -> dict:
-    session_id, user_id = _resolve_session(request)
+    token = _bearer_token(request)
     expires = datetime.now(timezone.utc) + _session_ttl()
+    # resolve + mint + revoke in ONE transaction so the old session is one-time: a concurrent
+    # refresh of the same bearer fails on the duplicate revocation rather than minting a 2nd token.
     with db.session_scope() as session:
-        token, _sess = repo.mint_session_token(
-            session, user_id=user_id, scope="user", expires_at=expires, refresh_of=session_id)
-        repo.revoke_session(session, session_id=session_id, reason="refresh")
-        return {"token": token, "expiresAt": expires.isoformat()}
+        sess = repo.resolve_session_token(session, token)
+        if sess is None:
+            raise HTTPException(status_code=401, detail="invalid or expired session")
+        new_token, _sess = repo.mint_session_token(
+            session, user_id=sess.user_id, scope="user", expires_at=expires, refresh_of=sess.id)
+        repo.revoke_session(session, session_id=sess.id, reason="refresh")
+        return {"token": new_token, "expiresAt": expires.isoformat()}
 
 
 @auth_router.post("/logout")
