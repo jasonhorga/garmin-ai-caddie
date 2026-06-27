@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from unittest.mock import Mock, patch
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
 from ai_caddie.caddie.decision_api import build_decision_request_from_fixture
+from ai_caddie.rounds import players
 from server_v2.main import app
 
 
@@ -639,7 +643,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         self.assertEqual(course_options.status_code, 200)
         self.assertEqual(replay.status_code, 200)
         self.assertEqual(reconciliation.status_code, 200)
-        package_handler.assert_called_once_with("live-round-1", captured_at=None, client_id=None, ensure_geometry=False)
+        package_handler.assert_called_once_with("live-round-1", captured_at=None, client_id=None, ensure_geometry=False, player_id="me")
         course_options_handler.assert_called_once_with(player_id="me")
         replay_handler.assert_called_once_with("live-round-1", client_id="ios-phone", after_sequence=None, limit=100)
         reconciliation_handler.assert_called_once_with("live-round-1")
@@ -797,6 +801,100 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
 
         self.assertEqual(unauthenticated.status_code, 401)
         self.assertEqual(authenticated.status_code, 422)
+
+
+class MobilePackagePlayerScopeTests(unittest.TestCase):
+    """A valid player token lets a family member call the mobile round/course
+    package GETs and thread THEIR player_id (not the owner's) into the builder."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self._player_patch = mock.patch.object(players, "ROOT", self.root)
+        self._player_patch.start()
+        created = players.create_player("FamilyMember", root=self.root)
+        self.member_token = created["token"]
+        self.member_id = created["id"]
+        self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        self._player_patch.stop()
+        self._tmp.cleanup()
+
+    def test_player_token_grants_access_to_mobile_round_package(self) -> None:
+        """A player token bypasses the admin gate and threads THEIR player_id to the builder."""
+        handler = Mock(return_value=_mobile_package_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_mobile_round_package_response", handler),
+        ):
+            resp = self.client.get(
+                "/api/v2/mobile/rounds/live-round-1/package",
+                headers={"Authorization": f"Bearer {self.member_token}"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with(
+            "live-round-1",
+            captured_at=None,
+            client_id=None,
+            ensure_geometry=False,
+            player_id=self.member_id,
+        )
+
+    def test_player_token_grants_access_to_mobile_course_package(self) -> None:
+        """A player token bypasses the admin gate and threads THEIR player_id to the builder."""
+        handler = Mock(return_value=_mobile_package_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_mobile_course_package_response", handler),
+        ):
+            resp = self.client.get(
+                "/api/v2/mobile/courses/31795/package?round_id=live-round-1",
+                headers={"Authorization": f"Bearer {self.member_token}"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with(
+            31795,
+            round_id="live-round-1",
+            tee_box=None,
+            captured_at=None,
+            client_id=None,
+            ensure_geometry=False,
+            nine="all",
+            back_global_id=None,
+            player_id=self.member_id,
+        )
+
+    def test_no_token_under_admin_env_still_401_for_round_package(self) -> None:
+        """Without any token, the admin gate still fires and rejects the request."""
+        handler = Mock(return_value=_mobile_package_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_mobile_round_package_response", handler),
+        ):
+            resp = self.client.get("/api/v2/mobile/rounds/live-round-1/package")
+        self.assertEqual(resp.status_code, 401)
+        handler.assert_not_called()
+
+    def test_admin_token_round_package_threads_owner_id(self) -> None:
+        """An admin token resolves to the owner player_id 'me'."""
+        handler = Mock(return_value=_mobile_package_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_mobile_round_package_response", handler),
+        ):
+            resp = self.client.get(
+                "/api/v2/mobile/rounds/live-round-1/package",
+                headers=ADMIN_HEADER,
+            )
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with(
+            "live-round-1",
+            captured_at=None,
+            client_id=None,
+            ensure_geometry=False,
+            player_id="me",
+        )
 
 
 if __name__ == "__main__":

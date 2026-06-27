@@ -151,6 +151,8 @@ def is_player_scoped_route(method: str, path: str) -> bool:
         or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
         or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
         or path == "/api/v2/mobile/courses/options"
+        or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
+        or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
     )
 
 

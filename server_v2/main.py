@@ -812,12 +812,14 @@ def mobile_round_package(
     captured_at: str | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
+    player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
     return build_mobile_round_package_response(
         round_id,
         captured_at=captured_at,
         client_id=client_id,
         ensure_geometry=ensure_geometry,
+        player_id=player_id,
     )
 
 
@@ -836,6 +838,7 @@ def mobile_course_package(
     ensure_geometry: bool = False,
     nine: str = Query(default="all", pattern="^(all|front|back)$"),
     back_global_id: int | None = None,
+    player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
     return build_mobile_course_package_response(
         global_id,
@@ -846,6 +849,7 @@ def mobile_course_package(
         ensure_geometry=ensure_geometry,
         nine=nine,
         back_global_id=back_global_id,
+        player_id=player_id,
     )
 
 

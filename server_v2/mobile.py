@@ -45,8 +45,9 @@ def build_mobile_round_package_response(
     captured_at: str | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
+    player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
-    data, mode = load_history_data_for_mode()
+    data, mode = load_history_data_for_mode(player_id=player_id)
     return LiveRoundPackageResponse(
         **build_live_round_package(
             round_id,
@@ -72,8 +73,9 @@ def build_mobile_course_package_response(
     ensure_geometry: bool = False,
     nine: str = "all",
     back_global_id: int | None = None,
+    player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
-    data, mode = load_history_data_for_mode()
+    data, mode = load_history_data_for_mode(player_id=player_id)
     return LiveRoundPackageResponse(
         **build_live_round_package_for_course(
             global_id,
