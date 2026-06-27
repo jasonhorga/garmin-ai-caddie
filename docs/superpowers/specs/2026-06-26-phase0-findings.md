@@ -23,10 +23,12 @@ A self-contained protobuf walk (decoding `fixed32` floats) over 12 real courses 
 | **hole `.3`** (nested) | `{f1=index, f2="MEN", f3="NotSpecified"}` | ✅ **stroke index / handicap, gender-tagged** | par/handicap are **per gender** — today we read only the first (MEN) |
 | **f5** (×1–2/course) | `{f1="OUT"/"IN", f2=36/35, f3="MEN"}` | ✅ **front/back-nine definitions** (label + nine-par + gender) | OUT=front, IN=back; a 9-hole course has only one |
 | **hole `.7`** | `birdseye…` URL | ✅ anonymous per-hole overhead thumbnail | render in prep with no geometry decode |
-| **f12** | =1 on ~half (Mission Hills/Sand River/Dragon Valley yes; Jade Island/Clearwater no) | ⚠️ **boolean flag, meaning still undetermined** | (possibly multi-loop/facility marker — unconfirmed) |
-| **f10 `unknown_10`** | 22 / 28 / 29 | ⚠️ **small course int, NOT geographic** | **disproved** the region-code guess: Shenzhen's Mission Hills=28 but Sand River=29 — still genuinely unknown |
+| **f10 `unknown_10`** | 22 / 28 / 29 | ✅ **`CourseGenVersion`** (Garmin geometry-pipeline version) | release `f10` **exactly equals** the decoded `hole.json` `CourseGenVersion` — **5/5**: gid31791 22↔22, 39315 28↔28, 39247 29↔29, 31669 28↔28, 31702 29↔29. A data-freshness/quality signal, not geography. |
+| **f12** | varint, `1` or absent | ⚠️ **boolean "modern data-tier" flag — ≈ `CourseGenVersion ≥ 28`** | =1 for **all** CGV28 (11/11) + 6/8 CGV29; absent for **all** CGV22 (5/5) + two CGV29 (Clearwater Bay ~A, Shanqin Bay). Empirically **NOT** foliage/3D assets, tee-marker count, elevation, province, hole count, or any `hole.json` field (see below). Gates nothing — low value. |
 
-**Schema impact (now firm):** the **anonymous catalog carries full tee ratings** — `tee_boxes` += `rating` (float) + `slope` (int); `course_holes` par/handicap are **per gender** (model with a gender discriminator / a `course_hole_pars` child); `f5` yields per-nine par. **None of this needs the credentialed geometry path.** Two fields (`f12`, `unknown_10`) remain genuinely undetermined and are flagged as such — not guessed.
+**Schema impact (now firm):** the **anonymous catalog carries full tee ratings** — `tee_boxes` += `rating` (float) + `slope` (int); `course_holes` par/handicap are **per gender** (model with a gender discriminator / a `course_hole_pars` child); `f5` yields per-nine par. **None of this needs the credentialed geometry path.**
+
+**On the two "unknown" release fields — guessed, then *tested*, not punted:** `unknown_10` is **nailed (= `CourseGenVersion`, 5/5** against decoded `hole.json`). `f12` was hunted jointly with Codex on real data: every hypothesis was **run against the decoded geometry and refuted** — Codex's "has-foliage / enhanced-3D-assets" guess (its strongest) is **false** (f12-absent gid31791/39247 still carry 51–83 tree+foliage instances, same band as f12=1 courses); no sibling release field's presence co-varies with f12 (f1–f10 present in both groups); no `hole.json` key splits by f12; tee-marker count does not (f12-absent Shanqin Bay has 5–7-tee holes). What survives is a precise *characterization* (≈ `CourseGenVersion ≥ 28`, two CGV29 exceptions) without a confirmed semantic — and it **gates nothing**, so it is recorded as a low-value flag, not shipped as a fact.
 
 ### A2. Mesh-`y` elevation is real and usable (validates decision ③)
 
@@ -39,6 +41,8 @@ A self-contained protobuf walk (decoding `fixed32` floats) over 12 real courses 
 | 11 | 13 | 26,196 | −33.3 … 4.1 | **37.4 m** |
 
 Real terrain (37–46 m relief), not flat/zero → **PlaysLike works on shipped geometry, no external DEM**. **Coverage today: 24 courses / 360 hole-meshes** already decoded. The Phase-0 spike confirmed reliability + coverage (the open question Codex re-framed) — elevation **exists and is good**; the remaining work is wiring/coverage expansion, not sourcing.
+
+**Bonus — `hole.json` ships explicit per-hole elevation metadata** (no mesh scan needed): every hole carries `ElevationMaximum` / `ElevationMinimum` / `ElevationRange` (m). Real hole-1 values: Shanqin Bay **27.6 m** range, Topwin **14.7 m**, Sand River **3.3 m**, Dunes **2.3 m** (flat coastal) — consistent with the mesh-`y` spread above. Critically, **`DEMProviderId = 0` for every course** → Garmin sources **no external DEM**; elevation is intrinsic to the shipped mesh, **reinforcing decision ③ (no third-party DEM dependency)**. Each hole also exposes `Biome`, `HasOceanFeatures`, `Doglegs`, `TeeLocations`, `HasTargets`, `Version` — usable for prep without the catalog round-trip.
 
 ---
 
