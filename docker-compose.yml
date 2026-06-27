@@ -18,6 +18,10 @@ services:
       NVIDIA_NIM_BASE_URL: ${NVIDIA_NIM_BASE_URL:-}
       NVIDIA_NIM_MODEL: ${NVIDIA_NIM_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_CADDIE_DATABASE_URL: postgresql+psycopg://aicaddie:${AI_CADDIE_DB_PASSWORD:-aicaddie}@db:5432/aicaddie
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "${AI_CADDIE_API_PUBLISH_HOST:-127.0.0.1}:9000:9000"
     volumes:
@@ -27,6 +31,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: aicaddie
+      POSTGRES_PASSWORD: ${AI_CADDIE_DB_PASSWORD:-aicaddie}
+      POSTGRES_DB: aicaddie
+    volumes:
+      - ai-caddie-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aicaddie"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   web:
     image: node:24-bookworm-slim
@@ -46,3 +64,4 @@ services:
 volumes:
   ai-caddie-private:
   web-node-modules:
+  ai-caddie-pgdata:

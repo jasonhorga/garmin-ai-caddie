@@ -503,6 +503,7 @@ dependencies = [
     { name = "opencv-python-headless" },
     { name = "pillow" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "pyyaml" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -526,6 +527,7 @@ requires-dist = [
     { name = "opencv-python-headless", specifier = ">=4.13.0.92" },
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "pyyaml", specifier = ">=6" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.48.0" },
 ]
