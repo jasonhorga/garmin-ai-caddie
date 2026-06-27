@@ -94,6 +94,8 @@ def _player_for_session_token(token: str) -> str | None:
             sess = repo.resolve_session_token(session, token)
             if sess is None:
                 return None
+            if sess.scope != "user":  # only full user sessions authorize player-scoped routes
+                return None
             user = session.get(User, sess.user_id)
             if user is None or user.deleted_at is not None:
                 return None
