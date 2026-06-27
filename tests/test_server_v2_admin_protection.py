@@ -803,9 +803,11 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         self.assertEqual(authenticated.status_code, 422)
 
 
-class MobilePackagePlayerScopeTests(unittest.TestCase):
-    """A valid player token lets a family member call the mobile round/course
-    package GETs and thread THEIR player_id (not the owner's) into the builder."""
+class MobilePackageAdminOnlyTests(unittest.TestCase):
+    """The mobile round/course package GETs are admin-only: they aggregate per-round data
+    from shared, unpartitioned stores keyed by round_id, so a family-member token must be
+    rejected (admin-only until those stores are per-user partitioned in Phase 2). The owner
+    (admin) is still served and threads player_id='me'."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -821,8 +823,8 @@ class MobilePackagePlayerScopeTests(unittest.TestCase):
         self._player_patch.stop()
         self._tmp.cleanup()
 
-    def test_player_token_grants_access_to_mobile_round_package(self) -> None:
-        """A player token bypasses the admin gate and threads THEIR player_id to the builder."""
+    def test_member_token_is_rejected_for_mobile_round_package(self) -> None:
+        """A per-player token must NOT reach the round-package builder (admin-only)."""
         handler = Mock(return_value=_mobile_package_response())
         with (
             patch.dict("os.environ", ADMIN_ENV),
@@ -832,17 +834,11 @@ class MobilePackagePlayerScopeTests(unittest.TestCase):
                 "/api/v2/mobile/rounds/live-round-1/package",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
-        self.assertEqual(resp.status_code, 200)
-        handler.assert_called_once_with(
-            "live-round-1",
-            captured_at=None,
-            client_id=None,
-            ensure_geometry=False,
-            player_id=self.member_id,
-        )
+        self.assertEqual(resp.status_code, 401)
+        handler.assert_not_called()
 
-    def test_player_token_grants_access_to_mobile_course_package(self) -> None:
-        """A player token bypasses the admin gate and threads THEIR player_id to the builder."""
+    def test_member_token_is_rejected_for_mobile_course_package(self) -> None:
+        """A per-player token must NOT reach the course-package builder (admin-only)."""
         handler = Mock(return_value=_mobile_package_response())
         with (
             patch.dict("os.environ", ADMIN_ENV),
@@ -852,18 +848,8 @@ class MobilePackagePlayerScopeTests(unittest.TestCase):
                 "/api/v2/mobile/courses/31795/package?round_id=live-round-1",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
-        self.assertEqual(resp.status_code, 200)
-        handler.assert_called_once_with(
-            31795,
-            round_id="live-round-1",
-            tee_box=None,
-            captured_at=None,
-            client_id=None,
-            ensure_geometry=False,
-            nine="all",
-            back_global_id=None,
-            player_id=self.member_id,
-        )
+        self.assertEqual(resp.status_code, 401)
+        handler.assert_not_called()
 
     def test_no_token_under_admin_env_still_401_for_round_package(self) -> None:
         """Without any token, the admin gate still fires and rejects the request."""
@@ -897,11 +883,11 @@ class MobilePackagePlayerScopeTests(unittest.TestCase):
         )
 
 
-class ReconciliationAndCaddieContextPlayerScopeTests(unittest.TestCase):
-    """A valid player token lets a family member call the caddie-context GET (threading
-    THEIR player_id into the builder). The reconciliation-GET is admin-only: its payload
-    derives from the unpartitioned shared mobile event log, so a member token must NOT
-    reach it (deferred to Phase 2 per-user partitioning)."""
+class ReconciliationAndCaddieContextAdminOnlyTests(unittest.TestCase):
+    """The reconciliation-GET and the caddie-context read are both admin-only: each
+    aggregates per-round data from shared, unpartitioned stores keyed by round_id /
+    source_ref (the mobile event log / weather / annotations), so a family-member token
+    must NOT reach either (deferred to Phase 2 per-user partitioning)."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -933,8 +919,8 @@ class ReconciliationAndCaddieContextPlayerScopeTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 401)
         handler.assert_not_called()
 
-    def test_player_token_grants_access_to_caddie_context(self) -> None:
-        """A player token bypasses the admin gate and threads THEIR player_id to the builder."""
+    def test_member_token_is_rejected_for_caddie_context(self) -> None:
+        """A per-player token must NOT reach the caddie-context builder (admin-only)."""
         handler = Mock(return_value=_caddie_context_response())
         with (
             patch.dict("os.environ", ADMIN_ENV),
@@ -944,25 +930,8 @@ class ReconciliationAndCaddieContextPlayerScopeTests(unittest.TestCase):
                 "/api/v2/caddie/context?source_ref=round-1:7&shot_type=approach",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
-        self.assertEqual(resp.status_code, 200)
-        handler.assert_called_once_with(
-            source_ref="round-1:7",
-            shot_type="approach",
-            distance_to_pin_m=None,
-            lie=None,
-            current_latitude=None,
-            current_longitude=None,
-            target_latitude=None,
-            target_longitude=None,
-            strategy_mode=None,
-            start_x=None,
-            start_y=None,
-            target_x=None,
-            target_y=None,
-            landing_radius_m=18.0,
-            captured_at=None,
-            player_id=self.member_id,
-        )
+        self.assertEqual(resp.status_code, 401)
+        handler.assert_not_called()
 
     def test_no_token_under_admin_env_still_401_for_reconciliation(self) -> None:
         """Without any token, the admin gate still fires and rejects the request."""
