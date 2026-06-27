@@ -60,6 +60,7 @@ from .mobile import (
     replay_mobile_events_response,
     round_state_response,
 )
+from .auth_api import auth_router
 from .players_api import (
     admin_router,
     current_player_id,
@@ -159,6 +160,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
 app.include_router(admin_router)
+app.include_router(auth_router)
 
 
 def cors_allowed_origins() -> list[str]:
@@ -271,6 +273,8 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         "/api/v2/media",
         "/api/v2/sync/garmin",
         "/api/v2/sync/garmin/session",
+        # owner-bootstrap: links an Apple Sign-in subject to the owner user.
+        "/api/v2/auth/apple/link",
     }
     if path in exact_paths:
         return True

@@ -22,6 +22,7 @@ token.
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from typing import Any
 
@@ -30,6 +31,8 @@ from pydantic import BaseModel
 
 from ai_caddie.rounds import players
 from ai_caddie.rounds.players import OWNER_ID
+
+logger = logging.getLogger(__name__)
 
 _ADMIN_TOKEN_HEADER = "x-ai-caddie-admin-token"
 # Mirrors server_v2.main._security_profile_requires_admin (kept local to avoid a
@@ -54,7 +57,8 @@ def player_token_from_request(request: Request) -> str | None:
 
 
 def has_valid_player_token(request: Request) -> bool:
-    """True iff the request carries a bearer/key token that resolves to a player.
+    """True iff the request carries a bearer/key token that resolves to a player —
+    either a legacy per-player capability token or a Phase-1b Apple session token.
 
     Used by the global admin gate: a valid player token bypasses the admin
     requirement on player-side routes. Admin-token handling stays in
@@ -63,7 +67,8 @@ def has_valid_player_token(request: Request) -> bool:
     token = player_token_from_request(request)
     if not token:
         return False
-    return players.resolve_token(token) is not None
+    # The admin/dev fallback is NOT a player token, so check only the two player-credential types.
+    return players.resolve_token(token) is not None or _player_for_session_token(token) is not None
 
 
 def _admin_token_grants_owner(request: Request) -> bool:
@@ -75,17 +80,45 @@ def _admin_token_grants_owner(request: Request) -> bool:
     return not _security_profile_requires_admin()
 
 
+def _player_for_session_token(token: str) -> str | None:
+    """A Phase-1b Apple session bearer → the user's legacy player_id, or None.
+
+    None when the token is not a live session (unknown/expired/revoked), the user is
+    soft-deleted, or the user has no legacy_player_map entry yet."""
+    # local imports keep this gate-critical module import-light (no identity-store load at import time)
+    from server_v2 import db
+    from server_v2 import identity_repo as repo
+    from server_v2.identity_models import User
+    try:
+        with db.session_scope() as session:
+            sess = repo.resolve_session_token(session, token)
+            if sess is None:
+                return None
+            user = session.get(User, sess.user_id)
+            if user is None or user.deleted_at is not None:
+                return None
+            return repo.legacy_player_for_user(session, sess.user_id)
+    except Exception:
+        logger.warning("identity store error during session-token resolution", exc_info=True)
+        return None  # identity store unavailable → fall through to admin/dev/None
+
+
 def resolve_request_player(request: Request) -> str | None:
     """Resolve the acting ``player_id`` for this request, or ``None`` if unauthenticated.
 
-    A valid per-player token is authoritative. Otherwise a valid admin token (or
-    an open dev profile) maps to the owner ``"me"``.
+    Resolution order: (1) a legacy per-player capability token (``players.resolve_token``)
+    is authoritative; (2) else a Phase-1b Apple **session token** resolves to the user's
+    legacy player_id; (3) else a valid admin token (or an open dev profile) maps to the
+    owner ``"me"``.
     """
     token = player_token_from_request(request)
     if token:
         player_id = players.resolve_token(token)
         if player_id is not None:
             return player_id
+        session_player = _player_for_session_token(token)  # Phase-1b Apple session token
+        if session_player is not None:
+            return session_player
         # Token present but unresolved -> fall through to the admin/dev check so
         # the admin token never stops mapping to the owner.
     if _admin_token_grants_owner(request):

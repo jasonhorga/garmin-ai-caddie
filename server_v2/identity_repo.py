@@ -14,6 +14,10 @@ from server_v2.identity_models import (
 )
 
 
+class IdentityConflictError(Exception):
+    """Raised when linking an Apple sub that is already bound to a different user."""
+
+
 def create_family_with_owner(session: Session, *, family_name: str, owner_display_name: str) -> tuple[Family, User]:
     family = Family(name=family_name)
     session.add(family)
@@ -47,6 +51,17 @@ def user_id_for_legacy_player(session: Session, legacy_player_id: str) -> str | 
     return row.user_id if row else None
 
 
+def legacy_player_for_user(session: Session, user_id: str) -> str | None:
+    """Reverse of user_id_for_legacy_player: the legacy player_id ('me'/'p_*') for a user, if any.
+
+    One-legacy-per-user holds in practice (the map is seeded from Garmin's 'me'/'p_*' slots),
+    so .first() is deterministic; if that ever changes, add a UNIQUE on LegacyPlayerMap.user_id."""
+    row = session.execute(
+        select(LegacyPlayerMap).where(LegacyPlayerMap.user_id == user_id)
+    ).scalars().first()
+    return row.legacy_player_id if row else None
+
+
 def get_user_by_apple_subject(session: Session, subject: str) -> User | None:
     stmt = (
         select(User)
@@ -54,6 +69,26 @@ def get_user_by_apple_subject(session: Session, subject: str) -> User | None:
         .where(UserIdentity.provider == "apple", UserIdentity.subject == subject)
     )
     return session.execute(stmt).scalars().first()
+
+
+def link_apple_identity(
+    session: Session, *, user_id: str, subject: str, email: str | None = None
+) -> UserIdentity:
+    """Link an Apple `sub` to a user. Idempotent for the same user; raises IdentityConflictError
+    if the sub is already bound to a DIFFERENT user (one sub = one user, permanently)."""
+    existing = session.execute(
+        select(UserIdentity).where(UserIdentity.provider == "apple", UserIdentity.subject == subject)
+    ).scalars().first()
+    if existing is not None:
+        if existing.user_id != user_id:
+            raise IdentityConflictError(
+                f"apple sub already linked to user {existing.user_id!r}, refusing to re-link to {user_id!r}"
+            )
+        return existing
+    identity = UserIdentity(user_id=user_id, provider="apple", subject=subject, email=email)
+    session.add(identity)
+    session.flush()
+    return identity
 
 
 def _hash_token(token: str) -> str:
