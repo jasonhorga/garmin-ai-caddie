@@ -140,7 +140,8 @@ def is_player_scoped_route(method: str, path: str) -> bool:
     """Routes whose access may be granted by a per-player token (not only admin).
 
     These are the player-side reads: history, review reports, course prep /
-    prep-tips, and the mobile course options list.
+    prep-tips, the mobile course options list, the mobile round/course package
+    reads, the mobile round reconciliation-GET, and the caddie context read.
     """
     if method.upper() != "GET":
         return False
@@ -153,6 +154,8 @@ def is_player_scoped_route(method: str, path: str) -> bool:
         or path == "/api/v2/mobile/courses/options"
         or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
         or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
+        or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
+        or path == "/api/v2/caddie/context"
     )
 
 

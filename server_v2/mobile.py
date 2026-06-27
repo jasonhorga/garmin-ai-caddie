@@ -159,8 +159,8 @@ def ack_mobile_events_response(round_id: str, request: LiveRoundEventAckRequest)
     return LiveRoundEventAckResponse(**result)
 
 
-def reconcile_mobile_round_response(round_id: str) -> MobileReconciliationResponse:
-    data, _mode = load_history_data_for_mode()
+def reconcile_mobile_round_response(round_id: str, player_id: str = OWNER_ID) -> MobileReconciliationResponse:
+    data, _mode = load_history_data_for_mode(player_id=player_id)
     return MobileReconciliationResponse(**reconcile_mobile_round_events(round_id, data, root=MOBILE_ROOT))
 
 

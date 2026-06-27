@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from ai_caddie.caddie.caddie_context import build_caddie_context
+from ai_caddie.history.history import OWNER_ID
 from ai_caddie.caddie.decision import (
     audit_decision,
     latest_decision_audit,
@@ -57,8 +58,9 @@ def build_caddie_context_response(
     target_y: float | None = None,
     landing_radius_m: float = 18.0,
     captured_at: str | None = None,
+    player_id: str = OWNER_ID,
 ) -> CaddieContextResponse:
-    data, mode = load_history_data_for_mode()
+    data, mode = load_history_data_for_mode(player_id=player_id)
     return CaddieContextResponse(
         **build_caddie_context(
             data,

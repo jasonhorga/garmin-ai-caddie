@@ -646,7 +646,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         package_handler.assert_called_once_with("live-round-1", captured_at=None, client_id=None, ensure_geometry=False, player_id="me")
         course_options_handler.assert_called_once_with(player_id="me")
         replay_handler.assert_called_once_with("live-round-1", client_id="ios-phone", after_sequence=None, limit=100)
-        reconciliation_handler.assert_called_once_with("live-round-1")
+        reconciliation_handler.assert_called_once_with("live-round-1", player_id="me")
 
     def test_history_reads_require_admin_token_when_configured(self) -> None:
         client = TestClient(app)
@@ -893,6 +893,137 @@ class MobilePackagePlayerScopeTests(unittest.TestCase):
             captured_at=None,
             client_id=None,
             ensure_geometry=False,
+            player_id="me",
+        )
+
+
+class ReconciliationAndCaddieContextPlayerScopeTests(unittest.TestCase):
+    """A valid player token lets a family member call the mobile reconciliation-GET
+    and caddie-context GET, threading THEIR player_id into the respective builders."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self._player_patch = mock.patch.object(players, "ROOT", self.root)
+        self._player_patch.start()
+        created = players.create_player("FamilyMember", root=self.root)
+        self.member_token = created["token"]
+        self.member_id = created["id"]
+        self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        self._player_patch.stop()
+        self._tmp.cleanup()
+
+    def test_player_token_grants_access_to_reconciliation_read(self) -> None:
+        """A player token bypasses the admin gate and threads THEIR player_id to the builder."""
+        handler = Mock(return_value=_reconciliation_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.reconcile_mobile_round_response", handler),
+        ):
+            resp = self.client.get(
+                "/api/v2/mobile/rounds/live-round-1/reconciliation",
+                headers={"Authorization": f"Bearer {self.member_token}"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with("live-round-1", player_id=self.member_id)
+
+    def test_player_token_grants_access_to_caddie_context(self) -> None:
+        """A player token bypasses the admin gate and threads THEIR player_id to the builder."""
+        handler = Mock(return_value=_caddie_context_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_caddie_context_response", handler),
+        ):
+            resp = self.client.get(
+                "/api/v2/caddie/context?source_ref=round-1:7&shot_type=approach",
+                headers={"Authorization": f"Bearer {self.member_token}"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with(
+            source_ref="round-1:7",
+            shot_type="approach",
+            distance_to_pin_m=None,
+            lie=None,
+            current_latitude=None,
+            current_longitude=None,
+            target_latitude=None,
+            target_longitude=None,
+            strategy_mode=None,
+            start_x=None,
+            start_y=None,
+            target_x=None,
+            target_y=None,
+            landing_radius_m=18.0,
+            captured_at=None,
+            player_id=self.member_id,
+        )
+
+    def test_no_token_under_admin_env_still_401_for_reconciliation(self) -> None:
+        """Without any token, the admin gate still fires and rejects the request."""
+        handler = Mock(return_value=_reconciliation_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.reconcile_mobile_round_response", handler),
+        ):
+            resp = self.client.get("/api/v2/mobile/rounds/live-round-1/reconciliation")
+        self.assertEqual(resp.status_code, 401)
+        handler.assert_not_called()
+
+    def test_no_token_under_admin_env_still_401_for_caddie_context(self) -> None:
+        """Without any token, the admin gate still fires and rejects the request."""
+        handler = Mock(return_value=_caddie_context_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_caddie_context_response", handler),
+        ):
+            resp = self.client.get("/api/v2/caddie/context?source_ref=round-1:7&shot_type=approach")
+        self.assertEqual(resp.status_code, 401)
+        handler.assert_not_called()
+
+    def test_admin_token_reconciliation_threads_owner_id(self) -> None:
+        """An admin token resolves to the owner player_id 'me'."""
+        handler = Mock(return_value=_reconciliation_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.reconcile_mobile_round_response", handler),
+        ):
+            resp = self.client.get(
+                "/api/v2/mobile/rounds/live-round-1/reconciliation",
+                headers=ADMIN_HEADER,
+            )
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with("live-round-1", player_id="me")
+
+    def test_admin_token_caddie_context_threads_owner_id(self) -> None:
+        """An admin token resolves to the owner player_id 'me'."""
+        handler = Mock(return_value=_caddie_context_response())
+        with (
+            patch.dict("os.environ", ADMIN_ENV),
+            patch("server_v2.main.build_caddie_context_response", handler),
+        ):
+            resp = self.client.get(
+                "/api/v2/caddie/context?source_ref=round-1:7&shot_type=approach",
+                headers=ADMIN_HEADER,
+            )
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with(
+            source_ref="round-1:7",
+            shot_type="approach",
+            distance_to_pin_m=None,
+            lie=None,
+            current_latitude=None,
+            current_longitude=None,
+            target_latitude=None,
+            target_longitude=None,
+            strategy_mode=None,
+            start_x=None,
+            start_y=None,
+            target_x=None,
+            target_y=None,
+            landing_radius_m=18.0,
+            captured_at=None,
             player_id="me",
         )
 

@@ -692,6 +692,7 @@ def caddie_context(
     target_y: float | None = None,
     landing_radius_m: float = 18.0,
     captured_at: str | None = None,
+    player_id: str = Depends(current_player_id),
 ) -> CaddieContextResponse:
     return build_caddie_context_response(
         source_ref=source_ref,
@@ -709,6 +710,7 @@ def caddie_context(
         target_y=target_y,
         landing_radius_m=landing_radius_m,
         captured_at=captured_at,
+        player_id=player_id,
     )
 
 
@@ -901,8 +903,11 @@ def mobile_round_state(
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/reconciliation", response_model=MobileReconciliationResponse)
-def mobile_round_reconciliation(round_id: str) -> MobileReconciliationResponse:
-    return reconcile_mobile_round_response(round_id)
+def mobile_round_reconciliation(
+    round_id: str,
+    player_id: str = Depends(current_player_id),
+) -> MobileReconciliationResponse:
+    return reconcile_mobile_round_response(round_id, player_id=player_id)
 
 
 @app.post("/api/v2/mobile/rounds/{round_id}/reconciliation/apply", response_model=MobileReconciliationApplyResponse)
