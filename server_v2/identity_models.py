@@ -25,6 +25,7 @@ class Family(Base):
     __tablename__ = "families"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(120))
+    # no FK: avoids the families<->users circular dependency at insert time (repo sets it after both flush)
     owner_user_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
@@ -76,7 +77,7 @@ class AuthSession(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)  # sha256 hex of the bearer
     issued_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
-    refresh_of: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    refresh_of: Mapped[str | None] = mapped_column(String(32), nullable=True)  # prior session id; no FK so revocation never cascades
 
 
 class TokenRevocation(Base):
@@ -98,6 +99,6 @@ class AccessAudit(Base):
 
 class RoundAcl(Base):
     __tablename__ = "round_acl"
-    round_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    user_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    round_id: Mapped[str] = mapped_column(String(64), primary_key=True)  # file-backed round id (no rounds table → no FK)
+    user_id: Mapped[str] = mapped_column(String(32), primary_key=True)  # no FK to users.id by choice; ACL integrity enforced at the repo layer
     access: Mapped[str] = mapped_column(String(32), default="owner")  # owner|shared_read

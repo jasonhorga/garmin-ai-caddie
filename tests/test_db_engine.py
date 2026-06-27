@@ -48,6 +48,29 @@ class DatabaseUrlTests(unittest.TestCase):
                     count = session.execute(text("select count(*) from t")).scalar_one()
                 self.assertEqual(count, 0)  # the insert was rolled back
 
+    def test_sqlite_foreign_keys_are_enforced(self):
+        # SQLite enforces FKs only with PRAGMA foreign_keys=ON (the db.py connect hook);
+        # an orphan child row must be rejected so dev/CI/test match Postgres.
+        from datetime import datetime, timezone
+
+        from sqlalchemy.exc import IntegrityError
+        from sqlalchemy.orm import Session as OrmSession
+
+        from server_v2.identity_models import AuthSession, Base
+
+        self.addCleanup(db.reset_engine_for_tests)
+        with tempfile.TemporaryDirectory() as tmp:
+            url = f"sqlite:///{Path(tmp) / 'fk.db'}"
+            with mock.patch.dict(os.environ, {"AI_CADDIE_DATABASE_URL": url}):
+                db.reset_engine_for_tests()
+                engine = db.get_engine()
+                Base.metadata.create_all(engine)
+                with self.assertRaises(IntegrityError):  # user_id -> users.id is enforced
+                    with OrmSession(engine) as s:
+                        s.add(AuthSession(user_id="GHOST", scope="user", token_hash="z" * 64,
+                                          expires_at=datetime.now(timezone.utc)))
+                        s.commit()
+
 
 if __name__ == "__main__":
     unittest.main()

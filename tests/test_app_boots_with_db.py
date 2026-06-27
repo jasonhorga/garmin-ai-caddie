@@ -5,14 +5,20 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
+from sqlalchemy import inspect
 
 from server_v2 import db
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 class AppBootsWithDbTests(unittest.TestCase):
-    def test_health_ok_and_identity_tables_exist_on_sqlite(self):
-        self.addCleanup(db.reset_engine_for_tests)  # unconditional, even if an assertion fails
+    def test_health_ok_after_migrate_then_boot_on_sqlite(self):
+        """Deploy flow: `alembic upgrade head` (the sole schema authority) then serve."""
+        self.addCleanup(db.reset_engine_for_tests)
         with tempfile.TemporaryDirectory() as tmp:
             url = f"sqlite:///{Path(tmp) / 'identity.db'}"
             env = {
@@ -23,10 +29,15 @@ class AppBootsWithDbTests(unittest.TestCase):
             }
             with mock.patch.dict(os.environ, env):
                 db.reset_engine_for_tests()
-                from server_v2.main import app  # imported under env
+                # 1) migrate — what start_api.sh runs before uvicorn (sole schema authority)
+                cfg = Config(str(REPO_ROOT / "alembic.ini"))
+                cfg.set_main_option("script_location", str(REPO_ROOT / "migrations"))
+                cfg.set_main_option("sqlalchemy.url", url)
+                command.upgrade(cfg, "head")
+                # 2) boot the app and confirm it serves + the migrated schema is present
+                from server_v2.main import app
                 with TestClient(app) as client:  # context = lifespan runs
                     self.assertEqual(client.get("/api/v2/health").status_code, 200)
-                    from sqlalchemy import inspect
                     tables = set(inspect(db.get_engine()).get_table_names())
                     self.assertIn("users", tables)
 

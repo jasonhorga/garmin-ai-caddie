@@ -11,7 +11,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Our app's URL wins over the static alembic.ini value (so SQLite/Postgres follow env).
+# Resolve the DB URL: an explicit alembic.ini value (or one a caller set) wins; otherwise fall
+# back to the app's env-derived database_url(). alembic.ini ships empty, so deploys use database_url().
 config.set_main_option("sqlalchemy.url", config.get_main_option("sqlalchemy.url") or database_url())
 ensure_sqlite_parent(config.get_main_option("sqlalchemy.url"))  # create data/ before sqlite opens
 
