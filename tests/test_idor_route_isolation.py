@@ -52,6 +52,7 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.core.config import get_settings
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players
 from server_v2.main import app
@@ -86,11 +87,24 @@ class IDORRouteIsolationTests(unittest.TestCase):
             mock.patch.object(players, "ROOT", self.root),
             mock.patch.object(history, "ROOT", self.root),
             mock.patch.object(stats_cache, "_PLAYERS_DIR", self.root / "data" / "players"),
+            # Pin a non-"fixture" data mode. In pure "fixture" mode (which CI sets via
+            # AI_CADDIE_DATA_MODE=fixture) load_history_data_for_mode returns the fixture
+            # for *everyone*, ignoring player_id — that would defeat the very scoping this
+            # test proves. In "local_or_fixture" the owner falls back to the fixture while
+            # a non-owner member stays on their own (empty) local data: exactly the
+            # isolation asserted below. (Without this pin the test passes in isolation but
+            # fails inside the full CI suite where the ambient mode is "fixture".)
+            mock.patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "local_or_fixture"}),
         ]
         for p in self._patches:
             p.start()
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
+        # get_settings() is lru_cached, so clear it now that AI_CADDIE_DATA_MODE is patched
+        # (otherwise a cached ambient "fixture" value would win), and again on cleanup so
+        # later tests observe the real ambient mode.
+        get_settings.cache_clear()
+        self.addCleanup(get_settings.cache_clear)
         # Create a member player with no round data — they have only a registry entry.
         created = players.create_player("Bob", root=self.root)
         self.member_token = created["token"]
