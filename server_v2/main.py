@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import hmac
+import logging
 import os
 import threading
 from typing import Annotated, Literal
@@ -141,6 +142,10 @@ from .readiness import build_readiness_response
 from .product_settings import build_product_settings_response
 from .session import save_garmin_session_response
 from .sync_status import load_sync_status_response
+from . import db as _db
+from .identity_models import Base as _IdentityBase
+
+logger = logging.getLogger(__name__)
 
 
 @contextlib.asynccontextmanager
@@ -149,9 +154,15 @@ async def _lifespan(_app: FastAPI):
 
     Fires ``warm_stats_cache_in_background`` on a daemon thread immediately after the
     server starts serving.  Failure-isolated inside ``warm_stats_cache`` itself — a warm
-    error never prevents the server from handling requests.
+    error never prevents the server from handling requests.  Then creates the identity
+    schema (``Base.metadata.create_all``); that init failure is logged but never fatal
+    (Phase 1a is additive).
     """
     warm_stats_cache_in_background()
+    try:
+        _IdentityBase.metadata.create_all(_db.get_engine())
+    except Exception:  # never block API boot on identity-store init (Phase 1a is additive)
+        logger.exception("identity schema init failed")
     yield
 
 

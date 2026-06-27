@@ -27,6 +27,8 @@ COPY --from=node-deps /app/node_modules ./node_modules
 COPY ai_caddie/ ./ai_caddie/
 COPY server_v2/ ./server_v2/
 COPY ops/ ./ops/
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
 
 EXPOSE 9000
 

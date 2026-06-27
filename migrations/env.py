@@ -4,7 +4,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from server_v2.db import database_url
+from server_v2.db import database_url, ensure_sqlite_parent
 from server_v2.identity_models import Base
 
 config = context.config
@@ -13,6 +13,7 @@ if config.config_file_name is not None:
 
 # Our app's URL wins over the static alembic.ini value (so SQLite/Postgres follow env).
 config.set_main_option("sqlalchemy.url", config.get_main_option("sqlalchemy.url") or database_url())
+ensure_sqlite_parent(config.get_main_option("sqlalchemy.url"))  # create data/ before sqlite opens
 
 target_metadata = Base.metadata
 

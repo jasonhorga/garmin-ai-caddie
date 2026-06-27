@@ -25,7 +25,20 @@ def database_url() -> str:
     explicit = os.environ.get("AI_CADDIE_DATABASE_URL")
     if explicit:
         return explicit
-    return f"sqlite:///{Path(ROOT) / 'identity.db'}"
+    return f"sqlite:///{Path(ROOT) / 'data' / 'identity.db'}"  # under the gitignored data/ dir
+
+
+def ensure_sqlite_parent(url: str) -> None:
+    """For a file-based sqlite URL, create the parent directory if it is missing.
+
+    Used by both ``get_engine`` and Alembic's ``env.py`` (which builds its own engine),
+    so a fresh deploy can open ``sqlite:///<root>/data/identity.db`` before the dir exists.
+    """
+    if not url.startswith("sqlite:///"):
+        return
+    db_file = url[len("sqlite:///"):]
+    if db_file and db_file != ":memory:":
+        Path(db_file).parent.mkdir(parents=True, exist_ok=True)
 
 
 def get_engine() -> Engine:
@@ -33,6 +46,7 @@ def get_engine() -> Engine:
     if _ENGINE is None:
         url = database_url()
         connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+        ensure_sqlite_parent(url)
         _ENGINE = create_engine(url, future=True, pool_pre_ping=True, connect_args=connect_args)
         _SESSION_FACTORY = sessionmaker(bind=_ENGINE, expire_on_commit=False, future=True)
     return _ENGINE
