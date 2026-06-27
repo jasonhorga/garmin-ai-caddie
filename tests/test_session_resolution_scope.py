@@ -9,8 +9,11 @@ from alembic import command
 from alembic.config import Config
 from starlette.requests import Request
 
+from fastapi.testclient import TestClient
+
 from server_v2 import db
 from server_v2 import identity_repo as repo
+from server_v2.main import app
 from server_v2.players_api import resolve_request_player
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +51,19 @@ class SessionScopeTests(unittest.TestCase):
     def test_non_user_scope_does_not_resolve(self):
         # a watch/device-scoped session must NOT grant full player-route access
         self.assertIsNone(resolve_request_player(_request(self.watch_token)))
+
+    def test_refresh_preserves_non_user_scope(self):
+        # Refreshing a non-"user" (watch) session must NOT launder it into a "user" token:
+        # the replacement keeps scope="watch" and therefore STILL fails player-route access.
+        # (Without this, the scope=="user" boundary above is trivially bypassed via /refresh.)
+        client = TestClient(app)
+        resp = client.post(
+            "/api/v2/auth/refresh", headers={"Authorization": f"Bearer {self.watch_token}"})
+        self.assertEqual(resp.status_code, 200)
+        new_token = resp.json()["token"]
+        self.assertIsNone(resolve_request_player(_request(new_token)))
+        with db.session_scope() as s:
+            self.assertEqual(repo.resolve_session_token(s, new_token).scope, "watch")
 
 
 if __name__ == "__main__":

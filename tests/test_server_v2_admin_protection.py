@@ -898,8 +898,10 @@ class MobilePackagePlayerScopeTests(unittest.TestCase):
 
 
 class ReconciliationAndCaddieContextPlayerScopeTests(unittest.TestCase):
-    """A valid player token lets a family member call the mobile reconciliation-GET
-    and caddie-context GET, threading THEIR player_id into the respective builders."""
+    """A valid player token lets a family member call the caddie-context GET (threading
+    THEIR player_id into the builder). The reconciliation-GET is admin-only: its payload
+    derives from the unpartitioned shared mobile event log, so a member token must NOT
+    reach it (deferred to Phase 2 per-user partitioning)."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -915,8 +917,10 @@ class ReconciliationAndCaddieContextPlayerScopeTests(unittest.TestCase):
         self._player_patch.stop()
         self._tmp.cleanup()
 
-    def test_player_token_grants_access_to_reconciliation_read(self) -> None:
-        """A player token bypasses the admin gate and threads THEIR player_id to the builder."""
+    def test_player_token_rejected_for_reconciliation_read_admin_only(self) -> None:
+        """reconciliation-GET is NOT player-scoped — its payload comes from the unpartitioned
+        shared mobile event log, so a member token must be rejected by the admin gate and the
+        builder must never run (admin-only until MOBILE_ROOT is partitioned in Phase 2)."""
         handler = Mock(return_value=_reconciliation_response())
         with (
             patch.dict("os.environ", ADMIN_ENV),
@@ -926,8 +930,8 @@ class ReconciliationAndCaddieContextPlayerScopeTests(unittest.TestCase):
                 "/api/v2/mobile/rounds/live-round-1/reconciliation",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
-        self.assertEqual(resp.status_code, 200)
-        handler.assert_called_once_with("live-round-1", player_id=self.member_id)
+        self.assertEqual(resp.status_code, 401)
+        handler.assert_not_called()
 
     def test_player_token_grants_access_to_caddie_context(self) -> None:
         """A player token bypasses the admin gate and threads THEIR player_id to the builder."""

@@ -146,16 +146,18 @@ class IDORRouteIsolationTests(unittest.TestCase):
         self.assertEqual(member_resp.status_code, 200)
         self.assertEqual(no_token_resp.status_code, 401)
 
-    def test_reconciliation_gate_200_for_member_401_for_no_token(self) -> None:
-        """GET /api/v2/mobile/rounds/{id}/reconciliation: player token passes the gate;
-        a bare request (no token) under ADMIN_ENV gets 401."""
+    def test_reconciliation_is_admin_only_401_for_member_and_no_token(self) -> None:
+        """GET /api/v2/mobile/rounds/{id}/reconciliation is admin-only: its payload derives
+        from the unpartitioned shared mobile event log (keyed by round_id only), so threading
+        player_id cannot isolate it. BOTH a member token and a bare request are rejected — it
+        is intentionally not a player-scoped read until MOBILE_ROOT is partitioned (Phase 2)."""
         with mock.patch.dict("os.environ", ADMIN_ENV):
             member_resp = self.client.get(
                 "/api/v2/mobile/rounds/test-round-1/reconciliation",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
             no_token_resp = self.client.get("/api/v2/mobile/rounds/test-round-1/reconciliation")
-        self.assertEqual(member_resp.status_code, 200)
+        self.assertEqual(member_resp.status_code, 401)
         self.assertEqual(no_token_resp.status_code, 401)
 
     def test_caddie_context_gate_200_for_member_401_for_no_token(self) -> None:

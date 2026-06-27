@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.rounds import players
 from server_v2.main import app
 
 # private profile + no admin token = an anonymous caller on a locked deploy.
@@ -41,6 +45,25 @@ class ReadinessSyncStatusGatingTests(unittest.TestCase):
         self.assertEqual(sync.json(), {"schema": "ai-caddie-sync-status-v2", "status": "ok"})
         for term in _OWNER_LEAK_TERMS:
             self.assertNotIn(term, readiness.text)
+            self.assertNotIn(term, sync.text)
+
+    def test_member_token_gets_liveness_only(self) -> None:
+        # A *resolved* non-owner member token (Phase 1b made members resolve) must receive the
+        # same liveness stub as an anonymous caller — sync/status is owner-only, so no owner
+        # counts / snapshot id / geometry deps / last-run leak to a family member.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(players, "ROOT", root):
+                member = players.create_player("FamilyMember", root=root)
+                client = TestClient(app)
+                with patch.dict("os.environ", {"AI_CADDIE_SECURITY_PROFILE": "private",
+                                               "AI_CADDIE_ADMIN_TOKEN": "admin-secret"}):
+                    sync = client.get(
+                        "/api/v2/sync/status",
+                        headers={"Authorization": f"Bearer {member['token']}"})
+        self.assertEqual(sync.status_code, 200)
+        self.assertEqual(sync.json(), {"schema": "ai-caddie-sync-status-v2", "status": "ok"})
+        for term in _OWNER_LEAK_TERMS:
             self.assertNotIn(term, sync.text)
 
 

@@ -1022,7 +1022,10 @@ def sync_status(request: Request) -> SyncStatusResponse | dict[str, str]:
     # Owner sync metadata (scorecard/shot counts, last-run error code, the course
     # global-IDs the owner plays, snapshot id) is owner-only. Anonymous callers get
     # connector liveness only — no counts, course ids, or error codes.
-    if resolve_request_player(request) is None:
+    # Owner-only. A *resolved* non-owner member token (Phase 1b made members resolve)
+    # would otherwise read the owner's sync metadata, so gate on OWNER_ID — not merely
+    # "some player". Members and anonymous callers both get connector liveness only.
+    if resolve_request_player(request) != OWNER_ID:
         return {"schema": "ai-caddie-sync-status-v2", "status": "ok"}
     return load_sync_status_response()
 

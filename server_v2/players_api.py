@@ -141,7 +141,13 @@ def is_player_scoped_route(method: str, path: str) -> bool:
 
     These are the player-side reads: history, review reports, course prep /
     prep-tips, the mobile course options list, the mobile round/course package
-    reads, the mobile round reconciliation-GET, and the caddie context read.
+    reads, and the caddie context read.
+
+    NOTE: the mobile round reconciliation-GET is intentionally NOT here. Its payload
+    derives from the unpartitioned shared mobile event log (keyed by round_id only), so
+    threading player_id cannot isolate it — opening it would leak the owner's live-round
+    events to any member with a known round_id. It stays admin-only until MOBILE_ROOT is
+    per-user partitioned (Phase 2).
     """
     if method.upper() != "GET":
         return False
@@ -154,7 +160,6 @@ def is_player_scoped_route(method: str, path: str) -> bool:
         or path == "/api/v2/mobile/courses/options"
         or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
         or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
-        or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
         or path == "/api/v2/caddie/context"
     )
 

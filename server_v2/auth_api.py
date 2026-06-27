@@ -105,8 +105,11 @@ def refresh(request: Request) -> dict:
         sess = repo.resolve_session_token(session, token)
         if sess is None:
             raise HTTPException(status_code=401, detail="invalid or expired session")
+        # Preserve the original session's scope — refresh must NOT launder a non-"user"
+        # (e.g. "watch") session into a "user" token, which would bypass the scope=="user"
+        # authorization boundary enforced in _player_for_session_token (Phase 1c).
         new_token, _sess = repo.mint_session_token(
-            session, user_id=sess.user_id, scope="user", expires_at=expires, refresh_of=sess.id)
+            session, user_id=sess.user_id, scope=sess.scope, expires_at=expires, refresh_of=sess.id)
         repo.revoke_session(session, session_id=sess.id, reason="refresh")
         return {"token": new_token, "expiresAt": expires.isoformat()}
 
