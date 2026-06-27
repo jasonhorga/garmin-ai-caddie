@@ -45,6 +45,7 @@ Self-review checklist (Task 1c-5):
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -52,6 +53,7 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.caddie.mobile_live import mobile_event_log
 from ai_caddie.core.config import get_settings
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players
@@ -232,6 +234,43 @@ class IDORRouteIsolationTests(unittest.TestCase):
         self.assertTrue(
             owner_coverage.get("roundFound"),
             "owner must find fixture round 900001 via fixture fallback",
+        )
+
+    def test_round_package_event_cursor_isolation(self) -> None:
+        """The mobile event log behind the package's eventCursor is a single shared,
+        UNPARTITIONED store keyed by round_id only. Seed one OWNER event for the fixture
+        round, then prove a member's package cursor stays empty (serverSequence 0) while the
+        owner's reflects the event — a member cannot learn an owner round's event sequence /
+        pending-count by guessing its round_id. (Closes the eventCursor IDOR that history-only
+        scoping left open; reconciliation's richer content leak is closed by keeping that
+        route admin-only.)"""
+        with tempfile.TemporaryDirectory() as ev_tmp:
+            ev_root = Path(ev_tmp)
+            log_path = mobile_event_log(ev_root)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text(
+                json.dumps({"roundId": _FIXTURE_ROUND_ID, "serverSequence": 1,
+                            "event": {"type": "score", "hole": 1}}) + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch("server_v2.mobile.MOBILE_ROOT", ev_root), \
+                    mock.patch.dict("os.environ", ADMIN_ENV):
+                member_pkg = self.client.get(
+                    f"/api/v2/mobile/rounds/{_FIXTURE_ROUND_ID}/package",
+                    headers={"Authorization": f"Bearer {self.member_token}"},
+                ).json()
+                owner_pkg = self.client.get(
+                    f"/api/v2/mobile/rounds/{_FIXTURE_ROUND_ID}/package",
+                    headers=ADMIN_HEADER,
+                ).json()
+
+        self.assertEqual(
+            member_pkg.get("eventCursor", {}).get("serverSequence"), 0,
+            "member must not learn the owner round's event sequence via the shared event log",
+        )
+        self.assertEqual(
+            owner_pkg.get("eventCursor", {}).get("serverSequence"), 1,
+            "owner's own cursor must reflect the seeded event (proves the gate, not a dead read)",
         )
 
     def test_caddie_context_member_history_isolation(self) -> None:
