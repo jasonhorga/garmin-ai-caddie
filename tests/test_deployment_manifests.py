@@ -4,9 +4,33 @@ import json
 from pathlib import Path
 import tomllib
 import unittest
+import yaml
 
 
 class DeploymentManifestTests(unittest.TestCase):
+    def _load_compose(self) -> dict:
+        return yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+
+    def test_compose_has_postgres_and_api_database_url(self) -> None:
+        compose = self._load_compose()
+        services = compose["services"]
+
+        # db service exists with a postgres image
+        self.assertIn("db", services)
+        self.assertIn("postgres", services["db"]["image"])
+
+        # api environment contains AI_CADDIE_DATABASE_URL
+        api_env = services["api"].get("environment", {})
+        keys = (
+            api_env.keys()
+            if isinstance(api_env, dict)
+            else {e.split("=", 1)[0] for e in api_env}
+        )
+        self.assertIn("AI_CADDIE_DATABASE_URL", keys)
+
+        # api depends_on db
+        self.assertIn("db", services["api"].get("depends_on", {}))
+
     def test_render_manifest_runs_private_fixture_api_with_health_check(self) -> None:
         manifest = Path("render.yaml")
         self.assertTrue(manifest.exists(), "missing Render staging manifest")
@@ -244,6 +268,7 @@ class DeploymentManifestTests(unittest.TestCase):
         for required in [
             "AI_CADDIE_SECURITY_PROFILE=private",
             "AI_CADDIE_ADMIN_TOKEN=replace-with-random-admin-token",
+            "AI_CADDIE_DB_PASSWORD=replace-with-random-db-password",
             "AI_CADDIE_DATA_MODE=local_or_fixture",
             "AI_CADDIE_API_PUBLISH_HOST=127.0.0.1",
             "VITE_AI_CADDIE_API_BASE_URL=http://127.0.0.1:9000",

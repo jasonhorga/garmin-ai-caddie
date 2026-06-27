@@ -30,4 +30,8 @@ case "$_profile" in
     ;;
 esac
 
+# Bring the identity DB schema up to date (Postgres in prod; the SQLite default
+# is created here too). Idempotent; fail-closed so a broken migration stops boot.
+uv run --frozen alembic upgrade head
+
 exec uv run --frozen uvicorn server_v2.main:app --host 0.0.0.0 --port "${PORT:-9000}"

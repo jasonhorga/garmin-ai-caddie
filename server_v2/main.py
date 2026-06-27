@@ -149,7 +149,9 @@ async def _lifespan(_app: FastAPI):
 
     Fires ``warm_stats_cache_in_background`` on a daemon thread immediately after the
     server starts serving.  Failure-isolated inside ``warm_stats_cache`` itself — a warm
-    error never prevents the server from handling requests.
+    error never prevents the server from handling requests.  (The identity schema is owned
+    solely by Alembic — ``alembic upgrade head`` in start_api.sh — never the app process,
+    so create_all can never race or shadow a migration. Phase 1a is additive.)
     """
     warm_stats_cache_in_background()
     yield

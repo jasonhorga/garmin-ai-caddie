@@ -149,6 +149,13 @@ case "$current_token" in
     ;;
 esac
 
+current_db_password="$(sed -n 's/^AI_CADDIE_DB_PASSWORD=//p' .env | tail -1)"
+case "$current_db_password" in
+  ""|"replace-with-random-db-password"|"aicaddie")
+    set_env AI_CADDIE_DB_PASSWORD "$(openssl rand -hex 32)"
+    ;;
+esac
+
 set_env AI_CADDIE_SECURITY_PROFILE private
 set_env AI_CADDIE_DATA_MODE local_or_fixture
 set_env AI_CADDIE_API_PUBLISH_HOST 127.0.0.1
