@@ -420,10 +420,10 @@ def health() -> dict[str, str]:
 @app.get("/api/v2/readiness")
 def readiness(request: Request) -> dict[str, object]:
     # Owner operational evidence (round ids/counts/sync errors) + a heavy per-call
-    # owner-package build are owner-only. Anonymous callers get liveness only —
-    # both a data-leak fix and a no-auth DoS-amplifier fix. (Liveness lives at
-    # GET /api/v2/health for unauthenticated monitors.)
-    if resolve_request_player(request) is None:
+    # owner-package build are owner-only. A non-owner caller — anonymous OR a resolved
+    # family member (Phase 1b made members resolve) — gets liveness only: both a data-leak
+    # fix and a no-auth DoS-amplifier fix. (Liveness lives at GET /api/v2/health.)
+    if resolve_request_player(request) != OWNER_ID:
         return {"schema": "ai-caddie-readiness-v1", "status": "ok"}
     return build_readiness_response()
 
