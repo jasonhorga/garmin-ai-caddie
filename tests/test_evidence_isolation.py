@@ -76,6 +76,7 @@ ALL_SENTINELS = (
 _MEMBER_ROUTES = (
     f"/api/v2/history/drilldown/{_FIXTURE_ROUND_ID}",
     f"/api/v2/history/drilldown/{_MISSING_REF}",
+    f"/api/v2/history/rounds/{_FIXTURE_ROUND_ID}",
     "/api/v2/history/stats",
     "/api/v2/history/stats/mobile",
     "/api/v2/history/rounds?hasReport=true",

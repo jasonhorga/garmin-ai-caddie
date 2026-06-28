@@ -325,3 +325,26 @@ class MobileEventPlayerScopeTests(unittest.TestCase):
         self._seed()
         result = ack_event_cursor("900001", client_id="c1", server_sequence=1, root=self.tmp, player_id="p_x")
         self.assertEqual(result["latestServerSequence"], 0)
+
+
+class RoundDetailAnnotationPlayerScopeTests(unittest.TestCase):
+    """Round-detail (/history/rounds/{ref}) attaches annotations from the shared store; a
+    non-owner must read NONE even when the round itself IS 'found' in the data passed in.
+    This is the member-reachable path the cross-review found Phase 2 had missed — mirrors the
+    already-scoped drilldown twin. Passing the same fixture data to both builds isolates the
+    annotation scoping from the (separate) per-player HistoryData loading."""
+
+    def test_found_round_scopes_annotations_by_player(self) -> None:
+        from ai_caddie.reports.annotations import add_annotation
+        from ai_caddie.core.fixtures import fixture_history_data
+        from ai_caddie.history.history_round_detail import build_history_round_detail
+        with tempfile.TemporaryDirectory() as tmp:
+            add_annotation("round", "900001", "round_note", {"text": "owner-note"}, root=tmp)
+            data = fixture_history_data()  # contains owner round 900001
+            owner = build_history_round_detail(data, "900001", annotations_root=tmp, player_id="me")
+            member = build_history_round_detail(data, "900001", annotations_root=tmp, player_id="p_x")
+        self.assertTrue(owner["found"])
+        self.assertEqual(len(owner["annotations"]), 1)
+        self.assertTrue(member["found"])  # same data -> the round is found for both callers
+        self.assertEqual(member["annotations"], [])  # but a non-owner reads no owner annotations
+        self.assertEqual(member["corrections"], [])
