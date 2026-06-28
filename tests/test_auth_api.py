@@ -45,10 +45,36 @@ class AuthApiTests(unittest.TestCase):
             sess = repo.resolve_session_token(s, token)
             return sess.user_id if sess else None
 
-    def test_unknown_apple_sub_is_403_not_autocreated(self):
-        with self._verify(subject="UNKNOWN"):
+    def _legacy_for(self, user_id):
+        with db.session_scope() as s:
+            return repo.legacy_player_for_user(s, user_id)
+
+    def test_unknown_apple_sub_autoregisters(self):
+        # Reverses the old 403 stance: a first-time (unknown) Apple sub now auto-provisions a
+        # member + a fresh isolated player scope and mints a session.
+        with self._verify(subject="UNKNOWN", email="new@member.com"):
             r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
-        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        new_uid = self._resolves_to(body["token"])
+        self.assertIsNotNone(new_uid)
+        self.assertNotEqual(new_uid, self.owner_id)  # a brand-new user, not the owner
+        self.assertEqual(body["userId"], new_uid)
+        # The linchpin: a fresh p_* LegacyPlayerMap (NOT "me") was created for the member.
+        pid = self._legacy_for(new_uid)
+        self.assertEqual(body["playerId"], pid)
+        self.assertTrue(pid.startswith("p_"))
+        self.assertNotEqual(pid, "me")
+        # Isolation: the member sees an EMPTY history. The suite's open-dev profile resolves a
+        # MISSING map to OWNER, so run local_or_fixture (owner falls back to the shared fixtures);
+        # a regression that dropped the map would surface the owner's fixture rounds instead of 0.
+        from ai_caddie.core.config import get_settings
+        with mock.patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "local_or_fixture"}):
+            get_settings.cache_clear()
+            rounds = self.client.get("/api/v2/history/rounds", headers={"Authorization": f"Bearer {body['token']}"})
+        get_settings.cache_clear()
+        self.assertEqual(rounds.status_code, 200, rounds.text)
+        self.assertEqual(rounds.json()["total"], 0)
 
     def test_link_then_signin_mints_owner_session(self):
         with self._verify(subject="A.sub.1"):
@@ -56,6 +82,69 @@ class AuthApiTests(unittest.TestCase):
             r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self._resolves_to(r.json()["token"]), self.owner_id)
+        # The known-sub path now also returns the resolved playerId (here the owner's "me").
+        self.assertEqual(r.json()["playerId"], "me")
+
+    def test_display_name_used_when_provided(self):
+        from server_v2.identity_models import User
+        with self._verify(subject="KID", email="kid@example.com"):
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t", "displayName": "小明"})
+        self.assertEqual(r.status_code, 200, r.text)
+        with db.session_scope() as s:
+            self.assertEqual(s.get(User, r.json()["userId"]).display_name, "小明")
+
+    def test_display_name_falls_back_to_email_local_part(self):
+        from server_v2.identity_models import User
+        with self._verify(subject="KID2", email="kid2@example.com"):
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r.status_code, 200, r.text)
+        with db.session_scope() as s:
+            self.assertEqual(s.get(User, r.json()["userId"]).display_name, "kid2")
+
+    def test_display_name_placeholder_when_no_email_or_name(self):
+        from server_v2.identity_models import User
+        with self._verify(subject="ANON", email=None):
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r.status_code, 200, r.text)
+        with db.session_scope() as s:
+            self.assertEqual(s.get(User, r.json()["userId"]).display_name, "Family member")
+
+    def test_autoregister_400_when_owner_family_missing(self):
+        from server_v2.identity_models import LegacyPlayerMap
+        with db.session_scope() as s:
+            s.delete(s.get(LegacyPlayerMap, "me"))  # no owner map → cannot resolve the family
+        with self._verify(subject="ORPHAN"):
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r.status_code, 400, r.text)
+
+    def test_concurrent_first_signin_mints_for_winner_not_500(self):
+        # Two simultaneous first sign-ins of the same sub race on UNIQUE(provider, subject); the
+        # loser's link raises IdentityConflictError. The handler must re-resolve and mint for the
+        # now-existing (winner) user, never 500, and never leave an orphan loser user.
+        with db.session_scope() as s:
+            winner = repo.add_user(s, family_id=self.family_id, display_name="Winner", role="member")
+            repo.map_legacy_player(s, legacy_player_id="p_winner01", user_id=winner.id)
+            repo.link_apple_identity(s, user_id=winner.id, subject="RACE", email="w@e.c")
+            winner_id = winner.id
+        real = repo.get_user_by_apple_subject
+        calls = {"n": 0}
+
+        def racing_lookup(session, subject):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None  # loser's tx doesn't see the winner yet → enters auto-provision
+            return real(session, subject)
+
+        with self._verify(subject="RACE"), mock.patch.object(repo, "get_user_by_apple_subject", side_effect=racing_lookup):
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._resolves_to(r.json()["token"]), winner_id)
+        self.assertEqual(r.json()["playerId"], "p_winner01")
+        # no orphan loser user was left behind (only owner + winner exist)
+        from server_v2.identity_models import User
+        with db.session_scope() as s:
+            from sqlalchemy import select
+            self.assertEqual(len(s.execute(select(User)).scalars().all()), 2)
 
     def test_logout_revokes(self):
         with self._verify(subject="A.sub.1"):
