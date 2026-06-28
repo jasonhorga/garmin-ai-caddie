@@ -10,7 +10,7 @@ import math
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
-from ai_caddie.history.history import HistoryData, average, percentile
+from ai_caddie.history.history import HistoryData, OWNER_ID, average, percentile
 from ai_caddie.history.history_drilldown import build_drilldown_index
 from ai_caddie.caddie.issue_taxonomy import issue_record
 from ai_caddie.reports.reports import list_report_records
@@ -3824,12 +3824,13 @@ def build_history_stats(
     weather_root: Path | str | None = None,
     reports_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     _clear_effective_shots_cache()  # fresh per build — memo only lives within this pass (see note above)
-    annotations = list_annotations(root=annotations_root)
-    weather_snapshots = list_weather_snapshots(root=weather_root)
-    report_records = list_report_records(root=reports_root)
-    decision_audits = list_decision_audits(root=decision_audit_root)
+    annotations = list_annotations(root=annotations_root, player_id=player_id)
+    weather_snapshots = list_weather_snapshots(root=weather_root, player_id=player_id)
+    report_records = list_report_records(root=reports_root, player_id=player_id)
+    decision_audits = list_decision_audits(root=decision_audit_root, player_id=player_id)
     scored_data = _effective_score_data(data, annotations)
     hole_rows = _holes(scored_data, annotations, report_records)
     issue_rows = _issues(scored_data, annotations, report_records)

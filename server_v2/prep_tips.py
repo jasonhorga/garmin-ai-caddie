@@ -10,6 +10,9 @@ from ai_caddie.history.stats_cache import cached_build_history_stats
 
 from .data_source import load_history_data_for_mode
 
+ANNOTATION_ROOT = Path(".")
+WEATHER_ROOT = Path(".")
+REPORTS_ROOT = Path(".")
 DECISION_AUDIT_ROOT = Path(".")
 
 
@@ -46,7 +49,14 @@ def _course_key_for_global_id(rounds: list[dict[str, Any]], global_id: int) -> s
 def load_prep_tips_response(global_id: int, *, player_id: str = OWNER_ID) -> dict[str, Any]:
     data, mode = load_history_data_for_mode(player_id=player_id)
     stats = cached_build_history_stats(
-        data, data_mode=mode, player_id=player_id, decision_audit_root=DECISION_AUDIT_ROOT, window="all"
+        data,
+        data_mode=mode,
+        player_id=player_id,
+        annotations_root=ANNOTATION_ROOT,
+        weather_root=WEATHER_ROOT,
+        reports_root=REPORTS_ROOT,
+        decision_audit_root=DECISION_AUDIT_ROOT,
+        window="all",
     )
     course_key = _course_key_for_global_id(data.rounds, global_id)
     course_row = next(

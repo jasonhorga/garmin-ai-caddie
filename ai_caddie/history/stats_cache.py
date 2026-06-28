@@ -214,7 +214,7 @@ def cached_build_history_stats(
             return hit[1]
     # Compute outside the lock so concurrent distinct requests don't serialize on a
     # ~10s build (a rare double-compute on a cold cache is acceptable).
-    value = _build_history_stats(_windowed_history_data(data, window), data_mode=data_mode, **roots)
+    value = _build_history_stats(_windowed_history_data(data, window), data_mode=data_mode, player_id=player_id, **roots)
     with _lock:
         _cache[key] = (fingerprint, value)
     return value
