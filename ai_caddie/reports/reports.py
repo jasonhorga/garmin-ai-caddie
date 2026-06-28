@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from ai_caddie.history.history import HistoryData
 from ai_caddie.llm.llm_providers import LLMMessage, TextProvider, redact_secret_text
+from ai_caddie.core.data import OWNER_ID, evidence_root
 from ai_caddie.reports.report_labels_zh import (
     audit_class_zh,
     audit_status_zh,
@@ -1818,8 +1819,11 @@ def store_report(
     return record
 
 
-def list_report_records(*, root: Path | str | None = None) -> list[dict[str, Any]]:
-    path = report_store_file(root)
+def list_report_records(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    evidence = evidence_root(player_id, root=root)
+    if evidence is None:
+        return []
+    path = report_store_file(evidence)
     if not path.exists():
         return []
     records = []
@@ -1832,11 +1836,11 @@ def list_report_records(*, root: Path | str | None = None) -> list[dict[str, Any
     return records
 
 
-def latest_report_record(kind: str, subject_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
+def latest_report_record(kind: str, subject_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> dict[str, Any] | None:
     safe_subject_id = redact_private_text(subject_id)
     matches = [
         record
-        for record in list_report_records(root=root)
+        for record in list_report_records(root=root, player_id=player_id)
         if record.get("kind") == kind and str(record.get("subjectId")) == safe_subject_id
     ]
     if not matches:
