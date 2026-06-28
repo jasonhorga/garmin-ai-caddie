@@ -126,6 +126,25 @@ class LoadClubBagTests(unittest.TestCase):
         self.assertIsNotNone(loaded)
         self.assertEqual(len(loaded["clubs"]), 1)
 
+    def test_player_scoped_member_reads_own_partition_never_owner_bag(self) -> None:
+        # Owner bag = flat data/club_bag.json; member bag = data/players/<id>/club_bag.json. A member
+        # must read THEIR OWN bag (or None), NEVER the owner's — the fix for the package bag oracle.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            owner_bag = root / "data" / "club_bag.json"
+            owner_bag.parent.mkdir(parents=True, exist_ok=True)
+            owner_bag.write_text(json.dumps({"clubs": [{"id": 1, "clubTypeId": 1}]}))  # owner: driver
+            member_bag = root / "data" / "players" / "p_m" / "club_bag.json"
+            member_bag.parent.mkdir(parents=True, exist_ok=True)
+            member_bag.write_text(json.dumps({"clubs": [{"id": 2, "clubTypeId": 23}]}))  # member: putter
+            with patch.object(data, "CLUBS_BAG_FILE", owner_bag), patch.object(data, "DATA_DIR", root / "data"):
+                owner_loaded = data.load_club_bag("me")
+                member_loaded = data.load_club_bag("p_m")
+                missing = data.load_club_bag("p_other")
+        self.assertEqual(owner_loaded["clubs"][0]["clubTypeId"], 1)    # owner reads the owner bag
+        self.assertEqual(member_loaded["clubs"][0]["clubTypeId"], 23)  # member reads ITS OWN bag
+        self.assertIsNone(missing)  # a member with no bag gets None, never the owner's
+
 
 class BuildClubBagResponseTests(unittest.TestCase):
     def _write(self, tmp: str, payload: dict) -> None:
@@ -286,6 +305,21 @@ class RestrictToBagTests(unittest.TestCase):
         with patch.object(club_bag, "load_club_bag", return_value=sparse_bag):
             kept = club_bag.restrict_to_bag(ladder, lambda kv: kv[0])
         self.assertEqual(kept, ladder)  # fallback to full list, never strand the caddie
+
+    def test_member_never_filters_by_owner_bag(self) -> None:
+        # THE ORACLE FIX: a member-reachable caller (mobile package) must not filter clubProfiles by
+        # the OWNER's bag. load_club_bag is player-scoped; here the owner has a bag and the member has
+        # none -> the member call returns the FULL ladder (no owner-bag filtering), while the owner
+        # call still filters by its own bag. Reverting the player_id threading regresses the member
+        # call to owner-bag filtering and fails the first assertion.
+        def bag_for(player_id="me"):
+            return _OWNER_BAG if player_id == "me" else None
+
+        with patch.object(club_bag, "load_club_bag", side_effect=bag_for):
+            member_kept = club_bag.restrict_to_bag(self.LADDER, lambda kv: kv[0], player_id="p_member1")
+            owner_kept = club_bag.restrict_to_bag(self.LADDER, lambda kv: kv[0], player_id="me")
+        self.assertEqual([n for n, _ in member_kept], [n for n, _ in self.LADDER])  # member: unfiltered, no leak
+        self.assertNotIn("2I/Hybrid", [n for n, _ in owner_kept])  # owner: still filtered by its own bag
 
 
 if __name__ == "__main__":

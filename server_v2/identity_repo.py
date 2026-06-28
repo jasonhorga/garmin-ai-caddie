@@ -43,12 +43,16 @@ def add_user(session: Session, *, family_id: str, display_name: str, role: str =
 
 
 def map_legacy_player(session: Session, *, legacy_player_id: str, user_id: str) -> LegacyPlayerMap:
+    """Bind a legacy player id ('me'/'p_*') to a user. INSERT-ONLY: re-binding an existing legacy id
+    to a DIFFERENT user is refused (a silent rebind would hand one user's isolated data to another);
+    re-binding to the SAME user is an idempotent no-op. Matches the insert-only contract that
+    provision_member relies on for the LegacyPlayerMap linchpin."""
     row = session.get(LegacyPlayerMap, legacy_player_id)
     if row is None:
         row = LegacyPlayerMap(legacy_player_id=legacy_player_id, user_id=user_id)
         session.add(row)
-    else:
-        row.user_id = user_id
+    elif row.user_id != user_id:
+        raise PlayerIdInUseError(legacy_player_id)
     return row
 
 
@@ -129,8 +133,8 @@ def provision_member(
     IdentityConflictError if ``subject`` is already linked to a different user (concurrent
     first sign-in) — the caller mints a session for the now-existing user instead."""
     member = add_user(session, family_id=family_id, display_name=display_name, role="member")
-    # Insert-only (NOT the upserting map_legacy_player): a pid collision must fail loudly so the
-    # caller retries with a fresh id, never silently re-point an existing member's data scope.
+    # Insert-only (like map_legacy_player, which now also refuses a rebind): a pid collision must
+    # fail loudly so the caller retries with a fresh id, never silently re-point a member's data scope.
     session.add(LegacyPlayerMap(legacy_player_id=pid, user_id=member.id))
     try:
         session.flush()

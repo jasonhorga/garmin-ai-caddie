@@ -23,6 +23,20 @@ class IdentityRepoTests(unittest.TestCase):
             self.assertEqual(family.owner_user_id, owner.id)
             self.assertEqual(repo.user_id_for_legacy_player(s, "me"), owner.id)
 
+    def test_map_legacy_player_is_insert_only(self):
+        # A legacy player id is the linchpin of a user's data isolation. map_legacy_player must be
+        # insert-only: idempotent for the SAME user, but refuse to silently rebind to a DIFFERENT
+        # user (which would hand one user's isolated data to another).
+        with self.Session() as s:
+            family, owner = repo.create_family_with_owner(s, family_name="F", owner_display_name="O")
+            member = repo.add_user(s, family_id=family.id, display_name="M", role="member")
+            repo.map_legacy_player(s, legacy_player_id="p_x", user_id=owner.id)
+            s.commit()
+            repo.map_legacy_player(s, legacy_player_id="p_x", user_id=owner.id)  # same user -> no-op
+            self.assertEqual(repo.user_id_for_legacy_player(s, "p_x"), owner.id)
+            with self.assertRaises(repo.PlayerIdInUseError):
+                repo.map_legacy_player(s, legacy_player_id="p_x", user_id=member.id)  # rebind -> refused
+
     def test_add_member_user(self):
         with self.Session() as s:
             family, owner = repo.create_family_with_owner(s, family_name="F", owner_display_name="O")

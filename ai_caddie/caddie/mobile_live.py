@@ -750,12 +750,22 @@ def _package_holes(
     return holes
 
 
-def _course_prep_package(global_id: int, holes: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _course_prep_package(global_id: int, holes: list[dict[str, Any]], *, player_id: str = OWNER_ID) -> dict[str, Any] | None:
     if not global_id:
         return None
     hole_numbers = [int(row["number"]) for row in holes if row.get("number")]
+    # The club ladder is the OWNER's measured distances; a non-owner gets the generic default so a
+    # member's course-prep never reflects the owner's club model. Defense-in-depth: this helper is
+    # currently gated off for members (the course route sets include_course_prep=False and the round
+    # route uses preparation_mode="round"), but keep it scoped so a future flag flip can't reactivate
+    # the owner oracle. Mirrors load_prep_tips_response / the /course/{id}/prep route gating.
+    ladder = course_prep.club_ladder() if player_id == OWNER_ID else sorted(
+        course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]
+    )
     try:
-        prep_rows = course_prep.prep_nine(int(global_id), holes=hole_numbers, render=False, include_missing=True)
+        prep_rows = course_prep.prep_nine(
+            int(global_id), holes=hole_numbers, ladder=ladder, render=False, include_missing=True
+        )
     except Exception:
         return {
             "schema": "ai-caddie-course-prep-package-v1",
@@ -1774,7 +1784,7 @@ def build_live_round_package(
     # full list if the bag is unknown or the intersection is too small (see club_bag.restrict_to_bag).
     from ai_caddie.caddie.club_bag import restrict_to_bag
 
-    club_profiles = restrict_to_bag(club_profiles, lambda c: c.get("clubName"))
+    club_profiles = restrict_to_bag(club_profiles, lambda c: c.get("clubName"), player_id=player_id)
     if not club_profiles:
         club_profiles = [{"clubName": "8I", "sampleSize": 0, "median_m": 140.0, "p10_m": 130.0, "p90_m": 150.0}]
     ready_holes = sum(1 for hole in holes if hole["geometryCoverage"] == "ready")
@@ -1876,7 +1886,7 @@ def build_live_round_package(
         )
     package_state = "ready" if not package_missing_data and all(row["state"] == "ready" for row in readiness_checks) else "degraded"
     course_global_id = int(round_row.get("globalId") or 0)
-    course_prep_package = _course_prep_package(course_global_id, holes) if (preparation_mode == "course" and include_course_prep) else None
+    course_prep_package = _course_prep_package(course_global_id, holes, player_id=player_id) if (preparation_mode == "course" and include_course_prep) else None
     return {
         "schema": "ai-caddie-live-round-package-v1",
         "roundId": round_id,
