@@ -146,11 +146,20 @@ def _fingerprint(data, roots: dict[str, Any], player_id: str = OWNER_ID) -> tupl
     )
 
 
-def clear() -> None:
-    """Drop all cached results (used by tests and available for explicit refresh)."""
+def clear(player_id: str | None = None) -> None:
+    """Drop cached results. With no ``player_id`` (tests / global refresh) drop everything;
+    with a ``player_id`` evict only THAT player's load + stats entries, so syncing or
+    ingesting for one player never recomputes another player's cache. The stats ``_cache``
+    is keyed by a tuple whose first element is the player id; ``_load_cache`` is keyed by
+    player id directly."""
     with _lock:
-        _cache.clear()
-        _load_cache.clear()
+        if player_id is None:
+            _cache.clear()
+            _load_cache.clear()
+            return
+        _load_cache.pop(player_id, None)
+        for key in [k for k in _cache if isinstance(k, tuple) and k and k[0] == player_id]:
+            _cache.pop(key, None)
 
 
 def cached_load_history_data(player_id: str = OWNER_ID):

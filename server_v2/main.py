@@ -1148,9 +1148,10 @@ def sync_player_garmin(
     elif result.state == "error":
         response.status_code = 500
     elif result.state == "ready":
-        # New scorecards landed in the player's partition -> invalidate the stats cache so
-        # the player's next history/stats read recomputes (mirrors round_ingest._invalidate_cache).
-        stats_cache.clear()
+        # New scorecards landed in the player's partition -> invalidate ONLY that player's
+        # stats cache so their next history/stats read recomputes, without evicting other
+        # players' caches (mirrors round_ingest._invalidate_cache, but player-scoped).
+        stats_cache.clear(player_id)
     return SyncRunResponse(
         schema="ai-caddie-sync-run-v2",
         connector=result.connector,

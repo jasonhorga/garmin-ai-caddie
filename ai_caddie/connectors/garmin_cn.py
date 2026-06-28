@@ -90,13 +90,22 @@ def _player_data_dir(player_id: str | None, root: Path = ROOT) -> Path:
 
 
 @contextmanager
-def _fetch_runtime(*, token_dir: Path, data_dir: Path) -> Iterator[None]:
+def _fetch_runtime(*, token_dir: Path, data_dir: Path, allow_self_heal: bool = True) -> Iterator[None]:
     """Bind the legacy fetch.py module to an EXPLICIT cookie dir + data dir for this run.
 
     The cookie store (``token_dir``) and the data store (``data_dir``) are decoupled so a
     member sync can read its OWN cookie (``data/players/<id>/.garmin_tokens``) and write to
     its OWN partition (``data/players/<id>``) while the owner keeps ``ROOT/.garmin_tokens``
-    + ``ROOT/data`` unchanged.
+    + ``ROOT/data`` unchanged. ALL data files are repointed at ``data_dir`` — including
+    ``CLUBS_BAG_FILE`` (frozen at import to ``ROOT/data/club_bag.json``), or a member's
+    ``fetch_clubs`` would clobber the OWNER's bag.
+
+    ``allow_self_heal=False`` (members) also neutralises the legacy fetch internals' browser/
+    Playwright self-heal: every fetch stage retries a mid-sync 401/403 via the module-level
+    ``refresh_session_auth`` -> ``ensure_web_auth(force=True)``, which is owner-only (it pulls
+    from the machine browser / owner Playwright creds). A member must NEVER trigger it, so for
+    the duration of the run we replace it with a clean ``GarminAuthExpired`` ("re-bind"), which
+    the transport maps to ``reauth_required`` — never an owner re-auth, never a 500.
     """
 
     fetch_originals = {
@@ -107,6 +116,8 @@ def _fetch_runtime(*, token_dir: Path, data_dir: Path) -> Iterator[None]:
         "SUMMARY_FILE": fetch_module.SUMMARY_FILE,
         "SCORECARD_DIR": fetch_module.SCORECARD_DIR,
         "SHOT_DIR": fetch_module.SHOT_DIR,
+        "CLUBS_BAG_FILE": fetch_module.CLUBS_BAG_FILE,
+        "refresh_session_auth": fetch_module.refresh_session_auth,
     }
     auth_originals = {
         "TOKEN_DIR": garmin_auth_module.TOKEN_DIR,
@@ -121,9 +132,17 @@ def _fetch_runtime(*, token_dir: Path, data_dir: Path) -> Iterator[None]:
         fetch_module.SUMMARY_FILE = data_dir / "summary.json"
         fetch_module.SCORECARD_DIR = data_dir / "scorecards"
         fetch_module.SHOT_DIR = data_dir / "shots"
+        fetch_module.CLUBS_BAG_FILE = data_dir / "club_bag.json"
         garmin_auth_module.TOKEN_DIR = token_dir
         garmin_auth_module.COOKIE_FILE = token_dir / "web_cookie.txt"
         garmin_auth_module.CSRF_FILE = token_dir / "csrf.txt"
+        if not allow_self_heal:
+            def _member_no_self_heal(_session) -> bool:
+                raise GarminAuthExpired(
+                    "Garmin session expired for this player. Re-bind your Garmin."
+                )
+
+            fetch_module.refresh_session_auth = _member_no_self_heal
         yield
     finally:
         for name, value in fetch_originals.items():
@@ -197,6 +216,7 @@ class GarminCnFetchTransport:
         data_dir: Path,
         with_shots: bool,
         force_refresh_auth: bool,
+        allow_self_heal: bool = True,
     ) -> GarminCnFetchRun:
         stdout_buffer = io.StringIO()
         safe_meta: dict[str, Any] = {
@@ -207,7 +227,9 @@ class GarminCnFetchTransport:
             "authRetryCount": 0,
             "lastStage": "make_session",
         }
-        with _fetch_runtime(token_dir=token_dir, data_dir=data_dir), redirect_stdout(stdout_buffer):
+        with _fetch_runtime(
+            token_dir=token_dir, data_dir=data_dir, allow_self_heal=allow_self_heal
+        ), redirect_stdout(stdout_buffer):
             session = self.auth_provider.make_session(force_refresh_auth=force_refresh_auth)
             safe_meta["lastStage"] = "fetch_summary"
             cards = self._run_stage(lambda: fetch_module.fetch_summary(session), session=session, safe_meta=safe_meta)
@@ -297,6 +319,9 @@ class GarminCnWebSessionConnector:
                 data_dir=self.data_dir,
                 with_shots=with_shots,
                 force_refresh_auth=force_refresh_auth,
+                # Members never browser/Playwright self-heal (owner-only); a rejected member
+                # cookie surfaces as reauth_required, never an owner re-auth.
+                allow_self_heal=self.is_owner,
             )
             cards = run.cards
             snapshot_id = _snapshot_id()

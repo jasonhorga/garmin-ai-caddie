@@ -25,6 +25,7 @@ def save_garmin_session_response(
     connector-status write follows the same partition so a member bind never clobbers
     the owner's status.
     """
+    player_id = player_id or OWNER_ID  # None/"" -> owner (consistent with garmin_token_dir)
     token_dir = garmin_token_dir(player_id, SESSION_ROOT)
     bind_root = token_dir.parent  # owner -> SESSION_ROOT; member -> SESSION_ROOT/data/players/<id>
     data_dir = None if player_id == OWNER_ID else bind_root

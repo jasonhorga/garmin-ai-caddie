@@ -64,6 +64,7 @@ class PathDecouplingTests(unittest.TestCase):
     def test_fetch_runtime_binds_explicit_token_and_data_dirs(self) -> None:
         original_cookie = fetch_module.COOKIE_FILE
         original_scorecard = fetch_module.SCORECARD_DIR
+        original_clubs = fetch_module.CLUBS_BAG_FILE
         with TemporaryDirectory() as tmp:
             token_dir = Path(tmp) / "tok"
             data_dir = Path(tmp) / "part"
@@ -75,12 +76,37 @@ class PathDecouplingTests(unittest.TestCase):
                 self.assertEqual(fetch_module.SUMMARY_FILE, data_dir / "summary.json")
                 self.assertEqual(fetch_module.SCORECARD_DIR, data_dir / "scorecards")
                 self.assertEqual(fetch_module.SHOT_DIR, data_dir / "shots")
+                # CLUBS_BAG_FILE must repoint too, or a member's fetch_clubs clobbers the owner's bag.
+                self.assertEqual(fetch_module.CLUBS_BAG_FILE, data_dir / "club_bag.json")
                 # garmin_auth (the cookie reader) is scoped to the same token dir.
                 self.assertEqual(garmin_auth_module.COOKIE_FILE, token_dir / "web_cookie.txt")
                 self.assertEqual(garmin_auth_module.CSRF_FILE, token_dir / "csrf.txt")
         # Globals restored after the context.
         self.assertEqual(fetch_module.COOKIE_FILE, original_cookie)
         self.assertEqual(fetch_module.SCORECARD_DIR, original_scorecard)
+        self.assertEqual(fetch_module.CLUBS_BAG_FILE, original_clubs)
+
+    def test_member_runtime_neutralises_internal_self_heal(self) -> None:
+        # The legacy fetch internals retry a mid-sync 401 via the module-level
+        # refresh_session_auth -> ensure_web_auth(force=True) (owner browser/Playwright). A
+        # member run (allow_self_heal=False) must replace it with a clean re-bind error and
+        # NEVER reach ensure_web_auth; the owner run leaves the real hook intact. Reverting
+        # the suppression fails BOTH assertions below.
+        original = fetch_module.refresh_session_auth
+        with TemporaryDirectory() as tmp:
+            token_dir = Path(tmp) / "tok"
+            data_dir = Path(tmp) / "part"
+            with patch("ai_caddie.garmin.fetch.ensure_web_auth") as ensure_web_auth:
+                with _fetch_runtime(token_dir=token_dir, data_dir=data_dir, allow_self_heal=False):
+                    self.assertIsNot(fetch_module.refresh_session_auth, original)
+                    with self.assertRaises(GarminAuthExpired):
+                        fetch_module.refresh_session_auth(Mock())
+                ensure_web_auth.assert_not_called()
+                # Owner run (default allow_self_heal=True) keeps the real self-heal hook.
+                with _fetch_runtime(token_dir=token_dir, data_dir=data_dir):
+                    self.assertIs(fetch_module.refresh_session_auth, original)
+        # Restored after the run.
+        self.assertIs(fetch_module.refresh_session_auth, original)
 
     def test_garmin_token_dir_resolver(self) -> None:
         root = Path("/srv/app")
@@ -169,6 +195,36 @@ class MemberConnectorSyncTests(unittest.TestCase):
             self.assertFalse((root / "data" / "scorecards").exists())
             self.assertFalse((root / "data" / "snapshots").exists())
             self.assertFalse((root / "data" / "players" / MEMBER / "snapshots").exists())
+
+    def test_member_sync_club_bag_lands_in_member_partition_not_owner(self) -> None:
+        # fetch_clubs runs on every sync and writes CLUBS_BAG_FILE; for a member it MUST land
+        # in their partition, never the owner's flat data/club_bag.json (which the caddie reads).
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            member_token = root / "data" / "players" / MEMBER / ".garmin_tokens"
+            _write_cookie(member_token)
+            connector = GarminCnWebSessionConnector(root=root, player_id=MEMBER)
+
+            def write_details(_session, _cards, *, with_shots):
+                _write_scorecard(fetch_module.SCORECARD_DIR, sid=7)
+
+            def write_clubs(_session):
+                # Mirrors fetch.fetch_clubs writing to the (now repartitioned) CLUBS_BAG_FILE.
+                fetch_module.CLUBS_BAG_FILE.parent.mkdir(parents=True, exist_ok=True)
+                fetch_module.CLUBS_BAG_FILE.write_text(
+                    json.dumps({"clubs": ["member 7i"]}), encoding="utf-8"
+                )
+
+            with (
+                patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 7}]),
+                patch("ai_caddie.garmin.fetch.fetch_details", side_effect=write_details),
+                patch("ai_caddie.garmin.fetch.fetch_clubs", side_effect=write_clubs),
+            ):
+                result = connector.sync(with_shots=True, force_refresh_auth=False)
+
+            self.assertEqual(result.state, "ready")
+            self.assertTrue((root / "data" / "players" / MEMBER / "club_bag.json").exists())
+            self.assertFalse((root / "data" / "club_bag.json").exists())
 
     def test_member_sync_without_cookie_is_reauth_not_500_and_no_owner_fallback(self) -> None:
         with TemporaryDirectory() as tmp:

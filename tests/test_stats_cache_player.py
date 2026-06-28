@@ -98,6 +98,24 @@ class StatsCachePlayerScopeTests(unittest.TestCase):
             stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_b", **self.roots)
             self.assertEqual(calls["n"], 4)  # both recomputed after a full clear
 
+    def test_scoped_clear_evicts_only_that_player(self) -> None:
+        # clear(player_id) drops only that player's build+load entries (member sync uses it);
+        # other players stay warm. A global-clear regression OR a no-op both fail this.
+        calls = {"n": 0}
+        with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.me_sc,)), \
+             patch.object(stats_cache, "_GEOMETRY_DIRS", ()), \
+             patch.object(stats_cache, "_PLAYERS_DIR", self.players):
+            data = _dummy_data()
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_a", **self.roots)
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_b", **self.roots)
+            self.assertEqual(calls["n"], 2)
+            stats_cache.clear("p_a")  # evict ONLY p_a
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_a", **self.roots)
+            self.assertEqual(calls["n"], 3)  # p_a recomputed
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_b", **self.roots)
+            self.assertEqual(calls["n"], 3)  # p_b untouched by the scoped clear -> still warm
+
     def test_load_cache_is_per_player(self) -> None:
         load_calls = {"n": 0}
 
