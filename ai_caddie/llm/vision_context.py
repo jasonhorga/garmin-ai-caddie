@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from ai_caddie.llm.llm_providers import LLMMediaPart, LLMMessage, MultimodalProvider, TextProvider, redact_secret_text
 from ai_caddie.core.media import VALID_MEDIA_TARGET_TYPES, resolve_media_content_path
+from ai_caddie.core.data import OWNER_ID, evidence_root
 
 
 ALLOWED_FINDING_TYPES = {
@@ -215,8 +216,11 @@ def store_vision_findings(analysis: dict[str, Any], *, root: Path | str | None =
     return records
 
 
-def list_vision_findings(*, root: Path | str | None = None) -> list[dict[str, Any]]:
-    path = vision_findings_file(root)
+def list_vision_findings(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    evidence = evidence_root(player_id, root=root)
+    if evidence is None:
+        return []
+    path = vision_findings_file(evidence)
     if not path.exists():
         return []
     records = []
@@ -234,10 +238,11 @@ def list_findings_for_target(
     target_id: str,
     *,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
     return [
         record
-        for record in list_vision_findings(root=root)
+        for record in list_vision_findings(root=root, player_id=player_id)
         if record.get("targetType") == target_type and record.get("targetId") == target_id
     ]
 
