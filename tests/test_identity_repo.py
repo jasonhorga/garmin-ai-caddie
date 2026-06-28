@@ -43,6 +43,36 @@ class IdentityRepoTests(unittest.TestCase):
             self.assertEqual(found.id, owner.id)
             self.assertIsNone(repo.get_user_by_apple_subject(s, "unknown"))
 
+    def test_provision_member_creates_user_legacy_map_and_apple_link(self):
+        with self.Session() as s:
+            family, _owner = repo.create_family_with_owner(s, family_name="F", owner_display_name="O")
+            member = repo.provision_member(
+                s, family_id=family.id, display_name="Kid",
+                pid="p_abcd1234", subject="sub-x", email="k@e.com",
+            )
+            s.commit()
+            self.assertEqual(member.role, "member")
+            self.assertEqual(member.family_id, family.id)
+            self.assertEqual(member.display_name, "Kid")
+            # the linchpin map row is created (map-only; no file registry)
+            self.assertEqual(repo.legacy_player_for_user(s, member.id), "p_abcd1234")
+            # the apple sub is linked to the new member
+            self.assertEqual(repo.get_user_by_apple_subject(s, "sub-x").id, member.id)
+
+    def test_provision_member_same_subject_again_raises_conflict(self):
+        with self.Session() as s:
+            family, _owner = repo.create_family_with_owner(s, family_name="F", owner_display_name="O")
+            repo.provision_member(
+                s, family_id=family.id, display_name="Kid",
+                pid="p_abcd1234", subject="sub-x", email="k@e.com",
+            )
+            s.commit()
+            with self.assertRaises(repo.IdentityConflictError):
+                repo.provision_member(
+                    s, family_id=family.id, display_name="Kid2",
+                    pid="p_ffff0000", subject="sub-x", email="k2@e.com",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

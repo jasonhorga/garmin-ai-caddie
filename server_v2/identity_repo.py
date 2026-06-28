@@ -91,6 +91,23 @@ def link_apple_identity(
     return identity
 
 
+def provision_member(
+    session: Session, *, family_id: str, display_name: str, pid: str,
+    subject: str, email: str | None = None,
+) -> User:
+    """Auto-register a family member: a new ``member`` User + the linchpin LegacyPlayerMap
+    (map-only — no ``players.create_player`` file registry) + the Apple identity link.
+
+    The LegacyPlayerMap(pid, member) row is REQUIRED: it is what gives the member an isolated
+    data scope (a missing map silently resolves to OWNER in the open dev/test profile). Raises
+    IdentityConflictError if ``subject`` is already linked to a different user (concurrent
+    first sign-in) — the caller mints a session for the now-existing user instead."""
+    member = add_user(session, family_id=family_id, display_name=display_name, role="member")
+    map_legacy_player(session, legacy_player_id=pid, user_id=member.id)
+    link_apple_identity(session, user_id=member.id, subject=subject, email=email)
+    return member
+
+
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
