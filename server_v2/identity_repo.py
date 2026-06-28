@@ -133,8 +133,8 @@ def provision_member(
     IdentityConflictError if ``subject`` is already linked to a different user (concurrent
     first sign-in) — the caller mints a session for the now-existing user instead."""
     member = add_user(session, family_id=family_id, display_name=display_name, role="member")
-    # Insert-only (NOT the upserting map_legacy_player): a pid collision must fail loudly so the
-    # caller retries with a fresh id, never silently re-point an existing member's data scope.
+    # Insert-only (like map_legacy_player, which now also refuses a rebind): a pid collision must
+    # fail loudly so the caller retries with a fresh id, never silently re-point a member's data scope.
     session.add(LegacyPlayerMap(legacy_player_id=pid, user_id=member.id))
     try:
         session.flush()
