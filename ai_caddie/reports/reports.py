@@ -1064,12 +1064,13 @@ def _confirmed_vision_findings_for_refs(
     hole_refs: list[str],
     shot_refs: list[str],
     vision_root: Path | str | None,
+    player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     targets = [*[(("hole", ref)) for ref in hole_refs], *[(("shot", ref)) for ref in shot_refs]]
     for target_type, target_id in targets:
-        for finding in list_findings_for_target(target_type, target_id, root=vision_root):
+        for finding in list_findings_for_target(target_type, target_id, root=vision_root, player_id=player_id):
             if finding.get("confirmationState") != "manual_confirmed":
                 continue
             finding_id = str(finding.get("id") or f"{target_type}:{target_id}:{finding.get('findingType')}")
@@ -1119,6 +1120,7 @@ def build_hole_report_facts(
     *,
     history_data: HistoryData | None = None,
     vision_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     subject_id = _hole_subject_id(course_key, local_hole)
     hole_stat = _find_hole_stat(history_stats, course_key, local_hole)
@@ -1199,6 +1201,7 @@ def build_hole_report_facts(
         hole_refs=hole_refs,
         shot_refs=shot_refs,
         vision_root=vision_root,
+        player_id=player_id,
     )
     if vision_findings:
         facts_used.append(

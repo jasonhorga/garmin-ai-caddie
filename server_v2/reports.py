@@ -188,6 +188,7 @@ def load_hole_report_response(course_key: str, hole: int, *, player_id: str = OW
         hole,
         history_data=_history_data(player_id),
         vision_root=MEDIA_ROOT,
+        player_id=player_id,
     )
     report = generate_deterministic_report(facts)
     return _report_response(report, kind="hole", subject_id=subject_id)

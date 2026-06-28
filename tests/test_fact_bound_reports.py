@@ -1100,5 +1100,61 @@ class FactBoundReportTests(unittest.TestCase):
         self.assertNotIn("abc123", raw)
 
 
+class HoleReportFactsPlayerScopeTests(unittest.TestCase):
+    def _seed_confirmed_finding(self, root: Path) -> None:
+        stored = store_vision_findings(
+            {
+                "schema": "ai-caddie-vision-context-v1",
+                "mediaId": "media-hole-7",
+                "targetType": "hole",
+                "targetId": "900001:7",
+                "mediaKind": "photo",
+                "provider": "static",
+                "model": "static",
+                "findings": [
+                    {
+                        "findingType": "blocked_view",
+                        "evidenceText": "Trees create a blocked view near the approach window.",
+                        "confidence": "medium",
+                        "missingInfo": [],
+                    }
+                ],
+            },
+            root=root,
+        )
+        confirm_vision_finding(stored[0]["id"], "manual_confirmed", confirmed_by="tester", root=root)
+
+    def _facts(self, root: Path, **kwargs) -> dict:
+        data = fixture_history_data()
+        stats = build_history_stats(data, data_mode="fixture")
+        return build_hole_report_facts(
+            stats,
+            "black_knight",
+            7,
+            history_data=data,
+            vision_root=root,
+            **kwargs,
+        )
+
+    def test_owner_hole_facts_include_confirmed_vision(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_confirmed_finding(root)
+            facts = self._facts(root)  # default player_id == OWNER_ID
+
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertIn("confirmed_vision_findings", by_label)
+        self.assertEqual(by_label["confirmed_vision_findings"]["value"][0]["findingType"], "blocked_view")
+
+    def test_member_hole_facts_omit_confirmed_vision(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_confirmed_finding(root)
+            facts = self._facts(root, player_id="p_alice")
+
+        by_label = {row["label"]: row for row in facts["factsUsed"]}
+        self.assertNotIn("confirmed_vision_findings", by_label)
+
+
 if __name__ == "__main__":
     unittest.main()
