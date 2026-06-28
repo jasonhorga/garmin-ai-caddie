@@ -72,7 +72,11 @@ class AuthApiTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "local_or_fixture"}):
             get_settings.cache_clear()
             rounds = self.client.get("/api/v2/history/rounds", headers={"Authorization": f"Bearer {body['token']}"})
-        get_settings.cache_clear()
+            # Leave the shared get_settings lru_cache holding local_or_fixture (re-prime while the
+            # override env is still active) — NOT empty. An empty cache lets a later fixture-mode
+            # test repopulate it with "fixture", which leaks into the player-scope isolation tests.
+            get_settings.cache_clear()
+            get_settings()
         self.assertEqual(rounds.status_code, 200, rounds.text)
         self.assertEqual(rounds.json()["total"], 0)
 
