@@ -222,7 +222,11 @@ def _weather_snapshot_for_package(
             longitude=longitude,
             transport=transport,
         )
-        if snapshot.get("state") == "ready":
+        if snapshot.get("state") == "ready" and player_id == OWNER_ID:
+            # Only the OWNER persists into the shared (owner) weather store. Now that the
+            # package routes are member-reachable, a non-owner must NOT write owner evidence
+            # (the read side already short-circuits to empty via evidence_root); return the
+            # freshly fetched snapshot for display without persisting it.
             return store_weather_snapshot(snapshot, root=root)
         return snapshot
     return build_weather_snapshot(

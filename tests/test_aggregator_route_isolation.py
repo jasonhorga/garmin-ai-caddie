@@ -32,11 +32,11 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from ai_caddie.caddie.decision import store_decision_audit
-from ai_caddie.caddie.mobile_live import mobile_event_log
+from ai_caddie.caddie.mobile_live import _weather_snapshot_for_package, mobile_event_log
 from ai_caddie.core.config import get_settings
 from ai_caddie.courses import prep_cache
 from ai_caddie.history import history, stats_cache
-from ai_caddie.llm.weather_context import store_weather_snapshot
+from ai_caddie.llm.weather_context import store_weather_snapshot, weather_snapshot_file
 from ai_caddie.reports.annotations import add_annotation
 from ai_caddie.reports.reports import store_report
 from ai_caddie.rounds import players
@@ -296,6 +296,49 @@ class AggregatorRouteMemberIsolationTests(unittest.TestCase):
         for url in _ALL_ROUTES:
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 401, f"anon must be 401 on {url}")
+
+
+class WeatherWriteIsOwnerOnlyTest(unittest.TestCase):
+    """The package weather helper FETCHES live on a cache miss; only the OWNER may PERSIST
+    the result into the shared (owner) weather store. Now that the package routes are
+    member-reachable, a member fetch must NOT write owner evidence (the read side already
+    short-circuits to empty via evidence_root) — though the member may still see the freshly
+    fetched snapshot for display. Reverting the owner-only guard fails the member case."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def _call(self, player_id: str) -> dict[str, Any]:
+        ready = {"state": "ready", "roundId": "r1", "capturedAt": "2026-06-28T10:00:00Z"}
+        with mock.patch(
+            "ai_caddie.caddie.mobile_live.fetch_open_meteo_weather_snapshot",
+            return_value=ready,
+        ):
+            return _weather_snapshot_for_package(
+                "r1",
+                captured_at="2026-06-28T10:00:00Z",
+                latitude=35.0,
+                longitude=139.0,
+                root=self.root,
+                player_id=player_id,
+            )
+
+    def test_member_fetch_does_not_persist_owner_weather(self) -> None:
+        result = self._call("p_member1")
+        self.assertEqual(result.get("state"), "ready")  # member still gets the snapshot to display
+        self.assertFalse(
+            weather_snapshot_file(self.root).exists(),
+            "a member weather fetch must NOT write the shared owner weather store",
+        )
+
+    def test_owner_fetch_persists_weather(self) -> None:
+        result = self._call(players.OWNER_ID)
+        self.assertEqual(result.get("state"), "ready")
+        path = weather_snapshot_file(self.root)
+        self.assertTrue(path.exists(), "owner weather fetch must persist into the shared store")
+        self.assertIn("2026-06-28T10:00:00Z", path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
