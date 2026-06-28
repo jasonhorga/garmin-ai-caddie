@@ -210,10 +210,13 @@ class MemberConnectorSyncTests(unittest.TestCase):
 
             def write_clubs(_session):
                 # Mirrors fetch.fetch_clubs writing to the (now repartitioned) CLUBS_BAG_FILE.
-                fetch_module.CLUBS_BAG_FILE.parent.mkdir(parents=True, exist_ok=True)
-                fetch_module.CLUBS_BAG_FILE.write_text(
-                    json.dumps({"clubs": ["member 7i"]}), encoding="utf-8"
-                )
+                target = fetch_module.CLUBS_BAG_FILE
+                # Guard against a revert: an unrepartitioned CLUBS_BAG_FILE would point at the
+                # real repo data dir; fail loudly here rather than write outside the test root
+                # (the assertions below still catch the regression).
+                self.assertTrue(str(target).startswith(str(root)), f"club bag escaped test root: {target}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(json.dumps({"clubs": ["member 7i"]}), encoding="utf-8")
 
             with (
                 patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 7}]),
