@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from ai_caddie.llm.llm_providers import LLMMessage, TextProvider, build_text_provider, redact_secret_text
+from ai_caddie.core.data import OWNER_ID, evidence_root
 
 
 ROUTE_TO_OPTION = {
@@ -523,8 +524,11 @@ def store_decision(
     return record
 
 
-def list_decision_audits(*, root: Path | str | None = None) -> list[dict[str, Any]]:
-    path = decision_audit_file(root)
+def list_decision_audits(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    evidence = evidence_root(player_id, root=root)
+    if evidence is None:
+        return []
+    path = decision_audit_file(evidence)
     if not path.exists():
         return []
     rows = []
@@ -537,8 +541,11 @@ def list_decision_audits(*, root: Path | str | None = None) -> list[dict[str, An
     return rows
 
 
-def list_decision_records(*, root: Path | str | None = None) -> list[dict[str, Any]]:
-    path = decision_ledger_file(root)
+def list_decision_records(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    evidence = evidence_root(player_id, root=root)
+    if evidence is None:
+        return []
+    path = decision_ledger_file(evidence)
     if not path.exists():
         return []
     rows = []
@@ -551,17 +558,17 @@ def list_decision_records(*, root: Path | str | None = None) -> list[dict[str, A
     return rows
 
 
-def latest_decision_record(decision_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
+def latest_decision_record(decision_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> dict[str, Any] | None:
     normalized_id = normalize_decision_audit_id(decision_id)
-    matches = [row for row in list_decision_records(root=root) if str(row.get("decisionId")) == normalized_id]
+    matches = [row for row in list_decision_records(root=root, player_id=player_id) if str(row.get("decisionId")) == normalized_id]
     if not matches:
         return None
     return sorted(matches, key=lambda row: str(row.get("storedAt") or ""))[-1]
 
 
-def latest_decision_audit(decision_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
+def latest_decision_audit(decision_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> dict[str, Any] | None:
     normalized_id = normalize_decision_audit_id(decision_id)
-    matches = [row for row in list_decision_audits(root=root) if str(row.get("decisionId")) == normalized_id]
+    matches = [row for row in list_decision_audits(root=root, player_id=player_id) if str(row.get("decisionId")) == normalized_id]
     if not matches:
         return None
     return sorted(matches, key=lambda row: str(row.get("storedAt") or ""))[-1]
