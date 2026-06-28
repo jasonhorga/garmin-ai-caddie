@@ -116,14 +116,15 @@ class PlayerTokenResolutionTests(unittest.TestCase):
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/courses/31870/prep"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/courses/31870/prep-tips"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/mobile/courses/options"))
-        # The mobile round/course PACKAGE, reconciliation-GET, and caddie-context reads are
-        # admin-only: they aggregate per-round data from shared, unpartitioned stores keyed by
-        # round_id / source_ref, so they stay owner-only until those stores are per-user
-        # partitioned (Phase 2). Only the player-keyed reads above are member-accessible.
-        self.assertFalse(players_api.is_player_scoped_route("GET", "/api/v2/mobile/rounds/live-round-1/reconciliation"))
-        self.assertFalse(players_api.is_player_scoped_route("GET", "/api/v2/mobile/rounds/live-round-1/package"))
-        self.assertFalse(players_api.is_player_scoped_route("GET", "/api/v2/mobile/courses/31795/package"))
-        self.assertFalse(players_api.is_player_scoped_route("GET", "/api/v2/caddie/context"))
+        # Phase 2: the mobile round/course PACKAGE, reconciliation-GET, and caddie-context reads
+        # are now player-scoped. Their evidence loaders short-circuit to empty for a non-owner and
+        # the builders thread the resolved player_id, so a member sees only their own data.
+        self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/mobile/rounds/live-round-1/reconciliation"))
+        self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/mobile/rounds/live-round-1/package"))
+        self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/mobile/courses/31795/package"))
+        self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/caddie/context"))
+        # the reconciliation/APPLY write path is a POST → never player-scoped (stays admin-only)
+        self.assertFalse(players_api.is_player_scoped_route("POST", "/api/v2/mobile/rounds/live-round-1/reconciliation/apply"))
         # admin-only routes are not player scoped
         self.assertFalse(players_api.is_player_scoped_route("POST", "/api/v2/sync/garmin"))
         self.assertFalse(players_api.is_player_scoped_route("POST", "/api/v2/history/overview"))

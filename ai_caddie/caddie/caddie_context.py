@@ -9,7 +9,7 @@ from typing import Any
 from ai_caddie.reports.annotations import annotations_for_target
 from ai_caddie.caddie.decision_api import ShotType, validate_shot_type
 from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
-from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.history.history_drilldown import resolve_history_ref
 from ai_caddie.history.history_stats import DataModeName
 from ai_caddie.history.stats_cache import cached_build_history_stats
@@ -35,6 +35,7 @@ def build_caddie_context(
     route_target: dict[str, Any] | None = None,
     landing_radius_m: float = 18.0,
     captured_at: str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     normalized_shot_type = validate_shot_type(shot_type)
     drilldown = resolve_history_ref(data, source_ref)
@@ -101,7 +102,7 @@ def build_caddie_context(
     if effective_lie is None and normalized_shot_type != "tee":
         missing_data.append({"label": "lie", "reason": "current lie was not provided"})
 
-    stats = cached_build_history_stats(data, data_mode=data_mode, annotations_root=annotations_root)
+    stats = cached_build_history_stats(data, data_mode=data_mode, annotations_root=annotations_root, player_id=player_id)
     club_profiles = _club_profiles(data, stats=stats)
     if not club_profiles:
         missing_data.append({"label": "club_profiles", "reason": "no usable historical shot distances"})
@@ -113,6 +114,7 @@ def build_caddie_context(
         local_hole=local_hole,
         round_id=str(round_row.get("id") or source_ref.split(":")[0]),
         source_ref=source_ref,
+        player_id=player_id,
     )
     vision_findings = _vision_findings_for_context(
         source_ref=source_ref,
@@ -120,6 +122,7 @@ def build_caddie_context(
         round_id=str(round_row.get("id") or source_ref.split(":")[0]),
         local_hole=local_hole,
         vision_root=vision_root,
+        player_id=player_id,
     )
     if vision_findings:
         evidence_rows.append(
@@ -134,6 +137,7 @@ def build_caddie_context(
         local_hole=local_hole,
         captured_at=captured_at,
         weather_root=weather_root,
+        player_id=player_id,
     )
     if weather_snapshot:
         evidence_rows.append(
@@ -243,6 +247,7 @@ def _history_context(
     local_hole: int | None,
     round_id: str,
     source_ref: str,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     if local_hole is None:
         return {}
@@ -253,6 +258,7 @@ def _history_context(
         source_ref=source_ref,
         round_id=round_id,
         local_hole=local_hole,
+        player_id=player_id,
     )
     context: dict[str, Any] = {}
     if hole_stats:
@@ -464,12 +470,13 @@ def _manual_notes(
     source_ref: str,
     round_id: str,
     local_hole: int,
+    player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
     hole_ref = _hole_ref_for_source(source_ref, round_id, local_hole)
     records = [
-        *annotations_for_target("round", round_id, root=annotations_root),
-        *annotations_for_target("hole", hole_ref, root=annotations_root),
-        *annotations_for_target("shot", source_ref, root=annotations_root),
+        *annotations_for_target("round", round_id, root=annotations_root, player_id=player_id),
+        *annotations_for_target("hole", hole_ref, root=annotations_root, player_id=player_id),
+        *annotations_for_target("shot", source_ref, root=annotations_root, player_id=player_id),
     ]
     out = []
     for record in records:
@@ -527,6 +534,7 @@ def _vision_findings_for_context(
     round_id: str,
     local_hole: int | None,
     vision_root: Path | str | None,
+    player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
     targets: list[tuple[str, str]] = []
     if ref_type == "shot" or source_ref.count(":") >= 2:
@@ -538,7 +546,7 @@ def _vision_findings_for_context(
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for target_type, target_id in targets:
-        for finding in list_findings_for_target(target_type, target_id, root=vision_root):
+        for finding in list_findings_for_target(target_type, target_id, root=vision_root, player_id=player_id):
             if finding.get("confirmationState") != "manual_confirmed":
                 continue
             key = (
@@ -571,13 +579,17 @@ def _weather_snapshot_for_context(
     local_hole: int | None,
     captured_at: str | None,
     weather_root: Path | str | None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any] | None:
     if not round_id:
         return None
-    return weather_snapshot_for_time(round_id, local_hole, captured_at, root=weather_root) or weather_snapshot_for_time(
+    return weather_snapshot_for_time(
+        round_id, local_hole, captured_at, root=weather_root, player_id=player_id
+    ) or weather_snapshot_for_time(
         round_id,
         captured_at=captured_at,
         root=weather_root,
+        player_id=player_id,
     )
 
 

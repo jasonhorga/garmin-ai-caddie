@@ -79,6 +79,7 @@ def build_caddie_context_response(
             route_target=_local_point(target_x, target_y),
             landing_radius_m=landing_radius_m,
             captured_at=captured_at,
+            player_id=player_id,
         )
     )
 

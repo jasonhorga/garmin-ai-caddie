@@ -8,12 +8,20 @@ from typing import Any
 
 from ai_caddie.reports.annotations import add_annotation, list_annotations
 from ai_caddie.caddie.decision import audit_decision, store_decision_audit
-from ai_caddie.history.history import HistoryData
+from ai_caddie.core.data import evidence_root
+from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
 
 
-def _event_rows(round_id: str, *, root: Path | str | None = None) -> list[dict[str, Any]]:
-    path = mobile_event_log(root)
+def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    # The mobile event log is a single shared, UNPARTITIONED store keyed by round_id only (writes
+    # are admin-only, so it holds the OWNER's rounds). A non-owner player has no events here until
+    # MOBILE_ROOT is per-user partitioned — mirror mobile_live._event_log_rows and short-circuit
+    # to empty so a member's reconciliation never reads an owner round's offline activity.
+    er = evidence_root(player_id, root=root)
+    if er is None:
+        return []
+    path = mobile_event_log(er)
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
@@ -335,8 +343,9 @@ def reconcile_mobile_round_events(
     data: HistoryData,
     *,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
-    events = _event_rows(round_id, root=root)
+    events = _event_rows(round_id, root=root, player_id=player_id)
     round_row = _round_row(round_id, data)
     scores = _hole_scores(round_row)
     shots = _shot_facts(round_id, data)
