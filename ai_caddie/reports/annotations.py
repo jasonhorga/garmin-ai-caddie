@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from ai_caddie.llm.llm_providers import redact_secret_text
+from ai_caddie.core.data import OWNER_ID, evidence_root
 
 
 VALID_TARGET_TYPES = {"round", "hole", "shot", "decision"}
@@ -150,8 +151,11 @@ def add_annotation(
     return record
 
 
-def list_annotations(*, root: Path | str | None = None) -> list[dict[str, Any]]:
-    path = annotation_file(root)
+def list_annotations(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    evidence = evidence_root(player_id, root=root)
+    if evidence is None:
+        return []
+    path = annotation_file(evidence)
     if not path.exists():
         return []
     records = []
@@ -173,9 +177,10 @@ def annotations_for_target(
     target_id: str,
     *,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
     return [
         record
-        for record in list_annotations(root=root)
+        for record in list_annotations(root=root, player_id=player_id)
         if record.get("targetType") == target_type and record.get("targetId") == target_id
     ]
