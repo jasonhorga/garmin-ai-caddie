@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 from ai_caddie.history.history import HistoryData
-from server_v2.history_rounds import build_history_rounds_response
+from ai_caddie.reports.reports import store_report
+from server_v2.history_rounds import _round_ids_with_reports, build_history_rounds_response
 
 
 def _round(rid: str, date: str, course_key: str, course: str, has_shots: bool) -> dict:
@@ -66,6 +70,39 @@ class HistoryRoundsFilterTests(unittest.TestCase):
         resp = build_history_rounds_response(self._data(), year="2026")
         self.assertEqual(resp.availableYears, ["2026", "2025"])
         self.assertEqual([c.key for c in resp.availableCourses], ["ca", "cb"])  # sorted by label
+
+
+class RoundIdsWithReportsPlayerScopeTests(unittest.TestCase):
+    def _seed_round_report(self, root: Path) -> None:
+        store_report(
+            {
+                "schema": "ai-caddie-review-report-v1",
+                "kind": "round",
+                "subjectId": "900001",
+                "provider": "static",
+                "model": "static",
+                "confidence": "medium",
+                "sourceRefs": ["900001"],
+                "factsUsed": [],
+                "missingData": [],
+                "unsupportedClaims": [],
+                "narrative": "Round 900001 summary.",
+            },
+            kind="round",
+            subject_id="900001",
+            root=root,
+        )
+
+    def test_owner_sees_report_round_ids_member_sees_none(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_round_report(root)
+            with patch("server_v2.history_rounds.REPORTS_ROOT", root):
+                owner = _round_ids_with_reports()  # default player_id == OWNER_ID
+                member = _round_ids_with_reports(player_id="p_alice")
+
+        self.assertIn("900001", owner)
+        self.assertEqual(member, set())
 
 
 if __name__ == "__main__":

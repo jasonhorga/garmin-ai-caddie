@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from ai_caddie.history.history import OWNER_ID, HistoryData, average
@@ -10,6 +11,9 @@ from ai_caddie.reports.reports import list_report_records
 from .data_source import load_history_data_for_mode
 from .history_overview import round_card_for_row
 from .models import CourseFilterOption, EmptyState, HistoryRoundsResponse, MonthRoundGroup
+
+
+REPORTS_ROOT = Path(".")
 
 
 def _month_key(date_value: str | None) -> str:
@@ -104,8 +108,12 @@ def build_history_rounds_response(
     )
 
 
-def _round_ids_with_reports() -> set[str]:
-    return {str(rec.get("subjectId")) for rec in list_report_records() if rec.get("kind") == "round"}
+def _round_ids_with_reports(player_id: str = OWNER_ID) -> set[str]:
+    return {
+        str(rec.get("subjectId"))
+        for rec in list_report_records(root=REPORTS_ROOT, player_id=player_id)
+        if rec.get("kind") == "round"
+    }
 
 
 def load_history_rounds_response(
@@ -119,7 +127,7 @@ def load_history_rounds_response(
 ) -> HistoryRoundsResponse:
     data, _mode = load_history_data_for_mode(player_id=player_id)
     # Only pay the report-store read when the caller actually filters on it.
-    report_round_ids = _round_ids_with_reports() if has_report is not None else None
+    report_round_ids = _round_ids_with_reports(player_id=player_id) if has_report is not None else None
     return build_history_rounds_response(
         data,
         year=year,
