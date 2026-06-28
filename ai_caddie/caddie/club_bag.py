@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable, TypeVar
 
-from ai_caddie.core.data import load_club_bag
+from ai_caddie.core.data import OWNER_ID, load_club_bag
 
 SCHEMA = "ai-caddie-club-bag-v1"
 
@@ -81,11 +81,12 @@ def canonical_club_name(raw: str | None) -> str | None:
     return None
 
 
-def in_use_canonical_names() -> set[str] | None:
-    """Canonical tokens for the player's IN-USE clubs (not retired/deleted), or None when no bag has
-    been synced. Each club contributes both its clubTypeId token AND its custom-name token, so a
-    history entry written either way (e.g. "GW" vs "50°") still matches the same bag club."""
-    raw = load_club_bag()
+def in_use_canonical_names(player_id: str = OWNER_ID) -> set[str] | None:
+    """Canonical tokens for ``player_id``'s IN-USE clubs (not retired/deleted), or None when that
+    player has no synced bag. Reads ONLY that player's bag (never the owner's, for a member). Each
+    club contributes both its clubTypeId token AND its custom-name token, so a history entry written
+    either way (e.g. "GW" vs "50°") still matches the same bag club."""
+    raw = load_club_bag(player_id)
     if not raw:
         return None
     names: set[str] = set()
@@ -106,12 +107,15 @@ def in_use_canonical_names() -> set[str] | None:
 _T = TypeVar("_T")
 
 
-def restrict_to_bag(items: Iterable[_T], name_of: Callable[[_T], str | None], *, min_keep: int = 2) -> list[_T]:
-    """Keep only items whose club name is in the player's in-use bag. Falls back to the full list when
-    no bag is known OR filtering would leave fewer than ``min_keep`` clubs — so the caddie always has
-    options even if the player's bag and shot-history names don't line up."""
+def restrict_to_bag(
+    items: Iterable[_T], name_of: Callable[[_T], str | None], *, player_id: str = OWNER_ID, min_keep: int = 2
+) -> list[_T]:
+    """Keep only items whose club name is in ``player_id``'s in-use bag. Falls back to the full list
+    when that player has no known bag OR filtering would leave fewer than ``min_keep`` clubs — so the
+    caddie always has options. Scoped by ``player_id`` so a member-reachable caller (the mobile
+    package) never filters by — and thus never leaks — the OWNER's bag."""
     items = list(items)
-    bag = in_use_canonical_names()
+    bag = in_use_canonical_names(player_id)
     if not bag:
         return items
     kept = [it for it in items if canonical_club_name(name_of(it)) in bag]

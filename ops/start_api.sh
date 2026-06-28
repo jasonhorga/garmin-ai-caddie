@@ -20,7 +20,16 @@ fi
 # explicit AI_CADDIE_ALLOW_OPEN=1 to override (e.g. a deliberately public read demo).
 _profile="$(printf '%s' "${AI_CADDIE_SECURITY_PROFILE:-}" | tr '[:upper:]' '[:lower:]')"
 case "$_profile" in
-  private|staging|production) ;;            # an admin-required profile is configured — ok
+  private|staging|production)
+    # An admin-required profile still needs a NON-EMPTY admin token: an empty token under a
+    # prod-like profile (e.g. a deploy that forgot the .env override) would leave the owner
+    # protected only by an empty/default credential. Fail closed.
+    if [ -z "${AI_CADDIE_ADMIN_TOKEN:-}" ]; then
+      echo "FATAL [start_api.sh]: profile '$_profile' requires a non-empty AI_CADDIE_ADMIN_TOKEN." >&2
+      echo "  set AI_CADDIE_ADMIN_TOKEN in the environment / .env, or AI_CADDIE_ALLOW_OPEN=1 for a deliberate open demo." >&2
+      exit 1
+    fi
+    ;;
   *)
     if [ -z "${AI_CADDIE_ADMIN_TOKEN:-}" ] && [ "${AI_CADDIE_ALLOW_OPEN:-}" != "1" ]; then
       echo "FATAL [start_api.sh]: refusing to bind 0.0.0.0 with no auth — anonymous callers would map to the owner." >&2

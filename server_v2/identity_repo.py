@@ -43,12 +43,16 @@ def add_user(session: Session, *, family_id: str, display_name: str, role: str =
 
 
 def map_legacy_player(session: Session, *, legacy_player_id: str, user_id: str) -> LegacyPlayerMap:
+    """Bind a legacy player id ('me'/'p_*') to a user. INSERT-ONLY: re-binding an existing legacy id
+    to a DIFFERENT user is refused (a silent rebind would hand one user's isolated data to another);
+    re-binding to the SAME user is an idempotent no-op. Matches the insert-only contract that
+    provision_member relies on for the LegacyPlayerMap linchpin."""
     row = session.get(LegacyPlayerMap, legacy_player_id)
     if row is None:
         row = LegacyPlayerMap(legacy_player_id=legacy_player_id, user_id=user_id)
         session.add(row)
-    else:
-        row.user_id = user_id
+    elif row.user_id != user_id:
+        raise PlayerIdInUseError(legacy_player_id)
     return row
 
 

@@ -120,14 +120,19 @@ def load_club_overrides() -> dict[int, dict[str, Any]]:
     return out
 
 
-def load_club_bag() -> dict[str, Any] | None:
-    """The player's real Garmin bag fetched by the pipeline (``data/club_bag.json``), or ``None``
-    when it hasn't been synced yet. Each club: ``id, clubTypeId, customName, typeName, loftAngle,
-    shaftLength, retired, deleted`` (see ``fetch.fetch_clubs``)."""
-    if not CLUBS_BAG_FILE.exists():
+def load_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
+    """The player's real Garmin bag fetched by the pipeline, or ``None`` when not synced yet.
+
+    The OWNER's bag is the flat ``data/club_bag.json``; a member's is their partition
+    ``data/players/<id>/club_bag.json`` (written by their own Garmin sync). A non-owner NEVER
+    reads the owner's bag — leaving this owner-global let a member-reachable caller (the mobile
+    package's ``restrict_to_bag``) use it as an oracle for the owner's clubs. Each club:
+    ``id, clubTypeId, customName, typeName, loftAngle, shaftLength, retired, deleted``."""
+    path = CLUBS_BAG_FILE if player_id == OWNER_ID else DATA_DIR / "players" / player_id / "club_bag.json"
+    if not path.exists():
         return None
     try:
-        raw = read_json(CLUBS_BAG_FILE)
+        raw = read_json(path)
     except (json.JSONDecodeError, OSError, ValueError):
         return None
     if not isinstance(raw, dict) or not isinstance(raw.get("clubs"), list):

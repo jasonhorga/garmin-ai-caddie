@@ -127,6 +127,37 @@ class PrepTipsApiTests(unittest.TestCase):
         )
 
 
+class PrepTipsLadderScopingTests(unittest.TestCase):
+    """The recommended-club ladder is the OWNER's measured distances; a non-owner must get the
+    generic DEFAULT_LADDER, never the owner's club_ladder() (which prep_nine would otherwise fall
+    back to when no ladder is passed). Mirrors the /course/{id}/prep route's owner gating."""
+
+    def _run(self, player_id: str):
+        import types as _types
+
+        from server_v2 import prep_tips as handler
+
+        with patch.object(handler, "load_history_data_for_mode", return_value=(_types.SimpleNamespace(rounds=[]), "fixture")), \
+                patch.object(handler, "cached_build_history_stats", return_value={"courses": [], "playerProfile": {}}), \
+                patch.object(course_prep, "available_prep_holes", return_value=list(range(1, 10))), \
+                patch.object(course_prep, "club_ladder", return_value=[("OWNER_DRIVER", 250)]) as club_ladder, \
+                patch.object(course_prep, "prep_nine", return_value=[_prep_row(1, 4, 380)]) as prep_nine:
+            handler.load_prep_tips_response(31795, player_id=player_id)
+        return club_ladder, prep_nine
+
+    def test_owner_uses_real_club_ladder(self) -> None:
+        club_ladder, prep_nine = self._run("me")
+        club_ladder.assert_called_once()
+        self.assertEqual(prep_nine.call_args.kwargs["ladder"], [("OWNER_DRIVER", 250)])
+
+    def test_member_gets_generic_ladder_never_owner(self) -> None:
+        club_ladder, prep_nine = self._run("p_member1")
+        club_ladder.assert_not_called()  # the owner's measured ladder is never built for a member
+        passed = prep_nine.call_args.kwargs["ladder"]
+        self.assertEqual(passed, sorted(course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]))
+        self.assertNotIn("OWNER_DRIVER", [n for n, _ in passed])  # no owner club distance leaked
+
+
 class CourseKeyForGlobalIdTests(unittest.TestCase):
     """globalId → courseKey must match ANY of the round's three course ids
     (courseId / frontNineGlobalCourseId / backNineGlobalCourseId): real rounds
