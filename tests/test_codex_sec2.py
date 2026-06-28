@@ -37,6 +37,11 @@ _KNOWN_PUBLIC = {
 # or (for auth routes) via _resolve_session() which enforces a Bearer session token.
 _HANDLER_AUTHED = {
     ("POST", "/api/v2/players/{target_player_id}/rounds"),
+    # Garmin self-binding (Phase B): both authed via Depends(current_player_id) + an explicit
+    # owner/own-player 403 check, exactly like /players/{id}/rounds. NOT in the admin exact_paths
+    # so a member token reaches them; the legacy /api/v2/sync/garmin[/session] stay owner-only.
+    ("POST", "/api/v2/players/{player_id}/sync/garmin/session"),
+    ("POST", "/api/v2/players/{player_id}/sync/garmin"),
     # /refresh and /logout both call _resolve_session() which enforces a Bearer session token.
     ("POST", "/api/v2/auth/refresh"),
     ("POST", "/api/v2/auth/logout"),
