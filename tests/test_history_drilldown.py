@@ -448,5 +448,90 @@ class DrilldownMissingRefEvidenceGuardTests(unittest.TestCase):
         self.assertEqual(detail["weatherSnapshots"][0]["roundId"], "900001")
 
 
+class DrilldownPlayerScopeTests(unittest.TestCase):
+    def _seed_evidence(self, root: Path) -> None:
+        add_annotation("round", "900001", "round_note", {"text": "owner note"}, root=root)
+        store_report(
+            {
+                "schema": "ai-caddie-review-report-v1",
+                "kind": "round",
+                "subjectId": "900001",
+                "provider": "static",
+                "model": "static",
+                "confidence": "medium",
+                "sourceRefs": ["900001"],
+                "factsUsed": [],
+                "missingData": [],
+                "unsupportedClaims": [],
+                "narrative": "Round 900001 summary.",
+            },
+            kind="round",
+            subject_id="900001",
+            root=root,
+        )
+        store_decision_audit(
+            {
+                "decisionSourceRef": "900001",
+                "selectedOptionId": "stock",
+                "actualOptionId": "attack",
+                "actualShotRefs": ["900001:7:0"],
+                "evidenceRefs": ["900001"],
+                "classification": "strategy",
+            },
+            decision_id="decision-900001",
+            root=root,
+        )
+        store_weather_snapshot(
+            build_weather_snapshot(
+                round_id="900001",
+                hole=7,
+                captured_at="2026-05-25T09:00:00Z",
+                latitude=22.279,
+                longitude=114.162,
+                source="manual",
+                observed={"windSpeedMps": 6.0, "windDirectionDeg": 120},
+            ),
+            root=root,
+        )
+
+    def _resolve(self, root: Path, **kwargs):
+        return resolve_history_ref(
+            fixture_history_data(),
+            "900001",
+            annotations_root=root,
+            reports_root=root,
+            weather_root=root,
+            decision_audit_root=root,
+            **kwargs,
+        )
+
+    def test_owner_sees_evidence(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_evidence(root)
+            owner = self._resolve(root)  # default player_id == OWNER_ID
+
+        self.assertTrue(owner["found"])
+        self.assertEqual(len(owner["annotations"]), 1)
+        self.assertEqual(len(owner["reports"]), 1)
+        self.assertEqual(len(owner["weatherSnapshots"]), 1)
+        self.assertEqual(len(owner["decisionAudits"]), 1)
+
+    def test_member_sees_no_evidence(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_evidence(root)
+            member = self._resolve(root, player_id="p_alice")
+
+        # The round itself is still resolvable (data scoping is a separate layer),
+        # but a non-owner member must read an EMPTY evidence scope.
+        self.assertTrue(member["found"])
+        self.assertEqual(member["annotations"], [])
+        self.assertEqual(member["corrections"], [])
+        self.assertEqual(member["reports"], [])
+        self.assertEqual(member["weatherSnapshots"], [])
+        self.assertEqual(member["decisionAudits"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

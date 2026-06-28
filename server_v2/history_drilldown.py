@@ -27,5 +27,6 @@ def load_history_drilldown_response(
             reports_root=REPORTS_ROOT,
             weather_root=WEATHER_ROOT,
             decision_audit_root=DECISION_AUDIT_ROOT,
+            player_id=player_id,
         )
     )

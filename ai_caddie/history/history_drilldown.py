@@ -8,7 +8,7 @@ from typing import Any, Literal
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
-from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.reports.reports import list_report_records
 from ai_caddie.llm.weather_context import list_weather_snapshots
 
@@ -127,6 +127,7 @@ def resolve_history_ref(
     reports_root: Path | str | None = None,
     weather_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     ref = str(source_ref)
     ref_type, parts = _parse_ref(ref)
@@ -134,32 +135,32 @@ def resolve_history_ref(
     shots_by_ref = _shot_aliases(data)
 
     if ref in rounds_by_id:
-        return _attach_evidence(_round_detail(data, rounds_by_id[ref], ref), annotations_root, reports_root, weather_root, decision_audit_root)
+        return _attach_evidence(_round_detail(data, rounds_by_id[ref], ref), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
     if ref in shots_by_ref:
         index, shot = shots_by_ref[ref]
         row = rounds_by_id.get(_shot_round_id(shot))
         hole = _find_hole(row, str(shot.get("hole") or "")) if row else None
         if row:
-            return _attach_evidence(_shot_detail(row, hole, shot, index, ref), annotations_root, reports_root, weather_root, decision_audit_root)
+            return _attach_evidence(_shot_detail(row, hole, shot, index, ref), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
 
     if ref_type == "round" and parts:
         row = rounds_by_id.get(parts[0])
         if row:
-            return _attach_evidence(_round_detail(data, row, ref), annotations_root, reports_root, weather_root, decision_audit_root)
+            return _attach_evidence(_round_detail(data, row, ref), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
     elif ref_type == "hole" and len(parts) == 2:
         row = rounds_by_id.get(parts[0])
         hole = _find_hole(row, parts[1]) if row else None
         if row and hole:
-            return _attach_evidence(_hole_detail(data, row, hole, ref), annotations_root, reports_root, weather_root, decision_audit_root)
+            return _attach_evidence(_hole_detail(data, row, hole, ref), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
     elif ref_type == "shot" and len(parts) == 3:
         item = shots_by_ref.get(ref)
         row = rounds_by_id.get(parts[0])
         hole = _find_hole(row, parts[1]) if row else None
         if item and row:
             index, shot = item
-            return _attach_evidence(_shot_detail(row, hole, shot, index, ref), annotations_root, reports_root, weather_root, decision_audit_root)
+            return _attach_evidence(_shot_detail(row, hole, shot, index, ref), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
 
-    return _attach_evidence(_missing_detail(ref, ref_type), annotations_root, reports_root, weather_root, decision_audit_root)
+    return _attach_evidence(_missing_detail(ref, ref_type), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
 
 
 def _round_summary(row: dict[str, Any]) -> dict[str, Any]:
@@ -392,14 +393,14 @@ def _annotation_target_candidates(detail: dict[str, Any]) -> tuple[str | None, l
     return None, candidates
 
 
-def _attach_annotations(detail: dict[str, Any], annotations_root: Path | str | None) -> dict[str, Any]:
+def _attach_annotations(detail: dict[str, Any], annotations_root: Path | str | None, *, player_id: str = OWNER_ID) -> dict[str, Any]:
     target_type, target_ids = _annotation_target_candidates(detail)
     if not target_type or not target_ids:
         return detail
     target_set = set(target_ids)
     annotations = [
         record
-        for record in list_annotations(root=annotations_root)
+        for record in list_annotations(root=annotations_root, player_id=player_id)
         if record.get("targetType") == target_type and str(record.get("targetId") or "") in target_set
     ]
     detail["annotations"] = annotations
@@ -413,14 +414,16 @@ def _attach_evidence(
     reports_root: Path | str | None,
     weather_root: Path | str | None,
     decision_audit_root: Path | str | None,
+    *,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     if not detail.get("found"):
         return detail
-    detail = _attach_annotations(detail, annotations_root)
+    detail = _attach_annotations(detail, annotations_root, player_id=player_id)
     refs = set(_detail_ref_set(detail))
-    detail["reports"] = _matching_reports(refs, reports_root)
-    detail["weatherSnapshots"] = _matching_weather_snapshots(detail, weather_root)
-    detail["decisionAudits"] = _matching_decision_audits(refs, decision_audit_root)
+    detail["reports"] = _matching_reports(refs, reports_root, player_id=player_id)
+    detail["weatherSnapshots"] = _matching_weather_snapshots(detail, weather_root, player_id=player_id)
+    detail["decisionAudits"] = _matching_decision_audits(refs, decision_audit_root, player_id=player_id)
     detail["geometryEvidence"] = _geometry_evidence(detail)
     return detail
 
@@ -468,11 +471,11 @@ def _record_refs(record: dict[str, Any]) -> list[str]:
     return refs
 
 
-def _matching_reports(refs: set[str], reports_root: Path | str | None) -> list[dict[str, Any]]:
+def _matching_reports(refs: set[str], reports_root: Path | str | None, *, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
     if not refs:
         return []
     rows: list[dict[str, Any]] = []
-    for record in list_report_records(root=reports_root):
+    for record in list_report_records(root=reports_root, player_id=player_id):
         report = record.get("report") if isinstance(record.get("report"), dict) else {}
         subject_id = str(record.get("subjectId") or "")
         record_refs = set(_record_refs(record))
@@ -499,7 +502,7 @@ def _matching_reports(refs: set[str], reports_root: Path | str | None) -> list[d
     return rows
 
 
-def _matching_weather_snapshots(detail: dict[str, Any], weather_root: Path | str | None) -> list[dict[str, Any]]:
+def _matching_weather_snapshots(detail: dict[str, Any], weather_root: Path | str | None, *, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
     round_id = None
     hole_number = None
     round_row = detail.get("round") if isinstance(detail.get("round"), dict) else {}
@@ -514,7 +517,7 @@ def _matching_weather_snapshots(detail: dict[str, Any], weather_root: Path | str
     if round_id is None:
         return []
     rows: list[dict[str, Any]] = []
-    for snapshot in list_weather_snapshots(root=weather_root):
+    for snapshot in list_weather_snapshots(root=weather_root, player_id=player_id):
         if round_id and str(snapshot.get("roundId") or "") != round_id:
             continue
         if detail.get("refType") in {"hole", "shot"} and hole_number is not None and snapshot.get("hole") not in {hole_number, None}:
@@ -536,11 +539,11 @@ def _matching_weather_snapshots(detail: dict[str, Any], weather_root: Path | str
     return rows
 
 
-def _matching_decision_audits(refs: set[str], decision_audit_root: Path | str | None) -> list[dict[str, Any]]:
+def _matching_decision_audits(refs: set[str], decision_audit_root: Path | str | None, *, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
     if not refs:
         return []
     rows: list[dict[str, Any]] = []
-    for record in list_decision_audits(root=decision_audit_root):
+    for record in list_decision_audits(root=decision_audit_root, player_id=player_id):
         record_refs = set(_record_refs(record))
         source_ref = str(record.get("sourceRef") or "")
         decision_id = str(record.get("decisionId") or "")
