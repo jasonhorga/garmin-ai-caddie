@@ -49,7 +49,11 @@ def save_garmin_cn_web_session(
     anti_forgery_value: str,
     source: str = "manual_paste",
     root: Path | str = ROOT,
+    data_dir: Path | str | None = None,
 ) -> dict[str, Any]:
+    # The cookie/csrf land at ``root/.garmin_tokens``. ``data_dir`` is the data partition
+    # for the connector-status write (defaults to ``root/data`` for the owner, byte-for-byte);
+    # a member passes their partition so binding never clobbers the owner's status.
     web_session = _strip_header_prefix(_single_line(web_session_header, "web session header"), "cookie")
     anti_forgery = _strip_header_prefix(_single_line(anti_forgery_value, "anti-forgery value"), "connect-csrf-token")
     import_source = _session_source(source)
@@ -76,6 +80,7 @@ def save_garmin_cn_web_session(
         detail=detail,
         snapshot_id=None,
         error_code=None,
+        data_dir=Path(data_dir) if data_dir is not None else None,
     )
     return {
         "schema": "ai-caddie-garmin-session-import-v1",
