@@ -7,6 +7,7 @@ import secrets
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server_v2.identity_models import (
@@ -16,6 +17,11 @@ from server_v2.identity_models import (
 
 class IdentityConflictError(Exception):
     """Raised when linking an Apple sub that is already bound to a different user."""
+
+
+class PlayerIdInUseError(Exception):
+    """Raised when a freshly generated legacy player id collides with an existing map row
+    (the caller retries auto-provision with a new id rather than silently re-binding)."""
 
 
 def create_family_with_owner(session: Session, *, family_name: str, owner_display_name: str) -> tuple[Family, User]:
@@ -62,6 +68,18 @@ def legacy_player_for_user(session: Session, user_id: str) -> str | None:
     return row.legacy_player_id if row else None
 
 
+def list_family_users(session: Session, family_id: str) -> list[tuple[User, str | None]]:
+    """Every User in ``family_id`` (including soft-deleted), each paired with its mapped legacy
+    player id (or None). LEFT join so a member whose map row is missing still appears in the roster."""
+    stmt = (
+        select(User, LegacyPlayerMap.legacy_player_id)
+        .outerjoin(LegacyPlayerMap, LegacyPlayerMap.user_id == User.id)
+        .where(User.family_id == family_id)
+        .order_by(User.created_at)
+    )
+    return [(row[0], row[1]) for row in session.execute(stmt).all()]
+
+
 def get_user_by_apple_subject(session: Session, subject: str) -> User | None:
     stmt = (
         select(User)
@@ -87,8 +105,39 @@ def link_apple_identity(
         return existing
     identity = UserIdentity(user_id=user_id, provider="apple", subject=subject, email=email)
     session.add(identity)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        # A concurrent first sign-in committed the same (provider, subject) between our SELECT
+        # above and this flush → the DB UNIQUE constraint fires. Convert to the semantic
+        # conflict the caller already handles (re-resolve + mint for the winner), not a raw 500.
+        raise IdentityConflictError(
+            f"apple sub {subject!r} was concurrently linked to another user"
+        ) from exc
     return identity
+
+
+def provision_member(
+    session: Session, *, family_id: str, display_name: str, pid: str,
+    subject: str, email: str | None = None,
+) -> User:
+    """Auto-register a family member: a new ``member`` User + the linchpin LegacyPlayerMap
+    (map-only — no ``players.create_player`` file registry) + the Apple identity link.
+
+    The LegacyPlayerMap(pid, member) row is REQUIRED: it is what gives the member an isolated
+    data scope (a missing map silently resolves to OWNER in the open dev/test profile). Raises
+    IdentityConflictError if ``subject`` is already linked to a different user (concurrent
+    first sign-in) — the caller mints a session for the now-existing user instead."""
+    member = add_user(session, family_id=family_id, display_name=display_name, role="member")
+    # Insert-only (NOT the upserting map_legacy_player): a pid collision must fail loudly so the
+    # caller retries with a fresh id, never silently re-point an existing member's data scope.
+    session.add(LegacyPlayerMap(legacy_player_id=pid, user_id=member.id))
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise PlayerIdInUseError(pid) from exc
+    link_apple_identity(session, user_id=member.id, subject=subject, email=email)
+    return member
 
 
 def _hash_token(token: str) -> str:

@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from ai_caddie.core.config import get_settings
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players
 from server_v2 import players_api
@@ -203,11 +204,17 @@ class PlayerScopeDataIsolationTests(unittest.TestCase):
             mock.patch.object(players, "ROOT", self.root),
             mock.patch.object(history, "ROOT", self.root),
             mock.patch.object(stats_cache, "_PLAYERS_DIR", self.root / "data" / "players"),
+            # Self-contained: pin a non-"fixture" data mode so per-player LOCAL reads are
+            # exercised (not the shared fixture), instead of depending on the ambient
+            # get_settings lru-cache (which other suites can leave at "fixture").
+            mock.patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "local_or_fixture"}),
         ]
         for patch in self._patches:
             patch.start()
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
+        get_settings.cache_clear()
+        self.addCleanup(get_settings.cache_clear)
 
         created_a = players.create_player("Alice", root=self.root)
         created_b = players.create_player("Bob", root=self.root)

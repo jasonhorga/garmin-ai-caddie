@@ -1,12 +1,15 @@
 # server_v2/auth_api.py
 """Phase-1b auth endpoints: Sign in with Apple -> short-lived scoped session tokens.
 
-/apple mints a token ONLY for an already-linked Apple sub (no auto-create). /apple/link is the
-owner-bootstrap link (admin-gated by the main gate in Task 1b-5). /refresh + /logout manage a
-live session. Apple verification needs no Apple secret (JWKS signature check only)."""
+/apple mints a token for an Apple sub: a known sub → its session; a first-time sub →
+auto-registers a family member (role="member", in the owner's family) with a fresh isolated
+player scope (the auto-create is bounded by the app's Apple bundle-id audience). /apple/link is
+the owner-bootstrap link (admin-gated by the main gate in Task 1b-5). /refresh + /logout manage
+a live session. Apple verification needs no Apple secret (JWKS signature check only)."""
 from __future__ import annotations
 
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
@@ -15,12 +18,16 @@ from pydantic import BaseModel
 from ai_caddie.rounds.players import OWNER_ID
 from server_v2 import apple_auth, db
 from server_v2 import identity_repo as repo
+from server_v2.identity_models import User
 
 auth_router = APIRouter(prefix="/api/v2/auth", tags=["auth"])
 
 
 class AppleSignInRequest(BaseModel):
     identityToken: str
+    # The user's name is in Apple's first-authorization RESPONSE, not the JWT, so the iOS app
+    # passes it on first sign-in. Used as the auto-registered member's display name.
+    displayName: str | None = None
 
 
 class AppleLinkRequest(BaseModel):
@@ -69,16 +76,55 @@ def _resolve_session(request: Request) -> tuple[str, str]:
         return sess.id, sess.user_id
 
 
+def _session_payload(session, *, user_id: str, expires: datetime, player_id: str | None = None) -> dict:
+    """Mint a session for ``user_id`` and project the auth response. ``player_id`` is supplied
+    on the auto-register path (the freshly created pid); otherwise it is resolved from the map."""
+    token, _sess = repo.mint_session_token(session, user_id=user_id, scope="user", expires_at=expires)
+    pid = player_id if player_id is not None else repo.legacy_player_for_user(session, user_id)
+    return {"token": token, "expiresAt": expires.isoformat(), "userId": user_id, "playerId": pid}
+
+
 @auth_router.post("/apple")
 def apple_sign_in(body: AppleSignInRequest) -> dict:
     ident = _verify(body.identityToken)
     expires = datetime.now(timezone.utc) + _session_ttl()
+    # Known sub → mint as before (now also returning the resolved playerId). A soft-deleted
+    # account still 403s (it must not silently re-register as a fresh member).
     with db.session_scope() as session:
         user = repo.get_user_by_apple_subject(session, ident.subject)
-        if user is None or user.deleted_at is not None:
-            raise HTTPException(status_code=403, detail="apple identity not linked")
-        token, _sess = repo.mint_session_token(session, user_id=user.id, scope="user", expires_at=expires)
-        return {"token": token, "expiresAt": expires.isoformat(), "userId": user.id}
+        if user is not None:
+            if user.deleted_at is not None:
+                raise HTTPException(status_code=403, detail="apple identity not linked")
+            return _session_payload(session, user_id=user.id, expires=expires)
+    # First-time sub → auto-provision a member in the OWNER's family with a fresh isolated scope.
+    # Retry on the astronomically rare 64-bit pid collision (a fresh id each attempt).
+    for _attempt in range(3):
+        try:
+            with db.session_scope() as session:
+                owner_uid = repo.user_id_for_legacy_player(session, OWNER_ID)
+                if owner_uid is None:
+                    raise HTTPException(status_code=400, detail="owner user not provisioned (run the identity seeder)")
+                family_id = session.get(User, owner_uid).family_id
+                pid = "p_" + secrets.token_hex(8)  # 64-bit; provision_member maps insert-only (no silent rebind)
+                raw_name = body.displayName or (ident.email.split("@")[0] if ident.email else "Family member")
+                display_name = raw_name[:120]  # User.display_name is String(120) — avoid a Postgres DataError 500
+                member = repo.provision_member(
+                    session, family_id=family_id, display_name=display_name,
+                    pid=pid, subject=ident.subject, email=ident.email,
+                )
+                return _session_payload(session, user_id=member.id, expires=expires, player_id=pid)
+        except repo.PlayerIdInUseError:
+            continue  # pid collided with an existing map row → retry with a fresh id
+        except repo.IdentityConflictError:
+            # A concurrent first sign-in of the same sub won the UNIQUE(provider, subject) race
+            # (including the real DB-level race, now surfaced as IdentityConflictError); our
+            # provisioning rolled back. Mint for the now-existing user (no 500, no orphan).
+            with db.session_scope() as session:
+                user = repo.get_user_by_apple_subject(session, ident.subject)
+                if user is None or user.deleted_at is not None:
+                    raise HTTPException(status_code=403, detail="apple identity not linked")
+                return _session_payload(session, user_id=user.id, expires=expires)
+    raise HTTPException(status_code=503, detail="could not allocate a player id; please retry")
 
 
 @auth_router.post("/apple/link")

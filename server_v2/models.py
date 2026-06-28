@@ -1100,6 +1100,25 @@ class MobileReconciliationApplyResponse(BaseModel):
     decisionAudits: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class FamilyUserRow(BaseModel):
+    """One family member projected from the identity DB for the owner roster."""
+
+    id: str
+    displayName: str
+    role: str
+    createdAt: str
+    deletedAt: str | None = None
+    playerId: str | None = None  # mapped legacy player id ('me'|'p_*'), or None if unmapped
+
+
+class FamilyUsersResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-family-users-v1"] = Field(alias="schema")
+    total: int
+    users: list[FamilyUserRow]
+
+
 class WeatherSnapshotResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
