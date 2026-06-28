@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from ai_caddie.history.history import HistoryData
 from ai_caddie.llm.llm_providers import LLMMessage, TextProvider, redact_secret_text
+from ai_caddie.core.data import OWNER_ID, evidence_root
 from ai_caddie.reports.report_labels_zh import (
     audit_class_zh,
     audit_status_zh,
@@ -1063,12 +1064,13 @@ def _confirmed_vision_findings_for_refs(
     hole_refs: list[str],
     shot_refs: list[str],
     vision_root: Path | str | None,
+    player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     targets = [*[(("hole", ref)) for ref in hole_refs], *[(("shot", ref)) for ref in shot_refs]]
     for target_type, target_id in targets:
-        for finding in list_findings_for_target(target_type, target_id, root=vision_root):
+        for finding in list_findings_for_target(target_type, target_id, root=vision_root, player_id=player_id):
             if finding.get("confirmationState") != "manual_confirmed":
                 continue
             finding_id = str(finding.get("id") or f"{target_type}:{target_id}:{finding.get('findingType')}")
@@ -1118,6 +1120,7 @@ def build_hole_report_facts(
     *,
     history_data: HistoryData | None = None,
     vision_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     subject_id = _hole_subject_id(course_key, local_hole)
     hole_stat = _find_hole_stat(history_stats, course_key, local_hole)
@@ -1198,6 +1201,7 @@ def build_hole_report_facts(
         hole_refs=hole_refs,
         shot_refs=shot_refs,
         vision_root=vision_root,
+        player_id=player_id,
     )
     if vision_findings:
         facts_used.append(
@@ -1818,8 +1822,11 @@ def store_report(
     return record
 
 
-def list_report_records(*, root: Path | str | None = None) -> list[dict[str, Any]]:
-    path = report_store_file(root)
+def list_report_records(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    evidence = evidence_root(player_id, root=root)
+    if evidence is None:
+        return []
+    path = report_store_file(evidence)
     if not path.exists():
         return []
     records = []
@@ -1832,11 +1839,11 @@ def list_report_records(*, root: Path | str | None = None) -> list[dict[str, Any
     return records
 
 
-def latest_report_record(kind: str, subject_id: str, *, root: Path | str | None = None) -> dict[str, Any] | None:
+def latest_report_record(kind: str, subject_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> dict[str, Any] | None:
     safe_subject_id = redact_private_text(subject_id)
     matches = [
         record
-        for record in list_report_records(root=root)
+        for record in list_report_records(root=root, player_id=player_id)
         if record.get("kind") == kind and str(record.get("subjectId")) == safe_subject_id
     ]
     if not matches:

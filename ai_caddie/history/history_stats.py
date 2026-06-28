@@ -10,7 +10,7 @@ import math
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
-from ai_caddie.history.history import HistoryData, average, percentile
+from ai_caddie.history.history import HistoryData, OWNER_ID, average, percentile
 from ai_caddie.history.history_drilldown import build_drilldown_index
 from ai_caddie.caddie.issue_taxonomy import issue_record
 from ai_caddie.reports.reports import list_report_records
@@ -3648,8 +3648,19 @@ def _data_quality(
     shots_ready = sum(1 for row in data.raw_rounds if row.get("hasShots"))
     shot_ready_refs = _source_refs([row.get("id") for row in data.raw_rounds if row.get("hasShots")])
     shot_missing_refs = _source_refs([row.get("id") for row in data.raw_rounds if not row.get("hasShots")])
-    annotation_count = len(annotations or [])
-    corrections = [row for row in annotations or [] if row.get("kind") in CORRECTION_KINDS]
+    # Join annotation evidence to the CALLER's round set so dataQuality counts/ids never inflate
+    # from annotations on rounds outside this view (windowed stats, or another player's rounds once
+    # evidence is player-scoped). _ref_round_id maps round/hole/shot targetIds back to their round id.
+    caller_round_ids: set[str] = set()
+    for row in (*data.raw_rounds, *data.rounds):
+        caller_round_ids.add(_round_id(row))
+        for member in row.get("ids") or []:
+            caller_round_ids.add(str(member))
+    scoped_annotations = [
+        row for row in annotations or [] if _ref_round_id(row.get("targetId")) in caller_round_ids
+    ]
+    annotation_count = len(scoped_annotations)
+    corrections = [row for row in scoped_annotations if row.get("kind") in CORRECTION_KINDS]
     return [
         _with_quality_contract(
             {
@@ -3673,8 +3684,8 @@ def _data_quality(
                 "state": "good" if annotation_count else "missing",
                 "ready": annotation_count,
                 "total": annotation_count,
-                "refs": [str(row.get("id")) for row in annotations or []],
-                "readyRefs": [str(row.get("id")) for row in annotations or []],
+                "refs": [str(row.get("id")) for row in scoped_annotations],
+                "readyRefs": [str(row.get("id")) for row in scoped_annotations],
                 "missingRefs": [],
             }
         ),
@@ -3813,12 +3824,13 @@ def build_history_stats(
     weather_root: Path | str | None = None,
     reports_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     _clear_effective_shots_cache()  # fresh per build — memo only lives within this pass (see note above)
-    annotations = list_annotations(root=annotations_root)
-    weather_snapshots = list_weather_snapshots(root=weather_root)
-    report_records = list_report_records(root=reports_root)
-    decision_audits = list_decision_audits(root=decision_audit_root)
+    annotations = list_annotations(root=annotations_root, player_id=player_id)
+    weather_snapshots = list_weather_snapshots(root=weather_root, player_id=player_id)
+    report_records = list_report_records(root=reports_root, player_id=player_id)
+    decision_audits = list_decision_audits(root=decision_audit_root, player_id=player_id)
     scored_data = _effective_score_data(data, annotations)
     hole_rows = _holes(scored_data, annotations, report_records)
     issue_rows = _issues(scored_data, annotations, report_records)

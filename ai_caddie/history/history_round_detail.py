@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ai_caddie.core.data import OWNER_ID
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.history.history import HistoryData
 
@@ -17,6 +18,7 @@ def build_history_round_detail(
     round_ref: str,
     *,
     annotations_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     """Build a Garmin-like round review payload with scorecard as the first object."""
 
@@ -78,7 +80,7 @@ def build_history_round_detail(
         "annotations": [],
         "corrections": [],
     }
-    return _attach_annotations(detail, annotations_root)
+    return _attach_annotations(detail, annotations_root, player_id=player_id)
 
 
 def _round_id(row: dict[str, Any]) -> str:
@@ -504,14 +506,14 @@ def _missing_round_detail(ref: str) -> dict[str, Any]:
     }
 
 
-def _attach_annotations(detail: dict[str, Any], annotations_root: Path | str | None) -> dict[str, Any]:
+def _attach_annotations(detail: dict[str, Any], annotations_root: Path | str | None, player_id: str = OWNER_ID) -> dict[str, Any]:
     if not detail.get("found"):
         return detail
     target_ids = set(detail.get("relatedRefs", {}).get("roundRefs") or [])
     target_ids.add(str(detail.get("roundRef") or ""))
     annotations = [
         record
-        for record in list_annotations(root=annotations_root)
+        for record in list_annotations(root=annotations_root, player_id=player_id)
         if record.get("targetType") == "round" and str(record.get("targetId") or "") in target_ids
     ]
     detail["annotations"] = annotations

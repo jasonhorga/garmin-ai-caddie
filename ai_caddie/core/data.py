@@ -27,6 +27,16 @@ CLUBS_BAG_FILE = DATA_DIR / "club_bag.json"
 SEMI31_TO_DEG = 180.0 / (1 << 31)
 EARTH_RADIUS_M = 6_371_000.0
 
+OWNER_ID = "me"
+
+
+def evidence_root(player_id: str, *, root: Path | str | None = None) -> Path | None:
+    """Owner -> flat shared root (Path(root or ".") — what every *_file(root) helper computes);
+    non-owner -> None (signal for a read loader to short-circuit to empty). root ignored for non-owner."""
+    if player_id != OWNER_ID:
+        return None
+    return Path(root or ".")
+
 
 @dataclass(frozen=True)
 class HoleRef:

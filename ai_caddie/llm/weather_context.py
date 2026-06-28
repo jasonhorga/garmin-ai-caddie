@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 
 from ai_caddie.llm.llm_providers import redact_secret_text
+from ai_caddie.core.data import OWNER_ID, evidence_root
 
 
 WeatherSource = Literal["manual", "open_meteo", "missing"]
@@ -238,8 +239,11 @@ def store_weather_snapshot(snapshot: dict[str, Any], *, root: Path | str | None 
     return snapshot
 
 
-def list_weather_snapshots(*, root: Path | str | None = None) -> list[dict[str, Any]]:
-    path = weather_snapshot_file(root)
+def list_weather_snapshots(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    evidence = evidence_root(player_id, root=root)
+    if evidence is None:
+        return []
+    path = weather_snapshot_file(evidence)
     if not path.exists():
         return []
     rows = []
@@ -264,10 +268,11 @@ def latest_weather_snapshot(
     *,
     root: Path | str | None = None,
     exact_hole: bool = False,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any] | None:
     matches = [
         row
-        for row in list_weather_snapshots(root=root)
+        for row in list_weather_snapshots(root=root, player_id=player_id)
         if str(row.get("roundId")) == str(round_id) and _weather_hole_matches(row, hole, exact_hole=exact_hole)
     ]
     if not matches:
@@ -282,18 +287,19 @@ def weather_snapshot_for_time(
     *,
     root: Path | str | None = None,
     exact_hole: bool = False,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any] | None:
     target_time = _parse_iso_datetime(captured_at)
     if target_time is None:
-        return latest_weather_snapshot(round_id, hole, root=root, exact_hole=exact_hole)
+        return latest_weather_snapshot(round_id, hole, root=root, exact_hole=exact_hole, player_id=player_id)
     matches = [
         row
-        for row in list_weather_snapshots(root=root)
+        for row in list_weather_snapshots(root=root, player_id=player_id)
         if str(row.get("roundId")) == str(round_id) and _weather_hole_matches(row, hole, exact_hole=exact_hole)
     ]
     timed_matches = [(snapshot_time, row) for row in matches if (snapshot_time := _parse_iso_datetime(row.get("capturedAt"))) is not None]
     if not timed_matches:
-        return latest_weather_snapshot(round_id, hole, root=root, exact_hole=exact_hole)
+        return latest_weather_snapshot(round_id, hole, root=root, exact_hole=exact_hole, player_id=player_id)
     at_or_before = [(snapshot_time, row) for snapshot_time, row in timed_matches if snapshot_time <= target_time]
     if at_or_before:
         return max(at_or_before, key=lambda item: item[0])[1]

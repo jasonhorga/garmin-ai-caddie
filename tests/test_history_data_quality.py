@@ -5,7 +5,10 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.history.history import HistoryData, history_data_quality
+from ai_caddie.history.history_stats import _data_quality
+from ai_caddie.reports.annotations import add_annotation
 
 
 class HistoryDataQualityTests(unittest.TestCase):
@@ -99,6 +102,31 @@ class HistoryDataQualityTests(unittest.TestCase):
         self.assertEqual(by_gid[200]["missingLocalHoles"], [2])
         self.assertEqual(by_gid[200]["coverage"], {"ready": 0, "total": 2, "pct": 0.0})
         self.assertEqual(coverage["topMissingCourses"][0]["globalId"], 200)
+
+
+class DataQualityAnnotationJoinTests(unittest.TestCase):
+    def _annotations_row(self, data: HistoryData, annotations: list[dict]) -> dict:
+        rows = _data_quality(data, annotations=annotations)
+        return next(row for row in rows if row["label"] == "annotations")
+
+    def test_annotation_on_foreign_round_is_excluded_from_counts(self) -> None:
+        with TemporaryDirectory() as tmp:
+            foreign = add_annotation("round", "555555", "round_note", {"text": "not in view"}, root=Path(tmp))
+
+        row = self._annotations_row(fixture_history_data(), [foreign])
+
+        self.assertEqual(row["total"], 0)
+        self.assertEqual(row["refs"], [])
+        self.assertEqual(row["readyRefs"], [])
+
+    def test_annotation_on_caller_round_is_counted(self) -> None:
+        with TemporaryDirectory() as tmp:
+            mine = add_annotation("round", "900001", "round_note", {"text": "in view"}, root=Path(tmp))
+
+        row = self._annotations_row(fixture_history_data(), [mine])
+
+        self.assertEqual(row["total"], 1)
+        self.assertIn(mine["id"], row["refs"])
 
 
 if __name__ == "__main__":

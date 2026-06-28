@@ -1879,5 +1879,89 @@ class HistoryStatsCoreTests(unittest.TestCase):
         self.assertIsNot(first, _effective_shots(data))  # cleared → recomputed
 
 
+class BuildHistoryStatsPlayerScopeTests(unittest.TestCase):
+    def _seed_all_evidence(self, root: Path) -> None:
+        add_annotation("round", "900001", "round_note", {"text": "owner note"}, root=root)
+        store_report(
+            {
+                "schema": "ai-caddie-review-report-v1",
+                "kind": "round",
+                "subjectId": "900001",
+                "provider": "static",
+                "model": "static",
+                "confidence": "medium",
+                "sourceRefs": ["900001"],
+                "factsUsed": [],
+                "missingData": [],
+                "unsupportedClaims": [],
+                "narrative": "Round 900001 summary.",
+            },
+            kind="round",
+            subject_id="900001",
+            root=root,
+        )
+        store_decision_audit(
+            {
+                "decisionSourceRef": "900001",
+                "selectedOptionId": "stock",
+                "actualOptionId": "attack",
+                "actualShotRefs": ["900001:7:0"],
+                "evidenceRefs": ["900001"],
+                "classification": "strategy",
+            },
+            decision_id="decision-900001",
+            root=root,
+        )
+        store_weather_snapshot(
+            build_weather_snapshot(
+                round_id="900001",
+                hole=7,
+                captured_at="2026-05-25T09:00:00Z",
+                latitude=22.279,
+                longitude=114.162,
+                source="manual",
+                observed={"windSpeedMps": 6.0, "windDirectionDeg": 120},
+            ),
+            root=root,
+        )
+
+    @staticmethod
+    def _dq(stats: dict, label: str) -> dict:
+        return next(row for row in stats["dataQuality"] if row["label"] == label)
+
+    def _build(self, root: Path, **kwargs) -> dict:
+        return build_history_stats(
+            fixture_history_data(),
+            data_mode="fixture",
+            annotations_root=root,
+            weather_root=root,
+            reports_root=root,
+            decision_audit_root=root,
+            **kwargs,
+        )
+
+    def test_owner_stats_count_seeded_evidence(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_all_evidence(root)
+            stats = self._build(root)  # default player_id == OWNER_ID
+
+        self.assertEqual(self._dq(stats, "annotations")["total"], 1)
+        self.assertEqual(self._dq(stats, "decision_audits")["auditCount"], 1)
+        self.assertIn("900001", self._dq(stats, "reports")["readyRefs"])
+        self.assertGreaterEqual(self._dq(stats, "weather")["ready"], 1)
+
+    def test_member_stats_see_no_evidence(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_all_evidence(root)
+            stats = self._build(root, player_id="p_alice")
+
+        self.assertEqual(self._dq(stats, "annotations")["total"], 0)
+        self.assertEqual(self._dq(stats, "decision_audits")["auditCount"], 0)
+        self.assertNotIn("900001", self._dq(stats, "reports")["readyRefs"])
+        self.assertEqual(self._dq(stats, "weather")["ready"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

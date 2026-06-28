@@ -11,6 +11,9 @@ from ai_caddie.history.stats_cache import cached_build_history_stats, cached_loa
 from .data_source import load_history_data_for_mode
 from .models import HistoryStatsResponse, HistoryStatsSummaryResponse, MobileStatsResponse
 
+ANNOTATION_ROOT = Path(".")
+WEATHER_ROOT = Path(".")
+REPORTS_ROOT = Path(".")
 DECISION_AUDIT_ROOT = Path(".")
 
 logger = logging.getLogger(__name__)
@@ -20,7 +23,14 @@ def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_I
     data, mode = load_history_data_for_mode(player_id=player_id)
     return HistoryStatsResponse(
         **cached_build_history_stats(
-            data, data_mode=mode, player_id=player_id, decision_audit_root=DECISION_AUDIT_ROOT, window=window
+            data,
+            data_mode=mode,
+            player_id=player_id,
+            annotations_root=ANNOTATION_ROOT,
+            weather_root=WEATHER_ROOT,
+            reports_root=REPORTS_ROOT,
+            decision_audit_root=DECISION_AUDIT_ROOT,
+            window=window,
         )
     )
 
@@ -50,7 +60,14 @@ def load_mobile_stats_response(window: str = "all", *, player_id: str = OWNER_ID
     """
     data, mode = load_history_data_for_mode(player_id=player_id)
     stats = cached_build_history_stats(
-        data, data_mode=mode, player_id=player_id, decision_audit_root=DECISION_AUDIT_ROOT, window=window
+        data,
+        data_mode=mode,
+        player_id=player_id,
+        annotations_root=ANNOTATION_ROOT,
+        weather_root=WEATHER_ROOT,
+        reports_root=REPORTS_ROOT,
+        decision_audit_root=DECISION_AUDIT_ROOT,
+        window=window,
     )
     return MobileStatsResponse(**build_mobile_stats(stats))
 

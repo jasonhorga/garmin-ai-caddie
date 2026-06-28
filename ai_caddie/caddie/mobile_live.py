@@ -14,6 +14,7 @@ from ai_caddie.reports.annotations import annotations_for_target, list_annotatio
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history.history import HistoryData, OWNER_ID
+from ai_caddie.core.data import evidence_root
 from ai_caddie.history.history_stats import _effective_score_data
 from ai_caddie.reports.report_labels_zh import issue_label_zh
 from ai_caddie.history.stats_cache import cached_build_history_stats
@@ -2192,8 +2193,12 @@ def _event_log_rows(
     round_id: str | None = None,
     *,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
-    path = mobile_event_log(root)
+    er = evidence_root(player_id, root=root)
+    if er is None:
+        return []
+    path = mobile_event_log(er)
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
@@ -2212,17 +2217,17 @@ def _event_log_rows(
     return rows
 
 
-def _latest_event_sequence(round_id: str, *, root: Path | str | None = None) -> int:
+def _latest_event_sequence(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
     latest = 0
-    for row in _event_log_rows(round_id, root=root):
+    for row in _event_log_rows(round_id, root=root, player_id=player_id):
         latest = max(latest, int(row.get("serverSequence") or 0))
     return latest
 
 
-def _pending_event_count(round_id: str, *, after_sequence: int, root: Path | str | None = None) -> int:
+def _pending_event_count(round_id: str, *, after_sequence: int, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
     return sum(
         1
-        for row in _event_log_rows(round_id, root=root)
+        for row in _event_log_rows(round_id, root=root, player_id=player_id)
         if int(row.get("serverSequence") or 0) > after_sequence
     )
 
@@ -2505,6 +2510,7 @@ def replay_event_log(
     after_sequence: int | None = None,
     limit: int = 100,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     clean_client_id = _clean_client_id(client_id)
     start_sequence = (
@@ -2515,7 +2521,7 @@ def replay_event_log(
     bounded_limit = max(1, min(int(limit or 100), 500))
     matching_rows = [
         row
-        for row in _event_log_rows(round_id, root=root)
+        for row in _event_log_rows(round_id, root=root, player_id=player_id)
         if int(row.get("serverSequence") or 0) > start_sequence
     ]
     selected_rows = matching_rows[:bounded_limit]
@@ -2529,7 +2535,7 @@ def replay_event_log(
                 "event": event,
             }
         )
-    latest_sequence = _latest_event_sequence(round_id, root=root)
+    latest_sequence = _latest_event_sequence(round_id, root=root, player_id=player_id)
     next_cursor = events[-1]["serverSequence"] if events else start_sequence
     return {
         "schema": "ai-caddie-mobile-event-replay-v1",
@@ -2550,11 +2556,12 @@ def ack_event_cursor(
     client_id: str,
     server_sequence: int,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     clean_client_id = _clean_client_id(client_id)
     if not clean_client_id:
         raise ValueError("clientId is required")
-    latest_sequence = _latest_event_sequence(round_id, root=root)
+    latest_sequence = _latest_event_sequence(round_id, root=root, player_id=player_id)
     acked_sequence = max(0, min(int(server_sequence), latest_sequence))
     acks = _load_client_acks(root)
     acks[_ack_key(str(round_id), clean_client_id)] = {
@@ -2570,5 +2577,5 @@ def ack_event_cursor(
         "clientId": clean_client_id,
         "ackedServerSequence": acked_sequence,
         "latestServerSequence": latest_sequence,
-        "pendingEventCount": _pending_event_count(round_id, after_sequence=acked_sequence, root=root),
+        "pendingEventCount": _pending_event_count(round_id, after_sequence=acked_sequence, root=root, player_id=player_id),
     }
