@@ -140,18 +140,23 @@ def current_player_id(request: Request) -> str:
 def is_player_scoped_route(method: str, path: str) -> bool:
     """Routes whose access may be granted by a per-player token (not only admin).
 
-    These are the player-side reads keyed by the PLAYER (not by an opaque round_id):
-    history, review reports, course prep / prep-tips, and the mobile course-options
-    list. Each loads only the caller's own player-scoped HistoryData (or public course
-    data), so a family member sees only their own data.
+    These are the player-side GET reads: history, review reports, course prep /
+    prep-tips, the mobile course-options list, AND the four mobile/caddie aggregator
+    reads — the mobile round package, the mobile course package, the reconciliation-GET,
+    and the caddie-context read. Each loads only the caller's own data (or public,
+    course-keyed geometry), so a family member sees only their own data.
 
-    NOTE: the mobile round/course PACKAGE reads, the reconciliation-GET, and the
-    caddie-context read are intentionally NOT here. They aggregate per-round data from
-    shared, UNPARTITIONED stores keyed by round_id / source_ref (the mobile event log,
-    weather snapshots, the annotation store), so threading player_id isolates only the
-    HistoryData half — opening them to members would leak the owner's round data
-    (weather, hand-written notes, event activity) by a guessed round_id. They stay
-    admin-only until those stores are per-user partitioned (Phase 2).
+    The aggregator reads were admin-only in Phase 1c because they also draw on shared,
+    UNPARTITIONED evidence stores keyed by round_id / source_ref (the mobile event log,
+    weather snapshots, the annotation store). Phase 2 made every evidence READ loader
+    player-aware: each short-circuits to empty for a non-owner via ``evidence_root``, and
+    the response builders now thread the resolved ``player_id`` down to every one — so a
+    member who guesses an owner round_id gets a 200 with NO owner evidence (empty event
+    cursor / reconciliation, no weather, no hand-written notes). They are therefore safe
+    to open to members here.
+
+    NOTE: the reconciliation/APPLY (POST) write path stays admin-only — it is not GET, so
+    it never matches here, and its builders keep the ``player_id=OWNER_ID`` default.
     """
     if method.upper() != "GET":
         return False
@@ -162,6 +167,10 @@ def is_player_scoped_route(method: str, path: str) -> bool:
         or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
         or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
         or path == "/api/v2/mobile/courses/options"
+        or path == "/api/v2/caddie/context"
+        or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
+        or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
+        or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
     )
 
 

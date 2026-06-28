@@ -209,8 +209,9 @@ def _weather_snapshot_for_package(
     longitude: float | None = None,
     root: Path | str | None = None,
     transport: WeatherTransport | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
-    cached = weather_snapshot_for_time(round_id, captured_at=captured_at, root=root, exact_hole=True)
+    cached = weather_snapshot_for_time(round_id, captured_at=captured_at, root=root, exact_hole=True, player_id=player_id)
     if cached:
         return cached
     if latitude is not None and longitude is not None:
@@ -221,7 +222,11 @@ def _weather_snapshot_for_package(
             longitude=longitude,
             transport=transport,
         )
-        if snapshot.get("state") == "ready":
+        if snapshot.get("state") == "ready" and player_id == OWNER_ID:
+            # Only the OWNER persists into the shared (owner) weather store. Now that the
+            # package routes are member-reachable, a non-owner must NOT write owner evidence
+            # (the read side already short-circuits to empty via evidence_root); return the
+            # freshly fetched snapshot for display without persisting it.
             return store_weather_snapshot(snapshot, root=root)
         return snapshot
     return build_weather_snapshot(
@@ -238,6 +243,7 @@ def _weather_coverage_for_package(
     *,
     captured_at: str | None = None,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> tuple[dict[str, Any], dict[int, dict[str, Any]]]:
     total_holes = len(holes)
     hole_coverage: list[dict[str, Any]] = []
@@ -249,7 +255,7 @@ def _weather_coverage_for_package(
         if number is None or number <= 0:
             continue
         source_ref = f"{round_id}:{number}"
-        snapshot = weather_snapshot_for_time(round_id, number, captured_at=captured_at, root=root, exact_hole=True)
+        snapshot = weather_snapshot_for_time(round_id, number, captured_at=captured_at, root=root, exact_hole=True, player_id=player_id)
         if snapshot and snapshot.get("state") == "ready":
             weather_by_hole[number] = snapshot
             ready_refs.append(source_ref)
@@ -1350,6 +1356,7 @@ def _caddie_context_seeds(
     weather_by_hole: dict[int, dict[str, Any]] | None = None,
     player_profile: dict[str, Any] | None = None,
     annotations_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
     course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
     decision_clubs = _decision_club_profiles(club_profiles)
@@ -1396,6 +1403,7 @@ def _caddie_context_seeds(
             annotations_root=annotations_root,
             round_id=round_id,
             hole_ref=source_ref,
+            player_id=player_id,
         )
         missing_data = [
             *geometry_missing,
@@ -1484,12 +1492,13 @@ def _manual_notes_for_seed(
     annotations_root: Path | str | None,
     round_id: str,
     hole_ref: str,
+    player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
     if annotations_root is None:
         return []
     records = [
-        *annotations_for_target("round", round_id, root=annotations_root),
-        *annotations_for_target("hole", hole_ref, root=annotations_root),
+        *annotations_for_target("round", round_id, root=annotations_root, player_id=player_id),
+        *annotations_for_target("hole", hole_ref, root=annotations_root, player_id=player_id),
     ]
     notes: list[dict[str, Any]] = []
     for record in records:
@@ -1706,7 +1715,7 @@ def build_live_round_package(
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
-    annotations = list_annotations(root=annotation_lookup_root)
+    annotations = list_annotations(root=annotation_lookup_root, player_id=player_id)
     scored_source = _effective_score_data(source, annotations)
     # History stats are about the player's PAST rounds — independent of which course is being
     # prepared. For a never-played course the caller augments `data` with a synthetic template
@@ -1718,6 +1727,7 @@ def build_live_round_package(
     stats = cached_build_history_stats(
         stats_source,
         data_mode=data_mode,
+        player_id=player_id,
         annotations_root=annotation_lookup_root,
         weather_root=root,
         reports_root=root,
@@ -1781,12 +1791,14 @@ def build_live_round_package(
         longitude=course_longitude,
         root=root,
         transport=weather_transport,
+        player_id=player_id,
     )
     weather_coverage, weather_by_hole = _weather_coverage_for_package(
         round_id,
         holes,
         captured_at=captured_at,
         root=root,
+        player_id=player_id,
     )
     weather_snapshot = {
         **weather_snapshot,
@@ -1840,6 +1852,7 @@ def build_live_round_package(
         weather_by_hole=weather_by_hole,
         player_profile=player_profile,
         annotations_root=annotations_root,
+        player_id=player_id,
     )
     readiness_checks = _package_readiness_checks(
         source_coverage=source_coverage,
@@ -2072,6 +2085,7 @@ def build_live_round_package_for_course(
         ensure_geometry=ensure_geometry,
         nine="all",
         include_course_prep=include_course_prep,
+        player_id=player_id,
     )
     return _merge_nines(front_package, back_package)
 

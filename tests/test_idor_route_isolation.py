@@ -1,19 +1,21 @@
-"""Phase 1c — the four mobile/caddie AGGREGATOR reads are admin-only.
+"""Phase 2 — the four mobile/caddie AGGREGATOR reads are now open to family MEMBERS.
 
 The mobile round package, the mobile course package, the reconciliation-GET, and the
 caddie-context read aggregate per-round data from shared, UNPARTITIONED stores keyed by
 round_id / source_ref — the mobile event log, weather snapshots, and the annotation store.
-Threading the resolved player_id isolates only the player-keyed HistoryData half, NOT those
-stores, so opening these routes to a family member would let them read the owner's round
-data (weather, hand-written notes, event activity / sequence) by a guessed round_id. They
-therefore stay admin-only until the stores are per-user partitioned (Phase 2).
+Phase 1c kept them admin-only because threading the resolved player_id isolated only the
+player-keyed HistoryData half. Phase 2 made every evidence READ loader player-aware (each
+short-circuits to empty for a non-owner via ``evidence_root``) and the response builders now
+thread the resolved player_id down to every one — so a member who guesses an owner round_id
+gets a 200 with NO owner evidence. The routes are therefore opened to members.
 
 This module proves, through the REAL admin-gate middleware (TestClient, ADMIN_ENV set so the
-gate is fully active), that a family-member capability token AND an anonymous caller are both
-rejected (401) on all four routes. That the 401 is GATING and not a broken route is proven
-for the owner (admin → 200, builder threads player_id="me") in
-test_server_v2_admin_protection (MobilePackageAdminOnlyTests /
-ReconciliationAndCaddieContextAdminOnlyTests), which mocks the builders.
+gate is fully active), that a family-member capability token now REACHES each builder (200)
+while an anonymous caller is still rejected (401) on all four routes. The builders are mocked
+here so this stays a pure GATE test (instant, offline); the isolation BELOW the builder
+(member sees no owner evidence on the real builders) is proven in
+test_aggregator_route_isolation, and the owner-threads-player_id="me" path in
+test_server_v2_admin_protection.
 
 The genuinely player-keyed reads (history / stats / reports / prep / mobile course-options)
 remain member-accessible and are isolation-tested in test_player_side_isolation and
@@ -25,6 +27,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
@@ -32,6 +35,11 @@ from ai_caddie.caddie.mobile_live import _event_cursor, mobile_event_log
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.rounds import players
 from server_v2.main import app
+from tests.test_server_v2_admin_protection import (
+    _caddie_context_response,
+    _mobile_package_response,
+    _reconciliation_response,
+)
 
 
 ADMIN_ENV = {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}
@@ -39,18 +47,38 @@ ADMIN_ENV = {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}
 _FIXTURE_ROUND_ID = "900001"
 _FIXTURE_GLOBAL_ID = 31795
 
-# The four aggregator reads that must NOT be reachable by a per-player token in Phase 1c.
-_AGGREGATOR_ROUTES = [
-    ("round package", f"/api/v2/mobile/rounds/{_FIXTURE_ROUND_ID}/package"),
-    ("course package", f"/api/v2/mobile/courses/{_FIXTURE_GLOBAL_ID}/package?round_id=test-round-1"),
-    ("reconciliation", "/api/v2/mobile/rounds/test-round-1/reconciliation"),
-    ("caddie context", f"/api/v2/caddie/context?source_ref={_FIXTURE_ROUND_ID}:1&shot_type=approach"),
+# The four aggregator reads + the server_v2.main builder each routes to and a canned response.
+_AGGREGATOR_CASES = [
+    (
+        "round package",
+        f"/api/v2/mobile/rounds/{_FIXTURE_ROUND_ID}/package",
+        "build_mobile_round_package_response",
+        _mobile_package_response,
+    ),
+    (
+        "course package",
+        f"/api/v2/mobile/courses/{_FIXTURE_GLOBAL_ID}/package?round_id=test-round-1",
+        "build_mobile_course_package_response",
+        _mobile_package_response,
+    ),
+    (
+        "reconciliation",
+        "/api/v2/mobile/rounds/test-round-1/reconciliation",
+        "reconcile_mobile_round_response",
+        _reconciliation_response,
+    ),
+    (
+        "caddie context",
+        f"/api/v2/caddie/context?source_ref={_FIXTURE_ROUND_ID}:1&shot_type=approach",
+        "build_caddie_context_response",
+        _caddie_context_response,
+    ),
 ]
 
 
-class AggregatorRoutesAreAdminOnlyTests(unittest.TestCase):
-    """A family-member token (and an anonymous caller) must be rejected by the real admin
-    gate on every per-round aggregator read — they are owner-only until Phase 2."""
+class AggregatorRoutesOpenToMembersTests(unittest.TestCase):
+    """A family-member token now REACHES each per-round aggregator builder (200) through the
+    real admin gate; an anonymous caller is still rejected (401) and the builder never runs."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -62,23 +90,31 @@ class AggregatorRoutesAreAdminOnlyTests(unittest.TestCase):
         self.member_token = players.create_player("Bob", root=self.root)["token"]
         self.client = TestClient(app)
 
-    def test_member_and_anonymous_are_401_on_every_aggregator_route(self) -> None:
-        # The 401 fires at the middleware gate (before any builder), so this needs no fixture
-        # data: a valid per-player token does not bypass the gate on a non-player-scoped route.
+    def test_member_token_now_reaches_every_aggregator_builder(self) -> None:
         with mock.patch.dict("os.environ", ADMIN_ENV):
-            for label, url in _AGGREGATOR_ROUTES:
-                member = self.client.get(
-                    url, headers={"Authorization": f"Bearer {self.member_token}"}
-                )
-                anon = self.client.get(url)
+            for label, url, builder, canned in _AGGREGATOR_CASES:
+                handler = Mock(return_value=canned())
+                with mock.patch(f"server_v2.main.{builder}", handler):
+                    resp = self.client.get(
+                        url, headers={"Authorization": f"Bearer {self.member_token}"}
+                    )
                 self.assertEqual(
-                    member.status_code, 401,
-                    f"a family-member token must be 401 on the {label} read ({url})",
+                    resp.status_code, 200,
+                    f"a family-member token must now reach the {label} read ({url}): {resp.text[:200]}",
                 )
+                handler.assert_called_once()
+
+    def test_anonymous_is_still_401_on_every_aggregator_route(self) -> None:
+        with mock.patch.dict("os.environ", ADMIN_ENV):
+            for label, url, builder, canned in _AGGREGATOR_CASES:
+                handler = Mock(return_value=canned())
+                with mock.patch(f"server_v2.main.{builder}", handler):
+                    anon = self.client.get(url)
                 self.assertEqual(
                     anon.status_code, 401,
-                    f"an anonymous caller must be 401 on the {label} read ({url})",
+                    f"an anonymous caller must still be 401 on the {label} read ({url})",
                 )
+                handler.assert_not_called()
 
 
 class EventCursorDefenseInDepthTests(unittest.TestCase):

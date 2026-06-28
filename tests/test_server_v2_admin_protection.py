@@ -804,10 +804,11 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
 
 
 class MobilePackageAdminOnlyTests(unittest.TestCase):
-    """The mobile round/course package GETs are admin-only: they aggregate per-round data
-    from shared, unpartitioned stores keyed by round_id, so a family-member token must be
-    rejected (admin-only until those stores are per-user partitioned in Phase 2). The owner
-    (admin) is still served and threads player_id='me'."""
+    """The mobile round/course package GETs are player-scoped (Phase 2): a family-member token
+    now REACHES the builder, which is called with the member's resolved player_id (the evidence
+    loaders short-circuit to empty for a non-owner, so the member sees none of the owner's
+    per-round data — proven on the real builders in test_aggregator_route_isolation). An
+    anonymous caller is still rejected by the gate, and the owner (admin) threads player_id='me'."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -823,8 +824,8 @@ class MobilePackageAdminOnlyTests(unittest.TestCase):
         self._player_patch.stop()
         self._tmp.cleanup()
 
-    def test_member_token_is_rejected_for_mobile_round_package(self) -> None:
-        """A per-player token must NOT reach the round-package builder (admin-only)."""
+    def test_member_token_reaches_mobile_round_package_builder(self) -> None:
+        """A per-player token now reaches the round-package builder, threaded the member's player_id."""
         handler = Mock(return_value=_mobile_package_response())
         with (
             patch.dict("os.environ", ADMIN_ENV),
@@ -834,11 +835,17 @@ class MobilePackageAdminOnlyTests(unittest.TestCase):
                 "/api/v2/mobile/rounds/live-round-1/package",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
-        self.assertEqual(resp.status_code, 401)
-        handler.assert_not_called()
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with(
+            "live-round-1",
+            captured_at=None,
+            client_id=None,
+            ensure_geometry=False,
+            player_id=self.member_id,
+        )
 
-    def test_member_token_is_rejected_for_mobile_course_package(self) -> None:
-        """A per-player token must NOT reach the course-package builder (admin-only)."""
+    def test_member_token_reaches_mobile_course_package_builder(self) -> None:
+        """A per-player token now reaches the course-package builder, threaded the member's player_id."""
         handler = Mock(return_value=_mobile_package_response())
         with (
             patch.dict("os.environ", ADMIN_ENV),
@@ -848,8 +855,18 @@ class MobilePackageAdminOnlyTests(unittest.TestCase):
                 "/api/v2/mobile/courses/31795/package?round_id=live-round-1",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
-        self.assertEqual(resp.status_code, 401)
-        handler.assert_not_called()
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with(
+            31795,
+            round_id="live-round-1",
+            tee_box=None,
+            captured_at=None,
+            client_id=None,
+            ensure_geometry=False,
+            nine="all",
+            back_global_id=None,
+            player_id=self.member_id,
+        )
 
     def test_no_token_under_admin_env_still_401_for_round_package(self) -> None:
         """Without any token, the admin gate still fires and rejects the request."""
@@ -884,10 +901,12 @@ class MobilePackageAdminOnlyTests(unittest.TestCase):
 
 
 class ReconciliationAndCaddieContextAdminOnlyTests(unittest.TestCase):
-    """The reconciliation-GET and the caddie-context read are both admin-only: each
-    aggregates per-round data from shared, unpartitioned stores keyed by round_id /
-    source_ref (the mobile event log / weather / annotations), so a family-member token
-    must NOT reach either (deferred to Phase 2 per-user partitioning)."""
+    """The reconciliation-GET and the caddie-context read are player-scoped (Phase 2): a
+    family-member token now REACHES each builder, called with the member's resolved player_id
+    (the evidence loaders short-circuit to empty for a non-owner — the mobile event log /
+    weather / annotations stay owner-only in content, proven on the real builders in
+    test_aggregator_route_isolation). An anonymous caller is still rejected by the gate, and
+    the owner (admin) threads player_id='me'. (The reconciliation/APPLY POST stays admin-only.)"""
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -903,10 +922,10 @@ class ReconciliationAndCaddieContextAdminOnlyTests(unittest.TestCase):
         self._player_patch.stop()
         self._tmp.cleanup()
 
-    def test_player_token_rejected_for_reconciliation_read_admin_only(self) -> None:
-        """reconciliation-GET is NOT player-scoped — its payload comes from the unpartitioned
-        shared mobile event log, so a member token must be rejected by the admin gate and the
-        builder must never run (admin-only until MOBILE_ROOT is partitioned in Phase 2)."""
+    def test_member_token_reaches_reconciliation_builder(self) -> None:
+        """reconciliation-GET is player-scoped (Phase 2): a member token now reaches the builder,
+        threaded the member's player_id (the shared event log short-circuits to empty for a
+        non-owner). The reconciliation/APPLY POST stays admin-only."""
         handler = Mock(return_value=_reconciliation_response())
         with (
             patch.dict("os.environ", ADMIN_ENV),
@@ -916,11 +935,11 @@ class ReconciliationAndCaddieContextAdminOnlyTests(unittest.TestCase):
                 "/api/v2/mobile/rounds/live-round-1/reconciliation",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
-        self.assertEqual(resp.status_code, 401)
-        handler.assert_not_called()
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with("live-round-1", player_id=self.member_id)
 
-    def test_member_token_is_rejected_for_caddie_context(self) -> None:
-        """A per-player token must NOT reach the caddie-context builder (admin-only)."""
+    def test_member_token_reaches_caddie_context_builder(self) -> None:
+        """A per-player token now reaches the caddie-context builder, threaded the member's player_id."""
         handler = Mock(return_value=_caddie_context_response())
         with (
             patch.dict("os.environ", ADMIN_ENV),
@@ -930,8 +949,25 @@ class ReconciliationAndCaddieContextAdminOnlyTests(unittest.TestCase):
                 "/api/v2/caddie/context?source_ref=round-1:7&shot_type=approach",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
-        self.assertEqual(resp.status_code, 401)
-        handler.assert_not_called()
+        self.assertEqual(resp.status_code, 200)
+        handler.assert_called_once_with(
+            source_ref="round-1:7",
+            shot_type="approach",
+            distance_to_pin_m=None,
+            lie=None,
+            current_latitude=None,
+            current_longitude=None,
+            target_latitude=None,
+            target_longitude=None,
+            strategy_mode=None,
+            start_x=None,
+            start_y=None,
+            target_x=None,
+            target_y=None,
+            landing_radius_m=18.0,
+            captured_at=None,
+            player_id=self.member_id,
+        )
 
     def test_no_token_under_admin_env_still_401_for_reconciliation(self) -> None:
         """Without any token, the admin gate still fires and rejects the request."""
