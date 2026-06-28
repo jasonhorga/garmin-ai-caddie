@@ -62,6 +62,18 @@ def legacy_player_for_user(session: Session, user_id: str) -> str | None:
     return row.legacy_player_id if row else None
 
 
+def list_family_users(session: Session, family_id: str) -> list[tuple[User, str | None]]:
+    """Every User in ``family_id`` (including soft-deleted), each paired with its mapped legacy
+    player id (or None). LEFT join so a member whose map row is missing still appears in the roster."""
+    stmt = (
+        select(User, LegacyPlayerMap.legacy_player_id)
+        .outerjoin(LegacyPlayerMap, LegacyPlayerMap.user_id == User.id)
+        .where(User.family_id == family_id)
+        .order_by(User.created_at)
+    )
+    return [(row[0], row[1]) for row in session.execute(stmt).all()]
+
+
 def get_user_by_apple_subject(session: Session, subject: str) -> User | None:
     stmt = (
         select(User)

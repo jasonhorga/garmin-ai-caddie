@@ -197,5 +197,60 @@ class AuthApiTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/v2/auth/logout", headers={"Authorization": f"Bearer {token}"}).status_code, 401)
 
 
+class FamilyUsersRosterTests(unittest.TestCase):
+    """GET /api/v2/admin/family/users — owner-facing roster from the identity DB (admin-gated)."""
+
+    ADMIN_HEADER = {"X-AI-Caddie-Admin-Token": "admin-secret"}
+
+    def setUp(self):
+        self.addCleanup(db.reset_engine_for_tests)
+        self._tmp = tempfile.TemporaryDirectory(); self.addCleanup(self._tmp.cleanup)
+        url = f"sqlite:///{Path(self._tmp.name) / 'identity.db'}"
+        self._env = mock.patch.dict(os.environ, {
+            "AI_CADDIE_DATABASE_URL": url, "AI_CADDIE_APPLE_BUNDLE_ID": BUNDLE,
+            "AI_CADDIE_DATA_MODE": "fixture", "AI_CADDIE_SECURITY_PROFILE": "",
+            "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+        }); self._env.start(); self.addCleanup(self._env.stop)
+        db.reset_engine_for_tests()
+        cfg = Config(str(REPO_ROOT / "alembic.ini"))
+        cfg.set_main_option("script_location", str(REPO_ROOT / "migrations"))
+        cfg.set_main_option("sqlalchemy.url", url)
+        command.upgrade(cfg, "head")
+        with db.session_scope() as s:
+            family, owner = repo.create_family_with_owner(s, family_name="F", owner_display_name="Owner")
+            repo.map_legacy_player(s, legacy_player_id="me", user_id=owner.id)
+            member = repo.add_user(s, family_id=family.id, display_name="Kid", role="member")
+            repo.map_legacy_player(s, legacy_player_id="p_kid00001", user_id=member.id)
+            self.family_id, self.owner_id, self.member_id = family.id, owner.id, member.id
+        from server_v2.main import app
+        self.client = TestClient(app)
+
+    def test_admin_lists_owner_and_member_with_player_ids(self):
+        r = self.client.get("/api/v2/admin/family/users", headers=self.ADMIN_HEADER)
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["schema"], "ai-caddie-family-users-v1")
+        self.assertEqual(body["total"], 2)
+        rows = {u["id"]: u for u in body["users"]}
+        self.assertEqual(set(rows), {self.owner_id, self.member_id})
+        self.assertEqual(rows[self.owner_id]["role"], "admin")
+        self.assertEqual(rows[self.owner_id]["playerId"], "me")
+        self.assertEqual(rows[self.member_id]["role"], "member")
+        self.assertEqual(rows[self.member_id]["displayName"], "Kid")
+        self.assertEqual(rows[self.member_id]["playerId"], "p_kid00001")
+        self.assertIsNone(rows[self.member_id]["deletedAt"])
+        self.assertIn("createdAt", rows[self.member_id])
+
+    def test_member_session_token_is_rejected(self):
+        # a REAL auto-registered member session token must not reach the admin-only roster
+        with mock.patch("server_v2.auth_api._verify", return_value=AppleIdentity(subject="NEWBIE", email="n@e.c")):
+            token = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"}).json()["token"]
+        r = self.client.get("/api/v2/admin/family/users", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(r.status_code, 401)
+
+    def test_no_token_is_rejected(self):
+        self.assertEqual(self.client.get("/api/v2/admin/family/users").status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()

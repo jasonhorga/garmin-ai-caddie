@@ -31,6 +31,7 @@ from pydantic import BaseModel
 
 from ai_caddie.rounds import players
 from ai_caddie.rounds.players import OWNER_ID
+from server_v2.models import FamilyUserRow, FamilyUsersResponse
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,36 @@ def _player_url(request: Request, token: str) -> str:
 def admin_list_players() -> dict[str, Any]:
     reg = players.load_registry()
     return {"players": [_public_player(row) for row in reg["players"]]}
+
+
+@admin_router.get("/family/users", response_model=FamilyUsersResponse)
+def admin_list_family_users() -> FamilyUsersResponse:
+    """Owner-facing roster of family Users from the identity DB (admin-gated by the
+    /api/v2/admin/* rule). Unlike /admin/players (the file registry), this includes
+    map-only members auto-registered via Sign in with Apple. Projects identity fields
+    only — never any token material."""
+    # local imports keep this module import-light (the gate imports it; see has_valid_player_token)
+    from server_v2 import db
+    from server_v2 import identity_repo as identity
+    from server_v2.identity_models import User
+
+    with db.session_scope() as session:
+        owner_uid = identity.user_id_for_legacy_player(session, OWNER_ID)
+        if owner_uid is None:
+            raise HTTPException(status_code=400, detail="owner user not provisioned (run the identity seeder)")
+        family_id = session.get(User, owner_uid).family_id
+        users = [
+            FamilyUserRow(
+                id=user.id,
+                displayName=user.display_name,
+                role=user.role,
+                createdAt=user.created_at.isoformat(),
+                deletedAt=user.deleted_at.isoformat() if user.deleted_at is not None else None,
+                playerId=pid,
+            )
+            for user, pid in identity.list_family_users(session, family_id)
+        ]
+    return FamilyUsersResponse(schema_="ai-caddie-family-users-v1", total=len(users), users=users)
 
 
 @admin_router.post("/players", status_code=201)
