@@ -7,6 +7,7 @@ import secrets
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server_v2.identity_models import (
@@ -16,6 +17,11 @@ from server_v2.identity_models import (
 
 class IdentityConflictError(Exception):
     """Raised when linking an Apple sub that is already bound to a different user."""
+
+
+class PlayerIdInUseError(Exception):
+    """Raised when a freshly generated legacy player id collides with an existing map row
+    (the caller retries auto-provision with a new id rather than silently re-binding)."""
 
 
 def create_family_with_owner(session: Session, *, family_name: str, owner_display_name: str) -> tuple[Family, User]:
@@ -99,7 +105,15 @@ def link_apple_identity(
         return existing
     identity = UserIdentity(user_id=user_id, provider="apple", subject=subject, email=email)
     session.add(identity)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        # A concurrent first sign-in committed the same (provider, subject) between our SELECT
+        # above and this flush → the DB UNIQUE constraint fires. Convert to the semantic
+        # conflict the caller already handles (re-resolve + mint for the winner), not a raw 500.
+        raise IdentityConflictError(
+            f"apple sub {subject!r} was concurrently linked to another user"
+        ) from exc
     return identity
 
 
@@ -115,7 +129,13 @@ def provision_member(
     IdentityConflictError if ``subject`` is already linked to a different user (concurrent
     first sign-in) — the caller mints a session for the now-existing user instead."""
     member = add_user(session, family_id=family_id, display_name=display_name, role="member")
-    map_legacy_player(session, legacy_player_id=pid, user_id=member.id)
+    # Insert-only (NOT the upserting map_legacy_player): a pid collision must fail loudly so the
+    # caller retries with a fresh id, never silently re-point an existing member's data scope.
+    session.add(LegacyPlayerMap(legacy_player_id=pid, user_id=member.id))
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise PlayerIdInUseError(pid) from exc
     link_apple_identity(session, user_id=member.id, subject=subject, email=email)
     return member
 

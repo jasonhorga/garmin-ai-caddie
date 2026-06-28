@@ -49,6 +49,48 @@ class AuthApiTests(unittest.TestCase):
         with db.session_scope() as s:
             return repo.legacy_player_for_user(s, user_id)
 
+    def test_link_apple_identity_converts_db_unique_violation_to_conflict(self):
+        # The real concurrency race: link's pre-check SELECT misses but the INSERT trips
+        # UNIQUE(provider, subject) at flush → must surface as IdentityConflictError (which
+        # /auth/apple handles by minting for the winner), not a raw IntegrityError → 500.
+        from sqlalchemy.exc import IntegrityError
+        with db.session_scope() as s:
+            member = repo.add_user(s, family_id=self.family_id, display_name="M")
+            s.flush()
+            # no_autoflush so the pre-check SELECT doesn't trigger an autoflush (which would hit the
+            # mock before link's own flush); only link's explicit flush of the new identity raises —
+            # exactly the real DB-race insert that must convert to IdentityConflictError.
+            with s.no_autoflush, mock.patch.object(
+                s, "flush", side_effect=IntegrityError("INSERT", {}, Exception("unique"))
+            ):
+                with self.assertRaises(repo.IdentityConflictError):
+                    repo.link_apple_identity(s, user_id=member.id, subject="race.sub")
+            s.expunge_all()  # discard the half-added identity so session_scope's commit stays clean
+
+    def test_pid_collision_retries_without_rebinding(self):
+        # Force the first generated pid to collide with an existing member's. provision_member maps
+        # INSERT-ONLY, so the collision raises PlayerIdInUseError → /auth/apple retries with a fresh
+        # id. The existing member must KEEP its map (no silent rebind); the new member gets a new pid.
+        with self._verify(subject="FIRST.sub", email="first@e.c"):
+            first = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"}).json()
+        first_uid = self._resolves_to(first["token"])
+        seq = iter([first["playerId"][2:], "a1b2c3d4e5f60718"])  # 1st collides (strip "p_"), 2nd is fresh
+        with mock.patch("server_v2.auth_api.secrets.token_hex", side_effect=lambda _n: next(seq)):
+            with self._verify(subject="SECOND.sub", email="second@e.c"):
+                r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotEqual(r.json()["playerId"], first["playerId"])  # fresh pid on retry
+        self.assertEqual(self._legacy_for(first_uid), first["playerId"])  # existing map intact (no rebind)
+
+    def test_long_display_name_is_truncated_not_500(self):
+        # User.display_name is String(120); an over-long Apple displayName must be truncated, not 500.
+        from server_v2.identity_models import User
+        with self._verify(subject="LONG.sub", email="l@e.c"):
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t", "displayName": "Z" * 500})
+        self.assertEqual(r.status_code, 200, r.text)
+        with db.session_scope() as s:
+            self.assertLessEqual(len(s.get(User, self._resolves_to(r.json()["token"])).display_name), 120)
+
     def test_unknown_apple_sub_autoregisters(self):
         # Reverses the old 403 stance: a first-time (unknown) Apple sub now auto-provisions a
         # member + a fresh isolated player scope and mints a session.
@@ -72,11 +114,7 @@ class AuthApiTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "local_or_fixture"}):
             get_settings.cache_clear()
             rounds = self.client.get("/api/v2/history/rounds", headers={"Authorization": f"Bearer {body['token']}"})
-            # Leave the shared get_settings lru_cache holding local_or_fixture (re-prime while the
-            # override env is still active) — NOT empty. An empty cache lets a later fixture-mode
-            # test repopulate it with "fixture", which leaks into the player-scope isolation tests.
-            get_settings.cache_clear()
-            get_settings()
+        get_settings.cache_clear()  # don't leak local_or_fixture into the next test's cache
         self.assertEqual(rounds.status_code, 200, rounds.text)
         self.assertEqual(rounds.json()["total"], 0)
 

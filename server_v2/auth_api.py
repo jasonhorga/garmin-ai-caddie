@@ -1,9 +1,11 @@
 # server_v2/auth_api.py
 """Phase-1b auth endpoints: Sign in with Apple -> short-lived scoped session tokens.
 
-/apple mints a token ONLY for an already-linked Apple sub (no auto-create). /apple/link is the
-owner-bootstrap link (admin-gated by the main gate in Task 1b-5). /refresh + /logout manage a
-live session. Apple verification needs no Apple secret (JWKS signature check only)."""
+/apple mints a token for an Apple sub: a known sub → its session; a first-time sub →
+auto-registers a family member (role="member", in the owner's family) with a fresh isolated
+player scope (the auto-create is bounded by the app's Apple bundle-id audience). /apple/link is
+the owner-bootstrap link (admin-gated by the main gate in Task 1b-5). /refresh + /logout manage
+a live session. Apple verification needs no Apple secret (JWKS signature check only)."""
 from __future__ import annotations
 
 import os
@@ -95,27 +97,34 @@ def apple_sign_in(body: AppleSignInRequest) -> dict:
                 raise HTTPException(status_code=403, detail="apple identity not linked")
             return _session_payload(session, user_id=user.id, expires=expires)
     # First-time sub → auto-provision a member in the OWNER's family with a fresh isolated scope.
-    try:
-        with db.session_scope() as session:
-            owner_uid = repo.user_id_for_legacy_player(session, OWNER_ID)
-            if owner_uid is None:
-                raise HTTPException(status_code=400, detail="owner user not provisioned (run the identity seeder)")
-            family_id = session.get(User, owner_uid).family_id
-            pid = "p_" + secrets.token_hex(4)  # same scheme as players.create_player; map-only
-            display_name = body.displayName or (ident.email.split("@")[0] if ident.email else "Family member")
-            member = repo.provision_member(
-                session, family_id=family_id, display_name=display_name,
-                pid=pid, subject=ident.subject, email=ident.email,
-            )
-            return _session_payload(session, user_id=member.id, expires=expires, player_id=pid)
-    except repo.IdentityConflictError:
-        # A concurrent first sign-in of the same sub won the UNIQUE(provider, subject) race;
-        # our provisioning rolled back. Re-resolve and mint for the now-existing user (no 500).
-        with db.session_scope() as session:
-            user = repo.get_user_by_apple_subject(session, ident.subject)
-            if user is None or user.deleted_at is not None:
-                raise HTTPException(status_code=403, detail="apple identity not linked")
-            return _session_payload(session, user_id=user.id, expires=expires)
+    # Retry on the astronomically rare 64-bit pid collision (a fresh id each attempt).
+    for _attempt in range(3):
+        try:
+            with db.session_scope() as session:
+                owner_uid = repo.user_id_for_legacy_player(session, OWNER_ID)
+                if owner_uid is None:
+                    raise HTTPException(status_code=400, detail="owner user not provisioned (run the identity seeder)")
+                family_id = session.get(User, owner_uid).family_id
+                pid = "p_" + secrets.token_hex(8)  # 64-bit; provision_member maps insert-only (no silent rebind)
+                raw_name = body.displayName or (ident.email.split("@")[0] if ident.email else "Family member")
+                display_name = raw_name[:120]  # User.display_name is String(120) — avoid a Postgres DataError 500
+                member = repo.provision_member(
+                    session, family_id=family_id, display_name=display_name,
+                    pid=pid, subject=ident.subject, email=ident.email,
+                )
+                return _session_payload(session, user_id=member.id, expires=expires, player_id=pid)
+        except repo.PlayerIdInUseError:
+            continue  # pid collided with an existing map row → retry with a fresh id
+        except repo.IdentityConflictError:
+            # A concurrent first sign-in of the same sub won the UNIQUE(provider, subject) race
+            # (including the real DB-level race, now surfaced as IdentityConflictError); our
+            # provisioning rolled back. Mint for the now-existing user (no 500, no orphan).
+            with db.session_scope() as session:
+                user = repo.get_user_by_apple_subject(session, ident.subject)
+                if user is None or user.deleted_at is not None:
+                    raise HTTPException(status_code=403, detail="apple identity not linked")
+                return _session_payload(session, user_id=user.id, expires=expires)
+    raise HTTPException(status_code=503, detail="could not allocate a player id; please retry")
 
 
 @auth_router.post("/apple/link")

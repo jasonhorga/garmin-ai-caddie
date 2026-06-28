@@ -66,11 +66,10 @@ class MemberOnboardingIsolationTests(unittest.TestCase):
             patch_ctx.start()
             self.addCleanup(patch_ctx.stop)
         get_settings.cache_clear()
-        # Restore the shared get_settings lru_cache to the safe default on teardown rather than
-        # leaving it EMPTY: an empty cache lets a later fixture-mode test repopulate it with
-        # "fixture" on a cache miss, which then leaks into the player-scope isolation tests
-        # (they rely on the ambient local_or_fixture). Re-prime it to local_or_fixture instead.
-        self.addCleanup(self._restore_settings_cache)
+        # Clear the shared get_settings lru_cache on teardown so the next test re-reads its own
+        # env. (PlayerScopeDataIsolationTests now pins its own data mode + clears the cache, so it
+        # no longer depends on the ambient cached value — no re-prime band-aid needed.)
+        self.addCleanup(get_settings.cache_clear)
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
 
@@ -84,12 +83,6 @@ class MemberOnboardingIsolationTests(unittest.TestCase):
             repo.map_legacy_player(s, legacy_player_id="me", user_id=owner.id)
         from server_v2.main import app
         self.client = TestClient(app)
-
-    @staticmethod
-    def _restore_settings_cache() -> None:
-        get_settings.cache_clear()
-        with mock.patch.dict(os.environ, {"AI_CADDIE_DATA_MODE": "local_or_fixture"}):
-            get_settings()  # leave the lru_cache holding the safe default, never empty
 
     def _auto_register(self, subject: str = "MEMBER1", email: str = "m@e.c") -> dict:
         with mock.patch("server_v2.auth_api._verify", return_value=AppleIdentity(subject=subject, email=email)):

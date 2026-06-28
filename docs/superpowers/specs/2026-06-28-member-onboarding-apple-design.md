@@ -34,7 +34,7 @@ On `POST /api/v2/auth/apple`, when `get_user_by_apple_subject` returns None (tod
 
 **Concurrency:** two simultaneous first sign-ins of the same sub race on `UNIQUE(provider, subject)`; the loser's `link_apple_identity` raises `IdentityConflictError` → catch it and re-resolve as a now-known sub (mint a session for the existing user) rather than 500.
 
-**Owner footgun (documented):** the owner must link via `/auth/apple/link` (admin bootstrap) BEFORE signing in with `/auth/apple`, else they'd auto-register as a member. Acceptable — the owner is the admin who sets up; recoverable via the admin token.
+**Owner footgun (documented):** the owner MUST link via `/auth/apple/link` (admin bootstrap) BEFORE ever signing in with `/auth/apple`, else their sub auto-registers a spurious member account. Note this is **not** cleanly recoverable through the current APIs — `/auth/apple/link` refuses to move a sub already bound to a different user (`IdentityConflictError`), so undoing a mistaken owner auto-register today needs a manual DB correction (delete the spurious member + its identity/map). The owner's real `"me"` scope is never reassigned, so no data is exposed. A future admin re-link / delete-user endpoint would automate the recovery (deferred).
 
 ## Admin visibility (new)
 
