@@ -21,9 +21,9 @@ A session resolves to a data scope via `legacy_player_for_user` → a `LegacyPla
 
 On `POST /api/v2/auth/apple`, when `get_user_by_apple_subject` returns None (today's 403), AUTO-PROVISION inside one `db.session_scope()`:
 1. **Owner family lookup:** `owner_uid = user_id_for_legacy_player("me")`; if None → **400** "owner not provisioned" (mirrors `apple_link`). `family_id = User(owner_uid).family_id`.
-2. **Fresh player id:** `pid = "p_" + secrets.token_hex(4)` (same scheme as `players.create_player`; map-only — no file registry).
+2. **Fresh player id:** `pid = "p_" + secrets.token_hex(8)` (64-bit; map-only — no file registry). The endpoint retries with a new id if it collides (see step 4).
 3. `member = add_user(family_id=family_id, display_name=<name>, role="member")`.
-4. `map_legacy_player(legacy_player_id=pid, user_id=member.id)` — the linchpin.
+4. The linchpin map, **insert-only** (NOT the upserting `map_legacy_player`): `session.add(LegacyPlayerMap(legacy_player_id=pid, user_id=member.id)); flush()` — a PK collision raises `PlayerIdInUseError` so the endpoint retries with a fresh id, never silently re-pointing an existing member's scope.
 5. `link_apple_identity(user_id=member.id, subject=ident.subject, email=ident.email)`.
 6. `token, _ = mint_session_token(user_id=member.id, scope="user", expires_at=now+ttl)`.
 7. Return `{"token", "expiresAt", "userId": member.id, "playerId": pid}`.
