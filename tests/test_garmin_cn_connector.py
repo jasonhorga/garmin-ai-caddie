@@ -99,7 +99,10 @@ class GarminCnConnectorTests(unittest.TestCase):
                 patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[]),
                 patch("ai_caddie.garmin.fetch.fetch_details") as details,
             ):
-                run = transport.run(root=root, with_shots=False, force_refresh_auth=True)
+                run = transport.run(
+                    token_dir=root / ".garmin_tokens", data_dir=root / "data",
+                    with_shots=False, force_refresh_auth=True,
+                )
 
         self.assertEqual(provider.make_calls, [True])
         self.assertEqual(provider.refresh_calls, 0)
@@ -122,7 +125,10 @@ class GarminCnConnectorTests(unittest.TestCase):
                 patch("ai_caddie.garmin.fetch.fetch_summary", side_effect=[auth_http_error(401), [{"id": 1}]]) as summary,
                 patch("ai_caddie.garmin.fetch.fetch_details") as details,
             ):
-                run = transport.run(root=root, with_shots=True, force_refresh_auth=False)
+                run = transport.run(
+                    token_dir=root / ".garmin_tokens", data_dir=root / "data",
+                    with_shots=True, force_refresh_auth=False,
+                )
 
         self.assertEqual(summary.call_count, 2)
         details.assert_called_once_with(provider.session, [{"id": 1}], with_shots=True)
@@ -143,7 +149,10 @@ class GarminCnConnectorTests(unittest.TestCase):
                 patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}]),
                 patch("ai_caddie.garmin.fetch.fetch_details", side_effect=[auth_http_error(403), None]) as details,
             ):
-                run = transport.run(root=root, with_shots=True, force_refresh_auth=False)
+                run = transport.run(
+                    token_dir=root / ".garmin_tokens", data_dir=root / "data",
+                    with_shots=True, force_refresh_auth=False,
+                )
 
         self.assertEqual(details.call_count, 2)
         self.assertEqual(provider.refresh_calls, 1)
@@ -164,7 +173,10 @@ class GarminCnConnectorTests(unittest.TestCase):
                 patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}]),
                 patch("ai_caddie.garmin.fetch.fetch_details"),
             ):
-                run = transport.run(root=Path(tmp), with_shots=False, force_refresh_auth=False)
+                run = transport.run(
+                    token_dir=Path(tmp) / ".garmin_tokens", data_dir=Path(tmp) / "data",
+                    with_shots=False, force_refresh_auth=False,
+                )
 
         self._fetch_clubs_mock.assert_called_once_with(provider.session)
         self.assertTrue(run.safe_meta["clubFetchOk"])
@@ -182,7 +194,10 @@ class GarminCnConnectorTests(unittest.TestCase):
                 patch("ai_caddie.garmin.fetch.fetch_summary", return_value=[{"id": 1}, {"id": 2}]),
                 patch("ai_caddie.garmin.fetch.fetch_details"),
             ):
-                run = transport.run(root=Path(tmp), with_shots=False, force_refresh_auth=False)
+                run = transport.run(
+                    token_dir=Path(tmp) / ".garmin_tokens", data_dir=Path(tmp) / "data",
+                    with_shots=False, force_refresh_auth=False,
+                )
 
         self.assertEqual(run.cards, [{"id": 1}, {"id": 2}])  # history survives a club-fetch failure
         self.assertFalse(run.safe_meta["clubFetchOk"])

@@ -404,9 +404,15 @@ def _dependency_record(
     return row
 
 
-def discover_geometry_dependencies(*, root: Path = ROOT) -> list[dict[str, Any]]:
+def discover_geometry_dependencies(*, root: Path = ROOT, data_dir: Path | None = None) -> list[dict[str, Any]]:
+    # ``data_dir`` is the per-data-source partition (scorecards/shots/summary). It
+    # defaults to ``root/data`` (owner, byte-for-byte). A family member passes their
+    # partition (``root/data/players/<id>``) so geometry deps are derived from THEIR
+    # scorecards; the geometry assets + the relative source refs stay anchored at the
+    # shared ``root`` (course geometry is public).
+    scorecards_root = data_dir if data_dir is not None else (root / "data")
     dependencies: dict[tuple[int, int], dict[str, Any]] = {}
-    for path in _json_files(root / "data" / "scorecards"):
+    for path in _json_files(scorecards_root / "scorecards"):
         try:
             raw = _read_json(path)
             detail = raw["scorecardDetails"][0]
@@ -711,12 +717,15 @@ def _remap_shots_to_merged_rounds(shots: list[dict[str, Any]], rounds: list[dict
     return remapped
 
 
-def build_snapshot_manifest(*, root: Path = ROOT, snapshot_id: str) -> SnapshotManifest:
-    data_dir = root / "data"
+def build_snapshot_manifest(*, root: Path = ROOT, snapshot_id: str, data_dir: Path | None = None) -> SnapshotManifest:
+    # ``data_dir`` defaults to ``root/data`` (owner, byte-for-byte). A member passes
+    # their partition so the manifest counts THEIR scorecards/shots/summary while the
+    # geometry assets stay anchored at the shared ``root`` (public course geometry).
+    data_dir = data_dir if data_dir is not None else (root / "data")
     summary = data_dir / "summary.json"
     scorecards = _json_files(data_dir / "scorecards")
     shots = _json_files(data_dir / "shots")
-    geometry_dependencies = discover_geometry_dependencies(root=root)
+    geometry_dependencies = discover_geometry_dependencies(root=root, data_dir=data_dir)
     files: list[str] = []
     if summary.exists():
         files.append(_relative(summary, root))
@@ -1168,10 +1177,15 @@ def write_connector_status(
     detail: str,
     snapshot_id: str | None,
     error_code: str | None = None,
+    data_dir: Path | None = None,
 ) -> Path:
-    out_dir = root / SYNC_DIR
+    # The connector status lives WITH the data partition: ``data_dir/sync`` (defaults to
+    # ``root/data/sync`` for the owner, byte-for-byte). A member passes their partition so
+    # their status never clobbers the owner's at ``root/data/sync``.
+    base = data_dir if data_dir is not None else (root / "data")
+    out_dir = base / "sync"
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = root / STATUS_FILE
+    path = out_dir / "garmin_cn_status.json"
     payload = {
         "schema": "ai-caddie-connector-status-v1",
         "connector": "garmin_cn_web_session",

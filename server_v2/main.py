@@ -13,10 +13,12 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
 from ai_caddie.courses import course_search
+from ai_caddie.history import stats_cache
 from ai_caddie.rounds import round_ingest
 from ai_caddie.rounds.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
 from ai_caddie.connectors.snapshot import snapshot_to_payload
+from ai_caddie.core.data import ROOT
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
 from .caddie import (
@@ -1033,6 +1035,10 @@ def sync_status(request: Request) -> SyncStatusResponse | dict[str, str]:
 # Serialises Garmin sync (it mutates process-global token/data paths — codex HIGH #2).
 _SYNC_LOCK = threading.Lock()
 
+# Repo root for the per-player connector (data/players/<id>/ lives under it). Module-level
+# so tests can repoint it; production = the real data root, so the member route is byte-for-byte.
+SYNC_ROOT = ROOT
+
 
 @app.post("/api/v2/sync/garmin", response_model=SyncRunResponse)
 def sync_garmin(
@@ -1085,3 +1091,74 @@ def save_garmin_session(
 ) -> GarminSessionImportResponse:
     require_admin_token(x_ai_caddie_admin_token)
     return save_garmin_session_response(request)
+
+
+# --- Member self-binding (Phase B) -------------------------------------------------
+# These per-player routes mirror POST /api/v2/players/{id}/rounds: a per-player bearer
+# token may target only its OWN player; the owner (admin token) may target any player.
+# They are POST and deliberately NOT in the admin exact_paths, so a member token reaches
+# them via current_player_id. The legacy admin /api/v2/sync/garmin[/session] stay owner-only.
+
+
+@app.post("/api/v2/players/{player_id}/sync/garmin/session", response_model=GarminSessionImportResponse)
+def save_player_garmin_session(
+    player_id: str,
+    request: GarminSessionImportRequest,
+    acting_player_id: str = Depends(current_player_id),
+) -> GarminSessionImportResponse:
+    """Bind a captured Garmin web session for ``player_id``. A per-player token may bind
+    only its own Garmin; the owner (admin token) may bind for any player. The cookie lands
+    in the player's partition (data/players/<id>/.garmin_tokens) — no member credentials
+    are stored, so the member re-binds via the WebView when the cookie expires."""
+    if acting_player_id != OWNER_ID and acting_player_id != player_id:
+        raise HTTPException(status_code=403, detail="cannot bind Garmin for another player")
+    return save_garmin_session_response(request, player_id=player_id)
+
+
+@app.post("/api/v2/players/{player_id}/sync/garmin", response_model=SyncRunResponse)
+def sync_player_garmin(
+    player_id: str,
+    response: Response,
+    with_shots: bool = True,
+    acting_player_id: str = Depends(current_player_id),
+) -> SyncRunResponse:
+    """Run a Garmin sync for ``player_id`` into their partition (data/players/<id>/). A
+    per-player token may sync only itself; the owner (admin token) may sync any player.
+
+    A member never self-heals (no stored member creds): a missing/expired cookie returns a
+    clear re-bind 4xx (409), never the owner's cookie, never a 500. The headed-Playwright
+    self-heal + geometry-ensure stay on the legacy owner-only route."""
+    if acting_player_id != OWNER_ID and acting_player_id != player_id:
+        raise HTTPException(status_code=403, detail="cannot sync Garmin for another player")
+    # Same global lock as the legacy sync: the connector mutates process-global fetch paths,
+    # so a member sync and any other sync must not run concurrently.
+    if not _SYNC_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="sync already in progress")
+    try:
+        result = GarminCnWebSessionConnector(root=SYNC_ROOT, player_id=player_id).sync(
+            with_shots=with_shots,
+            force_refresh_auth=False,
+        )
+    finally:
+        _SYNC_LOCK.release()
+    detail = result.detail
+    if result.state == "reauth_required":
+        response.status_code = 409
+        detail = "Garmin session missing or expired for this player. Re-bind your Garmin, then sync again."
+    elif result.state == "error":
+        response.status_code = 500
+    elif result.state == "ready":
+        # New scorecards landed in the player's partition -> invalidate ONLY that player's
+        # stats cache so their next history/stats read recomputes, without evicting other
+        # players' caches (mirrors round_ingest._invalidate_cache, but player-scoped).
+        stats_cache.clear(player_id)
+    return SyncRunResponse(
+        schema="ai-caddie-sync-run-v2",
+        connector=result.connector,
+        state=result.state,
+        detail=sanitize_error(detail),
+        reauthRequired=result.state == "reauth_required",
+        errorCode=result.error_code,
+        snapshot=snapshot_to_payload(result.snapshot) if result.snapshot else None,
+        safeMeta=sanitize_safe_meta(result.safe_meta),
+    )
