@@ -414,6 +414,8 @@ def _attach_evidence(
     weather_root: Path | str | None,
     decision_audit_root: Path | str | None,
 ) -> dict[str, Any]:
+    if not detail.get("found"):
+        return detail
     detail = _attach_annotations(detail, annotations_root)
     refs = set(_detail_ref_set(detail))
     detail["reports"] = _matching_reports(refs, reports_root)
@@ -509,6 +511,8 @@ def _matching_weather_snapshots(detail: dict[str, Any], weather_root: Path | str
             hole_number = int(hole_row["number"])
         except (TypeError, ValueError):
             hole_number = None
+    if round_id is None:
+        return []
     rows: list[dict[str, Any]] = []
     for snapshot in list_weather_snapshots(root=weather_root):
         if round_id and str(snapshot.get("roundId") or "") != round_id:

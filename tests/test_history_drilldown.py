@@ -8,7 +8,11 @@ from ai_caddie.reports.annotations import add_annotation
 from ai_caddie.caddie.decision import store_decision_audit
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.history.history import HistoryData
-from ai_caddie.history.history_drilldown import build_drilldown_index, resolve_history_ref
+from ai_caddie.history.history_drilldown import (
+    _matching_weather_snapshots,
+    build_drilldown_index,
+    resolve_history_ref,
+)
 from ai_caddie.reports.reports import store_report
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 
@@ -349,6 +353,99 @@ class HistoryDrilldownTests(unittest.TestCase):
         self.assertEqual(detail["ref"], "900404:9:1")
         self.assertEqual(detail["refType"], "shot")
         self.assertEqual(detail["missingData"][0]["label"], "source_ref")
+
+
+class DrilldownMissingRefEvidenceGuardTests(unittest.TestCase):
+    def _seed_evidence(self, root: Path) -> None:
+        add_annotation("round", "900001", "round_note", {"text": "owner note"}, root=root)
+        store_report(
+            {
+                "schema": "ai-caddie-review-report-v1",
+                "kind": "round",
+                "subjectId": "900001",
+                "provider": "static",
+                "model": "static",
+                "confidence": "medium",
+                "sourceRefs": ["900001"],
+                "factsUsed": [],
+                "missingData": [],
+                "unsupportedClaims": [],
+                "narrative": "Round 900001 summary.",
+            },
+            kind="round",
+            subject_id="900001",
+            root=root,
+        )
+        store_decision_audit(
+            {
+                "decisionSourceRef": "900001",
+                "selectedOptionId": "stock",
+                "actualOptionId": "attack",
+                "actualShotRefs": ["900001:7:0"],
+                "evidenceRefs": ["900001"],
+                "classification": "strategy",
+            },
+            decision_id="decision-900001",
+            root=root,
+        )
+        store_weather_snapshot(
+            build_weather_snapshot(
+                round_id="900001",
+                hole=7,
+                captured_at="2026-05-25T09:00:00Z",
+                latitude=22.279,
+                longitude=114.162,
+                source="manual",
+                observed={"windSpeedMps": 6.0, "windDirectionDeg": 120},
+            ),
+            root=root,
+        )
+
+    def test_missing_ref_attaches_no_evidence_and_no_weather_dump(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_evidence(root)
+
+            detail = resolve_history_ref(
+                fixture_history_data(),
+                "999999",
+                annotations_root=root,
+                reports_root=root,
+                weather_root=root,
+                decision_audit_root=root,
+            )
+
+        self.assertFalse(detail["found"])
+        self.assertEqual(detail["weatherSnapshots"], [])
+        self.assertEqual(detail["reports"], [])
+        self.assertEqual(detail["decisionAudits"], [])
+        self.assertEqual(detail["annotations"], [])
+        self.assertEqual(detail["corrections"], [])
+
+    def test_matching_weather_returns_empty_without_concrete_round_id(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_evidence(root)
+
+            self.assertEqual(_matching_weather_snapshots({"refType": "round", "round": {}}, root), [])
+
+    def test_found_round_still_attaches_its_weather_snapshot(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed_evidence(root)
+
+            detail = resolve_history_ref(
+                fixture_history_data(),
+                "900001",
+                annotations_root=root,
+                reports_root=root,
+                weather_root=root,
+                decision_audit_root=root,
+            )
+
+        self.assertTrue(detail["found"])
+        self.assertEqual(len(detail["weatherSnapshots"]), 1)
+        self.assertEqual(detail["weatherSnapshots"][0]["roundId"], "900001")
 
 
 if __name__ == "__main__":
