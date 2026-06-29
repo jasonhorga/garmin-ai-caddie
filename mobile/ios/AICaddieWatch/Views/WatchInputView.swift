@@ -29,22 +29,22 @@ public struct WatchInputView: View {
 
     public var body: some View {
         Form {
-            Stepper("D \(distanceM)m", value: $distanceM, in: 0...320, step: 5)
-            Stepper("S \(score)", value: $score, in: 1...12)
-            Stepper("P \(putts)", value: $putts, in: 0...6)
+            Stepper("距 \(distanceM)m", value: $distanceM, in: 0...320, step: 5)
+            Stepper("杆 \(score)", value: $score, in: 1...12)
+            Stepper("推 \(putts)", value: $putts, in: 0...6)
             Button {
                 penaltyCount += 1
                 emit(kind: .penalty, value: "\(penaltyCount)")
             } label: {
-                Label("Pen \(penaltyCount)", systemImage: "plus.circle")
+                Label("罚 \(penaltyCount)", systemImage: "plus.circle")
             }
-            Picker("Club", selection: $selectedClub) {
+            Picker("球杆", selection: $selectedClub) {
                 ForEach(inputClubs, id: \.self) { club in
                     Text(club).tag(club)
                 }
             }
             .disabled(inputClubs.isEmpty)
-            Button("Save") {
+            Button("保存") {
                 if distanceDirty && hasClubContext {
                     emit(kind: .distance, value: "\(distanceM)")
                 }
@@ -63,7 +63,7 @@ public struct WatchInputView: View {
                 clubDirty = false
             }
         }
-        .navigationTitle("Input")
+        .navigationTitle("输入")
         .onChange(of: distanceM) { _, _ in
             distanceDirty = true
         }
