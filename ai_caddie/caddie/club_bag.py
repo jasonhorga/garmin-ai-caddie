@@ -55,8 +55,9 @@ def canonical_club_name(raw: str | None) -> str | None:
     # Driver (before the fairway-wood rule so "1W" → driver).
     if lower in ("driver", "d", "1w"):
         return "driver"
-    # Hybrid / 小鸡腿 / rescue.
-    if "小鸡腿" in s or "hybrid" in lower or "rescue" in lower:
+    # Hybrid / 小鸡腿 / rescue (incl. the "3H" shorthand, mirroring the "3W"/"5I" rules below so
+    # every DEFAULT_LADDER key — which uses "3H" — normalizes to a catalog token).
+    if "小鸡腿" in s or "hybrid" in lower or "rescue" in lower or (lower.endswith("h") and lower[:-1].isdigit()):
         n = _first_digit(s)
         return f"hybrid{n}" if n else "hybrid"
     # Fairway wood: "3W" / "3 Wood" / "3号木".
