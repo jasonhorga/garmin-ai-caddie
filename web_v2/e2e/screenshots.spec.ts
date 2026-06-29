@@ -756,15 +756,11 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
   await assertNoViewportOverflow(page)
 
-  // 实战 lands on the LivePage 决策沙盘 entry; the legacy Caddie dashboard
-  // stays reachable verbatim behind the 完整工具 tab.
+  // 实战 lands on the LivePage 决策沙盘 entry. (完整工具 is now diagnostics-gated, off the consumer tabs.)
   await page.getByRole('button', { name: '实战' }).click()
   const liveTabs = page.getByRole('navigation', { name: '实战页签' })
   await expect(liveTabs.getByRole('button', { name: '决策沙盘' })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
-  await assertNoViewportOverflow(page)
-  await liveTabs.getByRole('button', { name: '完整工具' }).click()
-  await expect(page.getByRole('heading', { name: '智能球童', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
 
   await page.getByRole('button', { name: '设置' }).click()
@@ -912,11 +908,6 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: '记分卡', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'live-replay')
-
-  // 完整工具 keeps the legacy Caddie dashboard reachable (T1 anchor).
-  await liveTabs.getByRole('button', { name: '完整工具' }).click()
-  await expect(page.getByRole('heading', { name: '智能球童', exact: true })).toBeVisible()
-  await assertNoViewportOverflow(page)
 
   // The sandbox never asks for the prep shot scatter: its prep fetches carry
   // no include_shots at all (recorded as null), unlike the 备战 walk's.
