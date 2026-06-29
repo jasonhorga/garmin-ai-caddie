@@ -82,6 +82,53 @@ class AuthApiTests(unittest.TestCase):
         self.assertNotEqual(r.json()["playerId"], first["playerId"])  # fresh pid on retry
         self.assertEqual(self._legacy_for(first_uid), first["playerId"])  # existing map intact (no rebind)
 
+    def _admins(self, emails):
+        return mock.patch.dict(os.environ, {"AI_CADDIE_ADMIN_APPLE_EMAILS": emails})
+
+    def test_admin_email_first_signin_maps_to_owner_not_member(self):
+        # An allowlisted Apple email signs in as the OWNER (player "me"), not a fresh member — the
+        # owner uses Apple sign-in like everyone else yet lands on their own data.
+        with self._admins("boss@e.c"), self._verify(subject="BOSS.sub", email="boss@e.c"):
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["playerId"], "me")  # owner, not p_*
+        self.assertEqual(self._resolves_to(r.json()["token"]), self.owner_id)
+
+    def test_two_admin_emails_both_map_to_same_owner(self):
+        # The user's two Apple IDs are both admins → both resolve to the one owner / same data.
+        with self._admins("a@e.c,b@e.c"):
+            with self._verify(subject="A.id", email="a@e.c"):
+                r1 = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+            with self._verify(subject="B.id", email="b@e.c"):
+                r2 = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r1.json()["playerId"], "me")
+        self.assertEqual(r2.json()["playerId"], "me")
+        self.assertEqual(self._resolves_to(r1.json()["token"]), self.owner_id)
+        self.assertEqual(self._resolves_to(r2.json()["token"]), self.owner_id)
+
+    def test_admin_email_match_is_case_insensitive(self):
+        with self._admins("boss@e.c"), self._verify(subject="C.sub", email="BOSS@E.C"):
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r.json()["playerId"], "me")
+
+    def test_non_admin_email_still_auto_registers_member(self):
+        # Regression: a non-allowlisted email is auto-registered as an isolated member, unchanged.
+        with self._admins("boss@e.c"), self._verify(subject="GUEST.sub", email="guest@e.c"):
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["playerId"].startswith("p_"))  # member, not owner
+        self.assertNotEqual(r.json()["playerId"], "me")
+
+    def test_known_admin_sub_resolves_to_owner_without_email(self):
+        # After the first admin sign-in links the sub to the owner, a later sign-in with the SAME
+        # sub but NO email (Apple Hide-My-Email) still resolves to the owner via the known-sub path.
+        with self._admins("boss@e.c"), self._verify(subject="BOSS.sub", email="boss@e.c"):
+            self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        with self._admins(""), self._verify(subject="BOSS.sub", email=None):  # email withheld, allowlist empty
+            r = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"})
+        self.assertEqual(r.json()["playerId"], "me")
+        self.assertEqual(self._resolves_to(r.json()["token"]), self.owner_id)
+
     def test_long_display_name_is_truncated_not_500(self):
         # User.display_name is String(120); an over-long Apple displayName must be truncated, not 500.
         from server_v2.identity_models import User
