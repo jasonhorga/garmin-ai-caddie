@@ -15,7 +15,7 @@ export function ClubBagPage({ adminToken }: { adminToken?: string }) {
   const [playerId, setPlayerId] = useState('me')
   const [selected, setSelected] = useState<Set<string>>(new Set()) // tokens
   const [distYd, setDistYd] = useState<Record<string, number>>({}) // token -> yards
-  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('loading')
   const [saveMsg, setSaveMsg] = useState<string>('')
 
   const applyBag = useCallback((bag: EffectiveClubBagResponse) => {
@@ -41,11 +41,28 @@ export function ClubBagPage({ adminToken }: { adminToken?: string }) {
 
   useEffect(() => {
     if (!token) return
+    let cancelled = false
     fetchAdminPlayers(token)
-      .then((r) => setPlayers(r.players))
+      .then((r) => {
+        if (!cancelled) setPlayers(r.players)
+      })
       .catch(() => {})
-    void loadBag('me')
-  }, [token, loadBag])
+    // Fetch the owner's bag inline (not via loadBag) so every setState runs in the async
+    // continuation, never synchronously in the effect body (react-hooks/set-state-in-effect).
+    fetchPlayerClubBag('me', token)
+      .then((bag) => {
+        if (!cancelled) {
+          applyBag(bag)
+          setStatus('ready')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [token, applyBag])
 
   const onPickPlayer = (pid: string) => {
     setPlayerId(pid)
