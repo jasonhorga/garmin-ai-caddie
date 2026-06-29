@@ -66,7 +66,6 @@ export const HISTORY_SUBNAV: SubNavItem[] = [
   { page: 'rounds', label: '球局' },
   { page: 'holes', label: '强弱分析', activeFor: ['holes', 'clubs', 'issues'] },
   { page: 'courses', label: '球场' },
-  { page: 'reports', label: '报告' },
 ]
 
 export const SETTINGS_SUBNAV: SubNavItem[] = [

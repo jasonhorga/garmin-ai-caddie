@@ -1,6 +1,7 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { CoursePrepClub, CoursePrepHole, CoursePrepOverlay } from '../types'
 import { atCum, nearestCum, routeIntervalReadout, routeYardageReadout } from './coursePrepPanelLogic'
+import { useDiagnostics } from '../diagnosticsContext'
 
 const PAR_CLASS: Record<number, string> = { 3: '#4aa3d6', 4: '#3fae6b', 5: '#caa14a' }
 const SOURCE_LABEL: Record<string, string> = { played: '记分卡', courseview: 'CourseView', estimate: '推算' }
@@ -46,6 +47,7 @@ export interface PrepHoleCardProps {
 }
 
 export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactElement {
+  const diagnostics = useDiagnostics()
   const map = hole.map
   const overlay = map?.overlay
   const ln = overlay?.ln ?? hole.route_len_m
@@ -70,9 +72,11 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
         Par {hole.par}
       </span>
       <span style={{ fontSize: 12, color: '#667' }}>{hole.blue_yards}码 蓝T</span>
-      <span style={{ fontSize: 10, color: '#8a8f98', border: '1px dotted #aab', borderRadius: 8, padding: '0 5px' }}>
-        Par 来源：{SOURCE_LABEL[hole.par_source] ?? hole.par_source}
-      </span>
+      {diagnostics ? (
+        <span style={{ fontSize: 10, color: '#8a8f98', border: '1px dotted #aab', borderRadius: 8, padding: '0 5px' }}>
+          Par 来源：{SOURCE_LABEL[hole.par_source] ?? hole.par_source}
+        </span>
+      ) : null}
     </div>
   )
 
@@ -167,7 +171,7 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
           ))}
         </div>
       ) : null}
-      {missingData.length > 0 ? (
+      {diagnostics && missingData.length > 0 ? (
         <div aria-label={`第${hole.hole}洞缺失数据`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '6px 0' }}>
           {missingData.map((row, index) => (
             <span key={`${row.label ?? 'missing'}-${index}`} style={{ fontSize: 11, color: '#9f4a35', border: '1px solid #efd0c8', borderRadius: 8, padding: '2px 7px', background: '#fff7f4' }}>
@@ -176,7 +180,7 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
           ))}
         </div>
       ) : null}
-      {sourceRefs.length > 0 ? (
+      {diagnostics && sourceRefs.length > 0 ? (
         <div aria-label={`第${hole.hole}洞数据来源`} style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '6px 0' }}>
           {sourceRefs.map((ref) => (
             <span key={ref} style={{ fontSize: 10, color: '#667', border: '1px solid #e3e6ea', borderRadius: 8, padding: '1px 6px' }}>
