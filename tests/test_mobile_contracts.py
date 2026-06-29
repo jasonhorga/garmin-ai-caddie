@@ -1111,6 +1111,10 @@ class MobileContractTests(unittest.TestCase):
         auth_client = _read_required_source(self, IOS_DIR / "Services" / "AppleAuthClient.swift")
         session_store = _read_required_source(self, IOS_DIR / "Services" / "SessionStore.swift")
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        garmin_client = _read_required_source(self, IOS_DIR / "Services" / "GarminSessionClient.swift")
+        media_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
+        caddie_client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
+        import_combine = _read_required_source(self, IOS_DIR / "Services" / "SessionStore.swift")
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
 
         self.assertIn("import AuthenticationServices", sign_in)
@@ -1122,17 +1126,28 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func signIn(identityToken: String, displayName: String?)", auth_client)
         self.assertIn("func refresh(token: String)", auth_client)
         self.assertIn("func signOut(token: String)", auth_client)
+        self.assertIn("SessionStore.shared.signOut()", auth_client)  # logout clears locally
 
+        self.assertIn("import Combine", import_combine)  # ObservableObject/@Published need Combine
         self.assertIn('"com.ai-caddie.session"', session_store)
         self.assertIn("ObservableObject", session_store)
         self.assertIn("func save(", session_store)
-        self.assertIn("func clear(", session_store)
+        self.assertIn("func signOut(", session_store)
         self.assertIn("kSecClassGenericPassword", session_store)
 
-        # Bearer wins; admin token is the fallback.
-        self.assertIn('request.setValue("Bearer \\(sessionToken)", forHTTPHeaderField: "Authorization")', sync_client)
-        self.assertIn("private let sessionToken: String?", sync_client)
-        self.assertIn("applyAuth(to: &request)", sync_client)
+        # The shared auth helper reads the LIVE session at request time (Bearer wins; admin is the
+        # DEBUG/CI fallback). Every phone client routes through it — no client captures a token at
+        # init or sets the admin header directly.
+        self.assertIn("func applyAICaddieAuth(to request: inout URLRequest, adminToken: String?)", session_store)
+        self.assertIn("SessionStore.shared.liveToken", session_store)
+        self.assertIn('request.setValue("Bearer \\(token)", forHTTPHeaderField: "Authorization")', session_store)
+        self.assertNotIn("sessionToken", sync_client)  # live read, not an init-captured value
+        for client in (sync_client, garmin_client, media_client, caddie_client):
+            self.assertIn("applyAICaddieAuth(to: &request, adminToken: adminToken)", client)
+            self.assertNotIn('request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")', client)
+
+        # Release gate also re-prompts on an expired session.
+        self.assertIn("return session.isExpired", app_swift)
 
         # The app gates on Apple sign-in in production but skips it in DEBUG so CI/simulator runs.
         self.assertIn("SignInView", app_swift)
@@ -1708,8 +1723,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@Published public private(set) var apiBaseURL: URL?", app_swift)
         self.assertIn("defaultAPIBaseURL", app_swift)
         self.assertIn("apiBaseURL: model.apiBaseURL", app_swift)
-        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken, sessionToken: SessionStore.shared.currentSession?.token)", app_swift)
-        self.assertIn("self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken, sessionToken: SessionStore.shared.currentSession?.token) }", app_swift)
+        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken)", app_swift)
+        self.assertIn("self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken) }", app_swift)
         self.assertIn("BackendConfigurationStore.normalizedAPIBaseURL", app_swift)
 
         self.assertIn("public let apiBaseURL: URL?", round_home)
@@ -1767,8 +1782,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Bundle.main.object(forInfoDictionaryKey: "AICaddieAdminToken")', app_swift)
         self.assertIn("@Published public private(set) var adminToken: String?", app_swift)
         self.assertIn("adminToken: model.adminToken", app_swift)
-        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken, sessionToken: SessionStore.shared.currentSession?.token)", app_swift)
-        self.assertIn("SyncClient(baseURL: $0, adminToken: adminToken, sessionToken: SessionStore.shared.currentSession?.token)", app_swift)
+        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken)", app_swift)
+        self.assertIn("SyncClient(baseURL: $0, adminToken: adminToken)", app_swift)
 
         self.assertIn("public let adminToken: String?", round_home)
         self.assertIn("CurrentHoleView(", round_home)
@@ -1780,7 +1795,8 @@ class MobileContractTests(unittest.TestCase):
 
         for source in [sync_client, caddie_client, media_client]:
             self.assertIn("private let adminToken: String?", source)
-            self.assertIn('request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")', source)
+            # Auth is centralized: every client routes through the shared live-session helper.
+            self.assertIn("applyAICaddieAuth(to: &request, adminToken: adminToken)", source)
 
     def test_ios_backend_settings_allow_testflight_runtime_api_configuration(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -2032,7 +2048,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("private func endpointURL(_ endpoint: String) -> URL", session_client)
         self.assertIn('endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint', session_client)
         self.assertNotIn('appendingPathComponent("/api', session_client)
-        self.assertIn('request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")', session_client)
+        self.assertIn("applyAICaddieAuth(to: &request, adminToken: adminToken)", session_client)
         self.assertNotIn("password", session_client.lower())
         self.assertNotIn("username", session_client.lower())
 

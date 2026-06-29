@@ -50,12 +50,19 @@ public final class AppleAuthClient {
         return try decoder.decode(AppleSignInResponse.self, from: data)
     }
 
-    public func signOut(token: String) async throws {
-        var request = URLRequest(url: endpoint("/api/v2/auth/logout"))
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+    /// Revoke the session server-side (best-effort) and ALWAYS clear it locally — even if the server
+    /// call fails, the user must end up signed out.
+    public func signOut(token: String) async {
+        do {
+            var request = URLRequest(url: endpoint("/api/v2/auth/logout"))
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await session.data(for: request)
+            try validate(response: response, data: data)
+        } catch {
+            // best-effort; fall through to the local clear
+        }
+        SessionStore.shared.signOut()
     }
 
     private func endpoint(_ path: String) -> URL {

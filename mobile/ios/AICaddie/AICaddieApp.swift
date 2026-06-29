@@ -18,7 +18,8 @@ public struct AICaddieApp: App {
         #if DEBUG
         return false
         #else
-        return sessionStore.currentSession == nil
+        guard let session = sessionStore.currentSession else { return true }
+        return session.isExpired
         #endif
     }
 
@@ -260,7 +261,7 @@ public final class LiveRoundAppModel: ObservableObject {
         self.watchBridge = watchBridge
         self.garminSessionStore = garminSessionStore
         self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
-        self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken, sessionToken: SessionStore.shared.currentSession?.token) }
+        self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken) }
         watchBridge?.onAcceptedLiveEvent = { [weak self] event in
             guard let self else {
@@ -712,7 +713,7 @@ public final class LiveRoundAppModel: ObservableObject {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         if !preserveInjectedSyncClient {
-            self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken, sessionToken: SessionStore.shared.currentSession?.token) }
+            self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken) }
         }
         self.mediaUploadClient = apiBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
         syncConfigToWatch()

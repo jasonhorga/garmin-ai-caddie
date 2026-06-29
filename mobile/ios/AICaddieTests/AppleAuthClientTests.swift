@@ -2,11 +2,18 @@ import Foundation
 import XCTest
 @testable import AICaddie
 
+@MainActor
 final class AppleAuthClientTests: XCTestCase {
     private func mockSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         return URLSession(configuration: configuration)
+    }
+
+    override func tearDown() {
+        SessionStore.shared.signOut()  // never leak a live session into another test
+        CapturingURLProtocol.requestHandler = nil
+        super.tearDown()
     }
 
     func testSignInHitsAppleEndpointAndDecodesSession() async throws {
@@ -17,13 +24,11 @@ final class AppleAuthClientTests: XCTestCase {
         CapturingURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.url?.path, "/api/v2/auth/apple")
             XCTAssertEqual(request.httpMethod, "POST")
-            // The auth exchange must NEVER send the admin token.
             XCTAssertNil(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"))
             let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil,
                                            headerFields: ["Content-Type": "application/json"])!
             return (response, payload)
         }
-        defer { CapturingURLProtocol.requestHandler = nil }
         let client = AppleAuthClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session)
 
         let result = try await client.signIn(identityToken: "apple.jwt", displayName: "Boss")
@@ -44,7 +49,6 @@ final class AppleAuthClientTests: XCTestCase {
                                            headerFields: ["Content-Type": "application/json"])!
             return (response, payload)
         }
-        defer { CapturingURLProtocol.requestHandler = nil }
         let client = AppleAuthClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session)
 
         let result = try await client.refresh(token: "sess-old")
@@ -52,42 +56,55 @@ final class AppleAuthClientTests: XCTestCase {
         XCTAssertEqual(result.token, "sess-renewed")
     }
 
-    func testSyncClientPrefersBearerOverAdminToken() async throws {
+    func testApplyAuthUsesBearerWhenLiveSession() {
+        SessionStore.shared.save(AppSession(token: "live-1", playerId: "me"))
+        var request = URLRequest(url: URL(string: "https://x.test/api")!)
+        applyAICaddieAuth(to: &request, adminToken: "admin-secret")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer live-1")
+        XCTAssertNil(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"))
+    }
+
+    func testApplyAuthFallsBackToAdminWhenNoSession() {
+        SessionStore.shared.signOut()
+        var request = URLRequest(url: URL(string: "https://x.test/api")!)
+        applyAICaddieAuth(to: &request, adminToken: "admin-secret")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testSyncClientUsesLiveBearerOverAdminToken() async throws {
+        SessionStore.shared.save(AppSession(token: "sess-xyz", playerId: "me"))
         let session = mockSession()
         let payload = """
         {"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}
         """.data(using: .utf8)!
         CapturingURLProtocol.requestHandler = { request in
-            // A signed-in session uses Authorization: Bearer and NEVER the admin-token header.
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sess-xyz")
             XCTAssertNil(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"))
             let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil,
                                            headerFields: ["Content-Type": "application/json"])!
             return (response, payload)
         }
-        defer { CapturingURLProtocol.requestHandler = nil }
+        // Built with an admin token, but a live session must override it.
         let client = SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")),
-                                adminToken: "admin-secret", sessionToken: "sess-xyz", session: session)
-
+                                adminToken: "admin-secret", session: session)
         _ = try await client.fetchCoursePrep(globalId: 31870, render: false)
     }
 
-    func testSyncClientFallsBackToAdminTokenWithoutSession() async throws {
+    func testAppleSignOutClearsLocalSessionEvenIfServerFails() async throws {
+        SessionStore.shared.save(AppSession(token: "sess-bye", playerId: "me"))
+        XCTAssertNotNil(SessionStore.shared.currentSession)
         let session = mockSession()
-        let payload = """
-        {"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}
-        """.data(using: .utf8)!
         CapturingURLProtocol.requestHandler = { request in
-            XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
-            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
-            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil,
-                                           headerFields: ["Content-Type": "application/json"])!
-            return (response, payload)
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 500, httpVersion: nil,
+                                           headerFields: nil)!
+            return (response, Data())
         }
-        defer { CapturingURLProtocol.requestHandler = nil }
-        let client = SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")),
-                                adminToken: "admin-secret", session: session)
+        let client = AppleAuthClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session)
 
-        _ = try await client.fetchCoursePrep(globalId: 31870, render: false)
+        await client.signOut(token: "sess-bye")
+
+        XCTAssertNil(SessionStore.shared.currentSession)
+        XCTAssertNil(SessionStore.shared.liveToken)
     }
 }

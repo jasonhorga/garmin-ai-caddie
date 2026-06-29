@@ -39,4 +39,29 @@ final class SessionStoreTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AppSession.self, from: data)
         XCTAssertEqual(decoded, session)
     }
+
+    func testExpiredStoredSessionIsNotVendedOnLoad() {
+        let expired = AppSession(token: "old", playerId: "me", expiresAt: Date().addingTimeInterval(-60))
+        let persisting = InMemorySessionPersisting(expired)
+        let store = SessionStore(persisting: persisting)
+        XCTAssertNil(store.currentSession)          // never vend a stale session
+        XCTAssertNil(store.liveToken)
+        XCTAssertNil(persisting.read())             // and drop it from storage
+    }
+
+    func testLiveTokenTracksSaveAndSignOut() {
+        let store = SessionStore(persisting: InMemorySessionPersisting())
+        XCTAssertNil(store.liveToken)
+        store.save(AppSession(token: "live", playerId: "me", expiresAt: Date().addingTimeInterval(3600)))
+        XCTAssertEqual(store.liveToken, "live")
+        store.signOut()
+        XCTAssertNil(store.liveToken)
+        XCTAssertNil(store.currentSession)
+    }
+
+    func testLiveTokenNilWhenExpiredAfterSave() {
+        let store = SessionStore(persisting: InMemorySessionPersisting())
+        store.save(AppSession(token: "soon", playerId: "me", expiresAt: Date().addingTimeInterval(-1)))
+        XCTAssertNil(store.liveToken)  // an already-expired token never authenticates
+    }
 }

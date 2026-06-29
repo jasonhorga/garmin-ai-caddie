@@ -92,16 +92,14 @@ public enum SyncClientError: Error, Equatable {
 public final class SyncClient {
     private let baseURL: URL
     private let adminToken: String?
-    private let sessionToken: String?
     private let clientId: String
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    public init(baseURL: URL, adminToken: String? = nil, sessionToken: String? = nil, clientId: String = "ios-phone", session: URLSession = .shared) {
+    public init(baseURL: URL, adminToken: String? = nil, clientId: String = "ios-phone", session: URLSession = .shared) {
         self.baseURL = baseURL
         self.adminToken = adminToken
-        self.sessionToken = sessionToken
         self.clientId = clientId
         self.session = session
         self.encoder = JSONEncoder()
@@ -351,14 +349,9 @@ public final class SyncClient {
         throw lastError ?? URLError(.cannotConnectToHost)
     }
 
-    /// Attach auth: a signed-in owner/member session (Bearer) wins; the admin token is only the
-    /// DEBUG/CI fallback (a real Apple sign-in can't run on the simulator).
+    /// Read the LIVE session at request time (Bearer wins; admin token is the DEBUG/CI fallback).
     private func applyAuth(to request: inout URLRequest) {
-        if let sessionToken {
-            request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
-        } else if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAICaddieAuth(to: &request, adminToken: adminToken)
     }
 
     private func endpointURL(_ endpoint: String) -> URL {
