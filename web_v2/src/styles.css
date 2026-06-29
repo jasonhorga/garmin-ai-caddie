@@ -976,6 +976,19 @@ p {
   gap: 14px;
 }
 
+/* 球包管理: one catalog club per row — checkbox + name on the left, distance (yards) on the right. */
+.club-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.club-row-dist input {
+  width: 56px;
+  text-align: right;
+}
+
 .stats-head {
   align-items: end;
   margin: 22px 0 4px;

@@ -15,6 +15,7 @@ import type {
   CaddieDecisionAuditRequest,
   CaddieDecisionAuditStoreResponse,
   CaddieDecisionResponse,
+  ClubBagUpdateRequest,
   CoursePrepResponse,
   CourseSearchResponse,
   HistoryOverviewResponse,
@@ -28,6 +29,7 @@ import type {
   RoundIngestResult,
   RoundsFilters,
   CourseGeometryCoverageResponse,
+  EffectiveClubBagResponse,
   GeometryEnsureResponse,
   GeometryEvidenceResponse,
   HoleGeometryRouteParams,
@@ -127,6 +129,19 @@ async function patchJson<T>(path: string, body: unknown, adminToken?: string): P
   })
   if (!response.ok) {
     throw new Error(`PATCH ${url} failed: ${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<T>
+}
+
+async function putJson<T>(path: string, body: unknown, adminToken?: string): Promise<T> {
+  const url = apiUrl(path)
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...adminTokenHeader(adminToken), ...playerTokenHeader() },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    throw new Error(`PUT ${url} failed: ${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<T>
 }
@@ -544,6 +559,21 @@ export function saveGarminSession(request: GarminSessionImportRequest, adminToke
 // token + URL exactly once — surface it to the owner immediately, never log it.
 export function fetchAdminPlayers(adminToken?: string): Promise<AdminPlayersListResponse> {
   return getJson<AdminPlayersListResponse>('/api/v2/admin/players', adminToken)
+}
+
+// Member-scoped manual club bag. The owner (admin token) acts-for-any player; a per-player bearer
+// reads/writes only its own. GET returns the EFFECTIVE bag (manual wins, else Garmin, else empty);
+// PUT sets the manual bag (an empty clubs list clears it). Distances are metres.
+export function fetchPlayerClubBag(playerId: string, adminToken?: string): Promise<EffectiveClubBagResponse> {
+  return getJson<EffectiveClubBagResponse>(`/api/v2/players/${encodeURIComponent(playerId)}/clubs/bag`, adminToken)
+}
+
+export function putPlayerClubBag(
+  playerId: string,
+  body: ClubBagUpdateRequest,
+  adminToken?: string,
+): Promise<EffectiveClubBagResponse> {
+  return putJson<EffectiveClubBagResponse>(`/api/v2/players/${encodeURIComponent(playerId)}/clubs/bag`, body, adminToken)
 }
 
 export function createAdminPlayer(

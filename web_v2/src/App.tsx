@@ -69,6 +69,7 @@ import {
   type MobilePackagePrepState,
 } from './components/MobilePackagePrepPanel'
 import { AppShell } from './components/AppShell'
+import { ClubBagPage } from './components/ClubBagPage'
 import { LivePage } from './components/LivePage'
 import { PlayerAdminPage } from './components/PlayerAdminPage'
 import { PrepPage } from './components/PrepPage'
@@ -1434,6 +1435,12 @@ export default function App() {
       // Owner-only management surface; reuses the admin token entered in the
       // sync panel. Never renders any player's score analysis.
       return <PlayerAdminPage adminToken={currentAdminToken()} onNavigate={navigate} />
+    }
+
+    if (activePage === 'club-bag') {
+      // Owner-only club-bag editor; the owner acts-for-any member via the same
+      // admin token (member picker → catalog + distances). No scores rendered.
+      return <ClubBagPage adminToken={currentAdminToken()} />
     }
 
     if (activePage === 'settings') {
