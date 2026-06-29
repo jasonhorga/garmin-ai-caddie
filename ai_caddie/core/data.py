@@ -140,6 +140,29 @@ def load_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
     return raw
 
 
+def manual_club_bag_file(player_id: str = OWNER_ID) -> Path:
+    """The player's MANUAL club bag (user-set), parallel to the Garmin-synced club_bag.json.
+    Owner -> data/club_bag_manual.json; member -> data/players/<id>/club_bag_manual.json."""
+    if player_id == OWNER_ID:
+        return DATA_DIR / "club_bag_manual.json"
+    return DATA_DIR / "players" / player_id / "club_bag_manual.json"
+
+
+def load_manual_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
+    """The player's manual bag, or None when unset/corrupt (caller falls back to the synced bag).
+    Shape: {"schema": "ai-caddie-club-bag-manual-v1", "clubs": [{"token","customName","distanceM"}]}."""
+    path = manual_club_bag_file(player_id)
+    if not path.exists():
+        return None
+    try:
+        raw = read_json(path)
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("clubs"), list):
+        return None
+    return raw
+
+
 def club_name_from_details(club_id: int | None, shot_data: dict[str, Any]) -> str:
     if not club_id:
         return "Unknown"
