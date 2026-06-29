@@ -4,6 +4,7 @@ import { fetchHistoryRoundDetail } from '../api'
 import { CaddiePage } from './CaddiePage'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './HistoryRoundDetailPanel'
 import { LiveSandbox } from './LiveSandbox'
+import { useDiagnostics } from '../diagnosticsContext'
 
 // 实战 page shell (spec §5.4 web scope), three inner tabs in the PrepPage idiom
 // (local tab state + subnav--inner classes, NOT SubNav — these tabs are not
@@ -83,6 +84,10 @@ export function LivePage({
   caddieProps,
 }: LivePageProps) {
   const [tab, setTab] = useState<LiveTab>('sandbox')
+  // 完整工具 is the raw owner caddie tool (hardcoded round, source refs / lat-long / model).
+  // Consumers see only 决策沙盘 + 最近回放; the dev tab returns under owner diagnostics.
+  const diagnostics = useDiagnostics()
+  const visibleTabs = diagnostics ? LIVE_TABS : LIVE_TABS.filter((item) => item.key !== 'tools')
   // 最近回放 state machine: replayRoundRef drives the detail fetch; attempt
   // bumps force a refetch (重试).
   const [replayRoundRef, setReplayRoundRef] = useState<string | null>(null)
@@ -193,7 +198,7 @@ export function LivePage({
   return (
     <section className="live-page" aria-label="实战">
       <nav className="subnav subnav--inner" aria-label="实战页签">
-        {LIVE_TABS.map((item) => (
+        {visibleTabs.map((item) => (
           <button
             key={item.key}
             type="button"

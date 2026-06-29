@@ -81,7 +81,7 @@ import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
 import { resolveInitialAdminToken, writeStoredAdminToken } from './adminTokenStore'
-import { readStoredDiagnostics, writeStoredDiagnostics } from './diagnosticsStore'
+import { readStoredDiagnostics } from './diagnosticsStore'
 import { DiagnosticsProvider } from './diagnosticsContext'
 import { isLinkRequired, readPlayerToken } from './playerContext'
 import type {
@@ -142,12 +142,13 @@ export default function App() {
   // invalid/expired player link (first auth 401) flips accessDenied below.
   const playerToken = readPlayerToken()
   const linkRequired = isLinkRequired()
-  // Owner mode = bare URL (no per-player token). Players never get owner ops or
-  // the diagnostics switch. Diagnostics defaults OFF so the owner sees a clean
-  // product; it is only ever true in owner mode with the switch flipped on.
+  // Owner mode = bare URL (no per-player token); gates the owner-only 球员管理 surface.
   const isOwnerMode = !playerToken
   const [accessDenied, setAccessDenied] = useState(false)
-  const [diagnostics, setDiagnostics] = useState(() => isOwnerMode && readStoredDiagnostics())
+  // Diagnostics (raw refs / source panels / data-quality) have NO consumer-facing switch anymore and
+  // stay OFF by default. The owner can still enable them for debugging via the 'ai-caddie.diagnostics'
+  // localStorage flag (no UI) — also how tests exercise that owner-only surface.
+  const [diagnostics] = useState(() => isOwnerMode && readStoredDiagnostics())
   const [activePage, setActivePage] = useState<ProductPage>('overview')
   const [overviewState, setOverviewState] = useState<LoadState<HistoryOverviewResponse>>({ status: 'loading' })
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
@@ -525,14 +526,6 @@ export default function App() {
         adminTokenRefreshTimer.current = null
       }, 250)
     }
-  }
-
-  function toggleDiagnostics() {
-    setDiagnostics((on) => {
-      const next = !on
-      writeStoredDiagnostics(next)
-      return next
-    })
   }
 
   function navigate(page: ProductPage) {
@@ -1542,8 +1535,6 @@ export default function App() {
         onNavigate={navigate}
         isOwnerMode={isOwnerMode}
         playersAdminVisible={!playerToken && Boolean(currentAdminToken())}
-        diagnostics={diagnostics}
-        onToggleDiagnostics={toggleDiagnostics}
         currentPlayer={overviewState.status === 'ready' ? overviewState.data.currentPlayer ?? null : null}
       >
         {renderActivePage()}

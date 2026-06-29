@@ -1118,7 +1118,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     expect(screen.getByRole('button', { name: '历史' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('button', { name: '概览' })).not.toHaveAttribute('aria-current')
-    ;['趋势总览', '球局', '强弱分析', '球场', '报告'].forEach(
+    ;['趋势总览', '球局', '强弱分析', '球场'].forEach(
       (label) => expect(screen.getByRole('button', { name: label })).toBeEnabled(),
     )
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
@@ -2088,7 +2088,9 @@ describe('App navigation', () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats/mobile?window=last10')).toHaveLength(2))
   })
 
-  it('opens the reports workspace and loads a trend report', async () => {
+  // The 报告 console was removed from the consumer history nav (de-engineer pass); the workspace is
+  // no longer reachable via the UI, so this owner-tooling flow is skipped.
+  it.skip('opens the reports workspace and loads a trend report', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {

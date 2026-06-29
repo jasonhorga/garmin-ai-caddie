@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CoursePrepClub, CoursePrepHole, CoursePrepOverlay } from '../types'
 import { PrepHoleCard } from './PrepHoleCard'
+import { DiagnosticsProvider } from '../diagnosticsContext'
 
 const overlay: CoursePrepOverlay = {
   w: 200,
@@ -17,6 +18,15 @@ const overlay: CoursePrepOverlay = {
 }
 
 const clubs: CoursePrepClub[] = [{ name: '1W', m: 200, yd: 219 }]
+
+// Provenance chips (Par 来源 / 缺失数据 / 数据来源) render only in owner diagnostics mode; the
+// shipped consumer view hides them. These tests opt into diagnostics to exercise that rendering.
+const renderDiag = (hole: CoursePrepHole) =>
+  render(
+    <DiagnosticsProvider value={true}>
+      <PrepHoleCard hole={hole} clubs={clubs} />
+    </DiagnosticsProvider>,
+  )
 
 function mappedHole(overrides: Partial<CoursePrepHole> = {}): CoursePrepHole {
   return {
@@ -74,7 +84,7 @@ describe('PrepHoleCard', () => {
   // Migrated from CoursePrepPanel.test: map overlay render with route-based
   // hazard yardages from the initial landing position, zh copy, no uncertainty.
   it('renders the map overlay with par badge, hazard yardages, steps, and route options', () => {
-    render(<PrepHoleCard hole={mappedHole()} clubs={clubs} />)
+    renderDiag(mappedHole())
 
     expect(screen.getByText('Par 来源：CourseView')).toBeInTheDocument()
     expect(screen.getByText('219码 蓝T')).toBeInTheDocument()
@@ -128,7 +138,7 @@ describe('PrepHoleCard', () => {
 
   // Migrated from CoursePrepPanel.test: holes without geometry degrade gracefully.
   it('shows the missing-geometry fallback and zh missing-data badge when there is no map', () => {
-    const { container } = render(<PrepHoleCard hole={unmappedHole()} clubs={clubs} />)
+    const { container } = renderDiag(unmappedHole())
 
     expect(screen.getByText('（此洞暂无几何图）')).toBeInTheDocument()
     expect(screen.getByText('几何缺失')).toBeInTheDocument()
@@ -140,14 +150,14 @@ describe('PrepHoleCard', () => {
   it('unmapped missing-data labels fall back to {label}缺失', () => {
     const hole = unmappedHole()
     hole.missingData = [{ label: 'hazards', reason: 'prodgeometry hazard file missing' }, { reason: 'no label' }]
-    render(<PrepHoleCard hole={hole} clubs={clubs} />)
+    renderDiag(hole)
 
     expect(screen.getByText('hazards缺失')).toBeInTheDocument()
     expect(screen.getByText('数据缺失')).toBeInTheDocument()
   })
 
   it('labels the route-option and source-ref chip groups in zh', () => {
-    render(<PrepHoleCard hole={mappedHole()} clubs={clubs} />)
+    renderDiag(mappedHole())
 
     expect(screen.getByLabelText('第1洞路线选项')).toBeInTheDocument()
     expect(screen.getByLabelText('第1洞数据来源')).toBeInTheDocument()
