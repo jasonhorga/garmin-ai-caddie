@@ -80,6 +80,7 @@ def load_prep_tips_response(global_id: int, *, player_id: str = OWNER_ID) -> dic
         ladder=ladder,
         render=False,
         include_missing=True,
+        player_id=player_id,
     )
     return build_prep_tips(
         course_row=course_row,

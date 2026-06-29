@@ -18,6 +18,7 @@ Frame chain (every step verified against real data, 2026-06):
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any, Callable
 
 from ai_caddie.core.data import (
@@ -68,11 +69,60 @@ def _int_or_none(value: Any) -> int | None:
         return None
 
 
+def _scorecard_shot_rows(path, shots_loader, gid: int, local: int, shot_types) -> tuple[str, str, list[dict]] | None:
+    """Project one scorecard file's matching-hole shots. ``shots_loader(scorecard_id)`` returns
+    that scorecard's shot data (or None). Shared by the owner path and the player-scoped path so
+    the matching/projection logic stays identical for both."""
+    try:
+        sc = read_json(path)["scorecardDetails"][0]["scorecard"]
+    except Exception:
+        return None
+    front = _int_or_none(sc.get("frontNineGlobalCourseId")) or _int_or_none(sc.get("courseGlobalId"))
+    back = _int_or_none(sc.get("backNineGlobalCourseId"))
+    wanted = set()
+    if front == gid:
+        wanted.add(local)
+    if back == gid:
+        wanted.add(local + 9)
+    if not wanted:
+        return None
+    scorecard_id = sc.get("id") or path.stem
+    shot_data = shots_loader(scorecard_id)
+    if not shot_data:
+        return None
+    date = str(sc.get("formattedStartTime") or sc.get("startTime") or "")
+    rows: list[dict] = []
+    for hole in shot_data.get("holeShots") or []:
+        if _int_or_none(hole.get("holeNumber")) not in wanted:
+            continue
+        for shot in sorted(hole.get("shots") or [], key=lambda s: s.get("shotOrder") or 0):
+            if shot.get("shotType") not in shot_types or shot.get("excludeFromStats"):
+                continue
+            end = shot.get("endLoc") or {}
+            lat = semicircles_to_degrees(end.get("lat"))
+            lon = semicircles_to_degrees(end.get("lon"))
+            if lat is None or lon is None:
+                continue
+            club_id = shot.get("clubId")
+            rows.append({
+                "roundId": str(scorecard_id),
+                "date": date,
+                "shotType": shot.get("shotType"),
+                "club": club_name_from_details(club_id, shot_data) if club_id else None,
+                "lat": lat,
+                "lon": lon,
+            })
+    if rows:
+        return (date, str(scorecard_id), rows)
+    return None
+
+
 def shots_for_hole(
     global_id: int,
     local_hole: int,
     *,
     shot_types: tuple[str, ...] = SCATTER_SHOT_TYPES,
+    sources: list[tuple[Path, Path]] | None = None,
 ) -> list[dict]:
     """End positions (degrees) of the player's past shots on one physical hole.
 
@@ -81,51 +131,30 @@ def shots_for_hole(
     holeNumber = local_hole + 9 (a nine played twice as front+back matches both). Shots are
     filtered to ``shot_types`` with ``excludeFromStats`` false, ordered newest round first
     (then file order: hole, shotOrder).
+
+    ``sources`` is None → the owner's flat ``data/scorecards`` + ``data/shots`` (unchanged). When
+    given (a member's ``(scorecards_dir, shots_dir)`` pairs from ``history._player_shot_sources``),
+    only those trees are read — so a member's scatter comes solely from their own logged rounds.
     """
     gid = int(global_id)
     local = int(local_hole)
     per_round: list[tuple[str, str, list[dict]]] = []
-    for path in scorecard_files():
-        try:
-            sc = read_json(path)["scorecardDetails"][0]["scorecard"]
-        except Exception:
-            continue
-        front = _int_or_none(sc.get("frontNineGlobalCourseId")) or _int_or_none(sc.get("courseGlobalId"))
-        back = _int_or_none(sc.get("backNineGlobalCourseId"))
-        wanted = set()
-        if front == gid:
-            wanted.add(local)
-        if back == gid:
-            wanted.add(local + 9)
-        if not wanted:
-            continue
-        scorecard_id = sc.get("id") or path.stem
-        shot_data = load_shot_file(scorecard_id)
-        if not shot_data:
-            continue
-        date = str(sc.get("formattedStartTime") or sc.get("startTime") or "")
-        rows: list[dict] = []
-        for hole in shot_data.get("holeShots") or []:
-            if _int_or_none(hole.get("holeNumber")) not in wanted:
-                continue
-            for shot in sorted(hole.get("shots") or [], key=lambda s: s.get("shotOrder") or 0):
-                if shot.get("shotType") not in shot_types or shot.get("excludeFromStats"):
-                    continue
-                end = shot.get("endLoc") or {}
-                lat = semicircles_to_degrees(end.get("lat"))
-                lon = semicircles_to_degrees(end.get("lon"))
-                if lat is None or lon is None:
-                    continue
-                club_id = shot.get("clubId")
-                rows.append({
-                    "roundId": str(scorecard_id),
-                    "date": date,
-                    "shotType": shot.get("shotType"),
-                    "club": club_name_from_details(club_id, shot_data) if club_id else None,
-                    "lat": lat,
-                    "lon": lon,
-                })
-        if rows:
-            per_round.append((date, str(scorecard_id), rows))
+    if sources is None:
+        for path in scorecard_files():
+            res = _scorecard_shot_rows(path, load_shot_file, gid, local, shot_types)
+            if res is not None:
+                per_round.append(res)
+    else:
+        for scorecards_dir, shots_dir in sources:
+            def _loader(scorecard_id, _shots_dir=shots_dir):
+                p = _shots_dir / f"{scorecard_id}.json"
+                if not p.exists():
+                    return None
+                d = read_json(p)
+                return None if d.get("_no_data") else d
+            for path in sorted(scorecards_dir.glob("*.json")):
+                res = _scorecard_shot_rows(path, _loader, gid, local, shot_types)
+                if res is not None:
+                    per_round.append(res)
     per_round.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return [row for _date, _sid, rows in per_round for row in rows]

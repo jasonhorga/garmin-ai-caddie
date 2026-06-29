@@ -642,25 +642,26 @@ def course_prep_nine(
     holes they have history for.
 
     The club ladder (the player's real distances) and shot scatter (their real TEE/APPROACH
-    end positions) are PLAYER data. The course_prep engine still sources both from the
-    owner's data, so only the owner ("me", incl. the admin token) gets the real ladder +
-    scatter; a non-owner player gets the course knowledge (par/route/hazards) with a generic
-    default ladder and never the owner's projected shots (per-player engine scoping is a
-    multiplayer-foundation follow-up)."""
+    end positions) are PLAYER data, sourced per ``player_id``: the owner gets their
+    history-derived ladder + scatter; a member gets a ladder blended from their OWN logged
+    shots (measured medians) + manual bag, and scatter from their OWN rounds only. No player's
+    distances or shots ever leak to another (effective_club_ladder + the player-scoped loaders
+    read solely the threaded player's tree)."""
     from ai_caddie.courses import course_prep, prep_cache
 
-    is_owner = player_id == OWNER_ID
     requested = holes or course_prep.available_prep_holes(global_id)
 
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
     def _build() -> dict:
-        # Owner reads their real club model; a member gets their own manual-bag ladder if set, else
-        # the generic default — the owner's measured distances never leak to a member.
+        # Each player reads their OWN model: the owner's history-derived ladder, or a member's
+        # ladder blended from their own logged shots + manual bag — no player's distances leak to
+        # another (effective_club_ladder + the player-scoped loaders are isolated per player_id).
         ladder = course_prep.effective_club_ladder(player_id)
-        # Shot scatter projects the owner's real end positions — never expose it to a non-owner.
+        # Shot scatter is the player's OWN past end positions only: prep_nine reads solely the
+        # threaded player_id's tree, so a member sees their own shots and never the owner's.
         nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
-                                     include_shots=include_shots and is_owner)
+                                     include_shots=include_shots, player_id=player_id)
         return {
             "schema": "ai-caddie-course-prep-v1",
             "globalId": int(global_id),

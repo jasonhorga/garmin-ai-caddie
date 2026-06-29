@@ -592,24 +592,32 @@ def delete_manual_shot(manual_round_id: str, shot_id: str) -> None:
     write_json(path, raw)
 
 
-def build_club_profiles(min_distance_m: float = 5.0) -> dict[str, dict[str, Any]]:
+def build_club_profiles(
+    min_distance_m: float = 5.0, *, shot_dirs: list[Path] | None = None
+) -> dict[str, dict[str, Any]]:
+    # Owner (no arg) reads the flat data/shots; a member passes their own player-scoped shot
+    # dir(s) so their measured distances come only from their own logged rounds — never another
+    # player's. Garmin + manual shots share the holeShots[].shots[].meters/clubId shape, so this
+    # works for a no-Garmin member straight from their manual logs.
+    dirs = [SHOT_DIR] if shot_dirs is None else shot_dirs
     distances: dict[str, list[float]] = {}
-    for shot_file in SHOT_DIR.glob("*.json"):
-        try:
-            data = read_json(shot_file)
-        except Exception:
-            continue
-        if data.get("_no_data"):
-            continue
-        for hole in data.get("holeShots", []) or []:
-            for shot in hole.get("shots", []) or []:
-                meters = shot.get("meters")
-                if meters is None or float(meters) < min_distance_m:
-                    continue
-                if shot.get("shotType") == "PUTT":
-                    continue
-                name = club_name_from_details(shot.get("clubId"), data)
-                distances.setdefault(name, []).append(float(meters))
+    for shot_dir in dirs:
+        for shot_file in shot_dir.glob("*.json"):
+            try:
+                data = read_json(shot_file)
+            except Exception:
+                continue
+            if data.get("_no_data"):
+                continue
+            for hole in data.get("holeShots", []) or []:
+                for shot in hole.get("shots", []) or []:
+                    meters = shot.get("meters")
+                    if meters is None or float(meters) < min_distance_m:
+                        continue
+                    if shot.get("shotType") == "PUTT":
+                        continue
+                    name = club_name_from_details(shot.get("clubId"), data)
+                    distances.setdefault(name, []).append(float(meters))
 
     profiles: dict[str, dict[str, Any]] = {}
     for name, values in distances.items():
