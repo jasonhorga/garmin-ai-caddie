@@ -79,6 +79,24 @@ public let garminClubTypeZh: [Int: String] = [
     23: "推杆",
 ]
 
+/// The app's Chinese catalog name → the backend's club token vocabulary, the reverse of the on-device
+/// resolution. Bridges the iOS catalog (`CatalogClub.zhName`) to the manual-bag PUT payload tokens so
+/// the bag the player checks here persists server-side. Keys MUST equal `CatalogClub.zhName` byte for
+/// byte (mind the spaces in "P 杆" / "50° 挖起杆"); values are the backend tokens (see club_catalog).
+public let zhNameToBackendToken: [String: String] = [
+    "一号木": "driver", "三号木": "wood3", "五号木": "wood5", "七号木": "wood7",
+    "一号小鸡腿": "hybrid1", "二号小鸡腿": "hybrid2", "三号小鸡腿": "hybrid3",
+    "四号小鸡腿": "hybrid4", "五号小鸡腿": "hybrid5", "六号小鸡腿": "hybrid6",
+    "一号铁": "iron1", "二号铁": "iron2", "三号铁": "iron3", "四号铁": "iron4",
+    "五号铁": "iron5", "六号铁": "iron6", "七号铁": "iron7", "八号铁": "iron8", "九号铁": "iron9",
+    "P 杆": "pw", "A 杆": "gw", "S 杆": "sw", "L 杆": "lw",
+    "50° 挖起杆": "wedge50", "52° 挖起杆": "wedge52", "54° 挖起杆": "wedge54",
+    "56° 挖起杆": "wedge56", "58° 挖起杆": "wedge58", "60° 挖起杆": "wedge60",
+    "推杆": "putter",
+]
+
+public func backendToken(forZhName zhName: String) -> String? { zhNameToBackendToken[zhName] }
+
 /// The player's bag, persisted locally (UserDefaults). The live picker / caddie use `effectiveBag()`:
 /// a manual override (`bag()`) wins, else the auto-fetched real Garmin bag (`realBag()`); `nil` from
 /// both means not-yet-known → callers fall back to clubs that appear in the player's shot history.
@@ -113,6 +131,27 @@ public enum ClubBagStore {
     /// Manual override wins; otherwise the real Garmin bag. `nil` if neither is known yet.
     public static func effectiveBag() -> Set<String>? {
         bag() ?? realBag()
+    }
+
+    /// Per-club typed distances (yards) the player edits in 球杆设置, persisted locally and pushed to
+    /// the backend manual bag. Keyed by catalog `zhName`; the UI is yards, the payload is metres.
+    private static let distancesKey = "ai-caddie.club-bag-distances-v1"
+    public static func manualDistancesYd() -> [String: Int] {
+        (UserDefaults.standard.dictionary(forKey: distancesKey) as? [String: Int]) ?? [:]
+    }
+
+    public static func saveManualDistancesYd(_ d: [String: Int]) {
+        UserDefaults.standard.set(d, forKey: distancesKey)
+    }
+
+    /// Build the PUT payload: backend token + yards->metres (the bag stores metres). Clubs whose name
+    /// has no backend token are dropped; a club without a typed distance sends a nil `distanceM`.
+    public static func manualClubInputs(selected: Set<String>, distancesYd: [String: Int]) -> [ManualClubInput] {
+        selected.compactMap { zh in
+            guard let token = backendToken(forZhName: zh) else { return nil }
+            let m = distancesYd[zh].map { Double($0) * 0.9144 }
+            return ManualClubInput(token: token, customName: nil, distanceM: m.map { $0.rounded() })
+        }
     }
 
     private static func decodeBag(_ storageKey: String) -> Set<String>? {
