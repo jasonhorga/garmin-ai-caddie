@@ -26,13 +26,15 @@ public struct GarminSessionImportResponse: Codable, Equatable {
 public final class GarminSessionClient {
     private let baseURL: URL
     private let adminToken: String?
+    private let sessionToken: String?
     private let session: URLSession
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    public init(baseURL: URL, adminToken: String? = nil, session: URLSession = .shared) {
+    public init(baseURL: URL, adminToken: String? = nil, sessionToken: String? = nil, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.adminToken = adminToken
+        self.sessionToken = sessionToken
         self.session = session
     }
 
@@ -41,7 +43,10 @@ public final class GarminSessionClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let adminToken {
+        // A signed-in session (Bearer) wins; the admin token is the DEBUG/CI fallback.
+        if let sessionToken {
+            request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        } else if let adminToken {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
         request.httpBody = try encoder.encode(requestBody)

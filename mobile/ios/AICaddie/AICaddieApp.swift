@@ -5,15 +5,32 @@ import SwiftUI
 @main
 public struct AICaddieApp: App {
     @StateObject private var model = LiveRoundAppModel()
+    @StateObject private var sessionStore = SessionStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var showNoPackageSettings = false
 
     public init() {}
 
+    /// Production: everyone signs in with Apple (no admin token / 「本人」 in the product). DEBUG —
+    /// the simulator/CI cannot perform a real Apple sign-in — skips the gate so tests keep running
+    /// on the existing admin-token / empty path.
+    private var requiresSignIn: Bool {
+        #if DEBUG
+        return false
+        #else
+        return sessionStore.currentSession == nil
+        #endif
+    }
+
     public var body: some Scene {
         WindowGroup {
             Group {
-                if model.isBootstrapping {
+                if requiresSignIn {
+                    SignInView(apiBaseURL: model.apiBaseURL) { session in
+                        sessionStore.save(session)
+                        Task { await model.bootstrap() }
+                    }
+                } else if model.isBootstrapping {
                     ZStack {
                         Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255).ignoresSafeArea()
                         VStack(spacing: 12) {
@@ -243,7 +260,7 @@ public final class LiveRoundAppModel: ObservableObject {
         self.watchBridge = watchBridge
         self.garminSessionStore = garminSessionStore
         self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
-        self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
+        self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken, sessionToken: SessionStore.shared.currentSession?.token) }
         self.mediaUploadClient = resolvedAPIBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken) }
         watchBridge?.onAcceptedLiveEvent = { [weak self] event in
             guard let self else {
@@ -695,7 +712,7 @@ public final class LiveRoundAppModel: ObservableObject {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         if !preserveInjectedSyncClient {
-            self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken) }
+            self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken, sessionToken: SessionStore.shared.currentSession?.token) }
         }
         self.mediaUploadClient = apiBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
         syncConfigToWatch()

@@ -55,6 +55,12 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderSignIn() throws {
+        let view = SignInView(apiBaseURL: URL(string: "https://example.test")) { _ in }
+        try render(view, named: "sign-in")
+    }
+
+    @MainActor
     func testRenderRoundHome() throws {
         let view = VStack(spacing: 12) {
             HubInProgressCard(courseName: "北京丽宫 · 前九", activeHole: 7, recorded: 6, total: 9)

@@ -92,14 +92,16 @@ public enum SyncClientError: Error, Equatable {
 public final class SyncClient {
     private let baseURL: URL
     private let adminToken: String?
+    private let sessionToken: String?
     private let clientId: String
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    public init(baseURL: URL, adminToken: String? = nil, clientId: String = "ios-phone", session: URLSession = .shared) {
+    public init(baseURL: URL, adminToken: String? = nil, sessionToken: String? = nil, clientId: String = "ios-phone", session: URLSession = .shared) {
         self.baseURL = baseURL
         self.adminToken = adminToken
+        self.sessionToken = sessionToken
         self.clientId = clientId
         self.session = session
         self.encoder = JSONEncoder()
@@ -122,9 +124,7 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(LiveRoundPackage.self, from: data)
@@ -154,9 +154,7 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(LiveRoundPackage.self, from: data)
@@ -164,9 +162,7 @@ public final class SyncClient {
 
     public func fetchCourseOptions() async throws -> MobileCourseOptionsResponse {
         var request = URLRequest(url: endpointURL("/api/v2/mobile/courses/options"))
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
@@ -176,9 +172,7 @@ public final class SyncClient {
     /// club slices of the full stats build (~180KB, not the ~11MB full one). Used by StatsView.
     public func fetchMobileStats() async throws -> MobileStats {
         var request = URLRequest(url: endpointURL("/api/v2/history/stats/mobile"))
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(MobileStats.self, from: data)
@@ -189,9 +183,7 @@ public final class SyncClient {
     /// + `/club/types`. Resolved to Chinese catalog names on-device; powers the bag default + picker.
     public func fetchClubBag() async throws -> ClubBagResponse {
         var request = URLRequest(url: endpointURL("/api/v2/history/clubs/bag"))
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(ClubBagResponse.self, from: data)
@@ -204,9 +196,7 @@ public final class SyncClient {
         var request = URLRequest(url: endpointURL("/api/v2/players/\(playerId)/clubs/bag"))
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         request.httpBody = try encoder.encode(ManualBagBody(clubs: clubs))
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
@@ -217,9 +207,7 @@ public final class SyncClient {
     /// synced Garmin bag, else empty — with per-club distances (metres) and their source.
     public func fetchEffectiveClubBag(playerId: String = "me") async throws -> EffectiveClubBagResponse {
         var request = URLRequest(url: endpointURL("/api/v2/players/\(playerId)/clubs/bag"))
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(EffectiveClubBagResponse.self, from: data)
@@ -232,9 +220,7 @@ public final class SyncClient {
     public func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
         var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)/holes/\(hole)/shotmap"))
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(RoundHoleShotMap.self, from: data)
@@ -245,9 +231,7 @@ public final class SyncClient {
     public func fetchRoundDetail(roundRef: String) async throws -> RoundDetail {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
         var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)"))
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(RoundDetail.self, from: data)
@@ -261,9 +245,7 @@ public final class SyncClient {
             url = components?.url ?? url
         }
         var request = URLRequest(url: url)
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(CoursePrepResponse.self, from: data)
@@ -282,9 +264,7 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         let prep = try decoder.decode(CoursePrepResponse.self, from: data)
@@ -301,9 +281,7 @@ public final class SyncClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         request.httpBody = try encoder.encode(EventBatch(roundId: roundId, events: events))
 
         let (data, response) = try await session.data(for: request)
@@ -334,9 +312,7 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(EventReplayResponse.self, from: data)
@@ -347,9 +323,7 @@ public final class SyncClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAuth(to: &request)
         request.httpBody = try encoder.encode(EventCursorAckRequest(clientId: clientId, serverSequence: serverSequence))
 
         let (data, response) = try await session.data(for: request)
@@ -375,6 +349,16 @@ public final class SyncClient {
             }
         }
         throw lastError ?? URLError(.cannotConnectToHost)
+    }
+
+    /// Attach auth: a signed-in owner/member session (Bearer) wins; the admin token is only the
+    /// DEBUG/CI fallback (a real Apple sign-in can't run on the simulator).
+    private func applyAuth(to request: inout URLRequest) {
+        if let sessionToken {
+            request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        } else if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
     }
 
     private func endpointURL(_ endpoint: String) -> URL {

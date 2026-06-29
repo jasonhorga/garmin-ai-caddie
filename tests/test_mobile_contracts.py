@@ -1104,6 +1104,42 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint', sync_client)
         self.assertNotIn('appendingPathComponent("/api', sync_client)
 
+    def test_ios_apple_signin_auth_core(self) -> None:
+        # The shipped app's auth is consumer-grade: everyone signs in with Apple; the API layer uses
+        # a Bearer session token; the admin token survives only as the DEBUG/CI fallback.
+        sign_in = _read_required_source(self, IOS_DIR / "Views" / "SignInView.swift")
+        auth_client = _read_required_source(self, IOS_DIR / "Services" / "AppleAuthClient.swift")
+        session_store = _read_required_source(self, IOS_DIR / "Services" / "SessionStore.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+
+        self.assertIn("import AuthenticationServices", sign_in)
+        self.assertIn("SignInWithAppleButton", sign_in)
+        self.assertIn("AppleAuthClient", sign_in)
+        self.assertIn("ASAuthorizationAppleIDCredential", sign_in)
+
+        self.assertIn('endpoint("/api/v2/auth/apple")', auth_client)
+        self.assertIn("func signIn(identityToken: String, displayName: String?)", auth_client)
+        self.assertIn("func refresh(token: String)", auth_client)
+        self.assertIn("func signOut(token: String)", auth_client)
+
+        self.assertIn('"com.ai-caddie.session"', session_store)
+        self.assertIn("ObservableObject", session_store)
+        self.assertIn("func save(", session_store)
+        self.assertIn("func clear(", session_store)
+        self.assertIn("kSecClassGenericPassword", session_store)
+
+        # Bearer wins; admin token is the fallback.
+        self.assertIn('request.setValue("Bearer \\(sessionToken)", forHTTPHeaderField: "Authorization")', sync_client)
+        self.assertIn("private let sessionToken: String?", sync_client)
+        self.assertIn("applyAuth(to: &request)", sync_client)
+
+        # The app gates on Apple sign-in in production but skips it in DEBUG so CI/simulator runs.
+        self.assertIn("SignInView", app_swift)
+        self.assertIn("SessionStore", app_swift)
+        self.assertIn("private var requiresSignIn: Bool", app_swift)
+        self.assertIn("#if DEBUG", app_swift)
+
     def test_ios_round_package_fetch_sends_prepared_time(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
@@ -1672,8 +1708,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@Published public private(set) var apiBaseURL: URL?", app_swift)
         self.assertIn("defaultAPIBaseURL", app_swift)
         self.assertIn("apiBaseURL: model.apiBaseURL", app_swift)
-        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken)", app_swift)
-        self.assertIn("self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken) }", app_swift)
+        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken, sessionToken: SessionStore.shared.currentSession?.token)", app_swift)
+        self.assertIn("self.syncClient = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken, sessionToken: SessionStore.shared.currentSession?.token) }", app_swift)
         self.assertIn("BackendConfigurationStore.normalizedAPIBaseURL", app_swift)
 
         self.assertIn("public let apiBaseURL: URL?", round_home)
@@ -1731,8 +1767,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Bundle.main.object(forInfoDictionaryKey: "AICaddieAdminToken")', app_swift)
         self.assertIn("@Published public private(set) var adminToken: String?", app_swift)
         self.assertIn("adminToken: model.adminToken", app_swift)
-        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken)", app_swift)
-        self.assertIn("SyncClient(baseURL: $0, adminToken: adminToken)", app_swift)
+        self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken, sessionToken: SessionStore.shared.currentSession?.token)", app_swift)
+        self.assertIn("SyncClient(baseURL: $0, adminToken: adminToken, sessionToken: SessionStore.shared.currentSession?.token)", app_swift)
 
         self.assertIn("public let adminToken: String?", round_home)
         self.assertIn("CurrentHoleView(", round_home)
