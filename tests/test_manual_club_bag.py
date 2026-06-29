@@ -43,3 +43,64 @@ class ManualBagStorageTests(unittest.TestCase):
             (root / "data" / "club_bag_manual.json").write_text("{ not json")
             with patch.object(data, "DATA_DIR", root / "data"):
                 self.assertIsNone(data.load_manual_club_bag("me"))
+
+
+from ai_caddie.caddie import club_bag
+
+
+class EffectiveBagTests(unittest.TestCase):
+    def _root(self, tmp):
+        # Patch CLUBS_BAG_FILE too: load_club_bag("me") reads the module-level CLUBS_BAG_FILE
+        # (frozen at import from the original DATA_DIR), so the owner synced/none cases below need
+        # it repointed at the temp tree — mirrors tests/test_club_bag.py's own patching.
+        root = Path(tmp) / "data"
+        return patch.multiple(data, DATA_DIR=root, CLUBS_BAG_FILE=root / "club_bag.json")
+
+    def test_save_validates_tokens_and_round_trips(self) -> None:
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            club_bag.save_manual_club_bag("p_m", [{"token": "iron7", "distanceM": 130},
+                                                  {"token": "driver"}])
+            eff = club_bag.effective_club_bag("p_m")
+            self.assertEqual(eff["source"], "manual")
+            tokens = {c["token"] for c in eff["clubs"]}
+            self.assertEqual(tokens, {"iron7", "driver"})
+
+    def test_save_rejects_unknown_token(self) -> None:
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            with self.assertRaises(club_bag.InvalidClubError):
+                club_bag.save_manual_club_bag("p_m", [{"token": "banana"}])
+
+    def test_save_rejects_bad_distance(self) -> None:
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            with self.assertRaises(club_bag.InvalidClubError):
+                club_bag.save_manual_club_bag("p_m", [{"token": "iron7", "distanceM": -5}])
+
+    def test_effective_prefers_manual_then_synced_then_none(self) -> None:
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            # none
+            self.assertEqual(club_bag.effective_club_bag("me")["source"], "none")
+            # synced only
+            (Path(tmp) / "data" / "club_bag.json").write_text(
+                '{"clubs": [{"id": 1, "clubTypeId": 1}]}')
+            self.assertEqual(club_bag.effective_club_bag("me")["source"], "garmin")
+            # manual wins
+            club_bag.save_manual_club_bag("me", [{"token": "iron7"}])
+            self.assertEqual(club_bag.effective_club_bag("me")["source"], "manual")
+
+    def test_in_use_canonical_names_reads_effective_manual(self) -> None:
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            club_bag.save_manual_club_bag("p_m", [{"token": "iron7"}, {"token": "driver"}])
+            names = club_bag.in_use_canonical_names("p_m")
+            self.assertEqual(names, {"iron7", "driver"})
+
+    def test_clear_manual_falls_back(self) -> None:
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            club_bag.save_manual_club_bag("me", [{"token": "iron7"}])
+            club_bag.clear_manual_club_bag("me")
+            self.assertEqual(club_bag.effective_club_bag("me")["source"], "none")

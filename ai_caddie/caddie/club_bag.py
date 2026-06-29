@@ -9,9 +9,17 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable, TypeVar
 
-from ai_caddie.core.data import OWNER_ID, load_club_bag
+from ai_caddie.core.data import (
+    OWNER_ID,
+    atomic_write_json,
+    load_club_bag,
+    load_manual_club_bag,
+    manual_club_bag_file,
+)
+from ai_caddie.caddie import club_catalog
 
 SCHEMA = "ai-caddie-club-bag-v1"
+MANUAL_SCHEMA = "ai-caddie-club-bag-manual-v1"
 
 # Garmin clubTypeId (1..23, authoritative — see [[garmin-club-endpoints]]) → a canonical token used
 # only to intersect the real bag with the free-form club names in shot history. NOT a display name.
@@ -82,12 +90,61 @@ def canonical_club_name(raw: str | None) -> str | None:
     return None
 
 
+class InvalidClubError(ValueError):
+    """A manual-bag club has an unknown token or an out-of-range distance."""
+
+
+def save_manual_club_bag(player_id: str, clubs: list[dict]) -> dict:
+    """Validate + persist a player's manual bag. Each club: {token, customName?, distanceM?}.
+    Raises InvalidClubError on an unknown token or a distance outside (0, 400] m."""
+    cleaned: list[dict] = []
+    for club in clubs:
+        token = str(club.get("token") or "")
+        if not club_catalog.is_valid_token(token):
+            raise InvalidClubError(f"unknown club token: {token!r}")
+        distance = club.get("distanceM")
+        if distance is not None:
+            if not isinstance(distance, (int, float)) or not (0 < float(distance) <= 400):
+                raise InvalidClubError(f"distanceM out of range for {token}: {distance!r}")
+            distance = int(round(float(distance)))
+        name = club.get("customName")
+        cleaned.append({"token": token, "customName": (str(name) if name else None), "distanceM": distance})
+    payload = {"schema": MANUAL_SCHEMA, "clubs": cleaned}
+    atomic_write_json(manual_club_bag_file(player_id), payload)
+    return payload
+
+
+def clear_manual_club_bag(player_id: str) -> None:
+    """Drop the manual bag so the effective bag falls back to the synced (Garmin) bag."""
+    path = manual_club_bag_file(player_id)
+    if path.exists():
+        path.unlink()
+
+
+def effective_club_bag(player_id: str = OWNER_ID) -> dict:
+    """The bag the caddie + the served response use: manual if set, else synced, else empty.
+    Returns {"source": "manual"|"garmin"|"none", "clubs": [...raw...]}."""
+    manual = load_manual_club_bag(player_id)
+    if manual:
+        return {"source": "manual", "clubs": manual.get("clubs") or []}
+    synced = load_club_bag(player_id)
+    if synced:
+        return {"source": "garmin", "clubs": synced.get("clubs") or []}
+    return {"source": "none", "clubs": []}
+
+
 def in_use_canonical_names(player_id: str = OWNER_ID) -> set[str] | None:
     """Canonical tokens for ``player_id``'s IN-USE clubs (not retired/deleted), or None when that
-    player has no synced bag. Reads ONLY that player's bag (never the owner's, for a member). Each
-    club contributes both its clubTypeId token AND its custom-name token, so a history entry written
-    either way (e.g. "GW" vs "50°") still matches the same bag club."""
-    raw = load_club_bag(player_id)
+    player has no bag. Reads the EFFECTIVE bag (manual selection wins, else the synced Garmin bag) —
+    only that player's data (never the owner's, for a member). For the synced bag each club
+    contributes both its clubTypeId token AND its custom-name token, so a history entry written
+    either way (e.g. "GW" vs "50°") still matches the same bag club. A manual bag's tokens are
+    already canonical."""
+    bag = effective_club_bag(player_id)
+    if bag["source"] == "manual":
+        names = {c["token"] for c in bag["clubs"] if club_catalog.is_valid_token(str(c.get("token") or ""))}
+        return names or None
+    raw = {"clubs": bag["clubs"]} if bag["clubs"] else None
     if not raw:
         return None
     names: set[str] = set()
