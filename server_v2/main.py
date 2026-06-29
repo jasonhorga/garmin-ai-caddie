@@ -614,11 +614,9 @@ def course_prep_nine(
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
     def _build() -> dict:
-        # Owner reads their real club model; a non-owner falls back to the generic default
-        # ladder so the owner's measured distances never leak.
-        ladder = course_prep.club_ladder() if is_owner else sorted(
-            course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]
-        )
+        # Owner reads their real club model; a member gets their own manual-bag ladder if set, else
+        # the generic default — the owner's measured distances never leak to a member.
+        ladder = course_prep.effective_club_ladder(player_id)
         # Shot scatter projects the owner's real end positions — never expose it to a non-owner.
         nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
                                      include_shots=include_shots and is_owner)

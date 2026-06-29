@@ -754,14 +754,13 @@ def _course_prep_package(global_id: int, holes: list[dict[str, Any]], *, player_
     if not global_id:
         return None
     hole_numbers = [int(row["number"]) for row in holes if row.get("number")]
-    # The club ladder is the OWNER's measured distances; a non-owner gets the generic default so a
-    # member's course-prep never reflects the owner's club model. Defense-in-depth: this helper is
-    # currently gated off for members (the course route sets include_course_prep=False and the round
-    # route uses preparation_mode="round"), but keep it scoped so a future flag flip can't reactivate
-    # the owner oracle. Mirrors load_prep_tips_response / the /course/{id}/prep route gating.
-    ladder = course_prep.club_ladder() if player_id == OWNER_ID else sorted(
-        course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]
-    )
+    # The club ladder is owner-scoped: the owner's measured distances, a member's own manual-bag
+    # ladder if set, else the generic default — never the owner's club model for a member. Defense-in-
+    # depth: this helper is currently gated off for members (the course route sets
+    # include_course_prep=False and the round route uses preparation_mode="round"), but keep it scoped
+    # so a future flag flip can't reactivate the owner oracle. Mirrors load_prep_tips_response / the
+    # /course/{id}/prep route gating.
+    ladder = course_prep.effective_club_ladder(player_id)
     try:
         prep_rows = course_prep.prep_nine(
             int(global_id), holes=hole_numbers, ladder=ladder, render=False, include_missing=True
