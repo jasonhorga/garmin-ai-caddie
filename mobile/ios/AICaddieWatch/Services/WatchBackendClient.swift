@@ -145,6 +145,10 @@ public final class WatchBackendClient {
 
     // MARK: - helpers
 
+    // TODO(member-auth): watch standalone sync still uses the admin token pushed from the phone.
+    // The watch target has no SessionStore / Apple sign-in, so it cannot read a member's session
+    // token. Until the phone pushes the live session token to the watch (a follow-up slice), a
+    // clean consumer build (no admin token) leaves the watch's standalone sync unauthenticated.
     private func applyAdminToken(_ request: inout URLRequest) {
         if let adminToken {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")

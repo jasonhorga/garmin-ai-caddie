@@ -24,6 +24,8 @@ targets:
       - target: AICaddieWatch
     info:
       path: AICaddie/Info.plist
+    entitlements:
+      path: AICaddie/AICaddie.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile

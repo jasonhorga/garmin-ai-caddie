@@ -5,15 +5,33 @@ import SwiftUI
 @main
 public struct AICaddieApp: App {
     @StateObject private var model = LiveRoundAppModel()
+    @StateObject private var sessionStore = SessionStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var showNoPackageSettings = false
 
     public init() {}
 
+    /// Production: everyone signs in with Apple (no admin token / 「本人」 in the product). DEBUG —
+    /// the simulator/CI cannot perform a real Apple sign-in — skips the gate so tests keep running
+    /// on the existing admin-token / empty path.
+    private var requiresSignIn: Bool {
+        #if DEBUG
+        return false
+        #else
+        guard let session = sessionStore.currentSession else { return true }
+        return session.isExpired
+        #endif
+    }
+
     public var body: some Scene {
         WindowGroup {
             Group {
-                if model.isBootstrapping {
+                if requiresSignIn {
+                    SignInView(apiBaseURL: model.apiBaseURL) { session in
+                        sessionStore.save(session)
+                        Task { await model.bootstrap() }
+                    }
+                } else if model.isBootstrapping {
                     ZStack {
                         Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255).ignoresSafeArea()
                         VStack(spacing: 12) {

@@ -41,9 +41,7 @@ public final class GarminSessionClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAICaddieAuth(to: &request, adminToken: adminToken)
         request.httpBody = try encoder.encode(requestBody)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)

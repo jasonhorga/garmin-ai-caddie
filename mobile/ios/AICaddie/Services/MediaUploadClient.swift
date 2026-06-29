@@ -167,9 +167,7 @@ public final class MediaUploadClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAICaddieAuth(to: &request, adminToken: adminToken)
         request.httpBody = try encoder.encode(requestBody)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
@@ -195,9 +193,7 @@ public final class MediaUploadClient {
         let url = endpointURL("/api/v2/media/" + mediaId + "/analyze")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAICaddieAuth(to: &request, adminToken: adminToken)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(VisionAnalysisResponse.self, from: data)
@@ -207,9 +203,7 @@ public final class MediaUploadClient {
         let url = endpointURL("/api/v2/media/target/" + targetType + "/" + targetId + "/findings")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAICaddieAuth(to: &request, adminToken: adminToken)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(VisionFindingsListResponse.self, from: data)
@@ -220,9 +214,7 @@ public final class MediaUploadClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let adminToken {
-            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
-        }
+        applyAICaddieAuth(to: &request, adminToken: adminToken)
         request.httpBody = try encoder.encode(requestBody)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
