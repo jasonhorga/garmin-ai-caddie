@@ -26,9 +26,6 @@ targets:
       path: AICaddie/Info.plist
     entitlements:
       path: AICaddie/AICaddie.entitlements
-      properties:
-        com.apple.developer.applesignin:
-          - Default
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile
