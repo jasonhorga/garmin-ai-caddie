@@ -2891,7 +2891,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchCaddieGlanceView", hole_view)
         self.assertIn("struct WatchInputView: View", input_view)
         self.assertIn("Stepper", input_view)
-        self.assertIn('Stepper("距 \\(distanceM)m"', input_view)
+        self.assertIn('Stepper("距 \\(distanceYd) 码"', input_view)
         self.assertIn("penaltyCount", input_view)
         self.assertIn("Picker", input_view)
         self.assertIn("selectedClub", input_view)

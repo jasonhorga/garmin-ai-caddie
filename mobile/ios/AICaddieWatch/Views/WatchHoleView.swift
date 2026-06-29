@@ -33,7 +33,7 @@ public struct WatchHoleView: View {
                     Text("Par \(state.par)")
                         .foregroundStyle(.secondary)
                     if let distanceM = state.distanceM {
-                        Text("\(Int(distanceM))m")
+                        Text("\(WatchUnits.yards(distanceM)) 码")
                             .font(.headline.monospacedDigit())
                     }
                     if let targetNote = state.targetNote {
