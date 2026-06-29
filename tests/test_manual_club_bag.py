@@ -104,3 +104,50 @@ class EffectiveBagTests(unittest.TestCase):
             club_bag.save_manual_club_bag("me", [{"token": "iron7"}])
             club_bag.clear_manual_club_bag("me")
             self.assertEqual(club_bag.effective_club_bag("me")["source"], "none")
+
+
+from ai_caddie.courses import course_prep
+from server_v2.club_bag_api import build_effective_club_bag_response
+
+
+class ManualBagRobustnessTests(unittest.TestCase):
+    def _root(self, tmp):
+        root = Path(tmp) / "data"
+        return patch.multiple(data, DATA_DIR=root, CLUBS_BAG_FILE=root / "club_bag.json")
+
+    def test_corrupt_entries_are_sanitized_not_crash(self) -> None:
+        # A hand-corrupted manual file: non-numeric distanceM, non-string token, non-dict entry.
+        # load_manual_club_bag must sanitize (drop/coerce) so a downstream int(distanceM) never 500s.
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            mdir = Path(tmp) / "data" / "players" / "p_m"
+            mdir.mkdir(parents=True)
+            (mdir / "club_bag_manual.json").write_text(json.dumps({
+                "schema": "ai-caddie-club-bag-manual-v1",
+                "clubs": [
+                    {"token": "iron7", "distanceM": "abc"},  # non-numeric -> coerced to None
+                    {"token": "driver", "distanceM": 200},   # ok
+                    {"token": 123},                           # non-string token -> dropped
+                    "not-a-dict",                             # dropped
+                ],
+            }))
+            by = {c["token"]: c for c in data.load_manual_club_bag("p_m")["clubs"]}
+            self.assertEqual(set(by), {"iron7", "driver"})
+            self.assertIsNone(by["iron7"]["distanceM"])  # coerced, not crashed
+            self.assertEqual(by["driver"]["distanceM"], 200)
+            # The ladder builds without a 500 (iron7 falls back to its catalog default 128).
+            ladder = dict(course_prep.effective_club_ladder("p_m"))
+            self.assertEqual(ladder["iron7"], 128)
+            self.assertEqual(ladder["driver"], 200)
+
+    def test_no_default_token_reports_null_distance_source(self) -> None:
+        # wood7 has no catalog default; with no user distance it must report distanceM + source null
+        # (NOT distanceSource="default"). iron7 DOES have a default, so it reports source="default".
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            club_bag.save_manual_club_bag("p_m", [{"token": "wood7"}, {"token": "iron7"}])
+            by = {c["token"]: c for c in build_effective_club_bag_response("p_m")["clubs"]}
+            self.assertIsNone(by["wood7"]["distanceM"])
+            self.assertIsNone(by["wood7"]["distanceSource"])
+            self.assertEqual(by["iron7"]["distanceM"], 128)
+            self.assertEqual(by["iron7"]["distanceSource"], "default")

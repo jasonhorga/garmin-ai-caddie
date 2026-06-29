@@ -19,13 +19,16 @@ def build_effective_club_bag_response(player_id: str) -> dict:
         if bag["source"] == "manual":
             token = str(c.get("token") or "")
             dist = c.get("distanceM")
+            default = club_catalog.default_distance_m(token)
+            # distanceSource is "default" ONLY when a catalog default actually fills in for a missing
+            # user value; a token with no default (e.g. wood7) reports null distance + null source.
             clubs.append({
                 "token": token,
                 "zhName": club_catalog.catalog_zh(token),
                 "customName": c.get("customName"),
                 "clubTypeId": club_catalog.catalog_clubtype_id(token),
-                "distanceM": dist if dist is not None else club_catalog.default_distance_m(token),
-                "distanceSource": "manual" if dist is not None else "default",
+                "distanceM": dist if dist is not None else default,
+                "distanceSource": "manual" if dist is not None else ("default" if default is not None else None),
             })
         else:  # garmin synced bag: map clubTypeId -> token via the canon mapping
             from ai_caddie.caddie.club_bag import _CLUBTYPE_CANON, canonical_club_name

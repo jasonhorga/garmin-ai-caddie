@@ -160,7 +160,24 @@ def load_manual_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
         return None
     if not isinstance(raw, dict) or not isinstance(raw.get("clubs"), list):
         return None
-    return raw
+    # Sanitize each club so a hand-corrupted file (non-numeric distanceM, non-string token, non-dict
+    # entry) degrades to a clean bag instead of crashing a downstream int(distanceM): the bag/prep
+    # paths must never 500 on a malformed file — they fall back to the cleaned (possibly empty) bag.
+    clean: list[dict[str, Any]] = []
+    for club in raw["clubs"]:
+        if not isinstance(club, dict):
+            continue
+        token = club.get("token")
+        if not isinstance(token, str) or not token:
+            continue
+        distance = club.get("distanceM")
+        if isinstance(distance, bool) or not isinstance(distance, (int, float)):
+            distance = None
+        else:
+            distance = int(distance)
+        name = club.get("customName")
+        clean.append({"token": token, "customName": (str(name) if name else None), "distanceM": distance})
+    return {"schema": str(raw.get("schema") or "ai-caddie-club-bag-manual-v1"), "clubs": clean}
 
 
 def club_name_from_details(club_id: int | None, shot_data: dict[str, Any]) -> str:
