@@ -142,6 +142,28 @@ class PlayerClubBagApiTests(unittest.TestCase):
         self.assertEqual(cleared.json()["source"], "none")
         self.assertFalse(cleared.json()["found"])
 
+    # --- cache invalidation ------------------------------------------------------
+    def test_put_invalidates_prep_cache(self) -> None:
+        # The cached /course/{id}/prep response bakes in the club ladder; a manual-bag PUT changes
+        # that ladder, so the PUT must drop the prep cache (its fingerprint does not watch the manual
+        # bag file). Prime one entry, PUT, assert the cache was cleared.
+        from ai_caddie.courses import prep_cache
+
+        prep_cache.clear()
+        self.addCleanup(prep_cache.clear)
+        prep_cache.cached_course_prep(
+            global_id=1, requested=[1], render=False, include_shots=False,
+            player_id=self.alice["id"], build=lambda: {"holes": []},
+        )
+        self.assertEqual(len(prep_cache._cache), 1)
+        resp = self.client.put(
+            self._bag_url(self.alice["id"]),
+            json={"clubs": [{"token": "iron7"}]},
+            headers=self._auth(self.alice["token"]),
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(len(prep_cache._cache), 0)  # PUT invalidated the prep cache
+
     # --- legacy synced-bag route untouched ---------------------------------------
     def test_legacy_history_clubs_bag_ignores_manual_bag(self) -> None:
         # Owner sets a MANUAL bag; the legacy synced-bag route must NOT reflect it.

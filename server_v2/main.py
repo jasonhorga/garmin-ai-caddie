@@ -565,8 +565,15 @@ def put_player_clubs_bag(player_id: str, body: ClubBagManualRequest,
     except InvalidClubError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     from ai_caddie.history import stats_cache
+    from ai_caddie.courses import prep_cache
 
-    stats_cache.clear(player_id)  # the player's caddie ladder changed
+    # The manual bag changed the player's effective club ladder, which feeds both the history stats
+    # caddie ladder AND the cached /api/v2/courses/{id}/prep response. prep_cache's fingerprint stats
+    # the synced club_bag.json but NOT club_bag_manual.json, so without an explicit drop a prior prep
+    # entry would keep serving the OLD ladder until an unrelated sync/geometry change. clear() is the
+    # whole process cache (rare write, read-heavy endpoint), the simplest sound invalidation.
+    stats_cache.clear(player_id)
+    prep_cache.clear()
     return EffectiveClubBagResponse(**payload)
 
 
