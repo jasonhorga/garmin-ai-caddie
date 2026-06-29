@@ -140,6 +140,31 @@ class ManualBagRobustnessTests(unittest.TestCase):
             self.assertEqual(ladder["iron7"], 128)
             self.assertEqual(ladder["driver"], 200)
 
+    def test_non_finite_and_out_of_range_distance_dropped_not_crash(self) -> None:
+        # json.loads accepts NaN/Infinity; they pass isinstance(float) and would crash int().
+        # An out-of-range finite value (matches the save-time 0<d<=400 rule) is dropped too.
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            mdir = Path(tmp) / "data" / "players" / "p_m"
+            mdir.mkdir(parents=True)
+            (mdir / "club_bag_manual.json").write_text(
+                '{"schema":"ai-caddie-club-bag-manual-v1","clubs":['
+                '{"token":"iron7","distanceM":NaN},'
+                '{"token":"driver","distanceM":Infinity},'
+                '{"token":"wood3","distanceM":99999},'
+                '{"token":"pw","distanceM":102}]}'
+            )
+            by = {c["token"]: c for c in data.load_manual_club_bag("p_m")["clubs"]}
+            self.assertIsNone(by["iron7"]["distanceM"])   # NaN -> None
+            self.assertIsNone(by["driver"]["distanceM"])  # Infinity -> None
+            self.assertIsNone(by["wood3"]["distanceM"])   # out-of-range -> None
+            self.assertEqual(by["pw"]["distanceM"], 102)  # valid kept
+            # The ladder builds without a 500 (coerced clubs fall back to catalog defaults).
+            ladder = dict(course_prep.effective_club_ladder("p_m"))
+            self.assertEqual(ladder["iron7"], 128)   # catalog default
+            self.assertEqual(ladder["driver"], 200)  # catalog default
+            self.assertEqual(ladder["pw"], 102)      # user value
+
     def test_no_default_token_reports_null_distance_source(self) -> None:
         # wood7 has no catalog default; with no user distance it must report distanceM + source null
         # (NOT distanceSource="default"). iron7 DOES have a default, so it reports source="default".

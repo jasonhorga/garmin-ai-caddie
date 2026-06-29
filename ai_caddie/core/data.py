@@ -171,7 +171,11 @@ def load_manual_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
         if not isinstance(token, str) or not token:
             continue
         distance = club.get("distanceM")
-        if isinstance(distance, bool) or not isinstance(distance, (int, float)):
+        # Reject non-numeric, bool, NaN/Infinity, and out-of-range (mirrors the save-time
+        # 0 < d <= 400 validation). NaN/Infinity pass isinstance(float) but crash int(), and
+        # json.loads accepts them, so a hand-edited file with `NaN`/`Infinity` must coerce to
+        # None rather than 500. NaN comparisons are False, so `0 < NaN <= 400` is False too.
+        if isinstance(distance, bool) or not isinstance(distance, (int, float)) or not (0 < distance <= 400):
             distance = None
         else:
             distance = int(distance)
