@@ -252,7 +252,10 @@ final class DesignSnapshotTests: XCTestCase {
             "一号木", "三号木", "三号小鸡腿", "五号铁", "六号铁", "七号铁", "八号铁", "九号铁",
             "P 杆", "A 杆", "50° 挖起杆", "54° 挖起杆", "58° 挖起杆", "推杆",
         ]
-        try captureScreen(ClubSettingsContent(selected: bag, clubProfiles: bagProfiles), named: "club-settings")
+        try captureScreen(
+            ClubSettingsContent(selected: bag, clubProfiles: bagProfiles, distancesYd: .constant(["七号铁": 140, "P 杆": 110])),
+            named: "club-settings"
+        )
 
         // 复盘逐洞落点图: this round's actual shots (tee→landing→green) on the hole, dots by lie.
         let shotMapJSON = """
