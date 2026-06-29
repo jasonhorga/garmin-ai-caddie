@@ -69,7 +69,7 @@ def _int_or_none(value: Any) -> int | None:
         return None
 
 
-def _scorecard_shot_rows(path, shots_loader, gid: int, local: int, shot_types) -> tuple[str, str, list[dict]] | None:
+def _scorecard_shot_rows(path, shots_loader, gid: int, local: int, shot_types, apply_overrides: bool = True) -> tuple[str, str, list[dict]] | None:
     """Project one scorecard file's matching-hole shots. ``shots_loader(scorecard_id)`` returns
     that scorecard's shot data (or None). Shared by the owner path and the player-scoped path so
     the matching/projection logic stays identical for both."""
@@ -108,7 +108,7 @@ def _scorecard_shot_rows(path, shots_loader, gid: int, local: int, shot_types) -
                 "roundId": str(scorecard_id),
                 "date": date,
                 "shotType": shot.get("shotType"),
-                "club": club_name_from_details(club_id, shot_data) if club_id else None,
+                "club": club_name_from_details(club_id, shot_data, apply_overrides=apply_overrides) if club_id else None,
                 "lat": lat,
                 "lon": lon,
             })
@@ -123,6 +123,7 @@ def shots_for_hole(
     *,
     shot_types: tuple[str, ...] = SCATTER_SHOT_TYPES,
     sources: list[tuple[Path, Path]] | None = None,
+    apply_overrides: bool = True,
 ) -> list[dict]:
     """End positions (degrees) of the player's past shots on one physical hole.
 
@@ -141,7 +142,7 @@ def shots_for_hole(
     per_round: list[tuple[str, str, list[dict]]] = []
     if sources is None:
         for path in scorecard_files():
-            res = _scorecard_shot_rows(path, load_shot_file, gid, local, shot_types)
+            res = _scorecard_shot_rows(path, load_shot_file, gid, local, shot_types, apply_overrides)
             if res is not None:
                 per_round.append(res)
     else:
@@ -153,7 +154,7 @@ def shots_for_hole(
                 d = read_json(p)
                 return None if d.get("_no_data") else d
             for path in sorted(scorecards_dir.glob("*.json")):
-                res = _scorecard_shot_rows(path, _loader, gid, local, shot_types)
+                res = _scorecard_shot_rows(path, _loader, gid, local, shot_types, apply_overrides)
                 if res is not None:
                     per_round.append(res)
     per_round.sort(key=lambda item: (item[0], item[1]), reverse=True)

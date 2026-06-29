@@ -25,7 +25,9 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable
 
-from ai_caddie.core.data import CLUBS_BAG_FILE, CLUBS_FILE, DATA_DIR, HAZARD_DIR, MESH_DIR, SCORECARD_DIR, SHOT_DIR
+from ai_caddie.core.data import (
+    CLUBS_BAG_FILE, CLUBS_FILE, DATA_DIR, HAZARD_DIR, MESH_DIR, OWNER_ID, SCORECARD_DIR, SHOT_DIR,
+)
 
 _COURSES_DIR = DATA_DIR / "courses"
 
@@ -77,15 +79,29 @@ def _file_sig(path: Path) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_size)
 
 
-def _fingerprint(global_id: int) -> tuple:
+def _fingerprint(global_id: int, player_id: str = OWNER_ID) -> tuple:
+    par_sig = _file_sig(_COURSES_DIR / f"{int(global_id)}.json")  # par record (shared)
+    if player_id == OWNER_ID:
+        return (
+            _dir_sig(MESH_DIR),                              # mesh geometry (the ~19s cost)
+            _dir_sig(HAZARD_DIR),                            # hazard intervals
+            _dir_sig(SHOT_DIR),                              # club ladder (profiles) + your-shots scatter
+            _dir_sig(SCORECARD_DIR),                         # your-shots scatter reads scorecards too
+            _file_sig(CLUBS_BAG_FILE),                       # restrict_to_bag (real Garmin bag)
+            _file_sig(CLUBS_FILE),                           # manual club-name overrides (clubs.json)
+            par_sig,
+        )
+    # A member's prep reads only their own tree (player-scoped loaders) — sig THOSE so their prep
+    # refreshes when they log shots / edit their manual bag. Derived from DATA_DIR inline (no
+    # history import) and mirrors history._player_shot_sources' member layout.
+    base = DATA_DIR / "players" / player_id
     return (
-        _dir_sig(MESH_DIR),                              # mesh geometry (the ~19s cost)
-        _dir_sig(HAZARD_DIR),                            # hazard intervals
-        _dir_sig(SHOT_DIR),                              # club ladder (profiles) + your-shots scatter
-        _dir_sig(SCORECARD_DIR),                         # your-shots scatter reads scorecards too
-        _file_sig(CLUBS_BAG_FILE),                       # restrict_to_bag (real Garmin bag)
-        _file_sig(CLUBS_FILE),                           # manual club-name overrides (clubs.json)
-        _file_sig(_COURSES_DIR / f"{int(global_id)}.json"),  # par record
+        _dir_sig(MESH_DIR),
+        _dir_sig(HAZARD_DIR),
+        _dir_sig(base / "shots"),                            # their measured ladder + scatter
+        _dir_sig(base / "scorecards"),                       # their scatter reads scorecards too
+        _file_sig(base / "club_bag_manual.json"),            # their manual bag (selection + typed dist)
+        par_sig,
     )
 
 
@@ -110,7 +126,7 @@ def cached_course_prep(
     its own Event); the build never runs while holding ``_lock``, so distinct keys never serialise.
     """
     key = (int(global_id), tuple(requested), bool(render), bool(include_shots), player_id)
-    fingerprint = _fingerprint(global_id)
+    fingerprint = _fingerprint(global_id, player_id)
     while True:
         with _lock:
             hit = _cache.get(key)

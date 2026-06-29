@@ -70,6 +70,16 @@ class BuildClubProfilesPlayerScopeTests(unittest.TestCase):
         with patch.object(data, "SHOT_DIR", self.dir_a):
             self.assertEqual(data.build_club_profiles(), data.build_club_profiles(shot_dirs=[self.dir_a]))
 
+    def test_non_numeric_meters_skipped_not_crash(self):
+        # A corrupt/non-numeric meters in a (member) shot file must skip the shot, never 500 prep.
+        bad = self.root / "bad"; bad.mkdir()
+        _write_shots(bad, 1, [{"holeNumber": 1, "shots": [
+            {"shotOrder": 1, "shotType": "APPROACH", "clubId": 8201, "meters": "oops", "endLoc": {}},
+            _shot(2, "APPROACH", 8201, 150.0, 31.76, 118.63)]}],
+            club_details=[{"id": 8201, "name": "7I"}])
+        prof = data.build_club_profiles(shot_dirs=[bad])  # must not raise
+        self.assertEqual(prof["7I"]["sampleSize"], 1)     # the good shot counted, the bad one skipped
+
 
 class ShotsForHoleSourcesIsolationTests(unittest.TestCase):
     """shots_for_hole(..., sources=...) projects ONLY the given player trees."""
@@ -127,7 +137,7 @@ class EffectiveClubLadderMemberTests(unittest.TestCase):
             Path("/B/shots"): {"Driver": {"clubName": "Driver", "median": 240.0, "sampleSize": 20}},
         }
 
-        def fake_profiles(*, shot_dirs):
+        def fake_profiles(*, shot_dirs, apply_overrides=True):
             out = {}
             for d in shot_dirs:
                 out.update(profiles.get(d, {}))
@@ -149,6 +159,108 @@ class EffectiveClubLadderMemberTests(unittest.TestCase):
         self.assertEqual(ladder_b["iron7"], 140)
         # Same bag, different ladders -> each reflects only that member's own shots.
         self.assertNotEqual(ladder_a, ladder_b)
+
+    def test_member_zero_shots_falls_back_typed_then_default(self):
+        # Manual bag but ZERO logged shots (a no-Garmin member who hasn't played) -> measured empty
+        # -> each club falls back to typed distanceM, else catalog default.
+        bag = {"clubs": [{"token": "iron7", "distanceM": 145}, {"token": "driver"}]}
+        with patch.object(course_prep, "load_manual_club_bag", side_effect=lambda pid: bag), \
+             patch.object(course_prep, "build_club_profiles", return_value={}), \
+             patch("ai_caddie.history.history._player_shot_sources",
+                   side_effect=lambda pid: [(Path("/M/sc"), Path("/M/shots"))]):
+            ladder = dict(course_prep.effective_club_ladder("memberZ"))
+        self.assertEqual(ladder["iron7"], 145)   # typed (no measured)
+        self.assertEqual(ladder["driver"], 200)  # catalog default (no measured, no typed)
+
+
+class ClubNameOverrideIsolationTests(unittest.TestCase):
+    """The owner clubs.json override must NEVER resolve a member's shot (clubId collision guard)."""
+
+    def setUp(self):
+        tmp = TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.member_shots = self.root / "m_shots"; self.member_shots.mkdir()
+        # member shot: tiny manual clubId=2 (round_ingest assigns 1,2,3…), own clubDetails name "7I".
+        _write_shots(self.member_shots, 1, [{"holeNumber": 1, "shots": [
+            _shot(1, "APPROACH", 2, 150.0, 31.76, 118.63)]}],
+            club_details=[{"id": 2, "name": "7I"}])
+        # owner clubs.json override COLLIDES on clubId 2 with the owner's club name.
+        (self.root / "clubs.json").write_text(json.dumps({"2": {"name": "OWNER-DRIVER"}}))
+        p = patch.object(data, "CLUBS_FILE", self.root / "clubs.json"); p.start(); self.addCleanup(p.stop)
+
+    def test_member_read_uses_own_clubdetails_not_owner_override(self):
+        prof = data.build_club_profiles(shot_dirs=[self.member_shots], apply_overrides=False)
+        self.assertIn("7I", prof)                 # member's own clubDetails name
+        self.assertNotIn("OWNER-DRIVER", prof)    # owner override never applied to member data
+
+    def test_owner_read_still_applies_override(self):
+        # Owner default (apply_overrides=True) DOES apply the override -> proves the gate is real.
+        prof = data.build_club_profiles(shot_dirs=[self.member_shots])
+        self.assertIn("OWNER-DRIVER", prof)
+        self.assertNotIn("7I", prof)
+
+
+class PrepCacheFingerprintPlayerTests(unittest.TestCase):
+    """A member's prep fingerprint tracks THEIR shots/scorecards/manual-bag; the owner's fingerprint
+    is unaffected by a member's writes."""
+
+    def setUp(self):
+        from ai_caddie.courses import prep_cache
+        self.pc = prep_cache
+        tmp = TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        (self.root / "owner_shots").mkdir(); (self.root / "owner_sc").mkdir()
+        for attr, val in [("DATA_DIR", self.root),
+                          ("SHOT_DIR", self.root / "owner_shots"),
+                          ("SCORECARD_DIR", self.root / "owner_sc")]:
+            p = patch.object(prep_cache, attr, val); p.start(); self.addCleanup(p.stop)
+        self.member_dir = self.root / "players" / "memberA"
+        (self.member_dir / "shots").mkdir(parents=True)
+        (self.member_dir / "scorecards").mkdir(parents=True)
+
+    def test_member_fp_changes_on_own_writes_owner_unaffected(self):
+        owner_fp = self.pc._fingerprint(31870, "me")
+        member_fp = self.pc._fingerprint(31870, "memberA")
+        (self.member_dir / "shots" / "1.json").write_text("{}")     # member logs a shot
+        self.assertNotEqual(self.pc._fingerprint(31870, "memberA"), member_fp)
+        member_fp2 = self.pc._fingerprint(31870, "memberA")
+        (self.member_dir / "club_bag_manual.json").write_text("{}")  # member edits their bag
+        self.assertNotEqual(self.pc._fingerprint(31870, "memberA"), member_fp2)
+        self.assertEqual(self.pc._fingerprint(31870, "me"), owner_fp)  # owner untouched by member
+
+
+class WiringIsolationTests(unittest.TestCase):
+    """Guard a future mis-wire: prep builders must pass the MEMBER's sources/player_id, never fall
+    back to the owner's tree (leaf-fn unit tests alone wouldn't catch that)."""
+
+    def test_your_shots_passes_member_sources_and_no_override(self):
+        md = {"hole": {"RefLat": 31.7, "RefLon": 118.6}}
+        with patch("ai_caddie.history.history._player_shot_sources",
+                   return_value=[(Path("/M/sc"), Path("/M/shots"))]), \
+             patch.object(course_prep.shot_projection, "shots_for_hole", return_value=[]) as sfh:
+            course_prep._your_shots(md, {}, [], 31870, 1, {"w": 100, "h": 100}, player_id="memberA")
+        self.assertEqual(sfh.call_args.kwargs["sources"], [(Path("/M/sc"), Path("/M/shots"))])
+        self.assertFalse(sfh.call_args.kwargs["apply_overrides"])
+
+    def test_your_shots_owner_uses_none_sources_and_override(self):
+        md = {"hole": {"RefLat": 31.7, "RefLon": 118.6}}
+        with patch.object(course_prep.shot_projection, "shots_for_hole", return_value=[]) as sfh:
+            course_prep._your_shots(md, {}, [], 31870, 1, {"w": 100, "h": 100}, player_id="me")
+        self.assertIsNone(sfh.call_args.kwargs["sources"])
+        self.assertTrue(sfh.call_args.kwargs["apply_overrides"])
+
+    def test_prep_tips_threads_member_player_id_to_prep_nine(self):
+        from types import SimpleNamespace
+        from server_v2 import prep_tips
+        with patch.object(prep_tips, "load_history_data_for_mode",
+                          return_value=(SimpleNamespace(rounds=[]), "fixture")), \
+             patch.object(prep_tips, "cached_build_history_stats", return_value={"courses": []}), \
+             patch.object(prep_tips, "build_prep_tips", return_value={"tips": []}), \
+             patch.object(course_prep, "effective_club_ladder", return_value=[]), \
+             patch.object(course_prep, "available_prep_holes", return_value=[1]), \
+             patch.object(course_prep, "prep_nine", return_value=[]) as prep_nine:
+            prep_tips.load_prep_tips_response(31870, player_id="memberA")
+        self.assertEqual(prep_nine.call_args.kwargs["player_id"], "memberA")
 
 
 if __name__ == "__main__":

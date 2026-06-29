@@ -763,7 +763,8 @@ def _course_prep_package(global_id: int, holes: list[dict[str, Any]], *, player_
     ladder = course_prep.effective_club_ladder(player_id)
     try:
         prep_rows = course_prep.prep_nine(
-            int(global_id), holes=hole_numbers, ladder=ladder, render=False, include_missing=True
+            int(global_id), holes=hole_numbers, ladder=ladder, render=False, include_missing=True,
+            player_id=player_id,
         )
     except Exception:
         return {

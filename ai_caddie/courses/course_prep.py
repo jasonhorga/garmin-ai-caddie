@@ -275,7 +275,8 @@ def _member_measured_by_token(player_id: str) -> dict[str, int]:
     from ai_caddie.caddie.club_bag import canonical_club_name
 
     shot_dirs = [shots for _sc, shots in _player_shot_sources(player_id)]
-    measured = build_club_profiles(shot_dirs=shot_dirs)
+    # apply_overrides=False: the owner's clubs.json must never resolve a member's club names.
+    measured = build_club_profiles(shot_dirs=shot_dirs, apply_overrides=False)
     by_token: dict[str, int] = {}
     samples: dict[str, int] = {}
     for club_name, profile in measured.items():
@@ -494,7 +495,10 @@ def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, over
     if player_id != OWNER_ID:
         from ai_caddie.history.history import _player_shot_sources
         sources = _player_shot_sources(player_id)
-    shots = shot_projection.shots_for_hole(global_id, local_hole, sources=sources)
+    # Owner keeps its clubs.json override; a member never applies the owner override to their shots.
+    shots = shot_projection.shots_for_hole(
+        global_id, local_hole, sources=sources, apply_overrides=(player_id == OWNER_ID)
+    )
     if not shots:
         return []
     to_px = hole_render.overlay_projector(by, route)

@@ -29,7 +29,7 @@ class PrepCacheTests(unittest.TestCase):
 
     def test_hit_miss_on_player_and_fingerprint(self) -> None:
         calls: list[int] = []
-        prep_cache._fingerprint = lambda gid: ("fp1",)
+        prep_cache._fingerprint = lambda gid, *_: ("fp1",)
 
         def build() -> dict:
             calls.append(1)
@@ -51,7 +51,7 @@ class PrepCacheTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
 
         # Fingerprint change (a sync landed new shots / geometry regenerated) → rebuild same key.
-        prep_cache._fingerprint = lambda gid: ("fp2",)
+        prep_cache._fingerprint = lambda gid, *_: ("fp2",)
         call()
         self.assertEqual(len(calls), 3)
 
@@ -77,7 +77,7 @@ class PrepCacheTests(unittest.TestCase):
     def test_singleflight_same_key_cold_cache_builds_once(self) -> None:
         # Thundering-herd guard: N concurrent first-requests for the SAME uncached key must
         # run the ~19s build exactly once; the late arrivals wait and read the cached result.
-        prep_cache._fingerprint = lambda gid: ("fp",)
+        prep_cache._fingerprint = lambda gid, *_: ("fp",)
         calls_lock = threading.Lock()
         calls = {"n": 0}
         build_started = threading.Event()
@@ -115,7 +115,7 @@ class PrepCacheTests(unittest.TestCase):
         # Singleflight must NOT serialise different keys: two distinct uncached keys build
         # twice AND concurrently. A Barrier(2) inside build only clears if both builds are in
         # flight at once -> if distinct keys serialised it would time out (BrokenBarrierError).
-        prep_cache._fingerprint = lambda gid: ("fp",)
+        prep_cache._fingerprint = lambda gid, *_: ("fp",)
         calls_lock = threading.Lock()
         calls = {"n": 0}
         barrier = threading.Barrier(2, timeout=5)
@@ -149,7 +149,7 @@ class PrepCacheTests(unittest.TestCase):
     def test_lru_eviction_bounds_cache_size(self) -> None:
         # A token holder enumerating many (course/holes/render) keys must not grow the cache without
         # bound (each render=True entry embeds ~1MB of base64 hole maps). LRU caps it at _MAXSIZE.
-        prep_cache._fingerprint = lambda gid: ("fp",)
+        prep_cache._fingerprint = lambda gid, *_: ("fp",)
         for gid in range(prep_cache._MAXSIZE + 40):
             prep_cache.cached_course_prep(
                 global_id=gid, requested=[1], render=True,

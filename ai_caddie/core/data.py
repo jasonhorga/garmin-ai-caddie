@@ -184,12 +184,17 @@ def load_manual_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
     return {"schema": str(raw.get("schema") or "ai-caddie-club-bag-manual-v1"), "clubs": clean}
 
 
-def club_name_from_details(club_id: int | None, shot_data: dict[str, Any]) -> str:
+def club_name_from_details(club_id: int | None, shot_data: dict[str, Any], *, apply_overrides: bool = True) -> str:
     if not club_id:
         return "Unknown"
-    overrides = load_club_overrides()
-    if club_id in overrides:
-        return str(overrides[club_id].get("name") or "Unknown")
+    # The clubs.json override is OWNER data, keyed by raw clubId. Member-scoped reads pass
+    # apply_overrides=False so an owner override never resolves (or, on a clubId collision with a
+    # member's tiny manual ids 1,2,3…, MIS-resolves) a member's shot — member shot files carry
+    # their own clubDetails, so names still resolve. Owner default True = byte-identical.
+    if apply_overrides:
+        overrides = load_club_overrides()
+        if club_id in overrides:
+            return str(overrides[club_id].get("name") or "Unknown")
     for club in shot_data.get("clubDetails", []) or []:
         cid = club.get("clubId") or club.get("id")
         if cid == club_id:
@@ -593,7 +598,7 @@ def delete_manual_shot(manual_round_id: str, shot_id: str) -> None:
 
 
 def build_club_profiles(
-    min_distance_m: float = 5.0, *, shot_dirs: list[Path] | None = None
+    min_distance_m: float = 5.0, *, shot_dirs: list[Path] | None = None, apply_overrides: bool = True
 ) -> dict[str, dict[str, Any]]:
     # Owner (no arg) reads the flat data/shots; a member passes their own player-scoped shot
     # dir(s) so their measured distances come only from their own logged rounds — never another
@@ -611,13 +616,16 @@ def build_club_profiles(
                 continue
             for hole in data.get("holeShots", []) or []:
                 for shot in hole.get("shots", []) or []:
-                    meters = shot.get("meters")
-                    if meters is None or float(meters) < min_distance_m:
+                    try:
+                        meters = float(shot.get("meters"))
+                    except (TypeError, ValueError):
+                        continue  # missing / non-numeric meters: skip the shot, never 500 prep
+                    if meters < min_distance_m:
                         continue
                     if shot.get("shotType") == "PUTT":
                         continue
-                    name = club_name_from_details(shot.get("clubId"), data)
-                    distances.setdefault(name, []).append(float(meters))
+                    name = club_name_from_details(shot.get("clubId"), data, apply_overrides=apply_overrides)
+                    distances.setdefault(name, []).append(meters)
 
     profiles: dict[str, dict[str, Any]] = {}
     for name, values in distances.items():
