@@ -56,6 +56,11 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
   const missingData = hole.missingData ?? []
   const sourceRefs = hole.sourceRefs ?? []
   const yourShots = hole.yourShots ?? []
+  // round-13: slope (playsLike) — show only when geometry produced a non-zero delta.
+  // deltaYd>0 = uphill (plays longer). Mirrors the phone/watch caddie glance (B7).
+  const playsLike = hole.playsLike
+  const slopeYd =
+    playsLike?.available && typeof playsLike.deltaYd === 'number' && playsLike.deltaYd !== 0 ? playsLike.deltaYd : null
 
   const parColor = PAR_CLASS[hole.par] ?? '#3fae6b'
   const header = (
@@ -139,6 +144,11 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
         <div style={{ color: '#8a8f98', fontSize: 13 }}>（此洞暂无几何图）</div>
       )}
       {map ? <div style={{ textAlign: 'center', fontSize: 13, color: '#445', margin: '6px 0' }}>{readout} · 拖动橙点查看码数</div> : null}
+      {slopeYd != null ? (
+        <div aria-label={`第${hole.hole}洞坡度`} style={{ textAlign: 'center', fontSize: 12, color: '#445', margin: '0 0 6px' }}>
+          坡度 {slopeYd > 0 ? '+' : ''}{slopeYd}码 · {slopeYd > 0 ? '上坡' : '下坡'}
+        </div>
+      ) : null}
       {overlay && yourShots.length > 0 ? (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, color: '#445', margin: '2px 0 6px' }}>
           <span>你的落点:</span>

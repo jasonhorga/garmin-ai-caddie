@@ -1059,6 +1059,15 @@ export interface CoursePrepHole {
   hazards: { water_carry: Array<[number, number]>; bunkers: Array<[number, number]> }
   map?: { image: string; overlay: CoursePrepOverlay }
   yourShots?: CoursePrepShotDot[]
+  // round-13: elevation playsLike (tee→green) from the hole mesh; deltaYd>0 = uphill (plays longer).
+  // Mirrors the phone/watch caddie glance so slope shows on every surface.
+  playsLike?: {
+    available: boolean
+    deltaYd?: number | null
+    deltaM?: number | null
+    teeElevM?: number | null
+    greenElevM?: number | null
+  }
 }
 
 export interface CoursePrepClub {

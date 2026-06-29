@@ -30,7 +30,7 @@ A **multi-user / family golf app**: an iOS phone app + an Apple Watch app + a we
 
 ### Web dashboard — `web_v2`
 概览(overview) · 历史(history) · 趋势(trends) · 强弱分析(strengths — per-club/per-hole/issues) · 备战(prep landing) + 备战详情(interactive hole map w/ draggable ball + shot dots, hazard labels) · 实战(live caddie sandbox + full tools) · 设置: 同步与数据健康 / 球员管理(members) / **球包管理(the new club-bag editor + member picker)** / 订正 / 后端配置.
-**Notable:** owner-admin dashboard. The club-bag editor is owner-only (members can't yet edit on web — see A5). Slope is computed but not shown on web (B7).
+**Notable:** owner-admin dashboard. The club-bag editor is owner-only (members can't yet edit on web — see A5). Slope (`playsLike.deltaYd`) now renders on the prep hole card (B7, fixed this pass).
 
 ---
 
@@ -49,7 +49,7 @@ Surfaces: **BE**=backend · **W**=web · **P**=phone · **⌚**=watch. "Member?"
 | Digital scorecard (FIR/GIR/putts) | Garmin → fir/gir/putts; **manual ingest = strokes+putts only**; web grid, phone steppers, watch scorecard | BE,W,P,⌚ | scores=yes; **GIR/FIR=owner-only** |
 | Round stats / SG | WHS handicap, per-club p10/p90, per-hole, per-course, trends; **no true strokes-gained-to-baseline** | BE,W,P | Yes (limited) |
 | Practice / driving range | **none** | — | n/a |
-| PlaysLike (slope/wind) | slope ±yd from mesh (no DEM); phone+watch tile; **wind: no carry math**; slope **not on web** | BE,P,⌚ | slope=yes; wind=owner/none |
+| PlaysLike (slope/wind) | slope ±yd from mesh (no DEM); phone+watch tile + **now web** (B7); **wind: no carry math** | BE,W,P,⌚ | slope=yes; wind=owner/none |
 | Caddie / Virtual Caddie | deterministic decision engine (landing windows, risk, sequences, expected strokes) + LLM context; safe/stock/attack; **exceeds Garmin** | BE,W,P,⌚ | Yes (weaker: no weather/vision) |
 | Manual round ingest | per-player events → Garmin-isomorphic scorecards+shots; captures per-shot club+GPS; web/phone/watch | BE,W,P,⌚ | **Yes** (primary member path) |
 
@@ -79,7 +79,7 @@ Surfaces: **BE**=backend · **W**=web · **P**=phone · **⌚**=watch. "Member?"
 | **B4** | Wind-adjusted PlaysLike + live wind | MED | MED | wind→carry-yards math in the decision engine + auto weather fetch in live play. |
 | **B5** | Watch standalone course data (offline) | MED | MED-LARGE | Download course geometry/prep to the watch at round start. |
 | **B6** | Pin position selection | LOW-MED | SMALL | Front/center/back pin toggle → one adjusted target (data present). |
-| **B7** | Slope not on web | LOW | SMALL ✅ *(fixing this pass)* | Render the existing `playsLike.deltaYd` in the web prep hole card. |
+| **B7** | Slope not on web | LOW | SMALL ✅ **(done this pass)** | ~~Render the existing `playsLike.deltaYd` in the web prep hole card.~~ Shipped — `坡度 +N码 · 上坡/下坡`. |
 | **B8** | Strokes-gained analysis | LOW-MED | LARGE | A baseline model (OTT/APP/ATG/Putt). |
 | **B9** | Practice / driving-range mode | LOW | LARGE | New feature; lowest priority. |
 
@@ -87,9 +87,17 @@ Surfaces: **BE**=backend · **W**=web · **P**=phone · **⌚**=watch. "Member?"
 
 ## 5. Fixes done in this pass
 
-*(Filled as the page-by-page comparison + fixes complete — see the screenshot review. The big Type-A/B items above are roadmap items for you to greenlight; this pass does the safe, page-level fixes.)*
+I screenshotted **every** screen (web 15 / iOS 15 / watch 12) and compared page-by-page to Garmin. The product is in good shape — most screens are clean; the apparent "empty" web charts (one-point trend line, one-bubble course map) are **mock-data artifacts** of the test harness, not product bugs (real data fills them). Two safe, page-level fixes shipped; the big Type-A/B items in §4 stay roadmap items for you to greenlight.
 
-- _pending the screenshot review_
+**Shipped:**
+- **B7 — Slope now on the web prep hole card.** The per-hole `playsLike.deltaYd` (already in the prep payload, already shown on phone + watch) now renders on web 备战→逐洞攻略 as `坡度 +N码 · 上坡/下坡`, matching the other surfaces. *(this PR — `web_v2/src/components/PrepHoleCard.tsx`, `types.ts`)*
+- **Watch de-English / localization.** The screenshot review caught raw English on the Apple Watch: the caddie glance rendered confidence as **`high`** and pin status as **`pin ready`** (closed enums leaking straight through). Localized to Chinese across the watch caddie glance, the phone-pushed companion glance, and the quick-input screen — `高/中/低把握`, `旗位就绪 / 待选旗位`, `手机已连/未连`, `待传/已同步`, `距/杆/推/罚/球杆/保存/输入` — mirroring the phone's `zhCaddieConfidence`. *(PR #188 — `mobile/ios/AICaddieWatch/*` + contract sync)*
+
+**Reviewed and intentionally NOT changed (logged, not blind-fixed):**
+- **Web hole-map hazard labels can overlap** on tightly-spaced hazards (in the mock geometry, `沙49y` sits over the green and water/bunker labels stack). The SVG labels have no collision-avoidance. Deferred rather than speculatively repositioned, because the mock geometry likely exaggerates it vs the real CourseView render — wants verification on real data, then possibly a small "labels → legend below the map" relabel. *On the exact "看球洞的位置" surface you flagged, so first candidate for the next pass.*
+- **Watch distance unit `m` vs the app-wide `码`.** Round-home / hole / input show meters while the caddie glance (and the whole rest of the app) use yards. A real inconsistency, but flipping it touches input semantics and is a product call (CN golfers often read meters) — deferred to a focused PR. `Par` (a cross-surface convention) and `AI Caddie` (brand) were left as-is by design.
+
+> **Net:** the safe fixes are in; the remaining "该修的" are either strategic (the §4 roadmap, needs your greenlight) or want real-data verification before touching (the two items above).
 
 ---
 
