@@ -2137,7 +2137,10 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports/club/1D')
   })
 
-  it('drills from a loaded report source ref to source detail', async () => {
+  // De-engineered: the 报告 console + source-ref drill-down are no longer in the consumer nav
+  // (provenance is hidden). This exercised that removed flow, so it's skipped (not deleted —
+  // the components still exist behind the diagnostics backdoor).
+  it.skip('drills from a loaded report source ref to source detail', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
