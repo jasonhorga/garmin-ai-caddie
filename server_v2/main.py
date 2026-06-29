@@ -85,6 +85,8 @@ from .models import (
     CaddieDecisionAuditRequest,
     CaddieDecisionAuditStoreResponse,
     ClubBagResponse,
+    ClubBagManualRequest,
+    EffectiveClubBagResponse,
     CourseGeometryCoverageResponse,
     GarminSessionImportRequest,
     GarminSessionImportResponse,
@@ -189,7 +191,7 @@ app.add_middleware(
     allow_origins=cors_allowed_origins(),
     allow_origin_regex=cors_allowed_origin_regex(),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -536,6 +538,45 @@ def history_clubs_bag(
     return ClubBagResponse(**build_club_bag_response(player_id=player_id, owner_id=OWNER_ID))
 
 
+@app.get("/api/v2/players/{player_id}/clubs/bag", response_model=EffectiveClubBagResponse)
+def player_clubs_bag(player_id: str, acting_player_id: str = Depends(current_player_id)) -> EffectiveClubBagResponse:
+    """The player's EFFECTIVE club bag (manual selection wins, else the synced Garmin bag, else
+    empty). A per-player bearer may read only its own bag; the owner (admin token) may read any —
+    mirrors POST /api/v2/players/{id}/rounds."""
+    if acting_player_id != OWNER_ID and acting_player_id != player_id:
+        raise HTTPException(status_code=403, detail="cannot read another player's club bag")
+    from .club_bag_api import build_effective_club_bag_response
+
+    return EffectiveClubBagResponse(**build_effective_club_bag_response(player_id))
+
+
+@app.put("/api/v2/players/{player_id}/clubs/bag", response_model=EffectiveClubBagResponse)
+def put_player_clubs_bag(player_id: str, body: ClubBagManualRequest,
+                         acting_player_id: str = Depends(current_player_id)) -> EffectiveClubBagResponse:
+    """Set (or, with an empty list, clear) the player's MANUAL club bag. A per-player bearer may
+    write only its own bag; the owner may write any. Unknown token / out-of-range distance -> 422."""
+    if acting_player_id != OWNER_ID and acting_player_id != player_id:
+        raise HTTPException(status_code=403, detail="cannot edit another player's club bag")
+    from .club_bag_api import save_manual_club_bag_response
+    from ai_caddie.caddie.club_bag import InvalidClubError
+
+    try:
+        payload = save_manual_club_bag_response(player_id, body)
+    except InvalidClubError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    from ai_caddie.history import stats_cache
+    from ai_caddie.courses import prep_cache
+
+    # The manual bag changed the player's effective club ladder, which feeds both the history stats
+    # caddie ladder AND the cached /api/v2/courses/{id}/prep response. prep_cache's fingerprint stats
+    # the synced club_bag.json but NOT club_bag_manual.json, so without an explicit drop a prior prep
+    # entry would keep serving the OLD ladder until an unrelated sync/geometry change. clear() is the
+    # whole process cache (rare write, read-heavy endpoint), the simplest sound invalidation.
+    stats_cache.clear(player_id)
+    prep_cache.clear()
+    return EffectiveClubBagResponse(**payload)
+
+
 @app.get("/api/v2/history/drilldown/{source_ref}", response_model=HistoryDrilldownResponse)
 def history_drilldown(
     source_ref: str, player_id: str = Depends(current_player_id)
@@ -614,11 +655,9 @@ def course_prep_nine(
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
     def _build() -> dict:
-        # Owner reads their real club model; a non-owner falls back to the generic default
-        # ladder so the owner's measured distances never leak.
-        ladder = course_prep.club_ladder() if is_owner else sorted(
-            course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]
-        )
+        # Owner reads their real club model; a member gets their own manual-bag ladder if set, else
+        # the generic default — the owner's measured distances never leak to a member.
+        ladder = course_prep.effective_club_ladder(player_id)
         # Shot scatter projects the owner's real end positions — never expose it to a non-owner.
         nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
                                      include_shots=include_shots and is_owner)

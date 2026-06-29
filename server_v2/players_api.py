@@ -171,6 +171,9 @@ def is_player_scoped_route(method: str, path: str) -> bool:
         or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
         or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
         or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
+        # The member-scoped manual club-bag READ; the handler enforces owner/own-player. The PUT is
+        # not a GET so it never matches here — it is handler-authed (like POST /players/{id}/rounds).
+        or (path.startswith("/api/v2/players/") and path.endswith("/clubs/bag"))
     )
 
 

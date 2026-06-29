@@ -17,7 +17,9 @@ from dataclasses import asdict, dataclass, field
 from ai_caddie.courses import course_reference
 from ai_caddie.geometry import elevation, hole_render, shot_projection
 from ai_caddie.core.data import build_club_profiles, read_json
+from ai_caddie.core.data import OWNER_ID, load_manual_club_bag
 from ai_caddie.core.data import available_prep_holes as available_prep_holes  # re-export: prep's hole-list default
+from ai_caddie.caddie import club_catalog
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 
 YARD = 1.09361
@@ -258,6 +260,34 @@ def club_ladder(path=None) -> list[tuple[str, int]]:
     from ai_caddie.caddie.club_bag import restrict_to_bag
 
     return restrict_to_bag(ordered, lambda kv: kv[0])
+
+
+def effective_club_ladder(player_id: str) -> list[tuple[str, int]]:
+    """The recommended-club ladder for a player, used by every member-reachable prep builder.
+
+    - Owner -> club_ladder() (history-derived distances, restricted to the owner's effective bag).
+    - A member WITH a manual bag -> a ladder from that bag: per selected token,
+      distanceM ?? CLUB_CATALOG default, sorted descending (clubs with neither are dropped).
+    - A member with no manual bag -> the generic DEFAULT_LADDER. Never the owner's distances.
+    """
+    if player_id == OWNER_ID:
+        return club_ladder()
+    manual = load_manual_club_bag(player_id)
+    if manual:
+        pairs: list[tuple[str, int]] = []
+        for club in manual.get("clubs") or []:
+            token = str(club.get("token") or "")
+            if not club_catalog.is_valid_token(token):
+                continue
+            dist = club.get("distanceM")
+            if dist is None:
+                dist = club_catalog.default_distance_m(token)
+            if dist is None:
+                continue
+            pairs.append((token, int(dist)))
+        if pairs:
+            return sorted(pairs, key=lambda kv: -kv[1])
+    return sorted(DEFAULT_LADDER.items(), key=lambda kv: -kv[1])
 
 
 def club_for(distance_m: float, ladder, *, exclude=()):

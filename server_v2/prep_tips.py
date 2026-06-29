@@ -67,14 +67,11 @@ def load_prep_tips_response(global_id: int, *, player_id: str = OWNER_ID) -> dic
         ),
         None,
     )
-    # The recommended-club ladder is the OWNER's measured distances; a non-owner must get the
-    # generic default ladder instead (mirrors the /course/{id}/prep route's owner gating in main.py),
-    # so prep tips never leak the owner's club model. Without an explicit ladder, prep_nine falls
-    # back to club_ladder() (the owner's) — reachable here by any member.
-    is_owner = player_id == OWNER_ID
-    ladder = course_prep.club_ladder() if is_owner else sorted(
-        course_prep.DEFAULT_LADDER.items(), key=lambda kv: -kv[1]
-    )
+    # The recommended-club ladder is owner-scoped: the owner gets their measured distances; a member
+    # gets their own manual-bag ladder if set, else the generic default — never the owner's club model
+    # (mirrors the /course/{id}/prep route's gating). Without an explicit ladder, prep_nine would fall
+    # back to club_ladder() (the owner's), reachable here by any member.
+    ladder = course_prep.effective_club_ladder(player_id)
     # Same hole-list default as the prep endpoint: tip rules R1 (bite holes) and
     # R5 (longest holes) must see the WHOLE course, not just the front nine.
     prep_holes = course_prep.prep_nine(

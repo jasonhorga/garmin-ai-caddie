@@ -45,6 +45,23 @@ class ServerV2CorsTests(unittest.TestCase):
 
         self.assertIsNone(regex)
 
+    def test_preflight_allows_put_for_the_club_bag_editor(self) -> None:
+        # The web club-bag editor writes via PUT /api/v2/players/{id}/clubs/bag; the CORS preflight
+        # from a configured browser origin must permit PUT (it was omitted from allow_methods).
+        from fastapi.testclient import TestClient
+
+        from server_v2.main import app
+
+        resp = TestClient(app).options(
+            "/api/v2/players/p_m/clubs/bag",
+            headers={
+                "Origin": "http://127.0.0.1:5173",
+                "Access-Control-Request-Method": "PUT",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("PUT", resp.headers.get("access-control-allow-methods", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

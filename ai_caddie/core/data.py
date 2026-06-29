@@ -140,6 +140,50 @@ def load_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
     return raw
 
 
+def manual_club_bag_file(player_id: str = OWNER_ID) -> Path:
+    """The player's MANUAL club bag (user-set), parallel to the Garmin-synced club_bag.json.
+    Owner -> data/club_bag_manual.json; member -> data/players/<id>/club_bag_manual.json."""
+    if player_id == OWNER_ID:
+        return DATA_DIR / "club_bag_manual.json"
+    return DATA_DIR / "players" / player_id / "club_bag_manual.json"
+
+
+def load_manual_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
+    """The player's manual bag, or None when unset/corrupt (caller falls back to the synced bag).
+    Shape: {"schema": "ai-caddie-club-bag-manual-v1", "clubs": [{"token","customName","distanceM"}]}."""
+    path = manual_club_bag_file(player_id)
+    if not path.exists():
+        return None
+    try:
+        raw = read_json(path)
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("clubs"), list):
+        return None
+    # Sanitize each club so a hand-corrupted file (non-numeric distanceM, non-string token, non-dict
+    # entry) degrades to a clean bag instead of crashing a downstream int(distanceM): the bag/prep
+    # paths must never 500 on a malformed file — they fall back to the cleaned (possibly empty) bag.
+    clean: list[dict[str, Any]] = []
+    for club in raw["clubs"]:
+        if not isinstance(club, dict):
+            continue
+        token = club.get("token")
+        if not isinstance(token, str) or not token:
+            continue
+        distance = club.get("distanceM")
+        # Reject non-numeric, bool, NaN/Infinity, and out-of-range (mirrors the save-time
+        # 0 < d <= 400 validation). NaN/Infinity pass isinstance(float) but crash int(), and
+        # json.loads accepts them, so a hand-edited file with `NaN`/`Infinity` must coerce to
+        # None rather than 500. NaN comparisons are False, so `0 < NaN <= 400` is False too.
+        if isinstance(distance, bool) or not isinstance(distance, (int, float)) or not (0 < distance <= 400):
+            distance = None
+        else:
+            distance = int(distance)
+        name = club.get("customName")
+        clean.append({"token": token, "customName": (str(name) if name else None), "distanceM": distance})
+    return {"schema": str(raw.get("schema") or "ai-caddie-club-bag-manual-v1"), "clubs": clean}
+
+
 def club_name_from_details(club_id: int | None, shot_data: dict[str, Any]) -> str:
     if not club_id:
         return "Unknown"
