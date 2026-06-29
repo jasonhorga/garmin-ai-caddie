@@ -420,6 +420,34 @@ class ClubBagResponse(BaseModel):
     clubs: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ManualClubInput(BaseModel):
+    token: str
+    customName: str | None = None
+    distanceM: float | None = None
+
+
+class ClubBagManualRequest(BaseModel):
+    clubs: list[ManualClubInput] = Field(default_factory=list)
+
+
+class EffectiveClubOut(BaseModel):
+    token: str
+    zhName: str | None = None
+    customName: str | None = None
+    clubTypeId: int | None = None
+    distanceM: int | None = None
+    distanceSource: str | None = None  # "manual" | "default" | None
+
+
+class EffectiveClubBagResponse(BaseModel):
+    schema_: str = Field("ai-caddie-effective-club-bag-v1", alias="schema")
+    source: str  # "manual" | "garmin" | "none"
+    found: bool
+    clubs: list[EffectiveClubOut] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+
 class RoundHoleShotMapResponse(BaseModel):
     """Per-hole 复盘 shot map: this round's actual shots projected onto the hole's 2D render.
     map/shots passed through as dict/list (image is a big data URI; shots carry start/end px)."""
