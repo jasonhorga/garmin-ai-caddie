@@ -42,6 +42,9 @@ _HANDLER_AUTHED = {
     # so a member token reaches them; the legacy /api/v2/sync/garmin[/session] stay owner-only.
     ("POST", "/api/v2/players/{player_id}/sync/garmin/session"),
     ("POST", "/api/v2/players/{player_id}/sync/garmin"),
+    # Manual club-bag write: authed via Depends(current_player_id) + an owner/own-player 403 check,
+    # exactly like /players/{id}/rounds. The GET sibling is classified by is_player_scoped_route.
+    ("PUT", "/api/v2/players/{player_id}/clubs/bag"),
     # /refresh and /logout both call _resolve_session() which enforces a Bearer session token.
     ("POST", "/api/v2/auth/refresh"),
     ("POST", "/api/v2/auth/logout"),

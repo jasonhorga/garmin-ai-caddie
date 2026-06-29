@@ -85,6 +85,8 @@ from .models import (
     CaddieDecisionAuditRequest,
     CaddieDecisionAuditStoreResponse,
     ClubBagResponse,
+    ClubBagManualRequest,
+    EffectiveClubBagResponse,
     CourseGeometryCoverageResponse,
     GarminSessionImportRequest,
     GarminSessionImportResponse,
@@ -534,6 +536,38 @@ def history_clubs_bag(
     from ai_caddie.caddie.club_bag import build_club_bag_response
 
     return ClubBagResponse(**build_club_bag_response(player_id=player_id, owner_id=OWNER_ID))
+
+
+@app.get("/api/v2/players/{player_id}/clubs/bag", response_model=EffectiveClubBagResponse)
+def player_clubs_bag(player_id: str, acting_player_id: str = Depends(current_player_id)) -> EffectiveClubBagResponse:
+    """The player's EFFECTIVE club bag (manual selection wins, else the synced Garmin bag, else
+    empty). A per-player bearer may read only its own bag; the owner (admin token) may read any —
+    mirrors POST /api/v2/players/{id}/rounds."""
+    if acting_player_id != OWNER_ID and acting_player_id != player_id:
+        raise HTTPException(status_code=403, detail="cannot read another player's club bag")
+    from .club_bag_api import build_effective_club_bag_response
+
+    return EffectiveClubBagResponse(**build_effective_club_bag_response(player_id))
+
+
+@app.put("/api/v2/players/{player_id}/clubs/bag", response_model=EffectiveClubBagResponse)
+def put_player_clubs_bag(player_id: str, body: ClubBagManualRequest,
+                         acting_player_id: str = Depends(current_player_id)) -> EffectiveClubBagResponse:
+    """Set (or, with an empty list, clear) the player's MANUAL club bag. A per-player bearer may
+    write only its own bag; the owner may write any. Unknown token / out-of-range distance -> 422."""
+    if acting_player_id != OWNER_ID and acting_player_id != player_id:
+        raise HTTPException(status_code=403, detail="cannot edit another player's club bag")
+    from .club_bag_api import save_manual_club_bag_response
+    from ai_caddie.caddie.club_bag import InvalidClubError
+
+    try:
+        payload = save_manual_club_bag_response(player_id, body)
+    except InvalidClubError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    from ai_caddie.history import stats_cache
+
+    stats_cache.clear(player_id)  # the player's caddie ladder changed
+    return EffectiveClubBagResponse(**payload)
 
 
 @app.get("/api/v2/history/drilldown/{source_ref}", response_model=HistoryDrilldownResponse)
