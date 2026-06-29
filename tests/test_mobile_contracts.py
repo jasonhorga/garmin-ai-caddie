@@ -2444,6 +2444,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func clearManual()", club_bag)
         self.assertIn("用 Garmin 球包重置", club_settings)
         self.assertIn("ClubBagStore.clearManual()", club_settings)
+        # Manual bag → backend (club-bag iOS slice): zhName→token map + payload builder + PUT/GET +
+        # the editable per-club distance saved via 保存到云端 (PUT /api/v2/players/me/clubs/bag).
+        self.assertIn("zhNameToBackendToken", club_bag)
+        self.assertIn("func manualClubInputs(", club_bag)
+        self.assertIn("func putManualClubBag(", sync_client)
+        self.assertIn("/api/v2/players/", sync_client)
+        effective_bag_model = _read_required_source(self, IOS_DIR / "Models" / "EffectiveClubBag.swift")
+        self.assertIn("struct ManualClubInput", effective_bag_model)
+        self.assertIn("struct EffectiveClubBagResponse", effective_bag_model)
+        self.assertIn("保存到云端", club_settings)
+        self.assertIn("saveToBackend(", club_settings)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)
