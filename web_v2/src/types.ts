@@ -1145,3 +1145,35 @@ export interface AdminPlayerDeleteResponse {
   ok: boolean
   id: string
 }
+
+// Effective club-bag contract (mirrors server_v2/models.py EffectiveClubBagResponse /
+// ClubBagManualRequest). The EFFECTIVE bag is the manual selection when set, else the synced
+// Garmin bag, else empty. distanceM is metres; distanceSource is 'manual' (user value),
+// 'default' (a catalog default filled in for a missing value), or null (no distance).
+export interface ClubBagEntry {
+  token: string
+  zhName: string | null
+  customName: string | null
+  clubTypeId: number | null
+  distanceM: number | null
+  distanceSource: string | null // 'manual' | 'default' | null
+}
+
+export interface EffectiveClubBagResponse {
+  schema: string
+  source: string // 'manual' | 'garmin' | 'none'
+  found: boolean
+  clubs: ClubBagEntry[]
+}
+
+// PUT body: the player's MANUAL bag (an empty clubs list clears it). The backend resolves
+// zhName/clubTypeId from the token, so only token + optional customName/distanceM are sent.
+export interface ClubBagUpdateEntry {
+  token: string
+  customName?: string | null
+  distanceM?: number | null
+}
+
+export interface ClubBagUpdateRequest {
+  clubs: ClubBagUpdateEntry[]
+}

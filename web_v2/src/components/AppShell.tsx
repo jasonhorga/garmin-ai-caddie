@@ -35,7 +35,10 @@ export function AppShell({
   currentPlayer = null,
 }: AppShellProps) {
   const subnav = subnavForPage(activePage)
-  const items = subnav && !playersAdminVisible ? subnav.filter((item) => item.page !== 'players') : subnav
+  const items =
+    subnav && !playersAdminVisible
+      ? subnav.filter((item) => !['players', 'club-bag'].includes(item.page))
+      : subnav
   return (
     <div className="app-layout">
       <AppSidebar activePage={activePage} onNavigate={onNavigate} />
