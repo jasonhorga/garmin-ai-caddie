@@ -87,6 +87,6 @@ public struct WatchRoundContainerView: View {
 
     private var distanceText: String? {
         guard let distanceM = model.activeHoleState?.distanceM else { return nil }
-        return "\(Int(distanceM))m"
+        return "\(WatchUnits.yards(distanceM)) 码"
     }
 }

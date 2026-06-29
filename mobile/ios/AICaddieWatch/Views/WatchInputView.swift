@@ -9,7 +9,7 @@ public struct WatchInputView: View {
     @State private var putts: Int
     @State private var penaltyCount: Int
     @State private var selectedClub: String
-    @State private var distanceM: Int
+    @State private var distanceYd: Int
     @State private var scoreDirty = false
     @State private var puttsDirty = false
     @State private var clubDirty = false
@@ -24,12 +24,12 @@ public struct WatchInputView: View {
         self._penaltyCount = State(initialValue: state.penaltyCount)
         let availableClubs = clubs.isEmpty ? state.availableClubNames : clubs
         self._selectedClub = State(initialValue: state.selectedClub ?? state.suggestedClub ?? availableClubs.first ?? "")
-        self._distanceM = State(initialValue: Int(state.distanceM ?? 0))
+        self._distanceYd = State(initialValue: WatchUnits.yards(state.distanceM ?? 0))
     }
 
     public var body: some View {
         Form {
-            Stepper("距 \(distanceM)m", value: $distanceM, in: 0...320, step: 5)
+            Stepper("距 \(distanceYd) 码", value: $distanceYd, in: 0...350, step: 5)
             Stepper("杆 \(score)", value: $score, in: 1...12)
             Stepper("推 \(putts)", value: $putts, in: 0...6)
             Button {
@@ -46,7 +46,8 @@ public struct WatchInputView: View {
             .disabled(inputClubs.isEmpty)
             Button("保存") {
                 if distanceDirty && hasClubContext {
-                    emit(kind: .distance, value: "\(distanceM)")
+                    // 显示/输入是码,但事件/状态(distanceM)与 Garmin 一致仍是米 → 边界换算回米。
+                    emit(kind: .distance, value: "\(Int(WatchUnits.metres(fromYards: distanceYd).rounded()))")
                 }
                 if scoreDirty {
                     emit(kind: .score, value: "\(score)")
@@ -64,7 +65,7 @@ public struct WatchInputView: View {
             }
         }
         .navigationTitle("输入")
-        .onChange(of: distanceM) { _, _ in
+        .onChange(of: distanceYd) { _, _ in
             distanceDirty = true
         }
         .onChange(of: score) { _, _ in
@@ -99,7 +100,7 @@ public struct WatchInputView: View {
                 shotType: state.shotType,
                 strategyMode: state.strategyMode,
                 lie: state.lie,
-                distanceToPinM: Double(distanceM),
+                distanceToPinM: WatchUnits.metres(fromYards: distanceYd),
                 offlineOptionId: state.offlineOptionId,
                 decisionId: state.decisionId
             )
