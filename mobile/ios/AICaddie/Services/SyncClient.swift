@@ -197,6 +197,36 @@ public final class SyncClient {
         return try decoder.decode(ClubBagResponse.self, from: data)
     }
 
+    /// Persist the player's MANUAL club bag (`PUT /api/v2/players/{id}/clubs/bag`): the tokens (+ any
+    /// per-club metre distances) the player configured in 球杆设置. The owner's admin token targets
+    /// "me". Returns the resulting EFFECTIVE bag (manual wins, else the synced Garmin bag).
+    public func putManualClubBag(playerId: String = "me", clubs: [ManualClubInput]) async throws -> EffectiveClubBagResponse {
+        var request = URLRequest(url: endpointURL("/api/v2/players/\(playerId)/clubs/bag"))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        request.httpBody = try encoder.encode(ManualBagBody(clubs: clubs))
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(EffectiveClubBagResponse.self, from: data)
+    }
+
+    /// The EFFECTIVE club bag (`GET /api/v2/players/{id}/clubs/bag`): manual selection wins, else the
+    /// synced Garmin bag, else empty — with per-club distances (metres) and their source.
+    public func fetchEffectiveClubBag(playerId: String = "me") async throws -> EffectiveClubBagResponse {
+        var request = URLRequest(url: endpointURL("/api/v2/players/\(playerId)/clubs/bag"))
+        if let adminToken {
+            request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(EffectiveClubBagResponse.self, from: data)
+    }
+
+    private struct ManualBagBody: Encodable { let clubs: [ManualClubInput] }
+
     /// Per-hole 复盘 shot map (`GET /api/v2/history/rounds/{ref}/holes/{hole}/shotmap`): this round's
     /// actual shots projected onto the hole's 2D render. Fetched on demand when a hole is opened.
     public func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap {
