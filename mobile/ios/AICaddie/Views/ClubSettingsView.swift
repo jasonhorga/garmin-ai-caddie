@@ -162,7 +162,7 @@ struct ClubSettingsContent: View {
             Spacer()
             if isOn {
                 HStack(spacing: 4) {
-                    TextField("码", text: distanceBinding(club.zhName))
+                    TextField("—", text: distanceBinding(club.zhName))
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.trailing)
                         .font(.caption.monospacedDigit())
