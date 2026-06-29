@@ -165,8 +165,13 @@ class PlayerSidePrepIsolationTests(unittest.TestCase):
                 headers={"Authorization": f"Bearer {self.a_token}"},
             )
         self.assertEqual(resp.status_code, 200)
-        ladder.assert_not_called()  # owner club distances must never be read for a friend
-        self.assertIs(prep_nine.call_args.kwargs["include_shots"], False)  # no owner scatter
+        ladder.assert_not_called()  # owner's measured club_ladder() must never be read for a friend
+        # New mechanism: the friend's prep is scoped to THEIR player_id, so prep_nine reads only
+        # the friend's own tree. include_shots passes through (the friend gets THEIR own scatter),
+        # but the player_id is the friend's — never the owner's — so no owner shots/ladder leak.
+        self.assertTrue(prep_nine.call_args.kwargs["include_shots"])
+        self.assertNotEqual(prep_nine.call_args.kwargs["player_id"], players.OWNER_ID)
+        self.assertTrue(prep_nine.call_args.kwargs["player_id"])
         names = {club["name"] for club in resp.json()["clubs"]}
         self.assertNotIn("OWNER-DRIVER", names)
 

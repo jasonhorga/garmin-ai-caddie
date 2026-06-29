@@ -262,24 +262,59 @@ def club_ladder(path=None) -> list[tuple[str, int]]:
     return restrict_to_bag(ordered, lambda kv: kv[0])
 
 
+def _member_measured_by_token(player_id: str) -> dict[str, int]:
+    """A member's MEASURED median distance per catalog token, from their OWN logged shots only.
+
+    Reads the member's player-scoped shot dir(s) (``history._player_shot_sources``) — never the
+    owner's or another member's — and maps each measured profile's club name to a catalog token
+    the same way ``restrict_to_bag`` canonicalises names. On a token collision the larger sample
+    wins. Empty when the member has logged nothing yet. Imports are local to mirror the existing
+    lazy ``restrict_to_bag`` import and stay clear of any module-load import cycle.
+    """
+    from ai_caddie.history.history import _player_shot_sources
+    from ai_caddie.caddie.club_bag import canonical_club_name
+
+    shot_dirs = [shots for _sc, shots in _player_shot_sources(player_id)]
+    # apply_overrides=False: the owner's clubs.json must never resolve a member's club names.
+    measured = build_club_profiles(shot_dirs=shot_dirs, apply_overrides=False)
+    by_token: dict[str, int] = {}
+    samples: dict[str, int] = {}
+    for club_name, profile in measured.items():
+        if not isinstance(profile, dict) or not profile.get("median"):
+            continue
+        token = canonical_club_name(club_name)
+        if not token or not club_catalog.is_valid_token(token):
+            continue
+        n = int(profile.get("sampleSize") or 0)
+        if token not in by_token or n > samples.get(token, 0):
+            by_token[token] = round(profile["median"])
+            samples[token] = n
+    return by_token
+
+
 def effective_club_ladder(player_id: str) -> list[tuple[str, int]]:
     """The recommended-club ladder for a player, used by every member-reachable prep builder.
 
     - Owner -> club_ladder() (history-derived distances, restricted to the owner's effective bag).
-    - A member WITH a manual bag -> a ladder from that bag: per selected token,
-      distanceM ?? CLUB_CATALOG default, sorted descending (clubs with neither are dropped).
+    - A member WITH a manual bag -> a ladder over their selected tokens, each distance taken as
+      their OWN measured median (from their logged shots) ?? manual distanceM ?? CLUB_CATALOG
+      default, sorted descending (clubs with none are dropped). Measured distances are read only
+      from the member's own tree, so no other player's distances ever leak in.
     - A member with no manual bag -> the generic DEFAULT_LADDER. Never the owner's distances.
     """
     if player_id == OWNER_ID:
         return club_ladder()
     manual = load_manual_club_bag(player_id)
     if manual:
+        measured_by_token = _member_measured_by_token(player_id)
         pairs: list[tuple[str, int]] = []
         for club in manual.get("clubs") or []:
             token = str(club.get("token") or "")
             if not club_catalog.is_valid_token(token):
                 continue
-            dist = club.get("distanceM")
+            dist = measured_by_token.get(token)
+            if dist is None:
+                dist = club.get("distanceM")
             if dist is None:
                 dist = club_catalog.default_distance_m(token)
             if dist is None:
@@ -442,7 +477,8 @@ def _carry_targets(landing_m: float | None, hazards: dict) -> list[dict]:
     return rows
 
 
-def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, overlay: dict) -> list[dict]:
+def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, overlay: dict,
+                player_id: str = OWNER_ID) -> list[dict]:
     """The player's past TEE/APPROACH end positions projected into display px.
 
     World→local uses the calibrated frame in :mod:`ai_caddie.geometry.shot_projection`; local→px reuses
@@ -453,7 +489,16 @@ def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, over
     ref_lat, ref_lon = hole_meta.get("RefLat"), hole_meta.get("RefLon")
     if ref_lat is None or ref_lon is None:
         return []
-    shots = shot_projection.shots_for_hole(global_id, local_hole)
+    # Owner: None -> the flat owner tree (unchanged). Member: only their own player-scoped tree,
+    # so a member's scatter is built solely from their own logged rounds (never another player's).
+    sources = None
+    if player_id != OWNER_ID:
+        from ai_caddie.history.history import _player_shot_sources
+        sources = _player_shot_sources(player_id)
+    # Owner keeps its clubs.json override; a member never applies the owner override to their shots.
+    shots = shot_projection.shots_for_hole(
+        global_id, local_hole, sources=sources, apply_overrides=(player_id == OWNER_ID)
+    )
     if not shots:
         return []
     to_px = hole_render.overlay_projector(by, route)
@@ -474,7 +519,7 @@ def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, over
 
 
 def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, render=True,
-              include_shots=False) -> HolePrep | None:
+              include_shots=False, player_id: str = OWNER_ID) -> HolePrep | None:
     """Compose pre-round prep for one hole. Returns None if geometry is unavailable."""
     try:
         md, by = hole_render.load_mesh(global_id, local_hole)
@@ -483,7 +528,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     route, route_len = derive_route(md)
     if not route or not route_len:
         return None
-    ladder = ladder or club_ladder()
+    ladder = ladder or effective_club_ladder(player_id)
     if par_record is None:
         par_record = course_reference.load_course_par(global_id)
     par_idx = local_hole - 1
@@ -528,7 +573,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         result["map"] = {"image": image, "overlay": meta}
         if include_shots:
             try:
-                scatter = _your_shots(md, by, route, global_id, local_hole, meta)
+                scatter = _your_shots(md, by, route, global_id, local_hole, meta, player_id=player_id)
             except Exception:
                 scatter = []  # scatter is an enhancement — never break prep over it
             if scatter:
@@ -567,7 +612,7 @@ def _missing_hole(global_id: int, local_hole: int, par_record=None) -> dict:
 
 
 def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, include_missing: bool = False,
-              include_shots: bool = False) -> list:
+              include_shots: bool = False, player_id: str = OWNER_ID) -> list:
     """Pre-round prep for every hole of a nine that has geometry.
 
     Par is cache-first: the stored ``data/courses/<gid>.json`` record, else ``resolve_par``
@@ -577,14 +622,14 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
     DTO rows instead of being skipped.
     """
     if ladder is None:
-        ladder = club_ladder()
+        ladder = effective_club_ladder(player_id)
     par_record = course_reference.load_course_par(global_id)
     if par_record is None:
         par_record = course_reference.resolve_par(global_id)
     out = []
     for hole in holes:
         prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render,
-                         include_shots=include_shots)
+                         include_shots=include_shots, player_id=player_id)
         if prep is not None:
             out.append(prep.to_dict() if include_missing and hasattr(prep, "to_dict") else prep)
         elif include_missing:
