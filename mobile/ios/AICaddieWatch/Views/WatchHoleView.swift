@@ -28,7 +28,7 @@ public struct WatchHoleView: View {
         NavigationStack {
             List {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("H\(state.hole)")
+                    Text("第\(state.hole)洞")
                         .font(.title2.weight(.bold))
                     Text("Par \(state.par)")
                         .foregroundStyle(.secondary)
@@ -41,19 +41,19 @@ public struct WatchHoleView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Text(state.targetLatitude == nil || state.targetLongitude == nil ? "Pin from iPhone needed" : "\(state.targetKind ?? "target") set")
+                    Text(state.targetLatitude == nil || state.targetLongitude == nil ? "待手机推送旗位" : "\(WatchCaddieText.targetNoun(state.targetKind))已就绪")
                         .font(.caption2)
                         .foregroundStyle(state.targetLatitude == nil || state.targetLongitude == nil ? AICaddieDesignTokens.confidenceColor("low") : .secondary)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
                         Image(systemName: phoneReachable ? "iphone.radiowaves.left.and.right" : "iphone.slash")
-                        Text(phoneReachable ? "iPhone online" : "iPhone offline")
+                        Text(phoneReachable ? "手机已连" : "手机未连")
                     }
                     if queuedEventCount > 0 {
-                        Text("Queue \(queuedEventCount)")
+                        Text("待传 \(queuedEventCount)")
                     } else if lastPhoneAcceptedAt != nil {
-                        Text("Synced")
+                        Text("已同步")
                     }
                 }
                 .font(.caption2)
@@ -69,7 +69,7 @@ public struct WatchHoleView: View {
                         ScrollView { WatchHazardView(hazards: state.hazards).padding(8) }
                     }
                 }
-                NavigationLink("Input") {
+                NavigationLink("输入") {
                     WatchInputView(state: state, clubs: clubs, onEvent: onEvent)
                 }
             }

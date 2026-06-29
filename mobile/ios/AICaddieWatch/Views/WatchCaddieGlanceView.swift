@@ -54,7 +54,7 @@ public struct WatchCaddieGlanceView: View {
             }
             HStack(spacing: 4) {
                 Image(systemName: state.targetLatitude == nil || state.targetLongitude == nil ? "mappin.slash" : "mappin.and.ellipse")
-                Text(state.targetLatitude == nil || state.targetLongitude == nil ? "Pin needed" : "\(state.targetKind ?? "target") ready")
+                Text(state.targetLatitude == nil || state.targetLongitude == nil ? "待选旗位" : "\(WatchCaddieText.targetNoun(state.targetKind))就绪")
                     .lineLimit(1)
             }
             .font(.caption2)
@@ -95,7 +95,7 @@ public struct WatchCaddieGlanceView: View {
                 .font(.caption2)
                 .foregroundStyle(AICaddieDesignTokens.confidenceColor("low"))
             }
-            Text(state.caddieConfidence)
+            Text(WatchCaddieText.confidence(state.caddieConfidence))
                 .font(.caption)
                 .foregroundStyle(AICaddieDesignTokens.confidenceColor(state.caddieConfidence))
         }
