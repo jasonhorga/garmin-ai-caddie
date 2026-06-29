@@ -58,6 +58,16 @@ def _session_ttl() -> timedelta:
     return timedelta(hours=hours)
 
 
+def _admin_apple_emails() -> set[str]:
+    """Apple emails that sign in as the OWNER/admin rather than auto-registering as a member.
+    Comma-separated env, matched case-insensitively. Apple returns the email only on first
+    authorization and only if the user shares it (not Hide-My-Email); after the first owner
+    sign-in the sub is linked to the owner, so every later sign-in resolves via the known-sub
+    path regardless of email."""
+    raw = os.environ.get("AI_CADDIE_ADMIN_APPLE_EMAILS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
 def _bearer_token(request: Request) -> str:
     authz = request.headers.get("authorization") or ""
     token = authz[7:].strip() if authz[:7].lower() == "bearer " else ""
@@ -96,6 +106,24 @@ def apple_sign_in(body: AppleSignInRequest) -> dict:
             if user.deleted_at is not None:
                 raise HTTPException(status_code=403, detail="apple identity not linked")
             return _session_payload(session, user_id=user.id, expires=expires)
+    # An owner/admin allowlist (configured Apple emails) → link this first-time sub to the OWNER
+    # and mint an owner session, so the owner signs in with Apple like everyone else yet still lands
+    # on the owner's own data. After this first link the sub is known → the path above handles it.
+    if ident.email and ident.email.lower() in _admin_apple_emails():
+        try:
+            with db.session_scope() as session:
+                owner_uid = repo.user_id_for_legacy_player(session, OWNER_ID)
+                if owner_uid is None:
+                    raise HTTPException(status_code=400, detail="owner user not provisioned (run the identity seeder)")
+                repo.link_apple_identity(session, user_id=owner_uid, subject=ident.subject, email=ident.email)
+                return _session_payload(session, user_id=owner_uid, expires=expires)
+        except repo.IdentityConflictError:
+            # A concurrent sign-in linked the sub first → mint for the now-existing user.
+            with db.session_scope() as session:
+                user = repo.get_user_by_apple_subject(session, ident.subject)
+                if user is None or user.deleted_at is not None:
+                    raise HTTPException(status_code=403, detail="apple identity not linked")
+                return _session_payload(session, user_id=user.id, expires=expires)
     # First-time sub → auto-provision a member in the OWNER's family with a fresh isolated scope.
     # Retry on the astronomically rare 64-bit pid collision (a fresh id each attempt).
     for _attempt in range(3):
