@@ -83,6 +83,27 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchHoleRing() throws {
+        // round-13 refinement: the edge ring is drawn as thin RADIAL TICK marks (短横线), not filled
+        // dots, so it hugs the rim without covering the centre. Isolated here (ring + a minimal centre)
+        // so the tick thickness / length / radial rotation is unmistakable in the snapshot. Holes 1–6
+        // scored — par(0)/bogey(+1)/birdie(−1)/double(+2)/par(0)/eagle(−2) to exercise every score
+        // colour; hole 7 current (brighter + longer white tick); 8–18 not yet played (dim grey).
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 2, 5: 0, 6: -2]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
+        let view = WatchHoleRingView(pips: pips) {
+            VStack(spacing: 1) {
+                Text("第 7 洞 · Par 4").font(.caption2).foregroundStyle(.secondary)
+                Text("152").font(.system(size: 42, weight: .bold)).foregroundStyle(.white)
+                Text("码 · 到旗杆").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 198, height: 198)
+        .background(Color.black)
+        try render(view, named: "watch-hole-ring")
+    }
+
+    @MainActor
     func testRenderWatchScorecard() throws {
         let view = WatchScorecardView(
             holes: [
