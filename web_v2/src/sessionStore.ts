@@ -5,6 +5,8 @@
 // bearer lives only for the tab session. api.ts reads `currentSessionToken()`
 // and attaches it as `Authorization: Bearer`. Never log the token.
 
+import { writeStoredAdminToken } from './adminTokenStore'
+
 export const OWNER_PLAYER_ID = 'me'
 
 const SESSION_KEY = 'ai-caddie.session'
@@ -51,6 +53,15 @@ export function currentSessionPlayerId(): string | null {
 }
 
 export function saveSession(session: AppSession): void {
+  // SECURITY: a MEMBER browser must not retain a stray/shared owner admin token.
+  // Clear any stored admin token whenever a non-owner session is established, so a
+  // member is authenticated ONLY by their own Apple Bearer (and never re-hydrates a
+  // leftover admin token on reload). The owner session (playerId === OWNER_PLAYER_ID)
+  // keeps its typed/bookmarked admin token — the bare-URL owner UX depends on it.
+  // Mirrors api.ts suppressing the admin header for member sessions.
+  if (session.playerId !== OWNER_PLAYER_ID) {
+    writeStoredAdminToken('')
+  }
   try {
     window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
   } catch {

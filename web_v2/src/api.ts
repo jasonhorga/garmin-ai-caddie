@@ -64,7 +64,7 @@ import type {
   VisionFindingsListResponse,
 } from './types'
 import { readPlayerToken } from './playerContext'
-import { currentSessionToken } from './sessionStore'
+import { currentSession, currentSessionToken, OWNER_PLAYER_ID } from './sessionStore'
 
 // The bearer for every request: the Apple sign-in session token if signed in,
 // else a per-player capability link token from the URL (legacy `/p/<token>`).
@@ -92,12 +92,18 @@ function apiUrl(path: string): string {
 }
 
 function adminTokenHeader(adminToken?: string): Record<string, string> {
-  // Consumers authenticate with the Apple session Bearer (above) and carry no
-  // admin token, so this emits nothing for them. The admin token is retained
-  // only as the dev/CI/owner-homeserver fallback (mirrors the iOS DEBUG fallback);
-  // when a session Bearer is also present the backend prefers it.
   const trimmed = adminToken?.trim()
-  return trimmed ? { 'X-AI-Caddie-Admin-Token': trimmed } : {}
+  if (!trimmed) return {}
+  // SECURITY: never let a signed-in MEMBER send the owner admin token. A member
+  // authenticates with their own Apple session Bearer (attached separately); the
+  // admin token (typed / baked / owner-homeserver fallback) may ride ONLY when there
+  // is no member session — i.e. no session at all (the bare-URL owner, whose ONLY
+  // credential is the admin token) or an OWNER session (playerId === OWNER_PLAYER_ID).
+  // The server also rejects member-bearer + admin-header with 403 (#213); this is the
+  // matching client belt so the header never leaves a member's browser in the first place.
+  const session = currentSession()
+  if (session && session.playerId !== OWNER_PLAYER_ID) return {}
+  return { 'X-AI-Caddie-Admin-Token': trimmed }
 }
 
 export interface AppleSignInResponse {

@@ -199,6 +199,74 @@ describe('player bearer token injection', () => {
   })
 })
 
+describe('admin token header suppression for member sessions', () => {
+  const SESSION_KEY = 'ai-caddie.session'
+  const futureIso = () => new Date(Date.now() + 3_600_000).toISOString()
+  function setSession(playerId: string) {
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: 'session-bearer', playerId, expiresAt: futureIso() }))
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    vi.mocked(readPlayerToken).mockReturnValue(null)
+    window.sessionStorage.clear()
+  })
+
+  it('does NOT send the admin header for a signed-in MEMBER (only their own bearer)', async () => {
+    // SECURITY: a member must never carry the owner admin token, even if one is present
+    // in app state/storage. They authenticate with their own Apple session Bearer only.
+    setSession('p_member')
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => HISTORY_OVERVIEW_PAYLOAD }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryOverview('admin-secret')
+
+    // Exact-match: an X-AI-Caddie-Admin-Token would fail this deep equality.
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { Authorization: 'Bearer session-bearer' },
+    })
+  })
+
+  it('suppresses the admin header for a MEMBER on POST writes too', async () => {
+    setSession('p_member')
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ schema: 'ai-caddie-sync-run-v2' }) }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await runGarminSync({ withShots: false, forceRefreshAuth: false, adminToken: 'admin-secret' })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=false&force_refresh_auth=false', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer session-bearer' },
+    })
+  })
+
+  it('STILL sends the admin header for the OWNER session (playerId "me")', async () => {
+    setSession('me')
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => HISTORY_OVERVIEW_PAYLOAD }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryOverview('admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret', Authorization: 'Bearer session-bearer' },
+    })
+  })
+
+  it('STILL sends the admin header for the bare-URL owner (NO session at all)', async () => {
+    // The bare-URL/homeserver owner has no Apple session — the admin token is their
+    // ONLY credential, so it must keep riding when no session exists.
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => HISTORY_OVERVIEW_PAYLOAD }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchHistoryOverview('admin-secret')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+})
+
 describe('fetchHistoryOverview', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
