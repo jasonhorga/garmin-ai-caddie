@@ -50,16 +50,18 @@ export function AppleSignInPage({ onSignedIn }: { onSignedIn: () => void }): Rea
   const inited = useRef(false)
 
   useEffect(() => {
+    // Only load Apple's JS when a Services ID is configured (deploy-time). In dev/CI it's unset,
+    // so skip the CDN load entirely — the button still renders; a click reports a friendly error,
+    // and there's no failed-resource console noise in the test/dev environment.
+    const clientId = String(import.meta.env.VITE_AI_CADDIE_APPLE_CLIENT_ID ?? '').trim()
+    if (!clientId) return
     let cancelled = false
     loadAppleJs()
       .then(() => {
         if (cancelled || inited.current || !window.AppleID) return
-        const clientId = String(import.meta.env.VITE_AI_CADDIE_APPLE_CLIENT_ID ?? '').trim()
         const redirectURI = String(import.meta.env.VITE_AI_CADDIE_APPLE_REDIRECT ?? window.location.origin).trim()
-        if (clientId) {
-          window.AppleID.auth.init({ clientId, scope: 'name email', redirectURI, usePopup: true })
-          inited.current = true
-        }
+        window.AppleID.auth.init({ clientId, scope: 'name email', redirectURI, usePopup: true })
+        inited.current = true
       })
       .catch(() => {
         /* Apple JS blocked/unconfigured — the button still renders; the click reports an error */
