@@ -181,6 +181,9 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             # The member-scoped manual club-bag READ; the handler enforces owner/own-player. The PUT is
             # not a GET so it never matches here — it is handler-authed (like POST /players/{id}/rounds).
             or (path.startswith("/api/v2/players/") and path.endswith("/clubs/bag"))
+            # Media + vision-findings READS — the media store is now per-player partitioned
+            # (``server_v2.media._media_root(player_id)``), so a member sees only their own.
+            or path.startswith("/api/v2/media/target/")
         )
     if m == "POST":
         # Live-round event WRITES are per-player partitioned, so a member writes ONLY to their own
@@ -188,6 +191,11 @@ def is_player_scoped_route(method: str, path: str) -> bool:
         return (
             (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/ack"))
+            # Media WRITES — the media store is per-player partitioned, so a member writes ONLY to
+            # their own media (the handlers thread current_player_id).
+            or path == "/api/v2/media"
+            or (path.startswith("/api/v2/media/") and (path.endswith("/analyze") or path.endswith("/redact")))
+            or (path.startswith("/api/v2/media/findings/") and path.endswith("/confirmation"))
         )
     return False
 

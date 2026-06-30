@@ -806,48 +806,48 @@ def annotations_by_target(target_type: AnnotationTargetType, target_id: str) -> 
 @app.post("/api/v2/media", response_model=MediaCreateResponse)
 def create_media(
     request: MediaCreateRequest,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    player_id: str = Depends(current_player_id),
 ) -> MediaCreateResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return create_media_response(request)
+    return create_media_response(request, player_id=player_id)
 
 
 @app.get("/api/v2/media/target/{target_type}/{target_id}", response_model=MediaListResponse)
-def media_by_target(target_type: MediaTargetType, target_id: str) -> MediaListResponse:
-    return list_target_media_response(target_type, target_id)
+def media_by_target(
+    target_type: MediaTargetType, target_id: str, player_id: str = Depends(current_player_id)
+) -> MediaListResponse:
+    return list_target_media_response(target_type, target_id, player_id=player_id)
 
 
 @app.get("/api/v2/media/target/{target_type}/{target_id}/findings", response_model=VisionFindingsListResponse)
-def vision_findings_by_target(target_type: MediaTargetType, target_id: str) -> VisionFindingsListResponse:
-    return list_target_vision_findings_response(target_type, target_id)
+def vision_findings_by_target(
+    target_type: MediaTargetType, target_id: str, player_id: str = Depends(current_player_id)
+) -> VisionFindingsListResponse:
+    return list_target_vision_findings_response(target_type, target_id, player_id=player_id)
 
 
 @app.post("/api/v2/media/{media_id}/analyze", response_model=VisionAnalysisResponse)
 def analyze_media(
     media_id: str,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    player_id: str = Depends(current_player_id),
 ) -> VisionAnalysisResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return analyze_media_response(media_id)
+    return analyze_media_response(media_id, player_id=player_id)
 
 
 @app.post("/api/v2/media/{media_id}/redact", response_model=MediaRedactResponse)
 def redact_media(
     media_id: str,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    player_id: str = Depends(current_player_id),
 ) -> MediaRedactResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return redact_media_response(media_id)
+    return redact_media_response(media_id, player_id=player_id)
 
 
 @app.post("/api/v2/media/findings/{finding_id}/confirmation", response_model=VisionFindingConfirmationResponse)
 def confirm_vision_finding_route(
     finding_id: str,
     request: VisionFindingConfirmationRequest,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    player_id: str = Depends(current_player_id),
 ) -> VisionFindingConfirmationResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return confirm_vision_finding_response(finding_id, request)
+    return confirm_vision_finding_response(finding_id, request, player_id=player_id)
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
