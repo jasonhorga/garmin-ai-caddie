@@ -7,6 +7,7 @@ import {
   SECTION_ORDER,
   SETTINGS_SUBNAV,
   subnavForPage,
+  visibleSettingsSubnav,
 } from './navigation'
 
 describe('navigation map', () => {
@@ -46,5 +47,34 @@ describe('navigation map', () => {
     const players = SETTINGS_SUBNAV.find((item) => item.page === 'players')
     expect(players?.label).toBe('球员管理')
     expect(subnavForPage('players')).toBe(SETTINGS_SUBNAV)
+  })
+
+  it('renames the connector tab 连接 Garmin and adds an 账户 settings tab', () => {
+    expect(SETTINGS_SUBNAV.find((item) => item.page === 'sync-quality')?.label).toBe('连接 Garmin')
+    expect(SETTINGS_SUBNAV.find((item) => item.page === 'account')?.label).toBe('账户')
+    expect(PAGE_TO_SECTION.account).toBe('settings')
+  })
+
+  it('access-gates the settings subnav by owner / Apple session', () => {
+    // Owner: everything except 账户 (which needs an Apple session, not the bare-URL owner).
+    expect(visibleSettingsSubnav({ isOwner: true, hasSession: false }).map((item) => item.page)).toEqual([
+      'sync-quality',
+      'club-bag',
+      'corrections',
+      'players',
+      'settings',
+    ])
+    // Signed-in member: consumer tabs only — never the owner family roster / backend config.
+    expect(visibleSettingsSubnav({ isOwner: false, hasSession: true }).map((item) => item.page)).toEqual([
+      'sync-quality',
+      'club-bag',
+      'account',
+      'corrections',
+    ])
+    // Fresh / legacy per-player-link visitor: no account, no club bag, no owner tabs.
+    expect(visibleSettingsSubnav({ isOwner: false, hasSession: false }).map((item) => item.page)).toEqual([
+      'sync-quality',
+      'corrections',
+    ])
   })
 })

@@ -52,22 +52,38 @@ describe('AppShell', () => {
     expect(within(badge).getByText('老王')).toBeInTheDocument()
   })
 
-  it('hides the 球员管理 settings tab unless owner player admin is visible', () => {
+  it('access-gates the settings subnav: locked → owner-only → member', () => {
     const { rerender } = render(
       <AppShell activePage="sync-quality" onNavigate={() => undefined}>
         <p>settings body</p>
       </AppShell>,
     )
-    // Default (e.g. a per-player link): no owner management affordance.
+    // Default (locked / fresh or per-player-link visitor): no owner tabs, no member tabs.
     expect(screen.queryByRole('button', { name: '球员管理' })).not.toBeInTheDocument()
-    // The other settings tabs are unaffected.
-    expect(screen.getByRole('button', { name: '同步与数据健康' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '后端配置' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '账户' })).not.toBeInTheDocument()
+    // The always-on connector + 订正 tabs are unaffected.
+    expect(screen.getByRole('button', { name: '连接 Garmin' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '订正' })).toBeInTheDocument()
 
+    // A signed-in member sees the consumer tabs (连接 Garmin / 球包管理 / 账户 / 订正), no owner tabs.
     rerender(
-      <AppShell activePage="sync-quality" onNavigate={() => undefined} playersAdminVisible>
+      <AppShell activePage="sync-quality" onNavigate={() => undefined} settingsAccess={{ isOwner: false, hasSession: true }}>
+        <p>settings body</p>
+      </AppShell>,
+    )
+    expect(screen.getByRole('button', { name: '球包管理' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '账户' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '球员管理' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '后端配置' })).not.toBeInTheDocument()
+
+    // The owner sees everything, including 球员管理 + 后端配置.
+    rerender(
+      <AppShell activePage="sync-quality" onNavigate={() => undefined} settingsAccess={{ isOwner: true, hasSession: false }}>
         <p>settings body</p>
       </AppShell>,
     )
     expect(screen.getByRole('button', { name: '球员管理' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '后端配置' })).toBeInTheDocument()
   })
 })

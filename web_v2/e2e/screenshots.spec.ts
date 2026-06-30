@@ -943,6 +943,16 @@ const adminPlayersPayload = {
   ],
 }
 
+const familyUsersPayload = {
+  schema: 'ai-caddie-family-users-v1',
+  total: 3,
+  users: [
+    { id: 'u_me', displayName: '我', role: 'admin', createdAt: '2026-04-01T00:00:00Z', deletedAt: null, playerId: 'me' },
+    { id: 'u_laowang', displayName: '老王', role: 'member', createdAt: '2026-05-01T00:00:00Z', deletedAt: null, playerId: 'p_laowang' },
+    { id: 'u_xiaohong', displayName: '小红', role: 'member', createdAt: '2026-05-10T00:00:00Z', deletedAt: null, playerId: 'p_xiaohong' },
+  ],
+}
+
 const effectiveClubBagPayload = {
   schema: 'ai-caddie-effective-club-bag-v1',
   source: 'garmin',
@@ -1019,6 +1029,7 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     if (path === '/api/v2/settings/product') return route.fulfill({ json: productSettingsPayload })
     if (path === '/api/v2/annotations') return route.fulfill({ json: annotationsPayload })
     if (path === '/api/v2/admin/players') return route.fulfill({ json: adminPlayersPayload })
+    if (path === '/api/v2/admin/family/users') return route.fulfill({ json: familyUsersPayload })
     if (/^\/api\/v2\/players\/[^/]+\/clubs\/bag$/.test(path)) return route.fulfill({ json: effectiveClubBagPayload })
     return route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } })
   })

@@ -42,13 +42,6 @@ describe('ClubBagPage', () => {
     vi.clearAllMocks()
   })
 
-  it('gates behind an admin token and sends no request without one', () => {
-    render(<ClubBagPage adminToken={undefined} />)
-    expect(screen.getByText(/需要管理员令牌/)).toBeInTheDocument()
-    expect(fetchAdminPlayers).not.toHaveBeenCalled()
-    expect(fetchPlayerClubBag).not.toHaveBeenCalled()
-  })
-
   // NOTE: queries lean on getByLabelText/getByText rather than getByRole({name}) — the latter
   // recomputes accessible names across all ~30 catalog checkboxes per call, which is slow enough
   // in jsdom to blow the default 5s test timeout on a small box.
@@ -60,9 +53,10 @@ describe('ClubBagPage', () => {
     expect(fetchAdminPlayers).toHaveBeenCalledWith('admin-secret')
     expect(fetchPlayerClubBag).toHaveBeenCalledWith('me', 'admin-secret')
 
-    // Member picker lists every player (owner annotated 本人).
-    expect(screen.getByText(/本人/)).toBeInTheDocument()
-    expect(screen.getByText('老王')).toBeInTheDocument()
+    // Member picker lists every player — no 本人 vocabulary anymore.
+    expect(screen.getByRole('option', { name: '我' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '老王' })).toBeInTheDocument()
+    expect(screen.queryByText(/本人/)).not.toBeInTheDocument()
 
     // Clubs in the bag render checked; catalog clubs not in the bag stay unchecked.
     expect(iron7).toBeChecked()
@@ -72,6 +66,21 @@ describe('ClubBagPage', () => {
     // 128m prefills as 140yd; a no-distance club stays blank.
     expect(screen.getByLabelText(/七号铁.*距离/)).toHaveValue('140')
     expect(screen.getByLabelText(/一号木.*距离/)).toHaveValue('')
+  })
+
+  it('lets a signed-in member edit their OWN bag (session player id, no picker, no admin token)', async () => {
+    render(<ClubBagPage isOwner={false} selfPlayerId="p_member" />)
+    await screen.findByLabelText('七号铁')
+
+    // The member authorizes with their session bearer (no admin token) and never sees the picker.
+    expect(fetchPlayerClubBag).toHaveBeenCalledWith('p_member', undefined)
+    expect(fetchAdminPlayers).not.toHaveBeenCalled()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+
+    // Drop 一号木 so only 七号铁 remains, then save — to their own id, no admin token.
+    await userEvent.click(screen.getByLabelText('一号木'))
+    await userEvent.click(screen.getByRole('button', { name: '保存到云端' }))
+    expect(putPlayerClubBag).toHaveBeenCalledWith('p_member', { clubs: [{ token: 'iron7', distanceM: 128 }] }, undefined)
   })
 
   it('saves the manual bag for the selected player (yards → metres, only checked clubs)', async () => {
@@ -86,7 +95,7 @@ describe('ClubBagPage', () => {
     expect(await screen.findByText(/已保存到云端/)).toBeInTheDocument()
   })
 
-  it('refetches the bag of a member picked from the dropdown', async () => {
+  it('refetches the bag of a member picked from the owner dropdown', async () => {
     render(<ClubBagPage adminToken="admin-secret" />)
     await screen.findByLabelText('七号铁')
 

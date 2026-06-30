@@ -1,86 +1,50 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { createAdminPlayer, deleteAdminPlayer, fetchAdminPlayers, rotateAdminPlayerToken } from '../api'
-import type { AdminPlayer } from '../types'
+import { useEffect, useState } from 'react'
+import { fetchFamilyUsers } from '../api'
+import type { FamilyUserRow } from '../types'
 
-// Owner-only player management (multiplayer foundation, stage 1).
-//
-// This page manages players and their per-player capability links ONLY. It never
-// renders anyone's score analysis — it holds no HistoryData/stats and only ever
-// sees the admin registry view (name + tokenLast4 + optional aggregate counts).
-// Plaintext links are returned once by create/rotate and shown in a one-time
-// banner; the list never carries token material. The whole page is gated behind
-// the owner admin token and is unreachable from a per-player link.
+// Owner-only family roster (consumer era). Members now self-register via Sign in
+// with Apple, so the old per-player link-issuance model is gone: this page only
+// LISTS the family (display name + role + join date) from the identity DB
+// (/admin/family/users). It holds no score analysis and no token/link material,
+// and is reached only in owner mode (gated out of the consumer nav by AppShell).
 
 interface PlayerAdminPageProps {
   adminToken?: string
-  onNavigate?: (page: 'sync-quality') => void
 }
 
 type ListState =
-  | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'ready'; players: AdminPlayer[] }
+  | { status: 'ready'; users: FamilyUserRow[] }
   | { status: 'error'; message: string }
 
-interface IssuedLink {
-  id: string
-  name: string
-  url: string
-  reason: 'created' | 'rotated'
+const ROLE_LABEL: Record<string, string> = { admin: '主理人', member: '家人' }
+
+function roleLabel(role: string): string {
+  return ROLE_LABEL[role] ?? role
 }
 
-const SOURCE_LABEL: Record<string, string> = { garmin: 'Garmin', manual: '手动' }
-
-function sourceLabel(key: string): string {
-  return SOURCE_LABEL[key] ?? key
-}
-
-function formatSources(sources?: Record<string, number> | null): string | null {
-  if (!sources) return null
-  const entries = Object.entries(sources).filter(([, value]) => typeof value === 'number' && value > 0)
-  const total = entries.reduce((sum, [, value]) => sum + value, 0)
-  if (!total) return null
-  return entries.map(([key, value]) => `${sourceLabel(key)} ${Math.round((value / total) * 100)}%`).join(' · ')
+function joinedDate(createdAt: string): string {
+  return createdAt.slice(0, 10)
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误'
 }
 
-export function PlayerAdminPage({ adminToken, onNavigate }: PlayerAdminPageProps) {
-  const token = adminToken?.trim() ?? ''
-  const [listState, setListState] = useState<ListState>(() =>
-    adminToken?.trim() ? { status: 'loading' } : { status: 'idle' },
-  )
-  const [name, setName] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
-  const [issued, setIssued] = useState<IssuedLink | null>(null)
-  const [copied, setCopied] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    if (!token) return
-    setListState({ status: 'loading' })
-    try {
-      const data = await fetchAdminPlayers(token)
-      setListState({ status: 'ready', players: data.players })
-    } catch (error: unknown) {
-      setListState({ status: 'error', message: errorMessage(error) })
-    }
-  }, [token])
+export function PlayerAdminPage({ adminToken }: PlayerAdminPageProps) {
+  const [listState, setListState] = useState<ListState>({ status: 'loading' })
 
   useEffect(() => {
-    // No admin token → render the gate (below) and issue no request. The stale
-    // list state stays hidden because the gate branch is keyed on `token`.
-    // setState happens only in the async resolution (never synchronously in the
-    // effect body) so a token change can't trigger a cascading render.
-    if (!token) return
+    // Every setState runs in the async continuation (never synchronously in the effect
+    // body) so a token change can't trigger a cascading render (react-hooks/set-state-in-effect).
+    // The initial state is already 'loading'.
     let cancelled = false
-    fetchAdminPlayers(token)
+    fetchFamilyUsers(adminToken)
       .then((data) => {
-        if (!cancelled) setListState({ status: 'ready', players: data.players })
+        if (cancelled) return
+        // Soft-deleted users still come back on the roster — hide them.
+        const active = data.users.filter((user) => !user.deletedAt)
+        setListState({ status: 'ready', users: active })
       })
       .catch((error: unknown) => {
         if (!cancelled) setListState({ status: 'error', message: errorMessage(error) })
@@ -88,218 +52,62 @@ export function PlayerAdminPage({ adminToken, onNavigate }: PlayerAdminPageProps
     return () => {
       cancelled = true
     }
-  }, [token])
-
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const trimmed = name.trim()
-    if (!trimmed || creating) return
-    setCreating(true)
-    setActionError(null)
-    try {
-      const created = await createAdminPlayer({ name: trimmed }, token)
-      setIssued({ id: created.id, name: created.name, url: created.url, reason: 'created' })
-      setCopied(false)
-      setName('')
-      await load()
-    } catch (error: unknown) {
-      setActionError(errorMessage(error))
-    } finally {
-      setCreating(false)
-    }
-  }
-
-  async function handleRotate(player: AdminPlayer) {
-    setBusyId(player.id)
-    setActionError(null)
-    try {
-      const rotated = await rotateAdminPlayerToken(player.id, token)
-      setIssued({ id: player.id, name: player.name, url: rotated.url, reason: 'rotated' })
-      setCopied(false)
-      await load()
-    } catch (error: unknown) {
-      setActionError(errorMessage(error))
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function handleDelete(player: AdminPlayer) {
-    if (confirmingDeleteId !== player.id) {
-      setConfirmingDeleteId(player.id)
-      return
-    }
-    setBusyId(player.id)
-    setActionError(null)
-    try {
-      await deleteAdminPlayer(player.id, token)
-      setConfirmingDeleteId(null)
-      if (issued?.id === player.id) setIssued(null)
-      await load()
-    } catch (error: unknown) {
-      setActionError(errorMessage(error))
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function handleCopy(url: string) {
-    try {
-      await navigator.clipboard?.writeText(url)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
-  }
+  }, [adminToken])
 
   return (
-    <section className="player-admin-page" aria-label="球员管理工作区">
+    <section className="player-admin-page" aria-label="家庭成员工作区">
       <div className="section-head stats-head">
         <div>
-          <p className="eyebrow">多球员</p>
+          <p className="eyebrow">家庭成员</p>
           <h1>球员管理</h1>
-          <p>为好友发放专属链接;此页只管理球员与链接,不展示任何人的成绩。</p>
+          <p>家人用 Apple 登录后自动加入,这里只看成员,不展示任何人的成绩。</p>
         </div>
-        {actionError ? <span className="semantic-chip quality-missing">{actionError}</span> : null}
       </div>
 
-      {!token ? (
-        <section className="panel empty-state" aria-label="需要管理令牌">
-          <h2>需要管理令牌</h2>
-          <p className="empty-state-hint">请先在「设置 → 同步与数据健康」中输入令牌后,再来管理球员。</p>
-          {onNavigate ? (
-            <button type="button" onClick={() => onNavigate('sync-quality')}>
-              去输入令牌
-            </button>
-          ) : null}
+      {listState.status === 'loading' ? (
+        <section className="panel empty-state">
+          <h2>成员加载中</h2>
         </section>
-      ) : (
-        <>
-          <form className="panel player-admin-create" aria-label="新建球员" onSubmit={handleCreate}>
-            <label htmlFor="player-admin-name">球员名字</label>
-            <input
-              id="player-admin-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="例如:老王"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <button className="sync-action" type="submit" disabled={!name.trim() || creating}>
-              {creating ? '创建中' : '新建球员'}
-            </button>
-          </form>
+      ) : null}
 
-          {issued ? (
-            <section className="panel player-admin-issued" aria-label="一次性专属链接">
-              <div>
-                <p className="eyebrow">{issued.reason === 'rotated' ? '已重发链接' : '新链接已生成'}</p>
-                <h2>{issued.name} 的专属链接</h2>
-                <p className="empty-state-hint">
-                  仅显示一次,请立即复制并发给该球员。
-                  {issued.reason === 'rotated' ? '旧链接已失效。' : ''}
-                </p>
-              </div>
-              <code className="player-admin-url">{issued.url}</code>
-              <div className="player-admin-issued-actions">
-                <button className="sync-action" type="button" onClick={() => void handleCopy(issued.url)}>
-                  复制链接
-                </button>
-                {copied ? <span className="sync-session-state">已复制</span> : null}
-                <button type="button" onClick={() => setIssued(null)}>
-                  知道了
-                </button>
-              </div>
-            </section>
-          ) : null}
+      {listState.status === 'error' ? (
+        <section className="panel empty-state">
+          <h2>加载成员失败</h2>
+          <p>{listState.message}</p>
+        </section>
+      ) : null}
 
-          {listState.status === 'loading' ? (
-            <section className="panel empty-state">
-              <h2>球员加载中</h2>
-            </section>
-          ) : null}
-
-          {listState.status === 'error' ? (
-            <section className="panel empty-state">
-              <h2>加载球员失败</h2>
-              <p>{listState.message}</p>
-              <button type="button" onClick={() => void load()}>
-                重试
-              </button>
-            </section>
-          ) : null}
-
-          {listState.status === 'ready' ? (
-            <ul className="player-admin-list" aria-label="球员列表">
-              {listState.players.map((player) => {
-                const sourceText = formatSources(player.sources)
-                const confirming = confirmingDeleteId === player.id
-                const rowBusy = busyId === player.id
-                return (
-                  <li key={player.id} className="panel player-admin-row">
-                    <div className="player-admin-row-main">
-                      <div className="player-admin-identity">
-                        <strong>{player.name}</strong>
-                        {player.isOwner ? <span className="semantic-chip quality-good">本人</span> : null}
-                      </div>
+      {listState.status === 'ready' ? (
+        listState.users.length ? (
+          <ul className="player-admin-list" aria-label="家庭成员列表">
+            {listState.users.map((user) => {
+              const joined = joinedDate(user.createdAt)
+              return (
+                <li key={user.id} className="panel player-admin-row">
+                  <div className="player-admin-row-main">
+                    <div className="player-admin-identity">
+                      <strong>{user.displayName}</strong>
+                      <span className={user.role === 'admin' ? 'semantic-chip quality-good' : 'semantic-chip'}>
+                        {roleLabel(user.role)}
+                      </span>
+                    </div>
+                    {joined ? (
                       <div className="player-admin-meta">
-                        <span className="player-admin-token">
-                          {player.tokenLast4 ? `链接尾号 …${player.tokenLast4}` : '用管理令牌登录'}
-                        </span>
-                        {player.roundCount != null ? (
-                          <span className="player-admin-stat">
-                            {player.roundCount} 局{sourceText ? ` · ${sourceText}` : ''}
-                          </span>
-                        ) : (
-                          <span className="player-admin-stat player-admin-muted">暂无数据</span>
-                        )}
+                        <span className="player-admin-stat player-admin-muted">{joined} 加入</span>
                       </div>
-                    </div>
-                    <div className="player-admin-actions">
-                      {player.isOwner ? null : (
-                        <button
-                          type="button"
-                          className="sync-action"
-                          aria-label={`重发 ${player.name} 的专属链接`}
-                          disabled={rowBusy}
-                          onClick={() => void handleRotate(player)}
-                        >
-                          {rowBusy && !confirming ? '处理中' : '重发链接'}
-                        </button>
-                      )}
-                      {confirming ? (
-                        <button
-                          type="button"
-                          className="player-admin-danger"
-                          aria-label={`确认删除球员 ${player.name}`}
-                          disabled={rowBusy}
-                          onClick={() => void handleDelete(player)}
-                        >
-                          确认删除
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          aria-label={`删除球员 ${player.name}`}
-                          disabled={player.isOwner || rowBusy}
-                          onClick={() => void handleDelete(player)}
-                        >
-                          删除
-                        </button>
-                      )}
-                      {confirming ? (
-                        <button type="button" onClick={() => setConfirmingDeleteId(null)}>
-                          取消
-                        </button>
-                      ) : null}
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          ) : null}
-        </>
-      )}
+                    ) : null}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <section className="panel empty-state">
+            <h2>还没有家人加入</h2>
+            <p className="empty-state-hint">把 App 分享给家人,他们用 Apple 登录后会自动出现在这里。</p>
+          </section>
+        )
+      ) : null}
     </section>
   )
 }

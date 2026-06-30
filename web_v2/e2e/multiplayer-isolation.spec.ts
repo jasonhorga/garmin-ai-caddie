@@ -11,8 +11,8 @@ import { expect, test, type Page } from '@playwright/test'
 //     with no credential is locked out behind the "needs a valid link" page and
 //     fires zero data requests; a valid /p/<token> link loads only that player.
 //   • owner/homeserver (no flag, default server :5174): the admin token unlocks
-//     the player-management page, which issues a one-time link, lists only
-//     tokenLast4 (never the plaintext token), and shows no score analysis.
+//     the owner-only family roster, a READ-ONLY list of Apple-registered members
+//     (display name + role) with no link-issuance / token UI and no score analysis.
 
 const PLAYER_FACING_BASE_URL = 'http://127.0.0.1:5175'
 
@@ -26,8 +26,8 @@ const OTHER_PLAYER_ROUND = '800002'
 
 // Owner-side fixtures.
 const ADMIN_TOKEN = 'owner-admin-secret-xyz'
-const ISSUED_TOKEN = 'one-time-plain-9f8e7d6c5b4a'
-const ISSUED_URL = `http://127.0.0.1:5174/p/${ISSUED_TOKEN}`
+// A plausible plaintext capability token — the consumer-era roster must NEVER surface one.
+const LEAKABLE_TOKEN = 'one-time-plain-9f8e7d6c5b4a'
 
 const EMPTY_OPTIONS = {
   schema: 'ai-caddie-mobile-course-options-v1',
@@ -175,12 +175,14 @@ function roundsPayload() {
   }
 }
 
-function ownerPlayers() {
+function ownerFamily() {
   return {
-    players: [
-      { id: 'me', name: '我', isOwner: true, createdAt: null, avatar: null, tokenLast4: null, roundCount: 467, sources: { garmin: 460, manual: 7 } },
-      { id: 'lao-wang', name: '老王', isOwner: false, createdAt: '2026-05-01', avatar: null, tokenLast4: 'aaaa', roundCount: 5, sources: { garmin: 4, manual: 1 } },
-      { id: 'a-qiang', name: '阿强', isOwner: false, createdAt: '2026-05-02', avatar: null, tokenLast4: 'bbbb', roundCount: 3, sources: { garmin: 3 } },
+    schema: 'ai-caddie-family-users-v1',
+    total: 3,
+    users: [
+      { id: 'u-me', displayName: '我', role: 'admin', createdAt: '2026-04-01T00:00:00Z', deletedAt: null, playerId: 'me' },
+      { id: 'u-wang', displayName: '老王', role: 'member', createdAt: '2026-05-01T00:00:00Z', deletedAt: null, playerId: 'p_laowang' },
+      { id: 'u-hong', displayName: '小红', role: 'member', createdAt: '2026-05-10T00:00:00Z', deletedAt: null, playerId: 'p_xiaohong' },
     ],
   }
 }
@@ -213,27 +215,19 @@ async function mockPlayerApi(page: Page, player: { token: string }) {
   return { bearerSeen }
 }
 
-// Owner-side mock: admin/players endpoints are gated on the admin token header
-// (never a bearer), mirroring the server-side admin gate. create returns the
-// one-time plaintext token+url; the list view never carries token material.
+// Owner-side mock: the family roster is gated on the admin token header (never a
+// bearer), mirroring the server-side admin gate. The roster carries identity fields
+// only (display name + role) — never any token/link material.
 async function mockOwnerApi(page: Page) {
   const adminHeadersSeen: Array<string | undefined> = []
-  const createBodies: Array<unknown> = []
   await page.route('**/api/v2/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
     const adminHeader = request.headers()['x-ai-caddie-admin-token']
-    if (path === '/api/v2/admin/players' && request.method() === 'GET') {
+    if (path === '/api/v2/admin/family/users' && request.method() === 'GET') {
       adminHeadersSeen.push(adminHeader)
       return adminHeader === ADMIN_TOKEN
-        ? route.fulfill({ json: ownerPlayers() })
-        : route.fulfill({ status: 401, json: { detail: 'admin required' } })
-    }
-    if (path === '/api/v2/admin/players' && request.method() === 'POST') {
-      adminHeadersSeen.push(adminHeader)
-      createBodies.push(request.postDataJSON())
-      return adminHeader === ADMIN_TOKEN
-        ? route.fulfill({ json: { id: 'xiao-li', name: '小李', token: ISSUED_TOKEN, url: ISSUED_URL } })
+        ? route.fulfill({ json: ownerFamily() })
         : route.fulfill({ status: 401, json: { detail: 'admin required' } })
     }
     if (path === '/api/v2/history/overview') return route.fulfill({ json: overviewFor({ id: 'me', name: '我', isOwner: true }) })
@@ -245,7 +239,7 @@ async function mockOwnerApi(page: Page) {
     if (path === '/api/v2/readiness') return route.fulfill({ json: READINESS })
     return route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } })
   })
-  return { adminHeadersSeen, createBodies }
+  return { adminHeadersSeen }
 }
 
 test.describe('player-facing deployment (link required)', () => {
@@ -341,55 +335,48 @@ test.describe('player-facing deployment (link required)', () => {
 })
 
 test.describe('owner deployment (admin token)', () => {
-  test('owner manages players: issues a one-time link, lists only tokenLast4, shows no score analysis', async ({ page }) => {
+  test('owner sees a read-only family roster — members + roles, no link issuance, no score analysis', async ({ page }) => {
     const browserErrors: string[] = []
     page.on('pageerror', (error) => browserErrors.push(error.message))
     page.on('console', (message) => {
       if (message.type() === 'error') browserErrors.push(message.text())
     })
-    const { adminHeadersSeen, createBodies } = await mockOwnerApi(page)
+    const { adminHeadersSeen } = await mockOwnerApi(page)
 
     await page.goto('/')
     await expect(page.getByText('你好 👋')).toBeVisible()
 
     await page.getByRole('button', { name: '设置' }).click()
     await expect(page.getByRole('heading', { name: '同步与数据健康', exact: true })).toBeVisible()
-    // 球员管理 is hidden until the owner supplies an admin token.
-    await expect(page.getByRole('button', { name: '球员管理' })).toHaveCount(0)
+    // The owner supplies the admin token (an owner-only engineering control, still
+    // present in owner mode) so the admin-gated roster authorizes.
     await page.locator('#sync-admin-token').fill(ADMIN_TOKEN)
+    // 球员管理 is an owner-only tab (hidden from members / per-player links).
     await page.getByRole('button', { name: '球员管理' }).click()
 
     await expect(page.getByRole('heading', { name: '球员管理', exact: true })).toBeVisible()
-    // List view: name + tokenLast4 only, never the plaintext token.
+    // Read-only roster: Apple-registered members with their role; the owner is 主理人.
     await expect(page.getByText('老王')).toBeVisible()
-    await expect(page.getByText('链接尾号 …aaaa')).toBeVisible()
-    await expect(page.getByText('链接尾号 …bbbb')).toBeVisible()
-    await expect(page.getByText('本人')).toBeVisible()
+    await expect(page.getByText('小红')).toBeVisible()
+    await expect(page.getByText('主理人')).toBeVisible()
+    await expect(page.getByText('家人').first()).toBeVisible()
 
-    // Create a player → one-time link banner carries the plaintext url.
-    // Submit via Enter: on the narrow mobile viewport the sticky section head can
-    // overlap the submit button's click point, so keyboard submit drives the same
-    // handleCreate path without depending on the button being click-reachable.
-    await page.getByLabel('球员名字').fill('小李')
-    await page.getByLabel('球员名字').press('Enter')
-    const banner = page.getByRole('region', { name: '一次性专属链接' })
-    await expect(banner).toBeVisible()
-    await expect(banner.locator('code.player-admin-url')).toContainText(ISSUED_URL)
-    await expect(page.getByRole('heading', { name: '小李 的专属链接' })).toBeVisible()
-    // The one-time secret never bleeds into the player list rows.
-    await expect(page.getByRole('list', { name: '球员列表' })).not.toContainText(ISSUED_TOKEN)
+    // The link-issuance model is gone: no link/token vocabulary, no 本人, and no
+    // create-player form — and no plaintext token ever surfaces.
+    for (const forbidden of ['专属链接', '链接尾号', '新建球员', '本人', LEAKABLE_TOKEN]) {
+      await expect(page.getByText(forbidden, { exact: false })).toHaveCount(0)
+    }
+    await expect(page.getByRole('region', { name: '一次性专属链接' })).toHaveCount(0)
 
-    // The management page renders NO score analysis — only players + links.
+    // The roster renders NO score analysis — only members.
     for (const forbidden of ['成绩走势', '你最该练', '记分卡', '球道命中率', PLAYER_A_MANUAL_ROUND, OTHER_PLAYER_ROUND]) {
       await expect(page.getByText(forbidden, { exact: false })).toHaveCount(0)
     }
     await expect(page.getByLabel('手动录入的球局')).toHaveCount(0)
 
-    // Wire-level proof: admin endpoints were called WITH the admin token, never
-    // anonymously, and the create POST carried the new player's name.
+    // Wire-level proof: the roster endpoint was called WITH the admin token, never anonymously.
     expect(adminHeadersSeen.length).toBeGreaterThan(0)
     expect(adminHeadersSeen.every((token) => token === ADMIN_TOKEN)).toBe(true)
-    expect(createBodies).toContainEqual({ name: '小李' })
     expect(browserErrors).toEqual([])
   })
 })
