@@ -2739,6 +2739,32 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("greenCenterYards", live_components)
         self.assertIn("greenCenterYards:", current_hole)  # CurrentHoleView feeds the header
 
+    def test_live_gps_rangefinder_to_green(self) -> None:
+        # round-13 B1: the phone recomputes its LIVE distance to the green Front/Middle/Back from its
+        # own CoreLocation fix (offline-capable), falling back to the static tee→green prep distances.
+        # The backend ships F/M/B as WGS84 lat/lon on greenDistances; the model carries them; the live
+        # screen ranges to them with the shared GeoDistance haversine helper.
+        prep_model = _read_required_source(self, IOS_DIR / "Models" / "CoursePrep.swift")
+        for key in ["frontLat", "frontLon", "middleLat", "middleLon", "backLat", "backLon"]:
+            self.assertIn(key, prep_model)
+        geo = _read_required_source(self, IOS_DIR / "Services" / "GeoDistance.swift")
+        self.assertIn("enum GeoDistance", geo)
+        self.assertIn("func haversineMetres", geo)
+        self.assertIn("func yards", geo)
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        self.assertIn("liveGreenYards", current_hole)
+        self.assertIn("GeoDistance.yards(", current_hole)
+        self.assertIn("locationProvider.latestFix", current_hole)
+        self.assertIn("isGreenLive: isGreenRangeLive", current_hole)
+        # The live value is preferred but ALWAYS falls back to the static prep distance (never blank).
+        self.assertIn("?? greenYards(liveGreenDistances?.frontM)", current_hole)
+        # A subtle 实时 (live) indicator distinguishes live GPS distances from the static prep values.
+        live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
+        self.assertIn("isGreenLive", live_components)
+        self.assertIn("实时果岭距离", live_components)
+        # The math is unit-tested (live behaviour is device-only).
+        self.assertTrue((IOS_DIR.parent / "AICaddieTests" / "GeoDistanceTests.swift").exists())
+
     def test_watch_round_screens_scorecard_select_menu(self) -> None:
         # round-13 LIVE: standalone watch gains 计分卡 / 选洞 / 菜单 hub screens (spec ⑧⑨⑩),
         # wired through WatchRoundModel.screen + WatchRoundContainerView, fed by allHoleStates.

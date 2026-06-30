@@ -14,7 +14,8 @@ final class DesignSnapshotTests: XCTestCase {
             HoleDistanceHeader(
                 course: "北京丽宫 · 前九", holeNumber: 7, holeCount: 9, par: 4,
                 toPinYards: 152, carryFrontYards: nil, toParText: "+1",
-                greenFrontYards: 140, greenCenterYards: 148, greenBackYards: 155, slopeYards: 3
+                greenFrontYards: 140, greenCenterYards: 148, greenBackYards: 155, slopeYards: 3,
+                isGreenLive: true  // round-13 B1: capture the LIVE GPS rangefinder badge
             )
             CaddieRecCard(
                 modeTitle: "球童建议 · 保守(护分)",
