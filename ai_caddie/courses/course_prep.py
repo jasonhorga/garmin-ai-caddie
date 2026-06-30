@@ -375,7 +375,7 @@ def _hole_playslike(by: dict, route) -> dict:
         return {"available": False}
 
 
-def _green_distances(by: dict, route) -> dict:
+def _green_distances(by: dict, route, md: dict | None = None) -> dict:
     """Front/Middle/Back green distances from the tee (前/中/后果岭), flat plan-view m+yd. round-13 E3.
 
     Reuses the green surface mesh (``by["Green.drc"]``) the map already ships — NO DEM (elevation
@@ -385,6 +385,13 @@ def _green_distances(by: dict, route) -> dict:
     whose centroid is nearest ``route[-1]`` (the dogleg/green endpoint). Front = nearest green
     vertex to the tee, Back = farthest, Middle = the chosen component's centroid. Degrades to
     ``{"available": False}`` on any missing route/green/usable geometry.
+
+    round-13 B1 (LIVE rangefinder): when ``md`` carries the hole's ``RefLat``/``RefLon`` anchor, the
+    three green points are ALSO returned as WGS84 ``front/middle/backLat`` + ``…Lon`` so the phone can
+    recompute its live distance to the green from its own GPS fix, offline on the course. The points
+    are in the mesh ``(-mesh_x, mesh_z)`` frame, so they convert with the exact inverse of the
+    calibrated ``world_to_local`` (:func:`shot_projection.local_to_world`). Coords are omitted (the
+    tee distances are kept) when RefLat/RefLon is unavailable — no regression on geometry-only holes.
     """
     if not route:
         return {"available": False}
@@ -401,19 +408,54 @@ def _green_distances(by: dict, route) -> dict:
         target = (float(route[-1][0]), float(route[-1][1]))
         comp = min(comps, key=lambda c: math.hypot(c["centroid"][0] - target[0], c["centroid"][1] - target[1]))
         verts = [p for tri in comp["triangles"] for p in tri]
-        dists = [math.hypot(v[0] - tee[0], v[1] - tee[1]) for v in verts]
-        if not dists:
+        if not verts:
             return {"available": False}
-        front_m, back_m = min(dists), max(dists)
-        middle_m = math.hypot(comp["centroid"][0] - tee[0], comp["centroid"][1] - tee[1])
-        return {
+
+        def _from_tee(point) -> float:
+            return math.hypot(point[0] - tee[0], point[1] - tee[1])
+
+        # Keep the actual F/M/B POINTS (not just their distances) so they can also be projected to
+        # WGS84 below — frontM/middleM/backM stay byte-identical to the previous min/max-of-distances.
+        front_pt = min(verts, key=_from_tee)
+        back_pt = max(verts, key=_from_tee)
+        middle_pt = comp["centroid"]
+        front_m, middle_m, back_m = _from_tee(front_pt), _from_tee(middle_pt), _from_tee(back_pt)
+        result = {
             "available": True,
             "frontM": round(front_m, 1), "frontYd": yd(front_m),
             "middleM": round(middle_m, 1), "middleYd": yd(middle_m),
             "backM": round(back_m, 1), "backYd": yd(back_m),
         }
+        result.update(_green_latlon(md, front_pt, middle_pt, back_pt))
+        return result
     except Exception:
         return {"available": False}
+
+
+def _green_latlon(md: dict | None, front_pt, middle_pt, back_pt) -> dict:
+    """WGS84 lat/lon for the three green points so the phone can range-find live (round-13 B1).
+
+    Empty when the hole has no ``RefLat``/``RefLon`` anchor (or it is malformed) — the caller keeps
+    the tee distances, so a geometry-only hole still degrades gracefully. The points are already in
+    the mesh ``(-mesh_x, mesh_z)`` metric frame, so they convert with the EXACT inverse of the
+    calibrated ``world_to_local`` (NOT data.local_to_wgs84, whose mean radius drifts ~0.1 %).
+    """
+    try:
+        hole_meta = (md or {}).get("hole") or {}
+        ref_lat, ref_lon = hole_meta.get("RefLat"), hole_meta.get("RefLon")
+        if ref_lat is None or ref_lon is None:
+            return {}
+        ref_lat, ref_lon = float(ref_lat), float(ref_lon)
+        out: dict = {}
+        for name, point in (("front", front_pt), ("middle", middle_pt), ("back", back_pt)):
+            lat, lon = shot_projection.local_to_world(
+                float(point[0]), float(point[1]), ref_lat=ref_lat, ref_lon=ref_lon
+            )
+            out[f"{name}Lat"] = round(lat, 7)
+            out[f"{name}Lon"] = round(lon, 7)
+        return out
+    except Exception:
+        return {}
 
 
 def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
@@ -565,7 +607,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         steps=steps, cautions=cautions, landing_m=(round(landing, 1) if landing else None),
         tee_club=tee_club, hazards=hazards,
         playsLike=_hole_playslike(by, route),
-        greenDistances=_green_distances(by, route),
+        greenDistances=_green_distances(by, route, md),
     )
     result = prep.to_dict()
     if render:

@@ -48,6 +48,20 @@ def world_to_local(lat_deg: float, lon_deg: float, *, ref_lat: float, ref_lon: f
     return (x, y)
 
 
+def local_to_world(x: float, y: float, *, ref_lat: float, ref_lon: float) -> tuple[float, float]:
+    """Hole-local metres ``(x=east, y=north)`` → WGS84 degrees ``(lat, lon)`` about RefLat/RefLon.
+
+    The EXACT inverse of :func:`world_to_local` (same calibrated WGS84 equatorial radius), so a
+    point round-trips ``local_to_world`` → ``world_to_local`` to floating-point precision. Use this —
+    not :func:`ai_caddie.core.data.local_to_wgs84` (mean radius 6371000 m) — for any point already in
+    the mesh ``(-mesh_x, mesh_z)`` frame (route / green vertices), or the WGS84 result drifts ~0.1 %
+    of the distance from the anchor (see module docstring: 0.04 m vs 0.67 m calibration error).
+    """
+    lat = ref_lat + math.degrees(y / EARTH_RADIUS_WGS84_M)
+    lon = ref_lon + math.degrees(x / (EARTH_RADIUS_WGS84_M * math.cos(math.radians(ref_lat))))
+    return (lat, lon)
+
+
 def project_world_to_pixel(
     lat_deg: float,
     lon_deg: float,

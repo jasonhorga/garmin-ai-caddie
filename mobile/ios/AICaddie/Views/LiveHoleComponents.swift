@@ -87,6 +87,10 @@ struct HoleDistanceHeader: View {
     var greenCenterYards: Int? = nil
     var greenBackYards: Int? = nil
     var slopeYards: Int? = nil
+    // round-13 B1: true when the 前/中/后果岭 numbers are LIVE GPS distances (recomputed from the
+    // phone's CoreLocation fix), not the static tee→green prep values — shows a subtle 实时 badge so
+    // the player can tell the two apart.
+    var isGreenLive: Bool = false
 
     private var hasGreenTriad: Bool { greenFrontYards != nil || greenCenterYards != nil || greenBackYards != nil }
 
@@ -114,6 +118,13 @@ struct HoleDistanceHeader: View {
                     if let slopeYards, slopeYards != 0 {
                         HeaderStat(value: "\(slopeYards > 0 ? "+" : "")\(slopeYards)", label: "坡度(码)")
                     }
+                }
+                if isGreenLive {
+                    HStack(spacing: 5) {
+                        Image(systemName: "location.fill").font(.caption2)
+                        Text("实时果岭距离 · 随定位更新").font(.caption2)
+                    }
+                    .opacity(0.9)
                 }
             }
         }

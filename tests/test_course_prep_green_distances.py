@@ -1,7 +1,13 @@
-"""round-13 E3: course_prep exposes Front/Middle/Back green distances (前/中/后果岭), no DEM."""
+"""round-13 E3: course_prep exposes Front/Middle/Back green distances (前/中/后果岭), no DEM.
+
+round-13 B1 (LIVE rangefinder): it ALSO exposes F/M/B as WGS84 lat/lon so the phone can recompute
+its live distance to the green from CoreLocation, offline on the course.
+"""
+import math
 import unittest
 
 from ai_caddie.courses import course_prep
+from ai_caddie.geometry import shot_projection
 
 
 # Synthetic Green.drc with TWO disconnected components (mesh positions are [x, y, z];
@@ -55,6 +61,68 @@ class CoursePrepGreenDistancesTest(unittest.TestCase):
             blue_yards=400, route_len_m=366.0,
         )
         self.assertIn("greenDistances", prep.to_dict())
+
+
+# round-13 B1: green RefLat/RefLon anchor → F/M/B WGS84 coords for the phone's live rangefinder.
+MD = {"hole": {"RefLat": 40.0, "RefLon": 116.0}}
+
+
+class GreenCoordinatesTest(unittest.TestCase):
+    def test_local_to_world_round_trips_world_to_local(self):
+        # The CRITICAL axis check: green vertices live in the mesh (-mesh_x, mesh_z) frame, and the
+        # coords ship via shot_projection.local_to_world — the EXACT inverse of the calibrated
+        # world_to_local. So any green local point must round-trip to itself (not data.local_to_wgs84,
+        # whose mean radius would drift). A failure here means the axes/refs are wrong.
+        ref_lat, ref_lon = 40.0, 116.0
+        for point in [(0.0, 0.0), (-3.0, 196.0), (3.0, 206.0), (0.0, 201.0), (123.4, -57.8)]:
+            lat, lon = shot_projection.local_to_world(point[0], point[1], ref_lat=ref_lat, ref_lon=ref_lon)
+            back_x, back_y = shot_projection.world_to_local(lat, lon, ref_lat=ref_lat, ref_lon=ref_lon)
+            self.assertAlmostEqual(back_x, point[0], places=6)
+            self.assertAlmostEqual(back_y, point[1], places=6)
+
+    def test_green_coords_present_and_near_the_green(self):
+        out = course_prep._green_distances(BY, ROUTE, MD)
+        self.assertTrue(out["available"])
+        for key in ("frontLat", "frontLon", "middleLat", "middleLon", "backLat", "backLon"):
+            self.assertIn(key, out)
+        # The green sits ~196–206 m NORTH of the (40,116) anchor → lat just above 40, lon ~116.
+        for lat in (out["frontLat"], out["middleLat"], out["backLat"]):
+            self.assertTrue(40.0 < lat < 40.01, lat)
+        for lon in (out["frontLon"], out["middleLon"], out["backLon"]):
+            self.assertAlmostEqual(lon, 116.0, places=3)
+        # Front is nearer the tee (less north) than middle, which is nearer than back.
+        self.assertLess(out["frontLat"], out["middleLat"])
+        self.assertLess(out["middleLat"], out["backLat"])
+
+    def test_green_coords_round_trip_back_to_local(self):
+        # The shipped (rounded) coords must project back onto the green's local F/M/B points, proving
+        # the conversion used the right frame and didn't, e.g., swap lat/lon or flip a sign.
+        out = course_prep._green_distances(BY, ROUTE, MD)
+        front_x, front_y = shot_projection.world_to_local(out["frontLat"], out["frontLon"], ref_lat=40.0, ref_lon=116.0)
+        back_x, back_y = shot_projection.world_to_local(out["backLat"], out["backLon"], ref_lat=40.0, ref_lon=116.0)
+        # Front vertex is nearest the tee (y≈196), back is farthest (y≈206); both sit on the green (|x|≈3).
+        self.assertAlmostEqual(front_y, 196.0, delta=0.05)
+        self.assertAlmostEqual(back_y, 206.0, delta=0.05)
+        self.assertLessEqual(abs(front_x), 3.05)
+        self.assertLessEqual(abs(back_x), 3.05)
+
+    def test_coords_omitted_without_ref_but_distances_identical(self):
+        # No md (or md without RefLat/RefLon) → coords omitted, distances byte-identical (no regression).
+        base = course_prep._green_distances(BY, ROUTE)
+        with_md = course_prep._green_distances(BY, ROUTE, MD)
+        no_ref = course_prep._green_distances(BY, ROUTE, {"hole": {}})
+        for variant in (base, no_ref):
+            self.assertNotIn("frontLat", variant)
+            self.assertNotIn("backLon", variant)
+        # The md only ADDS coords — every distance field is unchanged.
+        for key in ("available", "frontM", "frontYd", "middleM", "middleYd", "backM", "backYd"):
+            self.assertEqual(with_md[key], base[key], key)
+
+    def test_malformed_ref_degrades_to_no_coords_keeps_distances(self):
+        out = course_prep._green_distances(BY, ROUTE, {"hole": {"RefLat": "oops", "RefLon": None}})
+        self.assertTrue(out["available"])
+        self.assertNotIn("frontLat", out)
+        self.assertEqual(out["middleM"], course_prep._green_distances(BY, ROUTE)["middleM"])
 
 
 if __name__ == "__main__":

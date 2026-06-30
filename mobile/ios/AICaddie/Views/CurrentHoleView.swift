@@ -118,10 +118,11 @@ public struct CurrentHoleView: View {
                     toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
                     carryFrontYards: nil,
                     toParText: holeToParText,
-                    greenFrontYards: greenYards(liveGreenDistances?.frontM),
-                    greenCenterYards: greenYards(liveGreenDistances?.middleM),
-                    greenBackYards: greenYards(liveGreenDistances?.backM),
-                    slopeYards: holePrep?.playsLike?.available == true ? holePrep?.playsLike?.deltaYd : nil
+                    greenFrontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
+                    greenCenterYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
+                    greenBackYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
+                    slopeYards: holePrep?.playsLike?.available == true ? holePrep?.playsLike?.deltaYd : nil,
+                    isGreenLive: isGreenRangeLive
                 )
 
                 VStack(spacing: 12) {
@@ -294,7 +295,8 @@ public struct CurrentHoleView: View {
         if holePrep != nil { sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption) }
     }
 
-    /// round-13 LIVE: 本洞前/中/后果岭(F/M/B),仅在 prep 几何可用时。tee→green 静态值。
+    /// round-13 LIVE: 本洞前/中/后果岭(F/M/B)prep 数据,仅在 prep 几何可用时。distances 是 tee→green
+    /// 静态值;B1 起它还带 F/M/B 的经纬度,供下面的 `liveGreenYards` 做实时测距。
     private var liveGreenDistances: CoursePrepGreenDistances? {
         guard let gd = holePrep?.greenDistances, gd.available else { return nil }
         return gd
@@ -304,6 +306,22 @@ public struct CurrentHoleView: View {
     private func greenYards(_ metres: Double?) -> Int? {
         metres.map { Int(($0 * 1.09361).rounded()) }
     }
+
+    /// round-13 B1 LIVE 测距:当前 GPS 定位 → 前/中/后果岭实时码距(haversine,客户端计算,离线可用)。
+    /// 仅当有实时定位且该洞 prep 带果岭 F/M/B 经纬度时返回;否则 nil → 调用方回退到静态 tee→green 距离。
+    /// 读取 @Published 的 `locationProvider.latestFix`,所以定位每次更新(球员走动)都会驱动重算与刷新。
+    private var liveGreenYards: (front: Int?, middle: Int?, back: Int?)? {
+        guard let fix = locationProvider.latestFix, let gd = liveGreenDistances else { return nil }
+        let here = fix.coordinate
+        let front = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.frontLat, gd.frontLon)
+        let middle = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.middleLat, gd.middleLon)
+        let back = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.backLat, gd.backLon)
+        guard front != nil || middle != nil || back != nil else { return nil }
+        return (front, middle, back)
+    }
+
+    /// 实时果岭测距当前是否生效(有 GPS 定位 + 该洞带果岭经纬度)→ 头部显示「实时」标记区分实时/静态。
+    private var isGreenRangeLive: Bool { liveGreenYards != nil }
 
     /// 本洞避开区:取按洞拉取的 prep 的 hazards(沙坑/水域 米区间)供球童方案展示。
     /// (live 包为提速不再内置全洞 coursePrep;按洞 prep 随 2D 图一起加载。)
