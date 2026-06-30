@@ -344,9 +344,15 @@ public final class WatchEventBridge: NSObject {
         sessionTokenExpiresAt: Date? = nil
     ) {
         var config: [String: Any] = ["apiBaseURL": apiBaseURL]
+        // DEBUG/CI ONLY: forward the admin token to the watch as its fallback auth. Consumer (Release)
+        // builds hold no admin token (AICaddieApp.defaultAdminToken returns nil) and the watch
+        // authenticates solely with the phone-pushed Apple `sessionToken` below, so this is compiled
+        // out of Release — the watch config never carries an admin token.
+        #if DEBUG
         if let adminToken, !adminToken.isEmpty {
             config["adminToken"] = adminToken
         }
+        #endif
         if let sessionToken, !sessionToken.isEmpty {
             config["sessionToken"] = sessionToken
             if let sessionTokenExpiresAt {

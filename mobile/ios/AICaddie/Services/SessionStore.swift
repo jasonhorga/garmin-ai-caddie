@@ -107,9 +107,18 @@ public final class SessionStore: ObservableObject {
 public func applyAICaddieAuth(to request: inout URLRequest, adminToken: String?) {
     if let token = SessionStore.shared.liveToken {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    } else if let adminToken {
+        return
+    }
+    // DEBUG/CI ONLY: a real Apple sign-in can't run on the simulator, so dev/test builds fall back to
+    // an admin token. Consumer (Release) builds never load one (AICaddieApp.defaultAdminToken returns
+    // nil in Release), so this branch is compiled out — and because the app gates on Apple sign-in, a
+    // Release request always has a live session here. A Release request without a session carries no
+    // auth header rather than an admin one.
+    #if DEBUG
+    if let adminToken {
         request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
     }
+    #endif
 }
 
 /// Keychain-backed persistence (service `com.ai-caddie.session`).
