@@ -26,6 +26,14 @@ describe('sessionStore', () => {
     expect(currentSessionPlayerId()).toBe('me')
   })
 
+  it('persists the session in localStorage so it survives a browser/tab close', () => {
+    // The session must outlive the tab (localStorage, NOT sessionStorage) so users
+    // aren't forced to re-login every time they reopen the browser.
+    saveSession(live('persisted', 'me'))
+    expect(window.localStorage.getItem('ai-caddie.session')).not.toBeNull()
+    expect(window.sessionStorage.getItem('ai-caddie.session')).toBeNull()
+  })
+
   it('drops an expired session (never vends a stale token)', () => {
     saveSession({ token: 't2', playerId: 'p_x', expiresAt: new Date(Date.now() - 1000).toISOString() })
     expect(currentSession()).toBeNull()
@@ -39,7 +47,7 @@ describe('sessionStore', () => {
   })
 
   it('ignores corrupt stored JSON', () => {
-    window.sessionStorage.setItem('ai-caddie.session', '{not json')
+    window.localStorage.setItem('ai-caddie.session', '{not json')
     expect(currentSession()).toBeNull()
   })
 
