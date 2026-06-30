@@ -203,14 +203,14 @@ describe('admin token header suppression for member sessions', () => {
   const SESSION_KEY = 'ai-caddie.session'
   const futureIso = () => new Date(Date.now() + 3_600_000).toISOString()
   function setSession(playerId: string) {
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: 'session-bearer', playerId, expiresAt: futureIso() }))
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify({ token: 'session-bearer', playerId, expiresAt: futureIso() }))
   }
 
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
     vi.mocked(readPlayerToken).mockReturnValue(null)
-    window.sessionStorage.clear()
+    window.localStorage.clear()
   })
 
   it('does NOT send the admin header for a signed-in MEMBER (only their own bearer)', async () => {

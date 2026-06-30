@@ -343,5 +343,30 @@ class FamilyUsersRosterTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/v2/admin/family/users").status_code, 401)
 
 
+class SessionTtlTests(unittest.TestCase):
+    """_session_ttl(): default 30 days so a signed-in session (web localStorage / iOS
+    Keychain) survives restarts; env-overridable; a typo'd env must not 500."""
+
+    def _ttl(self):
+        from server_v2.auth_api import _session_ttl
+        return _session_ttl()
+
+    def test_default_is_30_days(self):
+        from datetime import timedelta
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AI_CADDIE_SESSION_TTL_HOURS", None)
+            self.assertEqual(self._ttl(), timedelta(days=30))
+
+    def test_env_override_is_honored(self):
+        from datetime import timedelta
+        with mock.patch.dict(os.environ, {"AI_CADDIE_SESSION_TTL_HOURS": "1"}):
+            self.assertEqual(self._ttl(), timedelta(hours=1))
+
+    def test_typo_env_falls_back_to_30_days_not_500(self):
+        from datetime import timedelta
+        with mock.patch.dict(os.environ, {"AI_CADDIE_SESSION_TTL_HOURS": "not-a-number"}):
+            self.assertEqual(self._ttl(), timedelta(days=30))
+
+
 if __name__ == "__main__":
     unittest.main()

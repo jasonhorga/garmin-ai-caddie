@@ -54,11 +54,17 @@ def _verify(token: str) -> apple_auth.AppleIdentity:
         raise HTTPException(status_code=401, detail="invalid apple identity token") from exc
 
 
+# Default 30 days (720h). A signed-in session persists (web localStorage / iOS Keychain),
+# so a long TTL keeps users signed in across restarts instead of forcing re-login daily.
+# Override with AI_CADDIE_SESSION_TTL_HOURS.
+_DEFAULT_SESSION_TTL_HOURS = 720
+
+
 def _session_ttl() -> timedelta:
     try:
-        hours = int(os.environ.get("AI_CADDIE_SESSION_TTL_HOURS", "24"))
+        hours = int(os.environ.get("AI_CADDIE_SESSION_TTL_HOURS", str(_DEFAULT_SESSION_TTL_HOURS)))
     except ValueError:
-        hours = 24  # a typo'd env value must not 500 every auth call
+        hours = _DEFAULT_SESSION_TTL_HOURS  # a typo'd env value must not 500 every auth call
     return timedelta(hours=hours)
 
 

@@ -1023,12 +1023,10 @@ describe('App navigation', () => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
     vi.restoreAllMocks()
-    // The admin token now persists to localStorage; clear it so a token entered
-    // in one test never leaks a stray header into the next test's boot load.
+    // The admin token AND the Apple session now both persist to localStorage; clear
+    // it so a token/session set by one test never leaks a stray header or flips the
+    // next test out of owner mode on its boot load.
     localStorage.clear()
-    // Apple sessions live in sessionStorage; clear so a member session set by one
-    // test never flips the next test out of owner mode.
-    window.sessionStorage.clear()
   })
 
   it('shows the invalid-link page and sends no data requests when a link is required but none is present', async () => {
@@ -2095,7 +2093,7 @@ describe('App navigation', () => {
     // A member Apple session (playerId != 'me') is the consumer view: no admin-token
     // input, no family-roster / backend-config tabs — but their own bag + account show.
     const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       'ai-caddie.session',
       JSON.stringify({ token: 'member-bearer', playerId: 'p_member', expiresAt: future }),
     )
@@ -2133,7 +2131,7 @@ describe('App navigation', () => {
     // A member is never owner mode, so the diagnostics surface (raw refs / drilldown) stays
     // gated even though the beforeEach turned the diagnostics flag on. They get the content.
     const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       'ai-caddie.session',
       JSON.stringify({ token: 'member-bearer', playerId: 'p_member', expiresAt: future }),
     )

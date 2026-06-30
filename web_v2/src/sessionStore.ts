@@ -1,9 +1,13 @@
 // Apple Sign-in session (consumer auth). Everyone signs in with Apple; the
 // owner is just the session whose playerId is the backend OWNER_ID ("me").
 //
-// Stored in sessionStorage (NOT localStorage) to limit XSS blast radius — the
-// bearer lives only for the tab session. api.ts reads `currentSessionToken()`
-// and attaches it as `Authorization: Bearer`. Never log the token.
+// Stored in localStorage so the session SURVIVES a browser/tab close — users
+// stay signed in across restarts instead of re-logging-in every visit (the
+// backend TTL, default 30 days, still bounds the bearer's lifetime). The
+// tradeoff vs sessionStorage: a stored XSS could now read the bearer; that's
+// the accepted consumer call (re-login-every-launch is worse UX). api.ts reads
+// `currentSessionToken()` and attaches it as `Authorization: Bearer`. Never log
+// the token.
 
 import { writeStoredAdminToken } from './adminTokenStore'
 
@@ -26,7 +30,7 @@ function isExpired(session: AppSession): boolean {
 export function currentSession(): AppSession | null {
   let raw: string | null
   try {
-    raw = window.sessionStorage.getItem(SESSION_KEY)
+    raw = window.localStorage.getItem(SESSION_KEY)
   } catch {
     return null
   }
@@ -63,15 +67,15 @@ export function saveSession(session: AppSession): void {
     writeStoredAdminToken('')
   }
   try {
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   } catch {
-    /* sessionStorage unavailable (private mode / SSR) — sign-in just won't persist */
+    /* localStorage unavailable (private mode / disabled / SSR) — sign-in just won't persist */
   }
 }
 
 export function clearSession(): void {
   try {
-    window.sessionStorage.removeItem(SESSION_KEY)
+    window.localStorage.removeItem(SESSION_KEY)
   } catch {
     /* ignore */
   }
