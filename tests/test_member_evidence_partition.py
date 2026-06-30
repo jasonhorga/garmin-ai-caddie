@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from ai_caddie.core.data import OWNER_ID
 from ai_caddie.caddie.decision import list_decision_audits, store_decision_audit
+from ai_caddie.caddie.mobile_live import mobile_event_log
+from ai_caddie.caddie.mobile_reconciliation import _event_rows
 from ai_caddie.llm.weather_context import list_weather_snapshots, store_weather_snapshot
 from ai_caddie.reports.reports import list_report_records, store_report
 
@@ -56,6 +59,24 @@ class MemberEvidencePartitionTests(unittest.TestCase):
         owner_payloads = [r.get("report", {}).get("x") for r in list_report_records(root=self.root, player_id=OWNER_ID)]
         self.assertEqual(owner_payloads, [1])
         self.assertNotIn(2, owner_payloads)
+
+    def test_reconciliation_event_rows_read_acting_players_own_log(self) -> None:
+        # The reconciliation read path must read the ACTING player's partitioned event log
+        # (mobile_event_log per-player), NOT a double-nested evidence_root path. Write one event
+        # into the owner's flat log and one into a member's partition, then confirm each player's
+        # reconciliation sees only their own round's events — never the other's.
+        for pid, rid in [(OWNER_ID, "r-owner"), ("p_alice", "r-alice")]:
+            path = mobile_event_log(self.root, player_id=pid)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"roundId": rid, "serverSequence": 1, "event": {"type": "shot", "who": pid}}) + "\n",
+                encoding="utf-8",
+            )
+        self.assertEqual([r.get("who") for r in _event_rows("r-alice", root=self.root, player_id="p_alice")], ["p_alice"])
+        self.assertEqual([r.get("who") for r in _event_rows("r-owner", root=self.root, player_id=OWNER_ID)], [OWNER_ID])
+        # a member never sees the owner's round events (no cross-read, even by the owner's round id):
+        self.assertEqual(_event_rows("r-owner", root=self.root, player_id="p_alice"), [])
+        self.assertEqual(_event_rows("r-alice", root=self.root, player_id="p_bob"), [])
 
 
 if __name__ == "__main__":
