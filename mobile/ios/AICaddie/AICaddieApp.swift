@@ -775,6 +775,11 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private static func defaultAdminToken(includePersisted: Bool = true) -> String? {
+        // DEBUG/CI ONLY: the admin token is the dev/simulator auth fallback (a real Apple sign-in
+        // can't run there). Consumer (Release) builds never load or hold one — they authenticate only
+        // via the Apple session — so the whole load path (env / Keychain / Info.plist) is compiled out
+        // and Release always resolves a nil admin token.
+        #if DEBUG
         if let token = sanitizedConfigurationValue(ProcessInfo.processInfo.environment["AI_CADDIE_ADMIN_TOKEN"]) {
             return token
         }
@@ -784,6 +789,9 @@ public final class LiveRoundAppModel: ObservableObject {
         // Baked at build time for the single-owner TestFlight build (Info.plist
         // AICaddieAdminToken = $(AI_CADDIE_ADMIN_TOKEN)); empty/unexpanded → nil.
         return sanitizedConfigurationValue(Bundle.main.object(forInfoDictionaryKey: "AICaddieAdminToken") as? String)
+        #else
+        return nil
+        #endif
     }
 
     private static func defaultLiveRoundId() -> String {

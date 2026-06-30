@@ -167,9 +167,17 @@ public final class WatchBackendClient {
     private func applyAuth(_ request: inout URLRequest) {
         if let token = liveSessionToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        } else if let adminToken {
+            return
+        }
+        // DEBUG/CI ONLY: the admin token is the dev/simulator fallback. The Release watch authenticates
+        // ONLY with the phone-pushed Apple `sessionToken` (round-13 watch-auth) and never receives an
+        // admin token (the phone compiles out the send), so this branch is compiled out of consumer
+        // builds — a Release request without a live session token carries no auth header.
+        #if DEBUG
+        if let adminToken {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
+        #endif
     }
 
     /// The pushed session token, honored only until it expires — mirrors the phone's
