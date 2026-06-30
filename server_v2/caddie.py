@@ -35,9 +35,13 @@ VISION_ROOT = Path(".")
 WEATHER_ROOT = Path(".")
 
 
-def build_caddie_decision_response(request: CaddieDecisionRequest) -> CaddieDecisionResponse:
+def build_caddie_decision_response(
+    request: CaddieDecisionRequest, *, player_id: str = OWNER_ID
+) -> CaddieDecisionResponse:
     decision = build_decision_from_request(request.model_dump())
-    store_decision(decision, root=DECISION_LEDGER_ROOT)
+    # Member-scoped: the decision lands in the caller's evidence partition (evidence_root(player_id));
+    # the owner stays flat / byte-identical.
+    store_decision(decision, root=DECISION_LEDGER_ROOT, player_id=player_id)
     return CaddieDecisionResponse(**decision)
 
 
@@ -115,18 +119,25 @@ def _actual_audit_input(request: CaddieDecisionAuditRequest) -> dict[str, object
     return payload
 
 
-def _decision_for_audit(decision_id: str, request: CaddieDecisionAuditRequest) -> dict[str, object]:
+def _decision_for_audit(
+    decision_id: str, request: CaddieDecisionAuditRequest, *, player_id: str = OWNER_ID
+) -> dict[str, object]:
     if request.decision is not None:
         return request.decision
-    record = latest_decision_record(decision_id, root=DECISION_LEDGER_ROOT)
+    # Re-read the stored decision from the CALLER's partition only: a member resolves their own
+    # stored decision (never the owner's — a guessed owner decision_id 404s, no cross-read).
+    record = latest_decision_record(decision_id, root=DECISION_LEDGER_ROOT, player_id=player_id)
     if not record or not isinstance(record.get("decision"), dict):
         raise HTTPException(status_code=404, detail="stored decision not found")
     return record["decision"]
 
 
-def create_decision_audit_response(decision_id: str, request: CaddieDecisionAuditRequest) -> CaddieDecisionAuditStoreResponse:
-    audit = audit_decision(_decision_for_audit(decision_id, request), _actual_audit_input(request))
-    record = store_decision_audit(audit, decision_id=decision_id, root=DECISION_AUDIT_ROOT)
+def create_decision_audit_response(
+    decision_id: str, request: CaddieDecisionAuditRequest, *, player_id: str = OWNER_ID
+) -> CaddieDecisionAuditStoreResponse:
+    audit = audit_decision(_decision_for_audit(decision_id, request, player_id=player_id), _actual_audit_input(request))
+    # Member-scoped: the audit lands in the caller's evidence partition; the owner stays flat.
+    record = store_decision_audit(audit, decision_id=decision_id, root=DECISION_AUDIT_ROOT, player_id=player_id)
     return CaddieDecisionAuditStoreResponse(
         schema="ai-caddie-decision-audit-store-v1",
         record=CaddieDecisionAuditRecord(**record),

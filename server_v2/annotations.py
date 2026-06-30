@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from ai_caddie.reports.annotations import add_annotation, annotations_for_target, list_annotations
+from ai_caddie.rounds.players import OWNER_ID
 
 from .models import (
     AnnotationCreateRequest,
@@ -32,14 +33,18 @@ def list_annotation_response() -> AnnotationListResponse:
     )
 
 
-def create_annotation_response(request: AnnotationCreateRequest) -> AnnotationCreateResponse:
+def create_annotation_response(
+    request: AnnotationCreateRequest, *, player_id: str = OWNER_ID
+) -> AnnotationCreateResponse:
     try:
+        # Member-scoped: the annotation lands in the caller's evidence partition; owner stays flat.
         record = add_annotation(
             request.targetType,
             request.targetId,
             request.kind,
             request.payload,
             root=ANNOTATION_ROOT,
+            player_id=player_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
