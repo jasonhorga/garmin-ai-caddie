@@ -66,6 +66,7 @@ from .auth_api import auth_router
 from .players_api import (
     admin_request_disposition,
     admin_router,
+    assert_admin_security_config,
     current_player_id,
     has_valid_player_token,
     is_player_scoped_route,
@@ -159,6 +160,9 @@ async def _lifespan(_app: FastAPI):
     solely by Alembic — ``alembic upgrade head`` in start_api.sh — never the app process,
     so create_all can never race or shadow a migration. Phase 1a is additive.)
     """
+    # Fail fast (require-admin profile with no admin token) / warn loudly (open-dev owner-grant active)
+    # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
+    assert_admin_security_config()
     warm_stats_cache_in_background()
     yield
 
@@ -804,8 +808,9 @@ def caddie_decision_audit_latest(
 
 
 @app.get("/api/v2/annotations", response_model=AnnotationListResponse)
-def annotations() -> AnnotationListResponse:
-    return list_annotation_response()
+def annotations(player_id: str = Depends(current_player_id)) -> AnnotationListResponse:
+    # Member-scoped read: a member lists ONLY their own annotations; the owner reads the flat store.
+    return list_annotation_response(player_id=player_id)
 
 
 @app.post("/api/v2/annotations", response_model=AnnotationCreateResponse)
@@ -818,8 +823,11 @@ def create_annotation(
 
 
 @app.get("/api/v2/annotations/target/{target_type}/{target_id}", response_model=AnnotationListResponse)
-def annotations_by_target(target_type: AnnotationTargetType, target_id: str) -> AnnotationListResponse:
-    return list_target_annotation_response(target_type, target_id)
+def annotations_by_target(
+    target_type: AnnotationTargetType, target_id: str, player_id: str = Depends(current_player_id)
+) -> AnnotationListResponse:
+    # Member-scoped read: a member sees ONLY their own annotations for this target; the owner stays flat.
+    return list_target_annotation_response(target_type, target_id, player_id=player_id)
 
 
 @app.post("/api/v2/media", response_model=MediaCreateResponse)

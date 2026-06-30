@@ -23,8 +23,9 @@ def _record(row: dict[str, object]) -> AnnotationRecord:
     return AnnotationRecord(**row)
 
 
-def list_annotation_response() -> AnnotationListResponse:
-    rows = [_record(row) for row in list_annotations(root=ANNOTATION_ROOT)]
+def list_annotation_response(*, player_id: str = OWNER_ID) -> AnnotationListResponse:
+    # Member-scoped read: a member sees ONLY their own evidence partition; the owner stays flat.
+    rows = [_record(row) for row in list_annotations(root=ANNOTATION_ROOT, player_id=player_id)]
     return AnnotationListResponse(
         schema="ai-caddie-annotations-v1",
         total=len(rows),
@@ -54,8 +55,11 @@ def create_annotation_response(
     )
 
 
-def list_target_annotation_response(target_type: AnnotationTargetType, target_id: str) -> AnnotationListResponse:
-    rows = [_record(row) for row in annotations_for_target(target_type, target_id, root=ANNOTATION_ROOT)]
+def list_target_annotation_response(
+    target_type: AnnotationTargetType, target_id: str, *, player_id: str = OWNER_ID
+) -> AnnotationListResponse:
+    # Member-scoped read: a member sees ONLY their own evidence partition; the owner stays flat.
+    rows = [_record(row) for row in annotations_for_target(target_type, target_id, root=ANNOTATION_ROOT, player_id=player_id)]
     return AnnotationListResponse(
         schema="ai-caddie-annotations-v1",
         total=len(rows),
