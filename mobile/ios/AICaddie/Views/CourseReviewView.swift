@@ -70,7 +70,6 @@ struct HolePrepCard: View {
                     .background(parColor).foregroundColor(.white).clipShape(Capsule())
                 Text("蓝T \(hole.blueYards)y").font(.caption).foregroundColor(.secondary)
                 Spacer()
-                Text("Par 来源：\(sourceLabel)").font(.caption2).foregroundColor(.secondary)
             }
             // 服务端真实球场图 + 推荐打法(route + 推荐落点 + 球杆)叠加。
             HoleImageMapView(hole: hole)
@@ -96,10 +95,6 @@ struct HolePrepCard: View {
         case 5: return .orange
         default: return .green
         }
-    }
-
-    private var sourceLabel: String {
-        coursePrepParSourceLabel(hole.parSource)
     }
 
     private var routeCurrentMetres: Double {

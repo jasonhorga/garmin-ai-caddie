@@ -41,7 +41,7 @@ public struct WatchHoleView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Text(state.targetLatitude == nil || state.targetLongitude == nil ? "待手机推送旗位" : "\(WatchCaddieText.targetNoun(state.targetKind))已就绪")
+                    Text(state.targetLatitude == nil || state.targetLongitude == nil ? "等待手机更新距离" : "\(WatchCaddieText.targetNoun(state.targetKind))已就绪")
                         .font(.caption2)
                         .foregroundStyle(state.targetLatitude == nil || state.targetLongitude == nil ? AICaddieDesignTokens.confidenceColor("low") : .secondary)
                 }

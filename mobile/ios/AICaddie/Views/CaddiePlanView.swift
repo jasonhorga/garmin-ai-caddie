@@ -76,19 +76,13 @@ public struct CaddiePlanOption: Identifiable, Equatable {
 
     public var qualityText: String {
         var parts: [String] = []
-        if let sampleSize {
-            parts.append("\(sampleSize) 样本")
-        }
         if let confidence {
             parts.append(zhCaddieConfidence(confidence) ?? confidence)
         }
         if let p10M, let p90M {
             parts.append("落点 \(CoursePrepRoute.yards(fromMetres: p10M))–\(CoursePrepRoute.yards(fromMetres: p90M)) 码")
         }
-        if let coverageText {
-            parts.append("覆盖 \(coverageText)")
-        }
-        return parts.isEmpty ? "暂无离线证据" : parts.joined(separator: " · ")
+        return parts.joined(separator: " · ")
     }
 
     public var scoreImpactText: String? {
@@ -124,7 +118,7 @@ public struct CaddiePlanOption: Identifiable, Equatable {
     public static let defaultOptions = [
         CaddiePlanOption(
             id: "offline-unavailable",
-            label: "暂无缓存方案",
+            label: "暂无球童方案",
             carryM: 0,
             riskScore: 0,
             clubName: "-",
@@ -305,9 +299,6 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
         if let expectedRemainingM {
             parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemainingM)) 码")
         }
-        if let sampleSize {
-            parts.append("\(sampleSize) 样本")
-        }
         return parts.joined(separator: " · ")
     }
 }
@@ -337,10 +328,7 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
         if let confidence {
             parts.append(zhCaddieConfidence(confidence) ?? confidence)
         }
-        if let coverageText {
-            parts.append("覆盖 \(coverageText)")
-        }
-        return parts.isEmpty ? "暂无序列证据" : parts.joined(separator: " · ")
+        return parts.joined(separator: " · ")
     }
 
     public var sourceRefsText: String? {
