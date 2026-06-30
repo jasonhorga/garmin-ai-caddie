@@ -46,6 +46,40 @@ def _security_profile_requires_admin() -> bool:
     return profile in _ADMIN_REQUIRED_PROFILES
 
 
+def assert_admin_security_config() -> None:
+    """Boot-time validation of the admin/owner authorization configuration (called from app startup).
+
+    The per-request path already fail-closes — ``require_admin_token`` answers 503 and
+    ``_admin_token_grants_owner`` stays closed under a require-admin profile with no token — but that
+    surfaces only as repeated 503s at runtime. This makes the SAME misconfiguration loud at boot:
+
+    - A require-admin profile (``private``/``staging``/``production``) with NO ``AI_CADDIE_ADMIN_TOKEN``
+      raises immediately (fail fast instead of serving nothing but 503s).
+    - The open-dev owner-grant — no admin token AND a non-require-admin profile, where an
+      unauthenticated request is silently treated as the owner — logs a prominent WARNING so a real
+      deploy can never enable it by accident.
+
+    Local dev / tests run without a profile and without a token: that is exactly the open-dev case, so
+    they keep working (a single WARNING line, never a raise)."""
+    profile = os.environ.get("AI_CADDIE_SECURITY_PROFILE", "").strip().lower()
+    admin_token_set = bool(os.environ.get("AI_CADDIE_ADMIN_TOKEN"))
+    if _security_profile_requires_admin():
+        if not admin_token_set:
+            raise RuntimeError(
+                f"AI_CADDIE_SECURITY_PROFILE={profile!r} requires AI_CADDIE_ADMIN_TOKEN to be set; "
+                "admin routes fail closed (503) until it is configured."
+            )
+        return  # properly secured: the profile demands admin and a token is configured
+    if not admin_token_set:
+        logger.warning(
+            "open-dev owner-grant ACTIVE: AI_CADDIE_ADMIN_TOKEN is unset and "
+            "AI_CADDIE_SECURITY_PROFILE=%r is not in {private,staging,production} -> unauthenticated "
+            "requests are treated as the owner. Set AI_CADDIE_ADMIN_TOKEN and a private/staging/"
+            "production profile before any shared/public deploy.",
+            profile,
+        )
+
+
 def player_token_from_request(request: Request) -> str | None:
     """Extract a per-player capability token from the request, if present."""
     authorization = request.headers.get("authorization") or ""
@@ -72,11 +106,22 @@ def has_valid_player_token(request: Request) -> bool:
     return players.resolve_token(token) is not None or _player_for_session_token(token) is not None
 
 
-def _admin_token_grants_owner(request: Request) -> bool:
+def _valid_admin_header_present(request: Request) -> bool:
+    """True iff the request carries a literal admin token header that MATCHES the configured token.
+
+    Distinct from the open-dev grant (no token configured): this means the caller explicitly presented
+    a valid admin credential, so on an admin route it must not be allowed to silently elevate a member
+    bearer sent alongside it."""
     expected = os.environ.get("AI_CADDIE_ADMIN_TOKEN")
+    if not expected:
+        return False
     header = request.headers.get(_ADMIN_TOKEN_HEADER)
-    if expected:
-        return bool(header) and hmac.compare_digest(header, expected)
+    return bool(header) and hmac.compare_digest(header, expected)
+
+
+def _admin_token_grants_owner(request: Request) -> bool:
+    if os.environ.get("AI_CADDIE_ADMIN_TOKEN"):
+        return _valid_admin_header_present(request)
     # No admin token configured: open in dev, closed when a profile demands admin.
     return not _security_profile_requires_admin()
 
@@ -149,10 +194,20 @@ def admin_request_disposition(request: Request) -> str:
     - ``"fallback"`` — nothing resolved; defer to the literal admin-token semantics (401 when
       configured-but-missing/mismatched, 503 fail-closed under a private/staging/production profile).
 
-    Precedence puts the admin token first so it ALWAYS works as the DEBUG/CI/owner-homeserver
-    fallback — even alongside a stray member bearer."""
+    The literal admin token stays the always-on DEBUG/CI/owner-homeserver fallback, EXCEPT it must not
+    silently elevate a MEMBER bearer presented alongside it: a valid admin header paired with a member
+    bearer is forbidden (the request is owned by an authenticated non-owner, so it answers 403)."""
+    if _valid_admin_header_present(request):
+        # A literal, valid admin token authorizes admin routes — but a member bearer sent with it must
+        # never ride the admin header into owner scope. An owner bearer (or no/unresolved bearer) is fine.
+        token = player_token_from_request(request)
+        if token:
+            bearer_player = players.resolve_token(token) or _player_for_session_token(token)
+            if bearer_player is not None and bearer_player != OWNER_ID:
+                return "forbid"
+        return "allow"
     if _admin_token_grants_owner(request):
-        return "allow"  # literal admin token, or open-dev — the always-on fallback wins
+        return "allow"  # open-dev (no admin token configured) — the always-on local fallback wins
     token = player_token_from_request(request)
     if token:
         # An OWNER credential authorizes; a MEMBER credential is explicitly forbidden (not 401).
@@ -204,6 +259,11 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
             or path == "/api/v2/mobile/courses/options"
+            # Annotation READS — the annotation store is now per-player partitioned (the handlers thread
+            # current_player_id into list_annotations/annotations_for_target via evidence_root), so a
+            # member lists ONLY their own notes; opening them to a per-player token is safe.
+            or path == "/api/v2/annotations"
+            or path.startswith("/api/v2/annotations/target/")
             or path == "/api/v2/caddie/context"
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
             or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
