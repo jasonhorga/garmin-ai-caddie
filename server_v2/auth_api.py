@@ -44,8 +44,12 @@ def _bundle_id() -> str:
 
 def _verify(token: str) -> apple_auth.AppleIdentity:
     """Verify an Apple identity token. The monkeypatch seam for tests (patch server_v2.auth_api._verify)."""
+    # AI_CADDIE_APPLE_BUNDLE_ID may carry MULTIPLE audiences (comma-separated): the iOS app bundle id
+    # AND the web Services ID. A native iOS token's aud is the bundle id; a web Sign-in-with-Apple JS
+    # token's aud is the Services ID — accept either (PyJWT matches the token's aud against the list).
+    audiences = [a.strip() for a in _bundle_id().split(",") if a.strip()]
     try:
-        return apple_auth.verify_apple_identity_token(token, audience=_bundle_id())
+        return apple_auth.verify_apple_identity_token(token, audience=audiences)
     except apple_auth.AppleAuthError as exc:
         raise HTTPException(status_code=401, detail="invalid apple identity token") from exc
 
