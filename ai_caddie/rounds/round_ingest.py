@@ -268,7 +268,20 @@ def _build_scorecard(
         acc = holes[number]
         if acc.strokes is None:
             continue
-        sc_holes.append({"number": number, "strokes": acc.strokes})
+        hole_dict: dict[str, Any] = {"number": number, "strokes": acc.strokes}
+        # Manual rounds carry no Garmin gir/fairway -> derive REAL ones from per-shot GPS +
+        # hole geometry. Only-when-absent (the helper never overwrites a present value) and
+        # undeterminable values are omitted, so this is a pure add for no-Garmin members.
+        global_id, local_hole = _hole_geometry_ref(number, course_gid, front_gid, back_gid)
+        _enrich_hole_gir_fairway(
+            hole_dict,
+            global_id=global_id,
+            local_hole=local_hole,
+            par=_par_for_hole(hole_pars, number),
+            shots=acc.shots,
+            total_strokes=acc.strokes,
+        )
+        sc_holes.append(hole_dict)
     holes_completed = _as_int(meta.get("holesCompleted")) or len(sc_holes)
 
     snapshot: dict[str, Any] = {
@@ -330,11 +343,7 @@ def _build_shots_file(round_id: int, holes: dict[int, _HoleAccumulator]) -> tupl
             cid = assign_club(club_name)
             start = (shot["lat"], shot["lon"])
             # endLoc = start of the next shot on this hole; last shot uses its target/pin.
-            if idx + 1 < len(acc.shots):
-                nxt = acc.shots[idx + 1]
-                end = (nxt["lat"], nxt["lon"])
-            else:
-                end = shot.get("target")
+            end = _shot_end_deg(acc.shots, idx)
             meters = _meters(start, end) if end is not None else None
             if meters is not None and (longest is None or meters > longest):
                 longest = meters
@@ -364,6 +373,144 @@ def _shot_type(club: dict[str, Any], idx_in_hole: int) -> str:
     if mapped:
         return mapped
     return "TEE" if idx_in_hole == 0 else "APPROACH"
+
+
+# ---------------------------------------------------------------------------
+# Derived GIR + fairway-hit (manual rounds only)
+#
+# Garmin rounds arrive with greensInRegulation / fairwayShotOutcome already computed; manual
+# ("phone") rounds do not. We reconstruct them from the per-shot GPS we DO have plus the
+# course's prodgeometry surface polygons, so a no-Garmin member still gets REAL GIR and
+# fairway stats (not a score proxy). Everything degrades to None when a global id, a shot
+# position, or the geometry files are missing -- the history pipeline already handles None.
+# ---------------------------------------------------------------------------
+def _shot_end_deg(shots: list[dict[str, Any]], idx: int) -> tuple[float, float] | None:
+    """End position ``(lat, lon)`` in DEGREES of the shot at ``idx``: the start of the next
+    shot on the hole, or -- for the last recorded shot -- its target/aim. Shared with
+    :func:`_build_shots_file` so the surface we classify is the exact endpoint we persist."""
+    if idx + 1 < len(shots):
+        nxt = shots[idx + 1]
+        return (nxt["lat"], nxt["lon"])
+    if 0 <= idx < len(shots):
+        return shots[idx].get("target")
+    return None
+
+
+def _par_for_hole(hole_pars: str, number: int) -> int | None:
+    """Par for absolute hole ``number`` from the digit-per-hole ``holePars`` string, or None."""
+    idx = number - 1
+    if 0 <= idx < len(hole_pars) and hole_pars[idx].isdigit():
+        return int(hole_pars[idx])
+    return None
+
+
+def _hole_geometry_ref(
+    number: int, course_gid: int | None, front_gid: int | None, back_gid: int | None
+) -> tuple[int | None, int]:
+    """``(globalId, localHole)`` for an absolute hole number, mirroring
+    :func:`ai_caddie.core.data.round_hole_ref`: holes 1-9 -> front gid at local=number;
+    10-18 -> back gid at local=number-9 when a back gid exists, else the single course gid
+    at local=number (single-gid 18-hole courses, e.g. h01..h18)."""
+    if number <= 9:
+        return front_gid, number
+    if back_gid:
+        return back_gid, number - 9
+    return course_gid, number
+
+
+def _classify_end_kind(
+    global_id: int | None, local_hole: int, end_deg: tuple[float, float] | None
+) -> str | None:
+    """Surface kind ("green"/"fairway"/"rough"/...) under a shot's DEGREE end position, or
+    None when it can't be determined (no gid, no position, geometry missing, or unknown).
+
+    LANDMINE (units): ``classify_shot_surface`` -> ``_position_to_local`` -> ``wgs84_to_local``
+    expects DEGREES (geometry_evidence.py:137; the same contract caddie/analysis.enrich_shots
+    feeds at analysis.py:219). Manual shots persist ``endLoc`` as SEMICIRCLES (``deg_to_semicircle``
+    in :func:`_loc`), so we deliberately classify the pre-conversion DEGREE coordinates here --
+    never the stored semicircle ``endLoc``, which would silently land nowhere -> all unknown."""
+    if global_id is None or end_deg is None:
+        return None
+    try:
+        from ai_caddie.geometry.geometry_evidence import classify_shot_surface
+
+        result = classify_shot_surface(
+            int(global_id),
+            int(local_hole),
+            {"end": {"lat": float(end_deg[0]), "lon": float(end_deg[1])}},
+        )
+        kind = (result.get("surface") or {}).get("kind")
+    except Exception:
+        return None  # geometry classification must never break ingest
+    if not kind or kind == "unknown":
+        return None
+    return str(kind)
+
+
+def _derive_gir_fairway(
+    global_id: int | None,
+    local_hole: int,
+    par: int | None,
+    shots: list[dict[str, Any]],
+    total_strokes: int | None,
+) -> tuple[bool | None, str | None]:
+    """REAL green-in-regulation and fairway-hit for one hole. Returns ``(gir, fairway)``.
+
+    GIR is NOT ``score <= par`` (that proxy is wrong: par can be made WITHOUT a GIR -- miss
+    green, chip close, 1-putt -- and a GIR can be 3-putted for bogey). Regulation = reaching
+    the green in ``par - 2`` strokes:
+      * par 3 -> 1 stroke, par 4 -> 2, par 5 -> 3.
+      * total hole strokes <= par-2  ->  holed out in regulation-or-better -> gir True.
+      * otherwise classify the END surface of the regulation-stroke shot, ``shots[par-3]``
+        (0-indexed: par3->shots[0], par4->shots[1], par5->shots[2]); gir = (kind == "green").
+      * that shot absent / surface unclassifiable  ->  gir None (not determinable; never guess).
+
+    Fairway-hit exists ONLY for par 4/5 (there is no fairway off a par-3 tee): classify the
+    tee shot's (``shots[0]``) end -> "hit" on the fairway else "miss"; unclassifiable -> None.
+    """
+    gir: bool | None = None
+    fairway: str | None = None
+    if global_id is None or par is None or par < 3:
+        return gir, fairway
+
+    reg_strokes = par - 2  # full strokes to reach the green "in regulation"
+
+    if total_strokes is not None and total_strokes <= reg_strokes:
+        # Holed out in <= (par-2) strokes => on/in the green in regulation-or-better.
+        gir = True
+    else:
+        reg_idx = par - 3  # 0-indexed regulation-stroke shot (par3->0, par4->1, par5->2)
+        end = _shot_end_deg(shots, reg_idx) if 0 <= reg_idx < len(shots) else None
+        kind = _classify_end_kind(global_id, local_hole, end)
+        if kind is not None:
+            gir = kind == "green"
+
+    if par >= 4 and shots:
+        kind = _classify_end_kind(global_id, local_hole, _shot_end_deg(shots, 0))
+        if kind is not None:
+            fairway = "hit" if kind == "fairway" else "miss"
+
+    return gir, fairway
+
+
+def _enrich_hole_gir_fairway(
+    hole: dict[str, Any],
+    *,
+    global_id: int | None,
+    local_hole: int,
+    par: int | None,
+    shots: list[dict[str, Any]],
+    total_strokes: int | None,
+) -> dict[str, Any]:
+    """Write derived gir/fairway into ``hole`` ONLY when absent and determinable. A value
+    already present (a Garmin-authoritative one) is NEVER overwritten; an undeterminable
+    (None) value is omitted -- not written -- so ``hole.get(...)`` stays None for the pipeline."""
+    gir, fairway = _derive_gir_fairway(global_id, local_hole, par, shots, total_strokes)
+    if gir is not None and hole.get("gir") is None:
+        hole["gir"] = gir
+    if fairway is not None and hole.get("fairway") is None:
+        hole["fairway"] = fairway
+    return hole
 
 
 def _sum_pars(hole_pars: str, start: int, end: int) -> int | None:
