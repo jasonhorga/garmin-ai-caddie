@@ -53,7 +53,7 @@ import { CorrectionsPage, type CorrectionTarget } from './components/Corrections
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
 import { HomeOverview } from './components/HomeOverview'
-import { InvalidLinkPage } from './components/InvalidLinkPage'
+import { AppleSignInPage } from './components/AppleSignInPage'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
 import { HistoryTimeline } from './components/HistoryTimeline'
@@ -84,6 +84,7 @@ import { resolveInitialAdminToken, writeStoredAdminToken } from './adminTokenSto
 import { readStoredDiagnostics } from './diagnosticsStore'
 import { DiagnosticsProvider } from './diagnosticsContext'
 import { isLinkRequired, readPlayerToken } from './playerContext'
+import { currentSession, OWNER_PLAYER_ID } from './sessionStore'
 import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
@@ -135,15 +136,20 @@ type HoleGeometryTarget = { globalId: number; localHole: number; sourceRef: stri
 const statsPages: ProductPage[] = ['courses', 'holes', 'clubs', 'issues', 'reports', 'sync-quality']
 
 export default function App() {
-  // Access model: a per-player bearer token in the URL scopes the whole app to
-  // one player; otherwise the existing owner/admin-token behavior applies. On a
-  // player-facing deployment (isLinkRequired) a visitor with neither a player
-  // token nor an admin token is locked out behind InvalidLinkPage, and an
+  // Access model: an Apple sign-in session (sessionStore) is the primary credential
+  // — its bearer scopes the whole app to that player (owner = playerId "me"). A
+  // legacy per-player URL link still works as a bearer; the owner/admin-token path
+  // remains the dev/CI/homeserver fallback. On a consumer deployment (isLinkRequired)
+  // a visitor with no session/link/admin token gets the Apple sign-in page, and an
   // invalid/expired player link (first auth 401) flips accessDenied below.
   const playerToken = readPlayerToken()
   const linkRequired = isLinkRequired()
   // Owner mode = bare URL (no per-player token); gates the owner-only 球员管理 surface.
-  const isOwnerMode = !playerToken
+  const session = currentSession()
+  // Owner = the Apple session whose playerId is OWNER_PLAYER_ID; a member session
+  // (or a legacy per-player link) is not owner mode. With no session, the bare URL
+  // keeps its existing owner/admin behavior.
+  const isOwnerMode = session ? session.playerId === OWNER_PLAYER_ID : !playerToken
   const [accessDenied, setAccessDenied] = useState(false)
   // Diagnostics (raw refs / source panels / data-quality) have NO consumer-facing switch anymore and
   // stay OFF by default. The owner can still enable them for debugging via the 'ai-caddie.diagnostics'
@@ -215,7 +221,7 @@ export default function App() {
   useEffect(() => {
     // Locked out: a link is required, the URL carries no player token, and no
     // admin token can exist yet at mount. Send no requests and expose nothing.
-    if (isLinkRequired() && !readPlayerToken()) {
+    if (isLinkRequired() && !readPlayerToken() && !currentSession()) {
       return
     }
 
@@ -1523,9 +1529,11 @@ export default function App() {
     )
   }
 
-  const lockedOut = linkRequired && !playerToken && !currentAdminToken()
-  if (lockedOut || accessDenied) {
-    return <InvalidLinkPage />
+  // Consumer deployment (link-required): a credential-less visitor signs in with
+  // Apple. Owner/dev/homeserver (no link-required) keeps the admin-token path.
+  const needsSignIn = linkRequired && !session && !playerToken && !currentAdminToken()
+  if (needsSignIn || accessDenied) {
+    return <AppleSignInPage onSignedIn={() => window.location.reload()} />
   }
 
   return (

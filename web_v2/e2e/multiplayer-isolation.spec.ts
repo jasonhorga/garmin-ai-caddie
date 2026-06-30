@@ -251,7 +251,7 @@ async function mockOwnerApi(page: Page) {
 test.describe('player-facing deployment (link required)', () => {
   test.use({ baseURL: PLAYER_FACING_BASE_URL })
 
-  test('no credential → invalid-link page, zero data requests, no player leaked', async ({ page }) => {
+  test('no credential → Apple sign-in page, zero data requests, no player leaked', async ({ page }) => {
     const browserErrors: string[] = []
     page.on('pageerror', (error) => browserErrors.push(error.message))
     page.on('console', (message) => {
@@ -265,7 +265,7 @@ test.describe('player-facing deployment (link required)', () => {
 
     await page.goto('/')
 
-    await expect(page.getByRole('heading', { name: '需要有效链接' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Apple 登录/ })).toBeVisible()
     // Locked out leaks nothing: no data request fires…
     expect(apiRequests).toEqual([])
     // …no player identity is rendered…

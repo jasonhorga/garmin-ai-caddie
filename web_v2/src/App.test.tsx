@@ -1036,7 +1036,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: '需要有效链接' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Apple/ })).toBeInTheDocument()
     // A locked-out visitor must leak nothing: no request fires and no player data shows.
     expect(fetchMock).not.toHaveBeenCalled()
     expect(screen.queryByText('想备哪场?')).not.toBeInTheDocument()
@@ -1050,7 +1050,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: '需要有效链接' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Apple/ })).toBeInTheDocument()
     // An invalid player link must not fall back to the owner admin-token recovery panel.
     expect(screen.queryByText('还看不到你的数据')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('管理令牌')).not.toBeInTheDocument()

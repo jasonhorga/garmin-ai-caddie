@@ -63,13 +63,13 @@ import type {
   VisionFindingsListResponse,
 } from './types'
 import { readPlayerToken } from './playerContext'
+import { currentSessionToken } from './sessionStore'
 
-// Per-player capability token read from the URL (see playerContext). When
-// present it scopes every request to that player via `Authorization: Bearer`.
-// It coexists with the owner's admin-token header; the backend prefers the
-// player token. Never log the token.
+// The bearer for every request: the Apple sign-in session token if signed in,
+// else a per-player capability link token from the URL (legacy `/p/<token>`).
+// Attached as `Authorization: Bearer`. Never log the token.
 function playerTokenHeader(): Record<string, string> {
-  const token = readPlayerToken()
+  const token = currentSessionToken() ?? readPlayerToken()
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
@@ -91,8 +91,24 @@ function apiUrl(path: string): string {
 }
 
 function adminTokenHeader(adminToken?: string): Record<string, string> {
+  // Consumers authenticate with the Apple session Bearer (above) and carry no
+  // admin token, so this emits nothing for them. The admin token is retained
+  // only as the dev/CI/owner-homeserver fallback (mirrors the iOS DEBUG fallback);
+  // when a session Bearer is also present the backend prefers it.
   const trimmed = adminToken?.trim()
   return trimmed ? { 'X-AI-Caddie-Admin-Token': trimmed } : {}
+}
+
+export interface AppleSignInResponse {
+  token: string
+  expiresAt: string
+  userId: string
+  playerId: string
+}
+
+/** Exchange an Apple identity token for a session (owner Apple IDs → playerId "me"). */
+export async function signInWithApple(identityToken: string, displayName?: string): Promise<AppleSignInResponse> {
+  return postJson<AppleSignInResponse>('/api/v2/auth/apple', { identityToken, displayName })
 }
 
 async function postJson<T>(path: string, body: unknown, adminToken?: string): Promise<T> {
