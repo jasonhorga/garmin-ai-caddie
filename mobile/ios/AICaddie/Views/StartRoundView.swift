@@ -16,6 +16,8 @@ public struct StartRoundView: View {
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
+    /// 还没有球场时的「连接 Garmin」CTA:由 app 注入(打开 Garmin 连接流程),拉取球场后就能记分。
+    public let onConnectGarmin: () -> Void
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var roundId: String
@@ -26,7 +28,9 @@ public struct StartRoundView: View {
     @State private var nine: String
 
     public init(
-        defaultRoundId: String = "900001",
+        // 不在消费者界面里写死可读的原始局号(如 900001):没显式传时生成一个不透明的本地局号,
+        // 真正开始记分时局号由所选球场派生(applySelectedCourse),后端据此建局。
+        defaultRoundId: String = "live-\(UUID().uuidString)",
         defaultCourseGlobalId: Int? = nil,
         defaultTeeBox: String = "unknown",
         courseOptions: [MobileCourseOption] = [],
@@ -38,7 +42,8 @@ public struct StartRoundView: View {
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
-        onClearBackendConfiguration: @escaping () -> Void = {}
+        onClearBackendConfiguration: @escaping () -> Void = {},
+        onConnectGarmin: @escaping () -> Void = {}
     ) {
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
@@ -51,6 +56,7 @@ public struct StartRoundView: View {
         self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
+        self.onConnectGarmin = onConnectGarmin
         // Pre-select a real course (the given default, else the most-played) so the
         // primary action works out of the box instead of stranding on "manual entry".
         let mostPlayed = courseOptions.max { $0.roundCount < $1.roundCount }
@@ -172,7 +178,25 @@ public struct StartRoundView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("选择球场").font(.caption).foregroundStyle(.secondary)
             if displayVenues.isEmpty {
-                Text("暂无球场,先在设置里同步 Garmin 球局。").font(.subheadline).foregroundStyle(.secondary)
+                // 还没有球场:给一个清晰的消费者 CTA(已用 Apple 登录),而不是「先去同步 Garmin」。
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("连接 Garmin 或开始手机记分")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("连接 Garmin 自动拉取你常打的球场,用手机就能记分;手表也可独立记分。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button(action: onConnectGarmin) {
+                        Label("连接 Garmin", systemImage: "link")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(LiveHoleStyle.green)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
             } else {
                 if locationProvider.latestFix != nil {
                     Label("已按距离排序 · 最近在前", systemImage: "location.fill")
@@ -192,24 +216,24 @@ public struct StartRoundView: View {
                         segmentRow(segment)
                     }
                 }
-            }
-            Text("选一个 9 洞环开始;想打 18 洞就在下方加打另一个环。")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Divider().padding(.vertical, 2)
-            HStack(spacing: 8) {
-                Text("发球台").font(.subheadline).foregroundStyle(.secondary)
-                Spacer()
-                Menu {
-                    ForEach(teeOptions, id: \.self) { tee in
-                        Button(zhTeeLabel(tee)) { teeBox = tee }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(teeBox.isEmpty ? "默认" : zhTeeLabel(teeBox))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(LiveHoleStyle.green)
-                        Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+                Text("选一个 9 洞环开始;想打 18 洞就在下方加打另一个环。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Divider().padding(.vertical, 2)
+                HStack(spacing: 8) {
+                    Text("发球台").font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    Menu {
+                        ForEach(teeOptions, id: \.self) { tee in
+                            Button(zhTeeLabel(tee)) { teeBox = tee }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(teeBox.isEmpty ? "默认" : zhTeeLabel(teeBox))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(LiveHoleStyle.green)
+                            Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

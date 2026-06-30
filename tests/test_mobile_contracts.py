@@ -1471,7 +1471,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("postEventBatchWithRetry", app_swift)
         self.assertIn("offlineStore.appendSyncMarker", app_swift)
         self.assertIn("pendingEventCount = try offlineStore.loadPendingEvents", app_swift)
-        self.assertIn("No sync server configured", app_swift)
+        # Consumer sync-status copy (de-engineered): "no sync server" → 未联网,稍后同步.
+        self.assertIn("未联网,稍后同步", app_swift)
         # round-12 P2.3: syncPendingEvents PULLS other clients' events (not push-only) — merge into the
         # local log idempotently by eventId, then re-project. Wires the previously-unused fetchEventReplay.
         self.assertIn("pullAndApplyRemoteEvents(roundId:", app_swift)
@@ -1547,11 +1548,13 @@ class MobileContractTests(unittest.TestCase):
 
         # Expiry is enforced on the by-roundId prepare path (bootstrap now resumes an
         # in-progress round directly via hasRecordedEvents — see the resume test below).
+        # Consumer sync-status copy (de-engineered): cache-state branches speak plain Chinese.
+        # The expired/stale/ready branch structure is still pinned by the `case` checks below.
         self.assertIn("switch cachedPackage.cacheState()", app_swift)
         self.assertIn("case .expired:", app_swift)
-        self.assertIn("Cached package expired", app_swift)
+        self.assertIn("离线数据已过期,稍后重试", app_swift)
         self.assertIn("case .stale:", app_swift)
-        self.assertIn("Cached package stale", app_swift)
+        self.assertIn("已下载离线", app_swift)
         self.assertIn("case .ready:", app_swift)
 
     def test_ios_expired_cached_package_can_continue_active_round_offline(self) -> None:
@@ -1569,7 +1572,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("offlineStore.loadPendingEvents(roundId: cachedPackage.roundId).isEmpty == false", app_swift)
         self.assertIn("if try canContinueExpiredPackage(cachedPackage)", app_swift)
         self.assertIn(
-            'try activatePackage(cachedPackage, status: "Cached package expired; continuing active round offline")',
+            'try activatePackage(cachedPackage, status: "离线继续本场")',
             app_swift,
         )
 
@@ -1869,7 +1872,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("try await self.acceptWatchEvent(event)", app_swift)
         self.assertIn("private func acceptWatchEvent(_ event: LiveRoundEvent) throws", app_swift)
         self.assertIn("try offlineStore.appendEvent(event)", app_swift)
-        self.assertIn('syncStatus = "Watch event saved"', app_swift)
+        self.assertIn('syncStatus = "手表已记录"', app_swift)
         self.assertIn("watchBridge: model.watchBridge", app_swift)
 
         self.assertIn("public var onAcceptedLiveEvent: ((LiveRoundEvent) async throws -> Void)?", bridge)

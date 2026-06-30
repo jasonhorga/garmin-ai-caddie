@@ -53,3 +53,24 @@ public func zhIssueLabel(_ issue: String) -> String {
     // Already-Chinese labels (round detail localises server-side) contain no underscores — return as-is.
     return issue.replacingOccurrences(of: "_", with: " ")
 }
+
+/// Chinese label for a photo-analysis (vision) finding type — the lie / hazard categories the
+/// camera analysis can return (`poor_lie` / `blocked_view` / `visible_water` / `visible_bunker` /
+/// `uncertainty`). Keeps the raw machine token off the screen; an unknown type falls back to a
+/// neutral 「拍照发现」 rather than leaking the token.
+public func zhVisionFindingLabel(_ findingType: String) -> String {
+    switch findingType.trimmingCharacters(in: .whitespaces).lowercased() {
+    case "poor_lie":
+        return "球位不佳"
+    case "blocked_view":
+        return "视线受阻"
+    case "visible_water":
+        return "前方有水域"
+    case "visible_bunker":
+        return "前方有沙坑"
+    case "uncertainty":
+        return "暂时无法识别"
+    default:
+        return "拍照发现"
+    }
+}

@@ -101,7 +101,6 @@ public struct AICaddieApp: App {
                 } else {
                     NavigationStack {
                         StartRoundView(
-                            defaultRoundId: model.defaultRoundId,
                             courseOptions: model.courseOptions,
                             syncStatus: model.syncStatus,
                             isPreparing: model.isPreparingRound,
@@ -131,11 +130,11 @@ public struct AICaddieApp: App {
                                 Task {
                                     await model.clearBackendConfiguration()
                                 }
-                            }
+                            },
+                            onConnectGarmin: { showNoPackageSettings = true }
                         )
-                        // First launch with no data is a dead-end otherwise: the empty state tells the
-                        // user to "sync Garmin in settings" but had no settings button. Surface a gear
-                        // to log into Garmin + reload so they can pull their rounds.
+                        // First launch with no data: the empty-state CTA + this gear both open the
+                        // Garmin-connect sheet so a signed-in user can pull their courses and score.
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button { showNoPackageSettings = true } label: { Image(systemName: "gearshape") }
@@ -162,7 +161,7 @@ public struct AICaddieApp: App {
         }
     }
 
-    /// 无数据首启时的设置 sheet:登录 Garmin + 重新载入,这样用户才能拉到自己的球场/球局。
+    /// 无数据首启时的 sheet(用户已用 Apple 登录):连接 Garmin 拉取球场,或直接开始记分。
     private var noPackageSettingsSheet: some View {
         NavigationStack {
             List {
@@ -170,21 +169,22 @@ public struct AICaddieApp: App {
                     NavigationLink {
                         GarminSessionView(apiBaseURL: model.apiBaseURL, adminToken: model.adminToken, sessionStore: model.garminSessionStore)
                     } label: {
-                        Label("Garmin 账号", systemImage: "key")
+                        Label("连接 Garmin", systemImage: "link")
                     }
                     Button {
                         Task { await model.bootstrap() }
+                        showNoPackageSettings = false
                     } label: {
-                        Label("重新载入", systemImage: "arrow.clockwise")
+                        Label("开始记分", systemImage: "flag.checkered")
                     }
                     .foregroundStyle(LiveHoleStyle.green)
                 } header: {
-                    Text("数据")
+                    Text("打球")
                 } footer: {
-                    Text("先登录 Garmin 账号,再「重新载入」,就能拉到你的球场和历史球局。")
+                    Text("连接 Garmin 会自动拉取你的球场和历史;连接好后点「开始记分」,用手机就能记分。")
                 }
             }
-            .navigationTitle("设置")
+            .navigationTitle("开始")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -199,7 +199,7 @@ public struct AICaddieApp: App {
 public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var package: LiveRoundPackage?
     @Published public private(set) var pendingEventCount: Int = 0
-    @Published public private(set) var syncStatus: String = "Offline ready"
+    @Published public private(set) var syncStatus: String = "离线就绪"
     @Published public private(set) var apiBaseURL: URL?
     @Published public private(set) var adminToken: String?
     @Published public private(set) var isPreparingRound = false
@@ -346,7 +346,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // Truly offline first launch (no network, no cache): package stays nil → 开始一场 fallback.
         } catch {
             AICaddieLog.network.error("Offline package bootstrap failed: \(String(describing: error), privacy: .public)")
-            syncStatus = "Offline package unavailable"
+            syncStatus = "离线数据暂不可用,稍后重试"
         }
     }
 
@@ -364,7 +364,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     public func saveBackendConfiguration(apiBaseURLText: String, adminTokenText: String?) async {
         guard let resolvedAPIBaseURL = BackendConfigurationStore.normalizedAPIBaseURL(from: apiBaseURLText) else {
-            syncStatus = "API origin must be https with no path"
+            syncStatus = "地址无效(需 https)"
             return
         }
         BackendConfigurationStore.saveAPIBaseURL(resolvedAPIBaseURL)
@@ -376,7 +376,7 @@ public final class LiveRoundAppModel: ObservableObject {
             nextAdminToken = adminToken ?? Self.defaultAdminToken()
         }
         applyBackendConfiguration(apiBaseURL: resolvedAPIBaseURL, adminToken: nextAdminToken)
-        syncStatus = "Backend configuration saved"
+        syncStatus = "已保存"
         await refreshCourseOptions()
     }
 
@@ -386,14 +386,14 @@ public final class LiveRoundAppModel: ObservableObject {
         let resolvedAPIBaseURL = Self.defaultAPIBaseURL(includePersisted: false)
         let resolvedAdminToken = Self.defaultAdminToken(includePersisted: false)
         applyBackendConfiguration(apiBaseURL: resolvedAPIBaseURL, adminToken: resolvedAdminToken)
-        syncStatus = resolvedAPIBaseURL == nil ? "Offline backend cleared" : "Build backend restored"
+        syncStatus = resolvedAPIBaseURL == nil ? "已切换为离线" : "已恢复默认服务器"
         await refreshCourseOptions()
     }
 
     public func prepareRound(roundId: String) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedRoundId.isEmpty else {
-            syncStatus = "Round id is required"
+            syncStatus = "无法开始这一场,请重试"
             return
         }
         let preparedAt = Date()
@@ -406,40 +406,40 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             if let remotePackage = await fetchRemotePackage(roundId: requestedRoundId, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
-                try activatePackage(remotePackage, status: "Offline package prepared")
+                try activatePackage(remotePackage, status: "已下载离线")
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
                 switch cachedPackage.cacheState() {
                 case .expired:
                     if try canContinueExpiredPackage(cachedPackage) {
-                        try activatePackage(cachedPackage, status: "Cached package expired; continuing active round offline")
+                        try activatePackage(cachedPackage, status: "离线继续本场")
                         return
                     }
-                    syncStatus = "Cached package expired"
+                    syncStatus = "离线数据已过期,稍后重试"
                 case .stale:
-                    try activatePackage(cachedPackage, status: "Cached package stale")
+                    try activatePackage(cachedPackage, status: "已下载离线")
                     return
                 case .ready:
-                    try activatePackage(cachedPackage, status: "Cached package ready")
+                    try activatePackage(cachedPackage, status: "已下载离线")
                     return
                 case .degraded:
-                    try activatePackage(cachedPackage, status: "Cached package degraded")
+                    try activatePackage(cachedPackage, status: "已下载离线")
                     return
                 }
             } else {
-                syncStatus = "Round package unavailable"
+                syncStatus = "暂时无法开始,稍后重试"
             }
         } catch {
             AICaddieLog.network.error("Round package prepare failed: \(String(describing: error), privacy: .public)")
-            syncStatus = "Round package prepare failed"
+            syncStatus = "开始失败,稍后重试"
         }
     }
 
     public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedRoundId.isEmpty else {
-            syncStatus = "Round id is required"
+            syncStatus = "无法开始这一场,请重试"
             return
         }
         // 新的一局才记录起始九洞;同一 roundId 改九洞(加打/撤销)时保留撤销目标。
@@ -457,7 +457,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             if let remotePackage = await fetchRemoteCoursePackage(globalId: globalId, roundId: requestedRoundId, teeBox: teeBox, nine: nine, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
-                try activatePackage(remotePackage, status: "Course package prepared")
+                try activatePackage(remotePackage, status: "已下载离线")
                 if isNewRound { signalFreshRoundEntry() }
                 return
             }
@@ -465,14 +465,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
                 try offlineStore.saveRoundPackage(cachedPackage)
-                try activatePackage(cachedPackage, status: "Cached package ready")
+                try activatePackage(cachedPackage, status: "已下载离线")
                 if isNewRound { signalFreshRoundEntry() }
             } else {
-                syncStatus = "Course package unavailable"
+                syncStatus = "暂时无法开始,稍后重试"
             }
         } catch {
             AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
-            syncStatus = "Course package prepare failed"
+            syncStatus = "开始失败,稍后重试"
         }
     }
 
@@ -486,7 +486,7 @@ public final class LiveRoundAppModel: ObservableObject {
     public func prepareCompositeRound(globalId: Int, backGlobalId: Int, roundId: String, teeBox: String) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedRoundId.isEmpty else {
-            syncStatus = "Round id is required"
+            syncStatus = "无法开始这一场,请重试"
             return
         }
         let isNewRound = package?.roundId != requestedRoundId
@@ -501,7 +501,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             if let remotePackage = await fetchRemoteCompositePackage(globalId: globalId, backGlobalId: backGlobalId, roundId: requestedRoundId, teeBox: teeBox, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
-                try activatePackage(remotePackage, status: "Course package prepared")
+                try activatePackage(remotePackage, status: "已下载离线")
                 if isNewRound { signalFreshRoundEntry() }
                 return
             }
@@ -509,14 +509,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
                 try offlineStore.saveRoundPackage(cachedPackage)
-                try activatePackage(cachedPackage, status: "Cached package ready")
+                try activatePackage(cachedPackage, status: "已下载离线")
                 if isNewRound { signalFreshRoundEntry() }
             } else {
-                syncStatus = "Course package unavailable"
+                syncStatus = "暂时无法开始,稍后重试"
             }
         } catch {
             AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
-            syncStatus = "Course package prepare failed"
+            syncStatus = "开始失败,稍后重试"
         }
     }
 
@@ -560,14 +560,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)
             }
             pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
-            syncStatus = "Offline event saved"
+            syncStatus = "已保存"
             // Auto-sync: push to Garmin/backend in the background after each recorded hole, so the
             // player never manages sync manually. Silently no-ops offline (events stay pending and
             // sync on the next event / app foreground).
             Task { await self.syncPendingEvents() }
         } catch {
             AICaddieLog.storage.error("Event save failed: \(String(describing: error), privacy: .public)")
-            syncStatus = "Event save failed"
+            syncStatus = "保存失败,稍后重试"
         }
     }
 
@@ -581,11 +581,11 @@ public final class LiveRoundAppModel: ObservableObject {
 
     public func syncPendingEvents() async {
         guard let package else {
-            syncStatus = "No round package loaded"
+            syncStatus = "没有进行中的球局"
             return
         }
         guard let syncClient else {
-            syncStatus = "No sync server configured"
+            syncStatus = "未联网,稍后同步"
             return
         }
 
@@ -594,9 +594,9 @@ public final class LiveRoundAppModel: ObservableObject {
             let events = try offlineStore.loadPendingEvents(roundId: package.roundId)
             pendingEventCount = events.count
             if events.isEmpty {
-                syncStatus = uploadedMediaCount > 0 ? "Synced \(uploadedMediaCount) media" : "No pending events"
+                syncStatus = uploadedMediaCount > 0 ? "已同步 \(uploadedMediaCount) 张照片/视频" : "已是最新"
             } else {
-                syncStatus = "Syncing \(events.count) events"
+                syncStatus = "同步中…"
                 let result = try await syncClient.postEventBatchWithRetry(
                     events,
                     roundId: package.roundId,
@@ -605,15 +605,15 @@ public final class LiveRoundAppModel: ObservableObject {
                 try offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)
                 _ = try? await syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
-                let mediaSuffix = uploadedMediaCount > 0 ? ", \(uploadedMediaCount) media" : ""
-                syncStatus = result.duplicate ? "Events already synced" : "Synced \(result.accepted) events\(mediaSuffix)"
+                let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
+                syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"
             }
             // round-12 sync spine: ALWAYS pull events authored by OTHER clients (runs even with no
             // local pending events) so a round edited on the watch/web shows up here.
             await pullAndApplyRemoteEvents(roundId: package.roundId)
         } catch {
             AICaddieLog.network.error("Pending-event sync failed: \(String(describing: error), privacy: .public)")
-            syncStatus = "Sync failed"
+            syncStatus = "同步失败,稍后重试"
         }
     }
 
@@ -772,49 +772,49 @@ public final class LiveRoundAppModel: ObservableObject {
             return try await syncClient.fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)
         } catch {
             AICaddieLog.network.error("Round package fetch failed (using cache): \(String(describing: error), privacy: .public)")
-            syncStatus = "Package sync unavailable; using cache"
+            syncStatus = "离线中,使用已保存数据"
             return nil
         }
     }
 
     private func fetchRemotePackage(roundId: String, capturedAt: Date = Date()) async -> LiveRoundPackage? {
         guard let syncClient else {
-            syncStatus = "No sync server configured"
+            syncStatus = "未联网,稍后同步"
             return nil
         }
         do {
             return try await syncClient.fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)
         } catch {
             AICaddieLog.network.error("Round package fetch failed (using cache): \(String(describing: error), privacy: .public)")
-            syncStatus = "Package sync unavailable; using cache"
+            syncStatus = "离线中,使用已保存数据"
             return nil
         }
     }
 
     private func fetchRemoteCoursePackage(globalId courseGlobalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date()) async -> LiveRoundPackage? {
         guard let syncClient else {
-            syncStatus = "No sync server configured"
+            syncStatus = "未联网,稍后同步"
             return nil
         }
         do {
             return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: true)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
-            syncStatus = "Course package sync unavailable; using cache"
+            syncStatus = "离线中,使用已保存数据"
             return nil
         }
     }
 
     private func fetchRemoteCompositePackage(globalId courseGlobalId: Int, backGlobalId: Int, roundId: String, teeBox: String, capturedAt: Date = Date()) async -> LiveRoundPackage? {
         guard let syncClient else {
-            syncStatus = "No sync server configured"
+            syncStatus = "未联网,稍后同步"
             return nil
         }
         do {
             return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: "all", capturedAt: capturedAt, ensureGeometry: true, backGlobalId: backGlobalId)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
-            syncStatus = "Course package sync unavailable; using cache"
+            syncStatus = "离线中,使用已保存数据"
             return nil
         }
     }
@@ -870,10 +870,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)
             }
             pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
-            syncStatus = "Watch event saved"
+            syncStatus = "手表已记录"
         } catch {
             AICaddieLog.watch.error("Watch event status update failed: \(String(describing: error), privacy: .public)")
-            syncStatus = "Watch event status unavailable"
+            syncStatus = "手表已记录,稍后刷新"
         }
     }
 
