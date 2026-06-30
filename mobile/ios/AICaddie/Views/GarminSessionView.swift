@@ -1,16 +1,17 @@
 import Foundation
 import SwiftUI
 
+/// 连接 Garmin:在内嵌网页里登录自己的 Garmin,我们只抓登录后的 cookie(不存密码)绑定到后端
+/// (成员走 /players/{id}/…,owner 走 owner 路由)。纯网页登录流 —— 消费界面没有任何"会话头 /
+/// CSRF / 令牌"之类的工程术语,用户只看到「连接 Garmin」→ 登录 → 「已连接」。
 public struct GarminSessionView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let sessionStore: GarminSessionStore?
 
-    @State private var webSessionHeader = ""
-    @State private var antiForgeryValue = ""
-    @State private var statusText = "Session material not imported"
+    @State private var statusText = "未连接"
     @State private var isImporting = false
-    @State private var cachedSessionAvailable = false
+    @State private var connected = false
     @State private var showingWebLogin = false
 
     public init(
@@ -25,50 +26,30 @@ public struct GarminSessionView: View {
 
     public var body: some View {
         Form {
-            Section("Garmin CN") {
-                SecureField("Web session header", text: $webSessionHeader)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                SecureField("CSRF token", text: $antiForgeryValue)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button {
-                    Task {
-                        await importSession()
-                    }
-                } label: {
-                    Label("Import session", systemImage: "key")
-                }
-                .disabled(isImporting)
+            Section("Garmin") {
                 Button {
                     showingWebLogin = true
                 } label: {
-                    Label("Open Garmin login", systemImage: "safari")
+                    Label(connected ? "重新连接 Garmin" : "连接 Garmin", systemImage: "link")
                 }
                 .disabled(isImporting)
-                if cachedSessionAvailable {
-                    Button {
-                        Task {
-                            await importStoredSession()
-                        }
-                    } label: {
-                        Label("Import stored session", systemImage: "key.viewfinder")
-                    }
-                    .disabled(isImporting)
+                if connected {
                     Button(role: .destructive) {
                         forgetStoredSession()
                     } label: {
-                        Label("Forget stored session", systemImage: "trash")
+                        Label("断开 Garmin", systemImage: "link.badge.minus")
                     }
+                    .disabled(isImporting)
                 }
                 Text(statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("Garmin Session")
+        .navigationTitle("连接 Garmin")
         .task {
-            cachedSessionAvailable = hasStoredSession()
+            connected = hasStoredSession()
+            statusText = connected ? "已连接" : "未连接"
         }
         .sheet(isPresented: $showingWebLogin) {
             NavigationStack {
@@ -77,10 +58,10 @@ public struct GarminSessionView: View {
                         await importCapturedSession(captured)
                     }
                 }
-                .navigationTitle("Garmin CN")
+                .navigationTitle("登录 Garmin")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") {
+                        Button("取消") {
                             showingWebLogin = false
                         }
                     }
@@ -90,85 +71,9 @@ public struct GarminSessionView: View {
     }
 
     @MainActor
-    private func importSession() async {
-        guard let apiBaseURL else {
-            statusText = "No sync server configured"
-            return
-        }
-        let sessionHeader = webSessionHeader.trimmingCharacters(in: .whitespacesAndNewlines)
-        let csrfToken = antiForgeryValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sessionHeader.isEmpty, !csrfToken.isEmpty else {
-            statusText = "Session header and token are required"
-            return
-        }
-
-        isImporting = true
-        defer {
-            isImporting = false
-        }
-
-        let client = GarminSessionClient(baseURL: apiBaseURL, adminToken: adminToken)
-        do {
-            let response = try await client.importSession(
-                GarminSessionImportRequest(
-                    webSessionHeader: sessionHeader,
-                    antiForgeryValue: csrfToken,
-                    source: "ios_secure_input"
-                )
-            )
-            try sessionStore?.saveSession(
-                GarminSessionMaterial(
-                    webSessionHeader: sessionHeader,
-                    antiForgeryValue: csrfToken,
-                    storedAt: ISO8601DateFormatter().string(from: Date())
-                )
-            )
-            statusText = response.detail
-            webSessionHeader = ""
-            antiForgeryValue = ""
-            cachedSessionAvailable = hasStoredSession()
-        } catch {
-            statusText = "Session import or local storage failed"
-        }
-    }
-
-    @MainActor
-    private func importStoredSession() async {
-        guard let apiBaseURL else {
-            statusText = "No sync server configured"
-            return
-        }
-        guard let material = loadStoredSession() else {
-            statusText = "No stored session material"
-            cachedSessionAvailable = false
-            return
-        }
-
-        isImporting = true
-        defer {
-            isImporting = false
-        }
-
-        let client = GarminSessionClient(baseURL: apiBaseURL, adminToken: adminToken)
-        do {
-            let response = try await client.importSession(
-                GarminSessionImportRequest(
-                    webSessionHeader: material.webSessionHeader,
-                    antiForgeryValue: material.antiForgeryValue,
-                    source: "ios_keychain_replay"
-                )
-            )
-            statusText = response.detail
-            cachedSessionAvailable = hasStoredSession()
-        } catch {
-            statusText = "Stored session import failed"
-        }
-    }
-
-    @MainActor
     private func importCapturedSession(_ captured: CapturedGarminWebSession) async {
         guard let apiBaseURL else {
-            statusText = "No sync server configured"
+            statusText = "暂无法连接,请稍后重试"
             return
         }
 
@@ -179,7 +84,7 @@ public struct GarminSessionView: View {
 
         let client = GarminSessionClient(baseURL: apiBaseURL, adminToken: adminToken)
         do {
-            let response = try await client.importSession(
+            _ = try await client.importSession(
                 GarminSessionImportRequest(
                     webSessionHeader: captured.webSessionHeader,
                     antiForgeryValue: captured.antiForgeryValue,
@@ -193,27 +98,27 @@ public struct GarminSessionView: View {
                     storedAt: captured.capturedAt
                 )
             )
-            statusText = response.detail
-            cachedSessionAvailable = hasStoredSession()
+            connected = hasStoredSession()
+            statusText = "已连接"
             showingWebLogin = false
         } catch {
-            statusText = "Web login session import failed"
+            statusText = "连接失败,请重试"
         }
     }
 
     @MainActor
     private func forgetStoredSession() {
         guard let sessionStore else {
-            cachedSessionAvailable = false
-            statusText = "No stored session material"
+            connected = false
+            statusText = "未连接"
             return
         }
         do {
             try sessionStore.deleteSession()
-            cachedSessionAvailable = false
-            statusText = "Stored session removed"
+            connected = false
+            statusText = "已断开"
         } catch {
-            statusText = "Stored session remove failed"
+            statusText = "断开失败,请重试"
         }
     }
 

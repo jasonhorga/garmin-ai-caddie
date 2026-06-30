@@ -36,8 +36,18 @@ public final class GarminSessionClient {
         self.session = session
     }
 
+    /// The owner binds Garmin via the owner route; a signed-in family member (session playerId
+    /// != "me") binds THEIR OWN Garmin via the member route, scoped to them by the backend's
+    /// `current_player_id` guard. The captured-cookie webview flow is identical for both.
+    private func garminSessionPath() -> String {
+        if let pid = SessionStore.shared.currentSession?.playerId, pid != "me" {
+            return "/api/v2/players/\(pid)/sync/garmin/session"
+        }
+        return "/api/v2/sync/garmin/session"
+    }
+
     public func importSession(_ requestBody: GarminSessionImportRequest) async throws -> GarminSessionImportResponse {
-        let url = endpointURL("/api/v2/sync/garmin/session")
+        let url = endpointURL(garminSessionPath())
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
