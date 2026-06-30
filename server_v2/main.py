@@ -902,10 +902,13 @@ def mobile_round_events(
     round_id: str,
     request: LiveRoundEventBatchRequest,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    acting_player_id: str = Depends(current_player_id),
 ) -> LiveRoundEventBatchResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return append_mobile_events_response(round_id, request, idempotency_key=idempotency_key)
+    # Auth = the global middleware (admin OR a valid per-player token for this player-scoped route).
+    # Events write to the ACTING player's OWN partition (mobile_event_log(player_id)) — owner unchanged.
+    return append_mobile_events_response(
+        round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
+    )
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/events/replay", response_model=LiveRoundEventReplayResponse)
@@ -914,12 +917,14 @@ def mobile_round_events_replay(
     client_id: str | None = None,
     after_sequence: int | None = None,
     limit: int = 100,
+    acting_player_id: str = Depends(current_player_id),
 ) -> LiveRoundEventReplayResponse:
     return replay_mobile_events_response(
         round_id,
         client_id=client_id,
         after_sequence=after_sequence,
         limit=limit,
+        player_id=acting_player_id,
     )
 
 
@@ -927,21 +932,19 @@ def mobile_round_events_replay(
 def mobile_round_events_ack(
     round_id: str,
     request: LiveRoundEventAckRequest,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    acting_player_id: str = Depends(current_player_id),
 ) -> LiveRoundEventAckResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return ack_mobile_events_response(round_id, request)
+    return ack_mobile_events_response(round_id, request, player_id=acting_player_id)
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/state", response_model=RoundStateResponse)
 def mobile_round_state(
     round_id: str,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    acting_player_id: str = Depends(current_player_id),
 ) -> RoundStateResponse:
-    # round-12 sync spine: authoritative server-projected round state (folded from the event log).
-    # Admin-gated like POST/ack (the authoritative read), so multi-client pull is consistently authed.
-    require_admin_token(x_ai_caddie_admin_token)
-    return round_state_response(round_id)
+    # round-12 sync spine: authoritative server-projected round state (folded from the event log),
+    # per-player partitioned — a member sees only their OWN round's state (owner unchanged).
+    return round_state_response(round_id, player_id=acting_player_id)
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/reconciliation", response_model=MobileReconciliationResponse)

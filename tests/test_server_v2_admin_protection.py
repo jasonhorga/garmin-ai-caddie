@@ -645,7 +645,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         self.assertEqual(reconciliation.status_code, 200)
         package_handler.assert_called_once_with("live-round-1", captured_at=None, client_id=None, ensure_geometry=False, player_id="me")
         course_options_handler.assert_called_once_with(player_id="me")
-        replay_handler.assert_called_once_with("live-round-1", client_id="ios-phone", after_sequence=None, limit=100)
+        replay_handler.assert_called_once_with("live-round-1", client_id="ios-phone", after_sequence=None, limit=100, player_id="me")
         reconciliation_handler.assert_called_once_with("live-round-1", player_id="me")
 
     def test_history_reads_require_admin_token_when_configured(self) -> None:

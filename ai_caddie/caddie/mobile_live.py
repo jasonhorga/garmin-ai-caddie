@@ -14,7 +14,6 @@ from ai_caddie.reports.annotations import annotations_for_target, list_annotatio
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history.history import HistoryData, OWNER_ID
-from ai_caddie.core.data import evidence_root
 from ai_caddie.history.history_stats import _effective_score_data
 from ai_caddie.reports.report_labels_zh import issue_label_zh
 from ai_caddie.history.stats_cache import cached_build_history_stats
@@ -54,24 +53,20 @@ def _event_cursor(
     client_id: str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
-    # The mobile event log is a single shared, UNPARTITIONED store keyed by round_id only
-    # (writes are admin-only, so it holds the OWNER's rounds). A non-owner player must not
-    # learn an owner round's event sequence / pending-count via a player-scoped package read,
-    # so a non-owner always gets the empty cursor — they have no events here until MOBILE_ROOT
-    # is per-user partitioned (Phase 2).
-    if player_id != OWNER_ID:
-        return {"serverSequence": 0, "pendingEventCount": 0}
-    latest_sequence = _latest_event_sequence(round_id, root=root)
+    # The event log is now per-player partitioned, so the cursor reads the acting player's OWN
+    # partition (owner unchanged) — no short-circuit needed; a member only ever sees their own
+    # sequence/pending-count, never the owner's (different path).
+    latest_sequence = _latest_event_sequence(round_id, root=root, player_id=player_id)
     cursor: dict[str, Any] = {"serverSequence": latest_sequence, "pendingEventCount": 0}
     clean_client_id = _clean_client_id(client_id)
     if not clean_client_id:
         return cursor
-    last_acked = _client_ack_sequence(round_id, clean_client_id, root=root)
+    last_acked = _client_ack_sequence(round_id, clean_client_id, root=root, player_id=player_id)
     cursor.update(
         {
             "clientId": clean_client_id,
             "lastAckedServerSequence": last_acked,
-            "pendingEventCount": _pending_event_count(round_id, after_sequence=last_acked, root=root),
+            "pendingEventCount": _pending_event_count(round_id, after_sequence=last_acked, root=root, player_id=player_id),
             "replayEndpoint": f"/api/v2/mobile/rounds/{round_id}/events/replay",
         }
     )
@@ -2200,12 +2195,22 @@ def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any
     return filtered
 
 
-def mobile_event_log(root: Path | str | None = None) -> Path:
-    return Path(root or ".") / EVENT_LOG
+def mobile_event_log(root: Path | str | None = None, *, player_id: str = OWNER_ID) -> Path:
+    # Per-player partition: the owner keeps the flat shared log (byte-identical); a member's live
+    # events live under their own partition, so a member can NEVER write into or read the owner's
+    # (or another member's) log — isolation by construction (the path differs), no ownership check
+    # needed and the live-round chicken-and-egg disappears (a round is in the writer's own log).
+    base = Path(root or ".")
+    if player_id == OWNER_ID:
+        return base / EVENT_LOG
+    return base / "data" / "players" / player_id / "mobile_events" / "events.jsonl"
 
 
-def mobile_event_ack_store(root: Path | str | None = None) -> Path:
-    return Path(root or ".") / EVENT_ACKS
+def mobile_event_ack_store(root: Path | str | None = None, *, player_id: str = OWNER_ID) -> Path:
+    base = Path(root or ".")
+    if player_id == OWNER_ID:
+        return base / EVENT_ACKS
+    return base / "data" / "players" / player_id / "mobile_events" / "client_acks.json"
 
 
 def _clean_client_id(client_id: str | None) -> str | None:
@@ -2219,10 +2224,10 @@ def _event_log_rows(
     root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
-    er = evidence_root(player_id, root=root)
-    if er is None:
-        return []
-    path = mobile_event_log(er)
+    # Read the acting player's OWN partition (owner -> the flat shared log). Deliberately NOT via
+    # evidence_root (which nullifies non-owners to empty): a member now has a real home for their
+    # own live events, and never sees the owner's or another member's (different path).
+    path = mobile_event_log(root, player_id=player_id)
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
@@ -2260,8 +2265,8 @@ def _ack_key(round_id: str, client_id: str) -> str:
     return f"{round_id}\n{client_id}"
 
 
-def _load_client_acks(root: Path | str | None = None) -> dict[str, dict[str, Any]]:
-    path = mobile_event_ack_store(root)
+def _load_client_acks(root: Path | str | None = None, *, player_id: str = OWNER_ID) -> dict[str, dict[str, Any]]:
+    path = mobile_event_ack_store(root, player_id=player_id)
     if not path.exists():
         return {}
     try:
@@ -2276,8 +2281,8 @@ def _load_client_acks(root: Path | str | None = None) -> dict[str, dict[str, Any
     return {str(key): value for key, value in raw_rows.items() if isinstance(value, dict)}
 
 
-def _write_client_acks(acks: dict[str, dict[str, Any]], root: Path | str | None = None) -> None:
-    path = mobile_event_ack_store(root)
+def _write_client_acks(acks: dict[str, dict[str, Any]], root: Path | str | None = None, *, player_id: str = OWNER_ID) -> None:
+    path = mobile_event_ack_store(root, player_id=player_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
@@ -2293,8 +2298,8 @@ def _write_client_acks(acks: dict[str, dict[str, Any]], root: Path | str | None 
     )
 
 
-def _client_ack_sequence(round_id: str, client_id: str, *, root: Path | str | None = None) -> int:
-    row = _load_client_acks(root).get(_ack_key(round_id, client_id), {})
+def _client_ack_sequence(round_id: str, client_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
+    row = _load_client_acks(root, player_id=player_id).get(_ack_key(round_id, client_id), {})
     try:
         return max(0, int(row.get("serverSequence") or 0))
     except (TypeError, ValueError):
@@ -2347,12 +2352,13 @@ def append_event_batch(
     *,
     idempotency_key: str,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     for event in events:
         event_round_id = event.get("roundId")
         if event_round_id is not None and str(event_round_id) != str(round_id):
             raise ValueError("event roundId does not match path")
-    path = mobile_event_log(root)
+    path = mobile_event_log(root, player_id=player_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     round_key = str(round_id)
     # (eventId, clientId) for each requested event — clientId joins the dedup key so the same eventId
@@ -2435,7 +2441,7 @@ def append_event_batch(
     }
 
 
-def build_round_state(round_id: str, *, root: Path | str | None = None) -> dict[str, Any]:
+def build_round_state(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> dict[str, Any]:
     """Materialized authoritative per-hole round state, folded from the event log in serverSequence
     order — the server-side mirror of iOS ``OfflineStore.restoreLiveRoundState`` (round-12 sync spine).
 
@@ -2445,7 +2451,7 @@ def build_round_state(round_id: str, *, root: Path | str | None = None) -> dict[
     is flagged for the UI. note/photo/video/sync_marker do not change scored state.
     """
     rows = sorted(
-        _event_log_rows(round_id, root=root),
+        _event_log_rows(round_id, root=root, player_id=player_id),
         key=lambda row: int(row.get("serverSequence") or 0),
     )
     holes: dict[int, dict[str, Any]] = {}
@@ -2540,7 +2546,7 @@ def replay_event_log(
     start_sequence = (
         max(0, int(after_sequence))
         if after_sequence is not None
-        else (_client_ack_sequence(round_id, clean_client_id, root=root) if clean_client_id else 0)
+        else (_client_ack_sequence(round_id, clean_client_id, root=root, player_id=player_id) if clean_client_id else 0)
     )
     bounded_limit = max(1, min(int(limit or 100), 500))
     matching_rows = [
@@ -2587,14 +2593,14 @@ def ack_event_cursor(
         raise ValueError("clientId is required")
     latest_sequence = _latest_event_sequence(round_id, root=root, player_id=player_id)
     acked_sequence = max(0, min(int(server_sequence), latest_sequence))
-    acks = _load_client_acks(root)
+    acks = _load_client_acks(root, player_id=player_id)
     acks[_ack_key(str(round_id), clean_client_id)] = {
         "roundId": str(round_id),
         "clientId": clean_client_id,
         "serverSequence": acked_sequence,
         "updatedAt": _format_time(datetime.now(UTC)),
     }
-    _write_client_acks(acks, root)
+    _write_client_acks(acks, root, player_id=player_id)
     return {
         "schema": "ai-caddie-mobile-event-ack-v1",
         "roundId": str(round_id),
