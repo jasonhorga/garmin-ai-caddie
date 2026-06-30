@@ -2129,6 +2129,42 @@ describe('App navigation', () => {
     expect(screen.getByRole('button', { name: '账户' })).toBeInTheDocument()
   })
 
+  it('shows a member clean stats with NO raw source refs or drilldown panel (强弱)', async () => {
+    // A member is never owner mode, so the diagnostics surface (raw refs / drilldown) stays
+    // gated even though the beforeEach turned the diagnostics flag on. They get the content.
+    const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    window.sessionStorage.setItem(
+      'ai-caddie.session',
+      JSON.stringify({ token: 'member-bearer', playerId: 'p_member', expiresAt: future }),
+    )
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
+          if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '历史' }))
+    await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
+    expect(await screen.findByRole('heading', { name: '按杆' })).toBeInTheDocument()
+    // The owner+diagnostics view shows raw source-ref chips here (see the caddie-context
+    // test); a member sees none of it — no ref chips, no ref buttons, no drilldown panel.
+    expect(screen.queryByLabelText('Source refs')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Open source/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '来源详情' })).not.toBeInTheDocument()
+  })
+
   it('refreshes loaded history stats after creating a correction', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }

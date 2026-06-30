@@ -775,6 +775,33 @@ export default function App() {
     }
   }
 
+  // The drilldown + geometry-evidence panels are pure engineering tools (raw source
+  // refs, internal round/hole/shot IDs, JSON dumps, geometry "ensure" controls). They
+  // are owner-diagnostics ONLY: gated by `diagnostics && isOwnerMode` so a MEMBER never
+  // sees raw refs/IDs/geometry controls — even when a member affordance (e.g. a scorecard
+  // hole-detail button) drives drilldownState to a non-idle value. Single gate, reused at
+  // every page that can open a drilldown (history/stats/sync-quality/实战).
+  function renderDiagnosticsDrilldownPanels() {
+    if (!(diagnostics && isOwnerMode)) return null
+    return (
+      <>
+        <HistoryDrilldownPanel
+          state={drilldownState}
+          onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+          onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+          onCreateAnnotationForSource={handleCreateAnnotationForSource}
+        />
+        {holeEvidenceState.status === 'idle' ? null : (
+          <HoleEvidencePanel
+            state={holeEvidenceState}
+            ensureState={geometryEnsureState}
+            onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
+          />
+        )}
+      </>
+    )
+  }
+
   function renderDrilldownPanels() {
     if (roundDetailState.status === 'idle' && drilldownState.status === 'idle' && holeEvidenceState.status === 'idle') return null
     return (
@@ -788,23 +815,7 @@ export default function App() {
           onLoadRoundReport={handleLoadRoundReport}
           onGenerateRoundReport={handleGenerateRoundReport}
         />
-        {/* Drilldown + geometry-evidence panels are pure debugging tools (raw refs,
-            JSON dumps, English geometry) — owner diagnostics mode only. */}
-        {diagnostics ? (
-          <HistoryDrilldownPanel
-            state={drilldownState}
-            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-            onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-            onCreateAnnotationForSource={handleCreateAnnotationForSource}
-          />
-        ) : null}
-        {diagnostics && holeEvidenceState.status !== 'idle' ? (
-          <HoleEvidencePanel
-            state={holeEvidenceState}
-            ensureState={geometryEnsureState}
-            onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
-          />
-        ) : null}
+        {renderDiagnosticsDrilldownPanels()}
       </>
     )
   }
@@ -1258,19 +1269,7 @@ export default function App() {
       return (
         <>
           {renderSyncQualityWorkspace()}
-          <HistoryDrilldownPanel
-            state={drilldownState}
-            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-            onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-            onCreateAnnotationForSource={handleCreateAnnotationForSource}
-          />
-          {holeEvidenceState.status === 'idle' ? null : (
-            <HoleEvidencePanel
-              state={holeEvidenceState}
-              ensureState={geometryEnsureState}
-              onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
-            />
-          )}
+          {renderDiagnosticsDrilldownPanels()}
         </>
       )
     }
@@ -1317,19 +1316,7 @@ export default function App() {
         return (
           <>
             {renderStatsContent(statsState.data)}
-            <HistoryDrilldownPanel
-              state={drilldownState}
-              onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-              onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-              onCreateAnnotationForSource={handleCreateAnnotationForSource}
-            />
-            {holeEvidenceState.status === 'idle' ? null : (
-              <HoleEvidencePanel
-                state={holeEvidenceState}
-                ensureState={geometryEnsureState}
-                onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
-              />
-            )}
+            {renderDiagnosticsDrilldownPanels()}
           </>
         )
       }
@@ -1418,19 +1405,7 @@ export default function App() {
               selectedSourceRef: selectedCaddieSourceRef,
             }}
           />
-          <HistoryDrilldownPanel
-            state={drilldownState}
-            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-            onRetrySource={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-            onCreateAnnotationForSource={handleCreateAnnotationForSource}
-          />
-          {holeEvidenceState.status === 'idle' ? null : (
-            <HoleEvidencePanel
-              state={holeEvidenceState}
-              ensureState={geometryEnsureState}
-              onEnsureGeometry={(target) => void handleEnsureHoleGeometry(target)}
-            />
-          )}
+          {renderDiagnosticsDrilldownPanels()}
         </>
       )
     }

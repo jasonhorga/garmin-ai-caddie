@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { clearSession, currentSession, currentSessionPlayerId, currentSessionToken, saveSession } from './sessionStore'
 
+const ADMIN_TOKEN_KEY = 'ai-caddie.admin-token'
+
 describe('sessionStore', () => {
-  afterEach(() => clearSession())
+  afterEach(() => {
+    clearSession()
+    try {
+      window.localStorage.removeItem(ADMIN_TOKEN_KEY)
+    } catch {
+      /* storage may be unavailable in the test env */
+    }
+  })
 
   const live = (token: string, playerId: string) => ({
     token,
@@ -32,5 +41,18 @@ describe('sessionStore', () => {
   it('ignores corrupt stored JSON', () => {
     window.sessionStorage.setItem('ai-caddie.session', '{not json')
     expect(currentSession()).toBeNull()
+  })
+
+  it('clears a stored owner admin token when a MEMBER session is saved', () => {
+    // SECURITY: a member browser must not retain a stray/shared owner admin token.
+    window.localStorage.setItem(ADMIN_TOKEN_KEY, 'admin-secret')
+    saveSession(live('member-bearer', 'p_member'))
+    expect(window.localStorage.getItem(ADMIN_TOKEN_KEY)).toBeNull()
+  })
+
+  it('keeps the stored admin token when the OWNER session is saved (bare-URL owner UX)', () => {
+    window.localStorage.setItem(ADMIN_TOKEN_KEY, 'admin-secret')
+    saveSession(live('owner-bearer', 'me'))
+    expect(window.localStorage.getItem(ADMIN_TOKEN_KEY)).toBe('admin-secret')
   })
 })
