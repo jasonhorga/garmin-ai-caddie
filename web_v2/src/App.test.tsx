@@ -1232,6 +1232,44 @@ describe('App navigation', () => {
     })
   })
 
+  it('boots an admin-token owner into their data on a link-required deployment (no stuck 历史数据加载中)', async () => {
+    // Regression: on a link-required (public) build the boot guard used to lock out
+    // an owner whose only credential is the persisted admin token — needsSignIn let
+    // them past the sign-in gate, but the boot fetch never fired, so the home
+    // stranded forever on 历史数据加载中. The admin token is a valid owner credential
+    // and must boot their data just like the bare-URL owner above.
+    vi.stubEnv('VITE_AI_CADDIE_REQUIRE_LINK', 'true')
+    vi.stubGlobal('location', { pathname: '/', search: '' })
+    localStorage.setItem('ai-caddie.admin-token', 'admin-secret')
+    const hasAdminToken = (init?: RequestInit) =>
+      Boolean(init?.headers && (init.headers as Record<string, string>)['X-AI-Caddie-Admin-Token'] === 'admin-secret')
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/v2/sync/status') return { ok: true, json: async () => syncStatusPayload() }
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      if (!hasAdminToken(init)) return { ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
+          if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    // The home renders real content — not the Apple sign-in gate, not the stuck loader.
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Apple/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('历史数据加载中')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
+  })
+
   it('persists the admin token and refetches errored owner surfaces the moment it is entered', async () => {
     // No persisted token: the token-less boot 401s every private surface, so the
     // owner first sees the recovery panel, then enters the token in the sync panel.

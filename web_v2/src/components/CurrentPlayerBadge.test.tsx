@@ -30,4 +30,17 @@ describe('CurrentPlayerBadge', () => {
     // Decorative avatar (empty alt) → query the element directly, not by role.
     expect(container.querySelector('img')).toHaveAttribute('src', 'https://example.test/a.png')
   })
+
+  it('does not duplicate a single-character name as both avatar and label (owner "我")', () => {
+    // The avatar placeholder is the name's first character; for a one-character name
+    // it equals the full name, so showing both read as "我 我". The redundant
+    // initial-avatar is dropped — the name renders exactly once.
+    const { container } = render(
+      <CurrentPlayerBadge player={{ id: 'me', name: '我', isOwner: true, avatar: null }} />,
+    )
+
+    expect(screen.getAllByText('我')).toHaveLength(1)
+    expect(container.querySelector('.current-player-avatar')).toBeNull()
+    expect(screen.getByLabelText('当前球员 我')).toBeInTheDocument()
+  })
 })
