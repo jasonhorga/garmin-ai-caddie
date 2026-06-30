@@ -111,6 +111,7 @@ def append_mobile_events_response(
     request: LiveRoundEventBatchRequest,
     *,
     idempotency_key: str,
+    player_id: str = OWNER_ID,
 ) -> LiveRoundEventBatchResponse:
     if request.roundId != round_id:
         raise HTTPException(status_code=422, detail="roundId does not match path")
@@ -120,6 +121,7 @@ def append_mobile_events_response(
             [event.model_dump(by_alias=True) for event in request.events],
             idempotency_key=idempotency_key,
             root=MOBILE_ROOT,
+            player_id=player_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -132,6 +134,7 @@ def replay_mobile_events_response(
     client_id: str | None = None,
     after_sequence: int | None = None,
     limit: int = 100,
+    player_id: str = OWNER_ID,
 ) -> LiveRoundEventReplayResponse:
     return LiveRoundEventReplayResponse(
         **replay_event_log(
@@ -140,21 +143,23 @@ def replay_mobile_events_response(
             after_sequence=after_sequence,
             limit=limit,
             root=MOBILE_ROOT,
+            player_id=player_id,
         )
     )
 
 
-def round_state_response(round_id: str) -> RoundStateResponse:
-    return RoundStateResponse(**build_round_state(round_id, root=MOBILE_ROOT))
+def round_state_response(round_id: str, *, player_id: str = OWNER_ID) -> RoundStateResponse:
+    return RoundStateResponse(**build_round_state(round_id, root=MOBILE_ROOT, player_id=player_id))
 
 
-def ack_mobile_events_response(round_id: str, request: LiveRoundEventAckRequest) -> LiveRoundEventAckResponse:
+def ack_mobile_events_response(round_id: str, request: LiveRoundEventAckRequest, *, player_id: str = OWNER_ID) -> LiveRoundEventAckResponse:
     try:
         result = ack_event_cursor(
             round_id,
             client_id=request.clientId,
             server_sequence=request.serverSequence,
             root=MOBILE_ROOT,
+            player_id=player_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

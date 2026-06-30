@@ -155,26 +155,41 @@ def is_player_scoped_route(method: str, path: str) -> bool:
     cursor / reconciliation, no weather, no hand-written notes). They are therefore safe
     to open to members here.
 
-    NOTE: the reconciliation/APPLY (POST) write path stays admin-only — it is not GET, so
-    it never matches here, and its builders keep the ``player_id=OWNER_ID`` default.
+    The live-round event log + ack store are now PER-PLAYER PARTITIONED
+    (``mobile_live.mobile_event_log(player_id=…)``), so a member's in-round events write AND read
+    to their OWN partition only — isolation by construction (the path differs), no ownership check.
+    That makes the live-event WRITES (events POST + ack POST) safe to open to a per-player token
+    too — the handlers thread ``current_player_id`` so each player only ever touches their own log.
+    Other POST writes (reconciliation/APPLY, report generation) stay admin-only — they don't match.
     """
-    if method.upper() != "GET":
-        return False
-    return (
-        path.startswith("/api/v2/history/")
-        or path == "/api/v2/reports"
-        or path.startswith("/api/v2/reports/")
-        or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
-        or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
-        or path == "/api/v2/mobile/courses/options"
-        or path == "/api/v2/caddie/context"
-        or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
-        or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
-        or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
-        # The member-scoped manual club-bag READ; the handler enforces owner/own-player. The PUT is
-        # not a GET so it never matches here — it is handler-authed (like POST /players/{id}/rounds).
-        or (path.startswith("/api/v2/players/") and path.endswith("/clubs/bag"))
-    )
+    m = method.upper()
+    if m == "GET":
+        return (
+            path.startswith("/api/v2/history/")
+            or path == "/api/v2/reports"
+            or path.startswith("/api/v2/reports/")
+            or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
+            or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
+            or path == "/api/v2/mobile/courses/options"
+            or path == "/api/v2/caddie/context"
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
+            or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))
+            # Live-round event READS (per-player partitioned) — a member sees only their own.
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/replay"))
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/state"))
+            # The member-scoped manual club-bag READ; the handler enforces owner/own-player. The PUT is
+            # not a GET so it never matches here — it is handler-authed (like POST /players/{id}/rounds).
+            or (path.startswith("/api/v2/players/") and path.endswith("/clubs/bag"))
+        )
+    if m == "POST":
+        # Live-round event WRITES are per-player partitioned, so a member writes ONLY to their own
+        # log — safe for a per-player token (the handler threads current_player_id).
+        return (
+            (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events"))
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/ack"))
+        )
+    return False
 
 
 # ---------------------------------------------------------------------------
