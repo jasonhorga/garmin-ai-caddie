@@ -22,7 +22,7 @@ function isExpired(session: AppSession): boolean {
 
 /** The live (non-expired) session, or null. An expired session is dropped. */
 export function currentSession(): AppSession | null {
-  let raw: string | null = null
+  let raw: string | null
   try {
     raw = window.sessionStorage.getItem(SESSION_KEY)
   } catch {
