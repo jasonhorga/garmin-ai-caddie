@@ -286,6 +286,26 @@ final class WatchSyncClientTests: XCTestCase {
         client.applyApplicationContext(["config": ["apiBaseURL": "https://caddie.example.com"]])
         XCTAssertEqual(client.config?.baseURL.absoluteString, "https://caddie.example.com")
         XCTAssertNil(client.config?.adminToken)
+        // round-13 watch-auth: a signed-out phone pushes config WITHOUT a session token, so the watch
+        // clears its Bearer (latest-wins application context).
+        XCTAssertNil(client.config?.sessionToken)
+        XCTAssertNil(client.config?.sessionTokenExpiresAt)
+    }
+
+    func testApplyApplicationContextParsesSessionTokenAndExpiry() throws {
+        // round-13 watch-auth: the phone forwards its live Apple session token (Bearer) + expiry so the
+        // watch's standalone WatchBackendClient authenticates as the signed-in member/owner.
+        let client = WatchSyncClient(queueURL: tempQueueURL())
+        let expiry = "2026-12-31T00:00:00Z"
+        client.applyApplicationContext([
+            "config": [
+                "apiBaseURL": "https://caddie.example.com",
+                "sessionToken": "session-jwt",
+                "sessionTokenExpiresAt": expiry,
+            ],
+        ])
+        XCTAssertEqual(client.config?.sessionToken, "session-jwt")
+        XCTAssertEqual(client.config?.sessionTokenExpiresAt, ISO8601DateFormatter().date(from: expiry))
     }
 
     func testApplyApplicationContextIgnoresInvalidPayload() throws {

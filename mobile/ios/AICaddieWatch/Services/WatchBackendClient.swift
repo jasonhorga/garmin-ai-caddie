@@ -16,12 +16,23 @@ public struct WatchBackendEventResult: Equatable {
 public final class WatchBackendClient {
     private let baseURL: URL
     private let adminToken: String?
+    private let sessionToken: String?
+    private let sessionTokenExpiresAt: Date?
     private let clientId: String
     private let session: URLSession
 
-    public init(baseURL: URL, adminToken: String? = nil, clientId: String = "apple-watch", session: URLSession = .shared) {
+    public init(
+        baseURL: URL,
+        adminToken: String? = nil,
+        sessionToken: String? = nil,
+        sessionTokenExpiresAt: Date? = nil,
+        clientId: String = "apple-watch",
+        session: URLSession = .shared
+    ) {
         self.baseURL = baseURL
         self.adminToken = adminToken
+        self.sessionToken = sessionToken
+        self.sessionTokenExpiresAt = sessionTokenExpiresAt
         self.clientId = clientId
         self.session = session
     }
@@ -86,7 +97,7 @@ public final class WatchBackendClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
-        applyAdminToken(&request)
+        applyAuth(&request)
         let body: [String: Any] = ["roundId": roundId, "events": events.map { backendEvent(from: $0) }]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
@@ -129,7 +140,7 @@ public final class WatchBackendClient {
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
-        applyAdminToken(&request)
+        applyAuth(&request)
         return try await sendForJSON(request)
     }
 
@@ -138,21 +149,37 @@ public final class WatchBackendClient {
         var request = URLRequest(url: endpointURL("/api/v2/mobile/rounds/\(roundId)/events/ack"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAdminToken(&request)
+        applyAuth(&request)
         request.httpBody = try JSONSerialization.data(withJSONObject: ["clientId": clientId, "serverSequence": serverSequence])
         return try await sendForJSON(request)
     }
 
     // MARK: - helpers
 
-    // TODO(member-auth): watch standalone sync still uses the admin token pushed from the phone.
-    // The watch target has no SessionStore / Apple sign-in, so it cannot read a member's session
-    // token. Until the phone pushes the live session token to the watch (a follow-up slice), a
-    // clean consumer build (no admin token) leaves the watch's standalone sync unauthenticated.
-    private func applyAdminToken(_ request: inout URLRequest) {
-        if let adminToken {
+    // member-auth (resolved): the watch target has no SessionStore / Apple sign-in, so it cannot read
+    // a member's session token itself. Instead the phone pushes its live Apple session token over
+    // WCSession (WatchEventBridge.sendConfigToWatch → WatchRoundConfig.sessionToken). We prefer that as
+    // an `Authorization: Bearer` header — mirroring the phone's `applyAICaddieAuth` precedence — so the
+    // watch's standalone sync authenticates as the signed-in member/owner and the backend scopes the
+    // writes to their own partition (current_player_id). The admin token survives only as the DEBUG/CI
+    // fallback. On sign-out the phone re-pushes config WITHOUT a session token, so the watch drops the
+    // Bearer and falls back to admin/none (unauthenticated) rather than reusing a stale token.
+    private func applyAuth(_ request: inout URLRequest) {
+        if let token = liveSessionToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } else if let adminToken {
             request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")
         }
+    }
+
+    /// The pushed session token, honored only until it expires — mirrors the phone's
+    /// `SessionStore.liveToken` so the watch never authenticates with an expired Bearer. A nil expiry
+    /// means "no known expiry" and is treated as live (matching the phone, whose `liveToken` returns
+    /// the token when its expiry is nil).
+    private var liveSessionToken: String? {
+        guard let sessionToken, !sessionToken.isEmpty else { return nil }
+        if let sessionTokenExpiresAt, sessionTokenExpiresAt <= Date() { return nil }
+        return sessionToken
     }
 
     private func sendForJSON(_ request: URLRequest) async throws -> [String: Any] {

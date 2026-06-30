@@ -328,12 +328,30 @@ public final class WatchEventBridge: NSObject {
     }
 
     /// round-12 P3.4 (Watch standalone): hand the watch what it needs to reach the backend on its own
-    /// (base URL + admin token), so a standalone round can sync without the phone relaying each event.
-    /// Sent via application context — latest-wins and delivered even when the watch isn't reachable now.
-    public func sendConfigToWatch(apiBaseURL: String, adminToken: String?) {
+    /// (base URL + auth), so a standalone round can sync without the phone relaying each event. Sent via
+    /// application context — latest-wins and delivered even when the watch isn't reachable now.
+    ///
+    /// round-13 watch-auth: the phone also forwards its live Apple `sessionToken` (and its expiry) here,
+    /// so the watch's standalone `WatchBackendClient` authenticates as the signed-in member/owner with a
+    /// Bearer token (member/owner-scoped) instead of the admin token. On sign-out the caller passes
+    /// `sessionToken: nil`; the config is rebuilt WITHOUT the token, and because the application context
+    /// is latest-wins the watch drops its Bearer. The admin token rides along only as the DEBUG/CI
+    /// fallback.
+    public func sendConfigToWatch(
+        apiBaseURL: String,
+        adminToken: String?,
+        sessionToken: String? = nil,
+        sessionTokenExpiresAt: Date? = nil
+    ) {
         var config: [String: Any] = ["apiBaseURL": apiBaseURL]
         if let adminToken, !adminToken.isEmpty {
             config["adminToken"] = adminToken
+        }
+        if let sessionToken, !sessionToken.isEmpty {
+            config["sessionToken"] = sessionToken
+            if let sessionTokenExpiresAt {
+                config["sessionTokenExpiresAt"] = ISO8601DateFormatter().string(from: sessionTokenExpiresAt)
+            }
         }
         pendingConfig = config
         pushPendingConfig()
