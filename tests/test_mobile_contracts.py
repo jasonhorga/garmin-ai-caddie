@@ -2045,6 +2045,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("final class GarminSessionClient", session_client)
         self.assertIn("func importSession", session_client)
         self.assertIn('"/api/v2/sync/garmin/session"', session_client)
+        # A signed-in family member binds their OWN Garmin via the member route, scoped by the backend.
+        self.assertIn('/api/v2/players/\\(pid)/sync/garmin/session', session_client)
         self.assertIn("private func endpointURL(_ endpoint: String) -> URL", session_client)
         self.assertIn('endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint', session_client)
         self.assertNotIn('appendingPathComponent("/api', session_client)
@@ -2053,19 +2055,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("username", session_client.lower())
 
         self.assertIn("struct GarminSessionView: View", session_view)
-        self.assertIn("SecureField(\"Web session header\"", session_view)
-        self.assertIn("SecureField(\"CSRF token\"", session_view)
+        # Consumer "连接 Garmin": the webview captures the cookie; no raw session-header / CSRF
+        # paste UI or engineering vocabulary is shown to the user.
+        self.assertNotIn("Web session header", session_view)
+        self.assertNotIn("CSRF token", session_view)
         self.assertNotIn("axis: .vertical", session_view)
         self.assertIn("GarminSessionClient(baseURL:", session_view)
         self.assertIn("client.importSession", session_view)
-        self.assertIn('source: "ios_secure_input"', session_view)
-        self.assertIn('source: "ios_keychain_replay"', session_view)
         self.assertIn('source: "ios_web_login"', session_view)
         self.assertIn("GarminWebSessionCaptureView", session_view)
-        self.assertIn('Label("Open Garmin login"', session_view)
+        self.assertIn('"连接 Garmin"', session_view)
         self.assertIn("importCapturedSession", session_view)
-        self.assertIn("webSessionHeader = \"\"", session_view)
-        self.assertIn("antiForgeryValue = \"\"", session_view)
         self.assertNotIn("password", session_view.lower())
         self.assertNotIn("username", session_view.lower())
 
@@ -2122,8 +2122,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("try? sessionStore?.saveSession", session_view)
         self.assertIn("sessionStore.loadSession()", session_view)
         self.assertIn("sessionStore.deleteSession()", session_view)
-        self.assertIn("Import stored session", session_view)
-        self.assertIn("Forget stored session", session_view)
+        # The session is saved on webview capture + cleared via the consumer "断开 Garmin" button;
+        # the raw "import/forget stored session" buttons are gone.
+        self.assertIn('"断开 Garmin"', session_view)
         self.assertNotIn("password", session_view.lower())
         self.assertNotIn("username", session_view.lower())
 
