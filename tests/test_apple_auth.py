@@ -33,6 +33,21 @@ class AppleAuthTests(unittest.TestCase):
         with self.assertRaises(AppleAuthError):
             verify_apple_identity_token(_token(aud="com.attacker.app"), audience=AUD, signing_key_resolver=self._resolver)
 
+    def test_audience_list_accepts_any_member(self):
+        # A web Sign-in-with-Apple token's aud is the Services ID; passing a list lets it verify
+        # alongside the iOS bundle id (multi-audience support for one app + one web client).
+        for aud in ("com.example.aicaddie", "com.example.web"):
+            ident = verify_apple_identity_token(
+                _token(aud=aud), audience=["com.example.aicaddie", "com.example.web"],
+                signing_key_resolver=self._resolver)
+            self.assertEqual(ident.subject, "000123.abc.456")
+
+    def test_audience_list_rejects_outsider(self):
+        with self.assertRaises(AppleAuthError):
+            verify_apple_identity_token(
+                _token(aud="com.attacker.app"), audience=["com.example.aicaddie", "com.example.web"],
+                signing_key_resolver=self._resolver)
+
     def test_wrong_issuer_rejected(self):
         with self.assertRaises(AppleAuthError):
             verify_apple_identity_token(_token(iss="https://evil.example"), audience=AUD, signing_key_resolver=self._resolver)

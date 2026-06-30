@@ -35,7 +35,7 @@ def _default_signing_key(token: str):
 
 
 def verify_apple_identity_token(
-    token: str, *, audience: str,
+    token: str, *, audience: str | list[str],
     signing_key_resolver: Callable[[str], object] = _default_signing_key,
 ) -> AppleIdentity:
     """Verify signature + aud/iss/exp; return the Apple identity. Raise AppleAuthError on any failure."""
