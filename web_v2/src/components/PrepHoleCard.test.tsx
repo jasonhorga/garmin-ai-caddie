@@ -199,6 +199,32 @@ describe('PrepHoleCard', () => {
     expect(approachSwatch.style.border).toBe('1px solid rgb(68, 68, 85)')
   })
 
+  it('staggers hazard labels vertically when two hazards land close together on the route', () => {
+    // water marker (cum 150) and bunker marker (cum 155) project ~5px apart on
+    // the test route — their labels must clear each other by the line gap.
+    const hole = mappedHole({ hazards: { water_carry: [[120, 150]], bunkers: [[155, 10]] } })
+    const { container } = render(<PrepHoleCard hole={hole} clubs={clubs} />)
+
+    expect(screen.getByText('水 进44y / 过77y')).toBeInTheDocument()
+    expect(screen.getByText('沙82y')).toBeInTheDocument()
+    const ys = Array.from(container.querySelectorAll('svg text'))
+      .map((node) => Number(node.getAttribute('y')))
+      .sort((a, b) => a - b)
+    expect(ys).toHaveLength(2)
+    expect(ys[1] - ys[0]).toBeGreaterThanOrEqual(14)
+  })
+
+  it('hides a duplicate hazard label that would stack on top of an identical one', () => {
+    // two bunkers at the same route distance resolve to the same "沙77y" label;
+    // both markers draw, but the identical label renders only once.
+    const hole = mappedHole({ hazards: { water_carry: [], bunkers: [[150, 10], [150, 8]] } })
+    const { container } = render(<PrepHoleCard hole={hole} clubs={clubs} />)
+
+    expect(container.querySelectorAll('svg circle[r="5"]')).toHaveLength(2)
+    expect(container.querySelectorAll('svg text')).toHaveLength(1)
+    expect(screen.getByText('沙77y')).toBeInTheDocument()
+  })
+
   it('renders no dots and no legend when yourShots is absent or empty', () => {
     const { container, rerender } = render(<PrepHoleCard hole={mappedHole()} clubs={clubs} />)
 

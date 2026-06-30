@@ -1,11 +1,14 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { CoursePrepClub, CoursePrepHole, CoursePrepOverlay } from '../types'
-import { atCum, nearestCum, routeIntervalReadout, routeYardageReadout } from './coursePrepPanelLogic'
+import { atCum, layoutHazardLabels, nearestCum, routeIntervalReadout, routeYardageReadout } from './coursePrepPanelLogic'
 import { useDiagnostics } from '../diagnosticsContext'
 
 const PAR_CLASS: Record<number, string> = { 3: '#4aa3d6', 4: '#3fae6b', 5: '#caa14a' }
 const SOURCE_LABEL: Record<string, string> = { played: '记分卡', courseview: 'CourseView', estimate: '推算' }
 const YARD = 1.09361
+// Minimum vertical gap (overlay px) between two stacked hazard distance labels;
+// ~font size (12) + the outline stroke, so de-overlapped labels never touch.
+const HAZARD_LABEL_MIN_GAP = 14
 
 type HazardMarker =
   | { kind: 'water'; start: number; end: number; cum: number; color: string }
@@ -102,6 +105,21 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
       ...hole.hazards.water_carry.map((w) => ({ kind: 'water' as const, start: w[0], end: w[1], cum: w[1], color: '#2f7fb0' })),
       ...hole.hazards.bunkers.filter((b) => b[1] <= 20).slice(0, 3).map((b) => ({ kind: 'bunker' as const, cum: b[0], color: '#caa14a', label: '沙' })),
     ]
+    // Project each hazard onto the route, resolve its distance label, then run a
+    // greedy de-overlap so two nearby hazards don't print their labels on top of
+    // each other. Markers stay on the route; only the text is nudged/deduped.
+    const hazardMarkers = haz.map((h) => {
+      const p = atCum(route, h.cum)
+      const text =
+        h.kind === 'water'
+          ? waterCarryLabel(overlay, cum, h.start, h.end)
+          : pointHazardLabel(overlay, cum, h.cum, h.label)
+      return { color: h.color, x: p.x, y: p.y, text }
+    })
+    const hazardLabels = layoutHazardLabels(
+      hazardMarkers.map((m) => ({ y: m.y + 4, text: m.text })),
+      HAZARD_LABEL_MIN_GAP,
+    )
     overlaySvg = (
       <svg
         ref={svgRef}
@@ -118,19 +136,25 @@ export function PrepHoleCard({ hole, clubs }: PrepHoleCardProps): React.ReactEle
             <title>{`${shot.club ?? '未知杆'} · ${shot.roundId}`}</title>
           </circle>
         ))}
-        {haz.map((h, i) => {
-          const p = atCum(route, h.cum)
-          return (
-            <g key={i}>
-              <circle cx={p.x} cy={p.y} r={5} fill={h.color} stroke="#fff" strokeWidth={2} />
-              <text x={p.x + 7} y={p.y + 4} fontSize={12} fontWeight={700} fill="#fff" stroke="#000" strokeWidth={2.4} paintOrder="stroke">
-                {h.kind === 'water'
-                  ? waterCarryLabel(overlay, cum, h.start, h.end)
-                  : pointHazardLabel(overlay, cum, h.cum, h.label)}
+        {hazardMarkers.map((m, i) => (
+          <g key={i}>
+            <circle cx={m.x} cy={m.y} r={5} fill={m.color} stroke="#fff" strokeWidth={2} />
+            {hazardLabels[i].showLabel ? (
+              <text
+                x={m.x + 7}
+                y={hazardLabels[i].labelY}
+                fontSize={12}
+                fontWeight={700}
+                fill="#fff"
+                stroke="#000"
+                strokeWidth={2.4}
+                paintOrder="stroke"
+              >
+                {m.text}
               </text>
-            </g>
-          )
-        })}
+            ) : null}
+          </g>
+        ))}
         <circle cx={ball.x} cy={ball.y} r={12} fill="#e8963a" stroke="#fff" strokeWidth={3} />
       </svg>
     )

@@ -94,3 +94,44 @@ export function routeIntervalReadout(
     isCleared: routeCum > end,
   }
 }
+
+export interface HazardLabelRow {
+  y: number
+  text: string
+}
+
+export interface HazardLabelPlacement {
+  labelY: number
+  showLabel: boolean
+}
+
+// Greedy vertical de-overlap for the hole-map hazard distance labels. Each row
+// carries a label's natural baseline y (the hazard marker's y plus the text
+// baseline offset) and its rendered text. Two hazards close together on the
+// route would otherwise stack their labels on the same pixels, so this walks
+// the labels top-to-bottom and pushes each one down to clear the previous by at
+// least `minGap` px; a label that is an EXACT duplicate of the one it would
+// collide with (e.g. two adjacent "沙12y" bunkers) is hidden instead of stacked.
+// The hazard markers (circles) stay put — only the text moves. Returns one
+// placement per input row IN THE ORIGINAL ORDER so callers can zip it back onto
+// their markers.
+export function layoutHazardLabels(rows: HazardLabelRow[], minGap: number): HazardLabelPlacement[] {
+  const placements: HazardLabelPlacement[] = rows.map((row) => ({ labelY: row.y, showLabel: true }))
+  const order = rows
+    .map((row, index) => ({ index, y: row.y, text: row.text }))
+    .sort((a, b) => a.y - b.y || a.index - b.index)
+  let lastY = -Infinity
+  let lastText: string | null = null
+  for (const item of order) {
+    const collides = item.y < lastY + minGap
+    if (collides && item.text === lastText) {
+      placements[item.index].showLabel = false
+      continue
+    }
+    const labelY = collides ? lastY + minGap : item.y
+    placements[item.index].labelY = labelY
+    lastY = labelY
+    lastText = item.text
+  }
+  return placements
+}
