@@ -12,7 +12,6 @@ export type ProductPage =
   | 'prep'
   | 'corrections'
   | 'sync-quality'
-  | 'players'
   | 'club-bag'
   | 'settings'
 
@@ -32,7 +31,6 @@ export const PAGE_TO_SECTION: Record<ProductPage, ProductSection> = {
   record: 'live',
   corrections: 'settings',
   'sync-quality': 'settings',
-  players: 'settings',
   'club-bag': 'settings',
   settings: 'settings',
 }
@@ -52,7 +50,7 @@ export const SECTION_DEFAULT_PAGE: Record<ProductSection, ProductPage> = {
   history: 'history',
   prep: 'prep',
   live: 'caddie',
-  settings: 'sync-quality',
+  settings: 'settings',
 }
 
 export interface SubNavItem {
@@ -68,12 +66,14 @@ export const HISTORY_SUBNAV: SubNavItem[] = [
   { page: 'courses', label: '球场' },
 ]
 
+// Consumer settings nav. The owner-only diagnostics console (sync-quality) and the
+// obsolete player-link manager (players, removed — members self-register via Apple)
+// are no longer here; consumers get 账号/连接 Garmin/隐私 on the settings hub plus the
+// 球包 and 数据更正 tools.
 export const SETTINGS_SUBNAV: SubNavItem[] = [
-  { page: 'sync-quality', label: '同步与数据健康' },
-  { page: 'players', label: '球员管理' },
+  { page: 'settings', label: '账号' },
   { page: 'club-bag', label: '球包管理' },
   { page: 'corrections', label: '订正' },
-  { page: 'settings', label: '后端配置' },
 ]
 
 export function subnavForPage(page: ProductPage): SubNavItem[] | null {

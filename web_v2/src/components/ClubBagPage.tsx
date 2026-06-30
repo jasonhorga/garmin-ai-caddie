@@ -3,11 +3,12 @@ import { fetchAdminPlayers, fetchPlayerClubBag, putPlayerClubBag } from '../api'
 import type { AdminPlayer, ClubBagUpdateEntry, EffectiveClubBagResponse } from '../types'
 import { CLUB_CATEGORIES, METRES_PER_YARD, catalogByCategory } from '../clubCatalog'
 
-// Owner-only club-bag editor (settings → 球包管理). The OWNER (admin token) sets up any family
-// member's MANUAL bag: pick the clubs they really carry from the catalog + optionally enter each
-// club's typical distance (yards). It mirrors the iOS slice and the backend acts-for-any rule
-// (GET/PUT /api/v2/players/{id}/clubs/bag); no-distance clubs stay blank so the caddie uses its
-// generic fallback ladder. The page never shows anyone's scores — only their bag selection.
+// 我的球杆 (settings → 球包管理). A signed-in player edits their MANUAL bag: pick the clubs they
+// really carry from the catalog + optionally enter each club's typical distance (yards). The session
+// bearer scopes every call to "me" (api.ts injects it), so a consumer needs no admin token. The OWNER
+// admin token additionally unlocks the act-for-any-member picker (set up a family member's bag). It
+// mirrors the iOS slice and the backend acts-for rule (GET/PUT /api/v2/players/{id}/clubs/bag);
+// no-distance clubs stay blank so the caddie uses its generic fallback ladder. No scores are shown.
 
 export function ClubBagPage({ adminToken }: { adminToken?: string }) {
   const token = adminToken?.trim()
@@ -27,7 +28,6 @@ export function ClubBagPage({ adminToken }: { adminToken?: string }) {
 
   const loadBag = useCallback(
     async (pid: string) => {
-      if (!token) return
       setStatus('loading')
       try {
         applyBag(await fetchPlayerClubBag(pid, token))
@@ -40,14 +40,17 @@ export function ClubBagPage({ adminToken }: { adminToken?: string }) {
   )
 
   useEffect(() => {
-    if (!token) return
     let cancelled = false
-    fetchAdminPlayers(token)
-      .then((r) => {
-        if (!cancelled) setPlayers(r.players)
-      })
-      .catch(() => {})
-    // Fetch the owner's bag inline (not via loadBag) so every setState runs in the async
+    // The act-for-any-member picker is an owner affordance gated on the admin token; a signed-in
+    // consumer carries no admin token and just loads their own bag via the session bearer below.
+    if (token) {
+      fetchAdminPlayers(token)
+        .then((r) => {
+          if (!cancelled) setPlayers(r.players)
+        })
+        .catch(() => {})
+    }
+    // Fetch the player's own bag inline (not via loadBag) so every setState runs in the async
     // continuation, never synchronously in the effect body (react-hooks/set-state-in-effect).
     fetchPlayerClubBag('me', token)
       .then((bag) => {
@@ -89,7 +92,6 @@ export function ClubBagPage({ adminToken }: { adminToken?: string }) {
   }
 
   const save = async () => {
-    if (!token) return
     const clubs: ClubBagUpdateEntry[] = [...selected].map((tok) => ({
       token: tok,
       distanceM: distYd[tok] != null ? Math.round(distYd[tok] * METRES_PER_YARD) : null,
@@ -103,14 +105,6 @@ export function ClubBagPage({ adminToken }: { adminToken?: string }) {
     }
   }
 
-  if (!token) {
-    return (
-      <section className="stats-page">
-        <div className="panel empty-state">需要管理员令牌(在「同步与数据健康」里登录)。</div>
-      </section>
-    )
-  }
-
   return (
     <section className="stats-page" aria-label="球包管理工作区">
       <header className="section-head stats-head">
@@ -120,18 +114,20 @@ export function ClubBagPage({ adminToken }: { adminToken?: string }) {
         </div>
       </header>
       <div className="panel">
-        <label>
-          球员:&nbsp;
-          <select value={playerId} onChange={(e) => onPickPlayer(e.target.value)}>
-            {players.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-                {p.isOwner ? '(本人)' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="eyebrow">勾选该球员真实有的球杆,可填每支的常用距离(码)。没填的杆球童用通用兜底。</p>
+        {players.length > 0 ? (
+          <label>
+            球员:&nbsp;
+            <select value={playerId} onChange={(e) => onPickPlayer(e.target.value)}>
+              {players.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.isOwner ? '(本人)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <p className="eyebrow">勾选你真实有的球杆,可填每支的常用距离(码)。没填的杆球童用通用兜底。</p>
       </div>
       {status === 'loading' ? <div className="panel empty-state">加载中…</div> : null}
       {status === 'error' ? <div className="panel empty-state">加载失败。</div> : null}

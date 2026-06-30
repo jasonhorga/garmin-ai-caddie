@@ -52,22 +52,18 @@ describe('AppShell', () => {
     expect(within(badge).getByText('老王')).toBeInTheDocument()
   })
 
-  it('hides the 球员管理 settings tab unless owner player admin is visible', () => {
-    const { rerender } = render(
-      <AppShell activePage="sync-quality" onNavigate={() => undefined}>
+  it('renders the consumer settings subnav with no owner/diagnostic tabs', () => {
+    render(
+      <AppShell activePage="settings" onNavigate={() => undefined}>
         <p>settings body</p>
       </AppShell>,
     )
-    // Default (e.g. a per-player link): no owner management affordance.
+    // Consumer tabs only: 账号 + 球包管理 + 数据更正(订正).
+    expect(screen.getByRole('button', { name: '账号' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '球包管理' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '订正' })).toBeInTheDocument()
+    // The owner diagnostics console and the obsolete player-link manager are gone.
     expect(screen.queryByRole('button', { name: '球员管理' })).not.toBeInTheDocument()
-    // The other settings tabs are unaffected.
-    expect(screen.getByRole('button', { name: '同步与数据健康' })).toBeInTheDocument()
-
-    rerender(
-      <AppShell activePage="sync-quality" onNavigate={() => undefined} playersAdminVisible>
-        <p>settings body</p>
-      </AppShell>,
-    )
-    expect(screen.getByRole('button', { name: '球员管理' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '同步与数据健康' })).not.toBeInTheDocument()
   })
 })

@@ -57,10 +57,12 @@ interface SyncStatusPanelProps {
   onSaveSession?: (request: GarminSessionImportRequest, adminToken?: string) => void | Promise<void>
   sessionSaveState?: 'idle' | 'saving' | 'saved' | 'error'
   sessionSaveError?: string | null
-  adminTokenValue?: string
-  onAdminTokenChange?: (value: string) => void
 }
 
+// Owner diagnostics surface (off the consumer nav). The admin-token entry field
+// was removed in the consumer de-engineer pass — the owner now authenticates via
+// the baked/`?admin=` token plumbing (adminTokenStore), so protected sync actions
+// call the parent handlers with no token and rely on that fallback.
 export function SyncStatusPanel({
   status,
   onSync,
@@ -68,13 +70,9 @@ export function SyncStatusPanel({
   onSaveSession,
   sessionSaveState = 'idle',
   sessionSaveError = null,
-  adminTokenValue,
-  onAdminTokenChange,
 }: SyncStatusPanelProps) {
-  const [localAdminToken, setLocalAdminToken] = useState('')
   const [webSessionHeader, setWebSessionHeader] = useState('')
   const [antiForgeryValue, setAntiForgeryValue] = useState('')
-  const adminToken = adminTokenValue ?? localAdminToken
   const isRunning = syncState === 'running'
   const canRun = Boolean(onSync) && status.connector.canSync && !status.connector.reauthRequired && !isRunning
   const connectors = status.connectors && status.connectors.length ? status.connectors : [status.connector]
@@ -92,13 +90,8 @@ export function SyncStatusPanel({
       antiForgeryValue,
       source: 'web_secure_paste' as const,
     }
-    const token = normalizedAdminToken()
     try {
-      if (token) {
-        await onSaveSession(request, token)
-      } else {
-        await onSaveSession(request)
-      }
+      await onSaveSession(request)
       setWebSessionHeader('')
       setAntiForgeryValue('')
     } catch {
@@ -108,25 +101,7 @@ export function SyncStatusPanel({
 
   function handleSyncClick() {
     if (!canRun || !onSync) return
-    const token = normalizedAdminToken()
-    if (token) {
-      onSync(token)
-    } else {
-      onSync()
-    }
-  }
-
-  function normalizedAdminToken() {
-    const trimmed = adminToken.trim()
-    return trimmed.length ? trimmed : undefined
-  }
-
-  function updateAdminToken(value: string) {
-    if (onAdminTokenChange) {
-      onAdminTokenChange(value)
-      return
-    }
-    setLocalAdminToken(value)
+    onSync()
   }
 
   return (
@@ -203,17 +178,6 @@ export function SyncStatusPanel({
             </span>
           </article>
         ))}
-      </div>
-      <div className="sync-admin-token">
-        <label htmlFor="sync-admin-token">管理令牌</label>
-        <input
-          id="sync-admin-token"
-          type="password"
-          value={adminToken}
-          onChange={(event) => updateAdminToken(event.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-        />
       </div>
       <button className="sync-action" type="button" onClick={handleSyncClick} disabled={!canRun}>
         {isRunning ? '同步中' : '立即同步'}

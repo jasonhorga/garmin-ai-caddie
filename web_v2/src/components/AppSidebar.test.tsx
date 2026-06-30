@@ -24,7 +24,7 @@ describe('AppSidebar', () => {
     await userEvent.click(screen.getByRole('button', { name: '实战' }))
     expect(onNavigate).toHaveBeenCalledWith('caddie')
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    expect(onNavigate).toHaveBeenCalledWith('sync-quality')
+    expect(onNavigate).toHaveBeenCalledWith('settings')
   })
 
   it('navigates back to 概览 from another section', async () => {

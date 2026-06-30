@@ -764,14 +764,11 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
 
   await page.getByRole('button', { name: '设置' }).click()
-  await expect(page.getByRole('heading', { name: '同步与数据健康', exact: true })).toBeVisible()
-  await expect(page.getByText('查看历史')).toBeVisible()
+  // Consumer settings hub: 账号 / 连接 Garmin / 我的球杆 / 数据更正 / 隐私 — no engineering control plane.
+  await expect(page.getByRole('heading', { name: '连接 Garmin', exact: true })).toBeVisible()
+  await expect(page.getByText('已连接')).toBeVisible()
   await assertNoViewportOverflow(page)
-  await captureSmokeScreenshot(page, testInfo, 'settings-sync')
-  // owner-only subnav tabs (unlocked by ?admin= on the ungated :5174 server)
-  await page.getByRole('button', { name: '球员管理' }).click()
-  await page.waitForTimeout(800)
-  await captureSmokeScreenshot(page, testInfo, 'players')
+  await captureSmokeScreenshot(page, testInfo, 'settings')
   await page.getByRole('button', { name: '球包管理' }).click()
   await page.waitForTimeout(1200)
   await captureSmokeScreenshot(page, testInfo, 'club-bag')
@@ -779,10 +776,6 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: '订正', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'corrections')
-  await page.getByRole('button', { name: '后端配置' }).click()
-  await expect(page.getByRole('heading', { name: '后端配置', exact: true })).toBeVisible()
-  await assertNoViewportOverflow(page)
-  await captureSmokeScreenshot(page, testInfo, 'backend')
 
   // 备战 full walk: 概览 finder → course header → 三页签 → scatter legend.
   await page.getByRole('button', { name: '概览', exact: true }).click()

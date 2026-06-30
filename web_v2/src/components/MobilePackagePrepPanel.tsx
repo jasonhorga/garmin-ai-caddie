@@ -29,9 +29,6 @@ interface MobilePackagePrepPanelProps {
   onPrepareCourse: (globalId: number, params: MobileCoursePackageParams) => void | Promise<void>
   defaultRoundId?: string
   defaultCourseGlobalId?: string
-  showAdminTokenInput?: boolean
-  adminTokenValue?: string
-  onAdminTokenChange?: (value: string) => void
 }
 
 function trimmedOrUndefined(value: string) {
@@ -198,9 +195,6 @@ export function MobilePackagePrepPanel({
   onPrepareCourse,
   defaultRoundId = '900001',
   defaultCourseGlobalId = '31795',
-  showAdminTokenInput = false,
-  adminTokenValue = '',
-  onAdminTokenChange,
 }: MobilePackagePrepPanelProps) {
   const [mode, setMode] = useState<PackagePrepMode>('round')
   const [roundId, setRoundId] = useState(defaultRoundId)
@@ -332,19 +326,6 @@ export function MobilePackagePrepPanel({
           />
           <span>拉取几何</span>
         </label>
-
-        {showAdminTokenInput ? (
-          <label>
-            <span>管理令牌</span>
-            <input
-              type="password"
-              value={adminTokenValue}
-              onChange={(event) => onAdminTokenChange?.(event.target.value)}
-              spellCheck={false}
-              autoComplete="off"
-            />
-          </label>
-        ) : null}
 
         <button type="submit" disabled={!canPrepare || isLoading}>
           {isLoading ? '打包中' : '生成离线包'}

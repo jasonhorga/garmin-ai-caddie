@@ -24,6 +24,7 @@ describe('navigation map', () => {
   it('returns the history subnav for any history page and the settings subnav for plumbing pages', () => {
     expect(subnavForPage('clubs')).toBe(HISTORY_SUBNAV)
     expect(subnavForPage('rounds')).toBe(HISTORY_SUBNAV)
+    expect(subnavForPage('settings')).toBe(SETTINGS_SUBNAV)
     expect(subnavForPage('corrections')).toBe(SETTINGS_SUBNAV)
     expect(subnavForPage('overview')).toBeNull()
     expect(subnavForPage('prep')).toBeNull()
@@ -41,10 +42,11 @@ describe('navigation map', () => {
     expect(analysis?.activeFor).toEqual(['holes', 'clubs', 'issues'])
   })
 
-  it('places 球员管理 in the settings section subnav', () => {
-    expect(PAGE_TO_SECTION.players).toBe('settings')
-    const players = SETTINGS_SUBNAV.find((item) => item.page === 'players')
-    expect(players?.label).toBe('球员管理')
-    expect(subnavForPage('players')).toBe(SETTINGS_SUBNAV)
+  it('keeps the consumer settings subnav free of owner/diagnostic surfaces', () => {
+    // De-engineer pass: the owner sync/diagnostics console and the obsolete
+    // player-link manager are gone; the consumer tabs are 账号 + 球包 + 数据更正.
+    expect(SETTINGS_SUBNAV.map((item) => item.page)).toEqual(['settings', 'club-bag', 'corrections'])
+    expect(SETTINGS_SUBNAV.some((item) => item.page === 'sync-quality')).toBe(false)
+    expect(SECTION_DEFAULT_PAGE.settings).toBe('settings')
   })
 })

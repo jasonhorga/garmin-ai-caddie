@@ -764,14 +764,12 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
 
   await page.getByRole('button', { name: '设置' }).click()
-  await expect(page.getByRole('heading', { name: '同步与数据健康', exact: true })).toBeVisible()
-  await expect(page.getByText('查看历史')).toBeVisible()
+  // Consumer settings hub: 账号 / 连接 Garmin / 隐私 — the owner sync console is off the consumer nav now.
+  await expect(page.getByRole('heading', { name: '连接 Garmin', exact: true })).toBeVisible()
+  await expect(page.getByText('已连接')).toBeVisible()
   await assertNoViewportOverflow(page)
   await page.getByRole('button', { name: '订正' }).click()
   await expect(page.getByRole('heading', { name: '订正', exact: true })).toBeVisible()
-  await assertNoViewportOverflow(page)
-  await page.getByRole('button', { name: '后端配置' }).click()
-  await expect(page.getByRole('heading', { name: '后端配置', exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'settings')
 

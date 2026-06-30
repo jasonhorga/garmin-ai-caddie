@@ -71,7 +71,6 @@ import {
 import { AppShell } from './components/AppShell'
 import { ClubBagPage } from './components/ClubBagPage'
 import { LivePage } from './components/LivePage'
-import { PlayerAdminPage } from './components/PlayerAdminPage'
 import { PrepPage } from './components/PrepPage'
 import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
@@ -80,11 +79,11 @@ import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { TrendsOverview } from './components/TrendsOverview'
 import type { ProductPage } from './navigation'
-import { resolveInitialAdminToken, writeStoredAdminToken } from './adminTokenStore'
+import { resolveInitialAdminToken } from './adminTokenStore'
 import { readStoredDiagnostics } from './diagnosticsStore'
 import { DiagnosticsProvider } from './diagnosticsContext'
 import { isLinkRequired, readPlayerToken } from './playerContext'
-import { currentSession, OWNER_PLAYER_ID } from './sessionStore'
+import { clearSession, currentSession, OWNER_PLAYER_ID } from './sessionStore'
 import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
@@ -144,7 +143,7 @@ export default function App() {
   // invalid/expired player link (first auth 401) flips accessDenied below.
   const playerToken = readPlayerToken()
   const linkRequired = isLinkRequired()
-  // Owner mode = bare URL (no per-player token); gates the owner-only 球员管理 surface.
+  // Owner mode = bare URL (no per-player token); gates the owner-only diagnostics switch.
   const session = currentSession()
   // Owner = the Apple session whose playerId is OWNER_PLAYER_ID; a member session
   // (or a legacy per-player link) is not owner mode. With no session, the bare URL
@@ -204,19 +203,17 @@ export default function App() {
   const [geometryEnsureState, setGeometryEnsureState] = useState<GeometryEnsureState>('idle')
   const activeHoleGeometryTarget = useRef<HoleGeometryTarget | null>(null)
   const activeDecisionAuditLookup = useRef<string | null>(null)
-  const adminTokenRefreshTimer = useRef<number | null>(null)
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
   const [sessionSaveState, setSessionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null)
-  // Hydrate the owner's admin token (P1-1 N2): a token carried in the URL (`?admin=<token>`, like the
-  // player `/p/<token>` link) hydrates in MEMORY only — resolveInitialAdminToken does NOT copy it into
-  // localStorage, so the high-privilege admin token isn't left at rest there (XSS-readable, surviving
-  // the session) when it was only ever meant to ride in the owner's bookmarked URL. A reload re-reads
-  // it from the URL; an in-session SPA navigation keeps it in React state. A token the owner TYPES into
-  // the sync panel still persists (writeStoredAdminToken below) for the bare-URL owner UX. Falls back
-  // to the stored token, then the build-time baked default (owner's private homeserver build only).
-  const [adminToken, setAdminToken] = useState(() => resolveInitialAdminToken())
+  // Hydrate the owner's admin token (dev/CI/owner-homeserver fallback; consumers sign in with Apple
+  // and carry NO admin token). Source order (resolveInitialAdminToken): the URL `?admin=<token>` (in
+  // MEMORY only — never copied to localStorage, so the high-privilege token isn't left at rest), then a
+  // previously-stored token, then the build-time baked default (owner's private homeserver build only).
+  // There is no longer a web UI to TYPE the token (de-engineer pass) — it rides in the owner's bookmark
+  // or build, and api.ts injects it on top of the Apple/player bearer.
+  const [adminToken] = useState(() => resolveInitialAdminToken())
 
   useEffect(() => {
     // Locked out: a link is required, the URL carries no player token, and no
@@ -284,10 +281,6 @@ export default function App() {
 
     return () => {
       cancelled = true
-      if (adminTokenRefreshTimer.current !== null) {
-        window.clearTimeout(adminTokenRefreshTimer.current)
-        adminTokenRefreshTimer.current = null
-      }
     }
     // Boot-once: deliberately empty deps. currentAdminToken() reads the token
     // hydrated at mount; we do not want this effect to re-run as it changes.
@@ -502,36 +495,10 @@ export default function App() {
     if (reportIndexState.status !== 'idle') loadReportIndex()
   }
 
-  // Re-fetch only the history surfaces that errored on the token-less boot, using
-  // the keep-ready refreshers so a still-broken backend cannot clobber ready
-  // payloads. Gating on 'error' means a healthy app issues no extra loads.
-  function recoverErroredHistorySurfaces(adminTokenOverride: string | undefined = currentAdminToken()) {
-    if (overviewState.status === 'error') void refreshOverviewState(adminTokenOverride)
-    if (homeSummaryState.status === 'error') void refreshHomeSummary(adminTokenOverride)
-    if (roundsState.status === 'error') void refreshRoundsState(adminTokenOverride)
-    if (statsState.status === 'error') void refreshStatsState(adminTokenOverride)
-    if (trendsState.status === 'error') void refreshTrendsState(adminTokenOverride)
-    if (mobileCourseOptionsState.status === 'error') void refreshMobileCourseOptionsState(adminTokenOverride)
-  }
-
-  function handleAdminTokenChange(value: string) {
-    setAdminToken(value)
-    // Persist immediately so the next page load hydrates it; clearing removes it.
-    writeStoredAdminToken(value)
-    if (adminTokenRefreshTimer.current !== null) {
-      window.clearTimeout(adminTokenRefreshTimer.current)
-      adminTokenRefreshTimer.current = null
-    }
-    const nextToken = value.trim()
-    // The owner just supplied a token: re-fetch any surface that 401'd on the
-    // token-less boot so their data appears without a manual 重试. Debounced so
-    // typing the token char-by-char fires a single refetch with the full value.
-    if (nextToken) {
-      adminTokenRefreshTimer.current = window.setTimeout(() => {
-        recoverErroredHistorySurfaces(nextToken)
-        adminTokenRefreshTimer.current = null
-      }, 250)
-    }
+  function handleSignOut() {
+    // Consumer sign-out: drop the Apple session and re-enter at the sign-in page.
+    clearSession()
+    window.location.reload()
   }
 
   function navigate(page: ProductPage) {
@@ -848,8 +815,6 @@ export default function App() {
             onSaveSession={handleSaveGarminSession}
             sessionSaveState={sessionSaveState}
             sessionSaveError={sessionSaveError}
-            adminTokenValue={adminToken}
-            onAdminTokenChange={handleAdminTokenChange}
           />
         ) : null}
         <MobilePackagePrepPanel
@@ -857,9 +822,6 @@ export default function App() {
           courseOptionsState={mobileCourseOptionsState}
           onPrepareRound={(roundId, params) => void handlePrepareMobileRoundPackage(roundId, params)}
           onPrepareCourse={(globalId, params) => void handlePrepareMobileCoursePackage(globalId, params)}
-          showAdminTokenInput={!syncStatus}
-          adminTokenValue={adminToken}
-          onAdminTokenChange={handleAdminTokenChange}
         />
         <MobileReconciliationPanel
           state={mobileReconciliationState}
@@ -1430,12 +1392,6 @@ export default function App() {
       )
     }
 
-    if (activePage === 'players') {
-      // Owner-only management surface; reuses the admin token entered in the
-      // sync panel. Never renders any player's score analysis.
-      return <PlayerAdminPage adminToken={currentAdminToken()} onNavigate={navigate} />
-    }
-
     if (activePage === 'club-bag') {
       // Owner-only club-bag editor; the owner acts-for-any member via the same
       // admin token (member picker → catalog + distances). No scores rendered.
@@ -1448,6 +1404,8 @@ export default function App() {
           onNavigate={navigate}
           settings={productSettingsState.status === 'ready' ? productSettingsState.data : null}
           settingsError={productSettingsState.status === 'error' ? productSettingsState.message : null}
+          currentPlayer={overviewState.status === 'ready' ? overviewState.data.currentPlayer ?? null : null}
+          onSignOut={session ? handleSignOut : undefined}
         />
       )
     }
@@ -1542,7 +1500,6 @@ export default function App() {
         activePage={activePage}
         onNavigate={navigate}
         isOwnerMode={isOwnerMode}
-        playersAdminVisible={!playerToken && Boolean(currentAdminToken())}
         currentPlayer={overviewState.status === 'ready' ? overviewState.data.currentPlayer ?? null : null}
       >
         {renderActivePage()}

@@ -12,9 +12,6 @@ interface AppShellProps {
   // Owner mode = bare URL (no per-player token). Only gates the owner-only
   // diagnostics switch in the topbar; player links never see that switch.
   isOwnerMode?: boolean
-  // Owner-only 球员管理 tab. Hidden by default so a per-player link never exposes
-  // the management surface; App turns it on only in owner mode (admin token).
-  playersAdminVisible?: boolean
   // Owner-only "diagnostics mode": reveal internal refs / source panels / data
   // quality. Default off; the topbar switch is shown only in owner mode.
   diagnostics?: boolean
@@ -29,16 +26,11 @@ export function AppShell({
   onNavigate,
   children,
   isOwnerMode = true,
-  playersAdminVisible = false,
   diagnostics = false,
   onToggleDiagnostics,
   currentPlayer = null,
 }: AppShellProps) {
-  const subnav = subnavForPage(activePage)
-  const items =
-    subnav && !playersAdminVisible
-      ? subnav.filter((item) => !['players', 'club-bag'].includes(item.page))
-      : subnav
+  const items = subnavForPage(activePage)
   return (
     <div className="app-layout">
       <AppSidebar activePage={activePage} onNavigate={onNavigate} />

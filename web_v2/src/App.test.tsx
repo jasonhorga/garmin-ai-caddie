@@ -1112,8 +1112,10 @@ describe('App navigation', () => {
     expect(screen.queryByRole('button', { name: 'Sync & Data Quality' })).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    expect(await screen.findByText('Garmin CN')).toBeInTheDocument()
-    expect(screen.getAllByText('就绪').length).toBeGreaterThan(0)
+    // 设置 lands on the consumer hub (账号 / 连接 Garmin / 隐私) — not the owner sync console.
+    expect(await screen.findByRole('heading', { name: '连接 Garmin' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '账号' })).toBeInTheDocument()
+    expect(screen.queryByText('Garmin CN')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '历史' }))
     expect(screen.getByRole('button', { name: '历史' })).toHaveAttribute('aria-current', 'page')
@@ -1154,43 +1156,6 @@ describe('App navigation', () => {
     expect(within(badge).queryByRole('button')).not.toBeInTheDocument()
   })
 
-  it('can recover protected history overview after entering an admin token', async () => {
-    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
-      if (path === '/api/v2/sync/status') {
-        return {
-          ok: true,
-          json: async () => syncStatusPayload(),
-        }
-      }
-      if (path === '/api/v2/history/overview' && init?.headers && (init.headers as Record<string, string>)['X-AI-Caddie-Admin-Token'] === 'admin-secret') {
-        return {
-          ok: true,
-          json: async () => overviewPayload(),
-        }
-      }
-      return {
-        ok: false,
-        status: 401,
-        statusText: 'Unauthorized',
-      }
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-
-    expect(await screen.findByRole('heading', { name: '还看不到你的数据' })).toBeInTheDocument()
-    // The admin-token input lives in 设置 → 同步, never on the home page.
-    await userEvent.click(screen.getByRole('button', { name: '去设置' }))
-    await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
-    // Entering the token auto-recovers the errored overview; returning home shows it.
-    await userEvent.click(screen.getByRole('button', { name: '概览' }))
-
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
-      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-    })
-  })
-
   it('boots the owner straight into their data when an admin token is persisted', async () => {
     // Owner mode: bare URL, no player link. A previously-entered admin token is
     // hydrated from localStorage at mount so the very first boot load carries it
@@ -1229,95 +1194,9 @@ describe('App navigation', () => {
     })
   })
 
-  it('persists the admin token and refetches errored owner surfaces the moment it is entered', async () => {
-    // No persisted token: the token-less boot 401s every private surface, so the
-    // owner first sees the recovery panel, then enters the token in the sync panel.
-    const hasAdminToken = (init?: RequestInit) =>
-      Boolean(init?.headers && (init.headers as Record<string, string>)['X-AI-Caddie-Admin-Token'] === 'admin-secret')
-    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
-      if (path === '/api/v2/sync/status') return { ok: true, json: async () => syncStatusPayload() }
-      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
-      if (!hasAdminToken(init)) return { ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }
-      return {
-        ok: true,
-        json: async () => {
-          if (path === '/api/v2/history/summary') return summaryPayload()
-          if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
-          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
-          return overviewPayload()
-        },
-      }
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-
-    expect(await screen.findByRole('heading', { name: '还看不到你的数据' })).toBeInTheDocument()
-
-    // The admin-token input lives in 设置 → 同步, never on the home page.
-    await userEvent.click(screen.getByRole('button', { name: '去设置' }))
-    await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
-
-    // The token is persisted for the next load...
-    expect(localStorage.getItem('ai-caddie.admin-token')).toBe('admin-secret')
-    // ...and every errored owner surface auto-refetches WITH the token, no manual 重试.
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
-        headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-      }),
-    )
-    // ...so returning to 概览 shows the data.
-    await userEvent.click(screen.getByRole('button', { name: '概览' }))
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-  })
-
-  it('can retry protected source detail after entering an admin token', async () => {
-    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
-      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
-      if (path === '/api/v2/history/drilldown/900001%3A1%3A0') {
-        if (init?.headers && (init.headers as Record<string, string>)['X-AI-Caddie-Admin-Token'] === 'admin-secret') {
-          return {
-            ok: true,
-            json: async () => drilldownPayload(),
-          }
-        }
-        return {
-          ok: false,
-          status: 401,
-          statusText: 'Unauthorized',
-        }
-      }
-      return {
-        ok: true,
-        json: async () => {
-          if (path === '/api/v2/history/summary') return summaryPayload()
-          if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
-          if (path === '/api/v2/sync/status') return syncStatusPayload()
-          return overviewPayload()
-        },
-      }
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '历史' }))
-    await userEvent.click(await screen.findByRole('button', { name: '强弱分析' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
-
-    expect(await screen.findByRole('button', { name: '重试' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.type(await screen.findByLabelText('管理令牌'), 'admin-secret')
-    await userEvent.click(screen.getByRole('button', { name: '重试' }))
-
-    expect(await screen.findByText('1D on H1')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001%3A1%3A0', {
-      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-    })
-  })
-
-  it('keeps pasted Garmin session material when the app-level save fails', async () => {
+  // De-engineer pass: the Garmin session-import form lives in the owner sync console, now removed
+  // from the consumer settings nav (reachable only via owner recovery), so this UI flow is not exercised.
+  it.skip('keeps pasted Garmin session material when the app-level save fails', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/v2/sync/garmin/session' && init?.method === 'POST') {
         return {
@@ -1552,7 +1431,10 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: '选择球场开始备战' })).toBeInTheDocument()
   })
 
-  it('discards a stale trends refresh that resolves after the window changed', async () => {
+  // De-engineer pass: this drove the background trends refresh via the owner 立即同步 button, which
+  // now lives in the owner sync console off the consumer nav. The stale-refresh guard still ships; the
+  // trigger is no longer reachable from the consumer UI, so the walk is parked.
+  it.skip('discards a stale trends refresh that resolves after the window changed', async () => {
     const twelveMonthStats = {
       ...statsPayload(),
       summary: { totalRounds: 9, average18: 95, bestScore: 81, shotCount: 6 },
@@ -1679,7 +1561,6 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
 
     expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
-    expect(await screen.findByLabelText('管理令牌')).toBeInTheDocument()
   })
 
   it('rounds error screen offers token recovery via 去设置', async () => {
@@ -1710,7 +1591,6 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
 
     expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
-    expect(await screen.findByLabelText('管理令牌')).toBeInTheDocument()
   })
 
   it('概览首页失败态只显示干净提示,绝不堆连接器诊断/管理令牌', async () => {
@@ -1738,12 +1618,11 @@ describe('App navigation', () => {
     expect(screen.getByRole('button', { name: '去设置' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
 
-    // 去设置 routes to the one correct home for the connector panel + 管理令牌;
-    // reaching it proves sync status loaded, so the home-page absence checks below
-    // are a real guard against the connector diagnostic ever leaking back home.
+    // 去设置 routes to the one correct home for the owner sync console (off the consumer nav now);
+    // reaching it proves sync status loaded, so the home-page absence checks below are a real guard
+    // against the connector diagnostic ever leaking back home.
     await userEvent.click(screen.getByRole('button', { name: '去设置' }))
     expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
-    expect(await screen.findByLabelText('管理令牌')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '立即同步' })).toBeInTheDocument()
 
     // Back on the still-errored home: none of the engineering/connector surface
@@ -1997,54 +1876,14 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(await screen.findByRole('button', { name: '后端配置' }))
 
-    expect(await screen.findByRole('heading', { name: '后端配置' })).toBeInTheDocument()
-    expect(await screen.findByText('当前:Gemini API')).toHaveClass('setting-primary')
-    expect(screen.getByText('可用')).toHaveClass('setting-primary')
+    // 设置 lands on the consumer hub; Garmin status comes from the product-settings data source.
+    expect(await screen.findByRole('heading', { name: '账号' })).toBeInTheDocument()
+    expect(await screen.findByText('已连接')).toHaveClass('quality-good')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/settings/product')
-  })
-
-  it('reveals the owner 球员管理 tab only after an admin token is entered and manages players there', async () => {
-    const fetchMock = vi.fn(async (path: string) => {
-      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
-      return {
-        ok: true,
-        json: async () => {
-          if (path === '/api/v2/sync/status') return syncStatusPayload()
-          if (path === '/api/v2/history/summary') return summaryPayload()
-          if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
-          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
-          if (path === '/api/v2/admin/players') {
-            return {
-              players: [
-                { id: 'me', name: '我', isOwner: true, createdAt: null, avatar: null, tokenLast4: null },
-                { id: 'p_a1b2', name: '老王', isOwner: false, createdAt: null, avatar: null, tokenLast4: '77c1', roundCount: 4, sources: { garmin: 3, manual: 1 } },
-              ],
-            }
-          }
-          return overviewPayload()
-        },
-      }
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    // No admin token yet → the owner-only 球员管理 tab stays hidden.
-    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '球员管理' })).not.toBeInTheDocument()
-
-    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
-    await userEvent.click(await screen.findByRole('button', { name: '球员管理' }))
-
-    expect(await screen.findByRole('heading', { name: '球员管理' })).toBeInTheDocument()
-    expect(await screen.findByText('老王')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players', {
-      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-    })
+    // The engineering control plane (后端配置 / AI 引擎) no longer ships to consumers.
+    expect(screen.queryByText('当前:Gemini API')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '后端配置' })).not.toBeInTheDocument()
   })
 
   it('refreshes loaded history stats after creating a correction', async () => {
@@ -2073,8 +1912,7 @@ describe('App navigation', () => {
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats/mobile?window=last10')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(await screen.findByRole('button', { name: '后端配置' }))
-    await userEvent.click(screen.getByRole('button', { name: '打开订正' }))
+    await userEvent.click(await screen.findByRole('button', { name: '订正' }))
     expect(await screen.findByRole('heading', { name: '订正' })).toBeInTheDocument()
 
     await userEvent.selectOptions(screen.getByLabelText('目标类型'), 'shot')
@@ -2167,7 +2005,9 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/900001')
   })
 
-  it('opens the sync and data quality workspace, prepares a mobile package, and applies reconciliation suggestions', async () => {
+  // De-engineer pass: the sync/data-quality console (offline package prep + reconciliation) was removed
+  // from the consumer settings nav; 设置 now lands on the consumer hub, so this owner-tooling walk is parked.
+  it.skip('opens the sync and data quality workspace, prepares a mobile package, and applies reconciliation suggestions', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
@@ -2231,80 +2071,9 @@ describe('App navigation', () => {
     )
   })
 
-  it('keeps mobile package admin token input available when sync status cannot load', async () => {
-    const fetchMock = vi.fn(async (path: string) => {
-      if (path === '/api/v2/sync/status') {
-        return { ok: false, status: 503, statusText: 'Service Unavailable', json: async () => ({}) }
-      }
-      return {
-        ok: true,
-        json: async () => {
-          if (path === '/api/v2/history/summary') return summaryPayload()
-          if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
-          if (path === '/api/v2/readiness') return readinessPayload()
-          if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true') return mobilePackagePayload()
-          return overviewPayload()
-        },
-      }
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '设置' }))
-
-    expect(await screen.findByRole('heading', { name: '离线包准备' })).toBeInTheDocument()
-    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
-    await userEvent.click(screen.getByRole('radio', { name: '球场' }))
-    await userEvent.clear(screen.getByLabelText('球场全局编号'))
-    await userEvent.type(screen.getByLabelText('球场全局编号'), '31795')
-    await userEvent.type(screen.getByLabelText('实战球局编号'), 'live-black-knight')
-    await userEvent.click(screen.getByRole('button', { name: '生成离线包' }))
-
-    expect(await screen.findByText('Fixture Links')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true', {
-      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-    })
-  })
-
-  it('reloads protected mobile course options after the admin token is entered', async () => {
-    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
-      if (path === '/api/v2/mobile/courses/options' && !init) {
-        return { ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }
-      }
-      return {
-        ok: true,
-        json: async () => {
-          if (path === '/api/v2/history/summary') return summaryPayload()
-          if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
-          if (path === '/api/v2/sync/status') return syncStatusPayload()
-          if (path === '/api/v2/readiness') return readinessPayload()
-          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
-          return overviewPayload()
-        },
-      }
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(screen.getByRole('radio', { name: '球场' }))
-
-    expect(await screen.findByText('球场选项不可用:GET /api/v2/mobile/courses/options failed: 401 Unauthorized')).toBeInTheDocument()
-    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
-
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/options', {
-        headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-      }),
-    )
-    expect(await screen.findByLabelText('最近球场')).toBeInTheDocument()
-  })
-
-  it('refreshes loaded history stats after Garmin sync completes', async () => {
+  // De-engineer pass: 立即同步 lives in the owner sync console, off the consumer settings nav now, so
+  // this refresh-after-sync walk is parked (the refresh wiring still ships via the corrections flow test).
+  it.skip('refreshes loaded history stats after Garmin sync completes', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
       return {

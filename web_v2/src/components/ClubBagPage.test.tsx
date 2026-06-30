@@ -42,11 +42,14 @@ describe('ClubBagPage', () => {
     vi.clearAllMocks()
   })
 
-  it('gates behind an admin token and sends no request without one', () => {
+  it('loads the signed-in player bag via the session even without an admin token, hiding the owner picker', async () => {
     render(<ClubBagPage adminToken={undefined} />)
-    expect(screen.getByText(/需要管理员令牌/)).toBeInTheDocument()
+    // The bag loads through the session bearer (api injects it) — no admin token needed.
+    expect(await screen.findByLabelText('七号铁')).toBeChecked()
+    expect(fetchPlayerClubBag).toHaveBeenCalledWith('me', undefined)
+    // The act-for-any-member picker is an owner-only affordance, absent for a plain consumer.
     expect(fetchAdminPlayers).not.toHaveBeenCalled()
-    expect(fetchPlayerClubBag).not.toHaveBeenCalled()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 
   // NOTE: queries lean on getByLabelText/getByText rather than getByRole({name}) — the latter
