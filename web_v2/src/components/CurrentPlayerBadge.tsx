@@ -11,11 +11,18 @@ interface CurrentPlayerBadgeProps {
 export function CurrentPlayerBadge({ player }: CurrentPlayerBadgeProps) {
   const name = player.name?.trim() || '未命名球员'
   const initial = name.charAt(0)
+  // The avatar placeholder is the name's first character. For a single-character
+  // name (e.g. the owner's "我") that initial is identical to the full name, so the
+  // badge would read "我 我". Render the avatar only when it adds information beyond
+  // the name: a real image, or a name longer than one character.
+  const showAvatar = Boolean(player.avatar) || name.length > 1
   return (
     <div className="current-player" aria-label={`当前球员 ${name}`}>
-      <span className="current-player-avatar" aria-hidden="true">
-        {player.avatar ? <img src={player.avatar} alt="" /> : initial}
-      </span>
+      {showAvatar ? (
+        <span className="current-player-avatar" aria-hidden="true">
+          {player.avatar ? <img src={player.avatar} alt="" /> : initial}
+        </span>
+      ) : null}
       <span className="current-player-name">{name}</span>
     </div>
   )

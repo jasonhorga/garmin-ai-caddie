@@ -81,6 +81,24 @@ export function SyncStatusPanel({
   const [localAdminToken, setLocalAdminToken] = useState('')
   const [webSessionHeader, setWebSessionHeader] = useState('')
   const [antiForgeryValue, setAntiForgeryValue] = useState('')
+
+  // A non-owner (member / anonymous) gets connector-liveness only: the backend
+  // GET /api/v2/sync/status returns the minimal {schema, status} shape with no
+  // connector / snapshot / lastRun (server_v2/main.py — owner sync metadata is
+  // owner-only). Guard those required fields so a member's 连接 Garmin page renders
+  // a clean empty state instead of white-screening on `status.connector.canSync`.
+  if (!status?.connector || !status?.snapshot) {
+    return (
+      <section className="sync-panel sync-panel--empty" aria-label="Garmin 同步状态">
+        <div>
+          <p className="eyebrow">Garmin CN</p>
+          <h2>暂无同步信息</h2>
+          <p>连接 Garmin 后,这里会显示你的同步状态与数据健康。</p>
+        </div>
+      </section>
+    )
+  }
+
   const adminToken = adminTokenValue ?? localAdminToken
   const isRunning = syncState === 'running'
   const canRun = Boolean(onSync) && status.connector.canSync && !status.connector.reauthRequired && !isRunning

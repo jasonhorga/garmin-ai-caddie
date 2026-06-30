@@ -220,9 +220,14 @@ export default function App() {
   const [adminToken, setAdminToken] = useState(() => resolveInitialAdminToken())
 
   useEffect(() => {
-    // Locked out: a link is required, the URL carries no player token, and no
-    // admin token can exist yet at mount. Send no requests and expose nothing.
-    if (isLinkRequired() && !readPlayerToken() && !currentSession()) {
+    // Locked out: a link-required deployment with NO credential at all — no player
+    // link, no Apple session, AND no owner admin token. Send no requests and expose
+    // nothing (the render falls through to the Apple sign-in gate via needsSignIn).
+    // An owner whose only credential is the admin token (typed into the sync panel or
+    // carried in the bookmarked ?admin= URL, hydrated into state at mount) must NOT be
+    // locked out: needsSignIn already lets them past the sign-in gate, so the boot
+    // fetch has to fire too — otherwise the home strands forever on 历史数据加载中.
+    if (isLinkRequired() && !readPlayerToken() && !currentSession() && !currentAdminToken()) {
       return
     }
 

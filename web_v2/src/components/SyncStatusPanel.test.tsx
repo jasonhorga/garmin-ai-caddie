@@ -347,4 +347,19 @@ describe('SyncStatusPanel', () => {
     expect(screen.getByRole('button', { name: '立即同步' })).toBeInTheDocument()
     expect(screen.getByLabelText('网页会话头')).toBeInTheDocument()
   })
+
+  it('renders a safe empty state for the minimal non-owner status (no connector/snapshot)', () => {
+    // A member / anonymous caller gets the backend's connector-liveness-only shape:
+    // { schema, status } with no connector, snapshot or lastRun. The panel must not
+    // dereference status.connector.canSync and white-screen the member's 连接 Garmin
+    // page — it renders a clean empty state instead.
+    const memberStatus = { schema: 'ai-caddie-sync-status-v2', status: 'ok' } as unknown as SyncStatusResponse
+
+    render(<SyncStatusPanel status={memberStatus} onSync={vi.fn()} />)
+
+    expect(screen.getByText('暂无同步信息')).toBeInTheDocument()
+    // No owner sync metadata (counts / sync button / connectors) is attempted.
+    expect(screen.queryByRole('button', { name: '立即同步' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/张记分卡/)).not.toBeInTheDocument()
+  })
 })
