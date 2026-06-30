@@ -59,13 +59,13 @@ public struct WatchFinishRoundView: View {
                 Text("推杆 \(totalPutts)").font(.caption).foregroundStyle(.secondary)
             }
             if pendingUploads > 0 {
-                Label("待上传 \(pendingUploads)", systemImage: "arrow.up.circle")
+                Label("稍后同步 \(pendingUploads)", systemImage: "arrow.up.circle")
                     .font(.caption)
                     .foregroundStyle(AICaddieDesignTokens.offline)
             }
 
             Button(action: onConfirmFinish) {
-                Text("上传并结束").frame(maxWidth: .infinity)
+                Text("保存并结束").frame(maxWidth: .infinity)
             }
             .tint(AICaddieDesignTokens.par)
             Button(action: onKeepPlaying) {

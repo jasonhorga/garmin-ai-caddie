@@ -241,18 +241,13 @@ struct RoundReviewContent: View {
     // MARK: missing-data (graceful, never blank)
 
     private func missingCard(_ rows: [RoundDetailMissing]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("数据缺口").font(.caption).foregroundStyle(.secondary)
-            ForEach(rows) { row in
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "info.circle").font(.caption).foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(zhMissingLabel(row.label)).font(.subheadline)
-                        if let reason = row.reason { Text(reason).font(.caption2).foregroundStyle(.secondary) }
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
+        // De-engineered: the user sees one soft caveat, not the raw per-field gap list + reasons.
+        // (`rows`/`zhMissingLabel` kept for the diagnostic build / future detail view.)
+        _ = rows
+        return HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "info.circle").font(.caption).foregroundStyle(.secondary)
+            Text("部分球洞的数据有限,以下内容仅供参考。").font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
         }
         .liveCard()
     }

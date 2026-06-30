@@ -1760,7 +1760,8 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
         self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
-        self.assertIn('Text("Par 来源：\\(sourceLabel)")', course_review)
+        # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
+        self.assertNotIn("Par 来源", course_review)
         self.assertIn("CoursePrepRoute.intervalReadout", course_review)
         self.assertIn("水障碍：进", course_review)
         self.assertIn("沙坑：约", course_review)
@@ -2191,7 +2192,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("private func makeOfflineCaddieDecision() -> CaddieDecisionResponse?", current_hole)
         self.assertIn("caddieDecision = makeOfflineCaddieDecision()", current_hole)
         self.assertIn("联网球童暂不可用 · 已切换到离线缓存建议。", current_hole)
-        self.assertIn("离线模式 · 使用已缓存的球局方案。", current_hole)
+        self.assertIn("离线模式 · 使用已保存的方案。", current_hole)
         self.assertIn("offlineDecisionEvaluator.selectedOption(in: seed, strategyMode: selectedStrategyMode)", current_hole)
 
         self.assertIn("testMakesAuditableOfflineDecisionFromSeedAndStrategy", evaluator_tests)
@@ -2304,8 +2305,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@State private var pendingFindings: [VisionFinding] = []", media_view)
         self.assertIn("uploadClient.analyzeMedia(mediaId:", media_view)
         self.assertIn("pendingFindings = analysis.findings", media_view)
-        self.assertIn('Button("Confirm")', media_view)
-        self.assertIn('Button("Reject")', media_view)
+        self.assertIn('Button("确认")', media_view)
+        self.assertIn('Button("驳回")', media_view)
         self.assertIn("confirmVisionFinding(finding: finding, state: \"manual_confirmed\")", media_view)
         self.assertIn("confirmVisionFinding(finding: finding, state: \"rejected\")", media_view)
         self.assertIn("confirmedFindings.map { $0.contextPayload }", media_view)
@@ -2606,7 +2607,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("missingDataLabels", caddie_plan)
         self.assertIn("missingDataText", caddie_plan)
         self.assertNotIn('joined(separator: \\", \\")")', caddie_plan)
-        self.assertIn("暂无缓存方案", caddie_plan)
+        self.assertIn("暂无球童方案", caddie_plan)
         self.assertIn("final class LocationProvider", location_provider)
         self.assertIn("CLLocationManagerDelegate", location_provider)
         self.assertIn("@Published public private(set) var latestFix", location_provider)
@@ -2806,12 +2807,16 @@ class MobileContractTests(unittest.TestCase):
         state_tests = _read_required_source(self, WATCH_DIR.parent / "AICaddieWatchTests" / "WatchRoundStateTests.swift")
         bridge_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "WatchEventBridgeTests.swift")
 
+        # The fields are still carried (the bridge builds them, the state model keeps them for the
+        # phone), but the de-engineered watch glance no longer SURFACES the raw evidence/missing
+        # provenance — the glance shows the caddie call + confidence only.
         for field in ["evidenceSummary", "missingDataSummary"]:
             self.assertIn(f"public let {field}: String?", bridge)
             self.assertIn(f"public let {field}: String?", state_swift)
             self.assertIn(f"{field}: String? = nil", state_swift)
             self.assertIn(f"{field}: {field}", state_swift)
-            self.assertIn(f"state.{field}", glance_view)
+        self.assertNotIn("state.evidenceSummary", glance_view)
+        self.assertNotIn("state.missingDataSummary", glance_view)
 
         self.assertIn("evidenceSummary: evidenceSummary(from: decision, offlineOption: offlineSelected)", bridge)
         self.assertIn("missingDataSummary: missingDataSummary(from: decision)", bridge)
@@ -2829,8 +2834,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("[redacted]", bridge)
         self.assertIn("decision.evidence", bridge)
         self.assertIn("decision.missingData", bridge)
-        self.assertIn('Image(systemName: "checklist")', glance_view)
-        self.assertIn('Image(systemName: "exclamationmark.triangle")', glance_view)
+        # The checklist / exclamationmark-triangle provenance icons were removed from the
+        # de-engineered glance (the evidence/missing data is still built by the bridge for the phone).
         self.assertIn("testWatchRoundStatePreservesEvidenceAndMissingDataAcrossQuickInput", state_tests)
         self.assertIn("testWatchRoundStatePayloadCompactsDecisionEvidenceWithoutDroppingContext", bridge_tests)
         self.assertIn("testOfflineEvidenceSummaryRedactsPrivateSourceRefs", bridge_tests)

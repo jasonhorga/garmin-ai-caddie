@@ -762,14 +762,14 @@ public struct CurrentHoleView: View {
         guard let caddieClient else {
             caddieDecision = makeOfflineCaddieDecision()
             caddieErrorMessage = caddieDecision == nil
-                ? "本洞暂无缓存的球童建议。"
-                : "离线模式 · 使用已缓存的球局方案。"
+                ? "这一洞暂时无法给建议。"
+                : "离线模式 · 使用已保存的方案。"
             if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             return
         }
         guard let request = makeCaddieDecisionRequest() else {
-            caddieErrorMessage = "本洞缺少球童上下文,暂无法给建议。"
+            caddieErrorMessage = "这一洞暂时无法给建议。"
             sendWatchState(decision: nil, offlineOption: selectedOfflineOption)
             return
         }

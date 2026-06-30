@@ -44,10 +44,10 @@ public struct MediaCaptureView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                    Label("Photo", systemImage: "camera")
+                    Label("照片", systemImage: "camera")
                 }
                 PhotosPicker(selection: $selectedVideoItem, matching: .videos) {
-                    Label("Video", systemImage: "video")
+                    Label("视频", systemImage: "video")
                 }
             }
             Text(statusText)
@@ -63,12 +63,12 @@ public struct MediaCaptureView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         HStack {
-                            Button("Confirm") {
+                            Button("确认") {
                                 Task {
                                     await confirmVisionFinding(finding: finding, state: "manual_confirmed")
                                 }
                             }
-                            Button("Reject") {
+                            Button("驳回") {
                                 Task {
                                     await confirmVisionFinding(finding: finding, state: "rejected")
                                 }
