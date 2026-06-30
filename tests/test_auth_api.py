@@ -331,11 +331,13 @@ class FamilyUsersRosterTests(unittest.TestCase):
         self.assertIn("createdAt", rows[self.member_id])
 
     def test_member_session_token_is_rejected(self):
-        # a REAL auto-registered member session token must not reach the admin-only roster
+        # a REAL auto-registered member session token must not reach the admin-only roster: it now
+        # 403s (authenticated, not the owner) rather than 401 — the (2) owner-session change. An OWNER
+        # session would pass; a member is forbidden.
         with mock.patch("server_v2.auth_api._verify", return_value=AppleIdentity(subject="NEWBIE", email="n@e.c")):
             token = self.client.post("/api/v2/auth/apple", json={"identityToken": "t"}).json()["token"]
         r = self.client.get("/api/v2/admin/family/users", headers={"Authorization": f"Bearer {token}"})
-        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.status_code, 403)
 
     def test_no_token_is_rejected(self):
         self.assertEqual(self.client.get("/api/v2/admin/family/users").status_code, 401)

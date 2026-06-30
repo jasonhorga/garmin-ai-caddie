@@ -123,6 +123,15 @@ class PlayerTokenResolutionTests(unittest.TestCase):
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/mobile/rounds/live-round-1/package"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/mobile/courses/31795/package"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/caddie/context"))
+        # Evidence WRITES are now per-player partitioned (evidence_root), so they are member-scoped:
+        # caddie decision + audit, annotation, report generation (all kinds), and the weather-persist
+        # GET (only consulted when ?persist=true makes the gate fire). A member writes ONLY their own.
+        self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/caddie/decision"))
+        self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/caddie/decisions/decision-1/audit"))
+        self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/annotations"))
+        self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/reports/round/900001/generate"))
+        self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/reports/trend/recent_10/generate"))
+        self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/weather/snapshot"))
         # the reconciliation/APPLY write path is a POST → never player-scoped (stays admin-only)
         self.assertFalse(players_api.is_player_scoped_route("POST", "/api/v2/mobile/rounds/live-round-1/reconciliation/apply"))
         # admin-only routes are not player scoped
@@ -183,11 +192,14 @@ class PlayerAuthMiddlewareTests(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "admin token not configured")
 
     def test_admin_only_route_rejects_player_token(self) -> None:
+        # A resolved NON-OWNER (member) credential on a genuinely-admin route is now 403 (authenticated
+        # but not the owner) rather than 401 — the (2) owner-session change. The owner authorizes via an
+        # admin token or an OWNER Apple session; a member never reaches an admin route.
         with mock.patch.dict("os.environ", ADMIN_ENV):
             response = self.client.post(
                 "/api/v2/sync/garmin", headers={"Authorization": f"Bearer {self.token}"}
             )
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 403)
 
 
 class PlayerScopeDataIsolationTests(unittest.TestCase):

@@ -137,6 +137,33 @@ def current_player_id(request: Request) -> str:
     return player_id
 
 
+def admin_request_disposition(request: Request) -> str:
+    """Authorization decision for a genuinely-admin (non-player-scoped) route. One of:
+
+    - ``"allow"``  — a valid admin token OR an open-dev profile (``_admin_token_grants_owner``),
+      OR an OWNER credential (a bearer that resolves to ``OWNER_ID`` — the owner's Apple session or
+      legacy capability token). This is the (2) addition: the owner authorizes /admin/* and the sync
+      trigger from the iOS app without the literal admin token.
+    - ``"forbid"`` — a bearer that resolves to a MEMBER (``player_id != OWNER_ID``). Authenticated,
+      but not the owner → the caller must answer 403, never silently fall through to the admin token.
+    - ``"fallback"`` — nothing resolved; defer to the literal admin-token semantics (401 when
+      configured-but-missing/mismatched, 503 fail-closed under a private/staging/production profile).
+
+    Precedence puts the admin token first so it ALWAYS works as the DEBUG/CI/owner-homeserver
+    fallback — even alongside a stray member bearer."""
+    if _admin_token_grants_owner(request):
+        return "allow"  # literal admin token, or open-dev — the always-on fallback wins
+    token = player_token_from_request(request)
+    if token:
+        # An OWNER credential authorizes; a MEMBER credential is explicitly forbidden (not 401).
+        player_id = players.resolve_token(token) or _player_for_session_token(token)
+        if player_id == OWNER_ID:
+            return "allow"
+        if player_id is not None:
+            return "forbid"
+    return "fallback"
+
+
 def is_player_scoped_route(method: str, path: str) -> bool:
     """Routes whose access may be granted by a per-player token (not only admin).
 
@@ -160,7 +187,13 @@ def is_player_scoped_route(method: str, path: str) -> bool:
     to their OWN partition only — isolation by construction (the path differs), no ownership check.
     That makes the live-event WRITES (events POST + ack POST) safe to open to a per-player token
     too — the handlers thread ``current_player_id`` so each player only ever touches their own log.
-    Other POST writes (reconciliation/APPLY, report generation) stay admin-only — they don't match.
+
+    The same partitioning (``ai_caddie.core.data.evidence_root(player_id)``) now backs every EVIDENCE
+    WRITE — caddie decision, decision audit, weather-persist, annotation, and report generation —
+    so those POSTs (and the weather-persist GET) are likewise member-scoped: a member generates THEIR
+    own caddie/weather/annotation/report in THEIR partition (the handlers thread current_player_id),
+    isolated from the owner and every other member. The reconciliation/APPLY POST stays admin-only
+    (it mutates the owner's shared round-reconciliation) — it does not match here.
     """
     m = method.upper()
     if m == "GET":
@@ -184,6 +217,10 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             # Media + vision-findings READS — the media store is now per-player partitioned
             # (``server_v2.media._media_root(player_id)``), so a member sees only their own.
             or path.startswith("/api/v2/media/target/")
+            # Weather-persist is a GET with ?persist=true. It only reaches the gate (and thus this
+            # classifier) when persist is truthy (see _requires_admin_token), and the handler writes
+            # the snapshot to the caller's evidence partition — so it is member-scoped like the others.
+            or path == "/api/v2/weather/snapshot"
         )
     if m == "POST":
         # Live-round event WRITES are per-player partitioned, so a member writes ONLY to their own
@@ -196,6 +233,12 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             or path == "/api/v2/media"
             or (path.startswith("/api/v2/media/") and (path.endswith("/analyze") or path.endswith("/redact")))
             or (path.startswith("/api/v2/media/findings/") and path.endswith("/confirmation"))
+            # Evidence WRITES — each resolves its write dir via evidence_root(player_id), so a member
+            # writes ONLY to their own partition (the handlers thread current_player_id).
+            or path == "/api/v2/caddie/decision"
+            or (path.startswith("/api/v2/caddie/decisions/") and path.endswith("/audit"))
+            or path == "/api/v2/annotations"
+            or (path.startswith("/api/v2/reports/") and path.endswith("/generate"))
         )
     return False
 

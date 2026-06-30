@@ -131,16 +131,13 @@ def _generate_provider_report_or_fallback(facts: dict[str, object]) -> dict[str,
 
 
 def load_report_index_response(*, player_id: str = OWNER_ID) -> ReviewReportIndexResponse:
-    # The report store is a shared single-file store of OWNER-generated reports only
-    # (generation is admin-only). A non-owner player has no reports of their own and must
-    # never see the owner's index — return an empty index rather than leak owner round ids.
-    if player_id != OWNER_ID:
-        return ReviewReportIndexResponse(
-            schema="ai-caddie-review-report-index-v1", total=0, reports=[]
-        )
+    # The report store is now per-player partitioned (evidence_root): the owner reads the flat store,
+    # a member reads ONLY their own partition. A member therefore sees the reports THEY generated and
+    # never the owner's (or another member's) index/round ids; a member with none gets an empty index.
+    # Owner (OWNER_ID) → the flat store, byte-identical.
     items = [
         _report_index_item(record, sequence)
-        for sequence, record in enumerate(list_report_records(root=REPORT_ROOT))
+        for sequence, record in enumerate(list_report_records(root=REPORT_ROOT, player_id=player_id))
         if isinstance(record, dict)
     ]
     items.sort(key=lambda item: (str(item.get("storedAt") or ""), int(item.get("sequence") or 0)), reverse=True)
@@ -154,10 +151,11 @@ def load_report_index_response(*, player_id: str = OWNER_ID) -> ReviewReportInde
 
 
 def load_round_report_response(round_id: str, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
-    if player_id == OWNER_ID:
-        stored = latest_report_record("round", round_id, root=REPORT_ROOT)
-        if stored and isinstance(stored.get("report"), dict):
-            return _report_response(stored["report"], kind="round", subject_id=round_id)
+    # Per-player partitioned: a member reads back ONLY the report THEY generated (their partition);
+    # the owner reads the flat store (byte-identical). No stored report → deterministic facts.
+    stored = latest_report_record("round", round_id, root=REPORT_ROOT, player_id=player_id)
+    if stored and isinstance(stored.get("report"), dict):
+        return _report_response(stored["report"], kind="round", subject_id=round_id)
     facts = build_round_report_facts(
         _history_stats_dict(player_id), round_id, history_data=_history_data(player_id)
     )
@@ -165,10 +163,12 @@ def load_round_report_response(round_id: str, *, player_id: str = OWNER_ID) -> R
     return _report_response(report, kind="round", subject_id=round_id)
 
 
-def generate_round_report_response(round_id: str) -> ReviewReportResponse:
-    facts = build_round_report_facts(_history_stats_dict(), round_id, history_data=_history_data())
+def generate_round_report_response(round_id: str, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
+    # Member-scoped: facts are built from the caller's OWN history and the report lands in their
+    # evidence partition (evidence_root(player_id)); the owner stays flat / byte-identical.
+    facts = build_round_report_facts(_history_stats_dict(player_id), round_id, history_data=_history_data(player_id))
     report = _generate_provider_report_or_fallback(facts)
-    store_report(report, kind="round", subject_id=round_id, root=REPORT_ROOT)
+    store_report(report, kind="round", subject_id=round_id, root=REPORT_ROOT, player_id=player_id)
     return _report_response(report, kind="round", subject_id=round_id)
 
 
@@ -178,10 +178,9 @@ def _hole_subject_id(course_key: str, hole: int) -> str:
 
 def load_hole_report_response(course_key: str, hole: int, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
     subject_id = _hole_subject_id(course_key, hole)
-    if player_id == OWNER_ID:
-        stored = latest_report_record("hole", subject_id, root=REPORT_ROOT)
-        if stored and isinstance(stored.get("report"), dict):
-            return _report_response(stored["report"], kind="hole", subject_id=subject_id)
+    stored = latest_report_record("hole", subject_id, root=REPORT_ROOT, player_id=player_id)
+    if stored and isinstance(stored.get("report"), dict):
+        return _report_response(stored["report"], kind="hole", subject_id=subject_id)
     facts = build_hole_report_facts(
         _history_stats_dict(player_id),
         course_key,
@@ -194,66 +193,64 @@ def load_hole_report_response(course_key: str, hole: int, *, player_id: str = OW
     return _report_response(report, kind="hole", subject_id=subject_id)
 
 
-def generate_hole_report_response(course_key: str, hole: int) -> ReviewReportResponse:
+def generate_hole_report_response(course_key: str, hole: int, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
     subject_id = _hole_subject_id(course_key, hole)
     facts = build_hole_report_facts(
-        _history_stats_dict(),
+        _history_stats_dict(player_id),
         course_key,
         hole,
-        history_data=_history_data(),
+        history_data=_history_data(player_id),
         vision_root=MEDIA_ROOT,
+        player_id=player_id,
     )
     report = _generate_provider_report_or_fallback(facts)
-    store_report(report, kind="hole", subject_id=subject_id, root=REPORT_ROOT)
+    store_report(report, kind="hole", subject_id=subject_id, root=REPORT_ROOT, player_id=player_id)
     return _report_response(report, kind="hole", subject_id=subject_id)
 
 
 def load_course_report_response(course_key: str, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
-    if player_id == OWNER_ID:
-        stored = latest_report_record("course", course_key, root=REPORT_ROOT)
-        if stored and isinstance(stored.get("report"), dict):
-            return _report_response(stored["report"], kind="course", subject_id=course_key)
+    stored = latest_report_record("course", course_key, root=REPORT_ROOT, player_id=player_id)
+    if stored and isinstance(stored.get("report"), dict):
+        return _report_response(stored["report"], kind="course", subject_id=course_key)
     facts = build_course_report_facts(_history_stats_dict(player_id), course_key)
     report = generate_deterministic_report(facts)
     return _report_response(report, kind="course", subject_id=course_key)
 
 
-def generate_course_report_response(course_key: str) -> ReviewReportResponse:
-    facts = build_course_report_facts(_history_stats_dict(), course_key)
+def generate_course_report_response(course_key: str, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
+    facts = build_course_report_facts(_history_stats_dict(player_id), course_key)
     report = _generate_provider_report_or_fallback(facts)
-    store_report(report, kind="course", subject_id=course_key, root=REPORT_ROOT)
+    store_report(report, kind="course", subject_id=course_key, root=REPORT_ROOT, player_id=player_id)
     return _report_response(report, kind="course", subject_id=course_key)
 
 
 def load_club_report_response(club_name: str, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
-    if player_id == OWNER_ID:
-        stored = latest_report_record("club", club_name, root=REPORT_ROOT)
-        if stored and isinstance(stored.get("report"), dict):
-            return _report_response(stored["report"], kind="club", subject_id=club_name)
+    stored = latest_report_record("club", club_name, root=REPORT_ROOT, player_id=player_id)
+    if stored and isinstance(stored.get("report"), dict):
+        return _report_response(stored["report"], kind="club", subject_id=club_name)
     facts = build_club_report_facts(_history_stats_dict(player_id), club_name)
     report = generate_deterministic_report(facts)
     return _report_response(report, kind="club", subject_id=club_name)
 
 
-def generate_club_report_response(club_name: str) -> ReviewReportResponse:
-    facts = build_club_report_facts(_history_stats_dict(), club_name)
+def generate_club_report_response(club_name: str, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
+    facts = build_club_report_facts(_history_stats_dict(player_id), club_name)
     report = _generate_provider_report_or_fallback(facts)
-    store_report(report, kind="club", subject_id=club_name, root=REPORT_ROOT)
+    store_report(report, kind="club", subject_id=club_name, root=REPORT_ROOT, player_id=player_id)
     return _report_response(report, kind="club", subject_id=club_name)
 
 
 def load_trend_report_response(period: str, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
-    if player_id == OWNER_ID:
-        stored = latest_report_record("trend", period, root=REPORT_ROOT)
-        if stored and isinstance(stored.get("report"), dict):
-            return _report_response(stored["report"], kind="trend", subject_id=period)
+    stored = latest_report_record("trend", period, root=REPORT_ROOT, player_id=player_id)
+    if stored and isinstance(stored.get("report"), dict):
+        return _report_response(stored["report"], kind="trend", subject_id=period)
     facts = build_trend_report_facts(_history_stats_dict(player_id), period)
     report = generate_deterministic_report(facts)
     return _report_response(report, kind="trend", subject_id=period)
 
 
-def generate_trend_report_response(period: str) -> ReviewReportResponse:
-    facts = build_trend_report_facts(_history_stats_dict(), period)
+def generate_trend_report_response(period: str, *, player_id: str = OWNER_ID) -> ReviewReportResponse:
+    facts = build_trend_report_facts(_history_stats_dict(player_id), period)
     report = _generate_provider_report_or_fallback(facts)
-    store_report(report, kind="trend", subject_id=period, root=REPORT_ROOT)
+    store_report(report, kind="trend", subject_id=period, root=REPORT_ROOT, player_id=player_id)
     return _report_response(report, kind="trend", subject_id=period)

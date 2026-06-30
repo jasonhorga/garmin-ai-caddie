@@ -9,6 +9,7 @@ from ai_caddie.llm.weather_context import (
     fetch_open_meteo_weather_snapshot,
     store_weather_snapshot,
 )
+from ai_caddie.rounds.players import OWNER_ID
 
 from .models import WeatherSnapshotResponse
 
@@ -30,6 +31,7 @@ def load_weather_snapshot_response(
     wind_direction_deg: int | None = None,
     temperature_c: float | None = None,
     precipitation_mm: float | None = None,
+    player_id: str = OWNER_ID,
 ) -> WeatherSnapshotResponse:
     if source == "open_meteo":
         snapshot = fetch_open_meteo_weather_snapshot(
@@ -57,5 +59,6 @@ def load_weather_snapshot_response(
             observed=observed,
         )
     if persist and snapshot.get("state") == "ready":
-        store_weather_snapshot(snapshot, root=WEATHER_ROOT)
+        # Member-scoped: the snapshot lands in the caller's evidence partition; the owner stays flat.
+        store_weather_snapshot(snapshot, root=WEATHER_ROOT, player_id=player_id)
     return WeatherSnapshotResponse(**snapshot)

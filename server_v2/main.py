@@ -64,6 +64,7 @@ from .mobile import (
 )
 from .auth_api import auth_router
 from .players_api import (
+    admin_request_disposition,
     admin_router,
     current_player_id,
     has_valid_player_token,
@@ -195,8 +196,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-AdminTokenHeader = Annotated[str | None, Header(alias="X-AI-Caddie-Admin-Token")]
-
 
 def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, object]]:
     errors = []
@@ -231,6 +230,24 @@ def require_admin_token(header_value: str | None) -> None:
         raise HTTPException(status_code=503, detail="admin token not configured")
     if expected and not hmac.compare_digest(header_value or "", expected):
         raise HTTPException(status_code=401, detail="admin token required")
+
+
+def enforce_admin_or_owner(request: Request) -> None:
+    """Authorize a genuinely-admin request, raising HTTPException unless allowed.
+
+    (2) Beyond the literal admin token, an OWNER Apple session (a bearer that resolves to OWNER_ID)
+    now authorizes /admin/*, the sync trigger, and the rest of the admin surface — so the owner can
+    drive them from the iOS app without the homeserver admin token. A resolved MEMBER is rejected
+    403 (authenticated, not the owner); an unresolved request keeps the literal admin-token semantics
+    (401 configured-but-missing/mismatched, 503 fail-closed under a private/staging/production
+    profile, allow under open-dev). The literal admin token stays the always-on DEBUG/CI/homeserver
+    fallback. Used by BOTH the global gate and the in-handler admin checks so they agree."""
+    disposition = admin_request_disposition(request)
+    if disposition == "allow":
+        return
+    if disposition == "forbid":
+        raise HTTPException(status_code=403, detail="owner access required")
+    require_admin_token(request.headers.get("x-ai-caddie-admin-token"))
 
 
 def _truthy_query_flag(value: str | None) -> bool:
@@ -306,16 +323,16 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
 @app.middleware("http")
 async def enforce_admin_token_before_body_validation(request: Request, call_next):
     if _requires_admin_token(request.method, request.url.path, request.query_params):
-        # A valid per-player token grants access to player-scoped routes. Admin
-        # token handling stays in require_admin_token so its 401 (configured but
-        # missing) and 503 (fail-closed under a private profile) semantics — and
-        # the admin-token-as-owner backward compatibility — are unchanged.
+        # A valid per-player token grants access to player-scoped routes (history, evidence
+        # writes, mobile aggregators). For genuinely-admin routes, enforce_admin_or_owner accepts
+        # the literal admin token (or open-dev) OR an OWNER Apple session, rejects a MEMBER 403,
+        # and otherwise preserves the require_admin_token 401/503 fail-closed semantics.
         player_token_allows = is_player_scoped_route(
             request.method, request.url.path
         ) and has_valid_player_token(request)
         if not player_token_allows:
             try:
-                require_admin_token(request.headers.get("x-ai-caddie-admin-token"))
+                enforce_admin_or_owner(request)
             except HTTPException as exc:
                 return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     return await call_next(request)
@@ -707,13 +724,13 @@ def course_search_endpoint(
 
 @app.post("/api/v2/geometry/hole/{global_id}/{local_hole}/ensure", response_model=GeometryEnsureResponse)
 def geometry_hole_ensure(
+    request: Request,
     global_id: int,
     local_hole: int,
     profile_id: str | None = None,
     force: bool = False,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> GeometryEnsureResponse:
-    require_admin_token(x_ai_caddie_admin_token)
+    enforce_admin_or_owner(request)
     return load_geometry_ensure_response(global_id, local_hole, profile_id=profile_id, force=force)
 
 
@@ -759,28 +776,30 @@ def caddie_context(
 @app.post("/api/v2/caddie/decision", response_model=CaddieDecisionResponse)
 def caddie_decision(
     request: CaddieDecisionRequest,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    player_id: str = Depends(current_player_id),
 ) -> CaddieDecisionResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return build_caddie_decision_response(request)
+    # Member-scoped (gate: player-scoped + a per-player/owner token): the decision lands in the
+    # caller's evidence partition; the owner (admin token / owner session) stays flat.
+    return build_caddie_decision_response(request, player_id=player_id)
 
 
 @app.post("/api/v2/caddie/decisions/{decision_id}/audit", response_model=CaddieDecisionAuditStoreResponse)
 def caddie_decision_audit(
     decision_id: str,
     request: CaddieDecisionAuditRequest,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    player_id: str = Depends(current_player_id),
 ) -> CaddieDecisionAuditStoreResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return create_decision_audit_response(decision_id, request)
+    # Member-scoped: the audit (and the re-read of the stored decision) is partitioned to the caller.
+    return create_decision_audit_response(decision_id, request, player_id=player_id)
 
 
 @app.get("/api/v2/caddie/decisions/{decision_id}/audit/latest", response_model=CaddieDecisionAuditLatestResponse)
 def caddie_decision_audit_latest(
+    http_request: Request,
     decision_id: str,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> CaddieDecisionAuditLatestResponse:
-    require_admin_token(x_ai_caddie_admin_token)
+    # Admin-only read of the owner's stored audit; an OWNER session authorizes it, a member is 403.
+    enforce_admin_or_owner(http_request)
     return latest_decision_audit_response(decision_id)
 
 
@@ -792,10 +811,10 @@ def annotations() -> AnnotationListResponse:
 @app.post("/api/v2/annotations", response_model=AnnotationCreateResponse)
 def create_annotation(
     request: AnnotationCreateRequest,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
+    player_id: str = Depends(current_player_id),
 ) -> AnnotationCreateResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return create_annotation_response(request)
+    # Member-scoped: the annotation lands in the caller's evidence partition; the owner stays flat.
+    return create_annotation_response(request, player_id=player_id)
 
 
 @app.get("/api/v2/annotations/target/{target_type}/{target_id}", response_model=AnnotationListResponse)
@@ -957,16 +976,18 @@ def mobile_round_reconciliation(
 
 @app.post("/api/v2/mobile/rounds/{round_id}/reconciliation/apply", response_model=MobileReconciliationApplyResponse)
 def mobile_round_reconciliation_apply(
+    http_request: Request,
     round_id: str,
     request: MobileReconciliationApplyRequest,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> MobileReconciliationApplyResponse:
-    require_admin_token(x_ai_caddie_admin_token)
+    # Admin-only (mutates the owner's shared round reconciliation); an OWNER session authorizes it.
+    enforce_admin_or_owner(http_request)
     return apply_mobile_round_reconciliation_response(round_id, request)
 
 
 @app.get("/api/v2/weather/snapshot", response_model=WeatherSnapshotResponse)
 def weather_snapshot(
+    request: Request,
     source: Literal["manual", "open_meteo"] = "manual",
     persist: bool = False,
     round_id: str | None = None,
@@ -978,10 +999,11 @@ def weather_snapshot(
     wind_direction_deg: int | None = None,
     temperature_c: float | None = None,
     precipitation_mm: float | None = None,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> WeatherSnapshotResponse:
-    if persist:
-        require_admin_token(x_ai_caddie_admin_token)
+    # persist=true WRITES the snapshot to the caller's evidence partition (member → their tree, owner
+    # → flat). The global gate already requires a token for persist=true, so current_player_id
+    # resolves here. A non-persist read stays public (no token, owner-scoped, no write).
+    player_id = current_player_id(request) if persist else OWNER_ID
     return load_weather_snapshot_response(
         source=source,
         persist=persist,
@@ -994,6 +1016,7 @@ def weather_snapshot(
         wind_direction_deg=wind_direction_deg,
         temperature_c=temperature_c,
         precipitation_mm=precipitation_mm,
+        player_id=player_id,
     )
 
 
@@ -1011,9 +1034,9 @@ def round_report(round_id: str, player_id: str = Depends(current_player_id)) -> 
 
 
 @app.post("/api/v2/reports/round/{round_id}/generate", response_model=ReviewReportResponse)
-def generate_round_report(round_id: str, x_ai_caddie_admin_token: AdminTokenHeader = None) -> ReviewReportResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return generate_round_report_response(round_id)
+def generate_round_report(round_id: str, player_id: str = Depends(current_player_id)) -> ReviewReportResponse:
+    # Member-scoped: a member generates a report from THEIR history into THEIR partition; owner flat.
+    return generate_round_report_response(round_id, player_id=player_id)
 
 
 @app.get("/api/v2/reports/course/{course_key}", response_model=ReviewReportResponse)
@@ -1022,9 +1045,8 @@ def course_report(course_key: str, player_id: str = Depends(current_player_id)) 
 
 
 @app.post("/api/v2/reports/course/{course_key}/generate", response_model=ReviewReportResponse)
-def generate_course_report(course_key: str, x_ai_caddie_admin_token: AdminTokenHeader = None) -> ReviewReportResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return generate_course_report_response(course_key)
+def generate_course_report(course_key: str, player_id: str = Depends(current_player_id)) -> ReviewReportResponse:
+    return generate_course_report_response(course_key, player_id=player_id)
 
 
 @app.get("/api/v2/reports/hole/{course_key}/{hole}", response_model=ReviewReportResponse)
@@ -1035,9 +1057,8 @@ def hole_report(
 
 
 @app.post("/api/v2/reports/hole/{course_key}/{hole}/generate", response_model=ReviewReportResponse)
-def generate_hole_report(course_key: str, hole: int, x_ai_caddie_admin_token: AdminTokenHeader = None) -> ReviewReportResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return generate_hole_report_response(course_key, hole)
+def generate_hole_report(course_key: str, hole: int, player_id: str = Depends(current_player_id)) -> ReviewReportResponse:
+    return generate_hole_report_response(course_key, hole, player_id=player_id)
 
 
 @app.get("/api/v2/reports/club/{club_name}", response_model=ReviewReportResponse)
@@ -1046,9 +1067,8 @@ def club_report(club_name: str, player_id: str = Depends(current_player_id)) -> 
 
 
 @app.post("/api/v2/reports/club/{club_name}/generate", response_model=ReviewReportResponse)
-def generate_club_report(club_name: str, x_ai_caddie_admin_token: AdminTokenHeader = None) -> ReviewReportResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return generate_club_report_response(club_name)
+def generate_club_report(club_name: str, player_id: str = Depends(current_player_id)) -> ReviewReportResponse:
+    return generate_club_report_response(club_name, player_id=player_id)
 
 
 @app.get("/api/v2/reports/trend/{period}", response_model=ReviewReportResponse)
@@ -1057,9 +1077,8 @@ def trend_report(period: str, player_id: str = Depends(current_player_id)) -> Re
 
 
 @app.post("/api/v2/reports/trend/{period}/generate", response_model=ReviewReportResponse)
-def generate_trend_report(period: str, x_ai_caddie_admin_token: AdminTokenHeader = None) -> ReviewReportResponse:
-    require_admin_token(x_ai_caddie_admin_token)
-    return generate_trend_report_response(period)
+def generate_trend_report(period: str, player_id: str = Depends(current_player_id)) -> ReviewReportResponse:
+    return generate_trend_report_response(period, player_id=player_id)
 
 
 @app.get("/api/v2/sync/status")
@@ -1085,13 +1104,15 @@ SYNC_ROOT = ROOT
 
 @app.post("/api/v2/sync/garmin", response_model=SyncRunResponse)
 def sync_garmin(
+    http_request: Request,
     response: Response,
     with_shots: bool = True,
     force_refresh_auth: bool = False,
     ensure_geometry: bool = False,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> SyncRunResponse:
-    require_admin_token(x_ai_caddie_admin_token)
+    # Owner-only sync of the flat owner tree; an OWNER Apple session authorizes it (a member uses
+    # the per-member /api/v2/players/{id}/sync/garmin route instead, and is 403 here).
+    enforce_admin_or_owner(http_request)
     # codex HIGH #2: Garmin sync mutates process-global token/data paths (connectors/garmin_cn.py),
     # so two concurrent syncs would cross-contaminate. Serialise with a non-blocking lock — a second
     # concurrent sync is rejected (409) rather than racing the in-flight one.
@@ -1129,10 +1150,11 @@ def sync_garmin(
 
 @app.post("/api/v2/sync/garmin/session", response_model=GarminSessionImportResponse)
 def save_garmin_session(
+    http_request: Request,
     request: GarminSessionImportRequest,
-    x_ai_caddie_admin_token: AdminTokenHeader = None,
 ) -> GarminSessionImportResponse:
-    require_admin_token(x_ai_caddie_admin_token)
+    # Owner-only (binds the owner's flat Garmin cookie); an OWNER Apple session authorizes it.
+    enforce_admin_or_owner(http_request)
     return save_garmin_session_response(request)
 
 

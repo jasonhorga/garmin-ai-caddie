@@ -38,12 +38,14 @@ class PlayerAdminApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_admin_route_rejects_player_token(self) -> None:
+        # A resolved non-owner (player) credential on an admin route is now 403 (authenticated, not the
+        # owner) rather than 401 — the (2) owner-session change. An anonymous caller still 401s above.
         created = players.create_player("老王", root=self.root)
         response = self.client.get(
             "/api/v2/admin/players",
             headers={"Authorization": f"Bearer {created['token']}"},
         )
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 403)
 
     def test_create_requires_admin_token_before_body_validation(self) -> None:
         # No admin token + a well-formed body must still be 401 (not 422/200).
