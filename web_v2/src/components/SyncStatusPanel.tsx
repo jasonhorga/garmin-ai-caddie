@@ -59,6 +59,12 @@ interface SyncStatusPanelProps {
   sessionSaveError?: string | null
   adminTokenValue?: string
   onAdminTokenChange?: (value: string) => void
+  // The 管理令牌 input is an owner-only engineering control (the backend /admin/* gate
+  // still requires the X-AI-Caddie-Admin-Token header — an Apple session does NOT
+  // authorize those routes). A consumer (member / fresh visitor) never sees it; the
+  // Garmin connect form + sync button below stay visible to everyone. Default true so
+  // the owner-mode app and the panel's own tests render it unchanged.
+  showAdminToken?: boolean
 }
 
 export function SyncStatusPanel({
@@ -70,6 +76,7 @@ export function SyncStatusPanel({
   sessionSaveError = null,
   adminTokenValue,
   onAdminTokenChange,
+  showAdminToken = true,
 }: SyncStatusPanelProps) {
   const [localAdminToken, setLocalAdminToken] = useState('')
   const [webSessionHeader, setWebSessionHeader] = useState('')
@@ -204,17 +211,19 @@ export function SyncStatusPanel({
           </article>
         ))}
       </div>
-      <div className="sync-admin-token">
-        <label htmlFor="sync-admin-token">管理令牌</label>
-        <input
-          id="sync-admin-token"
-          type="password"
-          value={adminToken}
-          onChange={(event) => updateAdminToken(event.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-        />
-      </div>
+      {showAdminToken ? (
+        <div className="sync-admin-token">
+          <label htmlFor="sync-admin-token">管理令牌</label>
+          <input
+            id="sync-admin-token"
+            type="password"
+            value={adminToken}
+            onChange={(event) => updateAdminToken(event.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </div>
+      ) : null}
       <button className="sync-action" type="button" onClick={handleSyncClick} disabled={!canRun}>
         {isRunning ? '同步中' : '立即同步'}
       </button>

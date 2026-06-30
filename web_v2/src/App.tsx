@@ -68,6 +68,7 @@ import {
   MobilePackagePrepPanel,
   type MobilePackagePrepState,
 } from './components/MobilePackagePrepPanel'
+import { AccountPage } from './components/AccountPage'
 import { AppShell } from './components/AppShell'
 import { ClubBagPage } from './components/ClubBagPage'
 import { LivePage } from './components/LivePage'
@@ -84,7 +85,7 @@ import { resolveInitialAdminToken, writeStoredAdminToken } from './adminTokenSto
 import { readStoredDiagnostics } from './diagnosticsStore'
 import { DiagnosticsProvider } from './diagnosticsContext'
 import { isLinkRequired, readPlayerToken } from './playerContext'
-import { currentSession, OWNER_PLAYER_ID } from './sessionStore'
+import { clearSession, currentSession, OWNER_PLAYER_ID } from './sessionStore'
 import type {
   AnnotationCreateRequest,
   AnnotationCreateResponse,
@@ -534,6 +535,14 @@ export default function App() {
     }
   }
 
+  function handleSignOut() {
+    // Drop the Apple session and re-enter: on a consumer (link-required) deployment
+    // this lands on the Apple sign-in screen; on the bare-URL owner build it reloads
+    // back into owner mode. Mirrors AppleSignInPage's onSignedIn reload.
+    clearSession()
+    window.location.reload()
+  }
+
   function navigate(page: ProductPage) {
     if (page !== 'corrections') {
       setCorrectionTarget(null)
@@ -850,41 +859,48 @@ export default function App() {
             sessionSaveError={sessionSaveError}
             adminTokenValue={adminToken}
             onAdminTokenChange={handleAdminTokenChange}
+            showAdminToken={isOwnerMode}
           />
         ) : null}
-        <MobilePackagePrepPanel
-          state={mobilePackagePrepState}
-          courseOptionsState={mobileCourseOptionsState}
-          onPrepareRound={(roundId, params) => void handlePrepareMobileRoundPackage(roundId, params)}
-          onPrepareCourse={(globalId, params) => void handlePrepareMobileCoursePackage(globalId, params)}
-          showAdminTokenInput={!syncStatus}
-          adminTokenValue={adminToken}
-          onAdminTokenChange={handleAdminTokenChange}
-        />
-        <MobileReconciliationPanel
-          state={mobileReconciliationState}
-          applyState={mobileReconciliationApplyState}
-          onLoad={(roundId) => void handleLoadMobileReconciliation(roundId)}
-          onApply={(roundId, suggestionIds) => void handleApplyMobileReconciliation(roundId, suggestionIds)}
-        />
-        {readinessState.status === 'ready' ? <ReadinessPanel readiness={readinessState.data} /> : null}
-        {readinessState.status === 'error' ? <ReadinessPanel readiness={null} error={readinessState.message} /> : null}
-        {statsState.status === 'ready' ? (
-          <DataQualityPage data={statsState.data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-        ) : null}
-        {statsState.status === 'loading' ? (
-          <section className="panel empty-state">
-            <h2>数据健康加载中</h2>
-          </section>
-        ) : null}
-        {statsState.status === 'error' ? (
-          <section className="panel empty-state">
-            <h2>数据健康不可用</h2>
-            <p>{statsState.message}</p>
-            <button type="button" onClick={() => void loadStatsState()}>
-              重试历史统计
-            </button>
-          </section>
+        {/* Package-prep, reconciliation and data-health are owner engineering tools.
+            A member's Connections page shows only the Garmin connector + sync above. */}
+        {isOwnerMode ? (
+          <>
+            <MobilePackagePrepPanel
+              state={mobilePackagePrepState}
+              courseOptionsState={mobileCourseOptionsState}
+              onPrepareRound={(roundId, params) => void handlePrepareMobileRoundPackage(roundId, params)}
+              onPrepareCourse={(globalId, params) => void handlePrepareMobileCoursePackage(globalId, params)}
+              showAdminTokenInput={!syncStatus}
+              adminTokenValue={adminToken}
+              onAdminTokenChange={handleAdminTokenChange}
+            />
+            <MobileReconciliationPanel
+              state={mobileReconciliationState}
+              applyState={mobileReconciliationApplyState}
+              onLoad={(roundId) => void handleLoadMobileReconciliation(roundId)}
+              onApply={(roundId, suggestionIds) => void handleApplyMobileReconciliation(roundId, suggestionIds)}
+            />
+            {readinessState.status === 'ready' ? <ReadinessPanel readiness={readinessState.data} /> : null}
+            {readinessState.status === 'error' ? <ReadinessPanel readiness={null} error={readinessState.message} /> : null}
+            {statsState.status === 'ready' ? (
+              <DataQualityPage data={statsState.data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
+            ) : null}
+            {statsState.status === 'loading' ? (
+              <section className="panel empty-state">
+                <h2>数据健康加载中</h2>
+              </section>
+            ) : null}
+            {statsState.status === 'error' ? (
+              <section className="panel empty-state">
+                <h2>数据健康不可用</h2>
+                <p>{statsState.message}</p>
+                <button type="button" onClick={() => void loadStatsState()}>
+                  重试历史统计
+                </button>
+              </section>
+            ) : null}
+          </>
         ) : null}
       </section>
     )
@@ -1431,15 +1447,25 @@ export default function App() {
     }
 
     if (activePage === 'players') {
-      // Owner-only management surface; reuses the admin token entered in the
-      // sync panel. Never renders any player's score analysis.
-      return <PlayerAdminPage adminToken={currentAdminToken()} onNavigate={navigate} />
+      // Owner-only family roster (read-only). Members self-register via Apple sign-in;
+      // there is no link issuance. Never renders any player's score analysis.
+      return <PlayerAdminPage adminToken={currentAdminToken()} />
     }
 
     if (activePage === 'club-bag') {
-      // Owner-only club-bag editor; the owner acts-for-any member via the same
-      // admin token (member picker → catalog + distances). No scores rendered.
-      return <ClubBagPage adminToken={currentAdminToken()} />
+      // Every signed-in user edits their OWN bag; the owner additionally gets a member
+      // picker (acts-for-any via the admin token). No scores rendered.
+      return <ClubBagPage adminToken={currentAdminToken()} isOwner={isOwnerMode} selfPlayerId={session?.playerId ?? 'me'} />
+    }
+
+    if (activePage === 'account') {
+      // Apple session account screen: who you're signed in as + sign out.
+      return (
+        <AccountPage
+          player={overviewState.status === 'ready' ? overviewState.data.currentPlayer ?? null : null}
+          onSignOut={handleSignOut}
+        />
+      )
     }
 
     if (activePage === 'settings') {
@@ -1542,7 +1568,7 @@ export default function App() {
         activePage={activePage}
         onNavigate={navigate}
         isOwnerMode={isOwnerMode}
-        playersAdminVisible={!playerToken && Boolean(currentAdminToken())}
+        settingsAccess={{ isOwner: isOwnerMode, hasSession: Boolean(session) }}
         currentPlayer={overviewState.status === 'ready' ? overviewState.data.currentPlayer ?? null : null}
       >
         {renderActivePage()}

@@ -1026,6 +1026,9 @@ describe('App navigation', () => {
     // The admin token now persists to localStorage; clear it so a token entered
     // in one test never leaks a stray header into the next test's boot load.
     localStorage.clear()
+    // Apple sessions live in sessionStorage; clear so a member session set by one
+    // test never flips the next test out of owner mode.
+    window.sessionStorage.clear()
   })
 
   it('shows the invalid-link page and sends no data requests when a link is required but none is present', async () => {
@@ -2005,7 +2008,9 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/settings/product')
   })
 
-  it('reveals the owner 球员管理 tab only after an admin token is entered and manages players there', async () => {
+  it('shows the owner a read-only family roster (no link issuance) on the 球员管理 tab', async () => {
+    // Owner mode (bare URL); a persisted admin token authorizes the owner-only roster.
+    localStorage.setItem('ai-caddie.admin-token', 'admin-secret')
     const fetchMock = vi.fn(async (path: string) => {
       if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
       return {
@@ -2015,11 +2020,13 @@ describe('App navigation', () => {
           if (path === '/api/v2/history/summary') return summaryPayload()
           if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
           if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
-          if (path === '/api/v2/admin/players') {
+          if (path === '/api/v2/admin/family/users') {
             return {
-              players: [
-                { id: 'me', name: '我', isOwner: true, createdAt: null, avatar: null, tokenLast4: null },
-                { id: 'p_a1b2', name: '老王', isOwner: false, createdAt: null, avatar: null, tokenLast4: '77c1', roundCount: 4, sources: { garmin: 3, manual: 1 } },
+              schema: 'ai-caddie-family-users-v1',
+              total: 2,
+              users: [
+                { id: 'u_me', displayName: '我', role: 'admin', createdAt: '2026-05-01T00:00:00Z', deletedAt: null, playerId: 'me' },
+                { id: 'u_wang', displayName: '老王', role: 'member', createdAt: '2026-05-02T00:00:00Z', deletedAt: null, playerId: 'p_a1b2' },
               ],
             }
           }
@@ -2033,18 +2040,55 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    // No admin token yet → the owner-only 球员管理 tab stays hidden.
-    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '球员管理' })).not.toBeInTheDocument()
-
-    await userEvent.type(screen.getByLabelText('管理令牌'), 'admin-secret')
+    // The owner-only 球员管理 tab is visible in owner mode (no link-token entry needed).
     await userEvent.click(await screen.findByRole('button', { name: '球员管理' }))
 
     expect(await screen.findByRole('heading', { name: '球员管理' })).toBeInTheDocument()
     expect(await screen.findByText('老王')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/players', {
+    expect(screen.getByText('主理人')).toBeInTheDocument()
+    // The consumer-era roster is read-only: no link-issuance / token vocabulary.
+    expect(screen.queryByText(/专属链接|链接尾号|新建球员|本人/)).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/admin/family/users', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
+  })
+
+  it('hides owner engineering surfaces (管理令牌 / 球员管理 / 后端配置) from a signed-in member', async () => {
+    // A member Apple session (playerId != 'me') is the consumer view: no admin-token
+    // input, no family-roster / backend-config tabs — but their own bag + account show.
+    const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    window.sessionStorage.setItem(
+      'ai-caddie.session',
+      JSON.stringify({ token: 'member-bearer', playerId: 'p_member', expiresAt: future }),
+    )
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          if (path === '/api/v2/history/summary') return summaryPayload()
+          if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '设置' }))
+    // Connections page (renamed) renders, but with NO owner-only surfaces.
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('管理令牌')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '球员管理' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '后端配置' })).not.toBeInTheDocument()
+    // …but the consumer settings tabs ARE available to a member.
+    expect(screen.getByRole('button', { name: '连接 Garmin' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '球包管理' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '账户' })).toBeInTheDocument()
   })
 
   it('refreshes loaded history stats after creating a correction', async () => {

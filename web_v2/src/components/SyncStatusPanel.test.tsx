@@ -330,4 +330,21 @@ describe('SyncStatusPanel', () => {
 
     expect(screen.getByText('awaiting_redirect')).toBeInTheDocument()
   })
+
+  it('hides the 管理令牌 input for a consumer but keeps the connect form + sync button', () => {
+    // showAdminToken={false} = a member / fresh visitor: the owner-only admin-token
+    // engineering control is gone, but the Garmin connect form + sync button remain.
+    render(
+      <SyncStatusPanel
+        status={{ ...baseStatus, connector: { ...baseStatus.connector, canSync: true } }}
+        onSync={vi.fn()}
+        onSaveSession={vi.fn()}
+        showAdminToken={false}
+      />,
+    )
+
+    expect(screen.queryByLabelText('管理令牌')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '立即同步' })).toBeInTheDocument()
+    expect(screen.getByLabelText('网页会话头')).toBeInTheDocument()
+  })
 })

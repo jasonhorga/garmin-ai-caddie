@@ -1155,6 +1155,25 @@ export interface AdminPlayerDeleteResponse {
   id: string
 }
 
+// Owner-facing family roster (identity DB), the consumer-era replacement for the
+// link-issuance player registry. Members now self-register via Sign in with Apple,
+// so this is a READ-ONLY roster: identity fields only (display name + role + join
+// date), never any token / link material and never any score analysis.
+export interface FamilyUserRow {
+  id: string
+  displayName: string
+  role: string // 'admin' (the owner) | 'member'
+  createdAt: string
+  deletedAt?: string | null
+  playerId?: string | null // mapped legacy player id ('me' | 'p_*'), or null if unmapped
+}
+
+export interface FamilyUsersResponse {
+  schema: 'ai-caddie-family-users-v1'
+  total: number
+  users: FamilyUserRow[]
+}
+
 // Effective club-bag contract (mirrors server_v2/models.py EffectiveClubBagResponse /
 // ClubBagManualRequest). The EFFECTIVE bag is the manual selection when set, else the synced
 // Garmin bag, else empty. distanceM is metres; distanceSource is 'manual' (user value),

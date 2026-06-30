@@ -8,6 +8,7 @@ import type {
   AnnotationCreateResponse,
   AnnotationListResponse,
   AnnotationTargetType,
+  FamilyUsersResponse,
   CaddieDecisionRequest,
   CaddieContextParams,
   CaddieContextResponse,
@@ -575,6 +576,14 @@ export function saveGarminSession(request: GarminSessionImportRequest, adminToke
 // token + URL exactly once — surface it to the owner immediately, never log it.
 export function fetchAdminPlayers(adminToken?: string): Promise<AdminPlayersListResponse> {
   return getJson<AdminPlayersListResponse>('/api/v2/admin/players', adminToken)
+}
+
+// Owner-facing family roster from the identity DB. Unlike /admin/players (the legacy
+// file registry of link-issued players), this lists the Apple-registered family
+// members (display name + role + join date), so it's the consumer-era roster source.
+// Admin-gated server-side; never returns any token/link material.
+export function fetchFamilyUsers(adminToken?: string): Promise<FamilyUsersResponse> {
+  return getJson<FamilyUsersResponse>('/api/v2/admin/family/users', adminToken)
 }
 
 // Member-scoped manual club bag. The owner (admin token) acts-for-any player; a per-player bearer
