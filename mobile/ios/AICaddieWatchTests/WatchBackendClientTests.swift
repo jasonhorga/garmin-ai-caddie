@@ -64,6 +64,42 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertNil(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"))
     }
 
+    func testEventBatchRequestPrefersBearerSessionTokenOverAdminToken() throws {
+        // round-13 watch-auth: the phone forwards its live Apple session token; the watch authenticates
+        // as the signed-in member/owner with a Bearer header (mirroring the phone's applyAICaddieAuth),
+        // and does NOT also send the admin token alongside it.
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            adminToken: "admin-secret",
+            sessionToken: "session-jwt"
+        )
+        let request = try client.makeEventBatchRequest(
+            [WatchInputEvent(eventId: "e1", roundId: "r1", hole: 1, kind: .score, value: "4", createdAt: "t")],
+            roundId: "r1",
+            idempotencyKey: "b"
+        )
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer session-jwt")
+        XCTAssertNil(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"))
+    }
+
+    func testEventBatchRequestFallsBackToAdminTokenWhenSessionTokenExpired() throws {
+        // An expired Bearer never authenticates (mirrors SessionStore.liveToken returning nil), so the
+        // watch falls back to the admin token (the DEBUG/CI path) rather than sending a stale token.
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            adminToken: "admin-secret",
+            sessionToken: "session-jwt",
+            sessionTokenExpiresAt: Date().addingTimeInterval(-60)
+        )
+        let request = try client.makeEventBatchRequest(
+            [WatchInputEvent(eventId: "e1", roundId: "r1", hole: 1, kind: .score, value: "4", createdAt: "t")],
+            roundId: "r1",
+            idempotencyKey: "b"
+        )
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
+    }
+
     func testParseEventResultDecodesAcceptedAndSequence() throws {
         let client = makeClient()
         let data = try JSONSerialization.data(withJSONObject: ["accepted": 1, "duplicate": false, "serverSequence": 7])

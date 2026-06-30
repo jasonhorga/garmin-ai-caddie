@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import os
 import SwiftUI
@@ -224,6 +225,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var syncClient: SyncClient?
     private var mediaUploadClient: MediaUploadClient?
     private let preferredRoundId: String
+    /// Keeps the Apple-session observer alive so the watch's standalone-sync auth tracks sign-in /
+    /// refresh / sign-out (round-13 watch-auth).
+    private var sessionCancellables = Set<AnyCancellable>()
 
     public convenience init(
         offlineStore: OfflineStore = OfflineStore(),
@@ -271,15 +275,41 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         watchBridge?.activateSession()
         syncConfigToWatch()
+        observeSessionForWatch()
     }
 
     /// round-12 P3.4 (Watch standalone): hand the watch this phone's backend config so a standalone
     /// round can sync on its own. The bridge stores it and re-pushes once the WCSession activates.
+    ///
+    /// round-13 watch-auth: forward the LIVE Apple session token (and its expiry) so the watch's
+    /// standalone sync uses a member/owner Bearer instead of the admin token. A nil token (signed out)
+    /// clears the watch's Bearer; the admin token stays only as the DEBUG/CI fallback.
     private func syncConfigToWatch() {
         guard let apiBaseURL else {
             return
         }
-        watchBridge?.sendConfigToWatch(apiBaseURL: apiBaseURL.absoluteString, adminToken: adminToken)
+        let session = SessionStore.shared.currentSession
+        watchBridge?.sendConfigToWatch(
+            apiBaseURL: apiBaseURL.absoluteString,
+            adminToken: adminToken,
+            sessionToken: session?.token,
+            sessionTokenExpiresAt: session?.expiresAt
+        )
+    }
+
+    /// round-13 watch-auth: re-push backend config to the watch whenever the Apple session changes
+    /// (sign-in / refresh / sign-out), so the watch's standalone sync always carries the CURRENT
+    /// member/owner Bearer — or clears it on sign-out. `dropFirst` skips the initial published value;
+    /// the explicit `syncConfigToWatch()` in init already delivered it.
+    private func observeSessionForWatch() {
+        SessionStore.shared.$currentSession
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.syncConfigToWatch()
+                }
+            }
+            .store(in: &sessionCancellables)
     }
 
     public var defaultRoundId: String {

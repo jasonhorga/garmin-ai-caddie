@@ -2925,6 +2925,53 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchSyncAcknowledgement.decode(reply", sync_swift)
         self.assertNotIn("try FileManager.default.removeItem(at: queueURL)\n    }", sync_swift)
 
+    def test_watch_session_token_auth_plumbing(self) -> None:
+        # round-13 watch-auth: the phone forwards its LIVE Apple session token to the watch over the
+        # SAME WCSession config path the admin token uses, so the watch's standalone sync authenticates
+        # as the signed-in member/owner with a Bearer token (member/owner-scoped via current_player_id)
+        # instead of the admin token. The admin token stays only as the DEBUG/CI fallback.
+        backend = _read_required_source(self, WATCH_DIR / "Services" / "WatchBackendClient.swift")
+        config_model = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundModel.swift")
+        watch_sync = _read_required_source(self, WATCH_DIR / "Services" / "WatchSyncClient.swift")
+        bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+
+        # WatchBackendClient prefers the Bearer session token (mirrors applyAICaddieAuth); the admin
+        # token is the else-branch fallback, and the old admin-only path / TODO is gone.
+        self.assertIn("sessionToken: String? = nil", backend)
+        self.assertIn("sessionTokenExpiresAt: Date? = nil", backend)
+        self.assertIn("private func applyAuth(_ request: inout URLRequest)", backend)
+        self.assertIn('request.setValue("Bearer \\(token)", forHTTPHeaderField: "Authorization")', backend)
+        self.assertIn('request.setValue(adminToken, forHTTPHeaderField: "X-AI-Caddie-Admin-Token")', backend)
+        self.assertIn("private var liveSessionToken: String?", backend)
+        self.assertIn("sessionTokenExpiresAt, sessionTokenExpiresAt <= Date()", backend)
+        self.assertIn("applyAuth(&request)", backend)
+        self.assertNotIn("applyAdminToken", backend)  # renamed: no longer admin-only
+
+        # The pushed config carries the token end-to-end: WatchRoundConfig holds it and the standalone
+        # uploader threads it into the WatchBackendClient.
+        self.assertIn("public let sessionToken: String?", config_model)
+        self.assertIn("public let sessionTokenExpiresAt: Date?", config_model)
+        self.assertIn("sessionToken: config.sessionToken", config_model)
+        self.assertIn("sessionTokenExpiresAt: config.sessionTokenExpiresAt", config_model)
+
+        # WatchSyncClient parses the session token (+ expiry) from the phone's application context.
+        self.assertIn('let sessionToken = configDict["sessionToken"] as? String', watch_sync)
+        self.assertIn('configDict["sessionTokenExpiresAt"] as? String', watch_sync)
+        self.assertIn("sessionToken: sessionToken", watch_sync)
+
+        # The phone bridge sends the session token via the same updateApplicationContext config path.
+        self.assertIn("sessionToken: String? = nil", bridge)
+        self.assertIn('config["sessionToken"] = sessionToken', bridge)
+
+        # The app forwards the LIVE session (token + expiry) and re-pushes on every session change
+        # (sign-in / refresh / sign-out) so the watch's Bearer always tracks the current member/owner.
+        self.assertIn("sessionToken: session?.token", app_swift)
+        self.assertIn("sessionTokenExpiresAt: session?.expiresAt", app_swift)
+        self.assertIn("SessionStore.shared.$currentSession", app_swift)
+        self.assertIn(".dropFirst()", app_swift)
+        self.assertIn("private func observeSessionForWatch()", app_swift)
+
     def test_watch_queued_quick_inputs_update_persisted_state(self) -> None:
         state_swift = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundState.swift")
         sync_swift = _read_required_source(self, WATCH_DIR / "Services" / "WatchSyncClient.swift")

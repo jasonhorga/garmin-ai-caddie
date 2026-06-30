@@ -21,10 +21,22 @@ public enum WatchRoundScreen: Equatable {
 public struct WatchRoundConfig: Equatable {
     public let baseURL: URL
     public let adminToken: String?
+    /// round-13 watch-auth: the phone's live Apple session token (and its expiry), pushed over
+    /// WCSession so the watch's standalone sync authenticates as the signed-in member/owner with a
+    /// Bearer token instead of the admin token. Nil when signed out (or on a DEBUG/CI build).
+    public let sessionToken: String?
+    public let sessionTokenExpiresAt: Date?
 
-    public init(baseURL: URL, adminToken: String?) {
+    public init(
+        baseURL: URL,
+        adminToken: String?,
+        sessionToken: String? = nil,
+        sessionTokenExpiresAt: Date? = nil
+    ) {
         self.baseURL = baseURL
         self.adminToken = adminToken
+        self.sessionToken = sessionToken
+        self.sessionTokenExpiresAt = sessionTokenExpiresAt
     }
 }
 
@@ -272,7 +284,13 @@ public final class WatchRoundModel: ObservableObject {
             return try await uploaderOverride(events, roundId)
         }
         guard let config else { throw WatchRoundModelError.notConfigured }
-        let client = WatchBackendClient(baseURL: config.baseURL, adminToken: config.adminToken, clientId: clientId)
+        let client = WatchBackendClient(
+            baseURL: config.baseURL,
+            adminToken: config.adminToken,
+            sessionToken: config.sessionToken,
+            sessionTokenExpiresAt: config.sessionTokenExpiresAt,
+            clientId: clientId
+        )
         _ = try await client.postEvents(events, roundId: roundId, idempotencyKey: makeEventId())
         return events.map(\.eventId)
     }

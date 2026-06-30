@@ -352,7 +352,17 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             return
         }
         let adminToken = configDict["adminToken"] as? String
-        let parsed = WatchRoundConfig(baseURL: baseURL, adminToken: adminToken)
+        // round-13 watch-auth: the phone's live Apple session token (Bearer) + its expiry. Absent when
+        // the phone is signed out, so the rebuilt config clears the Bearer (latest-wins app context).
+        let sessionToken = configDict["sessionToken"] as? String
+        let sessionTokenExpiresAt = (configDict["sessionTokenExpiresAt"] as? String)
+            .flatMap { ISO8601DateFormatter().date(from: $0) }
+        let parsed = WatchRoundConfig(
+            baseURL: baseURL,
+            adminToken: adminToken,
+            sessionToken: sessionToken,
+            sessionTokenExpiresAt: sessionTokenExpiresAt
+        )
         publishStateUpdate { client in
             client.config = parsed
         }
