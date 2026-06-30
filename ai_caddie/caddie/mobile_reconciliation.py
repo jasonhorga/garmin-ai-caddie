@@ -8,20 +8,18 @@ from typing import Any
 
 from ai_caddie.reports.annotations import add_annotation, list_annotations
 from ai_caddie.caddie.decision import audit_decision, store_decision_audit
-from ai_caddie.core.data import evidence_root
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
 
 
 def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
-    # The mobile event log is a single shared, UNPARTITIONED store keyed by round_id only (writes
-    # are admin-only, so it holds the OWNER's rounds). A non-owner player has no events here until
-    # MOBILE_ROOT is per-user partitioned — mirror mobile_live._event_log_rows and short-circuit
-    # to empty so a member's reconciliation never reads an owner round's offline activity.
-    er = evidence_root(player_id, root=root)
-    if er is None:
-        return []
-    path = mobile_event_log(er)
+    # The mobile event log is per-player partitioned (mobile_live.mobile_event_log): the owner keeps
+    # the flat shared log; a member's live events live under their own partition. Read the ACTING
+    # player's log so a member's reconciliation sees THEIR own offline activity (and an owner sees
+    # only the owner's) — never another player's. mobile_event_log applies the per-player path
+    # itself, so pass player_id here (NOT a pre-resolved evidence_root, which would double-nest the
+    # path to data/players/<id>/data/mobile_events/... and read empty).
+    path = mobile_event_log(root, player_id=player_id)
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
@@ -522,9 +520,9 @@ def reconcile_mobile_round_events(
     }
 
 
-def _existing_source_suggestion_ids(*, root: Path | str | None = None) -> set[str]:
+def _existing_source_suggestion_ids(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> set[str]:
     ids: set[str] = set()
-    for record in list_annotations(root=root):
+    for record in list_annotations(root=root, player_id=player_id):
         payload = record.get("payload")
         if isinstance(payload, dict) and payload.get("sourceSuggestionId"):
             ids.add(str(payload["sourceSuggestionId"]))
@@ -539,12 +537,13 @@ def apply_mobile_reconciliation_suggestions(
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
-    reconciliation = reconcile_mobile_round_events(round_id, data, root=root)
+    reconciliation = reconcile_mobile_round_events(round_id, data, root=root, player_id=player_id)
     suggestions = {str(row.get("id")): row for row in reconciliation.get("annotationSuggestions", [])}
     requested_ids = list(suggestion_ids or suggestions.keys())
-    existing_ids = _existing_source_suggestion_ids(root=annotations_root)
-    events_by_id = {str(row.get("eventId")): row for row in _event_rows(round_id, root=root) if row.get("eventId")}
+    existing_ids = _existing_source_suggestion_ids(root=annotations_root, player_id=player_id)
+    events_by_id = {str(row.get("eventId")): row for row in _event_rows(round_id, root=root, player_id=player_id) if row.get("eventId")}
     annotations: list[dict[str, Any]] = []
     decision_audits: list[dict[str, Any]] = []
     skipped: list[str] = []
@@ -565,6 +564,7 @@ def apply_mobile_reconciliation_suggestions(
             str(row["kind"]),
             payload,
             root=annotations_root,
+            player_id=player_id,
         )
         annotations.append(record)
         existing_ids.add(str(suggestion_id))
@@ -572,6 +572,7 @@ def apply_mobile_reconciliation_suggestions(
             row,
             events_by_id=events_by_id,
             root=decision_audit_root,
+            player_id=player_id,
         )
         if audit_record:
             decision_audits.append(audit_record)
@@ -594,6 +595,7 @@ def _store_caddie_feedback_audit(
     *,
     events_by_id: dict[str, dict[str, Any]],
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any] | None:
     if suggestion.get("kind") != "caddie_feedback":
         return None
@@ -609,4 +611,4 @@ def _store_caddie_feedback_audit(
     if not isinstance(actual_shot, dict):
         actual_shot = event_payload.get("actualShot")
     audit = audit_decision(decision, actual_shot if isinstance(actual_shot, dict) else None)
-    return store_decision_audit(audit, decision_id=str(payload.get("decisionId") or suggestion.get("targetId") or ""), root=root)
+    return store_decision_audit(audit, decision_id=str(payload.get("decisionId") or suggestion.get("targetId") or ""), root=root, player_id=player_id)
