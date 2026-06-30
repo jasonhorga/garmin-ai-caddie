@@ -478,6 +478,7 @@ def store_decision_audit(
     *,
     decision_id: str,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     safe_audit = _sanitize_audit_payload(audit)
     record = {
@@ -493,7 +494,7 @@ def store_decision_audit(
         "classification": safe_audit.get("classification"),
         "audit": safe_audit,
     }
-    path = decision_audit_file(root)
+    path = decision_audit_file(evidence_root(player_id, root=root))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
@@ -504,6 +505,7 @@ def store_decision(
     decision: dict[str, Any],
     *,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     safe_decision = _sanitize_decision_payload(decision)
     decision_id = normalize_decision_audit_id(safe_decision.get("decisionId"))
@@ -517,7 +519,7 @@ def store_decision(
         "evidenceRefs": _sanitize_ref_list(safe_decision.get("evidenceRefs")),
         "decision": safe_decision,
     }
-    path = decision_ledger_file(root)
+    path = decision_ledger_file(evidence_root(player_id, root=root))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")

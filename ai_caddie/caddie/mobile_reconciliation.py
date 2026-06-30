@@ -522,9 +522,9 @@ def reconcile_mobile_round_events(
     }
 
 
-def _existing_source_suggestion_ids(*, root: Path | str | None = None) -> set[str]:
+def _existing_source_suggestion_ids(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> set[str]:
     ids: set[str] = set()
-    for record in list_annotations(root=root):
+    for record in list_annotations(root=root, player_id=player_id):
         payload = record.get("payload")
         if isinstance(payload, dict) and payload.get("sourceSuggestionId"):
             ids.add(str(payload["sourceSuggestionId"]))
@@ -539,12 +539,13 @@ def apply_mobile_reconciliation_suggestions(
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
-    reconciliation = reconcile_mobile_round_events(round_id, data, root=root)
+    reconciliation = reconcile_mobile_round_events(round_id, data, root=root, player_id=player_id)
     suggestions = {str(row.get("id")): row for row in reconciliation.get("annotationSuggestions", [])}
     requested_ids = list(suggestion_ids or suggestions.keys())
-    existing_ids = _existing_source_suggestion_ids(root=annotations_root)
-    events_by_id = {str(row.get("eventId")): row for row in _event_rows(round_id, root=root) if row.get("eventId")}
+    existing_ids = _existing_source_suggestion_ids(root=annotations_root, player_id=player_id)
+    events_by_id = {str(row.get("eventId")): row for row in _event_rows(round_id, root=root, player_id=player_id) if row.get("eventId")}
     annotations: list[dict[str, Any]] = []
     decision_audits: list[dict[str, Any]] = []
     skipped: list[str] = []
@@ -565,6 +566,7 @@ def apply_mobile_reconciliation_suggestions(
             str(row["kind"]),
             payload,
             root=annotations_root,
+            player_id=player_id,
         )
         annotations.append(record)
         existing_ids.add(str(suggestion_id))
@@ -572,6 +574,7 @@ def apply_mobile_reconciliation_suggestions(
             row,
             events_by_id=events_by_id,
             root=decision_audit_root,
+            player_id=player_id,
         )
         if audit_record:
             decision_audits.append(audit_record)
@@ -594,6 +597,7 @@ def _store_caddie_feedback_audit(
     *,
     events_by_id: dict[str, dict[str, Any]],
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any] | None:
     if suggestion.get("kind") != "caddie_feedback":
         return None
@@ -609,4 +613,4 @@ def _store_caddie_feedback_audit(
     if not isinstance(actual_shot, dict):
         actual_shot = event_payload.get("actualShot")
     audit = audit_decision(decision, actual_shot if isinstance(actual_shot, dict) else None)
-    return store_decision_audit(audit, decision_id=str(payload.get("decisionId") or suggestion.get("targetId") or ""), root=root)
+    return store_decision_audit(audit, decision_id=str(payload.get("decisionId") or suggestion.get("targetId") or ""), root=root, player_id=player_id)

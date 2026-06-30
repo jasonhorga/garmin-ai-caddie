@@ -130,6 +130,7 @@ def add_annotation(
     payload: dict[str, Any],
     *,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     validate_annotation(target_type, kind, payload)
     if not str(target_id).strip():
@@ -144,7 +145,7 @@ def add_annotation(
         "payload": safe_payload,
         "source": "manual",
     }
-    path = annotation_file(root)
+    path = annotation_file(evidence_root(player_id, root=root))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")

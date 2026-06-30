@@ -231,8 +231,8 @@ def weather_snapshot_file(root: Path | str | None = None) -> Path:
     return Path(root or ".") / "data" / "weather" / "weather_snapshots.jsonl"
 
 
-def store_weather_snapshot(snapshot: dict[str, Any], *, root: Path | str | None = None) -> dict[str, Any]:
-    path = weather_snapshot_file(root)
+def store_weather_snapshot(snapshot: dict[str, Any], *, root: Path | str | None = None, player_id: str = OWNER_ID) -> dict[str, Any]:
+    path = weather_snapshot_file(evidence_root(player_id, root=root))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(snapshot, sort_keys=True, ensure_ascii=False) + "\n")

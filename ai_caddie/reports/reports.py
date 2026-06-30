@@ -1807,6 +1807,7 @@ def store_report(
     kind: str,
     subject_id: str,
     root: Path | str | None = None,
+    player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     record = {
         "id": uuid4().hex,
@@ -1815,7 +1816,7 @@ def store_report(
         "subjectId": redact_private_text(subject_id),
         "report": _redact_value(report),
     }
-    path = report_store_file(root)
+    path = report_store_file(evidence_root(player_id, root=root))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
