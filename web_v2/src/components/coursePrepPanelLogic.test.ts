@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CoursePrepOverlay } from '../types'
-import { atCum, nearestCum, routeIntervalReadout, routeYardageReadout } from './coursePrepPanelLogic'
+import { atCum, layoutHazardLabels, nearestCum, routeIntervalReadout, routeYardageReadout } from './coursePrepPanelLogic'
 
 const overlay: CoursePrepOverlay = {
   w: 200,
@@ -82,5 +82,54 @@ describe('routeIntervalReadout', () => {
       isInside: false,
       isCleared: true,
     })
+  })
+})
+
+describe('layoutHazardLabels', () => {
+  it('leaves labels that already clear each other untouched', () => {
+    const out = layoutHazardLabels([{ y: 20, text: '水55y' }, { y: 60, text: '沙87y' }], 14)
+    expect(out).toEqual([
+      { labelY: 20, showLabel: true },
+      { labelY: 60, showLabel: true },
+    ])
+  })
+
+  it('pushes a colliding label down to clear the previous one by minGap', () => {
+    const out = layoutHazardLabels([{ y: 50, text: '水' }, { y: 55, text: '沙' }], 14)
+    expect(out).toEqual([
+      { labelY: 50, showLabel: true },
+      { labelY: 64, showLabel: true },
+    ])
+  })
+
+  it('cascades a stack of three overlapping labels', () => {
+    const out = layoutHazardLabels([{ y: 50, text: 'a' }, { y: 52, text: 'b' }, { y: 54, text: 'c' }], 14)
+    expect(out.map((p) => p.labelY)).toEqual([50, 64, 78])
+    expect(out.every((p) => p.showLabel)).toBe(true)
+  })
+
+  it('hides a duplicate label that would collide with an identical one', () => {
+    const out = layoutHazardLabels([{ y: 50, text: '沙20y' }, { y: 53, text: '沙20y' }], 14)
+    expect(out).toEqual([
+      { labelY: 50, showLabel: true },
+      { labelY: 53, showLabel: false },
+    ])
+  })
+
+  it('keeps an identical label that is far enough away to not collide', () => {
+    const out = layoutHazardLabels([{ y: 20, text: '沙20y' }, { y: 80, text: '沙20y' }], 14)
+    expect(out).toEqual([
+      { labelY: 20, showLabel: true },
+      { labelY: 80, showLabel: true },
+    ])
+  })
+
+  it('returns placements in the original row order even when input is unsorted', () => {
+    const out = layoutHazardLabels([{ y: 60, text: '沙' }, { y: 50, text: '水' }], 14)
+    // row 0 (y=60) is the lower of the two, so it gets pushed below row 1 (y=50)
+    expect(out).toEqual([
+      { labelY: 64, showLabel: true },
+      { labelY: 50, showLabel: true },
+    ])
   })
 })
