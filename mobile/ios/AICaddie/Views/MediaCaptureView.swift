@@ -57,11 +57,15 @@ public struct MediaCaptureView: View {
                 ForEach(Array(pendingFindings.enumerated()), id: \.offset) { item in
                     let finding = item.element
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(finding.findingType)
+                        // 用中文说明拍照发现的类型(球位/视线/水域/沙坑…),不把机器 token 直接给用户。
+                        Text(zhVisionFindingLabel(finding.findingType))
                             .font(.caption.weight(.semibold))
-                        Text(finding.evidenceText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        // 证据描述按原样平铺显示(模型给出的自然语言),为空时不占位。
+                        if !finding.evidenceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(finding.evidenceText)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                         HStack {
                             Button("确认") {
                                 Task {

@@ -167,7 +167,8 @@ public struct RoundHomeView: View {
             onPrepareCourseRound: onPrepareCourseRound,
             onPrepareCompositeRound: onPrepareCompositeRound,
             onSaveBackendConfiguration: onSaveBackendConfiguration,
-            onClearBackendConfiguration: onClearBackendConfiguration
+            onClearBackendConfiguration: onClearBackendConfiguration,
+            onConnectGarmin: { showSettings = true }
         )
     }
 
