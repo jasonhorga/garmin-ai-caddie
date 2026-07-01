@@ -114,8 +114,9 @@ public struct WatchHoleMapView: View {
 
                 // Compact caddie chip — tap opens the full caddie detail on its own screen.
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("球童 · \(caddieClub)").font(.system(size: 12.5, weight: .bold)).foregroundStyle(.white)
-                    Text(caddieNote).font(.system(size: 9)).foregroundStyle(caddieGreen)
+                    Text("球童").font(.system(size: 8.5, weight: .semibold)).foregroundStyle(caddieGreen)
+                    Text(caddieClub).font(.system(size: 15, weight: .bold)).foregroundStyle(.white).fixedSize()
+                    Text(caddieNote).font(.system(size: 9)).foregroundStyle(caddieGreen).fixedSize()
                 }
                 .padding(.horizontal, 7).padding(.vertical, 4)
                 .background(
@@ -185,18 +186,6 @@ public struct WatchHoleMapView: View {
                      with: .radialGradient(
                         Gradient(colors: [.black.opacity(0), .black.opacity(0.05), .black.opacity(0.82)]),
                         center: player, startRadius: size.height * 0.12, endRadius: size.height * 0.62))
-
-        // Reach arc.
-        let radius = 219 * WatchHoleMapSample.ppm * scale
-        var arc = Path()
-        for i in 0...40 {
-            let ang = (-140.0 + 100.0 * Double(i) / 40.0) * .pi / 180
-            let pt = Self.safe(CGPoint(x: player.x + radius * CGFloat(cos(ang)),
-                                       y: player.y + radius * CGFloat(sin(ang))), player)
-            if i == 0 { arc.move(to: pt) } else { arc.addLine(to: pt) }
-        }
-        context.stroke(arc, with: .color(caddieGreen.opacity(0.35)),
-                       style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [3, 4]))
 
         // Caddie line — solid you → lay-up (through apex), white dashed lay-up → green.
         var dash = Path(); dash.move(to: layup); dash.addQuadCurve(to: green, control: greenCtrl)
