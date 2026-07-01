@@ -115,13 +115,32 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let view = WatchHoleMapView(
             holeNumber: 4, par: 5,
             frontGreen: 273, centerGreen: 287, backGreen: 300,
-            playsLike: 290, lastShot: 200,
-            caddieClub: "3号木", caddieNote: "推进·留100码", planNote: "预期再2杆", landingPct: 82,
+            playsLikeDelta: 8, lastShot: 200,
+            caddieClub: "3号木", caddieNote: "推进 · 留100",
             ringPips: pips
         )
         .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
         .background(Color.black)
         try render(view, named: "watch-holeview")
+    }
+
+    @MainActor
+    func testRenderWatchHoleMapPlaysLike() throws {
+        // The 实打 TOGGLE state: tapping the distance block flips 后/中/前 to the slope-adjusted values with
+        // a ↑ arrow (here +8 uphill → plays longer). Everything else stays put — same decluttered layout.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5,
+            frontGreen: 273, centerGreen: 287, backGreen: 300,
+            playsLikeDelta: 8, lastShot: 200,
+            caddieClub: "3号木", caddieNote: "推进 · 留100",
+            ringPips: pips,
+            showPlaysLike: true
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holeview-pl")
     }
 
     @MainActor
