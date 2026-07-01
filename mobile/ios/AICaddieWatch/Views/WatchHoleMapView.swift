@@ -241,7 +241,8 @@ public struct WatchHoleMapView: View {
         for (index, pip) in ringPips.enumerated() {
             let s = startS + (endS - startS) * (CGFloat(index) + 0.5) / CGFloat(count)
             let (p, t) = Self.perimeterPointTangent(s: s, center: center, halfW: halfW, halfH: halfH, corner: r)
-            let half: CGFloat = pip.isCurrent ? 9 : 6.5
+            // Longer bars + tighter 270° span ⇒ they nearly touch = a dense, near-continuous arc.
+            let half: CGFloat = pip.isCurrent ? 12 : 10
             let p1 = Self.safe(CGPoint(x: p.x - t.x * half, y: p.y - t.y * half), p)
             let p2 = Self.safe(CGPoint(x: p.x + t.x * half, y: p.y + t.y * half), p)
             var bar = Path()
@@ -249,14 +250,14 @@ public struct WatchHoleMapView: View {
             bar.addLine(to: p2)
             if pip.isCurrent {
                 // Hollow / outlined current-hole segment.
-                context.stroke(bar, with: .color(.white), style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+                context.stroke(bar, with: .color(.white), style: StrokeStyle(lineWidth: 5.5, lineCap: .round))
+                context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
             } else if pip.toPar == nil {
-                // Unplayed: a dim-but-visible tick so all 18 read as one even ring.
-                context.stroke(bar, with: .color(.white.opacity(0.28)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                // Unplayed: a clear dim tick (brighter than before) so all 18 read as one dense ring.
+                context.stroke(bar, with: .color(.white.opacity(0.5)), style: StrokeStyle(lineWidth: 3.4, lineCap: .round))
             } else {
                 context.stroke(bar, with: .color(AICaddieDesignTokens.scoreColor(toPar: pip.toPar)),
-                               style: StrokeStyle(lineWidth: 3.8, lineCap: .round))
+                               style: StrokeStyle(lineWidth: 4.2, lineCap: .round))
             }
         }
     }
