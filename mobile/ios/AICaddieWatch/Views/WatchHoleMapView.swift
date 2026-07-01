@@ -112,18 +112,15 @@ public struct WatchHoleMapView: View {
                     .font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
                 Spacer().frame(height: 8)
 
-                // Compact caddie chip — tap opens the full caddie detail on its own screen.
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("球童").font(.system(size: 8.5, weight: .semibold)).foregroundStyle(caddieGreen)
-                    Text(caddieClub).font(.system(size: 15, weight: .bold)).foregroundStyle(.white).fixedSize()
-                    Text(caddieNote).font(.system(size: 9)).foregroundStyle(caddieGreen).fixedSize()
+                // Caddie recommendation — no "球童" label needed; the club + strategy speak for themselves.
+                // Tap opens the full caddie detail (dispersion %, expected strokes, alternatives).
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(caddieClub).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).fixedSize()
+                    Text(caddieNote).font(.system(size: 9.5, weight: .medium)).foregroundStyle(caddieGreen).fixedSize()
                 }
-                .padding(.horizontal, 7).padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.14))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(caddieGreen.opacity(0.4), lineWidth: 1))
-                )
-                Spacer().frame(height: 11)
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
+                Spacer().frame(height: 14)
 
                 // Distance block — TOGGLE. 中 = to the (draggable) pin. 实打 flips values + shows ↑/↓.
                 Text(pl ? "实打 \(arrow)\(abs(playsLikeDelta))" : "到果岭")
@@ -133,9 +130,9 @@ public struct WatchHoleMapView: View {
                 distLine("中", centerGreen + d, pl ? golfYellow : .white, big: true)
                 distLine("前", frontGreen + d, frontBlue, big: false)
             }
-            .frame(width: size.width * (columnFrac - 0.01), alignment: .leading)
-            .padding(.leading, size.width * 0.05)
-            .padding(.top, size.height * 0.08)
+            .frame(width: size.width * 0.29, alignment: .leading)
+            .padding(.leading, size.width * 0.07)   // HIG safe-area margin — not jammed against the edge
+            .padding(.top, size.height * 0.09)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
@@ -144,7 +141,7 @@ public struct WatchHoleMapView: View {
         HStack(alignment: .firstTextBaseline, spacing: 3) {
             Text(label).font(.system(size: big ? 11 : 10)).foregroundStyle(.secondary)
             Text("\(v)")
-                .font(.system(size: big ? 25 : 13, weight: big ? .bold : .semibold, design: big ? .rounded : .default))
+                .font(.system(size: big ? 21 : 13, weight: big ? .bold : .semibold, design: big ? .rounded : .default))
                 .monospacedDigit().foregroundStyle(c).lineLimit(1).fixedSize()
         }
         .padding(.vertical, big ? 1 : 0.5)
@@ -249,11 +246,13 @@ public struct WatchHoleMapView: View {
         let fw = max(0, halfW - r), fh = max(0, halfH - r)
         let perim = 4 * fw + 4 * fh + 2 * CGFloat.pi * r
         let count = ringPips.count
-        let startS = perim * 0.006
-        let endS = perim * 0.75
+        // Ring hugs the TOP → RIGHT → BOTTOM (12→~7 o'clock) and OPENS on the LEFT, so it never crowds the
+        // left data column (前/中/后). The left ~40% of the bezel is intentionally clear.
+        let startS = perim * 0.02
+        let endS = perim * 0.58
         for (index, pip) in ringPips.enumerated() {
             let s = startS + (endS - startS) * (CGFloat(index) + 0.5) / CGFloat(count)
-            let segHalf: CGFloat = pip.isCurrent ? 12 : 10
+            let segHalf: CGFloat = pip.isCurrent ? 10 : 8.5
             var bar = Path()
             let n = 6
             for k in 0...n {
