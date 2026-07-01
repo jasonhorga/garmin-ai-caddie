@@ -201,6 +201,57 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-hv-canvasonly")
     }
 
+    // MARK: - Round-start flow screens (course → nine → tee → scorecard → hole grid)
+
+    @MainActor
+    func testRenderFlowCourse() throws {
+        let view = WatchCourseSelectView(rows: [
+            ("北京丽宫 · 山景", "Par 72 · 0.4 km", true),
+            ("华彬庄园", "Par 72 · 3.1 km", false),
+            ("九华山庄", "Par 71 · 8.6 km", false),
+        ])
+        try render(view, named: "flow-course")
+    }
+
+    @MainActor
+    func testRenderFlowNine() throws {
+        let view = WatchNineSelectView(title: "打几洞", options: [
+            (label: "全 18 洞", sub: "前九 + 后九", primary: true),
+            (label: "前 9 洞", sub: "1–9", primary: false),
+            (label: "后 9 洞", sub: "10–18", primary: false),
+        ])
+        try render(view, named: "flow-nine")
+    }
+
+    @MainActor
+    func testRenderFlowTee() throws {
+        let gold = Color(red: 1.0, green: 0.84, blue: 0.2)
+        let view = WatchTeeSelectView(title: "发球台", tees: [
+            (name: "蓝 T", yards: 6821, color: .blue, selected: false),
+            (name: "白 T", yards: 6200, color: .white, selected: true),
+            (name: "金 T", yards: 5750, color: gold, selected: false),
+            (name: "红 T", yards: 5210, color: .red, selected: false),
+        ])
+        try render(view, named: "flow-tee")
+    }
+
+    @MainActor
+    func testRenderFlowScorecard() throws {
+        let sc: [Int: Int] = [1: 4, 2: 6, 3: 2]
+        let pars: [Int: Int] = [1: 4, 2: 5, 3: 3, 4: 4, 5: 4, 6: 3, 7: 5, 8: 4, 9: 4]
+        let holes: [(hole: Int, par: Int, score: Int?)] = (1...9).map { (hole: $0, par: pars[$0] ?? 4, score: sc[$0]) }
+        let view = WatchRoundScorecardView(holes: holes, toPar: 2)
+        try render(view, named: "flow-scorecard")
+    }
+
+    @MainActor
+    func testRenderFlowHoleGrid() throws {
+        let sc: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let holes: [(hole: Int, toPar: Int?, current: Bool)] = (1...18).map { (hole: $0, toPar: sc[$0], current: $0 == 4) }
+        let view = WatchHoleGridView(holes: holes)
+        try render(view, named: "flow-holes")
+    }
+
     @MainActor
     func testRenderWatchScorecard() throws {
         let view = WatchScorecardView(

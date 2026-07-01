@@ -1,0 +1,204 @@
+import SwiftUI
+
+/// round-14 (Watch standalone, DESIGN REVIEW): the **round-start flow** screens, in the same black / HIG /
+/// green-accent design language as `WatchHoleMapView`, so the whole "open watch → play" journey can be
+/// reviewed as one strip: 选球场 → 选洞数(9/18 · 哪个9) → 选发球台 → (洞视图) → 积分卡 / 选洞.
+///
+/// All are plain `VStack`/`HStack` of `Text` + `RoundedRectangle` (safe under watchOS `ImageRenderer`; no
+/// `ScrollView` — its content doesn't rasterise — and no free-floating `Path{}.fill()` child views).
+private enum Flow {
+    static let green = Color(red: 0.30, green: 0.86, blue: 0.46)
+    static let yellow = Color(red: 1.0, green: 0.83, blue: 0.28)
+    static let blue = Color(red: 0.35, green: 0.72, blue: 1.0)
+}
+
+private extension View {
+    func flowScreen() -> some View {
+        self.frame(width: 198, height: 242, alignment: .topLeading).background(Color.black)
+    }
+}
+
+private func scoreColor(_ toPar: Int) -> Color {
+    switch toPar {
+    case ...(-2): return Color(red: 0.20, green: 0.45, blue: 0.95)   // eagle+ dark blue
+    case -1: return Flow.blue                                        // birdie
+    case 0: return Flow.green                                        // par
+    case 1: return Flow.yellow                                       // bogey
+    case 2: return Color(red: 1.0, green: 0.62, blue: 0.04)          // double orange
+    default: return Color(red: 1.0, green: 0.27, blue: 0.23)         // triple+ red
+    }
+}
+
+// MARK: - 1) 选球场 (GPS-found nearby courses)
+public struct WatchCourseSelectView: View {
+    public let rows: [(name: String, meta: String, near: Bool)]
+    public init(rows: [(name: String, meta: String, near: Bool)]) { self.rows = rows }
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("附近球场").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            ForEach(0..<rows.count, id: \.self) { i in
+                let r = rows[i]
+                HStack(spacing: 8) {
+                    Circle().fill(r.near ? Flow.green : Color.white.opacity(0.25)).frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(r.name).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                        Text(r.meta).font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Text("›").font(.system(size: 17)).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 11).fill(r.near ? Flow.green.opacity(0.16) : Color.white.opacity(0.06)))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.top, 18)
+        .flowScreen()
+    }
+}
+
+// MARK: - 2) 选洞数 (9 / 18, or which 9 to start)
+public struct WatchNineSelectView: View {
+    public let title: String
+    public let options: [(label: String, sub: String, primary: Bool)]
+    public init(title: String, options: [(label: String, sub: String, primary: Bool)]) {
+        self.title = title; self.options = options
+    }
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            ForEach(0..<options.count, id: \.self) { i in
+                let o = options[i]
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(o.label).font(.system(size: o.primary ? 17 : 14, weight: .bold)).foregroundStyle(.white)
+                        Text(o.sub).font(.system(size: 10)).foregroundStyle(o.primary ? Flow.green : Color.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Text("›").font(.system(size: 16)).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12).padding(.vertical, o.primary ? 12 : 9)
+                .background(RoundedRectangle(cornerRadius: 12).fill(o.primary ? Flow.green.opacity(0.18) : Color.white.opacity(0.06)))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.top, 20)
+        .flowScreen()
+    }
+}
+
+// MARK: - 3) 选发球台 (tee boxes)
+public struct WatchTeeSelectView: View {
+    public let title: String
+    public let tees: [(name: String, yards: Int, color: Color, selected: Bool)]
+    public init(title: String, tees: [(name: String, yards: Int, color: Color, selected: Bool)]) {
+        self.title = title; self.tees = tees
+    }
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            ForEach(0..<tees.count, id: \.self) { i in
+                let t = tees[i]
+                HStack(spacing: 9) {
+                    RoundedRectangle(cornerRadius: 3).fill(t.color).frame(width: 12, height: 12)
+                    Text(t.name).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                    Text("\(t.yards)").font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .monospacedDigit().foregroundStyle(.white)
+                    Text("码").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text(t.selected ? "✓" : " ").font(.system(size: 13, weight: .bold)).foregroundStyle(Flow.green)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 10).fill(t.selected ? Flow.green.opacity(0.16) : Color.white.opacity(0.06)))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.top, 16)
+        .flowScreen()
+    }
+}
+
+// MARK: - 4) 积分卡 (front-nine horizontal scorecard)
+public struct WatchRoundScorecardView: View {
+    public let holes: [(hole: Int, par: Int, score: Int?)]   // score nil = not yet played
+    public let toPar: Int
+    public init(holes: [(hole: Int, par: Int, score: Int?)], toPar: Int) { self.holes = holes; self.toPar = toPar }
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("积分卡").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                Spacer()
+                Text(toPar == 0 ? "E" : (toPar > 0 ? "+\(toPar)" : "\(toPar)"))
+                    .font(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(Flow.yellow)
+            }
+            HStack(spacing: 0) {
+                col("洞", holes.map { "\($0.hole)" }, .secondary, 8)
+                col("Par", holes.map { "\($0.par)" }, .secondary, 9)
+                colScore(holes)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 13).padding(.top, 16)
+        .flowScreen()
+    }
+    private func col(_ head: String, _ vals: [String], _ c: Color, _ size: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(head).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary).frame(width: 26, alignment: .leading)
+            ForEach(0..<vals.count, id: \.self) { i in
+                Text(vals[i]).font(.system(size: size, weight: .semibold)).monospacedDigit().foregroundStyle(c)
+                    .frame(width: 26, alignment: .leading)
+            }
+        }
+    }
+    private func colScore(_ hs: [(hole: Int, par: Int, score: Int?)]) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("杆").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            ForEach(0..<hs.count, id: \.self) { i in
+                if let s = hs[i].score {
+                    Text("\(s)").font(.system(size: 12, weight: .bold)).monospacedDigit()
+                        .foregroundStyle(scoreColor(s - hs[i].par))
+                } else {
+                    Text("–").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 5) 选洞 (hole grid)
+public struct WatchHoleGridView: View {
+    public let holes: [(hole: Int, toPar: Int?, current: Bool)]
+    public init(holes: [(hole: Int, toPar: Int?, current: Bool)]) { self.holes = holes }
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("选择球洞").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            // Manual (non-lazy) 6×3 grid so it rasterises under ImageRenderer.
+            VStack(spacing: 7) {
+                ForEach(0..<3, id: \.self) { row in
+                    HStack(spacing: 6) {
+                        ForEach(0..<6, id: \.self) { c in
+                            let idx = row * 6 + c
+                            if idx < holes.count { cell(holes[idx]) } else { Color.clear.frame(width: 24, height: 24) }
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.top, 18)
+        .flowScreen()
+    }
+    private func cell(_ h: (hole: Int, toPar: Int?, current: Bool)) -> some View {
+        Text("\(h.hole)")
+            .font(.system(size: 12, weight: .bold)).monospacedDigit()
+            .foregroundStyle(h.current ? .black : .white)
+            .frame(width: 24, height: 24)
+            .background(Circle().fill(cellFill(h)))
+            .overlay(Circle().stroke(h.current ? Flow.green : Color.clear, lineWidth: 2))
+    }
+    private func cellFill(_ h: (hole: Int, toPar: Int?, current: Bool)) -> Color {
+        if h.current { return Flow.green }
+        if let tp = h.toPar { return scoreColor(tp).opacity(0.85) }
+        return Color.white.opacity(0.10)
+    }
+}
