@@ -105,17 +105,18 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchHoleMap() throws {
-        // round-14 DESIGN REVIEW: the Garmin-S70-style SPLIT hole view on the REAL backend hole render
-        // (gid31669 h1) — LEFT column (第7洞·P4, 前/中/后果岭 colour-coded, 实打 hero, 球童 club) | RIGHT
-        // map panel (YOU + heading arrow, caddie line you→green, pin/flag, reach arc), with the 18-hole
-        // edge-following scoring ring (hole 7 current = hollow, 1–6 scored, 8–18 dim tick). 46mm size.
-        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 0, 5: 2, 6: -1]
-        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
+        // round-14 DESIGN REVIEW: Garmin-S70-style SPLIT hole view on the REAL backend render (gid31669
+        // h4, Par 5) — a par-5 SECOND shot that can't reach: LEFT column (第4洞·P5, 前/中/后果岭 = distance
+        // to the green, 实打 hero, 球童 lay-up club) | RIGHT map (YOU + heading arrow, two-segment caddie
+        // line you→lay-up→green, pin, reach arc, 距上一杆), gradient vignette into black, and the 12→9
+        // scoring ring whose corner segments curve along the rounded bezel. 46mm size.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
         let view = WatchHoleMapView(
-            holeNumber: 7, par: 4,
-            frontGreenYards: 143, centerGreenYards: 150, backGreenYards: 158,
-            playsLikeYards: 153,
-            caddieClubLabel: "7号铁 稳到中",
+            holeNumber: 4, par: 5,
+            frontGreen: 273, centerGreen: 287, backGreen: 300,
+            playsLike: 290, lastShot: 200,
+            caddieClubLabel: "3号木 推进·留100",
             ringPips: pips
         )
         .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
@@ -169,12 +170,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchHoleMapCanvasOnly() throws {
         // Bisect: the Canvas layer ONLY (no Text overlay). If this renders but watch-holeview does not,
         // the culprit is the Text overlay; if both render, the Canvas rewrite fixed the nil cgImage.
-        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 0, 5: 2, 6: -1]
-        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
         let view = WatchHoleMapView(
-            holeNumber: 7, par: 4,
-            centerGreenYards: 152, playsLikeYards: 158,
-            caddieClubLabel: "7铁 116",
+            holeNumber: 4, par: 5,
             ringPips: pips,
             showTextOverlay: false
         )
