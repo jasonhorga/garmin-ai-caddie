@@ -116,7 +116,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             holeNumber: 4, par: 5,
             frontGreen: 273, centerGreen: 287, backGreen: 300,
             playsLike: 290, lastShot: 200,
-            caddieClubLabel: "3号木 推进·留100",
+            caddieClub: "3号木", caddieNote: "推进·留100码", planNote: "预期再2杆", landingPct: 82,
             ringPips: pips
         )
         .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
