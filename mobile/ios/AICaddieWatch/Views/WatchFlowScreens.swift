@@ -124,44 +124,35 @@ public struct WatchRoundScorecardView: View {
     public let toPar: Int
     public init(holes: [(hole: Int, par: Int, score: Int?)], toPar: Int) { self.holes = holes; self.toPar = toPar }
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack {
-                Text("积分卡").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                Text("积分卡").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
                 Spacer()
                 Text(toPar == 0 ? "E" : (toPar > 0 ? "+\(toPar)" : "\(toPar)"))
-                    .font(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(Flow.yellow)
+                    .font(.system(size: 16, weight: .bold, design: .rounded)).foregroundStyle(Flow.yellow)
             }
-            HStack(spacing: 0) {
-                col("洞", holes.map { "\($0.hole)" }, .secondary, 8)
-                col("Par", holes.map { "\($0.par)" }, .secondary, 9)
-                colScore(holes)
+            .padding(.bottom, 3)
+            ForEach(0..<holes.count, id: \.self) { i in
+                let h = holes[i]
+                HStack(spacing: 0) {
+                    Text("\(h.hole)").font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(.white).frame(width: 20, alignment: .leading)
+                    Text("Par \(h.par)").font(.system(size: 10)).foregroundStyle(.secondary)
+                        .frame(width: 48, alignment: .leading)
+                    Spacer(minLength: 0)
+                    if let s = h.score {
+                        Text("\(s)").font(.system(size: 15, weight: .bold)).monospacedDigit()
+                            .foregroundStyle(scoreColor(s - h.par)).frame(width: 24, alignment: .trailing)
+                    } else {
+                        Text("–").font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 24, alignment: .trailing)
+                    }
+                }
+                .padding(.vertical, 1.5)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 13).padding(.top, 16)
+        .padding(.horizontal, 16).padding(.top, 16)
         .flowScreen()
-    }
-    private func col(_ head: String, _ vals: [String], _ c: Color, _ size: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(head).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary).frame(width: 26, alignment: .leading)
-            ForEach(0..<vals.count, id: \.self) { i in
-                Text(vals[i]).font(.system(size: size, weight: .semibold)).monospacedDigit().foregroundStyle(c)
-                    .frame(width: 26, alignment: .leading)
-            }
-        }
-    }
-    private func colScore(_ hs: [(hole: Int, par: Int, score: Int?)]) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("杆").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
-            ForEach(0..<hs.count, id: \.self) { i in
-                if let s = hs[i].score {
-                    Text("\(s)").font(.system(size: 12, weight: .bold)).monospacedDigit()
-                        .foregroundStyle(scoreColor(s - hs[i].par))
-                } else {
-                    Text("–").font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-            }
-        }
     }
 }
 

@@ -293,6 +293,18 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderFlowPinPointer() throws {
+        let view = WatchPinPointerView(bearingDegrees: 38, distance: 152)
+        try render(view, named: "flow-pin")
+    }
+
+    @MainActor
+    func testRenderFlowBigNumbers() throws {
+        let view = WatchBigNumbersView(front: 273, center: 287, back: 300)
+        try render(view, named: "flow-big")
+    }
+
+    @MainActor
     func testRenderWatchScorecard() throws {
         let view = WatchScorecardView(
             holes: [
