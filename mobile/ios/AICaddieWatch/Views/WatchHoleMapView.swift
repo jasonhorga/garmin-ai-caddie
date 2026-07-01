@@ -138,7 +138,7 @@ public struct WatchHoleMapView: View {
                 Spacer().frame(height: 8)
 
                 // Green distances — de-emphasized (a compact row) since this shot can't reach.
-                HStack(spacing: 7) {
+                HStack(spacing: 4) {
                     miniDist("前", frontGreen, frontBlue)
                     miniDist("中", centerGreen, .white)
                     miniDist("后", backGreen, backGrey)
@@ -170,8 +170,9 @@ public struct WatchHoleMapView: View {
 
     private func miniDist(_ label: String, _ v: Int, _ c: Color) -> some View {
         VStack(spacing: 0) {
-            Text(label).font(.system(size: 8)).foregroundStyle(.secondary)
-            Text("\(v)").font(.system(size: 12, weight: .semibold)).monospacedDigit().foregroundStyle(c)
+            Text(label).font(.system(size: 7.5)).foregroundStyle(.secondary)
+            Text("\(v)").font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                .foregroundStyle(c).lineLimit(1).fixedSize()
         }
     }
 
