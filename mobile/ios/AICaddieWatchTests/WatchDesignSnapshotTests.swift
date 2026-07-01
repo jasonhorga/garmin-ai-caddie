@@ -105,22 +105,57 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchHoleMap() throws {
-        // round-14 DESIGN REVIEW: the redesigned player-centred hole view — YOU centred with a heading
-        // arrow, green ahead, fairway sweep + bunker/water, the caddie 2-shot line (solid → AI landing
-        // circle "7铁 116" → white dashed → green), a faint dashed reach arc, distances at the TOP
-        // (到中果岭 152 + yellow ↑实打 158), and the 18-hole TANGENTIAL scoring ring on the bezel
-        // (hole 7 current = hollow, 1–6 scored by to-par, 8–18 dim grey). Rendered at a 46mm watch size.
+        // round-14 DESIGN REVIEW: the player-centred hole view drawn on the REAL backend hole render
+        // (gid31669 h1, ~150 m approach) — YOU centred with a heading arrow, the green ahead, the caddie
+        // line you → green, a faint dashed reach arc, distances at the TOP (到中果岭 150 + yellow ↑实打
+        // 153), and the 18-hole TANGENTIAL scoring ring on the bezel (hole 7 current = hollow, 1–6 scored
+        // by to-par, 8–18 dim grey). Rendered at a 46mm watch size.
         let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 0, 5: 2, 6: -1]
         let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
         let view = WatchHoleMapView(
             holeNumber: 7, par: 4,
-            centerGreenYards: 152, playsLikeYards: 158,
-            caddieClubLabel: "7铁 116",
+            centerGreenYards: 150, playsLikeYards: 153,
+            caddieClubLabel: "7号铁 · 稳到中",
             ringPips: pips
         )
         .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
         .background(Color.black)
         try render(view, named: "watch-holeview")
+    }
+
+    @MainActor
+    func testRenderWatchHoleImageInCanvas() throws {
+        // De-risk: does the baked hole image render at all when drawn INSIDE a Canvas via context.draw
+        // under watchOS ImageRenderer? (This is exactly how WatchHoleMapView draws the map.) Image only,
+        // no overlays — if this is blank/nil the image path is the culprit, not the overlay geometry.
+        let view = Canvas { context, size in
+            #if canImport(UIKit)
+            if let ui = WatchHoleMapSample.image {
+                context.draw(context.resolve(Image(uiImage: ui)), in: CGRect(origin: .zero, size: size))
+            }
+            #endif
+        }
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-img-canvas")
+    }
+
+    @MainActor
+    func testRenderWatchHoleImagePlain() throws {
+        // De-risk control: the same baked image as a PLAIN SwiftUI Image (not in a Canvas). Image is what
+        // ImageRenderer is built for, so this should always render — if watch-img-canvas is blank but this
+        // is not, the map must draw the image as an Image layer behind the Canvas instead of context.draw.
+        let view = ZStack {
+            Color.black
+            #if canImport(UIKit)
+            if let ui = WatchHoleMapSample.image {
+                Image(uiImage: ui).resizable().scaledToFill()
+            }
+            #endif
+        }
+        .frame(width: 198, height: 242)
+        .clipped()
+        try render(view, named: "watch-img-plain")
     }
 
     @MainActor
