@@ -105,17 +105,17 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchHoleMap() throws {
-        // round-14 DESIGN REVIEW: the player-centred hole view drawn on the REAL backend hole render
-        // (gid31669 h1, ~150 m approach) — YOU centred with a heading arrow, the green ahead, the caddie
-        // line you → green, a faint dashed reach arc, distances at the TOP (到中果岭 150 + yellow ↑实打
-        // 153), and the 18-hole TANGENTIAL scoring ring on the bezel (hole 7 current = hollow, 1–6 scored
-        // by to-par, 8–18 dim grey). Rendered at a 46mm watch size.
+        // round-14 DESIGN REVIEW: the Garmin-S70-style SPLIT hole view on the REAL backend hole render
+        // (gid31669 h1) — LEFT column (第7洞·P4, 前/中/后果岭 colour-coded, 实打 hero, 球童 club) | RIGHT
+        // map panel (YOU + heading arrow, caddie line you→green, pin/flag, reach arc), with the 18-hole
+        // edge-following scoring ring (hole 7 current = hollow, 1–6 scored, 8–18 dim tick). 46mm size.
         let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 0, 5: 2, 6: -1]
         let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
         let view = WatchHoleMapView(
             holeNumber: 7, par: 4,
-            centerGreenYards: 150, playsLikeYards: 153,
-            caddieClubLabel: "7号铁 · 稳到中",
+            frontGreenYards: 143, centerGreenYards: 150, backGreenYards: 158,
+            playsLikeYards: 153,
+            caddieClubLabel: "7号铁 稳到中",
             ringPips: pips
         )
         .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
@@ -141,21 +141,28 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testRenderWatchHoleImagePlain() throws {
-        // De-risk control: the same baked image as a PLAIN SwiftUI Image (not in a Canvas). Image is what
-        // ImageRenderer is built for, so this should always render — if watch-img-canvas is blank but this
-        // is not, the map must draw the image as an Image layer behind the Canvas instead of context.draw.
-        let view = ZStack {
-            Color.black
-            #if canImport(UIKit)
-            if let ui = WatchHoleMapSample.image {
-                Image(uiImage: ui).resizable().scaledToFill()
+    func testRenderWatchClipImage() throws {
+        // De-risk: the split map panel draws the image inside a CLIPPED `drawLayer` (so the zoomed image
+        // doesn't bleed over the data column). Exercise exactly that — clip a rounded panel, draw the image
+        // in it — to confirm drawLayer+clip+image renders under watchOS ImageRenderer. If watch-holeview is
+        // blank but this is not, the culprit is elsewhere; if this is blank too, drawLayer/clip is the cause.
+        let view = Canvas { context, size in
+            let panel = CGRect(x: size.width * 0.38, y: 20, width: size.width * 0.58, height: size.height - 40)
+            let panelPath = Path(roundedRect: panel, cornerRadius: 10)
+            context.drawLayer { layer in
+                layer.clip(to: panelPath)
+                layer.fill(panelPath, with: .color(.green.opacity(0.3)))
+                #if canImport(UIKit)
+                if let ui = WatchHoleMapSample.image {
+                    layer.draw(layer.resolve(Image(uiImage: ui)),
+                               in: CGRect(x: panel.minX - 60, y: panel.minY - 40, width: panel.width + 200, height: panel.height + 200))
+                }
+                #endif
             }
-            #endif
         }
         .frame(width: 198, height: 242)
-        .clipped()
-        try render(view, named: "watch-img-plain")
+        .background(Color.black)
+        try render(view, named: "watch-clip-image")
     }
 
     @MainActor

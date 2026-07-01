@@ -1,38 +1,36 @@
 import SwiftUI
 
-/// round-14 (Watch standalone, DESIGN REVIEW): the redesigned **player-centred hole view**, now drawn on
-/// the REAL server-rendered CourseView image (`WatchHoleMapSample`, gid31669 h1) instead of hand-built
-/// shapes — this is the same hole render the iOS `HoleImageMapView` shows, here panned + zoomed so YOU sit
-/// near the centre of the watch and the green is AHEAD (up).
+/// round-14 (Watch standalone, DESIGN REVIEW): the player's **hole view**, restructured to the Garmin
+/// Approach S70 split — a LEFT data column | a RIGHT hole-map panel — drawn on the REAL server-rendered
+/// CourseView image (`WatchHoleMapSample`, gid31669 h1), the same render the iOS `HoleImageMapView` shows.
 ///
-/// Layout (converged with the user):
-///  • **Real hole map, zoomed + player-centred** — the backend hole render (fairway / putting green /
-///    water / bunkers / tree-line) drawn scaled around your position.
-///  • **YOU** — a blue dot at the centre with a white heading arrow just above (watch-top = "up").
-///  • **Caddie line** (our differentiator) — a solid bright-green line from you → the green, the
-///    recommended club labelled. (A tee-shot plan adds an intermediate landing circle; this snapshot is an
-///    approach → a single segment.)
-///  • **Reach arc** — a faint dashed green arc ahead = how far the selected club carries.
-///  • **Distances at the TOP** — "到中果岭", a big number, then a SEPARATE yellow "↑ 实打 N" (plays-like).
-///  • **Tangential scoring ring** at the bezel — 18 short segments hugging the rounded-rect EDGE, oriented
-///    TANGENT to the perimeter, coloured by to-par; current hole hollow; unplayed dim grey.
+/// Layout (converged with the user, anchored on a real S70 photo):
+///  • **Left column (fixed, colour-coded)** — 第N洞·P4, then 前/中/后果岭 distances each with a colour dot,
+///    then **实打 (plays-like) as the big hero number** (what you actually club for), then the AI caddie
+///    club. Fixed positions = "固定位置显示固定数据".
+///  • **Right map panel** — the real hole render, zoomed + player-centred: YOU a blue dot with a heading
+///    arrow, the caddie line you → green, the pin/flag, a faint reach arc. Clipped to a rounded panel.
+///  • **Tangential scoring ring** at the bezel — 18 bars EVENLY along the rounded-rect perimeter, each
+///    oriented ALONG its edge (horizontal top/bottom, vertical sides, arc at corners), coloured by to-par;
+///    current hole hollow; unplayed a dim-but-visible tick so all 18 read as one ring (our on-screen
+///    equivalent of the S70's printed bezel — but colour-carrying).
 ///
 /// RENDERING (learned across CI rounds): free-floating `Path{}.fill()` child views nil `ImageRenderer` on
-/// watchOS, so ALL shapes — AND the hole image — are drawn into a SINGLE `Canvas` `GraphicsContext` at the
-/// definite `.frame` size. Only TEXT stays as SwiftUI `Text` layered OVER the Canvas. Every point is
-/// `safe(_:)`-guarded (one non-finite point breaks the whole rasterisation).
+/// watchOS, so ALL shapes — AND the hole image — are drawn into a SINGLE `Canvas`. The map panel is drawn
+/// in a clipped `drawLayer` so the (much larger) zoomed image doesn't bleed over the data column. Only the
+/// TEXT column is SwiftUI `Text` over the Canvas. Every point is `safe(_:)`-guarded.
 public struct WatchHoleMapView: View {
     public let holeNumber: Int
     public let par: Int
-    /// Distance to the centre of the green (shown big at the top).
+    public let frontGreenYards: Int
     public let centerGreenYards: Int
-    /// Plays-like / 实打 distance (slope-adjusted), shown yellow under the big number.
+    public let backGreenYards: Int
+    /// Plays-like / 实打 distance (slope-adjusted) — the HERO number.
     public let playsLikeYards: Int
-    /// The caddie recommendation chip on the line, e.g. "7号铁 · 稳到中".
+    /// The AI caddie club recommendation, e.g. "7号铁 稳到中".
     public let caddieClubLabel: String
-    /// The 18-hole scoring ring (`toPar == nil` ⇒ unplayed, `isCurrent` ⇒ this hole).
     public let ringPips: [WatchRingPip]
-    /// When false, only the `Canvas` is rendered (no `Text` overlay) — used by the bisect snapshot case.
+    /// When false, only the `Canvas` is rendered (no `Text` column) — used by the bisect snapshot case.
     public let showTextOverlay: Bool
     /// image-px → canvas-px zoom for the baked hole map (larger = more zoomed-in on YOU).
     public let mapScale: CGFloat
@@ -40,16 +38,20 @@ public struct WatchHoleMapView: View {
     public init(
         holeNumber: Int = 7,
         par: Int = 4,
+        frontGreenYards: Int = 143,
         centerGreenYards: Int = 150,
+        backGreenYards: Int = 158,
         playsLikeYards: Int = 153,
-        caddieClubLabel: String = "7号铁 · 稳到中",
+        caddieClubLabel: String = "7号铁 稳到中",
         ringPips: [WatchRingPip] = WatchHoleMapView.sampleRing,
         showTextOverlay: Bool = true,
-        mapScale: CGFloat = 0.5
+        mapScale: CGFloat = 0.62
     ) {
         self.holeNumber = holeNumber
         self.par = par
+        self.frontGreenYards = frontGreenYards
         self.centerGreenYards = centerGreenYards
+        self.backGreenYards = backGreenYards
         self.playsLikeYards = playsLikeYards
         self.caddieClubLabel = caddieClubLabel
         self.ringPips = ringPips
@@ -62,9 +64,12 @@ public struct WatchHoleMapView: View {
     private let caddieGreen = Color(red: 0.30, green: 0.86, blue: 0.46)   // bright — the differentiator line
     private let golfYellow = Color(red: 1.0, green: 0.83, blue: 0.28)
     private let youBlue = Color(red: 0.04, green: 0.52, blue: 1.0)
+    private let flagRed = Color(red: 0.94, green: 0.28, blue: 0.24)
+    private let frontBlue = Color(red: 0.35, green: 0.72, blue: 1.0)
+    private let backGrey = Color(red: 0.72, green: 0.74, blue: 0.78)
 
-    /// YOU sits this far down the face (a touch below centre so the hole reads "ahead").
-    private let youCanvasYFrac: CGFloat = 0.63
+    // Left column occupies the left ~38% of the face; the map panel the rest.
+    private let columnFrac: CGFloat = 0.38
 
     public var body: some View {
         ZStack {
@@ -73,130 +78,142 @@ public struct WatchHoleMapView: View {
             }
             if showTextOverlay {
                 GeometryReader { geo in
-                    textOverlay(geo.size)
+                    dataColumn(geo.size)
                 }
             }
         }
         .background(Color.black)
     }
 
-    // MARK: - Text overlay (SwiftUI Text over the Canvas)
-    private func textOverlay(_ size: CGSize) -> some View {
-        ZStack {
-            VStack(spacing: 0) {
-                Text("到中果岭")
+    // MARK: - Left data column (SwiftUI Text over the Canvas)
+    private func dataColumn(_ size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            VStack(alignment: .leading, spacing: 0) {
+                Text("第\(holeNumber)洞 · P\(par)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                Spacer().frame(height: 10)
+                distanceRow("前", frontGreenYards, frontBlue)
+                distanceRow("中", centerGreenYards, .white)
+                distanceRow("后", backGreenYards, backGrey)
+                Spacer().frame(height: 10)
+                Text("实打")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                Text("\(centerGreenYards)")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                Text("\(playsLikeYards)")
+                    .font(.system(size: 38, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(.white)
-                Text("↑ 实打 \(playsLikeYards)")
-                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(golfYellow)
+                Spacer().frame(height: 9)
+                Text("球童 \(caddieClubLabel)")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(caddieGreen)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .shadow(color: .black.opacity(0.8), radius: 3)   // legible over the map
-            .position(point(0.5, 0.15, in: size))
-
-            Text(caddieClubLabel)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(caddieGreen.opacity(0.92)))
-                .position(point(0.66, 0.47, in: size))
-
-            Text("第\(holeNumber)洞 · Par \(par)")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.8), radius: 3)
-                .position(point(0.5, 0.925, in: size))
+            .frame(width: size.width * (columnFrac - 0.02), alignment: .leading)
+            .padding(.leading, size.width * 0.055)
+            .padding(.top, size.height * 0.08)
         }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 
-    // MARK: - Canvas drawing (map image + all vector overlays)
+    private func distanceRow(_ label: String, _ yards: Int, _ dot: Color) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(dot).frame(width: 6, height: 6)
+            Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("\(yards)").font(.system(size: 15, weight: .semibold)).monospacedDigit().foregroundStyle(.white)
+        }
+        .padding(.vertical, 1)
+    }
+
+    // MARK: - Canvas drawing (map panel + edge ring)
     private func drawMap(_ context: inout GraphicsContext, size: CGSize) {
+        // Full dark face.
+        context.fill(Path(CGRect(origin: .zero, size: size)),
+                     with: .color(Color(red: 0.05, green: 0.075, blue: 0.06)))
+
+        // ---- MAP (fills the region right of the data column, full height) ----
+        let mapLeft = size.width * columnFrac
         let scale = mapScale
         let youImg = WatchHoleMapSample.youPx
-        let youCanvas = CGPoint(x: size.width * 0.5, y: size.height * youCanvasYFrac)
-        // image-px → canvas-pt so that `youImg` lands on `youCanvas` at `scale`.
+        let youCanvas = CGPoint(x: mapLeft + (size.width - mapLeft) * 0.5, y: size.height * 0.58)
         func T(_ p: CGPoint) -> CGPoint {
             Self.safe(CGPoint(x: (p.x - youImg.x) * scale + youCanvas.x,
                               y: (p.y - youImg.y) * scale + youCanvas.y))
         }
 
-        // Dark ground beneath (covers any area the image doesn't reach).
-        context.fill(Path(CGRect(origin: .zero, size: size)),
-                     with: .color(Color(red: 0.05, green: 0.09, blue: 0.07)))
-
-        // 1) REAL hole image, zoomed + player-centred.
-        var drewImage = false
+        // Real hole image, zoomed + player-centred. Drawn full, then the data column is painted back over
+        // it — a reliable "clip" that avoids drawLayer (fragile under watchOS ImageRenderer).
+        var drew = false
         #if canImport(UIKit)
         if let ui = WatchHoleMapSample.image {
-            let origin = T(.zero)
+            let o = T(.zero)
             let w = WatchHoleMapSample.imageSize.width * scale
             let h = WatchHoleMapSample.imageSize.height * scale
-            let rect = CGRect(x: origin.x, y: origin.y, width: w, height: h)
-            if [rect.origin.x, rect.origin.y, w, h].allSatisfy({ $0.isFinite }), w > 0, h > 0 {
+            let rect = CGRect(x: o.x, y: o.y, width: w, height: h)
+            if [o.x, o.y, w, h].allSatisfy({ $0.isFinite }), w > 0, h > 0 {
                 context.draw(context.resolve(Image(uiImage: ui)), in: rect)
-                drewImage = true
+                drew = true
             }
         }
         #endif
-        if !drewImage {
-            // Never-blank fallback: a plain fairway ribbon in the same transform.
-            var fb = Path()
-            fb.move(to: T(CGPoint(x: 305, y: 1120)))
-            fb.addLine(to: T(CGPoint(x: 305, y: 460)))
-            fb.addLine(to: T(CGPoint(x: 395, y: 460)))
-            fb.addLine(to: T(CGPoint(x: 395, y: 1120)))
-            fb.closeSubpath()
-            context.fill(fb, with: .color(fairwayGreen))
+        if !drew {
+            context.fill(Path(CGRect(x: mapLeft, y: 0, width: size.width - mapLeft, height: size.height)),
+                         with: .color(fairwayGreen))
         }
 
-        // Dark watch-map treatment: mute the bright CourseView background to a dark face so the bright
-        // overlays (caddie line, YOU dot, scoring ring) pop. User chose the dark look over Garmin's light map.
-        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.36)))
+        // Dark watch-map tint over the map, then mask the column region back to dark.
+        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.30)))
+        context.fill(Path(CGRect(x: 0, y: 0, width: mapLeft, height: size.height)),
+                     with: .color(Color(red: 0.05, green: 0.075, blue: 0.06)))
+        var divider = Path()
+        divider.move(to: CGPoint(x: mapLeft, y: size.height * 0.10))
+        divider.addLine(to: CGPoint(x: mapLeft, y: size.height * 0.90))
+        context.stroke(divider, with: .color(.white.opacity(0.10)), style: StrokeStyle(lineWidth: 1))
 
         let player = youCanvas
         let green = T(WatchHoleMapSample.pinPx)
 
-        // 2) reach arc ahead (selected-club carry). radius = carry(m) · ppm · scale.
-        let carryM: CGFloat = 150
-        let radius = carryM * WatchHoleMapSample.ppm * scale
+        // Reach arc ahead (selected-club carry).
+        let radius = 150 * WatchHoleMapSample.ppm * scale
         var arc = Path()
-        let steps = 44
-        for i in 0...steps {
-            let deg = -148.0 + 116.0 * Double(i) / Double(steps)   // upper-left → upper-right (bulges up)
-            let rad = deg * .pi / 180
-            let pt = Self.safe(CGPoint(x: player.x + radius * CGFloat(cos(rad)),
-                                       y: player.y + radius * CGFloat(sin(rad))), player)
+        for i in 0...40 {
+            let a = (-145.0 + 110.0 * Double(i) / 40.0) * .pi / 180
+            let pt = Self.safe(CGPoint(x: player.x + radius * CGFloat(cos(a)),
+                                       y: player.y + radius * CGFloat(sin(a))), player)
             if i == 0 { arc.move(to: pt) } else { arc.addLine(to: pt) }
         }
-        context.stroke(arc, with: .color(caddieGreen.opacity(0.55)),
-                       style: StrokeStyle(lineWidth: 1.8, lineCap: .round, dash: [3, 4]))
+        context.stroke(arc, with: .color(caddieGreen.opacity(0.5)),
+                       style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [3, 4]))
 
-        // 3) caddie line: you → green. Dark casing under a bright line = legible over any map colour.
-        var line = Path()
-        line.move(to: player)
-        line.addLine(to: green)
-        context.stroke(line, with: .color(.black.opacity(0.45)), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+        // Caddie line you → green (dark casing under bright line).
+        var line = Path(); line.move(to: player); line.addLine(to: green)
+        context.stroke(line, with: .color(.black.opacity(0.5)), style: StrokeStyle(lineWidth: 5, lineCap: .round))
         context.stroke(line, with: .color(caddieGreen), style: StrokeStyle(lineWidth: 3, lineCap: .round))
 
-        // 4) target ring at the green.
-        let gr: CGFloat = 11
-        let greenRect = CGRect(x: green.x - gr, y: green.y - gr, width: gr * 2, height: gr * 2)
-        context.fill(Path(ellipseIn: greenRect), with: .color(caddieGreen.opacity(0.20)))
-        context.stroke(Path(ellipseIn: greenRect), with: .color(caddieGreen), style: StrokeStyle(lineWidth: 2))
+        // Pin: dot + short flag.
+        let pr: CGFloat = 5
+        let pinRect = CGRect(x: green.x - pr, y: green.y - pr, width: pr * 2, height: pr * 2)
+        context.fill(Path(ellipseIn: pinRect), with: .color(.white))
+        context.stroke(Path(ellipseIn: pinRect), with: .color(caddieGreen), style: StrokeStyle(lineWidth: 1.8))
+        var pole = Path(); pole.move(to: CGPoint(x: green.x, y: green.y - pr)); pole.addLine(to: CGPoint(x: green.x, y: green.y - pr - 12))
+        context.stroke(pole, with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
+        var flag = Path()
+        flag.move(to: CGPoint(x: green.x, y: green.y - pr - 12))
+        flag.addLine(to: CGPoint(x: green.x + 7, y: green.y - pr - 9.5))
+        flag.addLine(to: CGPoint(x: green.x, y: green.y - pr - 7))
+        flag.closeSubpath()
+        context.fill(flag, with: .color(flagRed))
 
-        // 5) YOU: white heading arrow just above the dot, then the blue dot (white ring).
+        // YOU: white heading arrow above the blue dot.
         var arrow = Path()
-        arrow.move(to: CGPoint(x: player.x, y: player.y - 21))
-        arrow.addLine(to: CGPoint(x: player.x - 6.5, y: player.y - 9))
-        arrow.addLine(to: CGPoint(x: player.x + 6.5, y: player.y - 9))
+        arrow.move(to: CGPoint(x: player.x, y: player.y - 19))
+        arrow.addLine(to: CGPoint(x: player.x - 6, y: player.y - 8))
+        arrow.addLine(to: CGPoint(x: player.x + 6, y: player.y - 8))
         arrow.closeSubpath()
         context.fill(arrow, with: .color(.white))
-        let dot: CGFloat = 6.5
+        let dot: CGFloat = 6
         let dotRect = CGRect(x: player.x - dot, y: player.y - dot, width: dot * 2, height: dot * 2)
         context.fill(Path(ellipseIn: dotRect), with: .color(youBlue))
         context.stroke(Path(ellipseIn: dotRect), with: .color(.white), style: StrokeStyle(lineWidth: 2))
@@ -204,40 +221,38 @@ public struct WatchHoleMapView: View {
         drawRing(&context, size: size)
     }
 
-    /// The 18 scoring bars, distributed EVENLY along the rounded-rect perimeter by ARC LENGTH and each
-    /// oriented ALONG the edge it sits on — horizontal across the top/bottom, vertical down the sides, and
-    /// following the arc through each rounded corner. (The old version derived the tangent from the radial
-    /// angle, which only matches at each side's midpoint, so the bars fanned out and read as messy.)
+    /// The 18 scoring bars, EVENLY along the rounded-rect perimeter by ARC LENGTH, each oriented ALONG its
+    /// edge — horizontal top/bottom, vertical sides, arc through the corners.
     private func drawRing(_ context: inout GraphicsContext, size: CGSize) {
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        let inset: CGFloat = 8
+        let inset: CGFloat = 7
         let halfW = size.width / 2 - inset
         let halfH = size.height / 2 - inset
-        let r = max(0, min(min(halfW, halfH) * 0.52, min(halfW, halfH)))   // watch-like corner radius
+        let r = max(0, min(min(halfW, halfH) * 0.52, min(halfW, halfH)))
         let fw = max(0, halfW - r), fh = max(0, halfH - r)
         let perim = 4 * fw + 4 * fh + 2 * CGFloat.pi * r
         let count = ringPips.count
-        let gap = perim * 0.05                       // a small break at top-centre (hole 18 | hole 1)
+        let gap = perim * 0.045
         let usable = perim - gap
         for (index, pip) in ringPips.enumerated() {
-            // Arc-length from top-centre, sweeping CLOCKWISE; each bar centred in an even slot.
             let s = gap / 2 + usable * (CGFloat(index) + 0.5) / CGFloat(count)
             let (p, t) = Self.perimeterPointTangent(s: s, center: center, halfW: halfW, halfH: halfH, corner: r)
-            let half: CGFloat = pip.isCurrent ? 9 : (pip.toPar == nil ? 5 : 7)
+            let half: CGFloat = pip.isCurrent ? 9 : 6.5
             let p1 = Self.safe(CGPoint(x: p.x - t.x * half, y: p.y - t.y * half), p)
             let p2 = Self.safe(CGPoint(x: p.x + t.x * half, y: p.y + t.y * half), p)
             var bar = Path()
             bar.move(to: p1)
             bar.addLine(to: p2)
             if pip.isCurrent {
-                // Hollow / outlined current-hole segment: wide white bar with a black bar punched through.
+                // Hollow / outlined current-hole segment.
                 context.stroke(bar, with: .color(.white), style: StrokeStyle(lineWidth: 5, lineCap: .round))
                 context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
             } else if pip.toPar == nil {
-                context.stroke(bar, with: .color(.gray.opacity(0.35)), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+                // Unplayed: a dim-but-visible tick so all 18 read as one even ring.
+                context.stroke(bar, with: .color(.white.opacity(0.28)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
             } else {
                 context.stroke(bar, with: .color(AICaddieDesignTokens.scoreColor(toPar: pip.toPar)),
-                               style: StrokeStyle(lineWidth: 3.6, lineCap: .round))
+                               style: StrokeStyle(lineWidth: 3.8, lineCap: .round))
             }
         }
     }
@@ -249,17 +264,10 @@ public struct WatchHoleMapView: View {
         CGPoint(x: p.x.isFinite ? p.x : fallback.x, y: p.y.isFinite ? p.y : fallback.y)
     }
 
-    /// A point at fractional position (fx, fy) of `size`, guaranteed finite.
-    private func point(_ fx: CGFloat, _ fy: CGFloat, in size: CGSize) -> CGPoint {
-        Self.safe(CGPoint(x: fx * size.width, y: fy * size.height))
-    }
-
     /// The point at arc-length `s` along the inset **rounded rectangle** perimeter (half-extents
     /// `halfW`×`halfH`, corner radius `corner`) AND the unit tangent (edge direction) there. `s` starts at
-    /// top-centre and increases CLOCKWISE. The perimeter is walked as 9 pieces — top-right flat, TR corner,
-    /// right flat, BR corner, bottom flat, BL corner, left flat, TL corner, top-left flat — so a bar drawn
-    /// along the returned tangent is horizontal on the top/bottom, vertical on the sides, and follows the
-    /// arc through a corner. Finite-safe (clamped radius, no divide).
+    /// top-centre and increases CLOCKWISE, walked as 9 pieces (flats + 4 corner arcs) so a bar drawn along
+    /// the tangent is horizontal on the top/bottom, vertical on the sides, and follows the arc at a corner.
     static func perimeterPointTangent(
         s: CGFloat, center: CGPoint, halfW: CGFloat, halfH: CGFloat, corner: CGFloat
     ) -> (CGPoint, CGPoint) {
