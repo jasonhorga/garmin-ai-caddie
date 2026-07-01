@@ -162,9 +162,9 @@ public struct WatchHoleMapView: View {
                          with: .color(fairwayGreen))
         }
 
-        // Dark watch-map tint over the map (the column is masked to black AFTER the overlays below, so it
-        // also clips the reach arc that would otherwise bleed left over the data column).
-        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.34)))
+        // Light watch-map tint — the image's OB is already black, so only a touch of tone-down is needed
+        // (the column is masked to black AFTER the overlays below, which also clips the reach-arc bleed).
+        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.15)))
 
         let player = youCanvas
         let green = T(WatchHoleMapSample.pinPx)
@@ -181,8 +181,14 @@ public struct WatchHoleMapView: View {
         context.stroke(arc, with: .color(caddieGreen.opacity(0.5)),
                        style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [3, 4]))
 
-        // Caddie line you → green (dark casing under bright line).
-        var line = Path(); line.move(to: player); line.addLine(to: green)
+        // Caddie line you → green — a GENTLE curve (a slight bow reads better on the curved watch face than
+        // a dead-straight line, and mimics a real ball flight). Control point = midpoint pushed sideways.
+        let cdx = green.x - player.x, cdy = green.y - player.y
+        let clen = max(1, (cdx * cdx + cdy * cdy).squareRoot())
+        let bow = clen * 0.11
+        let ctrl = Self.safe(CGPoint(x: (player.x + green.x) / 2 + (cdy / clen) * bow,
+                                     y: (player.y + green.y) / 2 - (cdx / clen) * bow), player)
+        var line = Path(); line.move(to: player); line.addQuadCurve(to: green, control: ctrl)
         context.stroke(line, with: .color(.black.opacity(0.5)), style: StrokeStyle(lineWidth: 5, lineCap: .round))
         context.stroke(line, with: .color(caddieGreen), style: StrokeStyle(lineWidth: 3, lineCap: .round))
 
@@ -212,12 +218,9 @@ public struct WatchHoleMapView: View {
         context.fill(Path(ellipseIn: dotRect), with: .color(youBlue))
         context.stroke(Path(ellipseIn: dotRect), with: .color(.white), style: StrokeStyle(lineWidth: 2))
 
-        // Mask the data-column region to pure black — reliable clip for the image + reach-arc bleed.
+        // Mask the data-column region to pure black — reliable clip for the image + reach-arc bleed. With
+        // the image's OB now black too, the column and map share one seamless black ground (no divider).
         context.fill(Path(CGRect(x: 0, y: 0, width: mapLeft, height: size.height)), with: .color(.black))
-        var divider = Path()
-        divider.move(to: CGPoint(x: mapLeft, y: size.height * 0.12))
-        divider.addLine(to: CGPoint(x: mapLeft, y: size.height * 0.88))
-        context.stroke(divider, with: .color(.white.opacity(0.10)), style: StrokeStyle(lineWidth: 1))
 
         drawRing(&context, size: size)
     }
