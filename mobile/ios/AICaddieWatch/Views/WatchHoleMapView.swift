@@ -30,6 +30,8 @@ public struct WatchHoleMapView: View {
     public let showTextOverlay: Bool
     /// Distance block toggle: false = raw yardage; true = 实打 (slope-adjusted) with a ↑/↓ arrow.
     public let showPlaysLike: Bool
+    /// Zoomed full-map state (tap the map): hides the data column, map fills the width + zooms in.
+    public let fullMap: Bool
     public let mapScale: CGFloat
 
     public init(
@@ -45,6 +47,7 @@ public struct WatchHoleMapView: View {
         ringPips: [WatchRingPip] = WatchHoleMapView.sampleRing,
         showTextOverlay: Bool = true,
         showPlaysLike: Bool = false,
+        fullMap: Bool = false,
         mapScale: CGFloat = 0.32
     ) {
         self.holeNumber = holeNumber
@@ -59,6 +62,7 @@ public struct WatchHoleMapView: View {
         self.ringPips = ringPips
         self.showTextOverlay = showTextOverlay
         self.showPlaysLike = showPlaysLike
+        self.fullMap = fullMap
         self.mapScale = mapScale
     }
 
@@ -88,10 +92,10 @@ public struct WatchHoleMapView: View {
 
     /// Shared transform so the Canvas vectors and the Text overlay agree on where map points land.
     private func anchors(_ size: CGSize) -> (t: (CGPoint) -> CGPoint, you: CGPoint) {
-        let mapLeft = size.width * columnFrac
-        let scale = mapScale
+        let mapLeft = fullMap ? 0 : size.width * columnFrac
+        let scale = fullMap ? mapScale * 1.5 : mapScale
         let youImg = WatchHoleMapSample.youPx
-        let youCanvas = CGPoint(x: mapLeft + (size.width - mapLeft) * 0.5, y: size.height * 0.72)
+        let youCanvas = CGPoint(x: mapLeft + (size.width - mapLeft) * 0.5, y: size.height * (fullMap ? 0.66 : 0.72))
         let t: (CGPoint) -> CGPoint = { p in
             Self.safe(CGPoint(x: (p.x - youImg.x) * scale + youCanvas.x,
                               y: (p.y - youImg.y) * scale + youCanvas.y))
@@ -106,35 +110,56 @@ public struct WatchHoleMapView: View {
         let d = pl ? playsLikeDelta : 0
         return ZStack(alignment: .topLeading) {
             Color.clear
-            VStack(alignment: .leading, spacing: 0) {
-                // 洞·Par — tap target for 距上一杆 (shown as a subtle hint, not a floating map label).
-                Text("第\(holeNumber)洞 · P\(par)")
-                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
-                Spacer().frame(height: 8)
+            if fullMap {
+                fullMapControls(size)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    // 洞·Par — tap target for 距上一杆 (a hint, not a floating map label).
+                    Text("第\(holeNumber)洞 · P\(par)")
+                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
+                    Spacer().frame(height: 8)
 
-                // Caddie recommendation — no "球童" label needed; the club + strategy speak for themselves.
-                // Tap opens the full caddie detail (dispersion %, expected strokes, alternatives).
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(caddieClub).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).fixedSize()
-                    Text(caddieNote).font(.system(size: 9.5, weight: .medium)).foregroundStyle(caddieGreen).fixedSize()
+                    // Caddie recommendation — no "球童" label; the club + strategy speak for themselves.
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(caddieClub).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).fixedSize()
+                        Text(caddieNote).font(.system(size: 9.5, weight: .medium)).foregroundStyle(caddieGreen).fixedSize()
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
+                    Spacer().frame(height: 14)
+
+                    // Distance block — TOGGLE. 中 = to the (draggable) pin. 实打 flips values + shows ↑/↓.
+                    Text(pl ? "实打 \(arrow)\(abs(playsLikeDelta))" : "到果岭")
+                        .font(.system(size: 9.5, weight: pl ? .semibold : .regular))
+                        .foregroundStyle(pl ? golfYellow : Color.secondary)
+                    distLine("后", backGreen + d, backGrey, big: false)
+                    distLine("中", centerGreen + d, pl ? golfYellow : .white, big: true)
+                    distLine("前", frontGreen + d, frontBlue, big: false)
                 }
-                .padding(.horizontal, 8).padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
-                Spacer().frame(height: 14)
-
-                // Distance block — TOGGLE. 中 = to the (draggable) pin. 实打 flips values + shows ↑/↓.
-                Text(pl ? "实打 \(arrow)\(abs(playsLikeDelta))" : "到果岭")
-                    .font(.system(size: 9.5, weight: pl ? .semibold : .regular))
-                    .foregroundStyle(pl ? golfYellow : Color.secondary)
-                distLine("后", backGreen + d, backGrey, big: false)
-                distLine("中", centerGreen + d, pl ? golfYellow : .white, big: true)
-                distLine("前", frontGreen + d, frontBlue, big: false)
+                .frame(width: size.width * 0.29, alignment: .leading)
+                .padding(.leading, size.width * 0.07)   // HIG safe-area margin — not jammed against the edge
+                .padding(.top, size.height * 0.09)
             }
-            .frame(width: size.width * 0.29, alignment: .leading)
-            .padding(.leading, size.width * 0.07)   // HIG safe-area margin — not jammed against the edge
-            .padding(.top, size.height * 0.09)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    // Zoomed full-map state: a top-centre distance readout + zoom hints, no data column.
+    @ViewBuilder private func fullMapControls(_ size: CGSize) -> some View {
+        VStack {
+            Text("中 \(centerGreen) · 到果岭").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                .padding(.horizontal, 9).padding(.vertical, 3)
+                .background(Capsule().fill(.black.opacity(0.5)))
+                .padding(.top, 12)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        VStack(spacing: 12) {
+            Text("＋").font(.system(size: 20, weight: .bold)).foregroundStyle(.white.opacity(0.85))
+            Text("－").font(.system(size: 20, weight: .bold)).foregroundStyle(.white.opacity(0.85))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        .padding(.trailing, 6)
     }
 
     private func distLine(_ label: String, _ v: Int, _ c: Color, big: Bool) -> some View {
@@ -151,8 +176,8 @@ public struct WatchHoleMapView: View {
     private func drawMap(_ context: inout GraphicsContext, size: CGSize) {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
 
-        let mapLeft = size.width * columnFrac
-        let scale = mapScale
+        let mapLeft = fullMap ? 0 : size.width * columnFrac
+        let scale = fullMap ? mapScale * 1.5 : mapScale
         let a = anchors(size)
         let player = a.you
         let layup = a.t(WatchHoleMapSample.layupPx)

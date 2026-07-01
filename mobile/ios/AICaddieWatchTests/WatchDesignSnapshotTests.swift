@@ -253,6 +253,46 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchHoleMapZoom() throws {
+        // Zoomed full-map state (tap the map): data column hidden, map fills the width + zooms in, with a
+        // top-centre distance + zoom hints.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
+        let view = WatchHoleMapView(holeNumber: 4, par: 5, centerGreen: 287, ringPips: pips, fullMap: true)
+            .frame(width: 198, height: 242)
+            .background(Color.black)
+        try render(view, named: "watch-holeview-zoom")
+    }
+
+    @MainActor
+    func testRenderFlowHub() throws {
+        let view = WatchRoundHubView(course: "北京丽宫 · 山景", hole: 4, par: 5, toPar: 2)
+        try render(view, named: "flow-hub")
+    }
+
+    @MainActor
+    func testRenderFlowGreen() throws {
+        let view = WatchGreenPreviewView(front: 273, center: 287, back: 300)
+        try render(view, named: "flow-green")
+    }
+
+    @MainActor
+    func testRenderFlowTarget() throws {
+        let view = WatchTargetView(title: "触碰测距 · 障碍", toTarget: 205, targetToGreen: 100, carryFront: 215, carryBack: 232)
+        try render(view, named: "flow-target")
+    }
+
+    @MainActor
+    func testRenderFlowNine9() throws {
+        let view = WatchNineSelectView(title: "先打哪个9", options: [
+            (label: "前九", sub: "1–9 · 3220 码", primary: true),
+            (label: "中九", sub: "10–18 · 3180 码", primary: false),
+            (label: "后九", sub: "19–27 · 3300 码", primary: false),
+        ])
+        try render(view, named: "flow-nine9")
+    }
+
+    @MainActor
     func testRenderWatchScorecard() throws {
         let view = WatchScorecardView(
             holes: [
