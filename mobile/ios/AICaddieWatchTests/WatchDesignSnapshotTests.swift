@@ -104,6 +104,26 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchHoleMap() throws {
+        // round-14 DESIGN REVIEW: the redesigned player-centred hole view — YOU centred with a heading
+        // arrow, green ahead, fairway sweep + bunker/water, the caddie 2-shot line (solid → AI landing
+        // circle "7铁 116" → white dashed → green), a faint dashed reach arc, distances at the TOP
+        // (到中果岭 152 + yellow ↑实打 158), and the 18-hole TANGENTIAL scoring ring on the bezel
+        // (hole 7 current = hollow, 1–6 scored by to-par, 8–18 dim grey). Rendered at a 46mm watch size.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 0, 5: 2, 6: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
+        let view = WatchHoleMapView(
+            holeNumber: 7, par: 4,
+            centerGreenYards: 152, playsLikeYards: 158,
+            caddieClubLabel: "7铁 116",
+            ringPips: pips
+        )
+        .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
+        .background(Color.black)
+        try render(view, named: "watch-holeview")
+    }
+
+    @MainActor
     func testRenderWatchScorecard() throws {
         let view = WatchScorecardView(
             holes: [
