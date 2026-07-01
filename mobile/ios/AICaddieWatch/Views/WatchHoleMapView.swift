@@ -129,9 +129,8 @@ public struct WatchHoleMapView: View {
 
     // MARK: - Canvas drawing (map panel + edge ring)
     private func drawMap(_ context: inout GraphicsContext, size: CGSize) {
-        // Full dark face.
-        context.fill(Path(CGRect(origin: .zero, size: size)),
-                     with: .color(Color(red: 0.05, green: 0.075, blue: 0.06)))
+        // Full black face.
+        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
 
         // ---- MAP (fills the region right of the data column, full height) ----
         let mapLeft = size.width * columnFrac
@@ -163,14 +162,9 @@ public struct WatchHoleMapView: View {
                          with: .color(fairwayGreen))
         }
 
-        // Dark watch-map tint over the map, then mask the column region back to dark.
-        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.30)))
-        context.fill(Path(CGRect(x: 0, y: 0, width: mapLeft, height: size.height)),
-                     with: .color(Color(red: 0.05, green: 0.075, blue: 0.06)))
-        var divider = Path()
-        divider.move(to: CGPoint(x: mapLeft, y: size.height * 0.10))
-        divider.addLine(to: CGPoint(x: mapLeft, y: size.height * 0.90))
-        context.stroke(divider, with: .color(.white.opacity(0.10)), style: StrokeStyle(lineWidth: 1))
+        // Dark watch-map tint over the map (the column is masked to black AFTER the overlays below, so it
+        // also clips the reach arc that would otherwise bleed left over the data column).
+        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.34)))
 
         let player = youCanvas
         let green = T(WatchHoleMapSample.pinPx)
@@ -218,6 +212,13 @@ public struct WatchHoleMapView: View {
         context.fill(Path(ellipseIn: dotRect), with: .color(youBlue))
         context.stroke(Path(ellipseIn: dotRect), with: .color(.white), style: StrokeStyle(lineWidth: 2))
 
+        // Mask the data-column region to pure black — reliable clip for the image + reach-arc bleed.
+        context.fill(Path(CGRect(x: 0, y: 0, width: mapLeft, height: size.height)), with: .color(.black))
+        var divider = Path()
+        divider.move(to: CGPoint(x: mapLeft, y: size.height * 0.12))
+        divider.addLine(to: CGPoint(x: mapLeft, y: size.height * 0.88))
+        context.stroke(divider, with: .color(.white.opacity(0.10)), style: StrokeStyle(lineWidth: 1))
+
         drawRing(&context, size: size)
     }
 
@@ -232,10 +233,13 @@ public struct WatchHoleMapView: View {
         let fw = max(0, halfW - r), fh = max(0, halfH - r)
         let perim = 4 * fw + 4 * fh + 2 * CGFloat.pi * r
         let count = ringPips.count
-        let gap = perim * 0.045
-        let usable = perim - gap
+        // Ring spans 12 o'clock (top) CLOCKWISE to 9 o'clock (left) = exactly 3/4 of the perimeter; the
+        // upper-left (over the data column) stays open. 18 holes packed into 270° reads denser than a full
+        // ring. Hole 1 sits just clockwise of top; hole 18 lands at ~9 o'clock.
+        let startS = perim * 0.006
+        let endS = perim * 0.75
         for (index, pip) in ringPips.enumerated() {
-            let s = gap / 2 + usable * (CGFloat(index) + 0.5) / CGFloat(count)
+            let s = startS + (endS - startS) * (CGFloat(index) + 0.5) / CGFloat(count)
             let (p, t) = Self.perimeterPointTangent(s: s, center: center, halfW: halfW, halfH: halfH, corner: r)
             let half: CGFloat = pip.isCurrent ? 9 : 6.5
             let p1 = Self.safe(CGPoint(x: p.x - t.x * half, y: p.y - t.y * half), p)
