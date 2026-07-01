@@ -154,6 +154,10 @@ public struct WatchHoleMapView: View {
             context.fill(fb, with: .color(fairwayGreen))
         }
 
+        // Dark watch-map treatment: mute the bright CourseView background to a dark face so the bright
+        // overlays (caddie line, YOU dot, scoring ring) pop. User chose the dark look over Garmin's light map.
+        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.36)))
+
         let player = youCanvas
         let green = T(WatchHoleMapSample.pinPx)
 
@@ -200,26 +204,28 @@ public struct WatchHoleMapView: View {
         drawRing(&context, size: size)
     }
 
-    /// The 18 tangential scoring bars on the bezel.
+    /// The 18 scoring bars, distributed EVENLY along the rounded-rect perimeter by ARC LENGTH and each
+    /// oriented ALONG the edge it sits on — horizontal across the top/bottom, vertical down the sides, and
+    /// following the arc through each rounded corner. (The old version derived the tangent from the radial
+    /// angle, which only matches at each side's midpoint, so the bars fanned out and read as messy.)
     private func drawRing(_ context: inout GraphicsContext, size: CGSize) {
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        let inset: CGFloat = 7
+        let inset: CGFloat = 8
         let halfW = size.width / 2 - inset
         let halfH = size.height / 2 - inset
-        let corner = 0.22 * size.width
+        let r = max(0, min(min(halfW, halfH) * 0.52, min(halfW, halfH)))   // watch-like corner radius
+        let fw = max(0, halfW - r), fh = max(0, halfH - r)
+        let perim = 4 * fw + 4 * fh + 2 * CGFloat.pi * r
         let count = ringPips.count
-        let gap = CGFloat.pi / 3                    // 60° open at the top (frames the distance readout)
-        let span = 2 * CGFloat.pi - gap
-        let denom = CGFloat(max(1, count - 1))
+        let gap = perim * 0.05                       // a small break at top-centre (hole 18 | hole 1)
+        let usable = perim - gap
         for (index, pip) in ringPips.enumerated() {
-            // Start just right of top-centre, sweep CLOCKWISE (hole 1 upper-right, hole 18 upper-left).
-            let theta = -CGFloat.pi / 2 + gap / 2 + span * CGFloat(index) / denom
-            let p = Self.edgePointOnRoundedRect(angle: theta, center: center, halfW: halfW, halfH: halfH, corner: corner)
-            // Tangent = perpendicular to the ray (NOT a radial spoke): direction θ+90° = (−sinθ, cosθ).
-            let tdx = -sin(theta), tdy = cos(theta)
-            let half: CGFloat = pip.isCurrent ? 8.5 : (pip.toPar == nil ? 5.5 : 7)
-            let p1 = Self.safe(CGPoint(x: p.x - tdx * half, y: p.y - tdy * half), p)
-            let p2 = Self.safe(CGPoint(x: p.x + tdx * half, y: p.y + tdy * half), p)
+            // Arc-length from top-centre, sweeping CLOCKWISE; each bar centred in an even slot.
+            let s = gap / 2 + usable * (CGFloat(index) + 0.5) / CGFloat(count)
+            let (p, t) = Self.perimeterPointTangent(s: s, center: center, halfW: halfW, halfH: halfH, corner: r)
+            let half: CGFloat = pip.isCurrent ? 9 : (pip.toPar == nil ? 5 : 7)
+            let p1 = Self.safe(CGPoint(x: p.x - t.x * half, y: p.y - t.y * half), p)
+            let p2 = Self.safe(CGPoint(x: p.x + t.x * half, y: p.y + t.y * half), p)
             var bar = Path()
             bar.move(to: p1)
             bar.addLine(to: p2)
@@ -228,10 +234,10 @@ public struct WatchHoleMapView: View {
                 context.stroke(bar, with: .color(.white), style: StrokeStyle(lineWidth: 5, lineCap: .round))
                 context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
             } else if pip.toPar == nil {
-                context.stroke(bar, with: .color(.gray.opacity(0.32)), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+                context.stroke(bar, with: .color(.gray.opacity(0.35)), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
             } else {
                 context.stroke(bar, with: .color(AICaddieDesignTokens.scoreColor(toPar: pip.toPar)),
-                               style: StrokeStyle(lineWidth: 3.4, lineCap: .round))
+                               style: StrokeStyle(lineWidth: 3.6, lineCap: .round))
             }
         }
     }
@@ -248,31 +254,40 @@ public struct WatchHoleMapView: View {
         Self.safe(CGPoint(x: fx * size.width, y: fy * size.height))
     }
 
-    /// Point where the ray at `angle` (from `center`) meets the inset **rounded** rectangle (half-extents
-    /// `halfW`×`halfH`, corner radius `corner`). Flat edges use the plain rectangle intersection; inside a
-    /// corner zone the ray is re-solved against that corner's arc circle (outer root). Finite-safe.
-    static func edgePointOnRoundedRect(
-        angle: CGFloat, center: CGPoint, halfW a: CGFloat, halfH b: CGFloat, corner: CGFloat
-    ) -> CGPoint {
-        let dx = cos(angle), dy = sin(angle)
-        let r = max(0, min(corner, min(a, b)))
-        let eps: CGFloat = 0.0001
-        var tRect = max(a, b) * 4
-        if abs(dx) > eps { tRect = min(tRect, a / abs(dx)) }
-        if abs(dy) > eps { tRect = min(tRect, b / abs(dy)) }
-        let lx = dx * tRect, ly = dy * tRect
-        if abs(lx) > a - r && abs(ly) > b - r {
-            let sx: CGFloat = lx >= 0 ? 1 : -1
-            let sy: CGFloat = ly >= 0 ? 1 : -1
-            let ccx = sx * (a - r), ccy = sy * (b - r)
-            let dcc = dx * ccx + dy * ccy
-            let disc = dcc * dcc - (ccx * ccx + ccy * ccy - r * r)
-            if disc >= 0 {
-                let t = dcc + CGFloat(sqrt(max(0, Double(disc))))
-                return safe(CGPoint(x: center.x + dx * t, y: center.y + dy * t), center)
-            }
+    /// The point at arc-length `s` along the inset **rounded rectangle** perimeter (half-extents
+    /// `halfW`×`halfH`, corner radius `corner`) AND the unit tangent (edge direction) there. `s` starts at
+    /// top-centre and increases CLOCKWISE. The perimeter is walked as 9 pieces — top-right flat, TR corner,
+    /// right flat, BR corner, bottom flat, BL corner, left flat, TL corner, top-left flat — so a bar drawn
+    /// along the returned tangent is horizontal on the top/bottom, vertical on the sides, and follows the
+    /// arc through a corner. Finite-safe (clamped radius, no divide).
+    static func perimeterPointTangent(
+        s: CGFloat, center: CGPoint, halfW: CGFloat, halfH: CGFloat, corner: CGFloat
+    ) -> (CGPoint, CGPoint) {
+        let r = max(0, min(corner, min(halfW, halfH)))
+        let fw = max(0, halfW - r), fh = max(0, halfH - r)
+        let arc = CGFloat.pi * r / 2
+        func G(_ x: CGFloat, _ y: CGFloat) -> CGPoint { safe(CGPoint(x: center.x + x, y: center.y + y), center) }
+        func onArc(_ cx: CGFloat, _ cy: CGFloat, _ a: CGFloat) -> (CGPoint, CGPoint) {
+            (G(cx + r * cos(a), cy + r * sin(a)), CGPoint(x: -sin(a), y: cos(a)))
         }
-        return safe(CGPoint(x: center.x + dx * tRect, y: center.y + dy * tRect), center)
+        var d = s
+        if d <= fw { return (G(d, -halfH), CGPoint(x: 1, y: 0)) }                       // top-right flat
+        d -= fw
+        if d <= arc { return onArc(fw, -fh, -.pi / 2 + (d / max(arc, 0.0001)) * (.pi / 2)) }   // TR corner
+        d -= arc
+        if d <= 2 * fh { return (G(halfW, -fh + d), CGPoint(x: 0, y: 1)) }              // right flat
+        d -= 2 * fh
+        if d <= arc { return onArc(fw, fh, 0 + (d / max(arc, 0.0001)) * (.pi / 2)) }    // BR corner
+        d -= arc
+        if d <= 2 * fw { return (G(fw - d, halfH), CGPoint(x: -1, y: 0)) }              // bottom flat
+        d -= 2 * fw
+        if d <= arc { return onArc(-fw, fh, .pi / 2 + (d / max(arc, 0.0001)) * (.pi / 2)) }    // BL corner
+        d -= arc
+        if d <= 2 * fh { return (G(-halfW, fh - d), CGPoint(x: 0, y: -1)) }             // left flat
+        d -= 2 * fh
+        if d <= arc { return onArc(-fw, -fh, .pi + (d / max(arc, 0.0001)) * (.pi / 2)) }       // TL corner
+        d -= arc
+        return (G(-fw + d, -halfH), CGPoint(x: 1, y: 0))                                // top-left flat
     }
 
     /// Sample 18-hole ring: holes 1–6 scored (mixed to-par), hole 7 current, 8–18 not yet played.
