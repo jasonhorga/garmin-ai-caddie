@@ -124,6 +124,24 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchHoleMapCanvasOnly() throws {
+        // Bisect: the Canvas layer ONLY (no Text overlay). If this renders but watch-holeview does not,
+        // the culprit is the Text overlay; if both render, the Canvas rewrite fixed the nil cgImage.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 0, 5: 2, 6: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
+        let view = WatchHoleMapView(
+            holeNumber: 7, par: 4,
+            centerGreenYards: 152, playsLikeYards: 158,
+            caddieClubLabel: "7铁 116",
+            ringPips: pips,
+            showTextOverlay: false
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-hv-canvasonly")
+    }
+
+    @MainActor
     func testRenderWatchScorecard() throws {
         let view = WatchScorecardView(
             holes: [
