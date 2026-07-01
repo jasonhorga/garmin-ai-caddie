@@ -239,20 +239,20 @@ public struct WatchHoleMapView: View {
     /// (straight on flats, curved through the rounded corners).
     private func drawRing(_ context: inout GraphicsContext, size: CGSize) {
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        let inset: CGFloat = 8
+        let inset: CGFloat = 6
         let halfW = size.width / 2 - inset
         let halfH = size.height / 2 - inset
         let r = max(0, min(min(halfW, halfH) * 0.52, min(halfW, halfH)))
         let fw = max(0, halfW - r), fh = max(0, halfH - r)
         let perim = 4 * fw + 4 * fh + 2 * CGFloat.pi * r
         let count = ringPips.count
-        // Ring hugs the TOP → RIGHT → BOTTOM (12→~7 o'clock) and OPENS on the LEFT, so it never crowds the
-        // left data column (前/中/后). The left ~40% of the bezel is intentionally clear.
+        // Ring runs from 12 o'clock CLOCKWISE to 9 o'clock (top → right → bottom → left-centre); only the
+        // upper-left stays open. The left data column keeps its HIG margin so 前/中/后 don't touch the ring.
         let startS = perim * 0.02
-        let endS = perim * 0.58
+        let endS = perim * 0.75
         for (index, pip) in ringPips.enumerated() {
             let s = startS + (endS - startS) * (CGFloat(index) + 0.5) / CGFloat(count)
-            let segHalf: CGFloat = pip.isCurrent ? 10 : 8.5
+            let segHalf: CGFloat = pip.isCurrent ? 11 : 9.5
             var bar = Path()
             let n = 6
             for k in 0...n {
