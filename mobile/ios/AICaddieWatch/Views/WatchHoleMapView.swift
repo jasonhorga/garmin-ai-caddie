@@ -20,9 +20,13 @@ import SwiftUI
 /// The map geometry here is HAND-BUILT sample data for one representative par-4 — this snapshot exists to
 /// show the LAYOUT. Wiring real hole geometry (points/paths, heading, club carry) is a later step.
 ///
-/// Renders under `ImageRenderer` (CI snapshot): no `ScrollView` (ImageRenderer won't render its content);
-/// a fixed `GeometryReader`/`ZStack`; only plain shapes (`Path`, `Circle`, `Capsule`), `Text`, and
-/// solid fills — no materials/blur.
+/// Renders under `ImageRenderer` (CI snapshot). Two hard rules learned the hard way:
+///  1. NO `ScrollView` (ImageRenderer won't render its content) — a fixed `GeometryReader`/`ZStack`.
+///  2. EVERY coordinate that enters a `Path` must be FINITE — a single NaN/inf point nils the whole
+///     rasterisation (silent: `ImageRenderer.cgImage` returns nil). All points go through `safe(_:)`,
+///     the rounded-rect solve avoids ∞/divide-by-0 and clamps the sqrt, and the `GeometryReader` body
+///     is NOT re-`.frame`d to its own `geo.size` (a circular size reference the renderer can choke on).
+/// Only plain shapes (`Path`, `Circle`, `Capsule`), `Text`, and solid fills — no materials/blur.
 public struct WatchHoleMapView: View {
     public let holeNumber: Int
     public let par: Int
@@ -66,92 +70,111 @@ public struct WatchHoleMapView: View {
     private let greenF = CGPoint(x: 0.535, y: 0.327)   // green centre
 
     public var body: some View {
+        // The whole map is drawn in a single child that is given an EXPLICIT `.frame(geo.size)` — the
+        // proven WatchHoleRingView idiom (it frames its centre child to geo-derived values and renders
+        // fine). Free-floating fill-the-container `Path{}.fill()` children (no explicit frame) have an
+        // ambiguous ideal size that ImageRenderer's measurement pass can rasterise as an invalid size →
+        // `cgImage` == nil → no PNG (silently, since render() only writes when non-nil). The black
+        // background is a MODIFIER (not a flexible filling child) so it can't perturb the layout size.
         GeometryReader { geo in
-            // Grouped so no single ViewBuilder block exceeds 10 subviews; Groups are transparent to the
-            // ZStack layering (back → front is top-to-bottom here).
-            ZStack {
-                Color.black
-                Group {
-                    fairwayLayer(geo.size)
-                    waterLayer(geo.size)
-                    bunkerLayer(geo.size)
-                    greenLayer(geo.size)
-                    reachArcLayer(geo.size)
-                }
-                Group {
-                    caddieShot2Layer(geo.size)   // white dashed: landing → green (under shot-1 + markers)
-                    caddieShot1Layer(geo.size)   // solid green: you → landing
-                    landingLayer(geo.size)
-                    playerLayer(geo.size)
-                }
-                Group {
-                    ringLayer(geo.size)
-                    topReadoutLayer(geo.size)
-                    bottomChipLayer(geo.size)
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
+            mapContent(geo.size)
+                .frame(width: geo.size.width, height: geo.size.height)
+                .background(Color.black)
         }
     }
 
-    // MARK: - Helpers
+    /// All map + ring + text layers, in the watch-face coordinate space. `body` gives this an explicit
+    /// frame so every child is proposed a definite size.
+    private func mapContent(_ size: CGSize) -> some View {
+        ZStack {
+            Group {
+                fairwayLayer(size)
+                waterLayer(size)
+                bunkerLayer(size)
+                greenLayer(size)
+                reachArcLayer(size)
+            }
+            Group {
+                caddieShot2Layer(size)   // white dashed: landing → green (under shot-1 + markers)
+                caddieShot1Layer(size)   // solid green: you → landing
+                landingLayer(size)
+                playerLayer(size)
+            }
+            Group {
+                ringLayer(size)
+                topReadoutLayer(size)
+                bottomChipLayer(size)
+            }
+        }
+    }
+
+    // MARK: - Finite-safety + point helpers
+    /// Replace any non-finite (NaN/±inf) component with the fallback. A single non-finite point in a
+    /// Path nils the ENTIRE `ImageRenderer` output, so every computed coordinate passes through here.
+    static func safe(_ p: CGPoint, _ fallback: CGPoint = .zero) -> CGPoint {
+        CGPoint(x: p.x.isFinite ? p.x : fallback.x, y: p.y.isFinite ? p.y : fallback.y)
+    }
+
+    /// A point at fractional position (fx, fy) of `size`, guaranteed finite.
     private func point(_ fx: CGFloat, _ fy: CGFloat, in size: CGSize) -> CGPoint {
-        CGPoint(x: fx * size.width, y: fy * size.height)
+        Self.safe(CGPoint(x: fx * size.width, y: fy * size.height))
+    }
+
+    /// An ellipse's bounding rect, centred at a finite fractional point, sized by fractions of `size`.
+    private func ellipseRect(cx: CGFloat, cy: CGFloat, wFrac: CGFloat, hFrac: CGFloat, in size: CGSize) -> CGRect {
+        let c = point(cx, cy, in: size)
+        let ew = wFrac * size.width
+        let eh = hFrac * size.height
+        return CGRect(x: c.x - ew / 2, y: c.y - eh / 2, width: ew, height: eh)
     }
 
     // MARK: - Map layers
     private func fairwayLayer(_ size: CGSize) -> some View {
-        let w = size.width, h = size.height
-        return Path { p in
-            // A ribbon sweeping from behind you (bottom) up to the green.
-            p.move(to: CGPoint(x: 0.42 * w, y: 1.05 * h))
-            p.addQuadCurve(to: CGPoint(x: 0.35 * w, y: 0.52 * h), control: CGPoint(x: 0.34 * w, y: 0.80 * h))
-            p.addQuadCurve(to: CGPoint(x: 0.44 * w, y: 0.30 * h), control: CGPoint(x: 0.36 * w, y: 0.38 * h))
-            p.addLine(to: CGPoint(x: 0.63 * w, y: 0.30 * h))
-            p.addQuadCurve(to: CGPoint(x: 0.62 * w, y: 0.52 * h), control: CGPoint(x: 0.66 * w, y: 0.40 * h))
-            p.addQuadCurve(to: CGPoint(x: 0.60 * w, y: 1.05 * h), control: CGPoint(x: 0.66 * w, y: 0.80 * h))
+        // A ribbon sweeping from behind you (bottom) up to the green.
+        Path { p in
+            p.move(to: point(0.42, 1.05, in: size))
+            p.addQuadCurve(to: point(0.35, 0.52, in: size), control: point(0.34, 0.80, in: size))
+            p.addQuadCurve(to: point(0.44, 0.30, in: size), control: point(0.36, 0.38, in: size))
+            p.addLine(to: point(0.63, 0.30, in: size))
+            p.addQuadCurve(to: point(0.62, 0.52, in: size), control: point(0.66, 0.40, in: size))
+            p.addQuadCurve(to: point(0.60, 1.05, in: size), control: point(0.66, 0.80, in: size))
             p.closeSubpath()
         }
         .fill(fairwayGreen)
     }
 
     private func waterLayer(_ size: CGSize) -> some View {
-        let w = size.width, h = size.height
         // Left rough, near the green.
-        return Path { p in
-            p.addEllipse(in: CGRect(x: 0.13 * w, y: 0.25 * h, width: 0.23 * w, height: 0.17 * h))
+        Path { p in
+            p.addEllipse(in: ellipseRect(cx: 0.245, cy: 0.335, wFrac: 0.23, hFrac: 0.17, in: size))
         }
         .fill(waterBlue)
     }
 
     private func bunkerLayer(_ size: CGSize) -> some View {
-        let w = size.width, h = size.height
         // Right rough, beside the landing zone.
-        return Path { p in
-            p.addEllipse(in: CGRect(x: 0.64 * w, y: 0.40 * h, width: 0.21 * w, height: 0.14 * h))
+        Path { p in
+            p.addEllipse(in: ellipseRect(cx: 0.745, cy: 0.47, wFrac: 0.21, hFrac: 0.14, in: size))
         }
         .fill(bunkerSand)
     }
 
     private func greenLayer(_ size: CGSize) -> some View {
-        let w = size.width, h = size.height
-        let flagBase = point(0.55, 0.327, in: size)
-        let flagTop = CGPoint(x: 0.55 * w, y: 0.255 * h)
-        return ZStack {
+        ZStack {
             Path { p in
-                p.addEllipse(in: CGRect(x: 0.44 * w, y: 0.27 * h, width: 0.19 * w, height: 0.115 * h))
+                p.addEllipse(in: ellipseRect(cx: 0.535, cy: 0.3275, wFrac: 0.19, hFrac: 0.115, in: size))
             }
             .fill(puttGreen)
             // Flag: thin pole + small triangle (kept short so it clears the top readout).
             Path { p in
-                p.move(to: flagBase)
-                p.addLine(to: flagTop)
+                p.move(to: point(0.55, 0.327, in: size))
+                p.addLine(to: point(0.55, 0.255, in: size))
             }
             .stroke(Color.white.opacity(0.85), lineWidth: 1.3)
             Path { p in
-                p.move(to: flagTop)
-                p.addLine(to: CGPoint(x: 0.615 * w, y: 0.275 * h))
-                p.addLine(to: CGPoint(x: 0.55 * w, y: 0.295 * h))
+                p.move(to: point(0.55, 0.255, in: size))
+                p.addLine(to: point(0.615, 0.275, in: size))
+                p.addLine(to: point(0.55, 0.295, in: size))
                 p.closeSubpath()
             }
             .fill(flagRed)
@@ -168,8 +191,8 @@ public struct WatchHoleMapView: View {
             for i in 0...steps {
                 let deg = startDeg + (endDeg - startDeg) * Double(i) / Double(steps)
                 let rad = deg * .pi / 180
-                let pt = CGPoint(x: player.x + radius * CGFloat(cos(rad)),
-                                 y: player.y + radius * CGFloat(sin(rad)))
+                let pt = Self.safe(CGPoint(x: player.x + radius * CGFloat(cos(rad)),
+                                           y: player.y + radius * CGFloat(sin(rad))), player)
                 if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
             }
         }
@@ -177,21 +200,17 @@ public struct WatchHoleMapView: View {
     }
 
     private func caddieShot1Layer(_ size: CGSize) -> some View {
-        let player = point(playerF.x, playerF.y, in: size)
-        let landing = point(landingF.x, landingF.y, in: size)
-        return Path { p in
-            p.move(to: player)
-            p.addLine(to: landing)
+        Path { p in
+            p.move(to: point(playerF.x, playerF.y, in: size))
+            p.addLine(to: point(landingF.x, landingF.y, in: size))
         }
         .stroke(caddieGreen, style: StrokeStyle(lineWidth: 3, lineCap: .round))
     }
 
     private func caddieShot2Layer(_ size: CGSize) -> some View {
-        let landing = point(landingF.x, landingF.y, in: size)
-        let green = point(greenF.x, greenF.y, in: size)
-        return Path { p in
-            p.move(to: landing)
-            p.addLine(to: green)
+        Path { p in
+            p.move(to: point(landingF.x, landingF.y, in: size))
+            p.addLine(to: point(greenF.x, greenF.y, in: size))
         }
         .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 2.3, lineCap: .round, dash: [4.5, 3.5]))
     }
@@ -199,15 +218,12 @@ public struct WatchHoleMapView: View {
     private func landingLayer(_ size: CGSize) -> some View {
         let landing = point(landingF.x, landingF.y, in: size)
         let r: CGFloat = 12
+        let rect = CGRect(x: landing.x - r, y: landing.y - r, width: r * 2, height: r * 2)
         return ZStack {
-            Path { p in
-                p.addEllipse(in: CGRect(x: landing.x - r, y: landing.y - r, width: r * 2, height: r * 2))
-            }
-            .fill(caddieGreen.opacity(0.18))
-            Path { p in
-                p.addEllipse(in: CGRect(x: landing.x - r, y: landing.y - r, width: r * 2, height: r * 2))
-            }
-            .stroke(caddieGreen, lineWidth: 2)
+            Path { p in p.addEllipse(in: rect) }
+                .fill(caddieGreen.opacity(0.18))
+            Path { p in p.addEllipse(in: rect) }
+                .stroke(caddieGreen, lineWidth: 2)
             Text(caddieClubLabel)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(caddieGreen)
@@ -219,8 +235,7 @@ public struct WatchHoleMapView: View {
     }
 
     private func playerLayer(_ size: CGSize) -> some View {
-        let player = point(playerF.x, playerF.y, in: size)
-        return ZStack {
+        ZStack {
             // Heading arrow just ABOVE the dot, pointing up.
             Path { p in
                 p.move(to: point(0.50, 0.505, in: size))
@@ -234,7 +249,7 @@ public struct WatchHoleMapView: View {
                 .fill(Color.white)
                 .frame(width: 12, height: 12)
                 .overlay(Circle().stroke(caddieGreen, lineWidth: 2))
-                .position(player)
+                .position(point(playerF.x, playerF.y, in: size))
         }
     }
 
@@ -293,8 +308,8 @@ public struct WatchHoleMapView: View {
     @ViewBuilder
     private func ringBar(pip: WatchRingPip, at p: CGPoint, tangent t: CGVector) -> some View {
         let half: CGFloat = pip.isCurrent ? 8.5 : (pip.toPar == nil ? 5.5 : 7)
-        let p1 = CGPoint(x: p.x - t.dx * half, y: p.y - t.dy * half)
-        let p2 = CGPoint(x: p.x + t.dx * half, y: p.y + t.dy * half)
+        let p1 = Self.safe(CGPoint(x: p.x - t.dx * half, y: p.y - t.dy * half), p)
+        let p2 = Self.safe(CGPoint(x: p.x + t.dx * half, y: p.y + t.dy * half), p)
         let bar = Path { pp in
             pp.move(to: p1)
             pp.addLine(to: p2)
@@ -314,18 +329,21 @@ public struct WatchHoleMapView: View {
     }
 
     /// Point where the ray at `angle` (from `center`) meets the inset **rounded** rectangle
-    /// (half-extents `halfW`×`halfH`, corner radius `corner`). Flat edges use the plain
-    /// rectangle intersection; inside a corner zone the ray is re-solved against that corner's arc
-    /// circle (outer root). This places each scoring segment ON the watch-shaped bezel — denser at the
-    /// corners — rather than on an inscribed circle.
+    /// (half-extents `halfW`×`halfH`, corner radius `corner`). Flat edges use the plain rectangle
+    /// intersection; inside a corner zone the ray is re-solved against that corner's arc circle (outer
+    /// root). Places each scoring segment ON the watch-shaped bezel — denser at the corners — rather
+    /// than on an inscribed circle. Finite-safe: no ∞ fallback, no divide-by-0, sqrt is clamped ≥ 0.
     static func edgePointOnRoundedRect(
         angle: CGFloat, center: CGPoint, halfW a: CGFloat, halfH b: CGFloat, corner: CGFloat
     ) -> CGPoint {
         let dx = cos(angle), dy = sin(angle)
-        let r = min(corner, min(a, b))
-        let tx = abs(dx) < 0.0001 ? CGFloat.greatestFiniteMagnitude : a / abs(dx)
-        let ty = abs(dy) < 0.0001 ? CGFloat.greatestFiniteMagnitude : b / abs(dy)
-        let tRect = min(tx, ty)
+        let r = max(0, min(corner, min(a, b)))
+        let eps: CGFloat = 0.0001
+        // Distance along the ray to each flat edge; skip an axis whose direction component is ~0 (a
+        // finite fallback bounds the ray so no ∞ can ever enter a coordinate).
+        var tRect = max(a, b) * 4
+        if abs(dx) > eps { tRect = min(tRect, a / abs(dx)) }
+        if abs(dy) > eps { tRect = min(tRect, b / abs(dy)) }
         let lx = dx * tRect, ly = dy * tRect            // hit point relative to centre (plain rectangle)
         if abs(lx) > a - r && abs(ly) > b - r {          // corner zone → intersect the corner arc circle
             let sx: CGFloat = lx >= 0 ? 1 : -1
@@ -334,11 +352,11 @@ public struct WatchHoleMapView: View {
             let dcc = dx * ccx + dy * ccy
             let disc = dcc * dcc - (ccx * ccx + ccy * ccy - r * r)
             if disc >= 0 {
-                let t = dcc + CGFloat(sqrt(Double(disc)))   // outer intersection with the corner circle
-                return CGPoint(x: center.x + dx * t, y: center.y + dy * t)
+                let t = dcc + CGFloat(sqrt(max(0, Double(disc))))   // outer intersection; sqrt clamped ≥ 0
+                return safe(CGPoint(x: center.x + dx * t, y: center.y + dy * t), center)
             }
         }
-        return CGPoint(x: center.x + dx * tRect, y: center.y + dy * tRect)
+        return safe(CGPoint(x: center.x + dx * tRect, y: center.y + dy * tRect), center)
     }
 
     /// Sample 18-hole ring: holes 1–6 scored (mixed to-par), hole 7 current, 8–18 not yet played.
