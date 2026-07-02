@@ -96,29 +96,33 @@ public struct WatchTargetView: View {
     public init(carry: Int, clear: Int) { self.carry = carry; self.clear = clear }
     public var body: some View {
         Canvas { ctx, size in
-            // centre + zoom on the real greenside bunker (detected sand ~x460–500, y260–305) so the actual
-            // sand fills the frame.
-            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: CGPoint(x: 458, y: 290),
-                                                centerCanvas: CGPoint(x: size.width * 0.48, y: size.height * 0.52), scale: 1.85)
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.10)))
             let amber = Color(red: 0.96, green: 0.62, blue: 0.16), green = Color(red: 0.30, green: 0.86, blue: 0.46)
-            // DOT on the real sand (amber) + DOT on the real putting-green (green target) + connector to
-            // side numbers. Both land on actual rendered features — marking, not fabricating.
-            let hazardPt = t(CGPoint(x: 495, y: 301)), greenPt = t(CGPoint(x: 440, y: 284))
-            let lx = size.width - 20
-            for (p, val, col) in [(hazardPt, carry, amber), (greenPt, clear, green)] {
-                ctx.stroke(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(col), style: StrokeStyle(lineWidth: 2))
-                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)), with: .color(col))
-                ctx.stroke(Path { $0.move(to: CGPoint(x: p.x + 7, y: p.y)); $0.addLine(to: CGPoint(x: lx - 12, y: p.y)) }, with: .color(col.opacity(0.7)), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
-                ctx.draw(ctx.resolve(Text("\(val)").font(.system(size: 16, weight: .bold, design: .rounded)).foregroundColor(.white)), at: CGPoint(x: lx, y: p.y))
+            // Centre between the real sand bunker and the real green so both fit.
+            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: CGPoint(x: 467, y: 291),
+                                                centerCanvas: CGPoint(x: size.width * 0.5, y: size.height * 0.52), scale: 1.9)
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.08)))
+            // Number in an OPAQUE pill (outdoor contrast — both reviewers' #1 fix) placed AT its marker, so
+            // the eye reads number+target as one thing (no side numbers, no leader lines, no legend).
+            func pill(_ p: CGPoint, _ s: String, _ c: Color, big: Bool) {
+                let fs: CGFloat = big ? 18 : 15, w: CGFloat = big ? 42 : 36, h: CGFloat = big ? 24 : 21
+                ctx.fill(Path(roundedRect: CGRect(x: p.x - w / 2, y: p.y - h / 2, width: w, height: h), cornerRadius: h / 2), with: .color(.black.opacity(0.72)))
+                ctx.draw(ctx.resolve(Text(s).font(.system(size: fs, weight: .bold, design: .rounded)).foregroundColor(c)), at: p)
             }
-            // title scrim + legend + ∧∨
-            ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 54, y: 6, width: 108, height: 18), cornerRadius: 9), with: .color(.black.opacity(0.55)))
-            ctx.draw(ctx.resolve(Text("障碍 · 沙坑/果岭(码)").font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: 15))
-            ctx.draw(ctx.resolve(Text("● 碳沙坑").font(.system(size: 9, weight: .semibold)).foregroundColor(amber)), at: CGPoint(x: 34, y: size.height - 32))
-            ctx.draw(ctx.resolve(Text("● 到果岭").font(.system(size: 9, weight: .semibold)).foregroundColor(green)), at: CGPoint(x: 34, y: size.height - 19))
-            ctx.draw(ctx.resolve(Text("∧").font(.system(size: 17, weight: .bold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2 - 16, y: size.height - 14))
-            ctx.draw(ctx.resolve(Text("∨").font(.system(size: 17, weight: .bold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2 + 16, y: size.height - 14))
+            func dot(_ p: CGPoint, _ c: Color, _ r: CGFloat) {
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)), with: .color(c))
+                ctx.stroke(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)), with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
+            }
+            // amber HAZARD (primary) — solid dot on the real sand + carry number in a pill just below it.
+            let hz = t(CGPoint(x: 495, y: 301))
+            dot(hz, amber, 5)
+            pill(CGPoint(x: hz.x, y: hz.y + 19), "\(carry)", amber, big: true)
+            // green TARGET (secondary) — dot on the real green + distance pill just above it.
+            let gp = t(CGPoint(x: 440, y: 284))
+            dot(gp, green, 4.5)
+            pill(CGPoint(x: gp.x, y: gp.y - 17), "\(clear)", green, big: false)
+            // title pill (no legend, no leader lines, no ∧∨ carets — crown/swipe cycles hazards)
+            ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 60, y: 6, width: 120, height: 18), cornerRadius: 9), with: .color(.black.opacity(0.6)))
+            ctx.draw(ctx.resolve(Text("障碍 · 碳沙坑 / 到果岭").font(.system(size: 9.5, weight: .semibold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: 15))
         }
         .flow2Screen()
     }

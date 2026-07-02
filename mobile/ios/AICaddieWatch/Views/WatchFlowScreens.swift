@@ -176,14 +176,14 @@ public struct WatchHoleGridView: View {
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("选择球洞 · 转冠滚动").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                // 4-col grid with BIGGER cells; 18 holes overflow → crown-scrolls (review: don't lay a wall of
-                // tiny targets flat — combine scroll + tap).
-                VStack(spacing: 8) {
-                    ForEach(0..<5, id: \.self) { row in
-                        HStack(spacing: 8) {
-                            ForEach(0..<4, id: \.self) { c in
-                                let idx = row * 4 + c
-                                if idx < holes.count { cell(holes[idx]) } else { Color.clear.frame(width: 36, height: 36) }
+                // 3-col grid, 52pt cells (≥ 44pt HIG target — AI review: 4-col 36pt still too small); 18 holes
+                // overflow → crown-scrolls. Bigger targets + scroll beats a flat wall of tiny circles.
+                VStack(spacing: 9) {
+                    ForEach(0..<6, id: \.self) { row in
+                        HStack(spacing: 10) {
+                            ForEach(0..<3, id: \.self) { c in
+                                let idx = row * 3 + c
+                                if idx < holes.count { cell(holes[idx]) } else { Color.clear.frame(width: 52, height: 52) }
                             }
                         }
                     }
@@ -206,11 +206,11 @@ public struct WatchHoleGridView: View {
     }
     private func cell(_ h: (hole: Int, toPar: Int?, current: Bool)) -> some View {
         Text("\(h.hole)")
-            .font(.system(size: 15, weight: .bold)).monospacedDigit()
+            .font(.system(size: 19, weight: .bold)).monospacedDigit()
             .foregroundStyle(h.current ? .black : .white)
-            .frame(width: 36, height: 36)
+            .frame(width: 52, height: 52)
             .background(Circle().fill(cellFill(h)))
-            .overlay(Circle().stroke(h.current ? Flow.green : Color.clear, lineWidth: 2.5))
+            .overlay(Circle().stroke(h.current ? Flow.green : Color.clear, lineWidth: 3))
     }
     private func cellFill(_ h: (hole: Int, toPar: Int?, current: Bool)) -> Color {
         if h.current { return Flow.green }

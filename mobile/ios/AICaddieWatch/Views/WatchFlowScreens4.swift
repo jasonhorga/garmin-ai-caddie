@@ -135,7 +135,8 @@ public struct WatchCaddieDetailView: View {
             let yr = CGRect(x: you.x - 4, y: you.y - 4, width: 8, height: 8)
             ctx.fill(Path(ellipseIn: yr), with: .color(F4.blue))
             ctx.stroke(Path(ellipseIn: yr), with: .color(.white), style: StrokeStyle(lineWidth: 1.3))
-            // labels: club combo (top over map), 平均杆数 (left), on-green %, ‹ › arrows
+            // labels: club combo (top over map, in an opaque pill for outdoor contrast), 平均杆数 (left), on-green %
+            ctx.fill(Path(roundedRect: CGRect(x: mapCX - 48, y: 5, width: 96, height: 21), cornerRadius: 10.5), with: .color(.black.opacity(0.66)))
             ctx.draw(ctx.resolve(Text(club).font(.system(size: 14, weight: .bold)).foregroundColor(.white)), at: CGPoint(x: mapCX, y: 16))
             ctx.draw(ctx.resolve(Text("平均杆数").font(.system(size: 11)).foregroundColor(Color(white: 0.8))), at: CGPoint(x: size.width * 0.20, y: size.height * 0.36))
             ctx.draw(ctx.resolve(Text(String(format: "%.1f", expStrokes)).font(.system(size: 36, weight: .bold, design: .rounded)).foregroundColor(.white)), at: CGPoint(x: size.width * 0.20, y: size.height * 0.52))
