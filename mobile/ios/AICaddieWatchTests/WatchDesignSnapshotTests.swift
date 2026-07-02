@@ -300,12 +300,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testRenderFlowBigNumbers() throws {
-        let view = WatchBigNumbersView(front: 273, center: 287, back: 300, lastShot: 200)
-        try render(view, named: "flow-big")
-    }
-
-    @MainActor
     func testRenderScoreEntry() throws {
         try render(WatchScoreEntryView(hole: 4, par: 5, strokes: 6, putts: 2), named: "flow-score-entry")
     }

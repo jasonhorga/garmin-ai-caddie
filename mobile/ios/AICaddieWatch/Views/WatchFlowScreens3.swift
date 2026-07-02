@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// round-14 (Watch standalone, DESIGN REVIEW): the LAST batch — PinPointer (compass to the pin when the
-/// green is blind) and the Big-Numbers mode (F/C/B green in huge type, no map). Same black / HIG / green
-/// language; Canvas + Text only (ImageRenderer-safe).
+/// round-14 (Watch standalone, DESIGN REVIEW): PinPointer — a compass arrow FROM the centre to the pin when
+/// the green is blind. Same black / HIG / green language; Canvas + Text only (ImageRenderer-safe).
+/// (The Big-Numbers glance was cut per user — redundant with the hole view's 后/中/前.)
 private enum Flow3 {
     static let green = Color(red: 0.30, green: 0.86, blue: 0.46)
     static let yellow = Color(red: 1.0, green: 0.83, blue: 0.28)
@@ -63,34 +63,5 @@ public struct WatchPinPointerView: View {
             .padding(.top, 12)
         }
         .flow3Screen()
-    }
-}
-
-// MARK: - 大字模式 (Big Numbers: F/C/B green, no map)
-public struct WatchBigNumbersView: View {
-    public let front: Int
-    public let center: Int
-    public let back: Int
-    public let lastShot: Int
-    public init(front: Int, center: Int, back: Int, lastShot: Int = 0) { self.front = front; self.center = center; self.back = back; self.lastShot = lastShot }
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("到果岭速览 · 码").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-            Spacer(minLength: 2)
-            row("后", back, Color(red: 0.72, green: 0.74, blue: 0.78), 30)
-            row("中", center, .white, 54)
-            row("前", front, Flow3.blue, 30)
-            Spacer(minLength: 2)
-            Text(lastShot > 0 ? "上一杆 \(lastShot) 码 · 抬腕即见" : "抬腕即见 · 免看地图").font(.system(size: 8.5)).foregroundStyle(.white.opacity(0.55))
-        }
-        .padding(.horizontal, 18).padding(.vertical, 18)
-        .frame(width: 198, height: 242, alignment: .leading)
-        .background(Color.black)
-    }
-    private func row(_ l: String, _ v: Int, _ c: Color, _ s: CGFloat) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(l).font(.system(size: s * 0.4)).foregroundStyle(.secondary)
-            Text("\(v)").font(.system(size: s, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(c)
-        }
     }
 }
