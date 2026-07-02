@@ -321,7 +321,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderCaddieDetail() throws {
-        try render(WatchCaddieDetailView(club: "3木 · PW", expStrokes: 2.8, onGreenPct: 64), named: "flow-caddie-detail")
+        try render(WatchCaddieDetailView(club: "3木 → PW", expStrokes: 2.8, onGreenPct: 64), named: "flow-caddie-detail")
     }
 
     @MainActor
