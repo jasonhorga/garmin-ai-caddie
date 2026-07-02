@@ -60,29 +60,25 @@ public struct WatchGreenPreviewView: View {
                                                 centerCanvas: CGPoint(x: size.width / 2, y: size.height * 0.54), scale: 2.4)
             ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.10)))
             let pin = t(WatchHoleMapSample.pinPx)
-            // crosshair centred on the pin
-            ctx.stroke(Path { $0.move(to: CGPoint(x: pin.x - 30, y: pin.y)); $0.addLine(to: CGPoint(x: pin.x + 30, y: pin.y)) },
-                       with: .color(.white.opacity(0.6)), style: StrokeStyle(lineWidth: 1))
-            ctx.stroke(Path { $0.move(to: CGPoint(x: pin.x, y: pin.y - 30)); $0.addLine(to: CGPoint(x: pin.x, y: pin.y + 30)) },
-                       with: .color(.white.opacity(0.6)), style: StrokeStyle(lineWidth: 1))
-            // Draggable pin: a BIG dashed grab RING (movable, easy target) with the flag inside — per review
-            // "大圈套旗、可拖". The dashed ring = draggable.
-            let grabR: CGFloat = 23
-            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - grabR, y: pin.y - grabR, width: grabR * 2, height: grabR * 2)), with: .color(Flow2.green.opacity(0.14)))
-            ctx.stroke(Path(ellipseIn: CGRect(x: pin.x - grabR, y: pin.y - grabR, width: grabR * 2, height: grabR * 2)), with: .color(Flow2.green), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
-            // flagpole + flag (bigger)
-            ctx.stroke(Path { $0.move(to: pin); $0.addLine(to: CGPoint(x: pin.x, y: pin.y - 30)) }, with: .color(.white), style: StrokeStyle(lineWidth: 2))
-            var flag = Path(); flag.move(to: CGPoint(x: pin.x, y: pin.y - 30)); flag.addLine(to: CGPoint(x: pin.x + 16, y: pin.y - 25)); flag.addLine(to: CGPoint(x: pin.x, y: pin.y - 20)); flag.closeSubpath()
+            // FIXED targeting RETICLE at screen centre: the pin lands here — you PAN THE MAP under it
+            // (Gemini/HIG, user-chosen: dragging the pin itself would occlude the target). SOLID ring = fixed.
+            let R: CGFloat = 24
+            ctx.stroke(Path { $0.move(to: CGPoint(x: pin.x - R - 9, y: pin.y)); $0.addLine(to: CGPoint(x: pin.x + R + 9, y: pin.y)) }, with: .color(.white.opacity(0.7)), style: StrokeStyle(lineWidth: 1))
+            ctx.stroke(Path { $0.move(to: CGPoint(x: pin.x, y: pin.y - R - 9)); $0.addLine(to: CGPoint(x: pin.x, y: pin.y + R + 9)) }, with: .color(.white.opacity(0.7)), style: StrokeStyle(lineWidth: 1))
+            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - R, y: pin.y - R, width: R * 2, height: R * 2)), with: .color(.black.opacity(0.10)))
+            ctx.stroke(Path(ellipseIn: CGRect(x: pin.x - R, y: pin.y - R, width: R * 2, height: R * 2)), with: .color(.white), style: StrokeStyle(lineWidth: 2.5))
+            // flag at the reticle centre (the pin preview)
+            ctx.stroke(Path { $0.move(to: pin); $0.addLine(to: CGPoint(x: pin.x, y: pin.y - 19)) }, with: .color(.white), style: StrokeStyle(lineWidth: 2))
+            var flag = Path(); flag.move(to: CGPoint(x: pin.x, y: pin.y - 19)); flag.addLine(to: CGPoint(x: pin.x + 13, y: pin.y - 15)); flag.addLine(to: CGPoint(x: pin.x, y: pin.y - 11)); flag.closeSubpath()
             ctx.fill(flag, with: .color(Flow2.red))
-            // pin base
-            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - 4, y: pin.y - 4, width: 8, height: 8)), with: .color(.white))
-            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - 2, y: pin.y - 2, width: 4, height: 4)), with: .color(Flow2.red))
+            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - 3, y: pin.y - 3, width: 6, height: 6)), with: .color(.white))
+            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - 1.5, y: pin.y - 1.5, width: 3, height: 3)), with: .color(Flow2.red))
             // dark scrims so text survives on the bright green (both reviewers flagged unreadable text)
             ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 46, y: 10, width: 92, height: 46), cornerRadius: 12), with: .color(.black.opacity(0.5)))
             ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 72, y: size.height - 28, width: 144, height: 22), cornerRadius: 11), with: .color(.black.opacity(0.5)))
             ctx.draw(ctx.resolve(Text("\(center)").font(.system(size: 27, weight: .bold, design: .rounded)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: 27))
             ctx.draw(ctx.resolve(Text("码 · 到旗桿").font(.system(size: 9)).foregroundColor(Color(white: 0.82))), at: CGPoint(x: size.width / 2, y: 47))
-            ctx.draw(ctx.resolve(Text("预览果岭 · 拖动旗桿").font(.system(size: 9.5, weight: .semibold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: size.height - 16))
+            ctx.draw(ctx.resolve(Text("拖动地图 · 十字对准旗桿").font(.system(size: 9, weight: .semibold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: size.height - 16))
         }
         .flow2Screen()
     }
