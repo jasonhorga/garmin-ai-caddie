@@ -101,3 +101,22 @@
 - **执行方式**(用户授权):多轮自驱、不打扰;每阶段独立 PR → CI 绿 → 合并 → 部署/TestFlight;仅在真正的产品分叉 / 需真机 / 不可逆时才找用户。
 
 **最欠定义(进各阶段前要先定)**:冲突策略、三端身份/认证、谁能开局、上果岭判定、换洞判定、圆模型数据迁移、最终 round_state 怎么落成历史。
+
+---
+
+## § 实现状态盘点(2026-07-02,对 `origin/integration/v2` 逐项核代码;非 spec 自述)
+
+**正确性修复(组1 / §3)**
+- 1.1 复盘完整 18 洞 — **✅ DONE**(`ai_caddie/history/history_round_detail.py` `_scorecard_length` 改用 holePars 宽度为权威、未打洞留 `missing_score`)。
+- 1.2 一杆一距离 — **⚠️ PARTIAL**:在线 `/decision` + `_tee_candidate_routes._carry`(`caddie/mobile_live.py`)已修=median;**但离线 `_offline_caddie_options` 仍 `attack=max(median,p90)`,par4/5 开球 stock==attack==driver → 离线仍可能同杆两距离(残留 bug)**。
+- 1.3 选杆全下拉 + 默认推荐 + 选完即记 — **✅ DONE**(`CurrentHoleView.fullBag()` + selectClub 记录)。
+
+**阶段2 同步骨架 — ✅ DONE(机制),但非实时**:权威序列 `append_event_batch`(serverSequence+去重)+ 服务端物化 `build_round_state`(折叠日志 last-write-wins + `conflicts[]`)+ `replay_event_log`/`ack`;iOS 既发事件**也重放他端事件**(`AICaddieApp.fetchEventReplay`→合并→重投影)。**拉取在前台/手动 sync,非持续轮询 → 最终一致(刷新即见),非并发实时**;未对活跃第二写端端到端验证。
+
+**阶段4 Web 实时看/改进行中球局 — ❌ NOT-DONE**:`LivePage` replay 拉的是**已完成**局;`RecordRoundPage` 是**新记**一局;Web 不消费 `round_state`/`replay_event_log`。**真·三端实时同步在 Web 端不可见 = 最大缺口。**
+
+**组6 视觉/统计**:6.1 2D 记分大图 — **⚠️ PARTIAL**(iOS `RoundShotMapView` 复盘落点图已做 35fe424/a5fb943;缺 Garmin 实时大图 pan/zoom/移动目标测距 + **Web 无落点图**)。6.2 统计 GolfLive 化 — **⚠️ PARTIAL**(iOS `StatsView` 有趋势/得分构成/分数段/下钻;缺 点阵分布图 / 左中右开球雷达 / 逐洞色条)。6.3 历史 GolfLive 化+去工程味 — **⚠️ PARTIAL**(去工程味 #103-105 已发,球场归组复盘有;缺列表内逐洞色条 + 年/季归档)。
+
+**组2 Apple Watch 独立 — ⚠️ PARTIAL**:已成独立**手动**记分器(`WatchStartView`→`startPracticeRound`,离手机可记、联网自动同步;含记分/积分卡/选洞/菜单/结束)。缺:表上选球场/Tee/九洞(真实球场局仍从手机 seed)、AutoShot。**注:round-14 手表 UI 重做(PR #218,本目录 apple-watch spec)是独立设计分支,尚未合并、不计入本盘点。**
+
+**S70 手册核对**(`approachs70_OM_ZH-CN.pdf`):手册**验证**了 round-14 手表重做的关键点 —— **「自由点测距:点一下或拖曳至您的目标点」= 我们的「选点测距」屏**;**「距果岭前中后沿距离」= 我们给果岭/障碍加的前沿/后沿**;大字模式手册有、我们建后按用户砍。手册的「app」= **Garmin Golf App**(上传计分卡、编辑分数、差点、球道下载、与 Garmin Connect 同步数据)——对应我们 iOS/Web 的同步+编辑+统计,即上面组4/6/9。

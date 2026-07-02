@@ -1,8 +1,9 @@
 # Apple Watch 高尔夫体验 — 设计 Spec (2026-06-22)
 
-> 设计稿(真数据 + 可交互意图):`watch-design8` served at the funnel.
-> 对标 Garmin Approach S70 的打球范式 + 我们的 **AI 球童**差异点。设计阶段产物,尚未落地代码。
-> 关联:`r13-product-redesign` (memory)、`auto-shot-tracking-vision` (memory)。
+> 设计稿(真数据 + 可交互意图):完整流程 served at the funnel `https://caddie.taile36706.ts.net/flow_all.png`。
+> 对标 Garmin Approach S70 的打球范式 + 我们的 **AI 球童**差异点。
+> **状态(2026-07-02):设计已落地为 ~20 屏 SwiftUI 设计快照**(真实球洞几何 + macOS CI `ImageRenderer` 验证),branch `superpowers/watch-holeview-redesign`(PR #218)。**design-only —— 尚未接入 app 真导航 + 实时数据**;下一步 = **集成 → TestFlight**。逐屏与整改细节见文末「§ 实现状态」。
+> 关联:`watch-golf-redesign`、`r13-product-redesign`、`auto-shot-tracking-vision` (memory)。
 
 ## 定位
 Apple Watch = 打球当下的腕上设备:**地图为底、信息悬浮、流程化**。核心差异 = AI 球童(推荐杆 + 打法 + 预期杆数,**不给成功率**)。单位**全用码**。深色。
@@ -44,4 +45,22 @@ Apple Watch = 打球当下的腕上设备:**地图为底、信息悬浮、流程
 - 全程走 native-mobile CI + design-snapshot 自验(见 `auto-shot-tracking-vision` memory 的快照流水线)。
 
 ## 去掉(明确不做 / 暂不做)
-成功率(无引擎数据,需校准)· 风(场上难估)· 果岭坡度等高线(只留 ±码坡度补偿)。
+成功率(无引擎数据,需校准)· 风(场上难估)· 果岭坡度等高线(只留 ±码坡度补偿)· **大字距离速览页(2026-07-02 用户定:与洞视图 后/中/前 重复,砍)**。
+
+---
+
+## § 实现状态(2026-06-30 ~ 07-02:design-only,已落地为 SwiftUI 快照)
+
+**已建:~20 屏 SwiftUI 设计快照**,branch `superpowers/watch-holeview-redesign`(PR #218)。真实球洞几何(后端 `hole_render` 烘焙图 gid31669 h4,base64 baked 进 `WatchHoleMapSampleImage.swift`;`WatchMapDraw.drawInto` 把图画进任意 `Canvas` 并返回 img-px→canvas 变换供叠加)。**每屏经 macOS CI `ImageRenderer` 渲成 PNG(`WatchDesignSnapshotTests`)→ 采集 `watch-snapshots` artifact → 拼图 served 到 funnel** 逐屏肉眼核对。**不需要真机/TestFlight 就能验 UI 保真度**。
+
+**屏幕(对应上文清单,均已出图验证)**:选球场 / 打几洞(9·18)/ 哪个9 / 发球台 / 球局主页(hub)/ 高球菜单 / **洞视图**(左数据列+右真图,后中前果岭·球童条·距上一杆·18洞环)/ Zoom(表冠缩放)/ 球童打法(左右滑切打法)/ **果岭**(定心十字准星+拖地图,前沿/中/后沿)/ **障碍**(沿打球线求交点,进/过)/ **选点测距**(定心拖地图:你→点+点→果岭)/ PinPointer / 记分(杆·推·球道·罚)/ 积分卡(转冠滚动)/ 选洞(3列≥44pt 大格转冠滚)/ 球杆数据 / 本洞击球 / 结束球局。
+
+**用户驱动的关键整改(2026-07-02)**:
+- **地图提亮加饱和**(PIL 对烘焙图 Color×1.42/Bright×1.12/Contrast×1.16,不动后端)→ 鲜绿高对比,对齐 Garmin。
+- **障碍/果岭 = 前沿+后沿距离,不是中心**:障碍从**当前位置沿瞄准方向画射线、与真沙坑求交**得 进(会进)/过(能过)两点(射线逐像素扫真沙像素定位;排除 cart-path 米色污染);果岭补 前沿/后沿(真 front/center/back=273/287/300)。
+- **果岭/测距 = 定心十字准星 + 拖地图**(旗/准星固定屏幕中心,拖地图对准;避免手指遮挡,Gemini/HIG,用户定),不是拖旗桿。
+- **交互按 watchOS**:表冠缩放/滚动(右缘轨道指示,非 +/−)· 左右滑翻屏(分页圆点,非小箭头)· 列表转冠滚动(不平铺)。
+- **距上一杆**距离补进洞视图。**PinPointer 箭头从圆心发出 + 调大**。**地图上所有数字套黑底不透明药丸**(户外对比度)。**大字速览页砍掉**。
+- **双 AI 复审(GPT-5.5 xhigh + Gemini 3.1-pro,homeserver)** 收敛驱动:药丸对比度 / 障碍可读 / 触控≥44pt / 环只在洞视图。
+
+**未做 = 下一步「集成」**:接进 app 真导航 + 实时 `WatchRoundState`/后端数据;传感器活(AutoShot 挥杆检测 / GPS 测距 / HealthKit workout)—— **快照测不了传感器/GPS,须 TestFlight + 球场实测**(见 §8.2)。集成后按上文「落地排期」推进。
