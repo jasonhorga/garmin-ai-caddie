@@ -512,5 +512,28 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertTrue(any(row["kind"] == "route_geometry" for row in decision["evidence"]))
 
 
+class OfflineCaddieOptionDistanceTests(unittest.TestCase):
+    """round-12 (offline parity with online): the SAME club must never emit two distances."""
+
+    def test_same_tee_club_shows_one_distance_not_median_and_p90(self) -> None:
+        from ai_caddie.caddie.mobile_live import _offline_caddie_options
+
+        # par-4 tee, no green target → _shot_option_clubs picks stock==attack==driver (longest).
+        profiles = [
+            {"clubName": "1D", "sampleSize": 80, "median_m": 245.0, "p10_m": 215.0, "p90_m": 268.0},
+            {"clubName": "3W", "sampleSize": 45, "median_m": 218.0, "p10_m": 195.0, "p90_m": 236.0},
+        ]
+        options = _offline_caddie_options(profiles, source_ref="seed:test", hazards=[], par=4, target_m=0.0)
+        by_id = {opt["id"]: opt for opt in options}
+        self.assertEqual(by_id["stock"]["clubName"], "1D")
+        self.assertEqual(by_id["attack"]["clubName"], "1D")
+        # SAME club → ONE carry (its median). The old bug set attack = max(median, p90) = 268.
+        self.assertEqual(by_id["attack"]["carryM"], 245.0)
+        self.assertEqual(by_id["stock"]["carryM"], by_id["attack"]["carryM"])
+        self.assertNotEqual(by_id["attack"]["carryM"], 268.0)
+        # attack still differs — by risk, not distance.
+        self.assertGreater(by_id["attack"]["riskScore"], by_id["stock"]["riskScore"])
+
+
 if __name__ == "__main__":
     unittest.main()
