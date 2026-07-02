@@ -257,7 +257,9 @@ public struct WatchHoleMapView: View {
         // Mask the data-column region to pure black.
         context.fill(Path(CGRect(x: 0, y: 0, width: mapLeft, height: size.height)), with: .color(.black))
 
-        drawRing(&context, size: size)
+        // Scoring ring ONLY on the outermost hole map — not in the zoomed/focused state (matches Garmin:
+        // the on-screen score indicator lives on the hole-info view, sub-screens are full content).
+        if !fullMap { drawRing(&context, size: size) }
     }
 
     /// 18 scoring bars along the rounded-rect perimeter, 12→9 o'clock; each a short SLICE of the perimeter

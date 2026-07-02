@@ -278,7 +278,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderFlowTarget() throws {
-        let view = WatchTargetView(frontCarry: 205, backCarry: 232)
+        let view = WatchTargetView(carry: 96, clear: 110)
         try render(view, named: "flow-target")
     }
 
