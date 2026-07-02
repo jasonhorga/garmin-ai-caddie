@@ -82,39 +82,35 @@ public struct WatchGreenPreviewView: View {
     }
 }
 
-// MARK: - 障碍 (REAL bunker highlighted in AMBER + carry/clear tethered to its edges + ∧∨ to cycle)
+// MARK: - 障碍 (centre on the REAL rendered greenside bunker; tether carry/clear DOTS to the actual sand —
+// no drawn hazard shape. Bunker px from detecting the tan sand pixels in the render.)
 public struct WatchTargetView: View {
-    public let carry: Int    // to reach the near edge of the hazard
+    public let carry: Int    // to reach the near edge of the sand
     public let clear: Int    // to clear the far edge
     public init(carry: Int, clear: Int) { self.carry = carry; self.clear = clear }
     public var body: some View {
         Canvas { ctx, size in
-            // centre on the greenside bunker region so the hazard is actually in frame.
-            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: CGPoint(x: 390, y: 320),
-                                                centerCanvas: CGPoint(x: size.width * 0.55, y: size.height * 0.52), scale: 1.4)
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.12)))
-            let amber = Color(red: 0.96, green: 0.62, blue: 0.16)
-            // AMBER hazard highlight over the real greenside bunker + a "沙坑" tag.
-            let b = t(CGPoint(x: 366, y: 300))
-            let hz = CGRect(x: b.x - 26, y: b.y - 16, width: 52, height: 32)
-            ctx.fill(Path(ellipseIn: hz), with: .color(amber.opacity(0.38)))
-            ctx.stroke(Path(ellipseIn: hz), with: .color(amber), style: StrokeStyle(lineWidth: 2.2))
-            ctx.draw(ctx.resolve(Text("沙坑").font(.system(size: 10, weight: .bold)).foregroundColor(.black)), at: b)
-            // TETHER carry (near edge) + clear (far edge) to the hazard with dots + connector to a label.
-            let near = CGPoint(x: b.x - 4, y: b.y + 16), far = CGPoint(x: b.x + 4, y: b.y - 16)
-            let lx = size.width - 24
-            let green = Color(red: 0.30, green: 0.86, blue: 0.46)
-            for (p, val, col) in [(near, carry, amber), (far, clear, green)] {
-                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)), with: .color(col))
-                ctx.stroke(Path { $0.move(to: p); $0.addLine(to: CGPoint(x: lx - 14, y: p.y)) }, with: .color(col.opacity(0.65)), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+            // centre + zoom on the real greenside bunker (detected sand ~x460–500, y260–305) so the actual
+            // sand fills the frame.
+            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: CGPoint(x: 458, y: 290),
+                                                centerCanvas: CGPoint(x: size.width * 0.48, y: size.height * 0.52), scale: 1.85)
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.10)))
+            let amber = Color(red: 0.96, green: 0.62, blue: 0.16), green = Color(red: 0.30, green: 0.86, blue: 0.46)
+            // DOT on the real sand (amber) + DOT on the real putting-green (green target) + connector to
+            // side numbers. Both land on actual rendered features — marking, not fabricating.
+            let hazardPt = t(CGPoint(x: 495, y: 301)), greenPt = t(CGPoint(x: 440, y: 284))
+            let lx = size.width - 20
+            for (p, val, col) in [(hazardPt, carry, amber), (greenPt, clear, green)] {
+                ctx.stroke(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(col), style: StrokeStyle(lineWidth: 2))
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)), with: .color(col))
+                ctx.stroke(Path { $0.move(to: CGPoint(x: p.x + 7, y: p.y)); $0.addLine(to: CGPoint(x: lx - 12, y: p.y)) }, with: .color(col.opacity(0.7)), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
                 ctx.draw(ctx.resolve(Text("\(val)").font(.system(size: 16, weight: .bold, design: .rounded)).foregroundColor(.white)), at: CGPoint(x: lx, y: p.y))
             }
-            // legend: amber=碳(reach) green=越(clear)
-            ctx.draw(ctx.resolve(Text("碳 沙坑").font(.system(size: 9, weight: .semibold)).foregroundColor(amber)), at: CGPoint(x: 34, y: size.height - 34))
-            ctx.draw(ctx.resolve(Text("越 沙坑").font(.system(size: 9, weight: .semibold)).foregroundColor(green)), at: CGPoint(x: 34, y: size.height - 20))
-            // title with a dark scrim so it survives on the map
-            ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 52, y: 6, width: 104, height: 18), cornerRadius: 9), with: .color(.black.opacity(0.5)))
-            ctx.draw(ctx.resolve(Text("障碍 · 到沙坑").font(.system(size: 10.5, weight: .semibold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: 15))
+            // title scrim + legend + ∧∨
+            ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 54, y: 6, width: 108, height: 18), cornerRadius: 9), with: .color(.black.opacity(0.55)))
+            ctx.draw(ctx.resolve(Text("障碍 · 沙坑/果岭(码)").font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: 15))
+            ctx.draw(ctx.resolve(Text("● 碳沙坑").font(.system(size: 9, weight: .semibold)).foregroundColor(amber)), at: CGPoint(x: 34, y: size.height - 32))
+            ctx.draw(ctx.resolve(Text("● 到果岭").font(.system(size: 9, weight: .semibold)).foregroundColor(green)), at: CGPoint(x: 34, y: size.height - 19))
             ctx.draw(ctx.resolve(Text("∧").font(.system(size: 17, weight: .bold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2 - 16, y: size.height - 14))
             ctx.draw(ctx.resolve(Text("∨").font(.system(size: 17, weight: .bold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2 + 16, y: size.height - 14))
         }
