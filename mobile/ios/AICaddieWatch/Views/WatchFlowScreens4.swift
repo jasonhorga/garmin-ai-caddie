@@ -105,44 +105,45 @@ public struct WatchEndRoundView: View {
     }
 }
 
-// MARK: - 击球建议 detail (club, alternatives, expected strokes, on-green %)
+// MARK: - 击球建议 (Virtual Caddie) on the REAL hole map — club combo + avg strokes + dispersion box + line
 public struct WatchCaddieDetailView: View {
-    public let club: String, note: String
-    public let expStrokes: Double, onGreenPct: Int
-    public init(club: String, note: String, expStrokes: Double, onGreenPct: Int) {
-        self.club = club; self.note = note; self.expStrokes = expStrokes; self.onGreenPct = onGreenPct
+    public let club: String        // combo, e.g. "3木 · PW"
+    public let expStrokes: Double
+    public let onGreenPct: Int
+    public init(club: String, expStrokes: Double, onGreenPct: Int) {
+        self.club = club; self.expStrokes = expStrokes; self.onGreenPct = onGreenPct
     }
     public var body: some View {
-        VStack(spacing: 5) {
-            Text("球童建议").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                Text("‹").font(.system(size: 22, weight: .bold)).foregroundStyle(.white.opacity(0.6))
-                Text(club).font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
-                Text("›").font(.system(size: 22, weight: .bold)).foregroundStyle(.white.opacity(0.6))
-            }
-            Text(note).font(.system(size: 10, weight: .medium)).foregroundStyle(F4.green)
-            HStack(spacing: 18) {
-                col2("预期杆数", String(format: "%.1f", expStrokes), F4.yellow)
-                col2("上果岭", "\(onGreenPct)%", F4.green)
-            }
-            .padding(.top, 2)
-            // dispersion box mini
-            ZStack {
-                RoundedRectangle(cornerRadius: 8).stroke(F4.green.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    .frame(width: 84, height: 40)
-                Circle().fill(F4.green).frame(width: 7, height: 7)
-            }
-            .padding(.top, 2)
-            Text("落点分布(基于你的历史)").font(.system(size: 8.5)).foregroundStyle(.secondary)
+        Canvas { ctx, size in
+            let mapCX = size.width * 0.66
+            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: WatchHoleMapSample.youPx,
+                                                centerCanvas: CGPoint(x: mapCX, y: size.height * 0.62), scale: 0.34)
+            // mask left 40% (stats column) to black
+            ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width * 0.40, height: size.height)), with: .color(.black))
+            let you = t(WatchHoleMapSample.youPx), layup = t(WatchHoleMapSample.layupPx)
+            let green = t(WatchHoleMapSample.pinPx), apex = t(WatchHoleMapSample.apexPx)
+            // caddie line you→lay-up (solid) → green (dashed)
+            var dash = Path(); dash.move(to: layup); dash.addQuadCurve(to: green, control: t(WatchHoleMapSample.greenCtrlPx))
+            ctx.stroke(dash, with: .color(.white.opacity(0.8)), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
+            var solid = Path(); solid.move(to: you); solid.addQuadCurve(to: layup, control: apex)
+            ctx.stroke(solid, with: .color(F4.green), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+            // shot-DISPERSION BOX at the lay-up (Garmin's white rectangle)
+            let box = CGRect(x: layup.x - 17, y: layup.y - 15, width: 34, height: 30)
+            ctx.stroke(Path(roundedRect: box, cornerRadius: 3), with: .color(.white.opacity(0.85)), style: StrokeStyle(lineWidth: 1.4))
+            ctx.fill(Path(ellipseIn: CGRect(x: layup.x - 3, y: layup.y - 3, width: 6, height: 6)), with: .color(.white))
+            // you dot
+            let yr = CGRect(x: you.x - 4, y: you.y - 4, width: 8, height: 8)
+            ctx.fill(Path(ellipseIn: yr), with: .color(F4.blue))
+            ctx.stroke(Path(ellipseIn: yr), with: .color(.white), style: StrokeStyle(lineWidth: 1.3))
+            // labels: club combo (top over map), 平均杆数 (left), on-green %, ‹ › arrows
+            ctx.draw(ctx.resolve(Text(club).font(.system(size: 14, weight: .bold)).foregroundColor(.white)), at: CGPoint(x: mapCX, y: 16))
+            ctx.draw(ctx.resolve(Text("平均杆数").font(.system(size: 11)).foregroundColor(.gray)), at: CGPoint(x: size.width * 0.20, y: size.height * 0.36))
+            ctx.draw(ctx.resolve(Text(String(format: "%.1f", expStrokes)).font(.system(size: 36, weight: .bold, design: .rounded)).foregroundColor(.white)), at: CGPoint(x: size.width * 0.20, y: size.height * 0.52))
+            ctx.draw(ctx.resolve(Text("上果岭 \(onGreenPct)%").font(.system(size: 10, weight: .semibold)).foregroundColor(F4.green)), at: CGPoint(x: size.width * 0.20, y: size.height * 0.68))
+            ctx.draw(ctx.resolve(Text("‹").font(.system(size: 20, weight: .bold)).foregroundColor(.gray)), at: CGPoint(x: 9, y: size.height * 0.5))
+            ctx.draw(ctx.resolve(Text("›").font(.system(size: 20, weight: .bold)).foregroundColor(.gray)), at: CGPoint(x: size.width - 9, y: size.height * 0.5))
         }
-        .padding(.horizontal, 14).padding(.vertical, 14)
         .frame(width: 198, height: 242).background(Color.black)
-    }
-    private func col2(_ l: String, _ v: String, _ c: Color) -> some View {
-        VStack(spacing: 0) {
-            Text(v).font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(c)
-            Text(l).font(.system(size: 8.5)).foregroundStyle(.secondary)
-        }
     }
 }
 

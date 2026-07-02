@@ -1,20 +1,19 @@
 import SwiftUI
 
-/// round-14 (Watch standalone, DESIGN REVIEW): the SECOND batch of flow screens — the round-home hub, the
-/// green preview (drag pin), and the hazard/touch-target carry view — in the same black / HIG / green
-/// language. Plain `VStack`/`HStack` + `Canvas` (no `ScrollView`/`LazyVGrid`/free `Path{}.fill()`).
+/// round-14 (Watch standalone, DESIGN REVIEW): round-home hub + green-preview + hazard/target — the last
+/// two now drawn on the REAL baked hole image (`WatchHoleMapSample.drawInto`), matching the S70/S50
+/// screenshots, NOT hand-drawn shapes. Labels drawn in-Canvas via `ctx.draw(Text)`.
 private enum Flow2 {
     static let green = Color(red: 0.30, green: 0.86, blue: 0.46)
     static let yellow = Color(red: 1.0, green: 0.83, blue: 0.28)
     static let blue = Color(red: 0.35, green: 0.72, blue: 1.0)
-    static let sand = Color(red: 0.82, green: 0.71, blue: 0.46)
-    static let water = Color(red: 0.22, green: 0.55, blue: 0.95)
+    static let red = Color(red: 0.94, green: 0.28, blue: 0.24)
 }
 private extension View {
     func flow2Screen() -> some View { frame(width: 198, height: 242, alignment: .topLeading).background(Color.black) }
 }
 
-// MARK: - 球局主页 (round-home hub, after picking a course)
+// MARK: - 球局主页 (round-home hub — no map)
 public struct WatchRoundHubView: View {
     public let course: String
     public let hole: Int
@@ -26,7 +25,6 @@ public struct WatchRoundHubView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(course).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
-            // Primary: continue playing.
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("继续打球").font(.system(size: 15, weight: .bold)).foregroundStyle(.black)
@@ -38,7 +36,6 @@ public struct WatchRoundHubView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 11)
             .background(RoundedRectangle(cornerRadius: 13).fill(Flow2.green))
-            // Secondary tiles.
             HStack(spacing: 8) { tile("积分卡"); tile("选洞") }
             HStack(spacing: 8) { tile("球童"); tile("设置") }
             Spacer(minLength: 0)
@@ -53,105 +50,59 @@ public struct WatchRoundHubView: View {
     }
 }
 
-// MARK: - 预览果岭 (green preview + draggable pin, F/C/B update live)
+// MARK: - 预览果岭 (hard zoom on the REAL green + crosshair + draggable pin)
 public struct WatchGreenPreviewView: View {
-    public let front: Int
     public let center: Int
-    public let back: Int
-    public init(front: Int, center: Int, back: Int) { self.front = front; self.center = center; self.back = back }
+    public init(center: Int) { self.center = center }
     public var body: some View {
-        ZStack(alignment: .top) {
-            Canvas { ctx, size in
-                ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
-                // green shape (a blob), centred.
-                let c = CGPoint(x: size.width * 0.5, y: size.height * 0.56)
-                let blob = CGRect(x: c.x - 62, y: c.y - 48, width: 124, height: 104)
-                ctx.fill(Path(ellipseIn: blob), with: .color(Color(red: 0.24, green: 0.6, blue: 0.34)))
-                ctx.fill(Path(ellipseIn: blob.insetBy(dx: 10, dy: 10)), with: .color(Color(red: 0.30, green: 0.7, blue: 0.40)))
-                // front / back edge markers.
-                let fEdge = CGPoint(x: c.x, y: blob.maxY - 8), bEdge = CGPoint(x: c.x, y: blob.minY + 8)
-                for (p, col) in [(fEdge, Flow2.blue), (bEdge, Color(red: 0.72, green: 0.74, blue: 0.78))] {
-                    ctx.fill(Path(ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)), with: .color(col))
-                }
-                // draggable pin (centre) + flag.
-                let pin = CGPoint(x: c.x + 8, y: c.y - 4)
-                ctx.stroke(Path { $0.move(to: CGPoint(x: pin.x, y: pin.y)); $0.addLine(to: CGPoint(x: pin.x, y: pin.y - 20)) },
-                           with: .color(.white), style: StrokeStyle(lineWidth: 1.4))
-                var flag = Path(); flag.move(to: CGPoint(x: pin.x, y: pin.y - 20))
-                flag.addLine(to: CGPoint(x: pin.x + 11, y: pin.y - 16)); flag.addLine(to: CGPoint(x: pin.x, y: pin.y - 12)); flag.closeSubpath()
-                ctx.fill(flag, with: .color(Color(red: 0.94, green: 0.28, blue: 0.24)))
-                ctx.fill(Path(ellipseIn: CGRect(x: pin.x - 4, y: pin.y - 4, width: 8, height: 8)), with: .color(.white))
-                ctx.stroke(Path(ellipseIn: CGRect(x: pin.x - 6, y: pin.y - 6, width: 12, height: 12)),
-                           with: .color(Flow2.green), style: StrokeStyle(lineWidth: 1.6, dash: [2, 2]))
-            }
-            VStack(spacing: 2) {
-                Text("预览果岭 · 拖动旗桿").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                HStack(spacing: 12) {
-                    edge("后", back, Color(red: 0.72, green: 0.74, blue: 0.78))
-                    edge("中", center, .white)
-                    edge("前", front, Flow2.blue)
-                }
-            }
-            .padding(.top, 14)
+        Canvas { ctx, size in
+            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: WatchHoleMapSample.pinPx,
+                                                centerCanvas: CGPoint(x: size.width / 2, y: size.height * 0.54), scale: 2.4)
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.10)))
+            let pin = t(WatchHoleMapSample.pinPx)
+            // crosshair centred on the pin
+            ctx.stroke(Path { $0.move(to: CGPoint(x: pin.x - 30, y: pin.y)); $0.addLine(to: CGPoint(x: pin.x + 30, y: pin.y)) },
+                       with: .color(.white.opacity(0.6)), style: StrokeStyle(lineWidth: 1))
+            ctx.stroke(Path { $0.move(to: CGPoint(x: pin.x, y: pin.y - 30)); $0.addLine(to: CGPoint(x: pin.x, y: pin.y + 30)) },
+                       with: .color(.white.opacity(0.6)), style: StrokeStyle(lineWidth: 1))
+            // draggable pin (flag) — dashed ring = movable
+            ctx.stroke(Path { $0.move(to: pin); $0.addLine(to: CGPoint(x: pin.x, y: pin.y - 22)) }, with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
+            var flag = Path(); flag.move(to: CGPoint(x: pin.x, y: pin.y - 22)); flag.addLine(to: CGPoint(x: pin.x + 12, y: pin.y - 18)); flag.addLine(to: CGPoint(x: pin.x, y: pin.y - 14)); flag.closeSubpath()
+            ctx.fill(flag, with: .color(Flow2.red))
+            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - 3.5, y: pin.y - 3.5, width: 7, height: 7)), with: .color(.white))
+            ctx.stroke(Path(ellipseIn: CGRect(x: pin.x - 7, y: pin.y - 7, width: 14, height: 14)), with: .color(Flow2.green), style: StrokeStyle(lineWidth: 1.4, dash: [2, 2]))
+            // labels
+            ctx.draw(ctx.resolve(Text("\(center)").font(.system(size: 27, weight: .bold, design: .rounded)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: 26))
+            ctx.draw(ctx.resolve(Text("码 · 到旗桿").font(.system(size: 9)).foregroundColor(.gray)), at: CGPoint(x: size.width / 2, y: 46))
+            ctx.draw(ctx.resolve(Text("预览果岭 · 拖动旗桿").font(.system(size: 9.5, weight: .semibold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: size.height - 16))
         }
         .flow2Screen()
     }
-    private func edge(_ l: String, _ v: Int, _ c: Color) -> some View {
-        HStack(spacing: 3) {
-            Text(l).font(.system(size: 9)).foregroundStyle(.secondary)
-            Text("\(v)").font(.system(size: 13, weight: .bold)).monospacedDigit().foregroundStyle(c)
-        }
-    }
 }
 
-// MARK: - 目标 / 障碍碳距 (touch-target: you→target + target→green; hazard front/back carry)
+// MARK: - 障碍 / 目标 (REAL hole map + front/back carry numbers + ∧∨ to cycle)
 public struct WatchTargetView: View {
-    public let title: String
-    public let toTarget: Int      // you → target
-    public let targetToGreen: Int // target → pin
-    public let carryFront: Int    // hazard front carry
-    public let carryBack: Int     // hazard back carry
-    public init(title: String, toTarget: Int, targetToGreen: Int, carryFront: Int, carryBack: Int) {
-        self.title = title; self.toTarget = toTarget; self.targetToGreen = targetToGreen
-        self.carryFront = carryFront; self.carryBack = carryBack
-    }
+    public let frontCarry: Int
+    public let backCarry: Int
+    public init(frontCarry: Int, backCarry: Int) { self.frontCarry = frontCarry; self.backCarry = backCarry }
     public var body: some View {
-        ZStack(alignment: .topLeading) {
-            Canvas { ctx, size in
-                ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
-                let you = CGPoint(x: size.width * 0.5, y: size.height * 0.82)
-                let target = CGPoint(x: size.width * 0.5, y: size.height * 0.44)
-                let green = CGPoint(x: size.width * 0.5, y: size.height * 0.16)
-                // fairway strip.
-                ctx.fill(Path(roundedRect: CGRect(x: size.width * 0.36, y: 0, width: size.width * 0.28, height: size.height), cornerRadius: 20),
-                         with: .color(Color(red: 0.14, green: 0.30, blue: 0.18)))
-                // water hazard band (between target and green).
-                ctx.fill(Path(roundedRect: CGRect(x: size.width * 0.30, y: size.height * 0.26, width: size.width * 0.40, height: 20), cornerRadius: 6),
-                         with: .color(Flow2.water.opacity(0.85)))
-                // you → target solid, target → green dashed.
-                ctx.stroke(Path { $0.move(to: you); $0.addLine(to: target) }, with: .color(Flow2.green), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                ctx.stroke(Path { $0.move(to: target); $0.addLine(to: green) }, with: .color(.white.opacity(0.8)), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
-                // target crosshair.
-                ctx.stroke(Path(ellipseIn: CGRect(x: target.x - 9, y: target.y - 9, width: 18, height: 18)), with: .color(Flow2.green), style: StrokeStyle(lineWidth: 2))
-                ctx.stroke(Path { $0.move(to: CGPoint(x: target.x - 13, y: target.y)); $0.addLine(to: CGPoint(x: target.x + 13, y: target.y)) }, with: .color(Flow2.green), style: StrokeStyle(lineWidth: 1))
-                ctx.stroke(Path { $0.move(to: CGPoint(x: target.x, y: target.y - 13)); $0.addLine(to: CGPoint(x: target.x, y: target.y + 13)) }, with: .color(Flow2.green), style: StrokeStyle(lineWidth: 1))
-                // you + pin.
-                ctx.fill(Path(ellipseIn: CGRect(x: you.x - 5, y: you.y - 5, width: 10, height: 10)), with: .color(Flow2.blue))
-                ctx.fill(Path(ellipseIn: CGRect(x: green.x - 4, y: green.y - 4, width: 8, height: 8)), with: .color(.white))
+        Canvas { ctx, size in
+            // whole-ish hole, centred a bit above the middle so the fairway hazard region shows.
+            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: CGPoint(x: 520, y: 640),
+                                                centerCanvas: CGPoint(x: size.width / 2, y: size.height * 0.5), scale: 0.52)
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.08)))
+            // hazard front/back markers along the fairway (dashed lines across, like Garmin)
+            let frontP = t(CGPoint(x: 512, y: 700))   // near carry
+            let backP = t(CGPoint(x: 526, y: 628))    // far carry (clear it)
+            for (p, dist) in [(frontP, frontCarry), (backP, backCarry)] {
+                ctx.stroke(Path { $0.move(to: CGPoint(x: p.x - 22, y: p.y)); $0.addLine(to: CGPoint(x: p.x + 22, y: p.y)) },
+                           with: .color(.white.opacity(0.85)), style: StrokeStyle(lineWidth: 1.4, dash: [3, 3]))
+                ctx.draw(ctx.resolve(Text("\(dist)").font(.system(size: 16, weight: .bold, design: .rounded)).foregroundColor(.white)),
+                         at: CGPoint(x: p.x, y: p.y - 12))
             }
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                HStack(spacing: 3) {
-                    Text("到目标").font(.system(size: 9)).foregroundStyle(.secondary)
-                    Text("\(toTarget)").font(.system(size: 20, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(.white)
-                }
-                Text("目标→果岭 \(targetToGreen)").font(.system(size: 9.5)).foregroundStyle(.secondary)
-                HStack(spacing: 3) {
-                    RoundedRectangle(cornerRadius: 2).fill(Flow2.water).frame(width: 8, height: 8)
-                    Text("碳距 \(carryFront)–\(carryBack)").font(.system(size: 9.5, weight: .medium)).foregroundStyle(Flow2.blue)
-                }
-            }
-            .padding(.horizontal, 12).padding(.top, 12)
+            ctx.draw(ctx.resolve(Text("障碍 · 碳距(码)").font(.system(size: 10, weight: .semibold)).foregroundColor(.gray)), at: CGPoint(x: size.width / 2, y: 15))
+            ctx.draw(ctx.resolve(Text("∧").font(.system(size: 17, weight: .bold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2 - 16, y: size.height - 15))
+            ctx.draw(ctx.resolve(Text("∨").font(.system(size: 17, weight: .bold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2 + 16, y: size.height - 15))
         }
         .flow2Screen()
     }

@@ -272,13 +272,13 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderFlowGreen() throws {
-        let view = WatchGreenPreviewView(front: 273, center: 287, back: 300)
+        let view = WatchGreenPreviewView(center: 287)
         try render(view, named: "flow-green")
     }
 
     @MainActor
     func testRenderFlowTarget() throws {
-        let view = WatchTargetView(title: "触碰测距 · 障碍", toTarget: 205, targetToGreen: 100, carryFront: 215, carryBack: 232)
+        let view = WatchTargetView(frontCarry: 205, backCarry: 232)
         try render(view, named: "flow-target")
     }
 
@@ -321,7 +321,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderCaddieDetail() throws {
-        try render(WatchCaddieDetailView(club: "3号木", note: "推进 · 留100", expStrokes: 2.8, onGreenPct: 64), named: "flow-caddie-detail")
+        try render(WatchCaddieDetailView(club: "3木 · PW", expStrokes: 2.8, onGreenPct: 64), named: "flow-caddie-detail")
     }
 
     @MainActor
