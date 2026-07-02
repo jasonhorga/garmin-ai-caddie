@@ -305,6 +305,47 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderScoreEntry() throws {
+        try render(WatchScoreEntryView(hole: 4, par: 5, strokes: 6, putts: 2), named: "flow-score-entry")
+    }
+
+    @MainActor
+    func testRenderScoreFairway() throws {
+        try render(WatchScoreFairwayView(fairway: 0, penalty: 0), named: "flow-score-fw")
+    }
+
+    @MainActor
+    func testRenderEndRound() throws {
+        try render(WatchEndRoundView(course: "北京丽宫 · 山景", toPar: 5, strokes: 41, putts: 16, gir: 44, fir: 57), named: "flow-endround")
+    }
+
+    @MainActor
+    func testRenderCaddieDetail() throws {
+        try render(WatchCaddieDetailView(club: "3号木", note: "推进 · 留100", expStrokes: 2.8, onGreenPct: 64), named: "flow-caddie-detail")
+    }
+
+    @MainActor
+    func testRenderGolfMenu() throws {
+        try render(WatchGolfMenuView(items: ["查看果岭", "球童建议", "更换球洞", "记分卡", "PinPointer", "测量击球", "结束球局"]), named: "flow-menu")
+    }
+
+    @MainActor
+    func testRenderClubStats() throws {
+        try render(WatchClubStatsView(clubs: [
+            (name: "1号木", dist: 245, acc: "±18"), (name: "3号木", dist: 218, acc: "±14"),
+            (name: "5号铁", dist: 178, acc: "±11"), (name: "7号铁", dist: 152, acc: "±9"),
+            (name: "PW", dist: 118, acc: "±7"),
+        ]), named: "flow-clubs")
+    }
+
+    @MainActor
+    func testRenderShots() throws {
+        try render(WatchShotsView(shots: [
+            (n: 1, club: "开球 3号木", dist: 218), (n: 2, club: "3号木", dist: 205), (n: 3, club: "PW", dist: 96),
+        ]), named: "flow-shots")
+    }
+
+    @MainActor
     func testRenderWatchScorecard() throws {
         let view = WatchScorecardView(
             holes: [
