@@ -68,7 +68,8 @@ public struct WatchBigNumbersView: View {
     public let front: Int
     public let center: Int
     public let back: Int
-    public init(front: Int, center: Int, back: Int) { self.front = front; self.center = center; self.back = back }
+    public let lastShot: Int
+    public init(front: Int, center: Int, back: Int, lastShot: Int = 0) { self.front = front; self.center = center; self.back = back; self.lastShot = lastShot }
     public var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("到果岭速览 · 码").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
@@ -77,7 +78,7 @@ public struct WatchBigNumbersView: View {
             row("中", center, .white, 54)
             row("前", front, Flow3.blue, 30)
             Spacer(minLength: 2)
-            Text("抬腕即见 · 免看地图").font(.system(size: 8.5)).foregroundStyle(.white.opacity(0.5))
+            Text(lastShot > 0 ? "上一杆 \(lastShot) 码 · 抬腕即见" : "抬腕即见 · 免看地图").font(.system(size: 8.5)).foregroundStyle(.white.opacity(0.55))
         }
         .padding(.horizontal, 18).padding(.vertical, 18)
         .frame(width: 198, height: 242, alignment: .leading)

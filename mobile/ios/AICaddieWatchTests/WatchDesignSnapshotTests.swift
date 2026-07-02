@@ -273,7 +273,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderFlowGreen() throws {
-        let view = WatchGreenPreviewView(center: 287)
+        let view = WatchGreenPreviewView(front: 273, center: 287, back: 300)
         try render(view, named: "flow-green")
     }
 
@@ -301,7 +301,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderFlowBigNumbers() throws {
-        let view = WatchBigNumbersView(front: 273, center: 287, back: 300)
+        let view = WatchBigNumbersView(front: 273, center: 287, back: 300, lastShot: 200)
         try render(view, named: "flow-big")
     }
 

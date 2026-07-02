@@ -268,6 +268,14 @@ public struct WatchHoleMapView: View {
         // Mask the data-column region to pure black.
         context.fill(Path(CGRect(x: 0, y: 0, width: mapLeft, height: size.height)), with: .color(.black))
 
+        // Distance back to your LAST SHOT, shown at YOU (Garmin shows this as you walk to your ball). In an
+        // opaque pill for outdoor contrast.
+        if lastShot > 0 {
+            let lp = CGPoint(x: player.x, y: player.y + 21)
+            context.fill(Path(roundedRect: CGRect(x: lp.x - 35, y: lp.y - 9, width: 70, height: 18), cornerRadius: 9), with: .color(.black.opacity(0.66)))
+            context.draw(context.resolve(Text("上一杆 \(lastShot)").font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: lp)
+        }
+
         // Scoring ring ONLY on the outermost hole map — not in the zoomed/focused state (matches Garmin:
         // the on-screen score indicator lives on the hole-info view, sub-screens are full content).
         if !fullMap { drawRing(&context, size: size) }
