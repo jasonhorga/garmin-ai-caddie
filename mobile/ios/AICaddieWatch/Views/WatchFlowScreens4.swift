@@ -140,8 +140,15 @@ public struct WatchCaddieDetailView: View {
             ctx.draw(ctx.resolve(Text("平均杆数").font(.system(size: 11)).foregroundColor(Color(white: 0.8))), at: CGPoint(x: size.width * 0.20, y: size.height * 0.36))
             ctx.draw(ctx.resolve(Text(String(format: "%.1f", expStrokes)).font(.system(size: 36, weight: .bold, design: .rounded)).foregroundColor(.white)), at: CGPoint(x: size.width * 0.20, y: size.height * 0.52))
             ctx.draw(ctx.resolve(Text("上果岭 \(onGreenPct)%").font(.system(size: 10, weight: .semibold)).foregroundColor(F4.green)), at: CGPoint(x: size.width * 0.20, y: size.height * 0.68))
-            ctx.draw(ctx.resolve(Text("‹").font(.system(size: 20, weight: .bold)).foregroundColor(.gray)), at: CGPoint(x: 9, y: size.height * 0.5))
-            ctx.draw(ctx.resolve(Text("›").font(.system(size: 20, weight: .bold)).foregroundColor(.gray)), at: CGPoint(x: size.width - 9, y: size.height * 0.5))
+            // swipe L/R between club/strategy options — page DOTS + hint (replaces the tiny ‹› arrows)
+            let opts = 4, cur = 1, gap: CGFloat = 11
+            let sx = size.width * 0.5 - CGFloat(opts - 1) * gap / 2, dy = size.height - 11
+            for i in 0..<opts {
+                let rr: CGFloat = i == cur ? 3.2 : 2.2
+                ctx.fill(Path(ellipseIn: CGRect(x: sx + CGFloat(i) * gap - rr, y: dy - rr, width: rr * 2, height: rr * 2)),
+                         with: .color(i == cur ? .white : .white.opacity(0.35)))
+            }
+            ctx.draw(ctx.resolve(Text("← 滑动换打法 →").font(.system(size: 8.5, weight: .medium)).foregroundColor(.white.opacity(0.55))), at: CGPoint(x: size.width * 0.5, y: size.height - 26))
         }
         .frame(width: 198, height: 242).background(Color.black)
     }

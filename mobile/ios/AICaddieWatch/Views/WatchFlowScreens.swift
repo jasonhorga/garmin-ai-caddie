@@ -124,34 +124,46 @@ public struct WatchRoundScorecardView: View {
     public let toPar: Int
     public init(holes: [(hole: Int, par: Int, score: Int?)], toPar: Int) { self.holes = holes; self.toPar = toPar }
     public var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text("积分卡").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
-                Spacer()
-                Text(toPar == 0 ? "E" : (toPar > 0 ? "+\(toPar)" : "\(toPar)"))
-                    .font(.system(size: 16, weight: .bold, design: .rounded)).foregroundStyle(Flow.yellow)
-            }
-            .padding(.bottom, 3)
-            ForEach(0..<holes.count, id: \.self) { i in
-                let h = holes[i]
-                HStack(spacing: 0) {
-                    Text("\(h.hole)").font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                        .foregroundStyle(.white).frame(width: 20, alignment: .leading)
-                    Text("Par \(h.par)").font(.system(size: 10)).foregroundStyle(.secondary)
-                        .frame(width: 48, alignment: .leading)
-                    Spacer(minLength: 0)
-                    if let s = h.score {
-                        Text("\(s)").font(.system(size: 15, weight: .bold)).monospacedDigit()
-                            .foregroundStyle(scoreColor(s - h.par)).frame(width: 24, alignment: .trailing)
-                    } else {
-                        Text("–").font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 24, alignment: .trailing)
-                    }
+        ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text("积分卡").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+                    Spacer()
+                    Text(toPar == 0 ? "E" : (toPar > 0 ? "+\(toPar)" : "\(toPar)"))
+                        .font(.system(size: 16, weight: .bold, design: .rounded)).foregroundStyle(Flow.yellow)
                 }
-                .padding(.vertical, 1.5)
+                .padding(.bottom, 3)
+                ForEach(0..<holes.count, id: \.self) { i in
+                    let h = holes[i]
+                    HStack(spacing: 0) {
+                        Text("\(h.hole)").font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                            .foregroundStyle(.white).frame(width: 20, alignment: .leading)
+                        Text("Par \(h.par)").font(.system(size: 10)).foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .leading)
+                        Spacer(minLength: 0)
+                        if let s = h.score {
+                            Text("\(s)").font(.system(size: 15, weight: .bold)).monospacedDigit()
+                                .foregroundStyle(scoreColor(s - h.par)).frame(width: 28, alignment: .trailing)
+                        } else {
+                            Text("–").font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 28, alignment: .trailing)
+                        }
+                    }
+                    .padding(.vertical, 1.5)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .padding(.leading, 16).padding(.trailing, 12).padding(.top, 16)
+            // crown-scroll indicator on the right (all 18 holes scroll; thumb near top = front nine).
+            VStack {
+                ZStack(alignment: .top) {
+                    Capsule().fill(Color.white.opacity(0.18)).frame(width: 3, height: 150)
+                    Capsule().fill(Color.white.opacity(0.7)).frame(width: 3, height: 78)
+                }
+                .padding(.top, 44).padding(.trailing, 3)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.horizontal, 16).padding(.top, 16)
         .flowScreen()
     }
 }
@@ -161,31 +173,44 @@ public struct WatchHoleGridView: View {
     public let holes: [(hole: Int, toPar: Int?, current: Bool)]
     public init(holes: [(hole: Int, toPar: Int?, current: Bool)]) { self.holes = holes }
     public var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text("选择球洞").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-            // Manual (non-lazy) 5×4 grid, bigger cells for gloved/moving taps (review: targets too small).
-            VStack(spacing: 6) {
-                ForEach(0..<4, id: \.self) { row in
-                    HStack(spacing: 5) {
-                        ForEach(0..<5, id: \.self) { c in
-                            let idx = row * 5 + c
-                            if idx < holes.count { cell(holes[idx]) } else { Color.clear.frame(width: 30, height: 30) }
+        ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("选择球洞 · 转冠滚动").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                // 4-col grid with BIGGER cells; 18 holes overflow → crown-scrolls (review: don't lay a wall of
+                // tiny targets flat — combine scroll + tap).
+                VStack(spacing: 8) {
+                    ForEach(0..<5, id: \.self) { row in
+                        HStack(spacing: 8) {
+                            ForEach(0..<4, id: \.self) { c in
+                                let idx = row * 4 + c
+                                if idx < holes.count { cell(holes[idx]) } else { Color.clear.frame(width: 36, height: 36) }
+                            }
                         }
                     }
                 }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .padding(.leading, 14).padding(.trailing, 10).padding(.top, 16)
+            // crown-scroll indicator (thumb near top = holes 1–16 shown, 17–18 below the fold).
+            VStack {
+                ZStack(alignment: .top) {
+                    Capsule().fill(Color.white.opacity(0.18)).frame(width: 3, height: 150)
+                    Capsule().fill(Color.white.opacity(0.7)).frame(width: 3, height: 96)
+                }
+                .padding(.top, 42).padding(.trailing, 2)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.horizontal, 14).padding(.top, 18)
         .flowScreen()
     }
     private func cell(_ h: (hole: Int, toPar: Int?, current: Bool)) -> some View {
         Text("\(h.hole)")
-            .font(.system(size: 13, weight: .bold)).monospacedDigit()
+            .font(.system(size: 15, weight: .bold)).monospacedDigit()
             .foregroundStyle(h.current ? .black : .white)
-            .frame(width: 30, height: 30)
+            .frame(width: 36, height: 36)
             .background(Circle().fill(cellFill(h)))
-            .overlay(Circle().stroke(h.current ? Flow.green : Color.clear, lineWidth: 2))
+            .overlay(Circle().stroke(h.current ? Flow.green : Color.clear, lineWidth: 2.5))
     }
     private func cellFill(_ h: (hole: Int, toPar: Int?, current: Bool)) -> Color {
         if h.current { return Flow.green }

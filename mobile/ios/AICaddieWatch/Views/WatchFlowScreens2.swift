@@ -65,12 +65,18 @@ public struct WatchGreenPreviewView: View {
                        with: .color(.white.opacity(0.6)), style: StrokeStyle(lineWidth: 1))
             ctx.stroke(Path { $0.move(to: CGPoint(x: pin.x, y: pin.y - 30)); $0.addLine(to: CGPoint(x: pin.x, y: pin.y + 30)) },
                        with: .color(.white.opacity(0.6)), style: StrokeStyle(lineWidth: 1))
-            // draggable pin (flag) — dashed ring = movable
-            ctx.stroke(Path { $0.move(to: pin); $0.addLine(to: CGPoint(x: pin.x, y: pin.y - 22)) }, with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
-            var flag = Path(); flag.move(to: CGPoint(x: pin.x, y: pin.y - 22)); flag.addLine(to: CGPoint(x: pin.x + 12, y: pin.y - 18)); flag.addLine(to: CGPoint(x: pin.x, y: pin.y - 14)); flag.closeSubpath()
+            // Draggable pin: a BIG dashed grab RING (movable, easy target) with the flag inside — per review
+            // "大圈套旗、可拖". The dashed ring = draggable.
+            let grabR: CGFloat = 23
+            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - grabR, y: pin.y - grabR, width: grabR * 2, height: grabR * 2)), with: .color(Flow2.green.opacity(0.14)))
+            ctx.stroke(Path(ellipseIn: CGRect(x: pin.x - grabR, y: pin.y - grabR, width: grabR * 2, height: grabR * 2)), with: .color(Flow2.green), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+            // flagpole + flag (bigger)
+            ctx.stroke(Path { $0.move(to: pin); $0.addLine(to: CGPoint(x: pin.x, y: pin.y - 30)) }, with: .color(.white), style: StrokeStyle(lineWidth: 2))
+            var flag = Path(); flag.move(to: CGPoint(x: pin.x, y: pin.y - 30)); flag.addLine(to: CGPoint(x: pin.x + 16, y: pin.y - 25)); flag.addLine(to: CGPoint(x: pin.x, y: pin.y - 20)); flag.closeSubpath()
             ctx.fill(flag, with: .color(Flow2.red))
-            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - 3.5, y: pin.y - 3.5, width: 7, height: 7)), with: .color(.white))
-            ctx.stroke(Path(ellipseIn: CGRect(x: pin.x - 7, y: pin.y - 7, width: 14, height: 14)), with: .color(Flow2.green), style: StrokeStyle(lineWidth: 1.4, dash: [2, 2]))
+            // pin base
+            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - 4, y: pin.y - 4, width: 8, height: 8)), with: .color(.white))
+            ctx.fill(Path(ellipseIn: CGRect(x: pin.x - 2, y: pin.y - 2, width: 4, height: 4)), with: .color(Flow2.red))
             // dark scrims so text survives on the bright green (both reviewers flagged unreadable text)
             ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 46, y: 10, width: 92, height: 46), cornerRadius: 12), with: .color(.black.opacity(0.5)))
             ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 72, y: size.height - 28, width: 144, height: 22), cornerRadius: 11), with: .color(.black.opacity(0.5)))

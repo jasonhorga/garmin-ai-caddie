@@ -154,12 +154,23 @@ public struct WatchHoleMapView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .center)
-        VStack(spacing: 12) {
-            Text("＋").font(.system(size: 20, weight: .bold)).foregroundStyle(.white.opacity(0.85))
-            Text("－").font(.system(size: 20, weight: .bold)).foregroundStyle(.white.opacity(0.85))
+        // Digital-Crown zoom indicator on the right edge (crown = zoom; NO +/- tap targets). Track + a
+        // brighter thumb toward the bottom = currently zoomed in — the standard watchOS crown affordance.
+        HStack {
+            Spacer()
+            ZStack(alignment: .top) {
+                Capsule().fill(Color.white.opacity(0.22)).frame(width: 4, height: 104)
+                Capsule().fill(caddieGreen).frame(width: 4, height: 40).padding(.top, 56)
+            }
+            .padding(.trailing, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-        .padding(.trailing, 6)
+        VStack {
+            Spacer()
+            Text("转表冠缩放").font(.system(size: 8.5, weight: .medium)).foregroundStyle(.white.opacity(0.6))
+                .padding(.bottom, 7)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func distLine(_ label: String, _ v: Int, _ c: Color, big: Bool) -> some View {

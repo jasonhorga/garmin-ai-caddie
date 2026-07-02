@@ -237,9 +237,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderFlowScorecard() throws {
-        let sc: [Int: Int] = [1: 4, 2: 6, 3: 2]
-        let pars: [Int: Int] = [1: 4, 2: 5, 3: 3, 4: 4, 5: 4, 6: 3, 7: 5, 8: 4, 9: 4]
-        let holes: [(hole: Int, par: Int, score: Int?)] = (1...9).map { (hole: $0, par: pars[$0] ?? 4, score: sc[$0]) }
+        let sc: [Int: Int] = [1: 4, 2: 6, 3: 2, 4: 5, 5: 4, 6: 3, 7: 6]
+        let pars: [Int: Int] = [1: 4, 2: 5, 3: 3, 4: 4, 5: 4, 6: 3, 7: 5, 8: 4, 9: 4,
+                                10: 4, 11: 5, 12: 3, 13: 4, 14: 4, 15: 3, 16: 5, 17: 4, 18: 4]
+        let holes: [(hole: Int, par: Int, score: Int?)] = (1...18).map { (hole: $0, par: pars[$0] ?? 4, score: sc[$0]) }
         let view = WatchRoundScorecardView(holes: holes, toPar: 2)
         try render(view, named: "flow-scorecard")
     }
