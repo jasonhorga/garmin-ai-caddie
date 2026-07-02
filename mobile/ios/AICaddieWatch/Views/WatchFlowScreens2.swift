@@ -107,28 +107,39 @@ public struct WatchTargetView: View {
     public var body: some View {
         Canvas { ctx, size in
             let amber = Color(red: 0.96, green: 0.62, blue: 0.16)
-            // Zoom on the REAL greenside bunker so BOTH its edges fit. The point isn't the sand centre — it's
-            // the FRONT edge (会进) and BACK edge (能过): how far carries INTO it vs OVER it. Edge px from the
-            // detected sand blob.
-            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: CGPoint(x: 503, y: 308),
-                                                centerCanvas: CGPoint(x: size.width * 0.5, y: size.height * 0.52), scale: 2.25)
+            let aim = Color(red: 0.30, green: 0.86, blue: 0.46)
+            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: CGPoint(x: 496, y: 303),
+                                                centerCanvas: CGPoint(x: size.width * 0.5, y: size.height * 0.5), scale: 2.1)
             ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.08)))
+            // YOUR line of play: a ray from your position (below, off-screen) up through the sand toward the
+            // target. 进(会进)/过(能过) are where THIS ray CROSSES the sand — measured from your current
+            // position along your aim, NOT the blob's side edges. Intersections found by ray-marching the
+            // real sand pixels (you→sand-centroid).
+            var ray = Path(); ray.move(to: t(CGPoint(x: 497, y: 352))); ray.addLine(to: t(CGPoint(x: 495, y: 284)))
+            ctx.stroke(ray, with: .color(.black.opacity(0.5)), style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
+            ctx.stroke(ray, with: .color(aim), style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
+            let tip = t(CGPoint(x: 495, y: 284))
+            var head = Path(); head.move(to: CGPoint(x: tip.x, y: tip.y - 2)); head.addLine(to: CGPoint(x: tip.x - 5, y: tip.y + 8)); head.addLine(to: CGPoint(x: tip.x + 5, y: tip.y + 8)); head.closeSubpath()
+            ctx.fill(head, with: .color(aim))
             func pill(_ p: CGPoint, _ s: String) {
-                let w: CGFloat = 56, h: CGFloat = 22
-                ctx.fill(Path(roundedRect: CGRect(x: p.x - w / 2, y: p.y - h / 2, width: w, height: h), cornerRadius: h / 2), with: .color(.black.opacity(0.74)))
+                let w: CGFloat = 58, h: CGFloat = 22
+                ctx.fill(Path(roundedRect: CGRect(x: p.x - w / 2, y: p.y - h / 2, width: w, height: h), cornerRadius: h / 2), with: .color(.black.opacity(0.78)))
                 ctx.draw(ctx.resolve(Text(s).font(.system(size: 14.5, weight: .bold, design: .rounded)).foregroundColor(amber)), at: p)
             }
             func dot(_ p: CGPoint) {
-                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 4.5, y: p.y - 4.5, width: 9, height: 9)), with: .color(amber))
-                ctx.stroke(Path(ellipseIn: CGRect(x: p.x - 4.5, y: p.y - 4.5, width: 9, height: 9)), with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 5, y: p.y - 5, width: 10, height: 10)), with: .color(amber))
+                ctx.stroke(Path(ellipseIn: CGRect(x: p.x - 5, y: p.y - 5, width: 10, height: 10)), with: .color(.white), style: StrokeStyle(lineWidth: 1.6))
             }
-            // BACK edge (far, toward the green) — carry THIS and you clear it (能过).
-            let back = t(CGPoint(x: 498, y: 300)); dot(back); pill(CGPoint(x: back.x, y: back.y - 16), "过 \(clear)")
-            // FRONT edge (near, toward you) — carry THIS and you're IN it (会进).
-            let front = t(CGPoint(x: 507, y: 310)); dot(front); pill(CGPoint(x: front.x, y: front.y + 16), "进 \(carry)")
+            // EXIT (far, toward green) — carry THIS to clear it (能过); ENTRY (near) — carry THIS and you're in.
+            let exit = t(CGPoint(x: 496, y: 295)); dot(exit); pill(CGPoint(x: exit.x, y: exit.y - 17), "过 \(clear)")
+            let entry = t(CGPoint(x: 496, y: 310)); dot(entry); pill(CGPoint(x: entry.x, y: entry.y + 17), "进 \(carry)")
+            // origin hint: the ray comes from YOU (below)
+            let base = t(CGPoint(x: 497, y: 350))
+            ctx.fill(Path(roundedRect: CGRect(x: base.x - 26, y: base.y - 8, width: 52, height: 16), cornerRadius: 8), with: .color(.black.opacity(0.6)))
+            ctx.draw(ctx.resolve(Text("你 ↑").font(.system(size: 9, weight: .semibold)).foregroundColor(.white)), at: base)
             // title
-            ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 58, y: 6, width: 116, height: 18), cornerRadius: 9), with: .color(.black.opacity(0.6)))
-            ctx.draw(ctx.resolve(Text("沙坑 · 前沿/后沿(码)").font(.system(size: 9.5, weight: .semibold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: 15))
+            ctx.fill(Path(roundedRect: CGRect(x: size.width / 2 - 62, y: 6, width: 124, height: 18), cornerRadius: 9), with: .color(.black.opacity(0.6)))
+            ctx.draw(ctx.resolve(Text("沙坑 · 沿你的打球线(码)").font(.system(size: 9.5, weight: .semibold)).foregroundColor(.white)), at: CGPoint(x: size.width / 2, y: 15))
         }
         .flow2Screen()
     }
