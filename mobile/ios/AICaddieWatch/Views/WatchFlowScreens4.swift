@@ -227,3 +227,53 @@ public struct WatchShotsView: View {
         .frame(width: 198, height: 242, alignment: .topLeading).background(Color.black)
     }
 }
+
+// MARK: - 选点测距 (touch targeting — a FIXED centre reticle; drag the map to any point, read 你→点 + 点→果岭)
+public struct WatchMeasureView: View {
+    public let youToPoint: Int    // 你 → the reticle point
+    public let pointToGreen: Int  // reticle point → green centre
+    public init(youToPoint: Int, pointToGreen: Int) { self.youToPoint = youToPoint; self.pointToGreen = pointToGreen }
+    public var body: some View {
+        Canvas { ctx, size in
+            let youBlue = Color(red: 0.04, green: 0.52, blue: 1.0)
+            let green = Color(red: 0.30, green: 0.86, blue: 0.46)
+            let flagRed = Color(red: 0.94, green: 0.28, blue: 0.24)
+            // Centre the map on the MEASURE POINT — the reticle sits at screen centre; drag pans the map, so
+            // the reticle lands on any point you like. Same fixed-centre model as the green preview.
+            let t = WatchHoleMapSample.drawInto(&ctx, size: size, centerImg: WatchHoleMapSample.layupPx,
+                                                centerCanvas: CGPoint(x: size.width * 0.5, y: size.height * 0.47), scale: 0.4)
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.12)))
+            let you = t(WatchHoleMapSample.youPx)
+            let pt = CGPoint(x: size.width * 0.5, y: size.height * 0.47)
+            let greenP = t(WatchHoleMapSample.pinPx)
+            // YOU → point (solid blue, the measured leg) ; point → green (dashed white)
+            ctx.stroke(Path { $0.move(to: you); $0.addLine(to: pt) }, with: .color(.black.opacity(0.5)), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+            ctx.stroke(Path { $0.move(to: you); $0.addLine(to: pt) }, with: .color(youBlue), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+            ctx.stroke(Path { $0.move(to: pt); $0.addLine(to: greenP) }, with: .color(.white.opacity(0.85)), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
+            // YOU
+            ctx.fill(Path(ellipseIn: CGRect(x: you.x - 5, y: you.y - 5, width: 10, height: 10)), with: .color(youBlue))
+            ctx.stroke(Path(ellipseIn: CGRect(x: you.x - 5, y: you.y - 5, width: 10, height: 10)), with: .color(.white), style: StrokeStyle(lineWidth: 1.6))
+            ctx.draw(ctx.resolve(Text("你").font(.system(size: 9, weight: .bold)).foregroundColor(.white)), at: CGPoint(x: you.x + 12, y: you.y))
+            // green flag
+            ctx.stroke(Path { $0.move(to: greenP); $0.addLine(to: CGPoint(x: greenP.x, y: greenP.y - 12)) }, with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
+            var flag = Path(); flag.move(to: CGPoint(x: greenP.x, y: greenP.y - 12)); flag.addLine(to: CGPoint(x: greenP.x + 8, y: greenP.y - 9)); flag.addLine(to: CGPoint(x: greenP.x, y: greenP.y - 6)); flag.closeSubpath()
+            ctx.fill(flag, with: .color(flagRed))
+            // FIXED centre reticle (the measure point)
+            let R: CGFloat = 15
+            ctx.stroke(Path { $0.move(to: CGPoint(x: pt.x - R - 6, y: pt.y)); $0.addLine(to: CGPoint(x: pt.x + R + 6, y: pt.y)) }, with: .color(.white), style: StrokeStyle(lineWidth: 1))
+            ctx.stroke(Path { $0.move(to: CGPoint(x: pt.x, y: pt.y - R - 6)); $0.addLine(to: CGPoint(x: pt.x, y: pt.y + R + 6)) }, with: .color(.white), style: StrokeStyle(lineWidth: 1))
+            ctx.stroke(Path(ellipseIn: CGRect(x: pt.x - R, y: pt.y - R, width: R * 2, height: R * 2)), with: .color(.white), style: StrokeStyle(lineWidth: 2))
+            // distance pills (opaque, on the map)
+            func pill(_ p: CGPoint, _ s: String, _ c: Color, _ w: CGFloat) {
+                ctx.fill(Path(roundedRect: CGRect(x: p.x - w / 2, y: p.y - 11, width: w, height: 22), cornerRadius: 11), with: .color(.black.opacity(0.76)))
+                ctx.draw(ctx.resolve(Text(s).font(.system(size: 13.5, weight: .bold, design: .rounded)).foregroundColor(c)), at: p)
+            }
+            pill(CGPoint(x: pt.x + 40, y: pt.y + 42), "你→点 \(youToPoint)", youBlue, 82)
+            pill(CGPoint(x: pt.x - 18, y: pt.y - 40), "→果岭 \(pointToGreen)", green, 74)
+            // title + hint (opaque)
+            pill(CGPoint(x: size.width / 2, y: 14), "选点测距", .white, 70)
+            pill(CGPoint(x: size.width / 2, y: size.height - 13), "拖动地图选点", Color(white: 0.9), 98)
+        }
+        .frame(width: 198, height: 242).background(Color.black)
+    }
+}

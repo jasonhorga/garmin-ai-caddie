@@ -326,6 +326,11 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderMeasure() throws {
+        try render(WatchMeasureView(youToPoint: 187, pointToGreen: 100), named: "flow-measure")
+    }
+
+    @MainActor
     func testRenderGolfMenu() throws {
         try render(WatchGolfMenuView(items: ["查看果岭", "球童建议", "更换球洞", "记分卡", "PinPointer", "测量击球", "结束球局"]), named: "flow-menu")
     }
