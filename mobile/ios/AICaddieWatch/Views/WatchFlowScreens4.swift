@@ -154,13 +154,13 @@ public struct WatchGolfMenuView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("高尔夫菜单").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-            ForEach(0..<min(items.count, 7), id: \.self) { i in
+            ForEach(0..<min(items.count, 6), id: \.self) { i in
                 HStack {
                     Text(items[i]).font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
                     Spacer(minLength: 0)
                     Text("›").font(.system(size: 15)).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 11).padding(.vertical, 6)
+                .padding(.horizontal, 11).padding(.vertical, 8)
                 .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.07)))
             }
             Spacer(minLength: 0)

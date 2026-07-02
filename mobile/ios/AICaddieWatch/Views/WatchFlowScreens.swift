@@ -163,13 +163,13 @@ public struct WatchHoleGridView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text("选择球洞").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-            // Manual (non-lazy) 6×3 grid so it rasterises under ImageRenderer.
-            VStack(spacing: 7) {
-                ForEach(0..<3, id: \.self) { row in
-                    HStack(spacing: 6) {
-                        ForEach(0..<6, id: \.self) { c in
-                            let idx = row * 6 + c
-                            if idx < holes.count { cell(holes[idx]) } else { Color.clear.frame(width: 24, height: 24) }
+            // Manual (non-lazy) 5×4 grid, bigger cells for gloved/moving taps (review: targets too small).
+            VStack(spacing: 6) {
+                ForEach(0..<4, id: \.self) { row in
+                    HStack(spacing: 5) {
+                        ForEach(0..<5, id: \.self) { c in
+                            let idx = row * 5 + c
+                            if idx < holes.count { cell(holes[idx]) } else { Color.clear.frame(width: 30, height: 30) }
                         }
                     }
                 }
@@ -181,9 +181,9 @@ public struct WatchHoleGridView: View {
     }
     private func cell(_ h: (hole: Int, toPar: Int?, current: Bool)) -> some View {
         Text("\(h.hole)")
-            .font(.system(size: 12, weight: .bold)).monospacedDigit()
+            .font(.system(size: 13, weight: .bold)).monospacedDigit()
             .foregroundStyle(h.current ? .black : .white)
-            .frame(width: 24, height: 24)
+            .frame(width: 30, height: 30)
             .background(Circle().fill(cellFill(h)))
             .overlay(Circle().stroke(h.current ? Flow.green : Color.clear, lineWidth: 2))
     }
