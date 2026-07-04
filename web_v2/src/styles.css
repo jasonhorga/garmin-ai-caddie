@@ -4301,8 +4301,15 @@ button.round-detail-cell:hover {
     height: 18px;
   }
 
-  /* The identity chip has no icon to fall back on — hide it in the collapsed rail. */
+  /* Collapse the identity chip to just its avatar in the narrow icon-rail
+     (keep it visible — a player link relies on the read-only "当前是谁" badge). */
   .app-sidebar .sidebar-who {
+    display: flex;
+    justify-content: center;
+    padding: 10px 0 4px;
+  }
+
+  .app-sidebar .sidebar-who .current-player-name {
     display: none;
   }
 }

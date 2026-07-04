@@ -267,7 +267,7 @@ test.describe('player-facing deployment (link required)', () => {
     await expect(page.getByText(OTHER_PLAYER_NAME)).toHaveCount(0)
     // …and there is no app shell / navigation at all.
     await expect(page.getByText('想备哪场?')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '概览' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '复盘' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '设置' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '球员管理' })).toHaveCount(0)
     expect(browserErrors).toEqual([])
@@ -318,8 +318,10 @@ test.describe('player-facing deployment (link required)', () => {
     await mockPlayerApi(page, PLAYER_A)
 
     await page.goto(`/p/${PLAYER_A.token}`)
-    await page.getByRole('button', { name: '历史', exact: true }).click()
-    await page.getByRole('button', { name: '球局' }).click()
+    // 球局 lives under 复盘 in the redesign (was 历史); scope the tab to the 辅助导航
+    // nav so it never collides with the home 看复盘 → / 强弱分析 → cards.
+    await page.getByRole('button', { name: '复盘', exact: true }).click()
+    await page.getByRole('navigation', { name: '辅助导航' }).getByRole('button', { name: '球局' }).click()
     await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
 
     // Both rounds list as cards (raw round-id refs are owner-diagnostics-only now); the
