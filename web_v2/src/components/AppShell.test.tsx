@@ -4,38 +4,39 @@ import { describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
 
 describe('AppShell', () => {
-  it('renders sidebar, section title, history subnav, and children for a history page', async () => {
+  it('renders sidebar, section title, review subnav, and children for a review page', async () => {
     const onNavigate = vi.fn()
     render(
-      <AppShell activePage="clubs" onNavigate={onNavigate}>
-        <p>stats body</p>
+      <AppShell activePage="holes" onNavigate={onNavigate}>
+        <p>review body</p>
       </AppShell>,
     )
-    expect(screen.getByRole('button', { name: '历史' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('heading', { name: '历史' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '复盘' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('heading', { name: '复盘' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '强弱分析' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByText('stats body')).toBeInTheDocument()
+    expect(screen.getByText('review body')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
     expect(onNavigate).toHaveBeenCalledWith('rounds')
   })
 
   it('renders no subnav for sections without one', () => {
     render(
-      <AppShell activePage="overview" onNavigate={() => undefined}>
-        <p>home body</p>
+      <AppShell activePage="prep" onNavigate={() => undefined}>
+        <p>prep body</p>
       </AppShell>,
     )
-    expect(screen.getByRole('heading', { name: '概览' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '备战' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '趋势总览' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '球局' })).not.toBeInTheDocument()
   })
 
-  it('shows a read-only current-player badge in the top bar only when provided', () => {
+  it('shows a read-only current-player chip in the rail only when provided', () => {
     const { rerender } = render(
       <AppShell activePage="overview" onNavigate={() => undefined}>
         <p>home body</p>
       </AppShell>,
     )
-    // No current player resolved yet → no badge.
+    // No current player resolved yet → no chip.
     expect(screen.queryByLabelText(/^当前球员/)).not.toBeInTheDocument()
 
     rerender(

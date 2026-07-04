@@ -711,12 +711,16 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('历史数据不可用')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
 
-  // exact: home 近期状态 has a 看历史 → button whose name would substring-match 历史.
-  await page.getByRole('button', { name: '历史', exact: true }).click()
+  // 统计 owns the trends landing in the redesign (was 历史). exact avoids the home
+  // 看历史 → button substring-matching the rail label.
+  await page.getByRole('button', { name: '统计', exact: true }).click()
+  // Scope subnav-tab clicks to the 辅助导航 nav so they never collide with page
+  // content (e.g. the home 看复盘 → / 强弱分析 → cards).
+  const subnav = page.getByRole('navigation', { name: '辅助导航' })
 
   // 趋势 landing (R13 GolfLive): the 成绩构成 panel renders the 7-bucket spread from the
   // compact mobile stats (scoring.outcomeDistribution), splitting 双柏忌/+3/+4 out.
-  await page.getByRole('button', { name: '趋势总览' }).click()
+  await subnav.getByRole('button', { name: '趋势总览' }).click()
   await expect(page.getByText('成绩走势')).toBeVisible()
   const spreadPanel = page.locator('section[aria-label="成绩构成"]')
   await expect(spreadPanel.getByText('标准杆')).toBeVisible()
@@ -726,19 +730,30 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'trends')
 
+  // 统计 owns trends + course performance…
   for (const [tab, heading, level] of [
     ['趋势总览', '成绩走势', 2],
-    ['球局', '球局', 1],
-    ['强弱分析', '你最该练', 1],
     ['球场', '球场表现', 1],
   ] as const) {
-    await page.getByRole('button', { name: tab }).click()
+    await subnav.getByRole('button', { name: tab }).click()
     await expect(page.getByRole('heading', { name: heading, exact: true, level })).toBeVisible()
     await assertNoViewportOverflow(page)
     await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
   }
 
-  await page.getByRole('button', { name: '强弱分析' }).click()
+  // …while 复盘 owns the rounds list + strengths analysis (split out of the old 历史).
+  await page.getByRole('button', { name: '复盘', exact: true }).click()
+  for (const [tab, heading, level] of [
+    ['球局', '球局', 1],
+    ['强弱分析', '你最该练', 1],
+  ] as const) {
+    await subnav.getByRole('button', { name: tab }).click()
+    await expect(page.getByRole('heading', { name: heading, exact: true, level })).toBeVisible()
+    await assertNoViewportOverflow(page)
+    await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
+  }
+
+  await subnav.getByRole('button', { name: '强弱分析' }).click()
   await expect(page.getByRole('heading', { name: '你最该练', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '按洞', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '按杆', exact: true })).toBeVisible()
@@ -755,9 +770,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
   await assertNoViewportOverflow(page)
 
-  // 实战 lands on the LivePage 决策沙盘 entry. (The legacy 完整工具 caddie dashboard is
-  // now diagnostics-gated and no longer in the consumer live tabs.)
-  await page.getByRole('button', { name: '实战' }).click()
+  // 球童沙盘 is the off-rail caddie sandbox (Web has no live-play rail section); it
+  // lands on the LivePage 决策沙盘 entry. (The legacy 完整工具 caddie dashboard is now
+  // diagnostics-gated and no longer in the consumer live tabs.)
+  await page.getByRole('button', { name: '球童沙盘' }).click()
   const liveTabs = page.getByRole('navigation', { name: '实战页签' })
   await expect(liveTabs.getByRole('button', { name: '决策沙盘' })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
@@ -775,8 +791,8 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'settings')
 
-  // 备战 full walk: 概览 finder → course header → 三页签 → scatter legend.
-  await page.getByRole('button', { name: '概览', exact: true }).click()
+  // 备战 full walk: back to the 复盘 landing (the 概览 finder) → course header → 三页签.
+  await page.getByRole('button', { name: '复盘', exact: true }).click()
   await expect(page.getByText('想备哪场?')).toBeVisible()
   await page.getByRole('button', { name: '去备战 Black Knight B/C' }).click()
 
@@ -828,7 +844,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   // because the sandbox's prep fetches carry NO include_shots (asserted at the
   // end of this walk).
   const sandboxPrepStart = prepIncludeShots.length
-  await page.getByRole('button', { name: '实战' }).click()
+  await page.getByRole('button', { name: '球童沙盘' }).click()
   await expect(page.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
   await page.getByRole('button', { name: '开始模拟 Black Knight B/C' }).click()
   await expect(page.getByRole('heading', { name: 'Black Knight B/C' })).toBeVisible()

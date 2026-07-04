@@ -17,20 +17,29 @@ export type ProductPage =
   | 'account'
   | 'settings'
 
-export type ProductSection = 'home' | 'history' | 'prep' | 'live' | 'settings'
+// Web redesign (2026-07): the desktop workbench has five primary sections —
+// 复盘 / 备战 / 统计 / 球包 / 设置 — and does NOT do live play. The old 实战/live
+// section is gone from the rail; the caddie sandbox + phone scorer stay routable
+// but off the primary rail (see UTILITY_NAV / OFF_RAIL_PAGES).
+export type ProductSection = 'review' | 'prep' | 'stats' | 'bag' | 'settings'
 
 export const PAGE_TO_SECTION: Record<ProductPage, ProductSection> = {
-  overview: 'home',
-  history: 'history',
-  rounds: 'history',
-  courses: 'history',
-  holes: 'history',
-  clubs: 'history',
-  issues: 'history',
-  reports: 'history',
+  // 复盘 (review) — rounds list → round detail → shot-map. 概览 is its landing.
+  overview: 'review',
+  rounds: 'review',
+  holes: 'review',
+  issues: 'review',
+  reports: 'review',
+  record: 'review',
+  // 备战 (prep)
   prep: 'prep',
-  caddie: 'live',
-  record: 'live',
+  caddie: 'prep',
+  // 统计 (stats) — trends + course performance (strokes-gained).
+  history: 'stats',
+  courses: 'stats',
+  // 球包 (bag) — club distances / performance.
+  clubs: 'bag',
+  // 设置 (settings) — connectors, corrections, bag management, roster, backend.
   corrections: 'settings',
   'sync-quality': 'settings',
   players: 'settings',
@@ -39,23 +48,38 @@ export const PAGE_TO_SECTION: Record<ProductPage, ProductSection> = {
   settings: 'settings',
 }
 
-export const SECTION_ORDER: ProductSection[] = ['home', 'history', 'prep', 'live', 'settings']
+export const SECTION_ORDER: ProductSection[] = ['review', 'prep', 'stats', 'bag', 'settings']
 
 export const SECTION_LABELS: Record<ProductSection, string> = {
-  home: '概览',
-  history: '历史',
+  review: '复盘',
   prep: '备战',
-  live: '实战',
+  stats: '统计',
+  bag: '球包',
   settings: '设置',
 }
 
 export const SECTION_DEFAULT_PAGE: Record<ProductSection, ProductPage> = {
-  home: 'overview',
-  history: 'history',
+  review: 'overview',
   prep: 'prep',
-  live: 'caddie',
+  stats: 'history',
+  bag: 'clubs',
   settings: 'sync-quality',
 }
+
+// Routable but NOT on the primary rail. Web does no live play, so the caddie
+// sandbox (球童沙盘) and the phone scorer (手机记分) live in a small secondary
+// utility group in the sidebar rather than a primary section.
+export const OFF_RAIL_PAGES: readonly ProductPage[] = ['caddie', 'record']
+
+export interface UtilityNavItem {
+  page: ProductPage
+  label: string
+}
+
+export const UTILITY_NAV: UtilityNavItem[] = [
+  { page: 'caddie', label: '球童沙盘' },
+  { page: 'record', label: '手机记分' },
+]
 
 export interface SubNavItem {
   page: ProductPage
@@ -63,10 +87,15 @@ export interface SubNavItem {
   activeFor?: ProductPage[]
 }
 
-export const HISTORY_SUBNAV: SubNavItem[] = [
-  { page: 'history', label: '趋势总览' },
+// 复盘 subnav — the review workspace tabs (概览 is the section landing above them).
+export const REVIEW_SUBNAV: SubNavItem[] = [
   { page: 'rounds', label: '球局' },
-  { page: 'holes', label: '强弱分析', activeFor: ['holes', 'clubs', 'issues'] },
+  { page: 'holes', label: '强弱分析', activeFor: ['holes', 'issues'] },
+]
+
+// 统计 subnav — trends landing + course performance (strokes-gained content).
+export const STATS_SUBNAV: SubNavItem[] = [
+  { page: 'history', label: '趋势总览' },
   { page: 'courses', label: '球场' },
 ]
 
@@ -105,8 +134,18 @@ export function visibleSettingsSubnav(access: SettingsAccess): SubNavItem[] {
 }
 
 export function subnavForPage(page: ProductPage): SubNavItem[] | null {
+  // Off-rail pages (caddie sandbox / phone scorer) render without a section subnav.
+  if (OFF_RAIL_PAGES.includes(page)) return null
   const section = PAGE_TO_SECTION[page]
-  if (section === 'history') return HISTORY_SUBNAV
+  if (section === 'review') return REVIEW_SUBNAV
+  if (section === 'stats') return STATS_SUBNAV
   if (section === 'settings') return SETTINGS_SUBNAV
   return null
+}
+
+// Top-bar title for a page: off-rail pages show their utility label, every other
+// page shows its section label.
+export function pageTitle(page: ProductPage): string {
+  const utility = UTILITY_NAV.find((item) => item.page === page)
+  return utility ? utility.label : SECTION_LABELS[PAGE_TO_SECTION[page]]
 }

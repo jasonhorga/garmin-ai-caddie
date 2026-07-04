@@ -27,6 +27,11 @@
   --green-bright: #22c55e;
   --green-tint: #e7f3ec;
   --green-text: #166534;
+  /* Dark navigation rail (Web redesign 2026-07). */
+  --rail-bg: #0f1729;
+  --rail-ink: #c9d2e3;
+  --rail-muted: #9aa6bd;
+  --rail-active: rgba(34, 197, 94, .16);
   --radius-card: 14px;
 }
 
@@ -3996,15 +4001,16 @@ button.round-detail-cell:hover {
   min-height: 100vh;
 }
 
+/* ── Dark navigation rail (Web redesign 2026-07) ───────────────────────── */
 .app-sidebar {
-  width: 218px;
-  flex: 0 0 218px;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
+  width: 216px;
+  flex: 0 0 216px;
+  background: var(--rail-bg);
+  color: var(--rail-ink);
   padding: 16px 12px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -4016,18 +4022,19 @@ button.round-detail-cell:hover {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-weight: 700;
-  font-size: 14px;
-  padding: 4px 8px 16px;
-  color: var(--ink);
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: .02em;
+  padding: 6px 8px 16px;
+  color: #fff;
 }
 
 .sidebar-logo {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--green), var(--green-bright));
-  flex: 0 0 26px;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--green-bright), var(--green));
+  flex: 0 0 22px;
 }
 
 .sidebar-icon {
@@ -4045,10 +4052,11 @@ button.round-detail-cell:hover {
   display: flex;
   align-items: center;
   gap: 11px;
-  color: var(--muted);
+  color: var(--rail-ink);
   font-size: 13.5px;
-  padding: 9px 11px;
-  border-radius: 10px;
+  font-weight: 600;
+  padding: 9px 10px;
+  border-radius: 9px;
   background: none;
   border: none;
   cursor: pointer;
@@ -4058,18 +4066,61 @@ button.round-detail-cell:hover {
 }
 
 .sidebar-item:hover {
-  background: var(--bg);
-  color: var(--ink);
+  background: rgba(255, 255, 255, .06);
+  color: #fff;
 }
 
 .sidebar-item.active {
-  background: var(--green-tint);
-  color: var(--green-text);
-  font-weight: 600;
+  background: var(--rail-active);
+  color: #fff;
+}
+
+/* Secondary "off the primary rail" utilities (caddie sandbox / phone scorer). */
+.sidebar-utility {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, .08);
+}
+
+.sidebar-item--utility {
+  color: var(--rail-muted);
+  font-size: 12.5px;
+  padding: 7px 10px;
+}
+
+.sidebar-item--utility .sidebar-icon {
+  width: 16px;
+  height: 16px;
+  flex-basis: 16px;
+}
+
+.sidebar-spacer {
+  flex: 1;
 }
 
 .sidebar-item--footer {
-  margin-top: auto;
+  margin-top: 0;
+}
+
+/* Rail identity chip ("当前是谁") — read-only, pinned to the rail footer. */
+.sidebar-who {
+  margin-top: 8px;
+  padding: 10px 8px 4px;
+  border-top: 1px solid rgba(255, 255, 255, .08);
+}
+
+.sidebar-who .current-player {
+  margin-left: 0;
+  color: var(--rail-muted);
+  font-size: 12.5px;
+}
+
+.sidebar-who .current-player-avatar {
+  background: #334155;
+  color: #e2e8f0;
 }
 
 .app-main {
@@ -4086,7 +4137,8 @@ button.round-detail-cell:hover {
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
-  padding: 0 18px;
+  gap: 14px;
+  padding: 0 20px;
   position: sticky;
   top: 0;
   z-index: 5;
@@ -4095,12 +4147,22 @@ button.round-detail-cell:hover {
 .app-topbar-title {
   margin: 0;
   font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -.01em;
   color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Read-only "当前是谁" badge, pinned to the right of the top bar. No switcher. */
-.current-player {
+.app-topbar-actions {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Read-only "当前是谁" badge. No switcher. Lives in the rail footer; the base
+   styles here also cover any legacy in-content usage. */
+.current-player {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -4232,6 +4294,23 @@ button.round-detail-cell:hover {
   .app-sidebar .sidebar-icon {
     width: 20px;
     height: 20px;
+  }
+
+  .app-sidebar .sidebar-item--utility .sidebar-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Collapse the identity chip to just its avatar in the narrow icon-rail
+     (keep it visible — a player link relies on the read-only "当前是谁" badge). */
+  .app-sidebar .sidebar-who {
+    display: flex;
+    justify-content: center;
+    padding: 10px 0 4px;
+  }
+
+  .app-sidebar .sidebar-who .current-player-name {
+    display: none;
   }
 }
 
