@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import {
   PAGE_TO_SECTION,
-  SECTION_LABELS,
+  pageTitle,
   subnavForPage,
   visibleSettingsSubnav,
   type ProductPage,
@@ -9,7 +9,6 @@ import {
 } from '../navigation'
 import type { CurrentPlayer } from '../types'
 import { AppSidebar } from './AppSidebar'
-import { CurrentPlayerBadge } from './CurrentPlayerBadge'
 import { SubNav } from './SubNav'
 
 interface AppShellProps {
@@ -28,8 +27,8 @@ interface AppShellProps {
   // quality. Default off; the topbar switch is shown only in owner mode.
   diagnostics?: boolean
   onToggleDiagnostics?: () => void
-  // Token-resolved current player for the read-only top-bar badge ("当前是谁").
-  // Null until known (e.g. overview still loading) → no badge.
+  // Token-resolved current player for the read-only rail identity chip ("当前是谁").
+  // Null until known (e.g. overview still loading) → no chip.
   currentPlayer?: CurrentPlayer | null
 }
 
@@ -45,15 +44,15 @@ export function AppShell({
 }: AppShellProps) {
   const subnav = subnavForPage(activePage)
   // The settings subnav is access-filtered (owner vs member vs locked); other sections
-  // (e.g. history) show their full subnav.
+  // (e.g. 复盘 / 统计) show their full subnav.
   const items =
     subnav && PAGE_TO_SECTION[activePage] === 'settings' ? visibleSettingsSubnav(settingsAccess) : subnav
   return (
     <div className="app-layout">
-      <AppSidebar activePage={activePage} onNavigate={onNavigate} />
+      <AppSidebar activePage={activePage} onNavigate={onNavigate} currentPlayer={currentPlayer} />
       <div className="app-main">
         <header className="app-topbar">
-          <h1 className="app-topbar-title">{SECTION_LABELS[PAGE_TO_SECTION[activePage]]}</h1>
+          <h1 className="app-topbar-title">{pageTitle(activePage)}</h1>
           <div className="app-topbar-actions">
             {isOwnerMode && onToggleDiagnostics ? (
               <label className="diagnostics-toggle" title="显示内部 ref / 来源 / 数据质量(仅本人)">
@@ -61,7 +60,6 @@ export function AppShell({
                 <span>诊断模式</span>
               </label>
             ) : null}
-            {currentPlayer ? <CurrentPlayerBadge player={currentPlayer} /> : null}
           </div>
         </header>
         {items ? <SubNav items={items} activePage={activePage} onNavigate={onNavigate} /> : null}
