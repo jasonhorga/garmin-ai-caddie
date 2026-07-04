@@ -266,7 +266,7 @@ test.describe('player-facing deployment (link required)', () => {
     await expect(page.getByText(PLAYER_A.name)).toHaveCount(0)
     await expect(page.getByText(OTHER_PLAYER_NAME)).toHaveCount(0)
     // …and there is no app shell / navigation at all.
-    await expect(page.getByText('想备哪场?')).toHaveCount(0)
+    await expect(page.locator('[aria-label="选择球局"]')).toHaveCount(0)
     await expect(page.getByRole('button', { name: '复盘' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '设置' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '球员管理' })).toHaveCount(0)
@@ -288,8 +288,8 @@ test.describe('player-facing deployment (link required)', () => {
     await expect(badge).toBeVisible()
     await expect(badge.locator('button, select, [role="combobox"], [role="listbox"]')).toHaveCount(0)
 
-    // The home view shows THIS player's last round…
-    await expect(page.getByText('梅花山 A')).toBeVisible()
+    // The home view (round-review workbench) shows THIS player's last round…
+    await expect(page.getByRole('heading', { name: '梅花山 A' })).toBeVisible()
     // …and never another player's identity or round id.
     await expect(page.getByText(OTHER_PLAYER_NAME)).toHaveCount(0)
     await expect(page.getByText(OTHER_PLAYER_ROUND)).toHaveCount(0)
@@ -346,7 +346,8 @@ test.describe('owner deployment (admin token)', () => {
     const { adminHeadersSeen } = await mockOwnerApi(page)
 
     await page.goto('/')
-    await expect(page.getByText('你好 👋')).toBeVisible()
+    // The 复盘 landing (round-review workbench) loads with the owner's rounds.
+    await expect(page.locator('[aria-label="选择球局"]')).toBeVisible()
 
     await page.getByRole('button', { name: '设置' }).click()
     await expect(page.getByRole('heading', { name: '同步与数据健康', exact: true })).toBeVisible()

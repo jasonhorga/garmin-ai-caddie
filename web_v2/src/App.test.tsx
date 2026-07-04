@@ -1040,7 +1040,7 @@ describe('App navigation', () => {
     expect(await screen.findByRole('button', { name: /Apple/ })).toBeInTheDocument()
     // A locked-out visitor must leak nothing: no request fires and no player data shows.
     expect(fetchMock).not.toHaveBeenCalled()
-    expect(screen.queryByText('想备哪场?')).not.toBeInTheDocument()
+    expect(screen.queryByText('还没有可复盘的球局')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '复盘' })).not.toBeInTheDocument()
   })
 
@@ -1077,7 +1077,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '需要有效链接' })).not.toBeInTheDocument()
     // The player token rides on every request as a bearer credential.
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
@@ -1104,7 +1104,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '复盘' })).toHaveAttribute('aria-current', 'page')
     ;['复盘', '备战', '统计', '球包', '设置'].forEach(
       (label) => expect(screen.getByRole('button', { name: label })).toBeEnabled(),
@@ -1196,7 +1196,7 @@ describe('App navigation', () => {
     // Entering the token auto-recovers the errored overview; returning home shows it.
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
@@ -1229,7 +1229,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     expect(screen.queryByText('还看不到你的数据')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
@@ -1270,7 +1270,7 @@ describe('App navigation', () => {
     render(<App />)
 
     // The home renders real content — not the Apple sign-in gate, not the stuck loader.
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Apple/ })).not.toBeInTheDocument()
     expect(screen.queryByText('历史数据加载中')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
@@ -1317,7 +1317,7 @@ describe('App navigation', () => {
     )
     // ...so returning to 概览 shows the data.
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
   })
 
   it('can retry protected source detail after entering an admin token', async () => {
@@ -1350,7 +1350,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
     await userEvent.click(await screen.findByRole('button', { name: '强弱分析' }))
     await userEvent.click(screen.getByRole('button', { name: 'Open source 900001:1:0' }))
@@ -1388,7 +1388,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.type(await screen.findByLabelText('网页会话头'), 'Cookie: JWT_WEB=abc123')
     await userEvent.type(screen.getByLabelText('防伪令牌'), 'connect-csrf-token: csrf-secret-value')
@@ -1414,7 +1414,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
 
     expect(await screen.findByText('成绩走势')).toBeInTheDocument()
@@ -1465,7 +1465,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
 
     expect(await screen.findByText('成绩走势')).toBeInTheDocument()
@@ -1502,7 +1502,9 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
+    // 备战 is its own section now; the course finder lives on the PrepPage entry.
+    await userEvent.click(screen.getByRole('button', { name: '备战' }))
     await userEvent.click(await screen.findByRole('button', { name: '去备战 Black Knight B/C' }))
 
     // PrepPage header resolves the chosen globalId against course options.
@@ -1532,7 +1534,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
     await userEvent.click(await screen.findByRole('button', { name: '球场' }))
 
@@ -1556,7 +1558,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
     await userEvent.click(await screen.findByRole('button', { name: '球场' }))
 
@@ -1592,6 +1594,9 @@ describe('App navigation', () => {
 
     render(<App />)
 
+    // The course search lives on the 备战 entry finder (the 复盘 landing is now the
+    // round-review workbench).
+    await userEvent.click(await screen.findByRole('button', { name: '备战' }))
     await userEvent.type(await screen.findByLabelText('搜索球场'), '观澜湖{Enter}')
     await userEvent.click(await screen.findByRole('button', { name: /观澜湖·世界杯场/ }))
 
@@ -1641,7 +1646,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
     expect(await screen.findByText('成绩走势')).toBeInTheDocument()
 
@@ -1700,7 +1705,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
 
     expect(await screen.findByRole('heading', { name: '趋势总览加载中' })).toBeInTheDocument()
@@ -1752,7 +1757,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
     await userEvent.click(screen.getByRole('button', { name: '球局' }))
 
@@ -1891,7 +1896,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '备战' }))
 
     expect(await screen.findByRole('heading', { name: '选择球场开始备战' })).toBeInTheDocument()
@@ -1900,7 +1905,7 @@ describe('App navigation', () => {
     expect(fetchMock.mock.calls.some(([path]) => String(path).includes('/prep'))).toBe(false)
   })
 
-  it('opens source detail directly from overview and rounds cards', async () => {
+  it('opens source detail from a rounds-archive card with the AI-review + drilldown plumbing', async () => {
     const fetchMock = vi.fn(async (path: string) => ({
       ok: true,
       json: async () => {
@@ -1920,8 +1925,11 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
+    // The 复盘 landing is the round-review workbench; opening a round's full detail
+    // (scorecard + AI review + drilldown) lives on the 球局 archive tab.
+    await userEvent.click(await screen.findByRole('button', { name: '球局' }))
+    expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 82' }))
 
     expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
     expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(0)
@@ -1937,13 +1945,6 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('Black Knight B H1')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1%3A1')
-
-    await userEvent.click(screen.getByRole('button', { name: '复盘' }))
-    await userEvent.click(screen.getByRole('button', { name: '球局' }))
-    expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 82' }))
-
-    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/rounds/1')).toHaveLength(2)
   })
 
   it('shows corrections history and adds a club correction from the response', async () => {
@@ -1963,7 +1964,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(await screen.findByRole('button', { name: '订正' }))
 
@@ -2002,10 +2003,11 @@ describe('App navigation', () => {
     expect(screen.getByText('Trackman confirmed the club')).toBeInTheDocument()
   })
 
-  it('opens contextual corrections from source drilldown with the target prefilled', async () => {
+  it('opens contextual corrections from a round detail with the target prefilled', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => ({
       ok: true,
       json: async () => {
+        if (path === '/api/v2/history/rounds?limit=120') return roundsPayload()
         if (path === '/api/v2/history/rounds/1') return roundDetailPayload('1')
         if (path === '/api/v2/history/stats') return statsPayload()
         if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
@@ -2019,8 +2021,8 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '看复盘 →' }))
+    await userEvent.click(await screen.findByRole('button', { name: '球局' }))
+    await userEvent.click(await screen.findByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 82' }))
     expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '为这一局添加订正' }))
@@ -2047,7 +2049,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(await screen.findByRole('button', { name: '后端配置' }))
 
@@ -2087,7 +2089,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     // The owner-only 球员管理 tab is visible in owner mode (no link-token entry needed).
     await userEvent.click(await screen.findByRole('button', { name: '球员管理' }))
@@ -2127,7 +2129,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     // Connections page (renamed) renders, but with NO owner-only surfaces.
     expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
@@ -2165,7 +2167,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: '按杆' })).toBeInTheDocument()
@@ -2195,7 +2197,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
     expect(await screen.findByText('成绩走势')).toBeInTheDocument()
     // 趋势 landing loads the compact mobile stats; the correction below refreshes that surface.
@@ -2237,7 +2239,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
     await userEvent.click(screen.getByRole('button', { name: '报告' }))
 
@@ -2285,7 +2287,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
     await userEvent.click(screen.getByRole('button', { name: '报告' }))
     await userEvent.click(await screen.findByRole('button', { name: '载入趋势报告' }))
@@ -2315,7 +2317,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
 
     expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
@@ -2380,7 +2382,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
 
     expect(await screen.findByRole('heading', { name: '离线包准备' })).toBeInTheDocument()
@@ -2418,7 +2420,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(screen.getByRole('radio', { name: '球场' }))
 
@@ -2451,7 +2453,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
     expect(await screen.findByText('成绩走势')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats/mobile?window=last10')).toHaveLength(1)
@@ -2479,7 +2481,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
@@ -2517,7 +2519,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
@@ -2551,7 +2553,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
@@ -2600,7 +2602,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: '按洞' })).toBeInTheDocument()
@@ -2645,7 +2647,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '球童沙盘' }))
     // 实战 lands on the LivePage 决策沙盘 entry; the legacy dashboard sits
     // verbatim behind 完整工具.
@@ -2751,7 +2753,7 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '复盘' }))
     await userEvent.click(screen.getByRole('button', { name: '强弱分析' }))
     expect(await screen.findByRole('heading', { name: '按杆' })).toBeInTheDocument()
@@ -2790,7 +2792,8 @@ describe('App navigation', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('想备哪场?')).toBeInTheDocument()
+    // overviewPayloadWithRoundRefs → the 复盘 workbench loads with a round selected.
+    expect(await screen.findByText('球洞 · 成绩')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '球童沙盘' }))
     // The replay detail stays lazy until the 最近回放 tab actually opens.
     expect(fetchMock.mock.calls.some(([path]) => path === '/api/v2/history/rounds/1')).toBe(false)

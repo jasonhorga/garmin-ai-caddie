@@ -53,6 +53,7 @@ import type {
   ReadinessResponse,
   ReviewReportIndexResponse,
   ReviewReportResponse,
+  RoundHoleShotMapResponse,
   StatsWindow,
   SyncRunResponse,
   SyncStatusResponse,
@@ -332,6 +333,16 @@ export function fetchHistoryRounds(
 
 export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): Promise<HistoryRoundDetailResponse> {
   return getJson<HistoryRoundDetailResponse>(`/api/v2/history/rounds/${encodeURIComponent(roundRef)}`, adminToken)
+}
+
+// 复盘逐洞落点图: this round's actual shots projected onto the hole's 2D render.
+// Rendered on demand per hole (one supersampled image), so the 复盘 workbench
+// fetches it lazily as the player switches holes — never all 18 at once.
+export function fetchRoundHoleShotMap(roundRef: string, hole: number, adminToken?: string): Promise<RoundHoleShotMapResponse> {
+  return getJson<RoundHoleShotMapResponse>(
+    `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/holes/${encodeURIComponent(String(hole))}/shotmap`,
+    adminToken,
+  )
 }
 
 export function fetchHistoryStats(adminToken?: string, window: StatsWindow = 'all'): Promise<HistoryStatsResponse> {

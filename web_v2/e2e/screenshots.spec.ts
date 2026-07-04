@@ -690,6 +690,28 @@ const replayRoundDetailPayload = {
   missingData: [],
 }
 
+// 复盘逐洞落点图 for the auto-selected overview round/hole: a tiny hole render + the
+// round's actual shots (tee → landing → green) so the 落点图 + 杆序 timeline render.
+const TRANSPARENT_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+const roundShotMapPayload = {
+  schema: 'ai-caddie-round-hole-shotmap-v1',
+  found: true,
+  roundRef: '900001',
+  hole: 1,
+  par: 4,
+  map: {
+    image: TRANSPARENT_PNG,
+    overlay: { w: 300, h: 470, ppm: 1, ln: 400, route: [[150, 455, 0], [150, 72, 400]] },
+  },
+  shots: [
+    { start: [150, 455], end: [128, 270], club: '一号木', lie: 'TeeBox', endLie: 'Fairway', shotType: 'TEE', order: 1, synthetic: false },
+    { start: [128, 270], end: [182, 120], club: '五号木', lie: 'Fairway', endLie: 'Bunker', shotType: 'APPROACH', order: 2, synthetic: false },
+    { start: [182, 120], end: [150, 72], club: '推杆', lie: 'Green', endLie: 'Green', shotType: 'PUTT', order: 3, synthetic: false },
+  ],
+  missingData: [],
+}
+
 test('major product screens render with stable Garmin Pro layout', async ({ page }, testInfo) => {
   const browserErrors: string[] = []
   const failedResponses: string[] = []
@@ -705,8 +727,12 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   const { prepIncludeShots, caddieContextQueries, caddieDecisionBodies } = await mockApi(page)
 
   await page.goto('/?admin=screenshot-admin')
-  await expect(page.getByText('想备哪场?')).toBeVisible()
+  // 复盘 landing = the round-review workbench: round selector + shape-coded hole list
+  // + 逐洞落点图 + 杆序. The newest round auto-selects on its first hole.
+  await expect(page.getByText('球洞 · 成绩')).toBeVisible()
+  await expect(page.locator('[aria-label="选择球局"]')).toBeVisible()
   await expect(page.getByText('Black Knight B', { exact: true })).toBeVisible()
+  await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
   await assertNoViewportOverflow(page)
   await expect(page.getByText('历史数据不可用')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
@@ -800,9 +826,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'backend')
 
-  // 备战 full walk: back to the 复盘 landing (the 概览 finder) → course header → 三页签.
-  await page.getByRole('button', { name: '复盘', exact: true }).click()
-  await expect(page.getByText('想备哪场?')).toBeVisible()
+  // 备战 full walk: the course finder lives on the 备战 entry now (the 复盘 landing is
+  // the round-review workbench) → course header → 三页签.
+  await page.getByRole('button', { name: '备战', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
   await page.getByRole('button', { name: '去备战 Black Knight B/C' }).click()
 
   // Workbench: crumb (course name) + hole-list totals + stats record.
@@ -1004,6 +1031,7 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     const path = requestUrl.pathname
     if (path === '/api/v2/history/overview') return route.fulfill({ json: overviewPayload })
     if (path === '/api/v2/history/rounds') return route.fulfill({ json: roundsPayload })
+    if (/\/holes\/\d+\/shotmap$/.test(path)) return route.fulfill({ json: roundShotMapPayload })
     if (path === '/api/v2/history/rounds/900001') return route.fulfill({ json: replayRoundDetailPayload })
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload })
     // 趋势 landing fetches the compact window-aware mobile stats; serve the same fixture
