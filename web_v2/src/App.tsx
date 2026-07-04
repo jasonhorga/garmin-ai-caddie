@@ -79,6 +79,7 @@ import { ReadinessPanel } from './components/ReadinessPanel'
 import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { StrengthsPage } from './components/StrengthsPage'
+import { BagPage } from './components/BagPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
 import { StatsDashboard } from './components/StatsDashboard'
 import type { ProductPage } from './navigation'
@@ -830,7 +831,21 @@ export default function App() {
         onPrepCourse={handlePrepCourse}
       />
     )
-    if (activePage === 'holes' || activePage === 'clubs' || activePage === 'issues') {
+    if (activePage === 'clubs') {
+      // 球包 (bag rail): the club-distance gapping workbench. It reads the measured
+      // per-club stats (data.clubs) for the dispersion band + samples and joins the
+      // editable effective bag (fetched inside) for the roster + carry distances.
+      return (
+        <BagPage
+          measuredClubs={data.clubs}
+          adminToken={currentAdminToken()}
+          isOwner={isOwnerMode}
+          selfPlayerId={session?.playerId ?? 'me'}
+          onNavigate={navigate}
+        />
+      )
+    }
+    if (activePage === 'holes' || activePage === 'issues') {
       return <StrengthsPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
     }
     if (activePage === 'reports') {

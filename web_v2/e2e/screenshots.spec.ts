@@ -186,27 +186,17 @@ const statsPayload = {
       repeatedIssues: [{ issue: 'approach_short', phase: 'Approach', count: 3, refs: ['900001:7'] }],
     },
   ],
+  // Measured per-club stats (metres). Codes map onto the effective-bag tokens
+  // (1D→driver / 3W→wood3 / 5I→iron5 / 7I→iron7 / 9I→iron9 / PW→pw) so the 球包
+  // gapping ladder shows real P10–P90 dispersion bands; the bag's sw/putter carry
+  // no measured samples and render 数据不足.
   clubs: [
-    {
-      club: '1D',
-      sampleCount: 16,
-      median: 241,
-      p10: 218,
-      p90: 263,
-      max: 270,
-      confidence: 'medium',
-      shotRefs: ['900001:1:0', '900002:4:0'],
-    },
-    {
-      club: '8I',
-      sampleCount: 21,
-      median: 143,
-      p10: 132,
-      p90: 154,
-      max: 161,
-      confidence: 'high',
-      shotRefs: ['900001:7:1'],
-    },
+    { club: '1D', sampleCount: 41, median: 208, p10: 196, p90: 220, max: 232, confidence: 'high', shotRefs: ['900001:1:0', '900002:4:0'] },
+    { club: '3W', sampleCount: 22, median: 186, p10: 176, p90: 196, max: 205, confidence: 'medium', shotRefs: ['900002:3:0'] },
+    { club: '5I', sampleCount: 34, median: 158, p10: 150, p90: 167, max: 173, confidence: 'high', shotRefs: ['900001:5:1'] },
+    { club: '7I', sampleCount: 64, median: 130, p10: 122, p90: 139, max: 146, confidence: 'high', shotRefs: ['900001:7:1'] },
+    { club: '9I', sampleCount: 41, median: 112, p10: 105, p90: 120, max: 126, confidence: 'medium', shotRefs: ['900001:9:1'] },
+    { club: 'PW', sampleCount: 58, median: 100, p10: 93, p90: 108, max: 114, confidence: 'high', shotRefs: ['900001:12:1'] },
   ],
   diagnosis: {
     topIssue: { issue: 'approach_short', phase: 'Approach' },
@@ -820,6 +810,25 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('60%', { exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'strengths')
+
+  // 球包 (bag rail) = the P5 club-distance gapping workbench: a shared-axis ladder
+  // (carry marker + measured P10–P90 band) + a selected-club detail + the editable
+  // club table, all wired to the effective bag + measured per-club stats.
+  await page.getByRole('button', { name: '球包', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '球包', exact: true, level: 1 })).toBeVisible()
+  const ladder = page.locator('section[aria-label="距离阶梯"]')
+  await expect(ladder).toBeVisible()
+  // The ladder is real: the driver bar comes from the effective bag (一号木, 205m → 224 码).
+  await expect(ladder.getByRole('button', { name: '一号木 距离条' })).toBeVisible()
+  await expect(page.locator('section[aria-label="球杆详情"]')).toBeVisible()
+  const bagTable = page.locator('section[aria-label="全部球杆"]')
+  await expect(bagTable).toContainText('五号铁')
+  await expect(bagTable).toContainText('224') // driver carry P50, yards
+  // sw/putter carry no measured samples → honest 数据不足 (no fabricated dispersion).
+  await expect(bagTable).toContainText('数据不足')
+  await assertNoViewportOverflow(page)
+  await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
+  await captureSmokeScreenshot(page, testInfo, 'bag')
 
   // prepGlobalId is null on a fresh visit, so 备战 lands on the PrepPage entry
   // state (course finder); the full prep walk runs at the end of this test.

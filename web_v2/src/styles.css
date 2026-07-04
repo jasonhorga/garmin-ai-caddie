@@ -4965,6 +4965,356 @@ button.round-detail-cell:hover {
   }
 }
 
+/* ===== P5 球包 (bag) — club-distance gapping workbench ===== */
+.bagx {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.bagx-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bagx-crumb {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bagx-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bagx-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+.bagx-panel {
+  padding: 16px;
+  min-width: 0;
+}
+
+.bagx-ladder {
+  grid-column: span 7;
+}
+
+.bagx-detail {
+  grid-column: span 5;
+}
+
+.bagx-table-wrap {
+  grid-column: 1 / -1;
+}
+
+.bagx-empty-panel {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bagx-onboard h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.bagx-onboard p {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 52ch;
+}
+
+/* —— gapping ladder —— */
+.bagx-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 2px 2px 8px;
+}
+
+.bagx-rows {
+  padding-top: 8px;
+}
+
+.bagx-grow {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 7px 6px;
+  margin: 1px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.bagx-grow:hover {
+  background: var(--bg);
+}
+
+.bagx-grow--sel {
+  background: var(--green-tint);
+}
+
+.bagx-cl {
+  font-weight: 800;
+  font-size: 12.5px;
+  text-align: right;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.bagx-track {
+  position: relative;
+  height: 20px;
+  background: #f2f4f7;
+  border-radius: 6px;
+}
+
+.bagx-rng {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  background: #bfe0cb;
+  border: 1px solid #8ecaa1;
+  border-radius: 5px;
+}
+
+.bagx-carry {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--green);
+  border-radius: 2px;
+}
+
+.bagx-gaptag {
+  position: absolute;
+  top: -14px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--eagle);
+  white-space: nowrap;
+}
+
+.bagx-nodata {
+  position: absolute;
+  left: 8px;
+  top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bagx-val {
+  text-align: right;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--green-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* —— selected-club detail —— */
+.bagx-band {
+  width: 100%;
+  height: 74px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.bagx-band--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #f6f8fa;
+  border-radius: 8px;
+}
+
+.bagx-band-carry-only {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--green-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.bagx-band-note {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.bagx-band-bg {
+  fill: #f6f8fa;
+}
+
+.bagx-band-cap {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.bagx-band-axis {
+  stroke: #dfe3e8;
+}
+
+.bagx-band-rng {
+  fill: rgba(21, 128, 61, .14);
+  stroke: #8ecaa1;
+}
+
+.bagx-band-median {
+  stroke: #8ecaa1;
+  stroke-width: 2;
+}
+
+.bagx-band-carry {
+  stroke: var(--green);
+  stroke-width: 3;
+}
+
+.bagx-band-tick {
+  fill: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bagx-kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--bg);
+}
+
+.bagx-k {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.bagx-v {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.bagx-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.bagx-field-k {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.bagx-field-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bagx-save {
+  border: 1px solid var(--green);
+  background: var(--green);
+  color: #fff;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bagx-save:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+.bagx-record-btn {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--green-text);
+  cursor: pointer;
+}
+
+.bagx-savemsg {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* —— editable table —— */
+.bagx-table-scroll {
+  overflow-x: auto;
+}
+
+.bagx-table {
+  min-width: 460px;
+}
+
+.bagx-row-sel {
+  background: var(--green-tint);
+}
+
+.bagx-edit {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 2px 9px;
+  font: inherit;
+  font-weight: 700;
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bagx-edit:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+@media (max-width: 1180px) {
+  .bagx-ladder,
+  .bagx-detail {
+    grid-column: 1 / -1;
+  }
+}
+
 /* ===== W1b home ===== */
 .home-page {
   display: flex;
