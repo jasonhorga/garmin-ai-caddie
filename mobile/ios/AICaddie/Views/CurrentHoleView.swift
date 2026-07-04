@@ -46,6 +46,7 @@ public struct CurrentHoleView: View {
     @State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?
     @State private var showManage = false
     @State private var showDiscardConfirm = false
+    @State private var showCaddieDetail = false
 
     public init(
         package: LiveRoundPackage,
@@ -108,131 +109,58 @@ public struct CurrentHoleView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                HoleDistanceHeader(
-                    course: package.course.name,
-                    holeNumber: hole.number,
-                    holeCount: package.holes.count,
-                    par: hole.par,
-                    toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
-                    carryFrontYards: nil,
-                    toParText: holeToParText,
-                    greenFrontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
-                    greenCenterYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
-                    greenBackYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
-                    slopeYards: holePrep?.playsLike?.available == true ? holePrep?.playsLike?.deltaYd : nil,
-                    isGreenLive: isGreenRangeLive
-                )
+        // 打球屏 v2 reskin: DARK, map-as-backdrop, Apple-Maps-style glass data panel. All state /
+        // bindings / events / GPS / watch / restore wiring is unchanged — only the body's look/layout.
+        ZStack {
+            LivePlayStyle.base.ignoresSafeArea()
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    heroSection
 
-                VStack(spacing: 12) {
-                    holeMapCard
-
-                    // Caddie recommendation — the focal card. Embeds the proven
-                    // CaddiePlanView for the decision content; chrome is redesigned.
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("球童建议")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(LiveHoleStyle.green)
-                        // 策略开关移到球童卡上(原埋在「更多调整」里):护分/标准/进攻直接切,建议随即重算。
-                        Picker("策略", selection: $selectedStrategyMode) {
-                            ForEach(strategyModeOptions, id: \.self) { Text(strategyModeLabel($0)).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        if let caddieDecision {
-                            CaddiePlanView(response: caddieDecision, hazards: caddiePlanHazards)
-                        } else {
-                            CaddiePlanView(seed: caddieContextSeed, hazards: caddiePlanHazards)
-                        }
-                        if isLoadingCaddieDecision {
-                            ProgressView("更新球童建议…")
-                        }
-                        if let caddieErrorMessage {
-                            Text(caddieErrorMessage).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Button {
-                            Task { await loadCaddieDecision() }
-                        } label: {
-                            Label("刷新球童", systemImage: "arrow.clockwise").font(.subheadline)
-                        }
-                        .disabled(isLoadingCaddieDecision)
-                    }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.white)
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(LiveHoleStyle.green, lineWidth: 1.5))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                    // Club picker + record/save (records the current GPS fix).
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text("选球杆").font(.caption).foregroundStyle(.secondary)
-                            Spacer()
-                            clubPickerMenu  // round-12: 全杆下拉,默认推荐杆,选完即记
-                        }
-                        // 快捷:本杆最相关的 3 支(球位过滤);全部球杆走上面的下拉。
-                        ClubStripView(clubs: clubNames, selected: selectedClub) { selectClub($0) }
-                        RecordShotButton(title: "📍 保存本洞 · 含定位", lastShotText: recordHintText) { submitEvents() }
-                    }
-                    .liveCard()
-
-                    // Compact score.
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("本洞成绩").font(.caption).foregroundStyle(.secondary)
-                        HoleScoreSteppers(score: $score, putts: $puttCount)
-                    }
-                    .liveCard()
-
-                    // All the original inputs are preserved, tucked into 更多调整.
-                    DisclosureGroup("更多调整(打法 / 球位 / 距离 / 目标 / 备注)") {
-                        VStack(spacing: 10) {
-                            Picker("打法", selection: $selectedShotType) {
-                                ForEach(shotTypeOptions, id: \.self) { Text(zhShotType($0)).tag($0) }
-                            }
-                            Picker("球位", selection: $selectedLie) {
-                                ForEach(lieOptions, id: \.self) { Text(zhLie($0)).tag($0) }
-                            }
-                            TextField("到旗杆距离(码)", text: $distanceToPinText)
-                                .keyboardType(.decimalPad)
-                            Button {
-                                targetCoordinate = currentCoordinate
-                            } label: {
-                                Label("设为目标点", systemImage: "mappin.and.ellipse")
-                            }
-                            .disabled(currentCoordinate == nil)
-                            Stepper("罚杆 \(penaltyCount)", value: $penaltyCount, in: 0...4)
-                            TextField("备注", text: $note)
-                        }
-                        .padding(.top, 6)
-                    }
-                    .liveCard()
-
-                    // Media capture (unchanged behavior).
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("拍照取证").font(.caption).foregroundStyle(.secondary)
-                        MediaCaptureView(
-                            roundId: package.roundId,
-                            hole: hole.number,
-                            targetId: caddieContextSeed?.sourceRef ?? "\(package.roundId):\(hole.number)",
-                            offlineStore: offlineStore,
-                            uploadClient: mediaUploadClient,
-                            onEvent: onEvent,
-                            onVisionFindings: { findings in
-                                visionFindings = findings
-                                Task { await loadCaddieDecision() }
-                            }
+                    // Dark-glass data panel: distance hero → caddie strip → score steppers → save →
+                    // tab bar. Floats up over the map's lower edge (mirrors the approved mockup).
+                    LivePlayPanel {
+                        LiveDistanceReadout(
+                            greenFrontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
+                            greenCenterYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
+                            greenBackYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
+                            toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
+                            isGreenLive: isGreenRangeLive
                         )
+                        Rectangle().fill(LivePlayStyle.hair).frame(height: 1).padding(.horizontal, 2)
+                        LiveCaddieStrip(
+                            clubs: caddieClubChips,
+                            playsText: caddiePlaysText,
+                            isLoading: isLoadingCaddieDecision,
+                            errorText: caddieErrorMessage,
+                            onExpand: { withAnimation(.easeInOut(duration: 0.2)) { showCaddieDetail.toggle() } },
+                            onSelect: { selectClub($0) }
+                        )
+                        LivePlayScoreSteppers(score: $score, putts: $puttCount)
+                        LiveSaveButton(caption: recordHintText) { submitEvents() }
+                        LivePlayTabBar()
                     }
-                    .liveCard()
+                    .padding(.horizontal, 10)
+                    .padding(.top, -22)
 
-                    // 球局调整(加打 / 减九洞 / 结束本场)— 移自首页,收在底部折叠区,不打扰记分主流程。
-                    manageSection
+                    // Secondary controls stay on readable light cards below the dark hero: the full
+                    // caddie plan (球童完整方案), 更多调整, 拍照取证, and 球局调整 — all behaviour intact.
+                    VStack(spacing: 12) {
+                        if showCaddieDetail { caddieDetailCard }
+                        moreAdjustCard
+                        mediaCard
+                        manageSection
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 16)
                 }
-                .padding(14)
+                .padding(.bottom, 24)
             }
         }
-        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
-        .navigationTitle("第 \(hole.number) 洞")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .onAppear {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
@@ -267,15 +195,190 @@ public struct CurrentHoleView: View {
         package.caddieContextSeeds.first { $0.hole == hole.number }
     }
 
-    /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时不显示。
-    @ViewBuilder private var holeMapCard: some View {
-        if let holePrep, holePrep.map?.overlay != nil {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("球洞俯视图").font(.caption).foregroundStyle(.secondary)
-                HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres)
+    // MARK: - 打球屏 v2 hero (map backdrop + header + overlays)
+
+    /// Map-as-backdrop hero: the server-rendered hole image (推荐打法叠加) fills the top, with the
+    /// header, a green crosshair reticle on the green, and one amber hazard carry pill over it.
+    private var heroSection: some View {
+        ZStack(alignment: .top) {
+            liveMapBackdrop
+                .frame(height: 360)
+                .frame(maxWidth: .infinity)
+                .clipped()
+            LivePlayStyle.topScrim
+                .frame(height: 176)
+                .frame(maxWidth: .infinity, alignment: .top)
+                .allowsHitTesting(false)
+            GeometryReader { geo in
+                ZStack {
+                    LivePlayReticle()
+                        .position(x: geo.size.width * 0.55, y: geo.size.height * 0.30)
+                    if let hazardPillText {
+                        LiveHazardPill(text: hazardPillText)
+                            .position(x: geo.size.width * 0.62, y: geo.size.height * 0.45)
+                    }
+                }
             }
-            .liveCard()
+            .frame(height: 360)
+            .allowsHitTesting(false)
+            LivePlayHeader(
+                holeNumber: hole.number,
+                par: hole.par,
+                yards: hole.yards,
+                teeLabel: teeLabelZh,
+                roundToParText: roundToParText
+            )
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
         }
+        .frame(height: 360)
+    }
+
+    /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
+    @ViewBuilder private var liveMapBackdrop: some View {
+        if let holePrep, holePrep.map?.overlay != nil {
+            HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres)
+        } else {
+            LinearGradient(
+                colors: [Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255), LivePlayStyle.base],
+                startPoint: .top, endPoint: .bottom
+            )
+        }
+    }
+
+    // MARK: - Secondary light cards below the dark hero (behaviour unchanged)
+
+    /// 球童完整方案:strategy switch (护分/标准/进攻) + the proven CaddiePlanView + refresh.
+    /// Revealed by the caddie strip's 展开; kept on a readable light card.
+    private var caddieDetailCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("球童完整方案").font(.caption).foregroundStyle(.secondary)
+            // 策略开关:护分/标准/进攻直接切,建议随即重算。
+            Picker("策略", selection: $selectedStrategyMode) {
+                ForEach(strategyModeOptions, id: \.self) { Text(strategyModeLabel($0)).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            if let caddieDecision {
+                CaddiePlanView(response: caddieDecision, hazards: caddiePlanHazards)
+            } else {
+                CaddiePlanView(seed: caddieContextSeed, hazards: caddiePlanHazards)
+            }
+            if isLoadingCaddieDecision {
+                ProgressView("更新球童建议…")
+            }
+            if let caddieErrorMessage {
+                Text(caddieErrorMessage).font(.caption).foregroundStyle(.secondary)
+            }
+            Button {
+                Task { await loadCaddieDecision() }
+            } label: {
+                Label("刷新球童", systemImage: "arrow.clockwise").font(.subheadline)
+            }
+            .disabled(isLoadingCaddieDecision)
+        }
+        .liveCard()
+    }
+
+    /// All the original secondary inputs are preserved, tucked into 更多调整.
+    private var moreAdjustCard: some View {
+        DisclosureGroup("更多调整(球杆 / 打法 / 球位 / 距离 / 目标 / 备注)") {
+            VStack(spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("选球杆").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    clubPickerMenu  // round-12: 全杆下拉,默认推荐杆,选完即记
+                }
+                Picker("打法", selection: $selectedShotType) {
+                    ForEach(shotTypeOptions, id: \.self) { Text(zhShotType($0)).tag($0) }
+                }
+                Picker("球位", selection: $selectedLie) {
+                    ForEach(lieOptions, id: \.self) { Text(zhLie($0)).tag($0) }
+                }
+                TextField("到旗杆距离(码)", text: $distanceToPinText)
+                    .keyboardType(.decimalPad)
+                Button {
+                    targetCoordinate = currentCoordinate
+                } label: {
+                    Label("设为目标点", systemImage: "mappin.and.ellipse")
+                }
+                .disabled(currentCoordinate == nil)
+                Stepper("罚杆 \(penaltyCount)", value: $penaltyCount, in: 0...4)
+                TextField("备注", text: $note)
+            }
+            .padding(.top, 6)
+        }
+        .liveCard()
+    }
+
+    /// Media capture (unchanged behavior).
+    private var mediaCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("拍照取证").font(.caption).foregroundStyle(.secondary)
+            MediaCaptureView(
+                roundId: package.roundId,
+                hole: hole.number,
+                targetId: caddieContextSeed?.sourceRef ?? "\(package.roundId):\(hole.number)",
+                offlineStore: offlineStore,
+                uploadClient: mediaUploadClient,
+                onEvent: onEvent,
+                onVisionFindings: { findings in
+                    visionFindings = findings
+                    Task { await loadCaddieDecision() }
+                }
+            )
+        }
+        .liveCard()
+    }
+
+    // MARK: - 打球屏 v2 display values (derived, read-only)
+
+    /// 本场 to-par chip: sum of (score − par) over recorded holes; falls back to this hole's delta.
+    private var roundToParText: String {
+        let delta: Int
+        if let holes = liveRoundState?.holes, !holes.isEmpty {
+            delta = holes.reduce(0) { $0 + ($1.score - $1.par) }
+        } else {
+            delta = score - hole.par
+        }
+        if delta == 0 { return "本场 E" }
+        return "本场 \(delta > 0 ? "+\(delta)" : "\(delta)")"
+    }
+
+    /// Tee colour label (蓝T/白T/…) from the round's teeBox; nil when unknown.
+    private var teeLabelZh: String? {
+        let map = [
+            "blue": "蓝T", "white": "白T", "red": "红T", "gold": "金T",
+            "black": "黑T", "green": "绿T", "yellow": "黄T", "silver": "银T",
+        ]
+        let tee = package.course.teeBox.lowercased()
+        if let label = map[tee] { return label }
+        return (tee.isEmpty || tee == "unknown") ? nil : package.course.teeBox
+    }
+
+    /// The caddie strip's club chips: the 3 most-relevant clubs + their distance, selected = filled.
+    private var caddieClubChips: [LiveCaddieStrip.Club] {
+        let bag = bagBest(filterTeeOnly: true)
+        return clubNames.map { name in
+            let sub = bag[name].map { "\(CoursePrepRoute.yards(fromMetres: $0.medianM)) 码" } ?? ""
+            return LiveCaddieStrip.Club(name: name, sub: sub, on: name == selectedClub)
+        }
+    }
+
+    /// One 实打 plays-like line for the caddie strip — only when the per-hole prep carries a real
+    /// slope (never fabricated); nil otherwise.
+    private var caddiePlaysText: String? {
+        guard let playsLike = holePrep?.playsLike, playsLike.available, let deltaYd = playsLike.deltaYd, deltaYd != 0 else {
+            return nil
+        }
+        return "实打约 \(deltaYd > 0 ? "+" : "")\(deltaYd) 码(\(deltaYd > 0 ? "上坡" : "下坡"))"
+    }
+
+    /// The single hazard carry pill over the map: the nearest water carry (码), when the prep has one.
+    private var hazardPillText: String? {
+        guard let nearest = holePrep?.hazards.waterCarry.compactMap({ $0.first }).min() else {
+            return nil
+        }
+        return "过水 \(CoursePrepRoute.yards(fromMetres: nearest))"
     }
 
     private func loadHoleMap() async {
@@ -679,11 +782,6 @@ public struct CurrentHoleView: View {
                 .disabled(isPreparingRound)
             }
         }
-    }
-
-    private var holeToParText: String {
-        let delta = score - hole.par
-        return delta > 0 ? "+\(delta)" : "\(delta)"
     }
 
     private var recordHintText: String? {

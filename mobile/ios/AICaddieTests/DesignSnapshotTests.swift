@@ -42,6 +42,57 @@ final class DesignSnapshotTests: XCTestCase {
         try render(view, named: "live-hole")
     }
 
+    /// 打球屏 v2 reskin: DARK map-backdrop + Apple-Maps-style glass data panel (distance hero →
+    /// caddie strip → score steppers → save → tab bar). Rendered as a fixed non-scroll composition
+    /// (ImageRenderer does not render ScrollView content) so it captures cleanly in CI.
+    @MainActor
+    func testRenderLivePlayReskin() throws {
+        let view = ZStack(alignment: .top) {
+            LivePlayStyle.base
+            LinearGradient(
+                colors: [Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255), LivePlayStyle.base],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: 360)
+            .frame(maxWidth: .infinity, alignment: .top)
+            LivePlayStyle.topScrim
+                .frame(height: 176)
+                .frame(maxWidth: .infinity, alignment: .top)
+            LivePlayReticle().offset(x: 30, y: 96)
+            LiveHazardPill(text: "过水 235").offset(x: 54, y: 150)
+            VStack(spacing: 0) {
+                LivePlayHeader(holeNumber: 1, par: 5, yards: 543, teeLabel: "蓝T", roundToParText: "本场 +4")
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                Spacer(minLength: 0)
+                LivePlayPanel {
+                    LiveDistanceReadout(
+                        greenFrontYards: 205, greenCenterYards: 219, greenBackYards: 231,
+                        toPinYards: 245, isGreenLive: false
+                    )
+                    Rectangle().fill(LivePlayStyle.hair).frame(height: 1).padding(.horizontal, 2)
+                    LiveCaddieStrip(
+                        clubs: [
+                            .init(name: "3W", sub: "238 码", on: true),
+                            .init(name: "5W", sub: "215 码", on: false),
+                            .init(name: "4i", sub: "198 码", on: false),
+                        ],
+                        playsText: "实打约 +8 码(上坡)· 打球道左中,避右侧水"
+                    )
+                    LivePlayScoreSteppers(score: .constant(5), putts: .constant(2))
+                    LiveSaveButton(caption: "已定位 · 精度 ±4m · 球杆 3W") {}
+                    LivePlayTabBar()
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+            }
+        }
+        .frame(width: 390, height: 780)
+        .background(LivePlayStyle.base)
+
+        try render(view, named: "live-play")
+    }
+
     @MainActor
     func testRenderRecentReview() throws {
         let fixtureURL = URL(fileURLWithPath: #filePath)
