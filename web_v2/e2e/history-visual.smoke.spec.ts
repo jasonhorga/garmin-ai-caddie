@@ -811,7 +811,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   // 球童试算 inspector; the caddie recommends the nearest club to the ~235 y tee-shot landing.
   const prepInspector = page.getByRole('complementary', { name: '球童试算' })
   await expect(page.getByRole('button', { name: '第1洞 Par4 430码' })).toHaveAttribute('aria-current', 'true')
-  await expect(page.getByLabelText('第1洞球道图')).toBeVisible()
+  await expect(page.locator('[aria-label="第1洞球道图"]')).toBeVisible()
   await expect(page.getByText('你的落点:')).toBeVisible()
   await expect(prepInspector.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeVisible()
   await expect(prepInspector.locator('.prep-club.on')).toContainText('1D')
