@@ -1417,7 +1417,7 @@ describe('App navigation', () => {
     expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
 
-    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(await screen.findByText('平均杆')).toBeInTheDocument()
     // The 趋势 landing reads the compact window-aware mobile stats, not the ~11MB full payload.
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats/mobile?window=last10')
 
@@ -1468,19 +1468,19 @@ describe('App navigation', () => {
     expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
 
-    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(await screen.findByText('平均杆')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats/mobile?window=last10')
     // The 趋势 landing never pulls the full ~11MB stats — only the compact mobile endpoint.
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(0)
 
     await userEvent.click(screen.getByRole('button', { name: '近12个月' }))
 
-    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(await screen.findByText('平均杆')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats/mobile?window=12m')
 
     await userEvent.click(screen.getByRole('button', { name: '全部' }))
 
-    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(await screen.findByText('平均杆')).toBeInTheDocument()
     // window=all omits the query string (matches fetchMobileStats); the full stats stays untouched
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/stats/mobile'))
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(0)
@@ -1648,7 +1648,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
-    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(await screen.findByText('平均杆')).toBeInTheDocument()
 
     // Kick off a background trends refresh (window=last10) that stays in flight.
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
@@ -1660,7 +1660,7 @@ describe('App navigation', () => {
     // Switch to 近12个月 while the last10 refresh is still pending.
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
     await userEvent.click(screen.getByRole('button', { name: '近12个月' }))
-    const averageCard = (await screen.findByText('均杆(18洞)')).closest('article') as HTMLElement
+    const averageCard = (await screen.findByText('平均杆')).closest('article') as HTMLElement
     expect(within(averageCard).getByText('95')).toBeInTheDocument()
 
     // The stale last10 refresh resolves late — it must not clobber the 12m view.
@@ -1672,7 +1672,7 @@ describe('App navigation', () => {
     })
 
     expect(screen.getByRole('button', { name: '近12个月' })).toHaveAttribute('aria-pressed', 'true')
-    const averageCardAfter = screen.getByText('均杆(18洞)').closest('article') as HTMLElement
+    const averageCardAfter = screen.getByText('平均杆').closest('article') as HTMLElement
     expect(within(averageCardAfter).getByText('95')).toBeInTheDocument()
     expect(within(averageCardAfter).queryByText('82')).not.toBeInTheDocument()
   })
@@ -1708,13 +1708,13 @@ describe('App navigation', () => {
     expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
 
-    expect(await screen.findByRole('heading', { name: '趋势总览加载中' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '统计加载中' })).toBeInTheDocument()
 
     await act(async () => {
       rejectStats(new Error('GET /api/v2/history/stats failed: 500 Internal Server Error'))
     })
 
-    expect(await screen.findByRole('heading', { name: '趋势总览加载失败' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '统计加载失败' })).toBeInTheDocument()
     expect(screen.getByText('GET /api/v2/history/stats failed: 500 Internal Server Error')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
     // The trends page keeps recovery plain — the 去设置 hint lives on the other stats pages.
@@ -1725,7 +1725,7 @@ describe('App navigation', () => {
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats/mobile?window=last10')).toHaveLength(1)
     await userEvent.click(screen.getByRole('button', { name: '重试' }))
 
-    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(await screen.findByText('平均杆')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats/mobile?window=last10')).toHaveLength(2)
 
     await userEvent.click(screen.getByRole('button', { name: '球场' }))
@@ -2199,7 +2199,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
-    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(await screen.findByText('平均杆')).toBeInTheDocument()
     // 趋势 landing loads the compact mobile stats; the correction below refreshes that surface.
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats/mobile?window=last10')).toHaveLength(1)
 
@@ -2455,7 +2455,7 @@ describe('App navigation', () => {
 
     expect(await screen.findByText('还没有可复盘的球局')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '统计' }))
-    expect(await screen.findByText('成绩走势')).toBeInTheDocument()
+    expect(await screen.findByText('平均杆')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats/mobile?window=last10')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: '设置' }))

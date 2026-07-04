@@ -4660,6 +4660,311 @@ button.round-detail-cell:hover {
   }
 }
 
+/* ===== P4 统计 dashboard (StatsDashboard) ===== */
+.statsx {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.statsx-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.statsx-toolbar-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.statsx-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.statsx-tile {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.statsx-tile-k {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.statsx-tile-v {
+  font-size: 27px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.5px;
+  margin: 3px 0;
+  color: var(--ink);
+}
+
+.statsx-tile-t {
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 1em;
+}
+
+.statsx-tile-t.good {
+  color: var(--green-text);
+}
+
+.statsx-tile-t.bad {
+  color: var(--double-text);
+}
+
+.statsx-tile-t.muted {
+  color: transparent;
+}
+
+.statsx-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+.statsx-panel {
+  padding: 16px;
+  min-width: 0;
+}
+
+.statsx-span4 {
+  grid-column: span 4;
+}
+
+.statsx-span5 {
+  grid-column: span 5;
+}
+
+.statsx-span7 {
+  grid-column: span 7;
+}
+
+.statsx-h {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.statsx-h small {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11.5px;
+  margin-left: 6px;
+}
+
+.statsx-note {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.statsx-empty {
+  margin: 0;
+  padding: 18px 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* 各环节失杆 diverging-style bars (single-sided: all rows are estimated losses). */
+.statsx-sgrow {
+  display: grid;
+  grid-template-columns: 72px 1fr 52px;
+  align-items: center;
+  gap: 10px;
+  margin: 9px 0;
+  font-weight: 700;
+}
+
+.statsx-sgrow-label {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.statsx-sgrow-track {
+  height: 14px;
+  background: var(--bg);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.statsx-sgrow-fill {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  background: var(--double);
+}
+
+.statsx-sgrow-val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--double-text);
+}
+
+.statsx-sgrow--total {
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+  margin-top: 11px;
+}
+
+.statsx-sgrow--total .statsx-sgrow-label,
+.statsx-sgrow--total .statsx-sgrow-val {
+  font-weight: 800;
+}
+
+/* 差点趋势 chart */
+.statsx-chart {
+  width: 100%;
+  height: 190px;
+  display: block;
+  overflow: visible;
+}
+
+.statsx-chart-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.statsx-chart-line {
+  stroke: var(--green);
+  stroke-width: 2.6;
+  stroke-linejoin: round;
+}
+
+.statsx-chart-dot {
+  fill: var(--green);
+}
+
+.statsx-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 失误倾向 scatter quadrant */
+.statsx-scatter {
+  width: 100%;
+  height: 190px;
+  display: block;
+}
+
+.statsx-scatter-bg {
+  fill: var(--bg);
+}
+
+.statsx-scatter-axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.statsx-scatter-tick {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.statsx-scatter-cloud {
+  fill: rgba(194, 85, 63, .14);
+  stroke: var(--double);
+  stroke-dasharray: 4 3;
+}
+
+.statsx-scatter-dot {
+  fill: var(--double);
+}
+
+/* tables (按球场 / 成绩构成) */
+.statsx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.statsx-table th,
+.statsx-table td {
+  text-align: left;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--bg);
+}
+
+.statsx-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.statsx-table th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  font-weight: 700;
+}
+
+.statsx-table .statsx-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.statsx-bucket {
+  font-weight: 700;
+}
+
+.statsx-bucket-sym {
+  font-weight: 800;
+  margin-right: 5px;
+}
+
+.statsx-bucket--birdie {
+  color: var(--birdie);
+}
+
+.statsx-bucket--par {
+  color: var(--par);
+}
+
+.statsx-bucket--bogey {
+  color: var(--bogey-text);
+}
+
+.statsx-bucket--double {
+  color: var(--double-text);
+}
+
+@media (max-width: 1180px) {
+  .statsx-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .statsx-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .statsx-span4,
+  .statsx-span5,
+  .statsx-span7 {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 680px) {
+  .statsx-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* ===== W1b home ===== */
 .home-page {
   display: flex;
