@@ -1509,12 +1509,13 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
-    expect(await screen.findByText('Par 9 · 总码数 930 码')).toBeInTheDocument()
+    expect(await screen.findByText('PAR 9 · 930 码')).toBeInTheDocument()
     // 你的战绩 joins stats.courses through the option's courseKey.
     expect(screen.getByText('你的战绩:打过 2 次 · 均杆 82')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '逐洞攻略' }))
-    expect(screen.getByText('1 洞')).toBeInTheDocument()
-    expect(screen.getByText('2 洞')).toBeInTheDocument()
+    // The workbench lists every hole in the left rail; the first is selected.
+    expect(screen.getByRole('button', { name: '第1洞 Par4 410码' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '第2洞 Par5 520码' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeInTheDocument()
   })
 
   it('球场 tab renders 球场表现 heading', async () => {

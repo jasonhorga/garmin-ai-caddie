@@ -2,6 +2,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
+  CoursePrepHole,
   CoursePrepResponse,
   CourseSearchResponse,
   HistoryStatsResponse,
@@ -19,7 +20,7 @@ vi.mock('../api', () => ({
 const fetchCoursePrepMock = vi.mocked(fetchCoursePrep)
 const fetchPrepTipsMock = vi.mocked(fetchPrepTips)
 
-function prepHole(hole: number, par: number, blueYards: number): CoursePrepResponse['holes'][number] {
+function prepHole(hole: number, par: number, blueYards: number, extra: Partial<CoursePrepHole> = {}): CoursePrepHole {
   return {
     hole,
     par,
@@ -37,7 +38,38 @@ function prepHole(hole: number, par: number, blueYards: number): CoursePrepRespo
     landing_m: null,
     tee_club: null,
     hazards: { water_carry: [], bunkers: [] },
+    ...extra,
   }
+}
+
+// Hole 1 carries real geometry (map + overlay) + a shot scatter so the canvas,
+// caddie recommendation and distance table all have deterministic inputs.
+function richHole1(): CoursePrepHole {
+  return prepHole(1, 4, 380, {
+    route_len_m: 350,
+    landing_m: 210,
+    tee_club: '1D',
+    steps: [
+      { club: '1D', note: '开球瞄球道左侧' },
+      { club: '8I', note: '第二杆攻果岭中部' },
+    ],
+    cautions: ['右侧长草密集,宁左勿右'],
+    hazards: { water_carry: [[100, 150]], bunkers: [[200, 8]] },
+    map: {
+      image: 'data:image/png;base64,AAAA',
+      overlay: {
+        w: 360,
+        h: 360,
+        ppm: 0.85,
+        ln: 350,
+        route: [
+          [180, 330, 0],
+          [180, 40, 350],
+        ],
+      },
+    },
+    yourShots: [{ x: 170, y: 150, club: '1D', shotType: 'TEE', roundId: '900001' }],
+  })
 }
 
 function prepResponse(globalId: number): CoursePrepResponse {
@@ -45,8 +77,11 @@ function prepResponse(globalId: number): CoursePrepResponse {
     schema: 'ai-caddie-course-prep-v1',
     globalId,
     holeCount: 2,
-    clubs: [],
-    holes: [prepHole(1, 4, 380), prepHole(2, 5, 520)],
+    clubs: [
+      { name: '1D', m: 220, yd: 241 },
+      { name: '8I', m: 131, yd: 143 },
+    ],
+    holes: [richHole1(), prepHole(2, 5, 520, { route_len_m: 480 })],
   }
 }
 
@@ -105,14 +140,6 @@ function statsHoleRow(hole: number, overrides: Record<string, unknown> = {}): Re
   return { courseKey: 'black_knight', hole, sampleCount: 3, averageToPar: 1, worstToPar: 3, ...overrides }
 }
 
-function fiveHolePrep(globalId: number): CoursePrepResponse {
-  return {
-    ...prepResponse(globalId),
-    holeCount: 5,
-    holes: [prepHole(1, 4, 410), prepHole(2, 4, 395), prepHole(3, 5, 560), prepHole(4, 4, 430), prepHole(5, 3, 180)],
-  }
-}
-
 function renderPrep(overrides: Partial<Parameters<typeof PrepPage>[0]> = {}) {
   const onSearchCourses = vi.fn(async (): Promise<CourseSearchResponse> => ({
     schema: 'ai-caddie-course-search-v1',
@@ -162,12 +189,12 @@ describe('PrepPage entry state', () => {
   })
 })
 
-describe('PrepPage course state', () => {
-  it('renders the course header joined from courseOptions and allStats once prep loads', async () => {
+describe('PrepPage workbench', () => {
+  it('renders the course crumb, hole-list totals + record, and requests the shot scatter', async () => {
     renderPrep()
 
     expect(screen.getByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
-    expect(await screen.findByText('Par 9 · 总码数 900 码')).toBeInTheDocument()
+    expect(await screen.findByText('PAR 9 · 900 码')).toBeInTheDocument()
     // 你的战绩 joins stats.courses via the option's courseKey (5 rounds), not the
     // option's own roundCount (2).
     expect(screen.getByText('你的战绩:打过 5 次 · 均杆 80.5')).toBeInTheDocument()
@@ -176,11 +203,74 @@ describe('PrepPage course state', () => {
     expect(screen.queryByText('选择球场开始备战')).not.toBeInTheDocument()
   })
 
+  it('lists every hole and selects the first by default, driving the canvas + inspector', async () => {
+    renderPrep()
+    await screen.findByText('PAR 9 · 900 码')
+
+    const holeButtons = screen.getAllByRole('button', { name: /第\d洞 Par\d/ })
+    expect(holeButtons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      '第1洞 Par4 380码',
+      '第2洞 Par5 520码',
+    ])
+    // hole 1 is active by default → its canvas + inspector are on screen.
+    expect(holeButtons[0]).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByLabelText('第1洞球道图')).toBeInTheDocument()
+    expect(screen.getByText('你的落点:')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeInTheDocument()
+  })
+
+  it('caddie card recommends the nearest club and shows the hole hazards', async () => {
+    const { view } = renderPrep()
+    await screen.findByText('PAR 9 · 900 码')
+
+    // Ball opens at the landing (210 m ≈ 230 y): 1D (241 y) is the nearest club.
+    const big = view.container.querySelector('.prep-caddie-big')
+    expect(big?.textContent).toContain('230')
+    const recos = screen.getByLabelText('推荐球杆')
+    expect(recos.querySelector('.prep-club.on')?.textContent).toMatch(/^1D/)
+    const inspector = screen.getByRole('complementary', { name: '球童试算' })
+    expect(within(inspector).getByText('水×1 · 沙×1')).toBeInTheDocument()
+    expect(within(inspector).getByText('过水需')).toBeInTheDocument()
+  })
+
+  it('selecting another hole re-drives the canvas + inspector to that hole', async () => {
+    renderPrep()
+    await screen.findByText('PAR 9 · 900 码')
+
+    await userEvent.click(screen.getByRole('button', { name: '第2洞 Par5 520码' }))
+
+    expect(screen.getByRole('button', { name: '第2洞 Par5 520码' })).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByRole('button', { name: '第1洞 Par4 380码' })).not.toHaveAttribute('aria-current')
+    expect(screen.getByLabelText('第2洞球道图')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '球童试算 · 第 2 洞' })).toBeInTheDocument()
+    // Hole 2 has no scatter, so the shot legend is gone.
+    expect(screen.queryByText('你的落点:')).not.toBeInTheDocument()
+  })
+
+  it('marks the played key hole and colors its average chip', async () => {
+    renderPrep({
+      allStats: {
+        ...allStatsFixture(),
+        holes: [statsHoleRow(1, { averageToPar: 1.1, sampleCount: 5, worstToPar: 3 })],
+      },
+    })
+    await screen.findByText('PAR 9 · 900 码')
+
+    const holeOne = screen.getByRole('button', { name: '第1洞 Par4 380码' })
+    expect(within(holeOne).getByText('关键')).toBeInTheDocument()
+    const chip = within(holeOne).getByText('平均+1.1')
+    expect(chip).toHaveClass('bigover')
+    // Hole 2 has no history → no chip, no key tag.
+    const holeTwo = screen.getByRole('button', { name: '第2洞 Par5 520码' })
+    expect(within(holeTwo).queryByText(/平均/)).not.toBeInTheDocument()
+    expect(within(holeTwo).queryByText('关键')).not.toBeInTheDocument()
+  })
+
   it('falls back to 球场 {gid} and hides 你的战绩 when courseOptions has no match', async () => {
     renderPrep({ globalId: 99999 })
 
     expect(screen.getByRole('heading', { name: '球场 99999' })).toBeInTheDocument()
-    expect(await screen.findByText('Par 9 · 总码数 900 码')).toBeInTheDocument()
+    expect(await screen.findByText('PAR 9 · 900 码')).toBeInTheDocument()
     expect(screen.queryByText(/你的战绩/)).not.toBeInTheDocument()
   })
 
@@ -189,7 +279,6 @@ describe('PrepPage course state', () => {
 
     expect(screen.getByRole('heading', { name: '观澜湖·世界杯场' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '球场 99999' })).not.toBeInTheDocument()
-    expect(await screen.findByText('Par 9 · 总码数 900 码')).toBeInTheDocument()
   })
 
   it('header prefers the courseOptions name over the handed-down search name', async () => {
@@ -197,65 +286,6 @@ describe('PrepPage course state', () => {
 
     expect(screen.getByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
     expect(screen.queryByText('搜索结果名')).not.toBeInTheDocument()
-    expect(await screen.findByText('Par 9 · 总码数 900 码')).toBeInTheDocument()
-  })
-
-  it('hides 你的战绩 when the matched option has no courseKey into stats', async () => {
-    renderPrep({ globalId: 31870 })
-
-    expect(screen.getByRole('heading', { name: '观澜湖·奥拉沙宝场' })).toBeInTheDocument()
-    expect(await screen.findByText('Par 9 · 总码数 900 码')).toBeInTheDocument()
-    expect(screen.queryByText(/你的战绩/)).not.toBeInTheDocument()
-  })
-
-  it('switches the three local tabs: 概览 key sections, 逐洞攻略 hole cards, 针对你 tips state', async () => {
-    renderPrep()
-    await screen.findByText('Par 9 · 总码数 900 码')
-
-    const tabs = screen.getByRole('navigation', { name: '备战页签' })
-    expect(within(tabs).getByRole('button', { name: '概览' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('region', { name: '关键洞' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '逐洞速览' })).toBeInTheDocument()
-
-    await userEvent.click(within(tabs).getByRole('button', { name: '逐洞攻略' }))
-    expect(within(tabs).getByRole('button', { name: '逐洞攻略' })).toHaveAttribute('aria-current', 'page')
-    expect(within(tabs).getByRole('button', { name: '概览' })).not.toHaveAttribute('aria-current')
-    expect(screen.getByText('1 洞')).toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: '逐洞速览' })).not.toBeInTheDocument()
-
-    await userEvent.click(within(tabs).getByRole('button', { name: '针对你' }))
-    expect(screen.getByText('暂无足够数据生成提示')).toBeInTheDocument()
-    expect(screen.queryByText('1 洞')).not.toBeInTheDocument()
-  })
-
-  it('逐洞攻略 renders a PrepHoleCard per hole, in order, wrapped in prep-hole-{n} anchors', async () => {
-    const { view } = renderPrep()
-    await screen.findByText('Par 9 · 总码数 900 码')
-    const tabs = screen.getByRole('navigation', { name: '备战页签' })
-
-    await userEvent.click(within(tabs).getByRole('button', { name: '逐洞攻略' }))
-
-    expect(screen.queryByText(/已加载/)).not.toBeInTheDocument()
-    const anchors = Array.from(view.container.querySelectorAll('[id^="prep-hole-"]'))
-    expect(anchors.map((anchor) => anchor.id)).toEqual(['prep-hole-1', 'prep-hole-2'])
-    expect(within(anchors[0] as HTMLElement).getByText('1 洞')).toBeInTheDocument()
-    expect(within(anchors[0] as HTMLElement).getByText('Par 4')).toBeInTheDocument()
-    expect(within(anchors[1] as HTMLElement).getByText('2 洞')).toBeInTheDocument()
-    expect(within(anchors[1] as HTMLElement).getByText('Par 5')).toBeInTheDocument()
-  })
-
-  it('switching to a different course resets the tab to 概览', async () => {
-    const { view, props } = renderPrep()
-    await screen.findByText('Par 9 · 总码数 900 码')
-    const tabs = screen.getByRole('navigation', { name: '备战页签' })
-    await userEvent.click(within(tabs).getByRole('button', { name: '针对你' }))
-    expect(within(tabs).getByRole('button', { name: '针对你' })).toHaveAttribute('aria-current', 'page')
-
-    view.rerender(<PrepPage {...props} globalId={31870} />)
-
-    const tabsAfter = screen.getByRole('navigation', { name: '备战页签' })
-    expect(within(tabsAfter).getByRole('button', { name: '概览' })).toHaveAttribute('aria-current', 'page')
-    expect(within(tabsAfter).getByRole('button', { name: '针对你' })).not.toHaveAttribute('aria-current')
   })
 
   it('换球场 notifies onChangeCourse', async () => {
@@ -266,15 +296,13 @@ describe('PrepPage course state', () => {
     expect(onChangeCourse).toHaveBeenCalledTimes(1)
   })
 
-  it('hides the Par/总码数 meta row entirely while prep is in flight (no dangling dashes)', async () => {
+  it('shows the loading panel and hides the workbench while prep is in flight', async () => {
     fetchCoursePrepMock.mockImplementation(() => new Promise<CoursePrepResponse>(() => {}))
     renderPrep()
 
-    expect(screen.queryByText(/总码数/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Par —/)).not.toBeInTheDocument()
-    const tabs = screen.getByRole('navigation', { name: '备战页签' })
-    await userEvent.click(within(tabs).getByRole('button', { name: '逐洞攻略' }))
     expect(screen.getByText('球场攻略加载中…')).toBeInTheDocument()
+    expect(screen.queryByText(/PAR/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('球童试算')).not.toBeInTheDocument()
   })
 
   it('surfaces a prep error with 重试 that refetches', async () => {
@@ -286,7 +314,7 @@ describe('PrepPage course state', () => {
 
     await userEvent.click(within(panel).getByRole('button', { name: '重试' }))
 
-    expect(await screen.findByText('Par 9 · 总码数 900 码')).toBeInTheDocument()
+    expect(await screen.findByText('PAR 9 · 900 码')).toBeInTheDocument()
     expect(fetchCoursePrepMock).toHaveBeenCalledTimes(2)
   })
 
@@ -303,7 +331,7 @@ describe('PrepPage course state', () => {
     const { view, props } = renderPrep()
 
     view.rerender(<PrepPage {...props} globalId={31870} />)
-    expect(await screen.findByText('Par 6 · 总码数 310 码')).toBeInTheDocument()
+    expect(await screen.findByText('PAR 6 · 310 码')).toBeInTheDocument()
 
     // The stale 31795 payload resolves late — the seq guard must drop it.
     await act(async () => {
@@ -311,8 +339,82 @@ describe('PrepPage course state', () => {
       await first
     })
 
-    expect(screen.getByText('Par 6 · 总码数 310 码')).toBeInTheDocument()
-    expect(screen.queryByText('Par 9 · 总码数 900 码')).not.toBeInTheDocument()
+    expect(screen.getByText('PAR 6 · 310 码')).toBeInTheDocument()
+    expect(screen.queryByText('PAR 9 · 900 码')).not.toBeInTheDocument()
+  })
+
+  it('shows fresh loading state, not the previous course data, immediately after switching courses', async () => {
+    const { view, props } = renderPrep()
+    expect(await screen.findByText('PAR 9 · 900 码')).toBeInTheDocument()
+
+    fetchCoursePrepMock.mockImplementation(() => new Promise<CoursePrepResponse>(() => {}))
+    fetchPrepTipsMock.mockImplementation(() => new Promise<PrepTipsResponse>(() => {}))
+    view.rerender(<PrepPage {...props} globalId={31870} />)
+
+    expect(screen.getByRole('heading', { name: '观澜湖·奥拉沙宝场' })).toBeInTheDocument()
+    expect(screen.queryByText('PAR 9 · 900 码')).not.toBeInTheDocument()
+    expect(screen.getByText('球场攻略加载中…')).toBeInTheDocument()
+  })
+})
+
+describe('PrepPage 针对你 tips (inspector)', () => {
+  it('renders tips in delivered order with severity dots + zh 依据, mapping machine basis keys', async () => {
+    fetchPrepTipsMock.mockImplementation(async () => ({
+      schema: 'ai-caddie-prep-tips-v1',
+      courseKey: 'black_knight',
+      tips: [
+        { priority: 2, severity: 'medium', text: '攻果岭常偏短(38%),本场多带半杆', basis: 'course.approachMiss', sourceRefs: ['stats:approachMiss'] },
+        { priority: 1, severity: 'high', text: '开球偏右(58%),第2洞右侧水域注意', basis: 'course.teeDirection', sourceRefs: ['stats:teeDirection'] },
+        { priority: 3, severity: 'info', text: '三杆洞稳定(平均+0.3),按部就班', basis: 'course.parScoring.par3', sourceRefs: ['stats:parScoring'] },
+      ],
+    }))
+    renderPrep()
+    await screen.findByText('PAR 9 · 900 码')
+    await screen.findByText('攻果岭常偏短(38%),本场多带半杆')
+
+    const items = screen.getAllByRole('listitem').filter((item) => item.classList.contains('prep-tip'))
+    expect(items).toHaveLength(3)
+    expect(items[0]).toHaveTextContent('攻果岭常偏短(38%),本场多带半杆')
+    expect(items[0]).toHaveTextContent('依据:你在本场的攻果岭落点')
+    expect(items[1]).toHaveTextContent('开球偏右(58%),第2洞右侧水域注意')
+    expect(items[2]).toHaveTextContent('三杆洞稳定(平均+0.3),按部就班')
+    expect(items[0].querySelector('.prep-tip-dot')).toHaveClass('medium')
+    expect(items[1].querySelector('.prep-tip-dot')).toHaveClass('high')
+  })
+
+  it('hides the 依据 line for unknown machine basis keys instead of rendering them raw', async () => {
+    fetchPrepTipsMock.mockImplementation(async () => ({
+      schema: 'ai-caddie-prep-tips-v1',
+      courseKey: 'black_knight',
+      tips: [{ priority: 1, severity: 'high', text: '保守开局', basis: 'course.someFutureKey', sourceRefs: [] }],
+    }))
+    renderPrep()
+    await screen.findByText('PAR 9 · 900 码')
+
+    expect(await screen.findByText('保守开局')).toBeInTheDocument()
+    expect(screen.queryByText(/course\.someFutureKey/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/依据/)).not.toBeInTheDocument()
+  })
+
+  it('shows 暂无足够数据生成提示 when tips are empty', async () => {
+    renderPrep()
+    await screen.findByText('PAR 9 · 900 码')
+
+    expect(await screen.findByText('暂无足够数据生成提示')).toBeInTheDocument()
+  })
+
+  it('surfaces the tips error inside the inspector with 重试 that refetches', async () => {
+    fetchPrepTipsMock.mockRejectedValueOnce(new Error('tips boom'))
+    renderPrep()
+    await screen.findByText('PAR 9 · 900 码')
+
+    const panel = await screen.findByLabelText('个性化提示加载失败')
+    expect(within(panel).getByText('tips boom')).toBeInTheDocument()
+
+    await userEvent.click(within(panel).getByRole('button', { name: '重试' }))
+
+    expect(await screen.findByText('暂无足够数据生成提示')).toBeInTheDocument()
+    expect(fetchPrepTipsMock).toHaveBeenCalledTimes(2)
   })
 
   it('discards a stale tips response that resolves after the course changed', async () => {
@@ -329,281 +431,15 @@ describe('PrepPage course state', () => {
     const { view, props } = renderPrep()
 
     view.rerender(<PrepPage {...props} globalId={31870} />)
-    await screen.findByText(/Par \d+ · 总码数/)
-    const tabs = screen.getByRole('navigation', { name: '备战页签' })
-    await userEvent.click(within(tabs).getByRole('button', { name: '针对你' }))
+    await screen.findByText(/PAR \d+ · /)
     expect(await screen.findByText('新球场:关注最长洞')).toBeInTheDocument()
 
-    // The stale 31795 tips resolve late — the tipsSeq guard must drop them
-    // (an empty stale payload would otherwise blank the fresh tip or regress
-    // the tab to 加载中).
     await act(async () => {
       resolveFirst(tipsResponse())
       await first
     })
 
     expect(screen.getByText('新球场:关注最长洞')).toBeInTheDocument()
-    expect(screen.queryByText('个性化提示加载中…')).not.toBeInTheDocument()
     expect(screen.queryByText('暂无足够数据生成提示')).not.toBeInTheDocument()
-  })
-
-  it('shows fresh loading state, not the previous course data, immediately after switching courses', async () => {
-    const { view, props } = renderPrep()
-    expect(await screen.findByText('Par 9 · 总码数 900 码')).toBeInTheDocument()
-
-    fetchCoursePrepMock.mockImplementation(() => new Promise<CoursePrepResponse>(() => {}))
-    fetchPrepTipsMock.mockImplementation(() => new Promise<PrepTipsResponse>(() => {}))
-    view.rerender(<PrepPage {...props} globalId={31870} />)
-
-    expect(screen.getByRole('heading', { name: '观澜湖·奥拉沙宝场' })).toBeInTheDocument()
-    expect(screen.queryByText(/总码数/)).not.toBeInTheDocument()
-    expect(screen.queryByText('Par 9 · 总码数 900 码')).not.toBeInTheDocument()
-  })
-})
-
-describe('PrepPage 概览 tab', () => {
-  it('played course: top-3 key holes by averageToPar with sampleCount≥2, pars joined from prep holes', async () => {
-    fetchCoursePrepMock.mockImplementation(async (globalId: number) => fiveHolePrep(globalId))
-    renderPrep({
-      allStats: {
-        ...allStatsFixture(),
-        holes: [
-          // sampleCount 1 → excluded even though it has the worst average.
-          statsHoleRow(2, { averageToPar: 2.5, sampleCount: 1, worstToPar: 6 }),
-          statsHoleRow(3, { averageToPar: 1.8, sampleCount: 3, worstToPar: 4 }),
-          statsHoleRow(1, { averageToPar: 0.6, sampleCount: 2, worstToPar: 2 }),
-          statsHoleRow(4, { averageToPar: 1.2, sampleCount: 5, worstToPar: 3 }),
-          statsHoleRow(5, { averageToPar: -0.2, sampleCount: 4, worstToPar: 1 }),
-          // Another course's row → must be filtered out by courseKey.
-          statsHoleRow(1, { courseKey: 'other_course', averageToPar: 9, sampleCount: 9, worstToPar: 9 }),
-        ],
-      },
-    })
-    await screen.findByText('Par 20 · 总码数 1975 码')
-
-    const keyHoles = screen.getByRole('region', { name: '关键洞' })
-    const titles = within(keyHoles)
-      .getAllByRole('heading', { level: 4 })
-      .map((heading) => heading.textContent)
-    expect(titles).toEqual(['第3洞 · Par5', '第4洞 · Par4', '第1洞 · Par4'])
-    const topCard = within(keyHoles).getByText('第3洞 · Par5').closest('article') as HTMLElement
-    expect(within(topCard).getByText('平均 +1.8')).toBeInTheDocument()
-    expect(within(topCard).getByText('最差 +4')).toBeInTheDocument()
-    expect(within(keyHoles).queryByText('长洞注意')).not.toBeInTheDocument()
-  })
-
-  it('关键洞 skips stats rows whose hole is outside the loaded holes (another nine)', async () => {
-    fetchCoursePrepMock.mockImplementation(async (globalId: number) => fiveHolePrep(globalId))
-    renderPrep({
-      allStats: {
-        ...allStatsFixture(),
-        holes: [
-          // Worst average of all, but hole 13 belongs to the other nine when
-          // only holes 1-5 are loaded — it must not become a 关键洞.
-          statsHoleRow(13, { averageToPar: 4, sampleCount: 5, worstToPar: 8 }),
-          statsHoleRow(3, { averageToPar: 1.8, sampleCount: 3, worstToPar: 4 }),
-          statsHoleRow(1, { averageToPar: 0.6, sampleCount: 2, worstToPar: 2 }),
-        ],
-      },
-    })
-    await screen.findByText('Par 20 · 总码数 1975 码')
-
-    const keyHoles = screen.getByRole('region', { name: '关键洞' })
-    const titles = within(keyHoles)
-      .getAllByRole('heading', { level: 4 })
-      .map((heading) => heading.textContent)
-    expect(titles).toEqual(['第3洞 · Par5', '第1洞 · Par4'])
-    expect(within(keyHoles).queryByText(/第13洞/)).not.toBeInTheDocument()
-  })
-
-  it('关键洞 includes back-nine stats rows when the prep payload serves 18 holes', async () => {
-    fetchCoursePrepMock.mockImplementation(async (globalId: number) => ({
-      ...prepResponse(globalId),
-      holeCount: 18,
-      holes: Array.from({ length: 18 }, (_, index) => prepHole(index + 1, 4, 400)),
-    }))
-    renderPrep({
-      allStats: {
-        ...allStatsFixture(),
-        holes: [
-          statsHoleRow(13, { averageToPar: 4, sampleCount: 5, worstToPar: 8 }),
-          statsHoleRow(3, { averageToPar: 1.8, sampleCount: 3, worstToPar: 4 }),
-        ],
-      },
-    })
-    await screen.findByText('Par 72 · 总码数 7200 码')
-
-    const keyHoles = screen.getByRole('region', { name: '关键洞' })
-    const titles = within(keyHoles)
-      .getAllByRole('heading', { level: 4 })
-      .map((heading) => heading.textContent)
-    expect(titles).toEqual(['第13洞 · Par4', '第3洞 · Par4'])
-  })
-
-  it('unplayed course: falls back to the 3 longest par-4/5 holes with 长洞注意', async () => {
-    fetchCoursePrepMock.mockImplementation(async (globalId: number) => fiveHolePrep(globalId))
-    renderPrep() // allStatsFixture has no stats.holes rows → unplayed path
-
-    await screen.findByText('Par 20 · 总码数 1975 码')
-
-    const keyHoles = screen.getByRole('region', { name: '关键洞' })
-    const titles = within(keyHoles)
-      .getAllByRole('heading', { level: 4 })
-      .map((heading) => heading.textContent)
-    // Par-3 hole 5 (180y) is never a key hole; par-4 hole 2 (395y) is cut at 3.
-    expect(titles).toEqual(['第3洞 · Par5 · 560码', '第4洞 · Par4 · 430码', '第1洞 · Par4 · 410码'])
-    expect(within(keyHoles).getAllByText('长洞注意')).toHaveLength(3)
-    expect(within(keyHoles).queryByText(/平均/)).not.toBeInTheDocument()
-  })
-
-  it('falls back to long holes when no row reaches sampleCount 2, while the strip still colors that hole', async () => {
-    fetchCoursePrepMock.mockImplementation(async (globalId: number) => fiveHolePrep(globalId))
-    renderPrep({
-      allStats: { ...allStatsFixture(), holes: [statsHoleRow(1, { averageToPar: 3, sampleCount: 1, worstToPar: 5 })] },
-    })
-    await screen.findByText('Par 20 · 总码数 1975 码')
-
-    const keyHoles = screen.getByRole('region', { name: '关键洞' })
-    expect(within(keyHoles).getAllByText('长洞注意')).toHaveLength(3)
-    expect(within(keyHoles).queryByText(/平均/)).not.toBeInTheDocument()
-    // The 速览 strip has no sampleCount floor — a single round still colors it.
-    const strip = screen.getByRole('region', { name: '逐洞速览' })
-    expect(within(strip).getByRole('button', { name: '第1洞 Par4 平均+3' })).toHaveClass('bigover')
-  })
-
-  it('逐洞速览 chips bucket averageToPar into under/over/bigover and stay neutral without history', async () => {
-    fetchCoursePrepMock.mockImplementation(async (globalId: number) => fiveHolePrep(globalId))
-    renderPrep({
-      allStats: {
-        ...allStatsFixture(),
-        holes: [
-          statsHoleRow(1, { averageToPar: 0, sampleCount: 2, worstToPar: 2 }),
-          statsHoleRow(2, { averageToPar: 0.5, sampleCount: 2, worstToPar: 2 }),
-          statsHoleRow(3, { averageToPar: 1, sampleCount: 2, worstToPar: 3 }),
-          statsHoleRow(5, { averageToPar: null, sampleCount: 2, worstToPar: null }),
-        ],
-      },
-    })
-    await screen.findByText('Par 20 · 总码数 1975 码')
-
-    const strip = screen.getByRole('region', { name: '逐洞速览' })
-    expect(within(strip).getByRole('button', { name: '第1洞 Par4 平均0' })).toHaveClass('under')
-    const overChip = within(strip).getByRole('button', { name: '第2洞 Par4 平均+0.5' })
-    expect(overChip).toHaveClass('over')
-    expect(overChip).not.toHaveClass('bigover')
-    expect(within(strip).getByRole('button', { name: '第3洞 Par5 平均+1' })).toHaveClass('bigover')
-    expect(within(strip).getByRole('button', { name: '第4洞 Par4 未打过' })).toHaveClass('none')
-    // A row whose averageToPar is null is as good as unplayed for the strip.
-    expect(within(strip).getByRole('button', { name: '第5洞 Par3 未打过' })).toHaveClass('none')
-  })
-
-  it('clicking a 逐洞速览 chip switches to 逐洞攻略 and scrolls to that hole anchor', async () => {
-    const scrolled: string[] = []
-    const scrollSpy = vi.fn(function (this: Element) {
-      scrolled.push((this as HTMLElement).id)
-    })
-    const prototype = Element.prototype as unknown as { scrollIntoView?: unknown }
-    prototype.scrollIntoView = scrollSpy
-    try {
-      renderPrep()
-      await screen.findByText('Par 9 · 总码数 900 码')
-
-      await userEvent.click(screen.getByRole('button', { name: '第2洞 Par5 未打过' }))
-
-      const tabs = screen.getByRole('navigation', { name: '备战页签' })
-      expect(within(tabs).getByRole('button', { name: '逐洞攻略' })).toHaveAttribute('aria-current', 'page')
-      expect(screen.getByText('2 洞')).toBeInTheDocument()
-      expect(scrollSpy).toHaveBeenCalledTimes(1)
-      expect(scrollSpy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
-      expect(scrolled).toEqual(['prep-hole-2'])
-    } finally {
-      delete prototype.scrollIntoView
-    }
-  })
-})
-
-describe('PrepPage 针对你 tab', () => {
-  async function openForYouTab() {
-    await screen.findByText(/Par \d+ · 总码数/)
-    const tabs = screen.getByRole('navigation', { name: '备战页签' })
-    await userEvent.click(within(tabs).getByRole('button', { name: '针对你' }))
-  }
-
-  it('renders tips in delivered order with severity dot classes and zh 依据 sub-lines', async () => {
-    fetchPrepTipsMock.mockImplementation(async () => ({
-      schema: 'ai-caddie-prep-tips-v1',
-      courseKey: 'black_knight',
-      tips: [
-        // basis carries the backend machine keys (ai_caddie/prep_tips.py)
-        { priority: 2, severity: 'medium', text: '攻果岭常偏短(38%),本场多带半杆', basis: 'course.approachMiss', sourceRefs: ['stats:approachMiss'] },
-        { priority: 1, severity: 'high', text: '开球偏右(58%),第2洞右侧水域注意', basis: 'course.teeDirection', sourceRefs: ['stats:teeDirection'] },
-        { priority: 3, severity: 'info', text: '三杆洞稳定(平均+0.3),按部就班', basis: 'course.parScoring.par3', sourceRefs: ['stats:parScoring'] },
-      ],
-    }))
-    renderPrep()
-    await openForYouTab()
-
-    // Delivered order is preserved — the page must not re-sort by severity.
-    const items = screen.getAllByRole('listitem')
-    expect(items).toHaveLength(3)
-    expect(items[0]).toHaveTextContent('攻果岭常偏短(38%),本场多带半杆')
-    expect(items[0]).toHaveTextContent('依据:你在本场的攻果岭落点')
-    expect(items[1]).toHaveTextContent('开球偏右(58%),第2洞右侧水域注意')
-    expect(items[1]).toHaveTextContent('依据:你在本场的开球倾向')
-    expect(items[2]).toHaveTextContent('三杆洞稳定(平均+0.3),按部就班')
-    expect(items[2]).toHaveTextContent('依据:你在本场的三杆洞成绩')
-    expect(items[0].querySelector('.prep-tip-dot')).toHaveClass('medium')
-    expect(items[1].querySelector('.prep-tip-dot')).toHaveClass('high')
-    expect(items[2].querySelector('.prep-tip-dot')).toHaveClass('info')
-  })
-
-  it('hides the 依据 line for unknown machine basis keys instead of rendering them raw', async () => {
-    fetchPrepTipsMock.mockImplementation(async () => ({
-      schema: 'ai-caddie-prep-tips-v1',
-      courseKey: 'black_knight',
-      tips: [{ priority: 1, severity: 'high', text: '保守开局', basis: 'course.someFutureKey', sourceRefs: [] }],
-    }))
-    renderPrep()
-    await openForYouTab()
-
-    expect(screen.getByText('保守开局')).toBeInTheDocument()
-    expect(screen.queryByText(/course\.someFutureKey/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/依据/)).not.toBeInTheDocument()
-  })
-
-  it('shows 暂无足够数据生成提示 when tips are empty', async () => {
-    renderPrep()
-    await openForYouTab()
-
-    expect(screen.getByText('暂无足够数据生成提示')).toBeInTheDocument()
-    expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
-  })
-
-  it('shows a loading line while tips are in flight', async () => {
-    fetchPrepTipsMock.mockImplementation(() => new Promise<PrepTipsResponse>(() => {}))
-    renderPrep()
-    await openForYouTab()
-
-    expect(screen.getByText('个性化提示加载中…')).toBeInTheDocument()
-  })
-
-  it('surfaces the tips error inside the tab with 重试 that refetches', async () => {
-    fetchPrepTipsMock.mockRejectedValueOnce(new Error('tips boom'))
-    renderPrep()
-    await screen.findByText('Par 9 · 总码数 900 码')
-    // The tips failure belongs to the 针对你 tab — 概览 must stay clean.
-    expect(screen.queryByLabelText('个性化提示加载失败')).not.toBeInTheDocument()
-
-    const tabs = screen.getByRole('navigation', { name: '备战页签' })
-    await userEvent.click(within(tabs).getByRole('button', { name: '针对你' }))
-
-    const panel = await screen.findByLabelText('个性化提示加载失败')
-    expect(within(panel).getByText('tips boom')).toBeInTheDocument()
-
-    await userEvent.click(within(panel).getByRole('button', { name: '重试' }))
-
-    expect(await screen.findByText('暂无足够数据生成提示')).toBeInTheDocument()
-    expect(fetchPrepTipsMock).toHaveBeenCalledTimes(2)
-    expect(screen.queryByLabelText('个性化提示加载失败')).not.toBeInTheDocument()
   })
 })
