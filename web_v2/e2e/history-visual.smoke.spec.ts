@@ -796,32 +796,38 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('想备哪场?')).toBeVisible()
   await page.getByRole('button', { name: '去备战 Black Knight B/C' }).click()
 
-  // Course header joins courseOptions (name) + prep totals + stats record.
+  // Workbench: crumb (course name) + hole-list totals + stats record.
   await expect(page.getByRole('heading', { name: 'Black Knight B/C' })).toBeVisible()
-  await expect(page.getByText('Par 11 · 总码数 1020 码')).toBeVisible()
+  await expect(page.getByText('PAR 11 · 1020 码')).toBeVisible()
   await expect(page.getByText('你的战绩:打过 5 次 · 均杆 80.5')).toBeVisible()
 
-  // 概览 tab is active by default: 关键洞 (stats-backed hole 7) + 逐洞速览 chips.
-  const prepTabs = page.getByRole('navigation', { name: '备战页签' })
-  await expect(prepTabs.getByRole('button', { name: '概览' })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('heading', { name: '关键洞' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '第7洞 · Par4' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '逐洞速览' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '第7洞 Par4 平均+1.1' })).toBeVisible()
+  // Left rail lists every hole; hole 7 (a played key hole, stats avg +1.1) is flagged.
+  const holeSeven = page.getByRole('button', { name: '第7洞 Par4 410码' })
+  await expect(holeSeven).toBeVisible()
+  await expect(holeSeven.getByText('平均+1.1')).toBeVisible()
+  await expect(holeSeven.getByText('关键')).toBeVisible()
+
+  // Hole 1 is selected by default → its canvas (real geometry + shot scatter) drives the
+  // 球童试算 inspector; the caddie recommends the nearest club to the ~235 y tee-shot landing.
+  const prepInspector = page.getByRole('complementary', { name: '球童试算' })
+  await expect(page.getByRole('button', { name: '第1洞 Par4 430码' })).toHaveAttribute('aria-current', 'true')
+  await expect(page.locator('[aria-label="第1洞球道图"]')).toBeVisible()
+  await expect(page.getByText('你的落点:')).toBeVisible()
+  await expect(prepInspector.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeVisible()
+  await expect(prepInspector.locator('.prep-club.on')).toContainText('1D')
+  await expect(prepInspector.getByText('水×1 · 沙×1')).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-overview')
 
-  // 速览 chip jumps into 逐洞攻略; hole 1 card carries the mocked shot scatter.
-  await page.getByRole('button', { name: '第1洞 Par4 未打过' }).click()
-  await expect(prepTabs.getByRole('button', { name: '逐洞攻略' })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByText('1 洞', { exact: true })).toBeVisible()
-  await expect(page.getByText('你的落点:')).toBeVisible()
+  // Selecting hole 7 re-drives the inspector (no geometry → placeholder canvas, no scatter).
+  await holeSeven.click()
+  await expect(prepInspector.getByRole('heading', { name: '球童试算 · 第 7 洞' })).toBeVisible()
+  await expect(page.getByText('你的落点:')).toHaveCount(0)
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-holes')
 
-  // 针对你 renders both mocked tips verbatim, with machine basis keys mapped
-  // to zh 依据 lines (raw keys must never surface).
-  await prepTabs.getByRole('button', { name: '针对你' }).click()
+  // 针对你 tips render in the inspector (no tab), machine basis keys mapped to zh 依据
+  // lines (raw keys must never surface).
   await expect(page.getByText('开球偏右(58%),第1洞、第7洞尤其要瞄球道左侧')).toBeVisible()
   await expect(page.getByText('三杆洞稳(平均+0.2),按部就班拿帕')).toBeVisible()
   await expect(page.getByText('依据:你在本场的开球倾向')).toBeVisible()
