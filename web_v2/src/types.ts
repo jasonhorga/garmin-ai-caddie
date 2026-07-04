@@ -497,6 +497,34 @@ export interface HistoryRoundDetailResponse {
   corrections?: AnnotationRecord[]
 }
 
+// 复盘逐洞落点图 (round review shot map): one hole of a played round, with the
+// round's ACTUAL shots projected onto the same 2D hole render the 备战/实战 maps
+// use. `map.overlay.route` is the ideal playing line (the caddie-recommended
+// line drawn faint/dashed); each shot carries its start/end display pixels so the
+// actual trajectory + landing dots can be drawn on top. Synthetic shots (a drive
+// the watch never recorded) are flagged so they render honestly (faded).
+export interface RoundHoleShot {
+  start: [number, number] | null
+  end: [number, number] | null
+  club: string | null
+  lie: string | null
+  endLie: string | null
+  shotType: string | null
+  order: number | null
+  synthetic: boolean
+}
+
+export interface RoundHoleShotMapResponse {
+  schema: 'ai-caddie-round-hole-shotmap-v1'
+  found: boolean
+  roundRef: string
+  hole: number
+  par?: number | null
+  map: { image: string; overlay: CoursePrepOverlay } | null
+  shots: RoundHoleShot[]
+  missingData: Array<Record<string, unknown>>
+}
+
 export interface HistoryStatsResponse {
   schema: 'ai-caddie-history-stats-v1'
   dataMode: ResolvedDataMode

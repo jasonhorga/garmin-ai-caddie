@@ -35,6 +35,7 @@ import {
   fetchHoleReport,
   fetchClubReport,
   fetchTrendReport,
+  fetchRoundHoleShotMap,
   fetchVisionFindingsForTarget,
   fetchWeatherSnapshot,
   generateCourseReport,
@@ -52,7 +53,7 @@ import type { MediaContextState } from './components/CaddiePage'
 import { CorrectionsPage, type CorrectionTarget } from './components/CorrectionsPage'
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
-import { HomeOverview } from './components/HomeOverview'
+import { ReviewWorkbench } from './components/ReviewWorkbench'
 import { AppleSignInPage } from './components/AppleSignInPage'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
@@ -1516,22 +1517,14 @@ export default function App() {
       )
     }
 
+    // 复盘 landing = the round-review workbench (round selector → hole list →
+    // 逐洞落点图 + 杆序). The rounds list drives the selector; each hole's shot map
+    // is fetched lazily on demand. The archive (球局) + strengths tabs stay separate.
     return (
-      <>
-        <HomeOverview
-          overview={overviewState.data}
-          statsSummary={homeSummaryState.status === 'ready' ? homeSummaryState.data : null}
-          statsLoading={homeSummaryState.status === 'loading' || homeSummaryState.status === 'idle'}
-          courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
-          onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
-          onPrepCourse={handlePrepCourse}
-          onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
-          onNavigateHistory={() => navigate('history')}
-          onNavigateAnalysis={() => navigate('holes')}
-          onStartRecord={() => navigate('record')}
-        />
-        {renderDrilldownPanels()}
-      </>
+      <ReviewWorkbench
+        rounds={overviewState.data.recentRounds ?? []}
+        fetchShotMap={(roundRef, hole) => fetchRoundHoleShotMap(roundRef, hole, currentAdminToken())}
+      />
     )
   }
 
