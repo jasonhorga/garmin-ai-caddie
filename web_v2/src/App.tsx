@@ -80,7 +80,7 @@ import { ReportsPage } from './components/ReportsPage'
 import { SettingsPage } from './components/SettingsPage'
 import { StrengthsPage } from './components/StrengthsPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
-import { TrendsOverview } from './components/TrendsOverview'
+import { StatsDashboard } from './components/StatsDashboard'
 import type { ProductPage } from './navigation'
 import { resolveInitialAdminToken, writeStoredAdminToken } from './adminTokenStore'
 import { readStoredDiagnostics } from './diagnosticsStore'
@@ -1282,13 +1282,11 @@ export default function App() {
       if (trendsState.status === 'ready') {
         return (
           <>
-            <TrendsOverview
+            <StatsDashboard
               stats={trendsState.data}
               allStats={trendsAllStats}
               window={trendsWindow}
               onWindowChange={handleTrendsWindowChange}
-              recentRounds={overviewState.status === 'ready' ? overviewState.data.recentRounds : []}
-              onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
             />
             {renderDrilldownPanels()}
           </>
@@ -1297,7 +1295,7 @@ export default function App() {
       if (trendsState.status === 'error') {
         return (
           <section className="panel empty-state">
-            <h2>趋势总览加载失败</h2>
+            <h2>统计加载失败</h2>
             <p>{trendsState.message}</p>
             <button type="button" onClick={() => void loadTrendsState()}>
               重试
@@ -1307,7 +1305,7 @@ export default function App() {
       }
       return (
         <section className="panel empty-state">
-          <h2>趋势总览加载中</h2>
+          <h2>统计加载中</h2>
         </section>
       )
     }

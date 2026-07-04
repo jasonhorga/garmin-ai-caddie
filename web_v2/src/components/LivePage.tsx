@@ -53,8 +53,8 @@ interface ReplayDone {
   result: { data: HistoryRoundDetailResponse } | { error: string }
 }
 
-// Row formatting matches the TrendsOverview 最近球局 rows (module-private
-// helper idiom used across HomeOverview/TrendsOverview/RoundCard).
+// Row formatting matches the shared 最近球局 rows (module-private
+// helper idiom used across HomeOverview/RoundCard).
 function formatToPar(value: number | null): string {
   if (value === null) return '—'
   return value > 0 ? `+${value}` : String(value)

@@ -94,11 +94,17 @@ const statsPayload = {
     bestScore: 76,
     worstScore: 91,
     shotCount: 612,
+    handicapEstimate: 14.2,
+    handicapTrend: -0.8,
   },
   time: {
     byYear: [{ key: '2026', roundCount: 12, average18: 82.4, bestScore: 76, roundRefs: ['900001', '900002'] }],
     byQuarter: [{ key: '2026-Q2', roundCount: 8, average18: 80.9, bestScore: 76, roundRefs: ['900001'] }],
-    byMonth: [{ key: '2026-05', roundCount: 2, average18: 80.5, bestScore: 78, roundRefs: ['900001', '900002'] }],
+    byMonth: [
+      { key: '2026-05', roundCount: 2, average18: 80.5, averageDifferential: 9.1, bestScore: 78, roundRefs: ['900001', '900002'] },
+      { key: '2026-04', roundCount: 3, average18: 82.0, averageDifferential: 10.4, bestScore: 79, roundRefs: ['900004'] },
+      { key: '2026-03', roundCount: 2, average18: 84.5, averageDifferential: 12.0, bestScore: 81, roundRefs: ['900005'] },
+    ],
     playFrequency: { roundsPerMonth: 3.2, activeMonths: 4 },
     improvement: {
       direction: 'improving',
@@ -132,6 +138,9 @@ const statsPayload = {
       { phase: 'Approach', girPct: 44, sampleCount: 18, sourceRefs: ['900001:7'] },
       { phase: 'Putting', averagePutts: 1.9, sampleCount: 18, sourceRefs: ['900001:8'] },
     ],
+    teeDirection: { hitPct: 57, leftPct: 26, rightPct: 12, otherPct: 5, recorded: 60, dominantMiss: 'left' },
+    approachMiss: { girPct: 42, shortPct: 30, longPct: 12, leftPct: 10, rightPct: 24, recorded: 60, dominantMiss: 'short' },
+    putting: { averagePuttsPerRound: 33.1, averagePutts: 1.9, threePutts: 5, roundsWithPutts: 12 },
   },
   courseDistribution: [
     {
@@ -199,7 +208,14 @@ const statsPayload = {
       shotRefs: ['900001:7:1'],
     },
   ],
-  diagnosis: { topIssue: { issue: 'approach_short', phase: 'Approach' } },
+  diagnosis: {
+    topIssue: { issue: 'approach_short', phase: 'Approach' },
+    issueTrends: [
+      { issue: 'approach_short', phase: 'Approach', estimatedStrokesLost: 2.1, estimatedStrokesImpact: 2.1 },
+      { issue: 'three_putt', phase: 'Putting', estimatedStrokesLost: 0.7, estimatedStrokesImpact: 0.7 },
+      { issue: 'tee_left', phase: 'Tee', estimatedStrokesLost: 0.4, estimatedStrokesImpact: 0.4 },
+    ],
+  },
   issues: [
     {
       issue: 'approach_short',
@@ -743,29 +759,43 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   // Scope subnav-tab clicks to the 辅助导航 nav so they never collide with page content.
   const subnav = page.getByRole('navigation', { name: '辅助导航' })
 
-  // 趋势 landing (R13 GolfLive): the 成绩构成 panel renders the 7-bucket spread from the
-  // compact mobile stats (scoring.outcomeDistribution), splitting 双柏忌/+3/+4 out.
+  // 趋势总览 = the P4 统计 dashboard: KPI tiles + strokes/dispersion/trend/course/composition
+  // panels, all wired to the compact window-aware mobile stats. Locate by [aria-label].
   await subnav.getByRole('button', { name: '趋势总览' }).click()
-  await expect(page.getByText('成绩走势')).toBeVisible()
-  const spreadPanel = page.locator('section[aria-label="成绩构成"]')
-  await expect(spreadPanel.getByText('标准杆')).toBeVisible()
-  await expect(spreadPanel.getByText('双柏忌')).toBeVisible()
-  await expect(spreadPanel.getByText('+3')).toBeVisible()
-  await expect(spreadPanel.getByText('+4')).toBeVisible()
+  await expect(page.locator('section[aria-label="统计仪表盘"]')).toBeVisible()
+  // KPI tiles from real summary/scoring fields.
+  await expect(page.locator('[aria-label="差点指数"]')).toContainText('14.2')
+  await expect(page.locator('[aria-label="平均杆"]')).toContainText('82.4')
+  await expect(page.locator('[aria-label="标准杆上果岭"]')).toContainText('42%')
+  await expect(page.locator('[aria-label="开球上球道"]')).toContainText('57%')
+  await expect(page.locator('[aria-label="平均推杆"]')).toContainText('33.1')
+  // 各环节失杆 from diagnosis.issueTrends grouped by phase (NOT fabricated strokes-gained).
+  await expect(page.locator('section[aria-label="各环节失杆"]')).toContainText('攻果岭')
+  // 差点趋势 + 失误倾向 render as real SVG charts.
+  await expect(page.getByRole('img', { name: '差点趋势图' })).toBeVisible()
+  await expect(page.getByRole('img', { name: '攻果岭失误分布图' })).toBeVisible()
+  // 成绩构成 4-bucket breakdown (○ 小鸟及以下 / 标准杆 / □ 柏忌 / ⊡ 双柏忌+).
+  const compPanel = page.locator('section[aria-label="成绩构成"]')
+  await expect(compPanel.getByText('标准杆', { exact: true })).toBeVisible()
+  await expect(compPanel.getByText('柏忌', { exact: true })).toBeVisible()
+  await expect(compPanel.getByText('双柏忌+', { exact: true })).toBeVisible()
+  // 按球场 table from stats.courses.
+  await expect(page.locator('section[aria-label="按球场"]')).toContainText('Black Knight B')
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'trends')
 
-  // 统计 owns trends + course performance…
-  for (const [tab, heading, level, slug] of [
-    ['趋势总览', '成绩走势', 2, 'trends-overview'],
-    ['球场', '球场表现', 1, 'courses'],
-  ] as const) {
-    await subnav.getByRole('button', { name: tab }).click()
-    await expect(page.getByRole('heading', { name: heading, exact: true, level })).toBeVisible()
-    await assertNoViewportOverflow(page)
-    await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
-    await captureSmokeScreenshot(page, testInfo, slug)
-  }
+  // 统计 owns the dashboard + course performance; walk both subnav tabs.
+  await subnav.getByRole('button', { name: '趋势总览' }).click()
+  await expect(page.locator('section[aria-label="统计仪表盘"]')).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
+  await captureSmokeScreenshot(page, testInfo, 'trends-overview')
+
+  await subnav.getByRole('button', { name: '球场' }).click()
+  await expect(page.getByRole('heading', { name: '球场表现', exact: true, level: 1 })).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
+  await captureSmokeScreenshot(page, testInfo, 'courses')
 
   // …while 复盘 owns the rounds list + strengths analysis (split out of the old 历史).
   await page.getByRole('button', { name: '复盘', exact: true }).click()
