@@ -496,6 +496,8 @@ export function BagPage({ measuredClubs, adminToken, isOwner = true, selfPlayerI
   )
 }
 
+// The AppShell top-bar already titles the page 球包; this page toolbar carries the
+// club-count crumb + the two page actions (no duplicate page title).
 function BagHeader({
   clubCount,
   onRecompute,
@@ -508,14 +510,10 @@ function BagHeader({
   disabled?: boolean
 }) {
   return (
-    <header className="section-head stats-head bagx-head">
-      <div>
-        <p className="eyebrow">球包</p>
-        <h1>球包</h1>
-        <p className="bagx-crumb">
-          {clubCount > 0 ? `${clubCount} 支 · ` : ''}你的实测距离 · 与 iOS 同一份 club profile
-        </p>
-      </div>
+    <div className="bagx-toolbar">
+      <p className="bagx-crumb">
+        {clubCount > 0 ? `${clubCount} 支 · ` : ''}你的实测距离 · 与 iOS 同一份 club profile
+      </p>
       <div className="bagx-actions">
         <button type="button" className="prep-topbtn" onClick={onRecompute} disabled={disabled}>
           从记录重算
@@ -524,6 +522,6 @@ function BagHeader({
           + 添加球杆
         </button>
       </div>
-    </header>
+    </div>
   )
 }
