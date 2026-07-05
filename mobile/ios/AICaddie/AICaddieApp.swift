@@ -509,6 +509,20 @@ public final class LiveRoundAppModel: ObservableObject {
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
     private func signalFreshRoundEntry() {
         pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
+        prewarmRoundTopo()
+    }
+
+    /// 开局提前备料:后端把这局涉及的**每个球场**的所有球洞 topo 底图渲好缓存,之后逐洞浏览命中热缓存。
+    /// 组合局跨两个球场 gid(前 1–9 / 后 10–18),`Hole.sourceGlobalId` 各指向真实球场 → 全覆盖。
+    /// FIRE-AND-FORGET:绝不阻塞开局(SyncClient 内已吞错)。这是负责人的大原则「开局后端统一预加载」在 iOS 的落地。
+    private func prewarmRoundTopo() {
+        guard let package, let syncClient else { return }
+        let gids = Set(package.holes.map { $0.sourceGlobalId ?? package.course.globalId })
+        Task {
+            for gid in gids {
+                await syncClient.prewarmCourseTopo(globalId: gid)
+            }
+        }
     }
 
     /// 组合 18 洞:本环(1–9)+ 第二个环(10–18)。两个环各是独立 CourseView 球场,后端合并成一局。

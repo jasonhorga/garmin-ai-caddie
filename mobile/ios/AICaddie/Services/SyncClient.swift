@@ -371,6 +371,18 @@ public final class SyncClient {
         return baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/topo.png")
     }
 
+    /// 开局提前备料:让后端把这个球场每个 geometry 洞的 topo 底图渲好缓存
+    /// (`POST /api/v2/courses/{globalId}/topo/prewarm`),之后逐洞浏览命中热缓存、不用每洞现渲。
+    /// FIRE-AND-FORGET:后端本身是后台任务立即返回;这里吞掉一切错误,**绝不阻塞开局**。
+    /// 镜像网页的开局 prewarm(#231)。gid `0`(占位)跳过。
+    public func prewarmCourseTopo(globalId: Int) async {
+        guard globalId != 0 else { return }
+        var request = URLRequest(url: endpointURL("/api/v2/courses/\(globalId)/topo/prewarm"))
+        request.httpMethod = "POST"
+        applyAuth(to: &request)
+        _ = try? await session.data(for: request)
+    }
+
     private func validate(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
             AICaddieLog.network.error("Sync response was not an HTTP response")
