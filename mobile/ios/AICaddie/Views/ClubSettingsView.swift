@@ -50,7 +50,7 @@ public struct ClubSettingsView: View {
                 .padding(.bottom, 14)
             }
         }
-        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        .background(HubStyle.grouped)
         .navigationTitle("球杆设置")
         .task { await loadRealBag() }
     }
@@ -113,6 +113,7 @@ struct ClubSettingsContent: View {
             Text("勾选你球包里真实有的球杆 —— 实战选杆和球童建议只用这些,没有的杆不会出现。")
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            gappingLadderCard
             ForEach(ClubCategory.allCases, id: \.self) { category in
                 categoryCard(category)
             }
@@ -126,10 +127,74 @@ struct ClubSettingsContent: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(LiveHoleStyle.green)
-                .liveCard()
+                .hubCard()
             }
         }
         .padding(14)
+    }
+
+    /// 距离阶梯:已选球杆按常用距离(码)从远到近排,每支画出 P10–P90 落点带 + 中位数标记。只用真实
+    /// 击球历史(clubProfiles);没有样本的杆不进阶梯,全空则「数据不足」。纯展示,不改任何选择状态。
+    private struct LadderRow: Identifiable {
+        let id: String
+        let name: String
+        let p10: Int
+        let mid: Int
+        let p90: Int
+    }
+
+    private var ladderRows: [LadderRow] {
+        clubProfiles
+            .filter { $0.medianM > 0 && selected.contains(zhClubName($0.clubName)) }
+            .map { profile in
+                let mid = CoursePrepRoute.yards(fromMetres: profile.medianM)
+                let lo = profile.p10M > 0 ? CoursePrepRoute.yards(fromMetres: profile.p10M) : mid
+                let hi = profile.p90M > 0 ? CoursePrepRoute.yards(fromMetres: profile.p90M) : mid
+                let name = zhClubName(profile.clubName)
+                return LadderRow(id: name, name: name, p10: min(lo, mid), mid: mid, p90: max(hi, mid))
+            }
+            .sorted { $0.mid > $1.mid }
+    }
+
+    @ViewBuilder private var gappingLadderCard: some View {
+        let rows = ladderRows
+        VStack(alignment: .leading, spacing: 10) {
+            Text("距离阶梯 · 各杆常用落点(码)").font(.caption).foregroundStyle(.secondary)
+            if rows.isEmpty {
+                Text("数据不足").font(.subheadline).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 12)
+            } else {
+                let lo = rows.map(\.p10).min() ?? 0
+                let hi = rows.map(\.p90).max() ?? 1
+                ForEach(rows) { row in
+                    HStack(spacing: 10) {
+                        Text(row.name).font(.subheadline.weight(.semibold)).frame(width: 72, alignment: .leading).lineLimit(1)
+                        ladderBar(p10: row.p10, mid: row.mid, p90: row.p90, lo: lo, hi: hi)
+                        Text("\(row.mid)").font(.subheadline.monospacedDigit().weight(.bold)).frame(width: 40, alignment: .trailing)
+                    }
+                }
+                Text("落点带 = 常见 10–90% 区间,竖线 = 中位数").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .hubCard()
+    }
+
+    private func ladderBar(p10: Int, mid: Int, p90: Int, lo: Int, hi: Int) -> some View {
+        GeometryReader { geo in
+            let span = CGFloat(max(1, hi - lo))
+            let x0 = geo.size.width * CGFloat(p10 - lo) / span
+            let x1 = geo.size.width * CGFloat(p90 - lo) / span
+            let xm = geo.size.width * CGFloat(mid - lo) / span
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color(.systemGray5)).frame(height: 6)
+                Capsule().fill(LiveHoleStyle.green.opacity(0.35))
+                    .frame(width: max(6, x1 - x0), height: 6).offset(x: x0)
+                Capsule().fill(LiveHoleStyle.green)
+                    .frame(width: 3, height: 14).offset(x: max(0, xm - 1.5))
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
+        }
+        .frame(height: 16)
     }
 
     private func categoryCard(_ category: ClubCategory) -> some View {
@@ -139,7 +204,7 @@ struct ClubSettingsContent: View {
                 row(club)
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     private func row(_ club: CatalogClub) -> some View {

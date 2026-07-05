@@ -29,7 +29,7 @@ public struct StatsView: View {
                 }
             }
         }
-        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        .background(HubStyle.grouped)
         .navigationTitle("数据统计")
         .task { await load() }
     }
@@ -76,7 +76,7 @@ struct StatsContent: View {
                 VStack(spacing: 8) {
                     Image(systemName: "chart.bar.xaxis").font(.title).foregroundStyle(.secondary)
                     Text(errorText ?? "暂无统计").font(.subheadline).foregroundStyle(.secondary)
-                }.frame(maxWidth: .infinity).padding(.vertical, 40).liveCard()
+                }.frame(maxWidth: .infinity).padding(.vertical, 40).hubCard()
             }
         }
         .padding(14)
@@ -96,7 +96,7 @@ struct StatsContent: View {
                 kpi("中位", s.median18.map { String(format: "%.0f", $0) } ?? "—")
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     // MARK: 近场走势(折线图 + 窗口内抓鸟/柏忌)
@@ -130,7 +130,7 @@ struct StatsContent: View {
                 outcomeChip("双柏+", doubles, color: Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     private func scoreDomain(_ scores: [Int]) -> ClosedRange<Int> {
@@ -157,7 +157,7 @@ struct StatsContent: View {
                 }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     // MARK: 成绩分布
@@ -173,7 +173,7 @@ struct StatsContent: View {
                 }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     // MARK: 各杆型(三/四/五杆洞)
@@ -197,7 +197,7 @@ struct StatsContent: View {
                 .overlay(alignment: .bottom) { Divider() }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     // MARK: 表现统计(开球 / 攻果岭)
@@ -220,7 +220,7 @@ struct StatsContent: View {
                 Text("开球偏向:偏左 \(l) · 偏右 \(r)").font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     // MARK: 推杆
@@ -241,7 +241,7 @@ struct StatsContent: View {
                 Text("累计三推 \(total) 次").font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     // MARK: 在恶化/改善的环节
@@ -262,7 +262,7 @@ struct StatsContent: View {
                 .overlay(alignment: .bottom) { Divider() }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     // MARK: 季度走势
@@ -286,7 +286,7 @@ struct StatsContent: View {
                 .overlay(alignment: .bottom) { Divider() }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     /// Per-round average of a quarter total (用户:季度想看"平均每场"而不是累计次数).
@@ -311,7 +311,7 @@ struct StatsContent: View {
                 .foregroundStyle(.primary)
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     private func courseRow(_ c: StatsCourse) -> some View {
@@ -350,18 +350,18 @@ struct StatsContent: View {
                 .overlay(alignment: .bottom) { Divider() }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     // MARK: helpers
 
     private func kpi(_ title: String, _ value: String) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.title3.weight(.heavy))
+            Text(value).font(.title3.weight(.heavy)).monospacedDigit()
             Text(title).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 10)
-        .background(LiveHoleStyle.tint).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(HubStyle.iconTint).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func outcomeChip(_ title: String, _ count: Int, color: Color) -> some View {
@@ -429,7 +429,7 @@ struct CourseStatsDetailView: View {
                         kpi("最佳", course.bestScore.map(String.init) ?? "—")
                     }
                 }
-                .liveCard()
+                .hubCard()
                 roundsSection
                 if let breakdown = course.nineBreakdown, !breakdown.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
@@ -449,15 +449,15 @@ struct CourseStatsDetailView: View {
                             .overlay(alignment: .bottom) { Divider() }
                         }
                     }
-                    .liveCard()
+                    .hubCard()
                 } else {
                     Text("暂无各九洞明细").font(.subheadline).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity).padding(.vertical, 30).liveCard()
+                        .frame(maxWidth: .infinity).padding(.vertical, 30).hubCard()
                 }
             }
             .padding(14)
         }
-        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        .background(HubStyle.grouped)
         .navigationTitle(course.courseName ?? "球场")
     }
 
@@ -482,7 +482,7 @@ struct CourseStatsDetailView: View {
                     }
                 }
             }
-            .liveCard()
+            .hubCard()
         }
     }
 
@@ -518,10 +518,10 @@ struct CourseStatsDetailView: View {
 
     private func kpi(_ title: String, _ value: String) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.title3.weight(.heavy))
+            Text(value).font(.title3.weight(.heavy)).monospacedDigit()
             Text(title).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 10)
-        .background(LiveHoleStyle.tint).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(HubStyle.iconTint).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

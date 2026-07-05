@@ -245,6 +245,25 @@ final class DesignSnapshotTests: XCTestCase {
         let prepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepJSON.utf8))
         try captureScreen(VStack { HoleImageMapView(hole: prepHole).frame(height: 460) }.padding(24), named: "hole-map")
 
+        // 备战逐洞卡 (reskin): 浅色 hubCard — 洞号 / Par / 蓝T / 实打坡度 + 真实球场图 + 球童试算(推荐球杆
+        // 绿胶囊 + 果岭前/中/后码) + 逐步打法 + 障碍提示。渲染真实 HolePrepCard(整套 prep 数据)以验证浅色。
+        let prepCardJSON = """
+        {"hole":7,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
+        "route":[[120,330],[118,180],[120,55]],"tee_club":"D","landing_m":150,\
+        "steps":[{"club":"D","note":"开球打球道左中,避右侧沙坑"},{"club":"8I","note":"攻果岭中心,后方无碍"}],\
+        "cautions":["果岭前缘有陡坡,落点宁长勿短"],\
+        "hazards":{"water_carry":[[175,195]],"bunkers":[[210,225],[138,150]]},\
+        "map":{"image":"\(b64)","overlay":{"w":\(mapW),"h":\(mapH),"ppm":1.0,"ln":375,\
+        "route":[[120,330,0],[118,180,150],[120,55,375]]}},\
+        "greenDistances":{"available":true,"frontM":128,"middleM":135,"backM":142},\
+        "playsLike":{"available":true,"deltaM":7.3,"deltaYd":8}}
+        """
+        let prepCardHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepCardJSON.utf8))
+        try captureScreen(
+            ScrollView { HolePrepCard(hole: prepCardHole).padding(14) }.background(HubStyle.grouped),
+            named: "prep-hole"
+        )
+
         // 单场复盘: hole-by-hole scorecard + score strip + phase summary + graceful missing-data,
         // rendered from a round-detail fixture (mirrors /api/v2/history/rounds/{ref}).
         let roundJSON = """
