@@ -1362,6 +1362,14 @@ class MobileContractTests(unittest.TestCase):
         # 1d: 开始记分后直接进实战屏(pendingLiveHole → Hub 路径导航到该洞),不弹回 Hub。
         self.assertIn("var pendingLiveHole: Int?", app_swift)
         self.assertIn("signalFreshRoundEntry()", app_swift)
+        # 开局提前备料:新局进入时后端预热本局涉及球场的所有洞 topo 底图(组合局跨 sourceGlobalId 全覆盖),
+        # 逐洞浏览命中热缓存。fire-and-forget,绝不阻塞开局。
+        self.assertIn("prewarmRoundTopo()", app_swift)
+        self.assertIn("$0.sourceGlobalId ?? package.course.globalId", app_swift)
+        self.assertIn("await syncClient.prewarmCourseTopo(globalId: gid)", app_swift)
+        sync_client_prewarm = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        self.assertIn("public func prewarmCourseTopo(globalId: Int) async", sync_client_prewarm)
+        self.assertIn("/api/v2/courses/\\(globalId)/topo/prewarm", sync_client_prewarm)
         self.assertIn("enum HubRoute", round_home)
         self.assertIn("path = [.hole(hole)]", round_home)
         self.assertIn("onConsumePendingLiveHole()", round_home)
