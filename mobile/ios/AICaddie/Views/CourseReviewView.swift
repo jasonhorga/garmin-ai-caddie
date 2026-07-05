@@ -40,6 +40,7 @@ public struct CourseReviewView: View {
             }
             .padding()
         }
+        .background(HubStyle.grouped)
         .navigationTitle("赛前球场攻略")
         .task { await load() }
     }
@@ -61,39 +62,131 @@ struct HolePrepCard: View {
     let hole: CoursePrepHole
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("\(hole.hole) 洞").font(.headline)
-                Text("Par \(hole.par)")
-                    .font(.caption).bold()
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(parColor).foregroundColor(.white).clipShape(Capsule())
-                Text("蓝T \(hole.blueYards)y").font(.caption).foregroundColor(.secondary)
-                Spacer()
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            header
             // 服务端真实球场图 + 推荐打法(route + 推荐落点 + 球杆)叠加。
             HoleImageMapView(hole: hole)
-            ForEach(Array(hole.steps.enumerated()), id: \.offset) { _, step in
-                Text(step.club.map { "• \($0)  \(step.note)" } ?? "• \(step.note)").font(.subheadline)
-            }
-            ForEach(Array(hazardSummaries.enumerated()), id: \.offset) { _, summary in
-                Text(summary).font(.caption).foregroundColor(.secondary)
-            }
+            caddieTrySection
+            if !hole.steps.isEmpty { stepsSection }
+            if !hazardSummaries.isEmpty { hazardsSection }
             ForEach(Array(hole.cautions.enumerated()), id: \.offset) { _, caution in
-                Text("⚠︎ \(caution)").font(.caption).foregroundColor(.orange)
+                Label(caution, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(HubStyle.warmBad)
             }
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .hubCard()
+    }
+
+    // MARK: 头部:洞号 + Par + 蓝T + 实打(坡度)
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(hole.hole)").font(.system(size: 26, weight: .heavy)).monospacedDigit()
+            Text("洞").font(.caption).foregroundStyle(.secondary)
+            Text("Par \(hole.par)")
+                .font(.caption.weight(.bold))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(parColor.opacity(0.14))
+                .foregroundStyle(parColor)
+                .clipShape(Capsule())
+            Text("蓝T \(hole.blueYards)y").font(.caption).foregroundColor(.secondary)
+            Spacer()
+            if let tag = playsLikeTag {
+                Text(tag)
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(LiveHoleStyle.green.opacity(0.14))
+                    .foregroundStyle(LiveHoleStyle.green)
+                    .clipShape(Capsule())
+            }
+        }
+    }
+
+    // MARK: 球童试算:推荐球杆(绿色胶囊)+ 果岭前/中/后距离
+    @ViewBuilder private var caddieTrySection: some View {
+        if recommendedClub != nil || greenDistanceText != nil {
+            HStack(spacing: 8) {
+                if let club = recommendedClub {
+                    HStack(spacing: 5) {
+                        Image(systemName: "flag.fill").font(.caption2)
+                        Text(club).font(.subheadline.weight(.bold))
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(LiveHoleStyle.green)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+                }
+                if let g = greenDistanceText {
+                    Text(g).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: 推荐打法逐步(球杆胶囊 + 说明)
+    private var stepsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(hole.steps.enumerated()), id: \.offset) { _, step in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if let club = step.club, !club.isEmpty {
+                        Text(zhClubName(club))
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(HubStyle.iconTint)
+                            .foregroundStyle(LiveHoleStyle.green)
+                            .clipShape(Capsule())
+                    } else {
+                        Circle().fill(Color.secondary.opacity(0.4)).frame(width: 5, height: 5)
+                            .padding(.top, 6)
+                    }
+                    Text(step.note).font(.subheadline)
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    // MARK: 障碍提示(过水 / 沙坑)
+    private var hazardsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(hazardSummaries.enumerated()), id: \.offset) { _, summary in
+                HStack(spacing: 6) {
+                    Circle().fill(HubStyle.warmBad.opacity(0.7)).frame(width: 5, height: 5)
+                    Text(summary).font(.caption).foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    /// 推荐(开球)球杆:优先 tee_club,其次首个 step 的球杆;转中文名。无则 nil。
+    private var recommendedClub: String? {
+        guard let raw = hole.teeClub ?? hole.steps.first?.club, !raw.isEmpty else { return nil }
+        return zhClubName(raw)
+    }
+
+    /// 实打坡度标签(仅当 /prep 提供 plays-like 时):如「实打 +8 码」。
+    private var playsLikeTag: String? {
+        guard let pl = hole.playsLike, pl.available, let dy = pl.deltaYd, dy != 0 else { return nil }
+        return "实打 \(dy > 0 ? "+" : "")\(dy) 码"
+    }
+
+    /// 果岭前/中/后距离(码),仅当 /prep 提供时。
+    private var greenDistanceText: String? {
+        guard let g = hole.greenDistances, g.available else { return nil }
+        let parts = [
+            g.frontM.map { "前 \(CoursePrepRoute.yards(fromMetres: $0))" },
+            g.middleM.map { "中 \(CoursePrepRoute.yards(fromMetres: $0))" },
+            g.backM.map { "后 \(CoursePrepRoute.yards(fromMetres: $0))" },
+        ].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ") + " 码"
     }
 
     private var parColor: Color {
         switch hole.par {
         case 3: return .blue
         case 5: return .orange
-        default: return .green
+        default: return LiveHoleStyle.green
         }
     }
 
@@ -124,13 +217,5 @@ struct HolePrepCard: View {
             }
         }
         return summaries
-    }
-
-    private var cardBackground: Color {
-        #if canImport(UIKit)
-        return Color(uiColor: .secondarySystemBackground)
-        #else
-        return Color.gray.opacity(0.12)
-        #endif
     }
 }
