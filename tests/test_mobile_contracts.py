@@ -1419,7 +1419,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",round_home)
         self.assertIn("public let courseOptions: [MobileCourseOption]", round_home)
         self.assertIn("StartRoundView(", round_home)
-        self.assertIn('Label("开始一场"', round_home)
+        # 打球 = the wide primary tile on the light home (opens 开始一场 / StartRoundView).
+        self.assertIn("HubPlayTile", round_home)
+        self.assertIn('Text("打球")', round_home)
 
         # 选9洞 中途加打 / 撤销: nine 是对一局 18 洞的视图过滤,改 nine 重取同 roundId 保留已记杆。
         self.assertIn("@Published public private(set) var startingNine", app_swift)
@@ -1601,7 +1603,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("本场球洞", round_home)
         self.assertNotIn("private var manageSection", round_home)
         self.assertIn("private var manageSection", current_hole)
-        self.assertIn('navigationTitle("AI 球童")', round_home)
+        # Light home: a nameless, time-of-day greeting stands in for the app-name large title.
+        self.assertIn("navigationTitle(greeting)", round_home)
+        self.assertIn('"下午好"', round_home)
 
     def test_ios_hole_2d_map_wired(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
@@ -1745,7 +1749,7 @@ class MobileContractTests(unittest.TestCase):
         prep_picker = _read_required_source(self, IOS_DIR / "Views" / "PrepCoursePickerView.swift")
 
         # 备战先选球场(PrepCoursePickerView)再进赛前攻略,而不是锁死在当前球场。
-        self.assertIn('title: "赛前攻略"', round_home)
+        self.assertIn('title: "备战"', round_home)
         self.assertIn("PrepCoursePickerView(courseOptions: courseOptions", round_home)
         self.assertIn("struct PrepCoursePickerView", prep_picker)
         self.assertIn("courseVenueGroups(courseOptions)", prep_picker)

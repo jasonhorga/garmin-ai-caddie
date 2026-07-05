@@ -23,10 +23,25 @@ public struct RoundShotMapView: View {
                 }
             }
             .aspectRatio(CGFloat(overlay.w) / CGFloat(overlay.h), contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
+            .overlay(alignment: .topLeading) { holeTag }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         #endif
+    }
+
+    /// 第 N 洞 · Par X pill over the top-left of the render (score/relative isn't in this payload → omitted).
+    @ViewBuilder private var holeTag: some View {
+        if shotMap.hole > 0 {
+            Text(shotMap.par.map { "第 \(shotMap.hole) 洞 · Par \($0)" } ?? "第 \(shotMap.hole) 洞")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.primary)
+                .padding(.vertical, 5)
+                .padding(.horizontal, 10)
+                .background(Color.white.opacity(0.92))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+                .padding(10)
+        }
     }
 
     public var hasMap: Bool {
@@ -52,19 +67,34 @@ public struct RoundShotMapView: View {
             guard let p, p.count >= 2 else { return nil }
             return CGPoint(x: CGFloat(p[0]) * sx, y: CGFloat(p[1]) * sy)
         }
+        func routePoint(_ p: [Double]) -> CGPoint { CGPoint(x: CGFloat(p[0]) * sx, y: CGFloat(p[1]) * sy) }
 
-        // Connected shot path: each shot start→end, in order. A dark halo under a white line keeps
-        // it legible over green/sand/water; synthetic (auto-filled) shots are dashed + faded.
+        // Caddie-recommended route — a white dashed line, drawn FIRST so the actual (yellow) shot path
+        // sits over it. Lets the player compare "what the caddie suggested" vs "what I actually did".
+        let route = overlay.route.filter { $0.count >= 2 }
+        if route.count >= 2 {
+            var rp = Path()
+            rp.move(to: routePoint(route[0]))
+            for pt in route.dropFirst() { rp.addLine(to: routePoint(pt)) }
+            context.stroke(rp, with: .color(.black.opacity(0.22)),
+                           style: StrokeStyle(lineWidth: 3.4, lineCap: .round, lineJoin: .round))
+            context.stroke(rp, with: .color(.white.opacity(0.75)),
+                           style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: [5, 5]))
+        }
+
+        // Actual shot path: each shot start→end, in order, in AMBER (#ffb300). A dark halo keeps it
+        // legible over green/sand/water; synthetic (auto-filled) shots are dashed + faded.
+        let amber = Color(red: 1.0, green: 0.70, blue: 0.0)
         for shot in shotMap.shots {
             guard let a = point(shot.start), let b = point(shot.end) else { continue }
             var path = Path()
             path.move(to: a)
             path.addLine(to: b)
-            let width: CGFloat = shot.synthetic ? 2 : 2.5
-            context.stroke(path, with: .color(.black.opacity(0.28)),
-                           style: StrokeStyle(lineWidth: width + 1.5, lineCap: .round, lineJoin: .round))
+            let width: CGFloat = shot.synthetic ? 2.2 : 2.8
+            context.stroke(path, with: .color(.black.opacity(0.30)),
+                           style: StrokeStyle(lineWidth: width + 1.6, lineCap: .round, lineJoin: .round))
             let line = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round, dash: shot.synthetic ? [5, 5] : [])
-            context.stroke(path, with: .color(.white.opacity(shot.synthetic ? 0.7 : 0.95)), style: line)
+            context.stroke(path, with: .color(amber.opacity(shot.synthetic ? 0.7 : 1.0)), style: line)
         }
 
         // Tee marker: a hollow white ring (the start of the hole).
@@ -136,7 +166,7 @@ public struct RoundShotMapLegend: View {
                 }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 }
 
@@ -170,7 +200,7 @@ public struct RoundHoleShotMapScreen: View {
                 ScrollView { content }
             }
         }
-        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        .background(HubStyle.grouped)
         .navigationTitle(showsNavigationTitle ? "第 \(hole) 洞 · 落点" : "")
         .task(id: hole) { await load() }
     }
@@ -188,7 +218,7 @@ public struct RoundHoleShotMapScreen: View {
                 Image(systemName: "scope").font(.title).foregroundStyle(.secondary)
                 Text(errorText ?? "这一洞暂无落点数据").font(.subheadline).foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity).padding(.vertical, 40).liveCard()
+            .frame(maxWidth: .infinity).padding(.vertical, 40).hubCard()
         }
     }
 
@@ -212,7 +242,7 @@ public struct RoundHoleShotMapScreen: View {
                 .overlay(alignment: .bottom) { Divider() }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     @MainActor
@@ -256,7 +286,7 @@ public struct RoundShotMapPagerScreen: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        .background(HubStyle.grouped)
         .navigationTitle("第 \(current) 洞 · 落点 · 左右滑")
     }
 }

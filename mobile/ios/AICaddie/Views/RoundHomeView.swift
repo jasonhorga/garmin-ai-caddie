@@ -94,18 +94,32 @@ public struct RoundHomeView: View {
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
     }
 
+    /// Nameless, time-of-day greeting (早上好 / 中午好 / 下午好 / 晚上好) — the home's large title.
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<11: return "早上好"
+        case 11..<13: return "中午好"
+        case 13..<18: return "下午好"
+        default: return "晚上好"
+        }
+    }
+
     public var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
-                VStack(spacing: 12) {
-                    playCard
+                VStack(spacing: 14) {
+                    playSection
                     tilesRow
-                    lastRoundCard
+                    lastRoundSection
                 }
-                .padding(14)
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 22)
             }
-            .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
-            .navigationTitle("AI 球童")
+            .background(HubStyle.grouped)
+            // A nameless, time-of-day greeting stands in for the app-name title (no personal name).
+            .navigationTitle(greeting)
+            .navigationBarTitleDisplayMode(.large)
             .navigationDestination(for: HubRoute.self) { route in
                 switch route {
                 case .start:
@@ -174,7 +188,7 @@ public struct RoundHomeView: View {
 
     // MARK: - 打球(开始 / 继续 + 加打/移除九洞)
 
-    @ViewBuilder private var playCard: some View {
+    @ViewBuilder private var playSection: some View {
         if let liveRoundState, package.holes.contains(where: { $0.number == liveRoundState.activeHole }) {
             NavigationLink(value: HubRoute.hole(liveRoundState.activeHole)) {
                 HubInProgressCard(
@@ -186,14 +200,9 @@ public struct RoundHomeView: View {
             }
             .buttonStyle(.plain)
         }
+        // 打球 = the wide primary tile (was the full-width green button); opens 开始一场 (StartRoundView).
         NavigationLink(value: HubRoute.start) {
-            Label("开始一场", systemImage: "flag.checkered")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(LiveHoleStyle.green)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            HubPlayTile()
         }
         .buttonStyle(.plain)
     }
@@ -201,26 +210,26 @@ public struct RoundHomeView: View {
     // MARK: - 备战 · 复盘 · 统计 磁贴(复盘=单场逐洞,统计=历史宏观,分开)
 
     @ViewBuilder private var tilesRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 11) {
             if let apiBaseURL {
                 NavigationLink {
                     // 备战先选球场,而不是锁死在当前球场。
                     PrepCoursePickerView(courseOptions: courseOptions, apiBaseURL: apiBaseURL, adminToken: adminToken)
                 } label: {
-                    HubTile(icon: "map", title: "赛前攻略", subtitle: "选球场 · 逐洞")
+                    HubTile(icon: "scope", title: "备战", subtitle: "选场 · 球童试算")
                 }
                 .buttonStyle(.plain)
             }
             NavigationLink {
                 RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)
             } label: {
-                HubTile(icon: "list.bullet.rectangle", title: "历史复盘", subtitle: "逐场逐洞")
+                HubTile(icon: "clock.arrow.circlepath", title: "历史复盘", subtitle: "逐洞落点")
             }
             .buttonStyle(.plain)
             NavigationLink {
                 StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
             } label: {
-                HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势 · 球杆")
+                HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势")
             }
             .buttonStyle(.plain)
         }
@@ -228,20 +237,26 @@ public struct RoundHomeView: View {
 
     // MARK: - 上一场速览
 
-    @ViewBuilder private var lastRoundCard: some View {
+    @ViewBuilder private var lastRoundSection: some View {
         if let last = package.recentHistory.rounds.first {
-            NavigationLink {
-                RoundReviewView(roundRef: last.roundId, fallbackCourseName: last.courseName,
-                                apiBaseURL: apiBaseURL, adminToken: adminToken)
-            } label: {
-                HubLastRoundCard(
-                    courseName: last.courseName,
-                    date: last.date,
-                    score: last.score,
-                    toPar: last.toPar
-                )
+            VStack(alignment: .leading, spacing: 9) {
+                HubSectionLabel("上一场")
+                NavigationLink {
+                    RoundReviewView(roundRef: last.roundId, fallbackCourseName: last.courseName,
+                                    apiBaseURL: apiBaseURL, adminToken: adminToken)
+                } label: {
+                    HubLastRoundCard(
+                        courseName: last.courseName,
+                        date: last.date,
+                        score: last.score,
+                        toPar: last.toPar,
+                        holesCompleted: last.holesCompleted,
+                        par: last.par
+                    )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(.top, 6)
         }
     }
 
@@ -303,7 +318,7 @@ public struct RoundHomeView: View {
 
 // MARK: - 表现型卡片(纯输入 → CI 设计快照可复用)
 
-/// 进行中卡:绿描边白卡,course + 第X/Z洞 + 已记进度 + 继续提示。
+/// 进行中英雄卡:白卡 + 淡绿描边 + 绿点「进行中」标签,球场·当前洞 + 已打进度 + 绿「继续 ›」胶囊。
 struct HubInProgressCard: View {
     let courseName: String
     let activeHole: Int
@@ -311,85 +326,116 @@ struct HubInProgressCard: View {
     let total: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Circle().fill(HubStyle.liveDot).frame(width: 8, height: 8)
                 Text("进行中")
-                    .font(.caption2.weight(.bold))
+                    .font(.caption.weight(.heavy))
                     .foregroundStyle(LiveHoleStyle.green)
-                Spacer()
-                Text("第 \(activeHole)/\(total) 洞")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-            Text(courseName).font(.title3.weight(.bold))
-            Text("已记 \(recorded) 洞 · 共 \(total) 洞")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text("继续这场 →")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(LiveHoleStyle.green)
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("\(courseName) · 第 \(activeHole) 洞")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("已打 \(recorded) 洞 · 共 \(total) 洞")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Text("继续 ›")
+                    .font(.subheadline.weight(.heavy))
+                    .foregroundStyle(.white)
+                    .padding(.vertical, 11)
+                    .padding(.horizontal, 17)
+                    .background(LiveHoleStyle.green)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white)
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(LiveHoleStyle.green, lineWidth: 1.5))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(HubStyle.heroBorder, lineWidth: 1))
+        .shadow(color: LiveHoleStyle.green.opacity(0.12), radius: 10, x: 0, y: 4)
     }
 }
 
-/// 备战 / 历史复盘 入口磁贴(竖排图标 + 标题 + 副标题)。
+/// 打球:宽图块(绿色实心旗帜图标 + 标题/副标题 + 右侧 ›),点击开始一场(StartRoundView)。
+struct HubPlayTile: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            HubIconSquare(system: "flag.fill", filled: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("打球").font(.title3.weight(.bold)).foregroundStyle(.primary)
+                Text("新开一场 · 选起始 9 洞").font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .hubCard()
+    }
+}
+
+/// 备战 / 历史复盘 / 数据统计 入口磁贴(左上绿色图标方块 + 标题 + 副标题)。
 struct HubTile: View {
     let icon: String
     let title: String
     let subtitle: String
 
     var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(LiveHoleStyle.green)
-            Text(title).font(.subheadline.weight(.bold)).foregroundStyle(.primary)
-            Text(subtitle)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        VStack(alignment: .leading, spacing: 10) {
+            HubIconSquare(system: icon)
+            Spacer(minLength: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.bold)).foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-        .background(Color.white)
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(LiveHoleStyle.line))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+        .hubCard(padding: 14)
     }
 }
 
-/// 上一场速览卡:杆数大字 + 相对标准杆 chip(score token 配色)。
+/// 上一场速览卡:球场 · 日期 + 杆数大字 + 相对标准杆(score token 配色)。
 struct HubLastRoundCard: View {
     let courseName: String
     let date: String
     let score: Int
     let toPar: Int?
+    var holesCompleted: Int? = nil
+    var par: Int? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("上一场").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Text(aiCaddieShortDate(date)).font(.caption).foregroundStyle(.secondary)
-            }
-            HStack(alignment: .firstTextBaseline) {
-                Text(courseName).font(.subheadline.weight(.semibold))
-                Spacer()
-                Text("\(score)").font(.title2.monospacedDigit().weight(.bold))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(courseName).font(.title3.weight(.bold)).foregroundStyle(.primary)
+                Text(aiCaddieShortDate(date)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Text("\(score)").font(.system(size: 26, weight: .heavy)).monospacedDigit().foregroundStyle(.primary)
                 Text(toParText)
-                    .font(.caption.monospacedDigit())
-                    .padding(.vertical, 3)
-                    .padding(.horizontal, 8)
-                    .background(AICaddieDesignTokens.scoreColor(toPar: toPar).opacity(0.16))
+                    .font(.subheadline.weight(.bold))
+                    .monospacedDigit()
                     .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
-                    .clipShape(Capsule())
+            }
+            if let subtitle = holesParText {
+                Text(subtitle).font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .liveCard()
+        .hubCard()
+    }
+
+    private var holesParText: String? {
+        var parts: [String] = []
+        if let holesCompleted { parts.append("\(holesCompleted) 洞") }
+        if let par { parts.append("Par \(par)") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var toParText: String {
