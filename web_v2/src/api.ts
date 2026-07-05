@@ -92,6 +92,13 @@ function apiUrl(path: string): string {
   return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`
 }
 
+// The realistic-topo base bitmap for a course hole (design-system §九), rendered + cached
+// server-side. Used as the <img> base layer under the hole canvases' vector overlays. Public
+// (course geometry, no auth). 404s for a hole without CourseView geometry → client falls back.
+export function topoImageUrl(globalId: number, hole: number): string {
+  return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png`)
+}
+
 function adminTokenHeader(adminToken?: string): Record<string, string> {
   const trimmed = adminToken?.trim()
   if (!trimmed) return {}

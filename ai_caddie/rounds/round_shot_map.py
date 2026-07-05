@@ -144,6 +144,10 @@ def build_round_hole_shot_map(data: HistoryData, round_ref: str, hole: int) -> d
         "roundRef": str(row.get("id")),
         "hole": hole,
         "par": par,
+        # The physical (gid, localHole) the render came from (front/back-nine aware) — lets the client
+        # fetch the realistic topo base bitmap for this exact hole. Only set when geometry rendered.
+        "globalId": int(gid) if gid is not None else None,
+        "localHole": int(local),
         "map": {"image": image, "overlay": overlay},
         "shots": plotted,
         "missingData": [],

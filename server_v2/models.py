@@ -459,6 +459,11 @@ class RoundHoleShotMapResponse(BaseModel):
     roundRef: str
     hole: int
     par: int | None = None
+    # Physical (course, hole) the geometry was rendered from — front/back-nine aware, so a composite
+    # 18's back nine resolves to its second loop's gid. Present only when geometry rendered (map set);
+    # the client uses it to fetch the realistic topo base bitmap (/courses/{gid}/holes/{hole}/topo.png).
+    globalId: int | None = None
+    localHole: int | None = None
     map: dict[str, Any] | None = None
     shots: list[dict[str, Any]] = Field(default_factory=list)
     missingData: list[dict[str, Any]] = Field(default_factory=list)

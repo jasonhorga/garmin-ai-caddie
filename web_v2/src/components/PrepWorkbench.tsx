@@ -156,7 +156,7 @@ export function PrepWorkbench({
 
       {active ? (
         <>
-          <PrepHoleCanvas hole={active} cum={ball.cum} onCum={(cum) => setBall({ hole: validSelected, cum })} />
+          <PrepHoleCanvas hole={active} cum={ball.cum} onCum={(cum) => setBall({ hole: validSelected, cum })} globalId={prepData.globalId} />
           <PrepInspector hole={active} cum={ball.cum} clubs={clubs} tips={tips} tipsError={tipsError} onRetryTips={onRetryTips} />
         </>
       ) : (

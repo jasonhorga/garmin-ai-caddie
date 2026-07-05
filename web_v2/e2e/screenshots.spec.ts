@@ -1057,6 +1057,12 @@ const effectiveClubBagPayload = {
   ],
 }
 
+// 1x1 transparent PNG — a valid image body for the topo base stub (see the topo.png route below).
+const TOPO_PNG_STUB = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC',
+  'base64',
+)
+
 async function mockApi(page: Page): Promise<MockApiRecords> {
   // Recorded ?include_shots values of every /prep request: the scatter walk is
   // only honest if the page actually asked the server for yourShots.
@@ -1071,6 +1077,10 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     if (path === '/api/v2/history/overview') return route.fulfill({ json: overviewPayload })
     if (path === '/api/v2/history/rounds') return route.fulfill({ json: roundsPayload })
     if (/\/holes\/\d+\/shotmap$/.test(path)) return route.fulfill({ json: roundShotMapPayload })
+    // Realistic-topo base bitmap: on the real homeserver a course WITH CourseView geometry (e.g.
+    // gid31795) returns a PNG here; serve a stub so the hole canvas' base <img> loads (no 404) and
+    // the topo path is exercised. A geometry-less course would 404 → the canvas falls back.
+    if (/\/holes\/\d+\/topo\.png$/.test(path)) return route.fulfill({ contentType: 'image/png', body: TOPO_PNG_STUB })
     if (path === '/api/v2/history/rounds/900001') return route.fulfill({ json: replayRoundDetailPayload })
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload })
     // 趋势 landing fetches the compact window-aware mobile stats; serve the same fixture

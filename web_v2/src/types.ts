@@ -520,6 +520,10 @@ export interface RoundHoleShotMapResponse {
   roundRef: string
   hole: number
   par?: number | null
+  // Physical (course, hole) the render came from (front/back-nine aware); present when geometry
+  // rendered (map set). Used to fetch the realistic topo base bitmap for the 复盘 canvas.
+  globalId?: number | null
+  localHole?: number | null
   map: { image: string; overlay: CoursePrepOverlay } | null
   shots: RoundHoleShot[]
   missingData: Array<Record<string, unknown>>

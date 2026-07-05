@@ -31,6 +31,9 @@ _KNOWN_PUBLIC = {
     ("GET", "/api/v2/geometry/course/{global_id}/coverage"),
     ("GET", "/api/v2/geometry/hole/{global_id}/{local_hole}"),
     ("GET", "/api/v2/geometry/hole/{global_id}/{local_hole}/map"),
+    # The realistic-topo base bitmap is pure course geometry (no source_ref, no owner data), public
+    # exactly like /geometry/hole/.../map and /courses/{id}/prep — a hole with no geometry 404s.
+    ("GET", "/api/v2/courses/{global_id}/holes/{hole}/topo.png"),
     ("POST", "/api/v2/auth/apple"),
 }
 # Authed inside the handler via Depends(current_player_id) + an explicit owner/own-player check,
