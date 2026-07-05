@@ -237,7 +237,8 @@ public struct CurrentHoleView: View {
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
         if let holePrep, holePrep.map?.overlay != nil {
-            HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres)
+            HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
+                             topoURL: liveTopoURL)
         } else {
             LinearGradient(
                 colors: [Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255), LivePlayStyle.base],
@@ -379,6 +380,15 @@ public struct CurrentHoleView: View {
             return nil
         }
         return "过水 \(CoursePrepRoute.yards(fromMetres: nearest))"
+    }
+
+    /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
+    /// gid)。给 `HoleImageMapView` 当底图;无后端地址/占位球场时为 nil → 回退到 payload flat 渲染图。
+    private var liveTopoURL: URL? {
+        guard let caddieBaseURL else { return nil }
+        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
+        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        return SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: mapGlobalId, localHole: mapLocalHole)
     }
 
     private func loadHoleMap() async {

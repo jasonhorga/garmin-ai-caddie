@@ -35,7 +35,10 @@ public struct CourseReviewView: View {
                     Text("加载失败：\(errorText)").foregroundColor(.red).font(.callout)
                 }
                 ForEach(holes, id: \.hole) { hole in
-                    HolePrepCard(hole: hole)
+                    HolePrepCard(
+                        hole: hole,
+                        topoURL: SyncClient.topoImageURL(baseURL: client.baseURL, globalId: globalId, localHole: hole.hole)
+                    )
                 }
             }
             .padding()
@@ -60,12 +63,14 @@ public struct CourseReviewView: View {
 
 struct HolePrepCard: View {
     let hole: CoursePrepHole
+    /// 本洞真实地形底图 URL(有几何 + 已知 gid 时);nil → 回退 payload flat 渲染图。
+    var topoURL: URL? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             // 服务端真实球场图 + 推荐打法(route + 推荐落点 + 球杆)叠加。
-            HoleImageMapView(hole: hole)
+            HoleImageMapView(hole: hole, topoURL: topoURL)
             caddieTrySection
             if !hole.steps.isEmpty { stepsSection }
             if !hazardSummaries.isEmpty { hazardsSection }

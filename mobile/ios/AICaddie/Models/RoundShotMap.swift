@@ -7,6 +7,11 @@ public struct RoundHoleShotMap: Codable, Equatable {
     public let found: Bool
     public let hole: Int
     public let par: Int?
+    /// The physical (course, hole) the render came from — front/back-nine aware (a composite round's
+    /// back nine maps to a different course's gid). Present when geometry rendered (`map` set); used
+    /// to fetch the realistic topo base bitmap for the 复盘 canvas.
+    public let globalId: Int?
+    public let localHole: Int?
     public let map: CoursePrepMap?
     public let shots: [RoundShot]
 
@@ -15,19 +20,24 @@ public struct RoundHoleShotMap: Codable, Equatable {
         found = (try? c.decode(Bool.self, forKey: .found)) ?? false
         hole = (try? c.decode(Int.self, forKey: .hole)) ?? 0
         par = try? c.decodeIfPresent(Int.self, forKey: .par)
+        globalId = try? c.decodeIfPresent(Int.self, forKey: .globalId)
+        localHole = try? c.decodeIfPresent(Int.self, forKey: .localHole)
         map = try? c.decodeIfPresent(CoursePrepMap.self, forKey: .map)
         shots = (try? c.decodeIfPresent([RoundShot].self, forKey: .shots)) ?? []
     }
 
-    public init(found: Bool, hole: Int, par: Int? = nil, map: CoursePrepMap? = nil, shots: [RoundShot] = []) {
+    public init(found: Bool, hole: Int, par: Int? = nil, globalId: Int? = nil, localHole: Int? = nil,
+                map: CoursePrepMap? = nil, shots: [RoundShot] = []) {
         self.found = found
         self.hole = hole
         self.par = par
+        self.globalId = globalId
+        self.localHole = localHole
         self.map = map
         self.shots = shots
     }
 
-    private enum CodingKeys: String, CodingKey { case found, hole, par, map, shots }
+    private enum CodingKeys: String, CodingKey { case found, hole, par, globalId, localHole, map, shots }
 }
 
 public struct RoundShot: Codable, Equatable, Identifiable {

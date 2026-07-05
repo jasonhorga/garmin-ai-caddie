@@ -90,7 +90,9 @@ public enum SyncClientError: Error, Equatable {
 }
 
 public final class SyncClient {
-    private let baseURL: URL
+    /// The configured API base (e.g. `https://caddie…ts.net`). Public so views can build the
+    /// no-auth topo bitmap URL (see `topoImageURL(baseURL:globalId:localHole:)`).
+    public let baseURL: URL
     private let adminToken: String?
     private let clientId: String
     private let session: URLSession
@@ -357,6 +359,16 @@ public final class SyncClient {
     private func endpointURL(_ endpoint: String) -> URL {
         let path = endpoint.hasPrefix("/") ? String(endpoint.dropFirst()) : endpoint
         return baseURL.appendingPathComponent(path)
+    }
+
+    /// Public (no-auth) realistic-topo bitmap URL for a course hole:
+    /// `…/api/v2/courses/{globalId}/holes/{localHole}/topo.png` (mirrors web `topoImageUrl`).
+    /// Returns nil for the placeholder gid `0` or a non-positive hole (no real CourseView geometry →
+    /// the caller keeps the flat render). The endpoint 404s when the mesh is absent → the base-image
+    /// layer degrades to the fallback at load time.
+    public static func topoImageURL(baseURL: URL, globalId: Int, localHole: Int) -> URL? {
+        guard globalId != 0, localHole > 0 else { return nil }
+        return baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/topo.png")
     }
 
     private func validate(response: URLResponse, data: Data) throws {
