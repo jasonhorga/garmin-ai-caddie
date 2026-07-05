@@ -1,6 +1,8 @@
-"""hole_render._setup must frame by the DRAWN surfaces (the playing corridor), not by the
-generous, per-hole-varying PlayableBounds box — otherwise the hole renders tiny in a corner and
-the scale jumps between holes (the 备战 2D-map bug the owner reported)."""
+"""hole_render._setup must FILL the frame: frame by the DRAWN surfaces (the playing corridor), scale
+so the hole fills the height, and shrink the canvas WIDTH to the hole (locked 0.64 portrait floor,
+hole centred). Guards two regressions the owner reported: framing by the generous PlayableBounds box
+(hole tiny in a corner, scale jumping between holes) AND the fixed 720x1120 letterbox that left the
+hole floating small inside wide sky (design-system §九 / funnel /render-final.png = 678x1060)."""
 from __future__ import annotations
 
 import unittest
@@ -13,23 +15,28 @@ def _mesh(positions: list[list[float]]) -> dict:
 
 
 class HoleRenderFrameTests(unittest.TestCase):
-    def test_setup_frames_by_drawn_surfaces_not_playablebounds(self) -> None:
+    def test_setup_frames_by_drawn_surfaces_and_fills_the_frame(self) -> None:
         # A tight fairway corridor (~20m wide × 100m long) inside a HUGE PlayableBounds box (~500m).
         fairway = _mesh([[-10, 0, 0], [10, 0, 0], [10, 0, 100], [-10, 0, 100]])
         bounds = _mesh([[-250, 0, -200], [250, 0, -200], [250, 0, 300], [-250, 0, 300]])
         by = {"Fairway.drc": fairway, "PlayableBounds.drc": bounds}
 
-        w, h, margin = 720, 1120, 40
-        project, _scale = hole_render._setup(by, tee=(0, 0), green=(0, 100), w=w, h=h, margin=margin)
+        project, _scale, w, h = hole_render._setup(by, tee=(0, 0), green=(0, 100))
         span = abs(project((0, 0))[1] - project((0, 100))[1])
 
-        # Framed by the fairway, a 100m hole fills most of the canvas height. Framed by the 500m
-        # PlayableBounds it would be ~1/5 of that (tiny in a corner) — guard against the regression.
-        self.assertGreater(span, (h - 2 * margin) * 0.6)
+        # Framed by the fairway (100m) the hole FILLS the height (~1/1.12 with the 6% margin); framed
+        # by the 500m PlayableBounds it would be ~1/5 of that (tiny in a corner). Guard the regression.
+        self.assertGreater(span, h * 0.6)
+        # The canvas is the locked fill-frame portrait: FRAME_H tall, floored to the 0.64 portrait.
+        self.assertEqual(h, hole_render.FRAME_H * hole_render.SS)
+        min_w = round(hole_render.FRAME_H * hole_render.FRAME_MIN_ASPECT) * hole_render.SS
+        self.assertGreaterEqual(w, min_w)
+        # The hole is centred: the tee/green (s=0) project to the horizontal middle.
+        self.assertAlmostEqual(project((0, 0))[0], w / 2, places=6)
 
     def test_setup_falls_back_when_no_drawn_surface(self) -> None:
         bounds = _mesh([[-50, 0, 0], [50, 0, 0], [50, 0, 100], [-50, 0, 100]])
-        project, _scale = hole_render._setup({"PlayableBounds.drc": bounds}, tee=(0, 0), green=(0, 100), w=720, h=1120, margin=40)
+        project, _scale, _w, _h = hole_render._setup({"PlayableBounds.drc": bounds}, tee=(0, 0), green=(0, 100))
         # Still produces a usable projection (no crash, hole spans the canvas).
         self.assertGreater(abs(project((0, 0))[1] - project((0, 100))[1]), 100)
 

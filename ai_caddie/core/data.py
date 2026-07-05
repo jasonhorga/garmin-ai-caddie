@@ -187,6 +187,40 @@ def load_manual_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
     return {"schema": str(raw.get("schema") or "ai-caddie-club-bag-manual-v1"), "clubs": clean}
 
 
+# Garmin club/types mapping (clubTypeId -> generic label). The shared source of truth so any surface
+# resolving a shot's club by clubTypeId (round shot-map, prep scatter, history, reports) agrees.
+# history.club_label re-exports this. The owner's real bag is a per-clubId override (clubs.json) on top,
+# because Garmin's clubTypeId assignment on the owner's clubs does NOT match the generic labels here.
+CLUB_TYPE_NAME: dict[int, str] = {
+    0: "Unknown",
+    1: "Driver", 2: "3W", 3: "5W", 4: "7W", 5: "Hybrid", 6: "2I/Hybrid",
+    7: "3I", 8: "4I", 9: "5I", 10: "6I", 11: "7I", 12: "8I", 13: "9I",
+    14: "PW", 15: "GW", 16: "SW", 17: "LW", 18: "Putter",
+}
+
+# Placeholder club values that carry NO real signal — "Unknown", the old "ClubType 7" leak, "?" or
+# empty. A surface should show the shot WITHOUT a club label rather than one of these (owner:
+# "那些杆都找不到" — clubId=0 shots must read as "no club", not the string "Unknown").
+_NON_SIGNAL_CLUB = re.compile(r"^(?:unknown|clubtype\s*\d+|\?)$", re.IGNORECASE)
+
+
+def clean_club_name(name: str | None) -> str | None:
+    """Return a REAL club label, or None when the value is a non-signal placeholder.
+
+    Shared across surfaces so 复盘 / stats / reports never render a meaningless "Unknown"/clubId for a
+    shot Garmin logged without a club — they simply omit the label. Real names (一号木, 7I, 58°, and
+    bare-number wedge labels like "50"/"58") pass through unchanged; only 0 or a raw 8-digit Garmin
+    clubId leaking as text is dropped (clubIds are >= 1000, wedge/club-number labels are <= ~64)."""
+    if name is None:
+        return None
+    text = str(name).strip()
+    if not text or _NON_SIGNAL_CLUB.match(text):
+        return None
+    if text.isdigit() and (int(text) == 0 or int(text) >= 1000):
+        return None
+    return text
+
+
 def club_name_from_details(club_id: int | None, shot_data: dict[str, Any], *, apply_overrides: bool = True) -> str:
     if not club_id:
         return "Unknown"
@@ -204,8 +238,15 @@ def club_name_from_details(club_id: int | None, shot_data: dict[str, Any], *, ap
             name = club.get("name") or club.get("clubName")
             if name:
                 return str(name)
+            # No explicit name on the club record → map its clubTypeId to a generic label
+            # (7I / Driver / …) via the shared club/types table, so a mappable club resolves to a real
+            # name instead of the old "ClubType 11" leak. Unmappable → the raw id (cleaned out later).
             club_type = club.get("clubTypeId")
-            return f"ClubType {club_type}" if club_type is not None else str(club_id)
+            if club_type:
+                mapped = CLUB_TYPE_NAME.get(int(club_type))
+                if mapped:
+                    return mapped
+            return str(club_id)
     return str(club_id)
 
 

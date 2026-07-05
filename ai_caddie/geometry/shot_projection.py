@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ai_caddie.core.data import (
+    clean_club_name,
     club_name_from_details,
     load_shot_file,
     read_json,
@@ -122,7 +123,9 @@ def _scorecard_shot_rows(path, shots_loader, gid: int, local: int, shot_types, a
                 "roundId": str(scorecard_id),
                 "date": date,
                 "shotType": shot.get("shotType"),
-                "club": club_name_from_details(club_id, shot_data, apply_overrides=apply_overrides) if club_id else None,
+                # Real bag label or None (no signal) — never an "Unknown"/number placeholder, so the
+                # 备战 scatter matches the 复盘 shot-map (shared prep layer, not per-surface).
+                "club": clean_club_name(club_name_from_details(club_id, shot_data, apply_overrides=apply_overrides)) if club_id else None,
                 "lat": lat,
                 "lon": lon,
             })

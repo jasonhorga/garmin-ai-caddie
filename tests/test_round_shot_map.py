@@ -81,6 +81,23 @@ class RoundShotMapTests(unittest.TestCase):
         self.assertEqual(out["shots"][0]["start"], [300, 900])  # tee
         self.assertEqual(out["shots"][0]["end"], [310, 200])  # green (route[-1])
 
+    def test_club_resolves_to_real_name_or_null_never_placeholder(self) -> None:
+        # The owner bug: Garmin only logs a club on SOME shots (clubId 0 on the rest). History
+        # resolves clubName to a real bag label OR the string "Unknown" (clubId 0) OR — when a
+        # clubId does not match the bag but carries no signal — a bare number. The shot-map must
+        # emit the REAL name, or null (no label), and NEVER a meaningless "Unknown"/number.
+        out = self._build([
+            {"scorecardId": "r1", "hole": 1, "order": 1, "clubName": "一号木", "type": "TEE",
+             "start": {"lat": 40.000, "lon": 116.50, "lie": "TeeBox"}, "end": {"lat": 40.010, "lon": 116.50, "lie": "Fairway"}, "endLie": "Fairway"},
+            {"scorecardId": "r1", "hole": 1, "order": 2, "clubName": "Unknown", "type": "RECOVERY",
+             "start": {"lat": 40.010, "lon": 116.50, "lie": "Fairway"}, "end": {"lat": 40.020, "lon": 116.50, "lie": "Fairway"}, "endLie": "Fairway"},
+            {"scorecardId": "r1", "hole": 1, "order": 3, "clubName": "42684923", "type": "APPROACH",
+             "start": {"lat": 40.020, "lon": 116.50, "lie": "Fairway"}, "end": {"lat": 40.030, "lon": 116.50, "lie": "Green"}, "endLie": "Green"},
+            {"scorecardId": "r1", "hole": 1, "order": 4, "clubName": "58°", "type": "CHIP",
+             "start": {"lat": 40.030, "lon": 116.50, "lie": "Green"}, "end": {"lat": 40.031, "lon": 116.50, "lie": "Green"}, "endLie": "Green"},
+        ])
+        self.assertEqual([s["club"] for s in out["shots"]], ["一号木", None, None, "58°"])
+
     def test_missing_round(self) -> None:
         mocks = _geometry_mocks()
         for m in mocks:

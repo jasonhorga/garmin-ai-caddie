@@ -36,6 +36,23 @@ class TopoRenderModuleTests(unittest.TestCase):
         _image, overlay = hole_render.render_hole(31795, 1, route, route_len)
         self.assertEqual(img.size, (overlay["w"], overlay["h"]))
 
+        # Fill-the-frame (design-system §九 / render-final.png): the locked portrait is FRAME_H tall,
+        # floored to the 0.64 aspect, and the hole fills most of the frame (not floating small in sky).
+        self.assertEqual(overlay["h"], hole_render.FRAME_H)
+        self.assertGreaterEqual(overlay["w"], round(hole_render.FRAME_H * hole_render.FRAME_MIN_ASPECT))
+
+        # A known route point (a mid-route landing) projects ONTO turf on the shared base — NOT the
+        # sky background — proving the overlay px land on the hole (pixel-aligned by construction).
+        import numpy as np
+
+        bg = topo_render.PAL["bg"]
+        arr = np.asarray(img.convert("RGB"), dtype=int)
+        mx, my, _cum = overlay["route"][len(overlay["route"]) // 2]
+        px, py = int(round(mx)), int(round(my))
+        self.assertTrue(0 <= px < overlay["w"] and 0 <= py < overlay["h"])
+        self.assertGreater(int(np.abs(arr[py, px] - np.array(bg)).sum()), 40,
+                           "mid-route point landed on the sky background, not the hole")
+
     @unittest.skipUnless(_HAVE_GEOMETRY, "requires decoded prodgeometry meshes (absent in CI)")
     def test_generalises_to_multiple_holes(self) -> None:
         # Not hardcoded to hole 1 — every hole with geometry renders a distinct valid PNG.
