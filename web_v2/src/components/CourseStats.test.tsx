@@ -341,7 +341,7 @@ describe('CourseStats', () => {
     expect(within(distribution).getAllByRole('button', { name: 'Open source 900003' }).length).toBeGreaterThan(0)
   })
 
-  it('keeps coordinate-backed pins stable when the visible course set changes', () => {
+  it('keeps coordinate-backed pins stable when the course set changes', () => {
     const { rerender } = render(<CourseStats data={statsFixture} />)
     const fullPin = screen.getByTestId('course-map-pin-black_knight')
     const fullPosition = {
@@ -349,18 +349,46 @@ describe('CourseStats', () => {
       cy: fullPin.getAttribute('cy'),
     }
 
+    // Adding another course keeps the map visible (≥3 courses) and must not shift
+    // black_knight's pin — projection is absolute (lat/long), not relative to the set.
     rerender(
       <CourseStats
         data={{
           ...statsFixture,
-          courseDistribution: [statsFixture.courseDistribution[0]],
+          courseDistribution: [
+            ...statsFixture.courseDistribution,
+            {
+              courseKey: 'new_course',
+              courseName: 'New Course',
+              roundCount: 1,
+              pct: 20,
+              roundRefs: ['900009'],
+              location: { latitude: 40, longitude: 120 },
+            },
+          ],
         }}
       />,
     )
 
-    const subsetPin = screen.getByTestId('course-map-pin-black_knight')
-    expect(subsetPin).toHaveAttribute('cx', fullPosition.cx)
-    expect(subsetPin).toHaveAttribute('cy', fullPosition.cy)
+    const nextPin = screen.getByTestId('course-map-pin-black_knight')
+    expect(nextPin).toHaveAttribute('cx', fullPosition.cx)
+    expect(nextPin).toHaveAttribute('cy', fullPosition.cy)
+  })
+
+  it('hides the 球场分布 map panel with fewer than 3 courses but keeps the course table', () => {
+    render(
+      <CourseStats
+        data={{ ...statsFixture, courseDistribution: statsFixture.courseDistribution.slice(0, 1) }}
+      />,
+    )
+
+    // The near-empty geographic map is gated out…
+    expect(screen.queryByRole('heading', { name: '球场分布' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: '球场地理分布' })).not.toBeInTheDocument()
+    // …while the course performance table (the real value) stays as primary content.
+    expect(screen.getByRole('heading', { name: '球场表现' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Black Knight B' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Black Knight B 数据')).toBeInTheDocument()
   })
 
   it('selects source refs for drill-down', async () => {

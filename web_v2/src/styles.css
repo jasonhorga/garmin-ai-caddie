@@ -1483,13 +1483,20 @@ p {
   font-style: normal;
 }
 
+/* A proportional distribution bar: buckets sit in one track and each segment is
+   sized to its share (flex-basis = row.pct%, set inline). flex-shrink keeps the
+   segments inside the track when rounding/gaps push the sum past 100%; a legibility
+   floor (min-width) protects the label on very thin slivers. */
 .hole-distribution {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: stretch;
 }
 
 .hole-distribution-bucket {
+  flex: 0 1 auto;
+  min-width: 72px;
   min-height: 44px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -6681,12 +6688,17 @@ button.round-detail-cell:hover {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+  min-width: 0;
 }
 
 .review-round-picker-label {
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
+  /* Never let the 2-char 球局 label wrap to a vertical stack when the narrow
+     (mobile) rail squeezes the picker — the select shrinks instead. */
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .review-round-picker select {
@@ -6698,6 +6710,8 @@ button.round-detail-cell:hover {
   border-radius: 9px;
   padding: 7px 11px;
   max-width: 260px;
+  min-width: 0;
+  flex: 0 1 auto;
   cursor: pointer;
 }
 

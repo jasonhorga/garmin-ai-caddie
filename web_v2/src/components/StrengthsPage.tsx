@@ -412,16 +412,23 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
                   <div className="hole-breakdown">
                     {distribution.length ? (
                       <div className="hole-distribution" aria-label={`第${formatNumber(hole.hole)}洞得分分布`}>
-                        {distribution.map((row) => (
-                          <span
-                            key={asString(row.key) ?? asString(row.label) ?? 'bucket'}
-                            className={`hole-distribution-bucket score-${asString(row.className) ?? 'missing'}`}
-                          >
-                            <strong>{outcomeZh(row)}</strong>
-                            <b>{formatNumber(row.count)}</b>
-                            <em>{formatNumber(row.pct)}%</em>
-                          </span>
-                        ))}
+                        {distribution.map((row) => {
+                          // Each segment is sized to its share of the hole's rounds
+                          // (row.pct), so a 40% bucket reads as 40% of the track — not
+                          // a lone segment stretched to fill the full width.
+                          const share = Math.max(0, Math.min(100, asNumber(row.pct) ?? 0))
+                          return (
+                            <span
+                              key={asString(row.key) ?? asString(row.label) ?? 'bucket'}
+                              className={`hole-distribution-bucket score-${asString(row.className) ?? 'missing'}`}
+                              style={{ flexBasis: `${share}%` }}
+                            >
+                              <strong>{outcomeZh(row)}</strong>
+                              <b>{formatNumber(row.count)}</b>
+                              <em>{formatNumber(row.pct)}%</em>
+                            </span>
+                          )
+                        })}
                       </div>
                     ) : null}
                     {/* evidence chips live BELOW the bar, never inside it (W4a finding) */}
