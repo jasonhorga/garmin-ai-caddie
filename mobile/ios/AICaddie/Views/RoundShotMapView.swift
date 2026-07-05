@@ -232,7 +232,8 @@ public struct RoundHoleShotMapScreen: View {
     }
 
     private func shotListCard(_ shotMap: RoundHoleShotMap) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let ppm = shotMap.map?.overlay.ppm
+        return VStack(alignment: .leading, spacing: 8) {
             Text("逐杆").font(.caption).foregroundStyle(.secondary)
             ForEach(shotMap.shots) { shot in
                 HStack(spacing: 8) {
@@ -244,6 +245,10 @@ public struct RoundHoleShotMapScreen: View {
                     } else {
                         Text("—").font(.subheadline).foregroundStyle(.secondary)
                     }
+                    // 距离(码)—— 复盘的另一半:什么杆 + 打多远。推杆略(距离无意义)。
+                    if let yards = shotYards(shot, ppm: ppm) {
+                        Text("\(yards) 码").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Text(shotLieLabel(shot.lie) + " → " + shotLieLabel(shot.endLie)).font(.caption).foregroundStyle(.secondary)
                 }
@@ -252,6 +257,15 @@ public struct RoundHoleShotMapScreen: View {
             }
         }
         .hubCard()
+    }
+
+    /// 一杆的直线距离(码),由起终点像素 + overlay 的每米像素数(ppm)换算。推杆或缺端点 → nil(不显示)。
+    private func shotYards(_ shot: RoundShot, ppm: Double?) -> Int? {
+        if (shot.shotType ?? "").uppercased() == "PUTT" || (shot.club ?? "").contains("推") { return nil }
+        guard let s = shot.start, s.count >= 2, let e = shot.end, e.count >= 2, let ppm, ppm > 0 else { return nil }
+        let dx = Double(e[0] - s[0]), dy = Double(e[1] - s[1])
+        let metres = (dx * dx + dy * dy).squareRoot() / ppm
+        return Int((metres * 1.09361).rounded())
     }
 
     /// Topo base-image URL for this hole's render — the physical (gid, localHole) the shot map was
