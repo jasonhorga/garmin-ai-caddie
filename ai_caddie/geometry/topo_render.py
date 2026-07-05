@@ -48,7 +48,10 @@ from ai_caddie.geometry import hole_render
 
 # Bump when the render rules change so previously-cached PNGs are superseded (the cache key
 # includes this; old files stay on disk but are never served again).
-STYLE_VERSION = "topo-v1"
+# topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
+# width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
+# are superseded and every hole re-renders with the tighter framing.
+STYLE_VERSION = "topo-v2"
 
 SS = hole_render.SS  # supersample factor — MUST match hole_render so the frame downsamples identically
 AZ = math.radians(135)  # sun FROM the south-east (Garmin-matched: light in the lower-right)
