@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CoursePrepHole, CoursePrepResponse, PrepTip } from '../types'
+import { prefetchTopoImage, topoImageUrl } from '../api'
 import { PrepHoleCanvas } from './PrepHoleCanvas'
 import { PrepInspector } from './PrepInspector'
-import { holeDescriptor, initialCum } from './prepWorkbenchLogic'
+import { initialCum } from './prepWorkbenchLogic'
 import { asNumber, type StatRow } from './statsValues'
 
 // Signed to-par with at most one decimal: 1.25 → '+1.3', 0 → '0', -0.5 → '-0.5'.
@@ -106,6 +107,18 @@ export function PrepWorkbench({
   const played = playedKeyHoleSet(holeRows, holes)
   const keyHoles = played.size > 0 ? played : longKeyHoleSet(holes)
 
+  // Prefetch the previous/next hole's topo bitmap so stepping through the strip is instant — the
+  // neighbour's realistic base image is already in the browser cache by the time it's selected. Only
+  // holes with geometry (an overlay) have a topo; a single-gid course means localHole == hole.number.
+  const globalId = prepData.globalId
+  useEffect(() => {
+    if (validSelected === null) return
+    const index = holes.findIndex((hole) => hole.hole === validSelected)
+    for (const neighbour of [holes[index - 1], holes[index + 1]]) {
+      if (neighbour?.map?.overlay) prefetchTopoImage(topoImageUrl(globalId, neighbour.hole))
+    }
+  }, [validSelected, holes, globalId])
+
   return (
     <div className="prep-work">
       <div className="prep-holes">
@@ -135,18 +148,16 @@ export function PrepWorkbench({
                   aria-label={`第${hole.hole}洞 Par${hole.par} ${hole.blue_yards}码`}
                   onClick={() => setSelected(hole.hole)}
                 >
+                  <span className="prep-hole-par">P{hole.par}</span>
                   <span className="prep-hole-n">{hole.hole}</span>
-                  <span className="prep-hole-desc">
-                    {holeDescriptor(hole)}
-                    {keyHoles.has(hole.hole) ? <span className="prep-hole-key">关键</span> : null}
-                  </span>
                   <span className="prep-hole-yd">
                     {hole.blue_yards}
-                    <span className="prep-hole-par"> P{hole.par}</span>
+                    <span className="prep-hole-unit">码</span>
                   </span>
                   {average !== null ? (
                     <span className={`prep-hole-avg ${bucket}`}>平均{formatToParValue(average)}</span>
                   ) : null}
+                  {keyHoles.has(hole.hole) ? <span className="prep-hole-key">关键</span> : null}
                 </button>
               </li>
             )

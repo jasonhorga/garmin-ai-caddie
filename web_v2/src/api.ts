@@ -99,6 +99,22 @@ export function topoImageUrl(globalId: number, hole: number): string {
   return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png`)
 }
 
+// Fire-and-forget: ask the server to render + cache EVERY geometry-backed hole's topo bitmap for a
+// course in the background so browsing holes hits a warm cache (each first render is ~6–10s). Called
+// on course select; best-effort — a failure just means holes render lazily on first view as before.
+export function prewarmCourseTopo(globalId: number): Promise<void> {
+  // Public course knowledge (no auth needed, like /topo.png + /prep); we never read the body.
+  return fetch(apiUrl(`/api/v2/courses/${globalId}/topo/prewarm`), { method: 'POST' }).then(() => undefined)
+}
+
+// Warm the browser's image cache for a hole's topo bitmap so stepping to it is instant. A no-op
+// where the Image constructor is unavailable (SSR/tests without a DOM image shim).
+export function prefetchTopoImage(url: string): void {
+  if (typeof Image === 'undefined') return
+  const img = new Image()
+  img.src = url
+}
+
 function adminTokenHeader(adminToken?: string): Record<string, string> {
   const trimmed = adminToken?.trim()
   if (!trimmed) return {}

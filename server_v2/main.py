@@ -6,7 +6,7 @@ import os
 import threading
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -679,6 +679,42 @@ def course_hole_topo_png(global_id: int, hole: int = Path(ge=1, le=36)) -> Respo
             "ETag": f'"{topo_render.STYLE_VERSION}-{int(global_id)}-{int(hole)}"',
         },
     )
+
+
+def _prewarm_course_topo(global_id: int, holes: list[int]) -> None:
+    """Render + cache every hole's topo bitmap in the background so a later browse hits a warm
+    cache (each first render is ~seconds). Sequential + best-effort: a hole with no/broken
+    geometry is skipped, never crashing the worker; an already-cached hole returns instantly."""
+    from ai_caddie.geometry import topo_render
+
+    for hole in holes:
+        try:
+            topo_render.render_hole_topo_cached(global_id, hole)
+        except Exception:
+            # TopoGeometryUnavailable / TopoRenderError / any transient render fault: skip this hole.
+            continue
+
+
+@app.post("/api/v2/courses/{global_id}/topo/prewarm")
+def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> dict:
+    """Kick a FIRE-AND-FORGET background render of every geometry-backed hole's topo bitmap so the
+    web/mobile client can browse holes against a warm cache instead of paying ~6–10s on each hole's
+    first view. Returns immediately with the queued hole list (never blocks on rendering). Public
+    course knowledge like /topo.png + /prep. A course with NO decoded geometry queues nothing and
+    still 200s (queued: 0) — it never errors on a geometry-less gid."""
+    from ai_caddie.core.data import available_prep_holes, mesh_path
+
+    # available_prep_holes falls back to [1..9] with no cached geometry; filter to holes that
+    # actually have a mesh so a geometry-less course enqueues nothing (and never spins on 404s).
+    holes = [hole for hole in available_prep_holes(global_id) if mesh_path(global_id, hole).exists()]
+    if holes:
+        background_tasks.add_task(_prewarm_course_topo, global_id, holes)
+    return {
+        "schema": "ai-caddie-topo-prewarm-v1",
+        "globalId": int(global_id),
+        "holes": holes,
+        "queued": len(holes),
+    }
 
 
 @app.get("/api/v2/courses/{global_id}/prep")
