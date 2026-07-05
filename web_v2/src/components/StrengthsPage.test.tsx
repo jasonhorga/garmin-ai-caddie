@@ -380,6 +380,45 @@ describe('StrengthsPage 按洞', () => {
     render(<StrengthsPage data={fixture({ holes: [] })} />)
     expect(screen.getByText('暂无逐洞数据')).toBeInTheDocument()
   })
+
+  // Each distribution segment is sized to its share (row.pct) — a lone 40% bucket
+  // must read as 40% of the track, not stretch to fill the full width.
+  it('sizes each distribution bucket to its pct share (multi-bucket + single-bucket)', () => {
+    const { container } = render(<StrengthsPage data={fixture()} />)
+    const bucketFor = (root: ParentNode, label: string): HTMLElement | null => {
+      const strong = within(root as HTMLElement)
+        .getAllByText(label)
+        .find((el) => el.closest('.hole-distribution-bucket'))
+      return (strong?.closest('.hole-distribution-bucket') as HTMLElement) ?? null
+    }
+    // baseFixture hole 7: bogey 50% / double 50% → each segment basis = 50%.
+    const section = screen.getByLabelText('按洞')
+    expect(bucketFor(section, '柏忌')).toHaveStyle({ flexBasis: '50%' })
+    expect(bucketFor(section, '双+')).toHaveStyle({ flexBasis: '50%' })
+
+    // single-bucket 40% (the reported bug): sized to 40%, never 100%.
+    container.remove()
+    const single = render(
+      <StrengthsPage
+        data={fixture({
+          holes: [
+            {
+              courseKey: 'black_knight',
+              hole: 3,
+              sampleCount: 5,
+              averageToPar: 0.6,
+              worstToPar: 2,
+              scoreDistribution: [{ key: 'bogey', label: 'Bogey', className: 'bogey', count: 2, pct: 40, holeRefs: ['900001:3'] }],
+              repeatedIssues: [],
+              refs: ['900001:3'],
+            },
+          ],
+        })}
+      />,
+    )
+    const bucket = single.container.querySelector('.hole-distribution-bucket') as HTMLElement
+    expect(bucket).toHaveStyle({ flexBasis: '40%' })
+  })
 })
 
 describe('StrengthsPage 按杆', () => {

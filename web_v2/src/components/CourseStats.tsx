@@ -21,10 +21,17 @@ interface CourseStatsProps {
 // the list and keep breakdowns in lazy <details>. Display truncation only.
 const COURSES_CAP = 20
 
+// The geographic 球场分布 map only earns its space with several courses. With one
+// or two it degrades to a bare coordinate grid + a lone floating pin that reads as
+// unfinished, so gate it below this threshold and let the course table carry the
+// value (each course's 场次/平均/最好/最差).
+const MIN_COURSES_FOR_MAP = 3
+
 export function CourseStats({ data, onSelectRef, courseOptions, onPrepCourse }: CourseStatsProps) {
   const courses = data.courses
   const [coursesExpanded, setCoursesExpanded] = useState(false)
   const visibleCourses = coursesExpanded ? courses : courses.slice(0, COURSES_CAP)
+  const showDistributionMap = asRows(data.courseDistribution).length >= MIN_COURSES_FOR_MAP
 
   // Build courseKey → globalId lookup from courseOptions
   const courseKeyToGlobalId: Map<string, number> = new Map(
@@ -43,15 +50,17 @@ export function CourseStats({ data, onSelectRef, courseOptions, onPrepCourse }: 
         </div>
         <StatsQualityChips data={data} labels={['geometry']} />
       </div>
-      <section className="panel compact-panel" aria-label="球场分布">
-        <div className="section-head">
-          <div>
-            <h2>球场分布</h2>
-            <p>各球场球局占比与地理分布。</p>
+      {showDistributionMap ? (
+        <section className="panel compact-panel" aria-label="球场分布">
+          <div className="section-head">
+            <div>
+              <h2>球场分布</h2>
+              <p>各球场球局占比与地理分布。</p>
+            </div>
           </div>
-        </div>
-        <CourseDistributionMap rows={data.courseDistribution} onSelectRef={onSelectRef} />
-      </section>
+          <CourseDistributionMap rows={data.courseDistribution} onSelectRef={onSelectRef} />
+        </section>
+      ) : null}
       <div className="stats-list">
         {courses.length === 0 ? (
           <article className="stats-empty">
