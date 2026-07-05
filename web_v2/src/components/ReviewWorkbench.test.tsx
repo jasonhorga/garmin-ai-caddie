@@ -78,8 +78,11 @@ describe('ReviewWorkbench', () => {
 
     // Hole 1 auto-selects → its shot map loads.
     await waitFor(() => expect(fetchShotMap).toHaveBeenCalledWith('900001', 1))
-    expect(await screen.findByText('一号木')).toBeInTheDocument()
-    expect(screen.getByText('五号木')).toBeInTheDocument()
+    // Club now appears BOTH on the map (review-canvas-chip) and in the 杆序 timeline, so
+    // scope the timeline assertions to the 杆序 aside to disambiguate.
+    const timeline = await screen.findByRole('complementary', { name: '杆序' })
+    expect(await within(timeline).findByText('一号木')).toBeInTheDocument()
+    expect(within(timeline).getByText('五号木')).toBeInTheDocument()
     // The two-shot trajectory yardage is derived from the overlay ppm scale.
     expect(screen.getByText('→ 沙坑')).toBeInTheDocument()
     // The recorded putt collapses to a ×1 row.
