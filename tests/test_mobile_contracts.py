@@ -1617,15 +1617,33 @@ class MobileContractTests(unittest.TestCase):
         # nines fetch the right loop's geometry.
         self.assertIn("struct HoleImageMapView", hole_map_view)
         self.assertIn("func fetchHolePrep(globalId: Int, localHole: Int) async throws -> CoursePrepHole?", sync_client)
-        self.assertIn("HoleImageMapView(hole: hole)", course_review)
+        self.assertIn("HoleImageMapView(hole: hole, topoURL: topoURL)", course_review)
         self.assertIn("hole.sourceGlobalId ?? package.course.globalId", current_hole)
         self.assertIn("func loadHoleMap()", current_hole)
         # Play line is a smooth curve, not a polyline; landing marker + club label track the
         # currently-selected club in real time (switching clubs moves the marker).
         self.assertIn("static func smoothPath(through points: [CGPoint]) -> Path", hole_map_view)
         self.assertIn("selectedClubMetres ?? hole.landingM", hole_map_view)
-        self.assertIn("HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres)", current_hole)
+        self.assertIn(
+            "HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,",
+            current_hole,
+        )
         self.assertIn("private var selectedClubMetres: Double?", current_hole)
+        # Base layer = server-rendered realistic TOPO png (…/holes/{hole}/topo.png), fetched over the
+        # SAME projection as the overlay so route/club markers align; degrades to the flat render when
+        # there's no gid/geometry OR the request fails / hasn't loaded (no-network CI snapshots).
+        topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
+        self.assertIn("struct TopoHoleBaseImage", topo_base)
+        self.assertIn("AsyncImage(url: topoURL)", topo_base)
+        self.assertIn("Image(uiImage: fallback)", topo_base)  # graceful fallback, never a blank box
+        self.assertIn(
+            "static func topoImageURL(baseURL: URL, globalId: Int, localHole: Int) -> URL?",
+            sync_client,
+        )
+        self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
+        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: image)", hole_map_view)
+        self.assertIn("topoURL: liveTopoURL", current_hole)
+        self.assertIn("SyncClient.topoImageURL(baseURL: caddieBaseURL", current_hole)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
         golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")
@@ -2443,6 +2461,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundShotMapView", shot_map_view)
         self.assertIn("struct RoundHoleShotMapScreen", shot_map_view)
         self.assertIn("onSelectHole(hole.hole)", round_review)
+        # 复盘 base layer = realistic TOPO png for the physical (globalId, localHole) the shots were
+        # projected onto (front/back-nine aware); degrades to the flat render with no network / no geo.
+        self.assertIn("let globalId: Int?", shot_map_model)
+        self.assertIn("let localHole: Int?", shot_map_model)
+        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: image)", shot_map_view)
+        self.assertIn("RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))", shot_map_view)
+        self.assertIn("SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: gid, localHole: local)", shot_map_view)
         # round-9 B: color legend + 横滑翻洞 (TabView .page over the round's holes) + unknown lie → 「—」.
         self.assertIn("struct RoundShotMapPagerScreen", shot_map_view)
         self.assertIn("struct RoundShotMapLegend", shot_map_view)

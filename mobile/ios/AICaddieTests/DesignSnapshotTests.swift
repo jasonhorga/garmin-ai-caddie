@@ -245,6 +245,15 @@ final class DesignSnapshotTests: XCTestCase {
         let prepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepJSON.utf8))
         try captureScreen(VStack { HoleImageMapView(hole: prepHole).frame(height: 460) }.padding(24), named: "hole-map")
 
+        // No-network topo fallback: pass a topoURL (as production does for a real course) but CI has
+        // NO network, so the AsyncImage never resolves → the base layer must degrade to the flat
+        // render + overlay, never a broken/empty box. Unreachable host guarantees no load.
+        let unreachableTopo = URL(string: "http://127.0.0.1:9/api/v2/courses/1/holes/7/topo.png")
+        try captureScreen(
+            VStack { HoleImageMapView(hole: prepHole, topoURL: unreachableTopo).frame(height: 460) }.padding(24),
+            named: "hole-map-topo-fallback"
+        )
+
         // 备战逐洞卡 (reskin): 浅色 hubCard — 洞号 / Par / 蓝T / 实打坡度 + 真实球场图 + 球童试算(推荐球杆
         // 绿胶囊 + 果岭前/中/后码) + 逐步打法 + 障碍提示。渲染真实 HolePrepCard(整套 prep 数据)以验证浅色。
         let prepCardJSON = """

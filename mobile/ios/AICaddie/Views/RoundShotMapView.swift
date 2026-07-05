@@ -8,16 +8,20 @@ import UIKit
 /// 已知球杆标在落点旁。坐标用服务端投影好的 overlay 像素(误差 0.04m)。
 public struct RoundShotMapView: View {
     public let shotMap: RoundHoleShotMap
+    /// 服务端真实地形底图 URL(`…/holes/{hole}/topo.png`)。有则底图用它,否则/加载失败回退到
+    /// payload 里的 flat 渲染图。两者共用同一投影,实际打球路线叠加层像素级对齐。
+    public let topoURL: URL?
 
-    public init(shotMap: RoundHoleShotMap) {
+    public init(shotMap: RoundHoleShotMap, topoURL: URL? = nil) {
         self.shotMap = shotMap
+        self.topoURL = topoURL
     }
 
     public var body: some View {
         #if canImport(UIKit)
         if let image = decodedImage, let overlay = shotMap.map?.overlay, overlay.w > 0, overlay.h > 0 {
             ZStack {
-                Image(uiImage: image).resizable().scaledToFit()
+                TopoHoleBaseImage(topoURL: topoURL, fallback: image)
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
@@ -208,7 +212,7 @@ public struct RoundHoleShotMapScreen: View {
     @ViewBuilder private var content: some View {
         if let shotMap, shotMap.found, shotMap.map != nil {
             VStack(spacing: 12) {
-                RoundShotMapView(shotMap: shotMap)
+                RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))
                 RoundShotMapLegend()
                 shotListCard(shotMap)
             }
@@ -243,6 +247,13 @@ public struct RoundHoleShotMapScreen: View {
             }
         }
         .hubCard()
+    }
+
+    /// Topo base-image URL for this hole's render — the physical (gid, localHole) the shot map was
+    /// projected onto. nil (→ flat fallback) when the round has no course geometry or no base URL.
+    private func topoURL(for shotMap: RoundHoleShotMap) -> URL? {
+        guard let apiBaseURL, let gid = shotMap.globalId, let local = shotMap.localHole else { return nil }
+        return SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: gid, localHole: local)
     }
 
     @MainActor
