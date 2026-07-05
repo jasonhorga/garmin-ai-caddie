@@ -45,11 +45,11 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
   let svg: React.ReactElement | null = null
   let chips: React.ReactElement[] = []
   if (map) {
-    const { w, h, ppm, route } = map.overlay
+    const { w, h, route } = map.overlay
     const geo = buildTrajectory(shots)
     const routePoints = route.map((p) => `${p[0]},${p[1]}`).join(' ')
     const trajPoints = geo.points.map((p) => `${p[0]},${p[1]}`).join(' ')
-    const labels = shotLandingLabels(shots, ppm)
+    const labels = shotLandingLabels(shots)
 
     svg = (
       <svg viewBox={`0 0 ${w} ${h}`} className="review-canvas-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
@@ -67,7 +67,7 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
               x2={shot.end[0]}
               y2={shot.end[1]}
               stroke="#ffd447"
-              strokeWidth={3}
+              strokeWidth={shot.synthetic ? 3 : 4.5}
               strokeLinecap="round"
               strokeDasharray={shot.synthetic ? '5 6' : undefined}
               strokeOpacity={shot.synthetic ? 0.5 : 1}

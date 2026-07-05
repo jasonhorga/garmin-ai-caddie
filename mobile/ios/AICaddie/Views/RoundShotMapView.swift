@@ -94,7 +94,7 @@ public struct RoundShotMapView: View {
             var path = Path()
             path.move(to: a)
             path.addLine(to: b)
-            let width: CGFloat = shot.synthetic ? 2.2 : 2.8
+            let width: CGFloat = shot.synthetic ? 3.0 : 4.0
             context.stroke(path, with: .color(.black.opacity(0.30)),
                            style: StrokeStyle(lineWidth: width + 1.6, lineCap: .round, lineJoin: .round))
             let line = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round, dash: shot.synthetic ? [5, 5] : [])
@@ -114,7 +114,12 @@ public struct RoundShotMapView: View {
             context.fill(Path(ellipseIn: rect), with: .color(shotLieColor(shot.endLie)))
             context.stroke(Path(ellipseIn: rect), with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
             if let club = shot.club, !club.isEmpty, club.lowercased() != "unknown" {
-                context.draw(
+                // Dark shadow behind the white club label so it stays legible over light lies
+                // (fairway/green/sand). GraphicsContext is a value type — copy + addFilter so the
+                // shadow applies only to this label draw, not the dots/lines.
+                var labelCtx = context
+                labelCtx.addFilter(.shadow(color: .black.opacity(0.85), radius: 1.4, x: 0, y: 0.5))
+                labelCtx.draw(
                     Text(zhClubName(club)).font(.caption2.weight(.bold)).foregroundColor(.white),
                     at: CGPoint(x: b.x, y: b.y - 15)
                 )
