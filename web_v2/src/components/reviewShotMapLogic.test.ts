@@ -99,16 +99,23 @@ describe('buildTimeline', () => {
 })
 
 describe('shotLandingLabels', () => {
-  it('labels every full-shot landing with sequence, club and yardage', () => {
-    const labels = shotLandingLabels(
-      [
-        shot({ club: '一号木', endLie: 'Fairway', end: [30, 40] }),
-        shot({ club: '推杆', shotType: 'PUTT' }),
-      ],
-      1,
-    )
+  it('labels each full-shot landing with the CLUB ONLY (no distance/lie)', () => {
+    const labels = shotLandingLabels([
+      shot({ club: '一号木', endLie: 'Fairway', end: [30, 40] }),
+      shot({ club: '推杆', shotType: 'PUTT' }),
+    ])
     expect(labels).toHaveLength(1)
-    expect(labels[0]).toMatchObject({ x: 30, y: 40, text: '开球 一号木 55 · 球道' })
+    expect(labels[0]).toMatchObject({ x: 30, y: 40, text: '一号木' })
+  })
+
+  it('skips the synthetic drive and shots with no known club', () => {
+    const labels = shotLandingLabels([
+      shot({ club: null, synthetic: true, end: [10, 10] }),
+      shot({ club: '  ', end: [20, 20] }),
+      shot({ club: '7I', end: [30, 30] }),
+    ])
+    expect(labels).toHaveLength(1)
+    expect(labels[0]).toMatchObject({ x: 30, y: 30, text: '7I' })
   })
 })
 

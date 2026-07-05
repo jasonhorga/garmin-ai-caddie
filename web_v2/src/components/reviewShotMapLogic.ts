@@ -136,22 +136,18 @@ export interface ShotLandingLabel {
   text: string
 }
 
-// Canvas chips over each full-shot landing: "开球 一号木 245·球道" (mockup:
-// "2杆 5W 208 · 右侧沙"). Putts and shots missing an endpoint are skipped so the
-// chips stay sparse and readable.
-export function shotLandingLabels(shots: RoundHoleShot[], ppm: number | null | undefined): ShotLandingLabel[] {
+// On-map labels at each full-shot landing: the CLUB ONLY (Garmin's review style —
+// "用什么杆打的", no distance/lie text; that detail lives in the right-column 杆序
+// timeline). Putts, shots missing an endpoint, and the synthetic (推算) drive whose
+// club we don't actually know are skipped so the map stays sparse and every label is
+// a real, known club.
+export function shotLandingLabels(shots: RoundHoleShot[]): ShotLandingLabel[] {
   const labels: ShotLandingLabel[] = []
-  let seq = 0
   for (const shot of shots) {
-    if (isPuttShot(shot)) continue
-    seq += 1
-    if (!shot.end) continue
-    const dist = shotDistanceYd(shot.start, shot.end, ppm)
-    const lie = lieZh(shot.endLie)
-    const parts = [seqLabel(seq), clubDisplay(shot), dist === null ? null : `${dist}`]
-      .filter((part): part is string => Boolean(part))
-      .join(' ')
-    labels.push({ x: shot.end[0], y: shot.end[1], text: lie ? `${parts} · ${lie}` : parts })
+    if (isPuttShot(shot) || shot.synthetic || !shot.end) continue
+    const club = shot.club?.trim()
+    if (!club) continue
+    labels.push({ x: shot.end[0], y: shot.end[1], text: clubDisplay(shot) })
   }
   return labels
 }
