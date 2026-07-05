@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { fetchCoursePrep, fetchPrepTips } from '../api'
+import { fetchCoursePrep, fetchPrepTips, prewarmCourseTopo } from '../api'
 import type {
   CoursePrepResponse,
   CourseSearchMatch,
@@ -188,6 +188,14 @@ export function PrepPage({
         setPrepDone({ key, result: { error: error instanceof Error ? error.message : '未知错误' } })
       })
   }, [globalId, adminToken, prepAttempt])
+
+  // On course select, kick a background render of ALL the course's hole topo bitmaps so browsing
+  // holes hits a warm cache instead of paying ~6–10s on each hole's first view. Fire-and-forget:
+  // failures are swallowed (holes still render lazily on first view as before).
+  useEffect(() => {
+    if (globalId === null) return
+    void prewarmCourseTopo(globalId).catch(() => {})
+  }, [globalId])
 
   useEffect(() => {
     if (globalId === null) return

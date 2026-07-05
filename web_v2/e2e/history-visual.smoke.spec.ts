@@ -1053,6 +1053,9 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     // gid31795) returns a PNG here; serve a stub so the hole canvas' base <img> loads (no 404) and
     // the topo path is exercised. A geometry-less course would 404 → the canvas falls back.
     if (/\/holes\/\d+\/topo\.png$/.test(path)) return route.fulfill({ contentType: 'image/png', body: TOPO_PNG_STUB })
+    // Fire-and-forget topo prewarm the web kicks on course select — return the queued-hole ack so the
+    // POST never 404s into failedResponses (the real endpoint renders the course's holes in background).
+    if (/\/topo\/prewarm$/.test(path)) return route.fulfill({ json: { schema: 'ai-caddie-topo-prewarm-v1', globalId: 31795, holes: [1, 2, 7], queued: 3 } })
     if (path === '/api/v2/history/rounds/900001') return route.fulfill({ json: replayRoundDetailPayload })
     if (path === '/api/v2/history/stats') return route.fulfill({ json: statsPayload })
     // 趋势 landing fetches the compact window-aware mobile stats; serve the same fixture

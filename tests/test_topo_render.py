@@ -118,5 +118,63 @@ class TopoEndpointTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
 
+class TopoPrewarmEndpointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = TestClient(app)
+
+    def test_prewarm_returns_quickly_and_no_error_on_geometryless_gid(self) -> None:
+        # A gid with an empty mesh dir enqueues nothing and still 200s (queued 0) — the prewarm must
+        # never error just because a course has no decoded geometry. render is never touched.
+        with TemporaryDirectory() as mesh_tmp, \
+                patch("ai_caddie.core.data.MESH_DIR", Path(mesh_tmp)), \
+                patch.object(topo_render, "render_hole_topo_cached") as render:
+            resp = self.client.post("/api/v2/courses/999999/topo/prewarm")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["globalId"], 999999)
+        self.assertEqual(body["holes"], [])
+        self.assertEqual(body["queued"], 0)
+        render.assert_not_called()
+
+    def test_prewarm_enqueues_and_renders_holes_with_geometry(self) -> None:
+        # Two fake mesh files → the prewarm queues exactly those holes and the background task warms
+        # each via render_hole_topo_cached (patched to a no-op so no real geometry/render is needed).
+        with TemporaryDirectory() as mesh_tmp, \
+                patch("ai_caddie.core.data.MESH_DIR", Path(mesh_tmp)), \
+                patch.object(topo_render, "render_hole_topo_cached", return_value=b"png") as render:
+            mesh_root = Path(mesh_tmp)
+            (mesh_root / "gid31795_h01_meshes.json").write_text("{}")
+            (mesh_root / "gid31795_h05_meshes.json").write_text("{}")
+            # TestClient runs BackgroundTasks synchronously before returning, so the warm calls land.
+            resp = self.client.post("/api/v2/courses/31795/topo/prewarm")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["holes"], [1, 5])
+        self.assertEqual(body["queued"], 2)
+        self.assertEqual(render.call_count, 2)
+        render.assert_any_call(31795, 1)
+        render.assert_any_call(31795, 5)
+
+    def test_prewarm_is_public_no_admin_token_required(self) -> None:
+        with TemporaryDirectory() as mesh_tmp, \
+                patch("ai_caddie.core.data.MESH_DIR", Path(mesh_tmp)), \
+                patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}):
+            resp = self.client.post("/api/v2/courses/31795/topo/prewarm")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_prewarm_survives_a_render_fault_and_still_warms_the_rest(self) -> None:
+        # A broken hole must not abort the whole prewarm: the first render raises, the second still runs.
+        with TemporaryDirectory() as mesh_tmp, \
+                patch("ai_caddie.core.data.MESH_DIR", Path(mesh_tmp)), \
+                patch.object(topo_render, "render_hole_topo_cached",
+                             side_effect=[topo_render.TopoRenderError("boom"), b"png"]) as render:
+            mesh_root = Path(mesh_tmp)
+            (mesh_root / "gid31795_h01_meshes.json").write_text("{}")
+            (mesh_root / "gid31795_h02_meshes.json").write_text("{}")
+            resp = self.client.post("/api/v2/courses/31795/topo/prewarm")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(render.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

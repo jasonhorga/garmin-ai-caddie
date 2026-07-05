@@ -6162,25 +6162,44 @@ button.round-detail-cell:hover {
   border-top: 3px solid var(--green);
 }
 
-/* three panes */
+/* Hole strip on top (full width, horizontal scroll), map + inspector below. The scorecard-style
+   strip is the primary hole selector on every viewport — no vertical hole-scrolling on a phone. */
 .prep-work {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'holes holes'
+    'canvas inspector';
   gap: 12px;
   height: clamp(480px, calc(100vh - 240px), 880px);
 }
 
 .prep-work > * {
   min-height: 0;
+  min-width: 0;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   overflow: auto;
 }
 
-/* hole list */
+.prep-holes {
+  grid-area: holes;
+}
+
+.prep-canvas {
+  grid-area: canvas;
+}
+
+.prep-inspector {
+  grid-area: inspector;
+}
+
+/* hole strip */
 .prep-holes {
   padding: 12px;
+  overflow: hidden;
 }
 
 .prep-holes-head {
@@ -6210,89 +6229,95 @@ button.round-detail-cell:hover {
 .prep-holes-list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 2px 2px 6px;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prep-holes-list > li {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
 }
 
 .prep-hole {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 2px 10px;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  border-radius: 9px;
-  padding: 8px;
+  justify-content: flex-start;
+  gap: 2px;
+  width: 72px;
+  min-height: 92px;
+  text-align: center;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 11px;
+  padding: 7px 6px 8px;
   font: inherit;
   cursor: pointer;
 }
 
 .prep-hole:hover {
   background: var(--bg);
+  border-color: #cdd7e3;
 }
 
 .prep-hole.on {
   background: var(--green-tint);
+  border-color: #bfe6ca;
   box-shadow: inset 0 0 0 1px #bfe6ca;
 }
 
+.prep-hole-par {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
 .prep-hole-n {
-  grid-row: 1 / span 2;
   font-weight: 800;
-  font-size: 15px;
+  font-size: 20px;
+  line-height: 1.05;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
 
-.prep-hole-desc {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.prep-hole-yd {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.prep-hole-unit {
+  font-size: 10px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 700;
+  margin-left: 1px;
 }
 
 .prep-hole-key {
-  flex: 0 0 auto;
   font-size: 10px;
   font-weight: 700;
   color: var(--double-text);
   background: var(--double-soft);
   border-radius: 5px;
   padding: 0 5px;
-}
-
-.prep-hole-yd {
-  grid-row: 1 / span 2;
-  font-variant-numeric: tabular-nums;
-  font-weight: 800;
-  color: var(--ink);
-  text-align: right;
-}
-
-.prep-hole-par {
-  font-size: 11px;
-  color: var(--muted);
-  font-weight: 700;
+  line-height: 1.5;
 }
 
 .prep-hole-avg {
-  grid-column: 2;
-  justify-self: start;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   border-radius: 5px;
   padding: 0 5px;
+  white-space: nowrap;
 }
 
 .prep-hole-avg.under {
@@ -6337,6 +6362,41 @@ button.round-detail-cell:hover {
   border-radius: 14px;
   box-shadow: 0 8px 30px rgba(20, 40, 30, .12);
   background: #bfe0fb;
+}
+
+/* Base image layer: the flat/placeholder render is always painted first (instant on hole switch),
+   the realistic topo cross-fades in on top the moment it decodes. Both share the same overlay
+   frame, so the parent canvas' vector overlays line up regardless of which layer is showing. */
+.hole-base {
+  position: relative;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.hole-base-flat {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.hole-base-topo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+
+.hole-base-topo.is-ready {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hole-base-topo {
+    transition: none;
+  }
 }
 
 .prep-canvas-svg {
@@ -6620,11 +6680,21 @@ button.round-detail-cell:hover {
 @media (max-width: 900px) {
   .prep-work {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      'holes'
+      'canvas'
+      'inspector';
     height: auto;
   }
 
   .prep-work > * {
     overflow: visible;
+  }
+
+  /* The strip keeps its own horizontal scroll even when the panes stop clipping. */
+  .prep-holes {
+    overflow: hidden;
   }
 
   .prep-canvas-frame {
@@ -6729,24 +6799,44 @@ button.round-detail-cell:hover {
   color: var(--double-text);
 }
 
+/* Hole·成绩 strip on top (full width, horizontal scroll), 落点图 + 杆序 below. Same scorecard-strip
+   selector as 备战 — tap a hole, no vertical hole-scrolling on a phone. */
 .review-work {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'holes holes'
+    'canvas inspector';
   gap: 12px;
   height: clamp(480px, calc(100vh - 250px), 880px);
 }
 
 .review-work > * {
   min-height: 0;
+  min-width: 0;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   overflow: auto;
 }
 
-/* left: hole list with shape-coded score chips */
+.review-holes {
+  grid-area: holes;
+}
+
+.review-canvas {
+  grid-area: canvas;
+}
+
+.review-inspector {
+  grid-area: inspector;
+}
+
+/* hole·成绩 strip with shape-coded score chips */
 .review-holes {
   padding: 12px;
+  overflow: hidden;
 }
 
 .review-holes-head {
@@ -6768,48 +6858,60 @@ button.round-detail-cell:hover {
 .review-holes-list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 2px 2px 6px;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.review-holes-list > li {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
 }
 
 .review-hole {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  border-radius: 9px;
-  padding: 7px 8px;
+  justify-content: flex-start;
+  gap: 3px;
+  width: 58px;
+  min-height: 88px;
+  text-align: center;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 11px;
+  padding: 7px 5px 8px;
   font: inherit;
   cursor: pointer;
 }
 
 .review-hole:hover {
   background: var(--bg);
+  border-color: #cdd7e3;
 }
 
 .review-hole.on {
   background: var(--green-tint);
+  border-color: #bfe6ca;
   box-shadow: inset 0 0 0 1px #bfe6ca;
 }
 
 .review-hole-n {
-  width: 22px;
-  flex: 0 0 auto;
   font-weight: 800;
-  font-size: 15px;
+  font-size: 18px;
+  line-height: 1.05;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
 
 .review-hole-par {
-  margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -7125,11 +7227,20 @@ button.round-detail-cell:hover {
 @media (max-width: 900px) {
   .review-work {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      'holes'
+      'canvas'
+      'inspector';
     height: auto;
   }
 
   .review-work > * {
     overflow: visible;
+  }
+
+  .review-holes {
+    overflow: hidden;
   }
 
   .review-canvas-frame {
