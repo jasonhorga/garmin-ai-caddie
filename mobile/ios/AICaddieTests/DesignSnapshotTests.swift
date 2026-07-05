@@ -102,7 +102,7 @@ final class DesignSnapshotTests: XCTestCase {
         let package = try JSONDecoder().decode(LiveRoundPackage.self, from: Data(contentsOf: fixtureURL))
         let view = RecentReviewContent(package: package)
             .frame(width: 390)
-            .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+            .background(HubStyle.grouped)
         try render(view, named: "recent-review")
     }
 
@@ -114,17 +114,23 @@ final class DesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderRoundHome() throws {
-        let view = VStack(spacing: 12) {
-            HubInProgressCard(courseName: "北京丽宫 · 前九", activeHole: 7, recorded: 6, total: 9)
-            HStack(spacing: 10) {
-                HubTile(icon: "map", title: "赛前攻略", subtitle: "逐洞攻略 · 试算一杆")
-                HubTile(icon: "chart.line.uptrend.xyaxis", title: "历史复盘", subtitle: "441 场近况")
+        let view = VStack(spacing: 14) {
+            HubInProgressCard(courseName: "北京丽宫 · 前九", activeHole: 8, recorded: 7, total: 9)
+            HubPlayTile()
+            HStack(spacing: 11) {
+                HubTile(icon: "scope", title: "备战", subtitle: "选场 · 球童试算")
+                HubTile(icon: "clock.arrow.circlepath", title: "历史复盘", subtitle: "逐洞落点")
+                HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势")
             }
-            HubLastRoundCard(courseName: "北京天竺黑骑士 C/A", date: "06-11", score: 89, toPar: 17)
+            VStack(alignment: .leading, spacing: 9) {
+                HubSectionLabel("上一场")
+                HubLastRoundCard(courseName: "北京天竺黑骑士 C/A", date: "06-11", score: 89, toPar: 17,
+                                 holesCompleted: 18, par: 72)
+            }
         }
-        .padding(14)
+        .padding(16)
         .frame(width: 390)
-        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        .background(HubStyle.grouped)
         try render(view, named: "round-home")
     }
 
@@ -260,7 +266,10 @@ final class DesignSnapshotTests: XCTestCase {
         """
         let roundDetail = try JSONDecoder().decode(RoundDetail.self, from: Data(roundJSON.utf8))
         try captureScreen(
-            RoundReviewContent(detail: roundDetail, isLoading: false, errorText: nil, fallbackCourseName: "Fixture Links"),
+            ScrollView {
+                RoundReviewContent(detail: roundDetail, isLoading: false, errorText: nil, fallbackCourseName: "Fixture Links")
+            }
+            .background(HubStyle.grouped),
             named: "round-review"
         )
 
@@ -329,7 +338,7 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(
             VStack(spacing: 12) { RoundShotMapView(shotMap: shotMap).frame(height: 420); RoundShotMapLegend() }
                 .padding(24)
-                .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255)),
+                .background(HubStyle.grouped),
             named: "round-shot-map"
         )
     }

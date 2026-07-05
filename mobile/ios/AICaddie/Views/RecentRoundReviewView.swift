@@ -16,7 +16,7 @@ public struct RecentRoundReviewView: View {
         ScrollView {
             RecentReviewContent(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)
         }
-        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        .background(HubStyle.grouped)
         // 与首页磁贴「历史复盘」一致(原为「赛后复盘」,单场仍叫「单场复盘」)。
         .navigationTitle("历史复盘")
     }
@@ -56,7 +56,7 @@ struct RecentReviewContent: View {
                 }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     private var recentRoundsCard: some View {
@@ -77,7 +77,7 @@ struct RecentReviewContent: View {
                 }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     private var holePatternsCard: some View {
@@ -91,7 +91,7 @@ struct RecentReviewContent: View {
                 }
             }
         }
-        .liveCard()
+        .hubCard()
     }
 
     private func roundRow(_ round: RecentRoundSummary) -> some View {
