@@ -394,6 +394,7 @@ def service_index() -> dict[str, object]:
             "geometryHoleEvidence": "/api/v2/geometry/hole/{global_id}/{local_hole}",
             "geometryEnsure": "/api/v2/geometry/hole/{global_id}/{local_hole}/ensure",
             "geometryHoleMap": "/api/v2/geometry/hole/{global_id}/{local_hole}/map",
+            "courseHoleTopoPng": "/api/v2/courses/{global_id}/holes/{hole}/topo.png",
             "caddieContext": "/api/v2/caddie/context",
             "caddieDecision": "/api/v2/caddie/decision",
             "caddieDecisionAudit": "/api/v2/caddie/decisions/{decision_id}/audit",
@@ -644,6 +645,40 @@ def geometry_hole_map(
     source_ref: str | None = None,
 ) -> HoleMapResponse:
     return load_hole_map_response(global_id, local_hole, provider=provider, source_ref=source_ref)
+
+
+# Immutable topo bitmaps are content-addressed by (gid, hole, style-version): a course/hole's
+# geometry is fixed, so the rendered PNG never changes for a given STYLE_VERSION. Cache hard.
+_TOPO_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+
+@app.get("/api/v2/courses/{global_id}/holes/{hole}/topo.png")
+def course_hole_topo_png(global_id: int, hole: int = Path(ge=1, le=36)) -> Response:
+    """The LOCKED realistic-topo base bitmap for a course hole (design-system §九), the base
+    <img> layer the web/mobile hole canvases draw their vector overlays over.
+
+    Public course knowledge (no player data, no source_ref) — like /courses/{id}/prep. Rendered
+    once (~seconds) then served from an on-disk cache keyed by gid/hole/style-version; later hits
+    return the cached bytes with a long immutable cache header. A hole without decoded CourseView
+    geometry (most real/mock rounds) 404s so the client falls back to its placeholder — it never
+    blocks or 500s."""
+    from ai_caddie.geometry import topo_render
+
+    try:
+        png = topo_render.render_hole_topo_cached(global_id, hole)
+    except topo_render.TopoGeometryUnavailable:
+        raise HTTPException(status_code=404, detail="no topo geometry for this hole")
+    except topo_render.TopoRenderError:
+        # A malformed mesh must degrade to the client placeholder, never crash the worker.
+        raise HTTPException(status_code=404, detail="topo render unavailable for this hole")
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={
+            "Cache-Control": _TOPO_CACHE_CONTROL,
+            "ETag": f'"{topo_render.STYLE_VERSION}-{int(global_id)}-{int(hole)}"',
+        },
+    )
 
 
 @app.get("/api/v2/courses/{global_id}/prep")

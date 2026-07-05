@@ -15,6 +15,7 @@ import { PrepPage } from './PrepPage'
 vi.mock('../api', () => ({
   fetchCoursePrep: vi.fn(),
   fetchPrepTips: vi.fn(),
+  topoImageUrl: (gid: number, hole: number) => `/api/v2/courses/${gid}/holes/${hole}/topo.png`,
 }))
 
 const fetchCoursePrepMock = vi.mocked(fetchCoursePrep)

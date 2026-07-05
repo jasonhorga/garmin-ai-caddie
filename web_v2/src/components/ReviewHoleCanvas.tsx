@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { RoundHoleShotMapResponse } from '../types'
+import { topoImageUrl } from '../api'
+import { HoleBaseImage } from './HoleBaseImage'
 import { buildTrajectory, shotLandingLabels } from './reviewShotMapLogic'
 
 // The shot-map fetch state, resolved by the workbench: geometry may be missing
@@ -32,6 +34,13 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
   const note = statusNote(state)
   const map = state.status === 'ready' ? state.data.map : null
   const shots = state.status === 'ready' ? state.data.shots : []
+  // Realistic topo base for this exact (physical gid, localHole) when geometry rendered; else the
+  // legacy render (map.image). Both share the overlay frame, so the shot vectors align regardless.
+  const topoData = state.status === 'ready' ? state.data : null
+  const topoSrc =
+    map && topoData?.globalId != null && topoData?.localHole != null
+      ? topoImageUrl(topoData.globalId, topoData.localHole)
+      : undefined
 
   let svg: React.ReactElement | null = null
   let chips: React.ReactElement[] = []
@@ -87,7 +96,11 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
   return (
     <div className="review-canvas" aria-label={`第${hole}洞落点图`}>
       <div className="review-canvas-frame">
-        {map ? <img className="review-canvas-img" src={map.image} alt={`第${hole}洞`} /> : <div className="review-canvas-placeholder" />}
+        {map ? (
+          <HoleBaseImage className="review-canvas-img" topoSrc={topoSrc} fallbackSrc={map.image} alt={`第${hole}洞`} />
+        ) : (
+          <div className="review-canvas-placeholder" />
+        )}
         {svg}
         {chips}
         {note ? <div className={note.tone === 'error' ? 'review-canvas-note error' : 'review-canvas-note'}>{note.text}</div> : null}

@@ -1,6 +1,8 @@
 import { useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import type { CoursePrepHole } from '../types'
+import { topoImageUrl } from '../api'
 import { atCum, layoutHazardLabels, nearestCum, routeIntervalReadout } from './coursePrepPanelLogic'
+import { HoleBaseImage } from './HoleBaseImage'
 import { toYd } from './prepWorkbenchLogic'
 
 // Minimum vertical gap (overlay px) between two stacked hazard distance labels.
@@ -15,17 +17,24 @@ export interface PrepHoleCanvasProps {
   hole: CoursePrepHole
   cum: number
   onCum: (cum: number) => void
+  // The course's globalId (prep is single-gid; localHole == hole.hole). When set AND the hole has
+  // geometry (overlay present), the base image is the realistic server topo; otherwise it falls
+  // back to the legacy render / placeholder.
+  globalId?: number
 }
 
 // The big center canvas of the 备战 workbench: a hole render (real per-hole
 // image when the payload carries geometry, else the shared placeholder) with the
 // playing line, tee/green markers, your shot scatter, hazards and a draggable
 // ball drawn on top. Distance chips + a fill legend float over the frame.
-export function PrepHoleCanvas({ hole, cum, onCum }: PrepHoleCanvasProps): React.ReactElement {
+export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasProps): React.ReactElement {
   const svgRef = useRef<SVGSVGElement>(null)
   const map = hole.map
   const overlay = map?.overlay
-  const image = map?.image ?? '/hole-sample.png'
+  // Base layer: realistic topo when this hole has geometry (overlay present) and we know the gid;
+  // else the legacy flat render, else the shared placeholder. Overlays draw on top either way.
+  const fallbackImage = map?.image ?? '/hole-sample.png'
+  const topoSrc = overlay && globalId != null ? topoImageUrl(globalId, hole.hole) : undefined
   const yourShots = hole.yourShots ?? []
 
   const onPointer = (event: ReactPointerEvent<SVGSVGElement>): void => {
@@ -132,7 +141,7 @@ export function PrepHoleCanvas({ hole, cum, onCum }: PrepHoleCanvasProps): React
   return (
     <div className="prep-canvas" aria-label={`第${hole.hole}洞球道图`}>
       <div className="prep-canvas-frame">
-        <img className="prep-canvas-img" src={image} alt={`第${hole.hole}洞`} />
+        <HoleBaseImage className="prep-canvas-img" topoSrc={topoSrc} fallbackSrc={fallbackImage} alt={`第${hole.hole}洞`} />
         {svg}
         {greenChip}
         {ballChip}
