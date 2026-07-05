@@ -23,6 +23,19 @@ from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components  #
 import json
 
 SS = 2  # supersample factor
+# Fill-the-frame framing (design-system §九, ported from the locked prototype `make_frame`; the
+# funnel /render-final.png reference is 678x1060). The hole fills the HEIGHT; the canvas WIDTH
+# shrinks to the hole (never below FRAME_MIN_ASPECT portrait, hole centred, sky padding on the
+# sides for a thin hole) so the played surfaces fill the frame instead of floating small inside a
+# fixed 720x1120 letterbox. The OLD frame fixed w=720/h=1120 and min-scaled to fit, leaving the hole
+# floating in extra sky; this drops the empty margins (matching render-final.png's 678x1060) and
+# raises the land fill on every gid31795 hole (h2 +14pt, h8 +5pt, others +1-2pt) — a long, thin hole
+# is geometry-bounded by the 0.64 portrait floor. Every consumer that reuses _frame /
+# overlay_projector (flat render, topo base, round_shot_map, course_prep) shares this projection, so
+# all overlays stay pixel-aligned by construction.
+FRAME_H = 1060           # display px the hole fills to along the tee->green axis
+FRAME_MIN_ASPECT = 0.64  # portrait floor (w/h); a hole wider than this widens the canvas
+FRAME_MARGIN = 0.06      # proportional breathing room around the framed surfaces
 PALETTE = {
     "bg": (191, 222, 240), "Rough": (122, 167, 92), "TreeArea": (92, 138, 74),
     "Fairway": (150, 196, 104), "Fringe": (167, 207, 122), "Green": (126, 205, 110),
@@ -41,7 +54,14 @@ def load_mesh(global_id: int, local_hole: int):
     return md, {m["name"]: m for m in md["meshes"]}
 
 
-def _setup(by, tee, green, w, h, margin):
+def _setup(by, tee, green, oh=FRAME_H, min_aspect=FRAME_MIN_ASPECT, margin_frac=FRAME_MARGIN):
+    """Fill-the-frame projector: the hole fills the height ``oh``; the canvas width is the hole's own
+    width (floored at ``min_aspect`` portrait, hole centred), with ``margin_frac`` breathing room.
+
+    Returns ``(project, sc, w, h)`` at SUPERSAMPLED resolution (multiply ``oh``/width by ``SS``).
+    ``project`` maps a hole-LOCAL 2D point (east, north metres) to supersampled pixels; handedness is
+    identical to the historic frame (larger cross-axis -> left) so nothing mirrors.
+    """
     dx, dy = green[0] - tee[0], green[1] - tee[1]
     ln = math.hypot(dx, dy) or 1
     u = (dx / ln, dy / ln)
@@ -54,19 +74,30 @@ def _setup(by, tee, green, w, h, margin):
         pb = by.get("PlayableBounds.drc") or by.get("Rough.drc")
         pts = [_local(p) for p in pb["positions"]] if pb else [tee, green]
     pr = [((px - tee[0]) * u[0] + (py - tee[1]) * u[1], (px - tee[0]) * perp[0] + (py - tee[1]) * perp[1]) for px, py in pts]
-    amin = min(a for a, _ in pr) - 14
-    amax = max(a for a, _ in pr) + 14
-    smin = min(s for _, s in pr) - 14
-    smax = max(s for _, s in pr) + 14
-    sc = min((w - 2 * margin) / (smax - smin), (h - 2 * margin) / (amax - amin))
-    cx = (smin + smax) / 2
+    amin = min(a for a, _ in pr)
+    amax = max(a for a, _ in pr)
+    smin = min(s for _, s in pr)
+    smax = max(s for _, s in pr)
+    aspan = (amax - amin) or 1.0
+    sspan = (smax - smin) or 1.0
+    amin -= aspan * margin_frac
+    amax += aspan * margin_frac
+    smin -= sspan * margin_frac
+    smax += sspan * margin_frac
+    aspan = amax - amin
+    sspan = smax - smin
+    scx = (smin + smax) / 2.0
+    sc_disp = oh / aspan                                  # scale to FILL the along-axis (height)
+    ow = max(round(sspan * sc_disp), round(oh * min_aspect))  # width = hole width, floored to portrait
+    w, h = ow * SS, int(round(oh)) * SS
+    sc = sc_disp * SS
 
     def project(pt):
         a = (pt[0] - tee[0]) * u[0] + (pt[1] - tee[1]) * u[1]
         s = (pt[0] - tee[0]) * perp[0] + (pt[1] - tee[1]) * perp[1]
-        return (w / 2 - (s - cx) * sc, h - margin - (a - amin) * sc)
+        return (w / 2 - (s - scx) * sc, h - (a - amin) * sc)
 
-    return project, sc
+    return project, sc, w, h
 
 
 def _fill(d, by, name, color, project, alpha=255):
@@ -92,10 +123,14 @@ def _mask(by, name, project, size):
 
 
 def _frame(by, route):
-    """Single source of truth for the render frame (supersampled projector + canvas)."""
-    w, h = 720 * SS, 1120 * SS
-    margin = 40 * SS
-    project, sc = _setup(by, tuple(route[0]), tuple(route[-1]), w, h, margin)
+    """Single source of truth for the render frame (supersampled projector + canvas).
+
+    Returns ``(project, sc, w, h, margin)``. ``w``/``h`` are supersampled; the display frame is
+    ``w // SS`` x ``h // SS`` (variable width, ``FRAME_H`` tall). ``margin`` is the nominal
+    breathing room in supersampled px, kept for signature/back-compat (callers derive geometry from
+    ``project``, not ``margin``)."""
+    project, sc, w, h = _setup(by, tuple(route[0]), tuple(route[-1]))
+    margin = int(round(FRAME_H * FRAME_MARGIN)) * SS
     return project, sc, w, h, margin
 
 

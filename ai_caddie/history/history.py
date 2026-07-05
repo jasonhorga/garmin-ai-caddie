@@ -16,6 +16,7 @@ from ai_caddie.core.data import (
     MESH_DIR,
     ROOT,
     SHOT_DIR,
+    CLUB_TYPE_NAME,
     club_name_from_details,
     hazard_path,
     load_club_overrides,
@@ -56,28 +57,6 @@ def _player_shot_file(shots_dir: Path, scorecard_id: int | str) -> dict[str, Any
     if data.get("_no_data"):
         return None
     return data
-
-CLUB_TYPE_NAME = {
-    0: "Unknown",
-    1: "Driver",
-    2: "3W",
-    3: "5W",
-    4: "7W",
-    5: "Hybrid",
-    6: "2I/Hybrid",
-    7: "3I",
-    8: "4I",
-    9: "5I",
-    10: "6I",
-    11: "7I",
-    12: "8I",
-    13: "9I",
-    14: "PW",
-    15: "GW",
-    16: "SW",
-    17: "LW",
-    18: "Putter",
-}
 
 CLUB_MAX_M = {
     "Driver": 330,

@@ -18,6 +18,7 @@ from ai_caddie.geometry.measure_prodgeometry_distances import (
 
 from ai_caddie.core.data import (
     build_club_profiles,
+    clean_club_name,
     hazard_path,
     load_shot_file,
     load_scorecard,
@@ -578,7 +579,7 @@ def llm_brief(analysis: dict[str, Any]) -> dict[str, Any]:
             "shots": [
                 {
                     "order": s.get("shotOrder"),
-                    "club": s.get("clubName"),
+                    "club": clean_club_name(s.get("clubName")),
                     "type": s.get("shotType"),
                     "meters": s.get("meters"),
                     "endLie": (s.get("end") or {}).get("lie"),
@@ -1138,7 +1139,7 @@ def overlay_geojson(analysis: dict[str, Any]) -> dict[str, Any]:
                 "properties": {
                     "layer": "shot",
                     "order": shot.get("shotOrder"),
-                    "club": shot.get("clubName"),
+                    "club": clean_club_name(shot.get("clubName")),
                     "meters": shot.get("meters"),
                     "type": shot.get("shotType"),
                     "startLie": (start or {}).get("lie"),
@@ -1164,7 +1165,7 @@ def overlay_geojson(analysis: dict[str, Any]) -> dict[str, Any]:
                 "properties": {
                     "layer": "shot_end",
                     "order": shot.get("shotOrder"),
-                    "club": shot.get("clubName"),
+                    "club": clean_club_name(shot.get("clubName")),
                     "lie": (end or {}).get("lie"),
                     "local": _round_point(end_local),
                     "pixel": (
@@ -1184,7 +1185,7 @@ def overlay_geojson(analysis: dict[str, Any]) -> dict[str, Any]:
                 "properties": {
                     "layer": "shot_end",
                     "order": shot.get("shotOrder"),
-                    "club": shot.get("clubName"),
+                    "club": clean_club_name(shot.get("clubName")),
                     "lie": (end or {}).get("lie"),
                     "local": _round_point((end or {}).get("local")),
                 },

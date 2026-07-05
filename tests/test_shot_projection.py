@@ -43,20 +43,21 @@ def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float) -> dict:
     }
 
 
-# ---- hand-derived synthetic frame ----------------------------------------------------------
+# ---- hand-derived synthetic frame (fill-the-frame; design-system §九) -------------------------
 # PlayableBounds rect: local x in [-20, 20], y in [-10, 110]; route (0,0) -> (0,100) due north.
-# _setup: u=(0,1), perp=(-1,0) => a = y, s = -x; padded bounds amin=-24, amax=124,
-# smin=-34, smax=34; w,h,margin = 1440,2240,80 (SS=2);
-# sc = min(1280/68, 2080/148) = 2080/148 = 520/37; cx = 0.
-# Supersampled px: X = 720 + x*sc, Y = 2160 - (y+24)*sc. Display px (÷SS=2):
-#   X = 360 + x*(260/37), Y = 1080 - (y+24)*(260/37)
+# _setup: u=(0,1), perp=(-1,0) => a = y, s = -x. Raw a in [-10,110] (span 120), s in [-20,20] (span 40).
+# 6% margin: amin=-17.2, amax=117.2 (span 134.4); smin=-22.4, smax=22.4 (span 44.8); scx=0.
+# Fill height FRAME_H=1060: sc = 1060/134.4 = 1325/168 display px/m. Width = max(44.8*sc, 0.64*1060)
+# = max(353, 678) = 678 (thin hole -> floored to 0.64 portrait, centred). h=1060, w=678.
+# Display px: X = 339 + x*(1325/168), Y = 1060 - (y+17.2)*(1325/168).
 SYN_BY = {"PlayableBounds.drc": _rect_mesh(-20.0, -10.0, 20.0, 110.0)}
 SYN_ROUTE = [(0.0, 0.0), (0.0, 100.0)]
-SYN_SCALE = 260.0 / 37.0  # display px per metre
+SYN_SCALE = 1325.0 / 168.0  # display px per metre (= 1060 / 134.4)
+SYN_W, SYN_H = 678, 1060
 
 
 def _expected_px(local_x: float, local_y: float):
-    return (360.0 + local_x * SYN_SCALE, 1080.0 - (local_y + 24.0) * SYN_SCALE)
+    return (SYN_W / 2 + local_x * SYN_SCALE, SYN_H - (local_y + 17.2) * SYN_SCALE)
 
 
 class SemicircleConversionTests(unittest.TestCase):
@@ -113,8 +114,8 @@ class OverlayProjectorTests(unittest.TestCase):
             got = to_px(local)
             self.assertAlmostEqual(got[0], expected[0], places=6)
             self.assertAlmostEqual(got[1], expected[1], places=6)
-        # spot value: (10, 50) -> (360 + 2600/37, exactly 560.0)
-        self.assertAlmostEqual(to_px((10.0, 50.0))[1], 560.0, places=9)
+        # spot value: (10, 50) is the route midpoint -> exactly the vertical centre (FRAME_H/2).
+        self.assertAlmostEqual(to_px((10.0, 50.0))[1], 530.0, places=9)
 
     def test_matches_render_hole_overlay_route_px_exactly(self) -> None:
         """The projector IS render_hole's overlay transform — route px must agree."""
@@ -122,8 +123,8 @@ class OverlayProjectorTests(unittest.TestCase):
         with patch.object(hole_render, "load_mesh", return_value=(md, SYN_BY)):
             _img, meta = hole_render.render_hole(777001, 1, SYN_ROUTE, 100.0)
         to_px = hole_render.overlay_projector(SYN_BY, SYN_ROUTE)
-        self.assertEqual(meta["w"], 720)
-        self.assertEqual(meta["h"], 1120)
+        self.assertEqual(meta["w"], SYN_W)
+        self.assertEqual(meta["h"], SYN_H)
         self.assertAlmostEqual(meta["ppm"], round(SYN_SCALE, 4), places=9)
         for point, row in zip(SYN_ROUTE, meta["route"]):
             x, y = to_px(point)
@@ -136,8 +137,8 @@ class ProjectWorldToPixelTests(unittest.TestCase):
         to_px = hole_render.overlay_projector(SYN_BY, SYN_ROUTE)
         lat, lon = _world(10.0, 50.0)
         x, y = sp.project_world_to_pixel(lat, lon, ref_lat=31.0, ref_lon=118.0, to_px=to_px)
-        self.assertAlmostEqual(x, 360.0 + 10.0 * SYN_SCALE, places=6)
-        self.assertAlmostEqual(y, 560.0, places=6)
+        self.assertAlmostEqual(x, SYN_W / 2 + 10.0 * SYN_SCALE, places=6)
+        self.assertAlmostEqual(y, 530.0, places=6)
 
 
 class ShotsForHoleTests(unittest.TestCase):
@@ -229,7 +230,9 @@ class ShotsForHoleTests(unittest.TestCase):
             ("9001", "TEE"),
             ("9001", "APPROACH"),
         ])
-        self.assertEqual([r["club"] for r in rows], [None, "ClubType 1", "PW"])
+        # clubId 0/None -> None (no signal); a club with only clubTypeId=1 now maps to the real
+        # generic label "Driver" via the shared club/types table (was the "ClubType 1" leak); named PW.
+        self.assertEqual([r["club"] for r in rows], [None, "Driver", "PW"])
         self.assertAlmostEqual(rows[0]["lat"], 31.7621, places=6)
         self.assertAlmostEqual(rows[1]["lat"], 31.7508, places=6)
         self.assertAlmostEqual(rows[1]["lon"], 118.6222, places=6)
@@ -300,14 +303,15 @@ class PrepHoleYourShotsTests(unittest.TestCase):
         for row in rows:
             self.assertIsInstance(row["x"], int)
             self.assertIsInstance(row["y"], int)
-            self.assertTrue(0 <= row["x"] <= 719)
-            self.assertTrue(0 <= row["y"] <= 1119)
-        self.assertEqual((rows[0]["x"], rows[0]["y"]), (430, 560))  # 360 + 10*260/37, 1080 - 74*260/37
-        self.assertEqual(rows[0], {"x": 430, "y": 560, "club": "1W", "shotType": "TEE", "roundId": "9001"})
+            self.assertTrue(0 <= row["x"] <= SYN_W - 1)
+            self.assertTrue(0 <= row["y"] <= SYN_H - 1)
+        # (10,50): x = 339 + 10*1325/168 ≈ 418; y = 1060 - 67.2*1325/168 = 530 (route midpoint).
+        self.assertEqual((rows[0]["x"], rows[0]["y"]), (418, 530))
+        self.assertEqual(rows[0], {"x": 418, "y": 530, "club": "1W", "shotType": "TEE", "roundId": "9001"})
         self.assertEqual(rows[1]["x"], 0)
         self.assertEqual(rows[1]["club"], None)
         self.assertEqual(rows[2]["y"], 0)
-        self.assertEqual((rows[3]["x"], rows[3]["y"]), (719, 1119))
+        self.assertEqual((rows[3]["x"], rows[3]["y"]), (SYN_W - 1, SYN_H - 1))
 
     def test_caps_at_80_newest_first(self) -> None:
         shots = [self._row(10.0, 50.0, round_id=str(9100 + i)) for i in range(85)]

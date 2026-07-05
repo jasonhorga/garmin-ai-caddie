@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ai_caddie.core.data import clean_club_name
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import hole_render, shot_projection
 from ai_caddie.history.history import HistoryData
@@ -110,7 +111,9 @@ def build_round_hole_shot_map(data: HistoryData, round_ref: str, hole: int) -> d
         plotted.append({
             "start": project(shot.get("start")),
             "end": project(shot.get("end")),
-            "club": shot.get("clubName"),
+            # Resolved bag label (一号木 / 7I / 58° …) or None when Garmin logged the shot with no club
+            # (clubId 0) — a null renders the landing WITHOUT a meaningless "Unknown"/number label.
+            "club": clean_club_name(shot.get("clubName")),
             "lie": start.get("lie"),
             "endLie": shot.get("endLie"),
             "shotType": shot.get("type"),
