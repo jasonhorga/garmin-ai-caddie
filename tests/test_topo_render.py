@@ -193,5 +193,32 @@ class TopoPrewarmEndpointTests(unittest.TestCase):
         self.assertEqual(render.call_count, 2)
 
 
+class TeeMarkerHermeticTests(unittest.TestCase):
+    """无几何:_draw_tee_marker 必须落在**投影后的发球台**(route[0]),不是画框边缘
+    (守 2026-07-07 那次回归——早先的 tee-notch 画到了画框底/天上)。"""
+
+    def test_marker_drawn_at_projected_tee_not_frame_edge(self):
+        from PIL import Image
+
+        bg = (12, 120, 40)
+        img = Image.new("RGB", (300, 400), bg)
+
+        def project(pt):  # tee(0,0)->(150,200);green(0,-60)->(150,140) 所以击球方向朝上
+            return (150 + pt[0], 200 + pt[1])
+
+        route = [(0.0, 0.0), (0.0, -60.0)]
+        out = topo_render._draw_tee_marker(img, project, {}, route)
+        self.assertNotEqual(out.getpixel((150, 200)), bg)  # 标记落在投影后的发球台
+        self.assertEqual(out.getpixel((150, 399)), bg)     # 画框底边没画东西(守 #257 天上回归)
+
+    def test_short_route_is_a_noop(self):
+        from PIL import Image
+
+        bg = (12, 120, 40)
+        img = Image.new("RGB", (100, 100), bg)
+        out = topo_render._draw_tee_marker(img, lambda p: (50, 50), {}, [(0.0, 0.0)])  # <2 点
+        self.assertEqual(out.getpixel((50, 50)), bg)  # 什么都不画
+
+
 if __name__ == "__main__":
     unittest.main()
