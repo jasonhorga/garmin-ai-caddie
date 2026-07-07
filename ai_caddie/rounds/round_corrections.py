@@ -26,7 +26,7 @@ SCHEMA = "ai-caddie-round-correction-v1"
 
 VALID_OPS = {"deleteShot", "restoreShot", "editField", "setHolePenalty", "addShot"}
 # 只允许改这两样(球位纯描述、球杆展示用);其余字段不给编辑,守「不造假 + 极简」。
-EDITABLE_FIELDS = {"club", "lie"}
+EDITABLE_FIELDS = {"club", "lie", "position"}  # club/lie 走纯 apply;position 要几何,在 round_shot_map 生效
 _SAFE_REF = re.compile(r"[^A-Za-z0-9_.-]")
 
 

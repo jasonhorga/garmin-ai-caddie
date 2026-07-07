@@ -88,6 +88,15 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         out = self._build(corr, shots=[])
         self.assertTrue(any(s.get("club") == "五号铁" for s in out["shots"]))
 
+    def test_edit_position_moves_landing_to_tapped_pixel(self):
+        shots = [{"id": 1, "scorecardId": "r1", "hole": 1, "order": 1, "clubName": "七号铁",
+                  "start": {"lat": 40.0, "lon": 116.5, "lie": "Fairway"}, "end": {"lat": 40.02, "lon": 116.5}}]
+        corr = [{"op": "editField", "shotId": "s:r1:1", "field": "position", "value": [400, 300]}]
+        out = self._build(corr, shots=shots)
+        shot = next(s for s in out["shots"] if s.get("id") == "s:r1:1")
+        # 拖到像素 (400,300):pixel_to_world → world → 再 project 回到 [400,300](在画框内)。
+        self.assertEqual(shot["end"], [400, 300])
+
 
 if __name__ == "__main__":
     unittest.main()

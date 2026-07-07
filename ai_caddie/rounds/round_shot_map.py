@@ -149,6 +149,20 @@ def build_round_hole_shot_map(
         })
         _added += 1
 
+    # editField position(拖动改落点):px 反投影成世界坐标,改这一杆的 end。作用于原始杆 + 手动加的杆。
+    pos_edits: dict[str, list[Any]] = {}
+    for e in corr:
+        if e.get("op") == "editField" and e.get("field") == "position" and e.get("shotId"):
+            v = e.get("value") or []
+            if len(v) == 2:
+                pos_edits[str(e["shotId"])] = v
+    if pos_edits:
+        for s in shots:
+            v = pos_edits.get(round_corrections.mint_shot_id(s))
+            if v:
+                lat, lon = shot_projection.pixel_to_world(float(v[0]), float(v[1]), ref_lat=ref_lat, ref_lon=ref_lon, from_px=from_px)
+                s["end"] = {**(s.get("end") or {}), "lat": lat, "lon": lon, "posSource": "manual"}
+
     plotted: list[dict[str, Any]] = []
     for shot in shots:
         start = (shot.get("start") or {})
