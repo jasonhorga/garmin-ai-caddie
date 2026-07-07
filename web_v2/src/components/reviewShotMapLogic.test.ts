@@ -4,11 +4,13 @@ import {
   buildTimeline,
   buildTrajectory,
   chipShape,
+  dodgeLabels,
   isPuttShot,
   lieZh,
   shotDistanceYd,
   shotLandingLabels,
 } from './reviewShotMapLogic'
+import type { ShotLandingLabel } from './reviewShotMapLogic'
 
 function shot(overrides: Partial<RoundHoleShot> = {}): RoundHoleShot {
   return {
@@ -116,6 +118,47 @@ describe('shotLandingLabels', () => {
     ])
     expect(labels).toHaveLength(1)
     expect(labels[0]).toMatchObject({ x: 30, y: 30, text: '7I' })
+  })
+})
+
+describe('dodgeLabels', () => {
+  // overlay 200×400 → gapX = 28, gapY = 28.
+  const overlay = { w: 200, h: 400 }
+  const label = (x: number, y: number, text: string): ShotLandingLabel => ({ x, y, text })
+
+  it('anchors the first label and pushes coincident later ones down one gap each', () => {
+    const out = dodgeLabels(
+      [label(100, 200, 'A'), label(100, 200, 'B'), label(100, 200, 'C')],
+      overlay,
+    )
+    // x + text preserved, original order preserved, first landing never moves.
+    expect(out.map((l) => l.text)).toEqual(['A', 'B', 'C'])
+    expect(out.map((l) => l.x)).toEqual([100, 100, 100])
+    expect(out.map((l) => l.y)).toEqual([200, 228, 256])
+  })
+
+  it('separates a near-coincident pair so the pills no longer overlap', () => {
+    const [a, b] = dodgeLabels([label(100, 200, 'A'), label(105, 205, 'B')], overlay)
+    expect(a).toEqual(label(100, 200, 'A'))
+    expect(b.x).toBe(105) // x stays on the true landing
+    expect(Math.abs(b.y - a.y)).toBeGreaterThanOrEqual(overlay.h * 0.07)
+  })
+
+  it('leaves well-separated labels untouched (vertical or horizontal room)', () => {
+    const input = [label(50, 50, 'A'), label(150, 350, 'B'), label(120, 50, 'C')]
+    expect(dodgeLabels(input, overlay)).toEqual(input)
+  })
+
+  it('dodges upward when nudging down would leave the frame bottom', () => {
+    const [a, b] = dodgeLabels([label(100, 395, 'A'), label(100, 395, 'B')], overlay)
+    expect(a.y).toBe(395)
+    expect(b.y).toBe(367) // 395 − 28: pushed up into open space instead of off-frame
+  })
+
+  it('returns labels unchanged for a degenerate (zero-size) overlay', () => {
+    const input = [label(10, 10, 'A'), label(10, 10, 'B')]
+    expect(dodgeLabels(input, { w: 0, h: 400 })).toEqual(input)
+    expect(dodgeLabels([], overlay)).toEqual([])
   })
 })
 

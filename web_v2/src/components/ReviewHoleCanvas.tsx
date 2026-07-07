@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 import type { RoundHoleShotMapResponse } from '../types'
 import { topoImageUrl } from '../api'
 import { HoleBaseImage } from './HoleBaseImage'
-import { buildTrajectory, shotLandingLabels } from './reviewShotMapLogic'
+import { buildTrajectory, dodgeLabels, shotLandingLabels } from './reviewShotMapLogic'
 
 // The shot-map fetch state, resolved by the workbench: geometry may be missing
 // for a hole (no course mesh) even when the round itself is found.
@@ -49,7 +49,8 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
     const geo = buildTrajectory(shots)
     const routePoints = route.map((p) => `${p[0]},${p[1]}`).join(' ')
     const trajPoints = geo.points.map((p) => `${p[0]},${p[1]}`).join(' ')
-    const labels = shotLandingLabels(shots)
+    // Spread pills off any near-coincident landings so two close shots stay legible.
+    const labels = dodgeLabels(shotLandingLabels(shots), { w, h })
 
     svg = (
       <svg viewBox={`0 0 ${w} ${h}`} className="review-canvas-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
