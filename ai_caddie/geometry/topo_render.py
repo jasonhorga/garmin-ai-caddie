@@ -51,7 +51,7 @@ from ai_caddie.geometry import hole_render
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v2"
+STYLE_VERSION = "topo-v3"  # v3: 发球台小 tee 台标记(route[0] 处,和果岭旗遥相呼应)
 
 SS = hole_render.SS  # supersample factor — MUST match hole_render so the frame downsamples identically
 AZ = math.radians(135)  # sun FROM the south-east (Garmin-matched: light in the lower-right)
@@ -449,6 +449,37 @@ def _draw_green_marker(img, project, by, route):
     return img
 
 
+def _draw_tee_marker(img, project, by, route):
+    """Small tee-box pad on the REAL tee point (``route[0]``), oriented along the play direction —
+    the mirror of the green flag at the other end, marking where you tee off. Uses ``project`` so it
+    lands on the actual tee (not the frame edge). Drawn on the SS image, downsampled with the rest."""
+    if not route or len(route) < 2:
+        return img
+    d = ImageDraw.Draw(img, "RGBA")
+    tpx, tpy = project(route[0])
+    npx, npy = project(route[1])
+    dx, dy = npx - tpx, npy - tpy
+    ln = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / ln, dy / ln            # unit vector along the play direction
+    qx, qy = -uy, ux                     # unit vector perpendicular (across the tee)
+    hl, hw = 8 * SS, 13 * SS              # pad half-length (along) / half-width (across); tee boxes read wide
+    corners = [
+        (tpx + ux * hl + qx * hw, tpy + uy * hl + qy * hw),
+        (tpx + ux * hl - qx * hw, tpy + uy * hl - qy * hw),
+        (tpx - ux * hl - qx * hw, tpy - uy * hl - qy * hw),
+        (tpx - ux * hl + qx * hw, tpy - uy * hl + qy * hw),
+    ]
+    # lighter mowed-green pad so it reads as a manicured tee box against the darker rough
+    d.polygon(corners, fill=(170, 200, 120, 180))
+    d.line(corners + [corners[0]], fill=(240, 240, 240, 225), width=SS)
+    # two tee markers straddling the play line at the front edge (the classic tee-box look)
+    fx, fy = tpx + ux * hl, tpy + uy * hl
+    for s in (1.0, -1.0):
+        mx, my = fx + qx * hw * 0.62 * s, fy + qy * hw * 0.62 * s
+        d.ellipse((mx - 3 * SS, my - 3 * SS, mx + 3 * SS, my + 3 * SS), fill=(250, 250, 250, 240))
+    return img
+
+
 def render_hole_topo_image(gid: int, hole: int) -> Image.Image:
     """Render the LOCKED realistic topo base for (gid, hole) as a downsampled RGB PIL image
     (720x1120, the same frame as ``hole_render.overlay_projector``).
@@ -469,6 +500,7 @@ def render_hole_topo_image(gid: int, hole: int) -> Image.Image:
         project, sc, w, h, _margin = hole_render._frame(by, route)
         img = _build(md, by, route, project, sc, w, h, gid, hole)
         img = _draw_green_marker(img, project, by, route)
+        img = _draw_tee_marker(img, project, by, route)
         return img.resize((w // SS, h // SS), Image.LANCZOS)
     except TopoGeometryUnavailable:
         raise
