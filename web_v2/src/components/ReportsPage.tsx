@@ -426,8 +426,8 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
           {report.factsUsed.map((fact, index) => (
             <div className="report-row" key={`${String(fact.label)}-${index}`}>
               <div className="report-row-main">
-                <strong>{String(fact.label ?? 'fact')}</strong>
-                <span>{String(fact.source ?? 'source')}</span>
+                <strong>{String(fact.label ?? '事实')}</strong>
+                <span>{String(fact.source ?? '来源')}</span>
                 <FactValue value={fact.value} />
                 <ReportMetadata row={fact} confidenceLabel="事实置信" />
               </div>
@@ -441,7 +441,7 @@ function ReportDetail({ state, onSelectRef }: { state: ReportsPageProps['reportS
             report.missingData.map((item, index) => (
               <div className="report-row" key={`${String(item.label)}-${index}`}>
                 <div className="report-row-main">
-                  <strong>{String(item.label ?? 'missing')}</strong>
+                  <strong>{String(item.label ?? '缺失项')}</strong>
                   <span>{String(item.state ?? item.reason ?? '待复核')}</span>
                   <ReportMetadata row={item} confidenceLabel="缺失置信" />
                 </div>
@@ -485,8 +485,8 @@ function UnsupportedClaims({
         rows.map((claim, index) => (
           <div className="report-row" key={`${String(claim.category ?? 'claim')}-${index}`}>
             <div className="report-row-main">
-              <strong>{String(claim.category ?? 'claim')}</strong>
-              <span>{String(claim.claim ?? 'Unsupported claim')}</span>
+              <strong>{String(claim.category ?? '断言')}</strong>
+              <span>{String(claim.claim ?? '无依据断言')}</span>
               {typeof claim.reason === 'string' ? <span>{claim.reason}</span> : null}
               <div className="report-metadata">
                 {labeledChips(claim.missingDataLabels, 'missing', '缺失')}
@@ -520,7 +520,7 @@ function ReportInferences({
         rows.map((inference, index) => (
           <div className="report-row" key={`${String(inference.claim ?? 'inference')}-${index}`}>
             <div className="report-row-main">
-              <strong>{String(inference.claim ?? 'Inference')}</strong>
+              <strong>{String(inference.claim ?? '推断')}</strong>
               <div className="report-metadata">
                 {labeledChips(inference.factLabels, 'fact', '事实')}
                 {labeledChips(inference.missingDataLabels, 'missing', '缺失')}

@@ -102,7 +102,7 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
                   <div className="settings-oauth-capabilities" aria-label="OAuth 能力矩阵">
                     {oauthCapabilities.map((capability) => (
                       <span key={asString(capability.key) ?? asString(capability.label) ?? 'capability'}>
-                        {oauthCapabilityZh(asString(capability.key) ?? '')?.label ?? asString(capability.label) ?? 'Capability'}: {settingsStateZh(asString(capability.state) ?? '未知')}
+                        {oauthCapabilityZh(asString(capability.key) ?? '')?.label ?? asString(capability.label) ?? '能力'}: {settingsStateZh(asString(capability.state) ?? '未知')}
                       </span>
                     ))}
                   </div>
@@ -160,7 +160,7 @@ export function SettingsPage({ onNavigate, settings, settingsError }: SettingsPa
               <span className="setting-chip setting-secondary">手表桥接</span>
               <span className="setting-chip">照片/视频上下文</span>
               {asString(ios.state) ? <span className="setting-chip">iOS {settingsStateZh(asString(ios.state) ?? '')}</span> : null}
-              {asString(watch.state) ? <span className="setting-chip">Watch {settingsStateZh(asString(watch.state) ?? '')}</span> : null}
+              {asString(watch.state) ? <span className="setting-chip">手表 {settingsStateZh(asString(watch.state) ?? '')}</span> : null}
             </div>
             <div className="settings-fact-grid">
               <span>开局</span>
@@ -258,12 +258,31 @@ function asBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
 
+// Live-app capture/input tokens (server_v2/product_settings.py liveApps
+// captures/inputs) rendered as a human list. GPS stays an acronym; unknown
+// tokens fall through raw.
+const CAPTURE_LABEL_ZH: Record<string, string> = {
+  gps: 'GPS',
+  club: '球杆',
+  distance: '距离',
+  score: '成绩',
+  putt: '推杆',
+  penalty: '罚杆',
+  note: '备注',
+  photo: '照片',
+  video: '视频',
+}
+
+function captureLabelZh(raw: string): string {
+  return CAPTURE_LABEL_ZH[raw.toLowerCase()] ?? raw
+}
+
 function formatSettingList(value: unknown, fallback: string[]): string {
   const rawValues = Array.isArray(value) ? value : fallback
   return rawValues
     .map(asString)
     .filter((item): item is string => Boolean(item))
-    .map((item) => (item.toLowerCase() === 'gps' ? 'GPS' : item))
+    .map((item) => captureLabelZh(item))
     .join(', ')
 }
 

@@ -980,8 +980,8 @@ function DecisionAcceptableMiss({
       </div>
       <div className="decision-option-chips">
         {avoidRiskKinds.length ? <span className="fact-chip muted">避开 {avoidRiskKinds.join(', ')}</span> : null}
-        {stringValue(preferredMiss.side) ? <span className="fact-chip muted">偏向侧面 {stringValue(preferredMiss.side)}</span> : null}
-        {stringValue(preferredMiss.depth) ? <span className="fact-chip muted">偏向深度 {stringValue(preferredMiss.depth)}</span> : null}
+        {stringValue(preferredMiss.side) ? <span className="fact-chip muted">偏向侧面 {missDirectionZh(stringValue(preferredMiss.side))}</span> : null}
+        {stringValue(preferredMiss.depth) ? <span className="fact-chip muted">偏向深度 {missDirectionZh(stringValue(preferredMiss.depth))}</span> : null}
         {avoidPatterns.length ? <span className="fact-chip muted">避开模式 {avoidPatterns.join(', ')}</span> : null}
         <SourceRefs refs={refs} maxVisible={3} onSelectRef={onSelectRef} />
       </div>
