@@ -98,6 +98,8 @@ def _validate(event: dict[str, Any]) -> None:
             int(event.get("value"))
         except (TypeError, ValueError):
             raise CorrectionError("setHolePenalty 的 value 必须是整数杆数")
+    if op == "reorderShot" and not isinstance(event.get("order"), list):
+        raise CorrectionError("reorderShot 需要 order 列表")
 
 
 def append_correction(
@@ -177,3 +179,12 @@ def hole_penalty(events: list[dict[str, Any]], hole: int) -> int:
             if v is not None:
                 val = v
     return val
+
+
+def reorder_map(events: list[dict[str, Any]]) -> dict[str, int]:
+    """落点顺序覆盖:最后一条 reorderShot 的 shotId→位次;无则 {}(shotmap 排序时:有覆盖用覆盖)。"""
+    order: list[str] = []
+    for e in events:
+        if e.get("op") == "reorderShot" and isinstance(e.get("order"), list):
+            order = [str(s) for s in e["order"]]
+    return {sid: i for i, sid in enumerate(order)}

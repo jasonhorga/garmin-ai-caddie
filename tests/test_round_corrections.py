@@ -132,5 +132,21 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(rc.hole_penalty(events, 9), 0)
 
 
+class ReorderTests(unittest.TestCase):
+    def test_reorder_map_last_wins(self):
+        events = [
+            {"op": "reorderShot", "order": ["a", "b", "c"]},
+            {"op": "reorderShot", "order": ["c", "a", "b"]},
+        ]
+        self.assertEqual(rc.reorder_map(events), {"c": 0, "a": 1, "b": 2})
+
+    def test_reorder_map_empty(self):
+        self.assertEqual(rc.reorder_map([]), {})
+
+    def test_validate_reorder_requires_order_list(self):
+        with self.assertRaises(rc.CorrectionError):
+            rc.append_correction("me", "42", {"op": "reorderShot"})
+
+
 if __name__ == "__main__":
     unittest.main()

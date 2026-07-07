@@ -114,9 +114,10 @@ def build_round_hole_shot_map(
         return [min(max(int(round(px)), 0), width - 1), min(max(int(round(py)), 0), height - 1)]
 
     round_ids = _round_ids(row)
+    rmap = round_corrections.reorder_map(corr)
     shots = sorted(
         (s for s in data.shots if str(s.get("scorecardId")) in round_ids and _int(s.get("hole")) == hole),
-        key=lambda s: _int(s.get("order")) or 0,
+        key=lambda s: rmap.get(round_corrections.mint_shot_id(s), 10_000 + (_int(s.get("order")) or 0)),
     )
     shots = round_corrections.apply_corrections(shots, corr)
 
