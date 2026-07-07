@@ -6,6 +6,8 @@
 
 **Architecture:** 一个可复用的后端活 `prepare_recent_round(player_id)` = 定位最近一盘的球场+洞 → 预热这些洞的 topo(复用现有 `_prewarm_course_topo`,已自带"缓存命中即跳过") + 烤统计(复用现有 `warm_stats_cache`)。挂到三个自动触发点(启动 / 记分落地 / 新端点)+ `auto_sync.sh` 尾巴调用并提频到每小时。**幂等靠现有缓存天然实现**(topo 磁盘缓存 + 统计文件指纹),重跑零成本,无需额外标记。
 
+**核心原则(负责人 2026-07-07 点正):触发时渲一次、缓存好,三端都读缓存,谁都不在"你看的时候"现画。** 现状偏离:shotmap 每次都用 `hole_render.render_hole` **现画一张旧图**(0.48s/洞、旧平面风)放进 `map.image`;网页忽略它(改用缓存 topo),但 **iOS 复盘底图正是用这张 `map.image`** → iOS 每次等 0.48s 且看到的是旧风。**Task 5(纯后端一步就同时解决)**:让 `build_round_hole_shot_map` 的 `map.image` **直接取缓存好的 topo**(`render_hole_topo_cached` 的 bytes),画框 overlay 照用便宜的 `_frame`(不再走 0.48s 的像素渲染)。效果:① shotmap 每次省 0.48s;② **iOS 不改一行**就拿到缓存 topo(预热过=秒开、且更好看、与网页一致);③ 网页不受影响(仍用 `topo.png`,其 fallback 现在也是 topo)。**已核实**:topo 与 `render_hole` 画框都是 678×1060、共用同一投影(#233),所以底图换成 topo、shot 叠加仍对齐。**后续(不阻塞)**:iOS 可再改成直接用 `topoImageURL`(去掉响应里内嵌的大图、省流量)——但那是锦上添花,本计划不含。
+
 **Tech Stack:** Python 3.12,FastAPI(`server_v2`),PIL/numpy 渲染,unittest(CI 权威),`uv run python -m unittest` Tokyo 预验。
 
 ## Global Constraints
@@ -376,17 +378,97 @@ git commit -m "ops(instant): 同步尾巴调用 prepare-recent + cron 提频每�
 
 ---
 
+## Task 5: shotmap 底图改取缓存 topo(跳过 0.48s 旧渲染;iOS 免改即秒开)
+
+**Files:**
+- Modify: `ai_caddie/rounds/round_shot_map.py`(`build_round_hole_shot_map` 里那次 `hole_render.render_hole` 调用)
+- Modify(可能): `ai_caddie/geometry/hole_render.py`(若没有"只出 overlay 不渲像素"的便宜路径,加一个)
+- Test: `tests/test_round_shot_map.py`(扩)
+
+**Interfaces:**
+- Consumes: `ai_caddie.geometry.topo_render.render_hole_topo_cached(gid, hole) -> bytes`(缓存 PNG,命中即秒回);`hole_render` 的便宜画框路径(`_frame` / `overlay_projector`——已被 `build_round_hole_shot_map` 部分使用)。
+- Produces: `build_round_hole_shot_map` 的返回里 `map.image` = 缓存 topo 的 data URI;`map.overlay` 仍是 `{w,h,ppm,route[px]}` 且与该 topo 对齐;**不再调用 `hole_render.render_hole` 做 0.48s 像素渲染**。
+
+- [ ] **Step 1: 先确认"只出 overlay 不渲像素"的便宜路径**
+
+读 `hole_render.render_hole`,看它算 `overlay`(w,h,route-px,ppm)用的是哪几步(`_frame` → `overlay_projector` → 投影 route)。确认这几步不含像素渲染(填色/条纹/树)。若已能单独调用 → 直接用;若揉在 `render_hole` 里 → 抽一个 `render_hole_overlay(global_id, local_hole, route, route_len) -> overlay_dict`(把 `render_hole` 里"算 overlay"那段提出来,`render_hole` 改为调它再渲像素,保持原行为)。**这一步是重构确认,不改外部行为。**
+
+- [ ] **Step 2: 写失败测试**
+
+```python
+# 追加到 tests/test_round_shot_map.py(几何仍用现有 _geometry_mocks;另 mock topo 缓存)
+from unittest.mock import patch
+
+class ShotMapUsesCachedTopoTests(unittest.TestCase):
+    def test_map_image_is_cached_topo_not_freshly_rendered(self):
+        shots = [{"scorecardId": "r1", "hole": 1, "order": 1, "clubName": "一号木", "type": "TEE",
+                  "start": {"lat": 40.0, "lon": 116.5, "lie": "TeeBox"},
+                  "end": {"lat": 40.02, "lon": 116.5, "lie": "Fairway"}, "endLie": "Fairway"}]
+        mocks = _geometry_mocks()
+        for m in mocks: m.start()
+        # 关键:map.image 必须来自缓存 topo,且 render_hole 不被用来出底图(不再现渲)
+        with patch.object(rsm.topo_render, "render_hole_topo_cached",
+                          return_value=b"PNGBYTES") as topo, \
+             patch.object(rsm.hole_render, "render_hole",
+                          side_effect=AssertionError("shotmap 不应再调 render_hole 现渲底图")):
+            try:
+                out = rsm.build_round_hole_shot_map(_data(shots), "r1", 1)
+            finally:
+                for m in mocks: m.stop()
+        topo.assert_called_once_with(31795, 1)
+        self.assertTrue(out["map"]["image"].startswith("data:image/"))
+        # overlay 仍在、画框仍是 720x1120(mock 值)、shot 仍被投影
+        self.assertEqual(out["map"]["overlay"]["w"], 720)
+        self.assertTrue(len(out["shots"]) >= 1)
+```
+
+(注:`_geometry_mocks` 里 `render_hole` 当前被 mock 成返回图+overlay;本测试改为让 overlay 走便宜路径、`render_hole` 不再被底图逻辑调用。若 Step 1 抽了 `render_hole_overlay`,把 `_geometry_mocks` 对应改成 mock 它。)
+
+- [ ] **Step 3: 跑测试,确认失败**
+
+Run: `uv run python -m unittest tests.test_round_shot_map -v`
+Expected: FAIL(现仍调 `render_hole` 出底图 → 触发 AssertionError,或 `render_hole_topo_cached` 未被调)。
+
+- [ ] **Step 4: 改 `build_round_hole_shot_map`**
+
+把 `image, overlay = hole_render.render_hole(...)` 换成:
+```python
+    overlay = hole_render.render_hole_overlay(int(gid), int(local), route, route_len)  # 便宜:只画框
+    try:
+        topo_bytes = topo_render.render_hole_topo_cached(int(gid), int(local))         # 缓存命中即秒回
+        image = "data:image/png;base64," + base64.b64encode(topo_bytes).decode()
+    except Exception:
+        image = None  # topo 不可用:底图留空(有 overlay + shots 仍可看杆序);守"不造假"
+```
+(顶部 `import base64`;`from ai_caddie.geometry import topo_render`。`image` 处的 `map` 结构不变:`"map": {"image": image, "overlay": overlay}`。)
+
+- [ ] **Step 5: 跑测试,确认通过 + 全套回归**
+
+Run: `uv run python -m unittest tests.test_round_shot_map tests.test_round_shot_map_corrections -v && uv run python -m unittest discover -s tests 2>&1 | tail -3`
+Expected: PASS + 全套 `OK`。
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add ai_caddie/rounds/round_shot_map.py ai_caddie/geometry/hole_render.py tests/test_round_shot_map.py
+git commit -m "feat(instant): shotmap 底图改取缓存 topo(跳过 0.48s 旧渲染;iOS 免改即秒开)"
+```
+
+> **iOS 侧零改动**:iOS 复盘用 `shotMap.map?.image`,现在它就是缓存 topo → 预热过即秒开、且从旧平面风变成 topo,与网页一致。**验证**:`tests/test_mobile_contracts.py` 若断言了 map.image 相关 wiring 需确认仍成立(本改不动 iOS 源码,契约应仍绿);真机观感等 TestFlight(gated)。
+
+---
+
 ## Self-Review(对着 spec 核一遍)
 
 **Spec 覆盖:**
 - §2 触发器挂三个自动点 + 手动端点 → Task 3(启动/记分/端点)+ Task 4(同步尾巴);手动「拉一下」按钮的**端点**在 Task 3(按钮 UI 后续)。✓
 - §2 提频每小时 → Task 4(脚本注释,真部署 user-gated)。✓
-- §3 准备什么:烤统计(Task 2 warm_stats)+ 预热这盘 topo(Task 1/2)+ 逐杆复盘(网页复盘底图=topo,已随 topo 预热而秒开,§8-① 已核实旧图仅 0.48s、非瓶颈)。✓
+- §3 准备什么:烤统计(Task 2 warm_stats)+ 预热这盘 topo(Task 1/2)+ 逐杆复盘秒开(Task 5:shotmap 底图改取缓存 topo,网页**和** iOS 都读缓存、谁都不现画)。✓
 - §4 不重复瞎算 → 靠现有 topo 磁盘缓存 + 统计指纹缓存天然幂等(计划 Architecture 已说明,`_prewarm_course_topo` 缓存命中即跳过)。✓
 - §1 A 模式 → 本计划是"后端把缓存备好";"先给缓存后台刷"的客户端行为在现有读路径已是缓存优先,无需后端改。✓
 
 **留给后续 plan(客户端,本计划不含,已在设计 §6/§7 标为后置):**
-- iOS 复盘底图从旧图 `map.image` 换成预热好的 topo(更好看 + 更即时;现 0.48s 已可接受)。
+- iOS 复盘**进一步**改用 `topoImageURL`(去掉响应里内嵌的大图、省流量)—— 可选锦上添花;Task 5 已让 iOS 免改即拿到缓存 topo、秒开,所以这条不紧急。
 - 首页「最近一盘」卡接**真实球道预览图** + 保证点进去秒开(iOS + 网页 UI)。
 - 「拉一下最新」**按钮 UI**(端点已在 Task 3)。
 - 每小时同步真实成本上线后观测(§8-②)。
