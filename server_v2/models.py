@@ -466,7 +466,28 @@ class RoundHoleShotMapResponse(BaseModel):
     localHole: int | None = None
     map: dict[str, Any] | None = None
     shots: list[dict[str, Any]] = Field(default_factory=list)
+    # 这一洞手填的罚杆数(复盘修改层,默认 0)。洞分 = 记录到的杆数 + 这个数。
+    manualPenalty: int = 0
     missingData: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class RoundCorrectionRequest(BaseModel):
+    """一条复盘修改事件:增/改/删一杆,或给某洞手填罚杆。见 ai_caddie/rounds/round_corrections.py。"""
+
+    op: str  # deleteShot | restoreShot | editField | setHolePenalty | addShot
+    shotId: str | None = None
+    hole: int | None = None
+    field: str | None = None  # editField 时:club | lie
+    value: Any = None
+    reason: str | None = None  # deleteShot 的删因(暂定球/练习挥/误检测…)
+    clientMutationId: str | None = None  # 幂等键
+
+
+class RoundCorrectionResponse(BaseModel):
+    schema_: str = Field("ai-caddie-round-correction-v1", alias="schema")
+    stored: dict[str, Any]
+
+    model_config = {"populate_by_name": True}
 
 
 class HistoryDrilldownResponse(BaseModel):

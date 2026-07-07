@@ -299,6 +299,10 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             or (path.startswith("/api/v2/caddie/decisions/") and path.endswith("/audit"))
             or path == "/api/v2/annotations"
             or (path.startswith("/api/v2/reports/") and path.endswith("/generate"))
+            # 复盘修改 WRITE — corrections 存在调用者自己的分区(data/players/<id>/corrections/),
+            # 成员只写自己的(handler 线程 current_player_id)。路径无 target-player → 天然自限,
+            # 分类同 POST /api/v2/annotations。
+            or (path.startswith("/api/v2/history/rounds/") and path.endswith("/corrections"))
         )
     return False
 

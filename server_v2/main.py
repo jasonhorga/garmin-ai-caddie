@@ -14,7 +14,7 @@ from starlette.datastructures import QueryParams
 
 from ai_caddie.courses import course_search
 from ai_caddie.history import stats_cache
-from ai_caddie.rounds import round_ingest
+from ai_caddie.rounds import round_corrections, round_ingest
 from ai_caddie.rounds.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
 from ai_caddie.connectors.snapshot import snapshot_to_payload
@@ -99,6 +99,8 @@ from .models import (
     HistoryOverviewResponse,
     HistoryRoundDetailResponse,
     RoundHoleShotMapResponse,
+    RoundCorrectionRequest,
+    RoundCorrectionResponse,
     HistoryRoundsResponse,
     HistoryStatsResponse,
     HistoryStatsSummaryResponse,
@@ -519,6 +521,26 @@ def round_hole_shot_map(
     # 复盘 per-hole shot map: this round's actual shots on the 2D render. Rendered on demand per
     # hole (one supersampled JPEG), not all 18 eagerly.
     return load_round_hole_shot_map_response(round_ref, hole, player_id=player_id)
+
+
+@app.post(
+    "/api/v2/history/rounds/{round_ref}/corrections",
+    response_model=RoundCorrectionResponse,
+    status_code=201,
+)
+def add_round_correction(
+    round_ref: str,
+    body: RoundCorrectionRequest,
+    player_id: str = Depends(current_player_id),
+) -> RoundCorrectionResponse:
+    """复盘修改:给某局追加一条「增/改/删一杆 或 手填罚杆」事件,写在**本人名下**
+    (幂等 on clientMutationId)。原始 Garmin 数据不动,读取 shotmap 时套上。一个成员
+    token 只能写自己的修改;此路由不在 admin 门内,成员登录即可用。"""
+    try:
+        stored = round_corrections.append_correction(player_id, round_ref, body.model_dump())
+    except round_corrections.CorrectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return RoundCorrectionResponse(stored=stored)
 
 
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)
