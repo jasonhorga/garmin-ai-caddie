@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { SourceRefs } from './SourceRefs'
 import { asNumber, asRows, asString, formatNumber } from './statsValues'
 
@@ -22,15 +23,25 @@ const MAP_WIDTH = 320
 const MAP_HEIGHT = 180
 const MAP_PADDING = 32
 
-export function CourseDistributionMap({ rows, onSelectRef, metricMode = 'split', maxRows }: CourseDistributionMapProps) {
-  const distribution = asRows(rows).slice(0, maxRows)
-  const parsed = distribution.map((row) => ({ row, location: parseLocation(row.location) }))
-  const plotted = projectPoints(
-    parsed.flatMap(({ row, location }) => (location ? [{ row, ...location }] : [])),
-  )
-  const missingCount = distribution.length - plotted.length
+// Courses in the same city project to near-identical lat/long, so their pins
+// used to stack into an unreadable blob. Nudge only pins that would collide
+// just far enough apart to read, keeping the geographic layout otherwise.
+const PIN_MIN_GAP = 1.5 // desired clear gap between pin edges, in SVG units
+const RELAX_ITERATIONS = 120 // hard cap so overpacked maps still terminate
+const RELAX_EPS = 0.05 // stop once the largest nudge falls below this
 
-  if (distribution.length === 0) {
+export function CourseDistributionMap({ rows, onSelectRef, metricMode = 'split', maxRows }: CourseDistributionMapProps) {
+  const { parsed, plotted, distributionLength } = useMemo(() => {
+    const distribution = asRows(rows).slice(0, maxRows)
+    const parsedRows = distribution.map((row) => ({ row, location: parseLocation(row.location) }))
+    const projected = projectPoints(
+      parsedRows.flatMap(({ row, location }) => (location ? [{ row, ...location }] : [])),
+    )
+    return { parsed: parsedRows, plotted: declutterPoints(projected), distributionLength: distribution.length }
+  }, [rows, maxRows])
+  const missingCount = distributionLength - plotted.length
+
+  if (distributionLength === 0) {
     return (
       <article className="stats-empty">
         <h3>暂无球场分布数据</h3>
@@ -131,6 +142,60 @@ function projectPoints(points: Array<{ row: Record<string, unknown>; latitude: n
       y: MAP_PADDING + ((90 - point.latitude) / 180) * (MAP_HEIGHT - MAP_PADDING * 2),
     }
   })
+}
+
+// Beeswarm-style de-overlap: iteratively push apart only pins whose circles
+// (radius + gap) would collide, leaving well-separated pins exactly on their
+// projected spot. Fully deterministic — same course set in, same layout out —
+// with a fixed iteration cap so a dense map still terminates instead of the
+// pins flying off. Data is untouched; only where a pin is drawn changes.
+function declutterPoints(points: CoursePoint[]): CoursePoint[] {
+  if (points.length < 2) return points
+  const n = points.length
+  const xs = points.map((point) => point.x)
+  const ys = points.map((point) => point.y)
+  const rs = points.map((point) => pinRadius(point.row.roundCount))
+  for (let iter = 0; iter < RELAX_ITERATIONS; iter++) {
+    let maxShift = 0
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        let dx = xs[j] - xs[i]
+        let dy = ys[j] - ys[i]
+        let dist = Math.hypot(dx, dy)
+        const minDist = rs[i] + rs[j] + PIN_MIN_GAP
+        if (dist >= minDist) continue
+        if (dist < 1e-4) {
+          // Exact coincidence has no direction to push along — fan the pair out
+          // on a stable angle derived from their indices so the result is still
+          // deterministic rather than dependent on floating-point noise.
+          const angle = (((i * 73 + j * 149) % 360) * Math.PI) / 180
+          dx = Math.cos(angle)
+          dy = Math.sin(angle)
+          dist = 1
+        }
+        const shift = (minDist - dist) / 2
+        const ux = dx / dist
+        const uy = dy / dist
+        xs[i] -= ux * shift
+        ys[i] -= uy * shift
+        xs[j] += ux * shift
+        ys[j] += uy * shift
+        if (shift > maxShift) maxShift = shift
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      xs[i] = clampToFrame(xs[i], rs[i], MAP_WIDTH)
+      ys[i] = clampToFrame(ys[i], rs[i], MAP_HEIGHT)
+    }
+    if (maxShift < RELAX_EPS) break
+  }
+  return points.map((point, i) => ({ ...point, x: xs[i], y: ys[i] }))
+}
+
+// Keep a nudged pin fully inside the map frame.
+function clampToFrame(value: number, radius: number, extent: number): number {
+  const margin = radius + 3
+  return Math.max(margin, Math.min(extent - margin, value))
 }
 
 function pinRadius(value: unknown): number {

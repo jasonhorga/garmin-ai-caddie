@@ -1120,12 +1120,21 @@ p {
 
 .course-map-pin-node circle {
   fill: #0f8f5f;
+  /* Translucent so where pins still touch the overlap reads as denser green
+     rather than one flat blob; the light ring keeps each pin distinct. */
+  fill-opacity: 0.85;
   stroke: #f7fbf8;
   stroke-width: 3;
 }
 
 .course-map-pin-node text {
   fill: #ffffff;
+  /* Dark halo (painted under the fill) keeps the index legible even where it
+     crosses a neighbouring pin's light ring in a dense cluster. */
+  stroke: #0b5c3c;
+  stroke-width: 2px;
+  paint-order: stroke fill;
+  stroke-linejoin: round;
   font-size: 10px;
   font-weight: 900;
   text-anchor: middle;

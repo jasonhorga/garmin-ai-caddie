@@ -341,22 +341,49 @@ describe('CourseStats', () => {
     expect(within(distribution).getAllByRole('button', { name: 'Open source 900003' }).length).toBeGreaterThan(0)
   })
 
-  it('keeps coordinate-backed pins stable when the course set changes', () => {
-    const { rerender } = render(<CourseStats data={statsFixture} />)
-    const fullPin = screen.getByTestId('course-map-pin-black_knight')
-    const fullPosition = {
-      cx: fullPin.getAttribute('cx'),
-      cy: fullPin.getAttribute('cy'),
-    }
+  it('spreads overlapping course pins apart so their circles no longer collapse together', () => {
+    // black_knight and island_club project ~14 units apart, but their pin radii
+    // (≈9.8 + 9) sum to ≈18.8, so raw projection overlaps them into one blob.
+    // The declutter pass must push them past touching so both stay readable —
+    // positions move, the underlying data does not.
+    render(<CourseStats data={statsFixture} />)
 
-    // Adding another course keeps the map visible (≥3 courses) and must not shift
-    // black_knight's pin — projection is absolute (lat/long), not relative to the set.
+    const a = screen.getByTestId('course-map-pin-black_knight')
+    const b = screen.getByTestId('course-map-pin-island_club')
+    const distance = Math.hypot(
+      Number(a.getAttribute('cx')) - Number(b.getAttribute('cx')),
+      Number(a.getAttribute('cy')) - Number(b.getAttribute('cy')),
+    )
+    expect(distance).toBeGreaterThan(18.8)
+  })
+
+  it('keeps a pin with no near neighbours on its exact projected spot when the course set changes', () => {
+    // A course far from every other pin never collides, so declutter leaves it
+    // untouched: its position stays absolute (lat/long), independent of the rest
+    // of the set — the projection guarantee that still holds for unclustered pins.
+    const isolated = {
+      courseKey: 'lone_course',
+      courseName: 'Lone Course',
+      roundCount: 1,
+      pct: 10,
+      roundRefs: ['900050'],
+      location: { latitude: -35, longitude: -70 },
+    }
+    const withIsolated = {
+      ...statsFixture,
+      courseDistribution: [...statsFixture.courseDistribution, isolated],
+    }
+    const { rerender } = render(<CourseStats data={withIsolated} />)
+    const lonePin = screen.getByTestId('course-map-pin-lone_course')
+    const lonePosition = { cx: lonePin.getAttribute('cx'), cy: lonePin.getAttribute('cy') }
+
+    // Add another distant course elsewhere — still nowhere near Lone Course.
     rerender(
       <CourseStats
         data={{
-          ...statsFixture,
+          ...withIsolated,
           courseDistribution: [
-            ...statsFixture.courseDistribution,
+            ...withIsolated.courseDistribution,
             {
               courseKey: 'new_course',
               courseName: 'New Course',
@@ -370,9 +397,49 @@ describe('CourseStats', () => {
       />,
     )
 
-    const nextPin = screen.getByTestId('course-map-pin-black_knight')
-    expect(nextPin).toHaveAttribute('cx', fullPosition.cx)
-    expect(nextPin).toHaveAttribute('cy', fullPosition.cy)
+    const nextLonePin = screen.getByTestId('course-map-pin-lone_course')
+    expect(nextLonePin).toHaveAttribute('cx', lonePosition.cx)
+    expect(nextLonePin).toHaveAttribute('cy', lonePosition.cy)
+  })
+
+  it('lays pins out deterministically for an identical course set', () => {
+    // No random jitter: the same course set always renders identical pins.
+    const { rerender } = render(<CourseStats data={statsFixture} />)
+    const first = screen.getByTestId('course-map-pin-black_knight')
+    const firstPosition = { cx: first.getAttribute('cx'), cy: first.getAttribute('cy') }
+
+    rerender(<CourseStats data={{ ...statsFixture, courseDistribution: [...statsFixture.courseDistribution] }} />)
+
+    const second = screen.getByTestId('course-map-pin-black_knight')
+    expect(second).toHaveAttribute('cx', firstPosition.cx)
+    expect(second).toHaveAttribute('cy', firstPosition.cy)
+  })
+
+  it('fans a dense same-city cluster into non-overlapping pins', () => {
+    // Six courses a few hundred metres apart raw-project onto essentially the
+    // same spot (an unreadable blob). Declutter must fan them out so no two pin
+    // circles overlap, while their round data is left untouched.
+    const courseDistribution = Array.from({ length: 6 }, (_, i) => ({
+      courseKey: `city_course_${i + 1}`,
+      courseName: `City Course ${i + 1}`,
+      roundCount: (i % 3) + 1,
+      pct: 16,
+      roundRefs: [`9100${i}`],
+      location: { latitude: 22.3 + i * 0.004, longitude: 114.16 + i * 0.004 },
+    }))
+    render(<CourseStats data={{ ...statsFixture, courseDistribution }} />)
+
+    const pins = courseDistribution.map((course) => {
+      const el = screen.getByTestId(`course-map-pin-${course.courseKey}`)
+      return { cx: Number(el.getAttribute('cx')), cy: Number(el.getAttribute('cy')), r: Number(el.getAttribute('r')) }
+    })
+    for (let a = 0; a < pins.length; a++) {
+      for (let b = a + 1; b < pins.length; b++) {
+        const centreGap = Math.hypot(pins[a].cx - pins[b].cx, pins[a].cy - pins[b].cy)
+        // centre distance must clear the two radii — circles touch at most, never overlap
+        expect(centreGap).toBeGreaterThanOrEqual(pins[a].r + pins[b].r)
+      }
+    }
   })
 
   it('hides the 球场分布 map panel with fewer than 3 courses but keeps the course table', () => {
