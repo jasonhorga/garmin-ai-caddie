@@ -411,6 +411,10 @@ public struct RecentRoundSummary: Codable, Equatable, Identifiable {
     public let par: Int?
     public let toPar: Int?
     public let holesCompleted: Int
+    /// 该盘球场第 1 洞的物理球场 globalId(后端 `_recent_history` 随 summary 下发,前九感知)。
+    /// 首页「上一场」卡用它 + `SyncClient.topoImageURL(…, localHole: 1)` 取真实地形缩略图。
+    /// 旧 payload 无此字段 → 合成 Codable 解码为 nil → 卡片回退纯文字,绝不造图。
+    public let globalId: Int?
     public let sourceRefs: [String]
 }
 

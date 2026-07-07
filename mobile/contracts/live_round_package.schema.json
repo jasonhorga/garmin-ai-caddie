@@ -672,6 +672,9 @@
               "holesCompleted": {
                 "type": "integer"
               },
+              "globalId": {
+                "type": ["integer", "null"]
+              },
               "sourceRefs": {
                 "type": "array",
                 "items": {

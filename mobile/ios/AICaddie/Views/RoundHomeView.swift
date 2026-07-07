@@ -251,13 +251,21 @@ public struct RoundHomeView: View {
                         score: last.score,
                         toPar: last.toPar,
                         holesCompleted: last.holesCompleted,
-                        par: last.par
+                        par: last.par,
+                        topoURL: lastRoundTopoURL(last)
                     )
                 }
                 .buttonStyle(.plain)
             }
             .padding(.top, 6)
         }
+    }
+
+    /// 上一场第 1 洞的真实地形缩略图 URL:需要 apiBaseURL + 该盘球场 globalId(后端随 summary 下发,
+    /// 且 PR #263 已把最近一盘的 topo 预渲缓存 → 取图快)。缺任一 → nil → 卡片回退纯文字,绝不造图。
+    private func lastRoundTopoURL(_ round: RecentRoundSummary) -> URL? {
+        guard let apiBaseURL, let globalId = round.globalId else { return nil }
+        return SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: globalId, localHole: 1)
     }
 
     // 本场逐洞跳转网格已从首页移除(用户反馈:首页这块「不知道干嘛用的」)。进行中的球局从「继续这场」
@@ -403,7 +411,9 @@ struct HubTile: View {
     }
 }
 
-/// 上一场速览卡:球场 · 日期 + 杆数大字 + 相对标准杆(score token 配色)。
+/// 上一场速览卡:左侧真实球道缩略图(那盘球场第 1 洞 topo)+ 球场 · 日期 + 杆数大字 +
+/// 相对标准杆(score token 配色)。`topoURL == nil`(缺 globalId / 无 apiBaseURL)→ 不放图,
+/// 布局与纯文字版一致,绝不破版、绝不造图。
 struct HubLastRoundCard: View {
     let courseName: String
     let date: String
@@ -411,24 +421,60 @@ struct HubLastRoundCard: View {
     let toPar: Int?
     var holesCompleted: Int? = nil
     var par: Int? = nil
+    /// 那盘球场第 1 洞的真实地形缩略图 URL;nil → 回退纯文字卡(见 `lastRoundTopoURL`)。
+    var topoURL: URL? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(courseName).font(.title3.weight(.bold)).foregroundStyle(.primary)
-                Text(aiCaddieShortDate(date)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Text("\(score)").font(.system(size: 26, weight: .heavy)).monospacedDigit().foregroundStyle(.primary)
-                Text(toParText)
-                    .font(.subheadline.weight(.bold))
-                    .monospacedDigit()
-                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+        HStack(spacing: 12) {
+            if let topoURL {
+                thumbnail(topoURL)
             }
-            if let subtitle = holesParText {
-                Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(courseName).font(.title3.weight(.bold)).foregroundStyle(.primary)
+                    Text(aiCaddieShortDate(date)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Text("\(score)").font(.system(size: 26, weight: .heavy)).monospacedDigit().foregroundStyle(.primary)
+                    Text(toParText)
+                        .font(.subheadline.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                }
+                if let subtitle = holesParText {
+                    Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+                }
             }
         }
         .hubCard()
+    }
+
+    /// 小尺寸圆角地形缩略图。加载中 / 加载失败 / CI 快照无网络 → 克制的绿调占位(map 图标),
+    /// 与卡片风格一致、绝不显示破图空框。真实地形图靠真机加载(ImageRenderer 快照里恒为占位)。
+    @ViewBuilder private func thumbnail(_ url: URL) -> some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image.resizable().scaledToFill()
+            default:
+                thumbnailPlaceholder
+            }
+        }
+        .frame(width: 56, height: 56)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .accessibilityHidden(true)
+    }
+
+    private var thumbnailPlaceholder: some View {
+        ZStack {
+            HubStyle.iconTint
+            Image(systemName: "map")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(LiveHoleStyle.green.opacity(0.55))
+        }
     }
 
     private var holesParText: String? {
