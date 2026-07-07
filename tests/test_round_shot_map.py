@@ -28,7 +28,10 @@ def _geometry_mocks():
     return [
         patch.object(rsm.hole_render, "load_mesh", return_value=({"hole": {"RefLat": 40.0, "RefLon": 116.5}}, {})),
         patch.object(rsm.course_prep, "derive_route", return_value=([(0.0, 0.0), (1.0, 1.0)], 360.0)),
-        patch.object(rsm.hole_render, "render_hole", return_value=("data:image/jpeg;base64,abc", overlay)),
+        # 底图现在取缓存 topo(render_hole_topo_cached),画框走便宜的 render_hole_overlay;
+        # render_hole(旧现渲)不再被复盘用到。
+        patch.object(rsm.hole_render, "render_hole_overlay", return_value=overlay),
+        patch.object(rsm.topo_render, "render_hole_topo_cached", return_value=b"\x89PNG-fake-topo"),
         patch.object(rsm.hole_render, "overlay_projector", return_value=lambda p: (p[0], p[1])),
         # deterministic projection: lat/lon → px (clamped to overlay bounds by the builder)
         patch.object(rsm.shot_projection, "project_world_to_pixel",
@@ -116,6 +119,15 @@ class RoundShotMapTests(unittest.TestCase):
         self.assertTrue(out["found"])
         self.assertIsNone(out["map"])
         self.assertTrue(any(r["label"] == "geometry" for r in out["missingData"]))
+
+    def test_map_image_is_cached_topo_png_not_legacy_render(self):
+        # 底图必须来自缓存 topo(PNG data URI),不是旧的 JPEG 现渲(render_hole)。
+        out = self._build([
+            {"scorecardId": "r1", "hole": 1, "order": 1, "clubName": "一号木", "type": "TEE",
+             "start": {"lat": 40.0, "lon": 116.5, "lie": "TeeBox"},
+             "end": {"lat": 40.02, "lon": 116.5, "lie": "Fairway"}, "endLie": "Fairway"},
+        ])
+        self.assertTrue(out["map"]["image"].startswith("data:image/png;base64,"))
 
 
 if __name__ == "__main__":

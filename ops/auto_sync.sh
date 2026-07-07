@@ -3,9 +3,11 @@
 # 记分卡/击球/几何/球场 par → 同步成功后预热 stats 三窗口缓存。
 #
 # 设计给 2c/2GB 小机器:flock 防重入;可用内存不足直接跳过本轮(下个时段再试);
-# 日志固定截尾防膨胀。crontab 示例(UTC 机器,北京时间 13:37 / 21:37 各一次):
-#   37 5  * * * /home/ubuntu/claude-web-data/repo/garmin-ai-caddie/ops/auto_sync.sh
-#   37 13 * * * /home/ubuntu/claude-web-data/repo/garmin-ai-caddie/ops/auto_sync.sh
+# 日志固定截尾防膨胀。crontab 示例(UTC 机器,每小时一次 → 北京时间每小时的 :37):
+#   37 * * * * /home/ubuntu/claude-web-data/repo/garmin-ai-caddie/ops/auto_sync.sh
+# 「打开即用」:提频到每小时,让新球局个把小时内自动进来、复盘即备好。多数是轻量增量拉;
+# 只有 cookie 过期才触发较重的 xvfb 自愈。若实测过重,退回每 2–3 小时(37 */2 * * *)或
+# 只白天时段。真改 cron 是部署动作(homeserver 上手动),本文件只改注释示例。见设计 §8-②。
 #
 # 依赖:dependency-group `auth`(playwright)— `uv run --group auth` 自动装;
 # 凭据在 .garmin_tokens/garmin_login.json(勿外传);xvfb-run 需已安装。
@@ -39,6 +41,8 @@ if AI_CADDIE_AUTH_REFRESH=playwright "$UV_BIN" run --group auth python -m ai_cad
   for w in all last10 12m; do
     curl -sf -o /dev/null -m 180 "$API/api/v2/history/stats?window=$w" || true
   done
+  # 「打开即用」:数据落地后准备最近一盘(预热其球洞图 topo → 复盘打开即秒开)。best-effort。
+  curl -sf -o /dev/null -m 300 -X POST "$API/api/v2/history/prepare-recent" || true
   echo "$(date -Is) done" >>"$LOG"
 else
   echo "$(date -Is) SYNC FAILED — see lines above" >>"$LOG"

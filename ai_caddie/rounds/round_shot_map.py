@@ -15,11 +15,12 @@ so the client can render them faded/dashed and 复盘 stays honest about what is
 """
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from ai_caddie.core.data import clean_club_name
 from ai_caddie.courses import course_prep
-from ai_caddie.geometry import hole_render, shot_projection
+from ai_caddie.geometry import hole_render, shot_projection, topo_render
 from ai_caddie.history.history import HistoryData
 from ai_caddie.rounds import round_corrections
 
@@ -86,7 +87,14 @@ def build_round_hole_shot_map(
         route, route_len = course_prep.derive_route(md)
         if not route or not route_len:
             raise ValueError("no route")
-        image, overlay = hole_render.render_hole(int(gid), int(local), route, route_len)
+        overlay = hole_render.render_hole_overlay(int(gid), int(local), route, route_len)
+        # 底图取缓存好的 topo(命中即秒回;跳过 render_hole 的 ~0.48s 像素渲染)。三端都读这张缓存,
+        # 谁都不在"你看的时候"现画。topo 不可用则底图留空(overlay+shots 仍可看),守"不造假"。
+        try:
+            _topo_png = topo_render.render_hole_topo_cached(int(gid), int(local))
+            image = "data:image/png;base64," + base64.b64encode(_topo_png).decode()
+        except Exception:
+            image = None
         ref_lat = float((md.get("hole") or {})["RefLat"])
         ref_lon = float((md.get("hole") or {})["RefLon"])
         to_px = hole_render.overlay_projector(by, route)

@@ -166,6 +166,8 @@ async def _lifespan(_app: FastAPI):
     # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
     assert_admin_security_config()
     warm_stats_cache_in_background()
+    # 「打开即用」:启动即在后台准备 owner 最近一盘(预热其 topo,失败 swallow)。
+    threading.Thread(target=_prepare_recent_bg, args=(OWNER_ID,), name="prepare-recent-boot", daemon=True).start()
     yield
 
 
@@ -490,6 +492,8 @@ def ingest_player_round(
         )
     except round_ingest.RoundIngestError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    # 「打开即用」:手动记分落地,后台准备这名玩家的最近一盘(预热其 topo)。
+    threading.Thread(target=_prepare_recent_bg, args=(target_player_id,), name="prepare-recent-ingest", daemon=True).start()
     return RoundIngestResponse(**summary)
 
 
@@ -737,6 +741,32 @@ def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> di
         "holes": holes,
         "queued": len(holes),
     }
+
+
+def _prepare_recent_bg(player_id: str) -> None:
+    """「打开即用」后台准备最近一盘:预热其球洞图 topo + 烤统计。best-effort,绝不抛
+    (镜像 warm_stats_cache 的 swallow 语义,不弄崩触发它的响应/线程)。"""
+    from ai_caddie.history.history import load_history_data
+    from ai_caddie.rounds.prepare_recent import prepare_recent_round
+    from server_v2.history_stats import warm_stats_cache
+
+    try:
+        data = load_history_data(player_id=player_id)
+        prepare_recent_round(data, prewarm=_prewarm_course_topo, warm_stats=warm_stats_cache)
+    except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
+        import logging
+
+        logging.getLogger(__name__).exception("prepare-recent failed for %s", player_id)
+
+
+@app.post("/api/v2/history/prepare-recent")
+def history_prepare_recent(
+    background_tasks: BackgroundTasks, player_id: str = Depends(current_player_id)
+) -> dict:
+    """「打开即用」触发器:fire-and-forget 后台准备调用者的最近一盘(预热球洞图 topo + 烤统计),
+    立即返回。定时同步尾巴 + 未来「拉一下最新」按钮都打这个。写调用者自己缓存,member 可用。"""
+    background_tasks.add_task(_prepare_recent_bg, player_id)
+    return {"schema": "ai-caddie-prepare-recent-v1", "queued": True}
 
 
 @app.get("/api/v2/courses/{global_id}/prep")
@@ -1237,6 +1267,8 @@ def sync_garmin(
         # sync is a cache hit instead of a ~10s cold recompute. Failure-isolated inside
         # warm_stats_cache, so it can never break this response.
         warm_stats_cache_in_background()
+        # 「打开即用」:Garmin 新数据落地,后台顺带准备 owner 最近一盘(预热其 topo)。
+        threading.Thread(target=_prepare_recent_bg, args=(OWNER_ID,), name="prepare-recent-sync", daemon=True).start()
     return SyncRunResponse(
         schema="ai-caddie-sync-run-v2",
         connector=result.connector,
