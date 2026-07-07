@@ -51,7 +51,10 @@ from ai_caddie.geometry import hole_render
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v2"
+# topo-v3: decorative tee notch — a small semicircular scallop cut into the BOTTOM edge at the
+# tee end (design TODO "底部发球台那头留个小豁口,纯为好看"). Purely cosmetic; bump so pre-notch
+# cached PNGs are superseded and every hole re-renders with the notch.
+STYLE_VERSION = "topo-v3"
 
 SS = hole_render.SS  # supersample factor — MUST match hole_render so the frame downsamples identically
 AZ = math.radians(135)  # sun FROM the south-east (Garmin-matched: light in the lower-right)
@@ -449,6 +452,29 @@ def _draw_green_marker(img, project, by, route):
     return img
 
 
+def _draw_tee_notch(img: Image.Image, w: int, h: int) -> Image.Image:
+    """Purely decorative: a small semicircular scallop notch cut into the BOTTOM edge at the
+    tee end (design TODO "底部发球台那头留个小豁口,纯为好看").
+
+    Drawn centred on the bottom edge midpoint at SUPERSAMPLED resolution so the final LANCZOS
+    downsample anti-aliases it cleanly (like every other material in ``_build``). It is a subtle
+    darkened recess + a crisp rim arc so the scoop reads as a deliberate cut-out rather than a
+    floating dot, even where the tee end sits on the sky-blue background. Kept small (~3% of the
+    display width) and clamped so it stays a tasteful accent on any hole width. Only touches the
+    bottom-centre; the tee/green/route surfaces and the overlay pixels are untouched, and the
+    canvas size is unchanged so the shared overlay frame still lines up by construction."""
+    disp_w = max(1, w // SS)
+    r = int(max(15, min(24, round(disp_w * 0.032)))) * SS  # radius in supersampled px
+    cx, cy = w // 2, h                                      # midpoint of the bottom edge
+    sky = np.asarray(PAL["bg"], np.float32)
+    recess = tuple(int(v) for v in np.clip(sky * 0.90, 0, 255))  # soft shadow: reads as recessed
+    rim = tuple(int(v) for v in np.clip(sky * 0.72, 0, 255))     # the crisp "cut" edge
+    d = ImageDraw.Draw(img, "RGBA")
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=recess)     # bottom half clips off the edge
+    d.arc((cx - r, cy - r, cx + r, cy + r), start=180, end=360, fill=rim, width=SS + 1)
+    return img
+
+
 def render_hole_topo_image(gid: int, hole: int) -> Image.Image:
     """Render the LOCKED realistic topo base for (gid, hole) as a downsampled RGB PIL image
     (720x1120, the same frame as ``hole_render.overlay_projector``).
@@ -469,6 +495,7 @@ def render_hole_topo_image(gid: int, hole: int) -> Image.Image:
         project, sc, w, h, _margin = hole_render._frame(by, route)
         img = _build(md, by, route, project, sc, w, h, gid, hole)
         img = _draw_green_marker(img, project, by, route)
+        img = _draw_tee_notch(img, w, h)  # small decorative bottom-edge notch at the tee end
         return img.resize((w // SS, h // SS), Image.LANCZOS)
     except TopoGeometryUnavailable:
         raise
