@@ -86,6 +86,13 @@ export function clubDisplay(shot: RoundHoleShot): string {
   return club && club.length > 0 ? club : '未知球杆'
 }
 
+// A shot the player edited in the 复盘 correction layer: the backend tags a manually
+// changed club or lie with a "manual" source, so the timeline can show a 已修正 marker.
+// Only true when a field was actually overridden — never on an untouched original shot.
+export function isManuallyCorrected(shot: RoundHoleShot): boolean {
+  return shot.clubSource === 'manual' || shot.lieSource === 'manual'
+}
+
 export interface TimelineShotRow {
   kind: 'shot'
   seq: number
@@ -93,6 +100,7 @@ export interface TimelineShotRow {
   distanceYd: number | null
   resultZh: string
   synthetic: boolean
+  corrected: boolean
 }
 
 export interface TimelinePuttRow {
@@ -124,6 +132,7 @@ export function buildTimeline(shots: RoundHoleShot[], ppm: number | null | undef
       distanceYd: shotDistanceYd(shot.start, shot.end, ppm),
       resultZh,
       synthetic: shot.synthetic,
+      corrected: isManuallyCorrected(shot),
     })
   }
   if (putts > 0) rows.push({ kind: 'putt', count: putts })

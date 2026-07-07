@@ -156,6 +156,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
   const activeCell = holes.find((cell) => cell.hole === validHole) ?? null
   const ppm = shotMapState.status === 'ready' ? shotMapState.data.map?.overlay.ppm ?? null : null
   const timeline = shotMapState.status === 'ready' ? buildTimeline(shotMapState.data.shots, ppm) : []
+  const manualPenalty = shotMapState.status === 'ready' ? shotMapState.data.manualPenalty ?? 0 : 0
   const roundScore = selectedRound.score ?? null
   const roundToPar = selectedRound.toPar ?? null
 
@@ -230,6 +231,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
           timeline={timeline}
           decision={null}
           shotsLoading={shotMapState.status === 'loading'}
+          manualPenalty={manualPenalty}
         />
       </div>
     </section>

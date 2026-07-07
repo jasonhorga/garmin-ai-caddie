@@ -91,6 +91,39 @@ describe('ReviewWorkbench', () => {
     expect(screen.getByLabelText('第1洞落点图')).toBeInTheDocument()
   })
 
+  it('shows read-only 复盘 corrections: a 已修正 marker on edited shots and the hand-added penalty badge', async () => {
+    const corrected: RoundHoleShotMapResponse = {
+      ...shotMap(1),
+      manualPenalty: 2,
+      shots: [
+        { start: [150, 455], end: [128, 270], club: '一号木', lie: 'TeeBox', endLie: 'Fairway', shotType: 'TEE', order: 1, synthetic: false },
+        // The player corrected this approach's club → backend tags it clubSource:"manual".
+        { start: [128, 270], end: [182, 120], club: '九号铁', lie: 'Fairway', endLie: 'Bunker', shotType: 'APPROACH', order: 2, synthetic: false, clubSource: 'manual' },
+        { start: [182, 120], end: [150, 72], club: '推杆', lie: 'Green', endLie: 'Green', shotType: 'PUTT', order: 3, synthetic: false },
+      ],
+    }
+    const fetchShotMap = vi.fn(async () => corrected)
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
+
+    const timeline = await screen.findByRole('complementary', { name: '杆序' })
+    // Hand-added penalty surfaces as a read-only hole badge.
+    expect(await within(timeline).findByText('本洞手填罚杆 +2')).toBeInTheDocument()
+    // The edited shot carries a 已修正 marker; the untouched drive does not.
+    const editedRow = (await within(timeline).findByText('九号铁')).closest('.review-shot') as HTMLElement
+    expect(within(editedRow).getByLabelText('已修正')).toBeInTheDocument()
+    const originalRow = within(timeline).getByText('一号木').closest('.review-shot') as HTMLElement
+    expect(within(originalRow).queryByLabelText('已修正')).toBeNull()
+  })
+
+  it('does not show a penalty badge when none was hand-added', async () => {
+    const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
+    const timeline = await screen.findByRole('complementary', { name: '杆序' })
+    await within(timeline).findByText('一号木')
+    expect(within(timeline).queryByText(/本洞手填罚杆/)).toBeNull()
+    expect(within(timeline).queryByLabelText('已修正')).toBeNull()
+  })
+
   it('re-fetches the shot map when a different hole is selected', async () => {
     const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)

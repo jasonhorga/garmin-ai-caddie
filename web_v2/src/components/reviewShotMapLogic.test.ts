@@ -5,6 +5,7 @@ import {
   buildTrajectory,
   chipShape,
   dodgeLabels,
+  isManuallyCorrected,
   isPuttShot,
   lieZh,
   shotDistanceYd,
@@ -77,6 +78,16 @@ describe('isPuttShot', () => {
   })
 })
 
+describe('isManuallyCorrected', () => {
+  it('is true only when the club or lie carries a manual source', () => {
+    expect(isManuallyCorrected(shot())).toBe(false)
+    expect(isManuallyCorrected(shot({ clubSource: 'manual' }))).toBe(true)
+    expect(isManuallyCorrected(shot({ lieSource: 'manual' }))).toBe(true)
+    // A null source (backend omits/nulls it on untouched shots) never counts as edited.
+    expect(isManuallyCorrected(shot({ clubSource: null, lieSource: null }))).toBe(false)
+  })
+})
+
 describe('buildTimeline', () => {
   it('makes one row per full shot and collapses recorded putts into ×N', () => {
     const rows = buildTimeline(
@@ -89,9 +100,21 @@ describe('buildTimeline', () => {
       1,
     )
     expect(rows).toHaveLength(3)
-    expect(rows[0]).toMatchObject({ kind: 'shot', seq: 1, club: '一号木', resultZh: '→ 球道' })
+    expect(rows[0]).toMatchObject({ kind: 'shot', seq: 1, club: '一号木', resultZh: '→ 球道', corrected: false })
     expect(rows[1]).toMatchObject({ kind: 'shot', seq: 2, club: '五号木', resultZh: '→ 沙坑' })
     expect(rows[2]).toEqual({ kind: 'putt', count: 2 })
+  })
+
+  it('marks a shot corrected when the club or lie was manually overridden', () => {
+    const rows = buildTimeline(
+      [
+        shot({ club: '一号木' }),
+        shot({ club: '九号铁', clubSource: 'manual', shotType: 'APPROACH', start: [30, 40], end: [60, 80] }),
+      ],
+      1,
+    )
+    expect(rows[0]).toMatchObject({ kind: 'shot', corrected: false })
+    expect(rows[1]).toMatchObject({ kind: 'shot', club: '九号铁', corrected: true })
   })
 
   it('flags the synthetic drive honestly', () => {

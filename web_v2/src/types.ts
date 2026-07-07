@@ -512,6 +512,10 @@ export interface RoundHoleShot {
   shotType: string | null
   order: number | null
   synthetic: boolean
+  // 复盘修改层来源标记(只读):用户手动改过这一杆的球杆 / 球位时为 'manual';未改则字段缺省。
+  // 后端只在真正改过的杆上下发,所以据此显示「已修正」不会恒空、也不会误标原始杆。
+  clubSource?: 'manual' | null
+  lieSource?: 'manual' | null
 }
 
 export interface RoundHoleShotMapResponse {
@@ -526,6 +530,8 @@ export interface RoundHoleShotMapResponse {
   localHole?: number | null
   map: { image: string; overlay: CoursePrepOverlay } | null
   shots: RoundHoleShot[]
+  // 这一洞用户手填的罚杆数(复盘修改层,默认 0)。只读展示:>0 时在洞信息区显示「本洞手填罚杆 +N」。
+  manualPenalty?: number
   missingData: Array<Record<string, unknown>>
 }
 

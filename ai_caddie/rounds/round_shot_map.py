@@ -123,7 +123,7 @@ def build_round_hole_shot_map(
     plotted: list[dict[str, Any]] = []
     for shot in shots:
         start = (shot.get("start") or {})
-        plotted.append({
+        row: dict[str, Any] = {
             "id": round_corrections.mint_shot_id(shot),
             "start": project(shot.get("start")),
             "end": project(shot.get("end")),
@@ -135,7 +135,15 @@ def build_round_hole_shot_map(
             "shotType": shot.get("type"),
             "order": _int(shot.get("order")),
             "synthetic": False,
-        })
+        }
+        # Provenance from the 复盘 correction layer: surface a per-field "manual" override so the client
+        # can mark an edited shot 已修正. Only emitted when the player actually changed that field
+        # (apply_corrections tags it) — untouched shots stay clean, so the flag never shows on originals.
+        if shot.get("clubSource") == "manual":
+            row["clubSource"] = "manual"
+        if shot.get("lieSource") == "manual":
+            row["lieSource"] = "manual"
+        plotted.append(row)
 
     # Auto-complete the drive: if no recorded shot starts on the tee box, add a synthetic tee shot
     # from the tee (route[0], already the first overlay route px) to the first recorded shot's start
