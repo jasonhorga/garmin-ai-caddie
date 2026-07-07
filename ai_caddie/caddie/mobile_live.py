@@ -88,6 +88,7 @@ def _hole_issue_label_zh(issue: dict[str, Any]) -> str:
 
 def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[str, Any]) -> dict[str, Any]:
     from ai_caddie.history.history import canonical_course_name, course_key as _course_key
+    from ai_caddie.rounds.round_shot_map import _geometry_target
 
     course_key = str(round_row.get("courseKey") or "")
     # Course-mode (prep) packages carry a synthetic "gid_<id>" key that never matches the canonical
@@ -131,6 +132,9 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
             corrected_ref_text = str(corrected_ref)
             if corrected_ref_text not in source_refs:
                 source_refs.append(corrected_ref_text)
+        # 该盘第 1 洞的物理球场 gid(前九感知,与 round_shot_map / PR #263 topo 预渲一致)→ 让首页
+        # 「上一场」卡取到那盘球场第 1 洞的真实地形缩略图。无几何 → null(卡片回退纯文字,不造图)。
+        recent_gid, _ = _geometry_target(row, 1)
         recent_rounds.append(
             {
                 "roundId": round_id,
@@ -140,6 +144,7 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
                 "par": par_int,
                 "toPar": score_int - par_int if par_int is not None else None,
                 "holesCompleted": int(row.get("holesCompleted") or row.get("holesPlayed") or len(row.get("holes") or []) or 0),
+                "globalId": int(recent_gid) if recent_gid else None,
                 "sourceRefs": source_refs,
             }
         )

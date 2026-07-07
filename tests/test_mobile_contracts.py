@@ -787,6 +787,8 @@ class MobileContractTests(unittest.TestCase):
                 "par": 72,
                 "toPar": 5,
                 "holesCompleted": 18,
+                # 该盘球场第 1 洞的物理 gid(前九感知)→ 首页「上一场」卡取真实地形缩略图用。
+                "globalId": 31795,
                 "sourceRefs": ["900001"],
             },
         )
@@ -1614,6 +1616,25 @@ class MobileContractTests(unittest.TestCase):
         # Light home: a nameless, time-of-day greeting stands in for the app-name large title.
         self.assertIn("navigationTitle(greeting)", round_home)
         self.assertIn('"下午好"', round_home)
+
+    def test_ios_last_round_card_shows_real_topo_preview(self) -> None:
+        # 首页「上一场」卡配那盘球场第 1 洞的真实地形缩略图。globalId 随 recentHistory summary 下发
+        # (后端 _recent_history + PR #263 已预渲最近一盘 topo → 取图快);缺 globalId / apiBaseURL →
+        # topoURL 为 nil → 卡片回退纯文字,绝不造图。
+        package_swift = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        # 1) 该盘球场 gid 随 summary 下发(可空)。
+        self.assertIn("public let globalId: Int?", package_swift)
+        # 2) 仅当 apiBaseURL + globalId 都在时才建图 URL(否则 nil → 不放图,不造图)。
+        self.assertIn("guard let apiBaseURL, let globalId = round.globalId else { return nil }", round_home)
+        self.assertIn(
+            "SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: globalId, localHole: 1)",
+            round_home,
+        )
+        # 3) 卡片接收 topoURL 并用 AsyncImage 异步加载(加载中/失败/无网络 CI 快照 → 克制占位)。
+        self.assertIn("topoURL: lastRoundTopoURL(last)", round_home)
+        self.assertIn("var topoURL: URL? = nil", round_home)
+        self.assertIn("AsyncImage(url: url)", round_home)
 
     def test_ios_hole_2d_map_wired(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")

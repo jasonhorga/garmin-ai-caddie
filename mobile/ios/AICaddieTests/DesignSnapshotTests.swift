@@ -125,7 +125,9 @@ final class DesignSnapshotTests: XCTestCase {
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
                 HubLastRoundCard(courseName: "北京天竺黑骑士 C/A", date: "06-11", score: 89, toPar: 17,
-                                 holesCompleted: 18, par: 72)
+                                 holesCompleted: 18, par: 72,
+                                 topoURL: SyncClient.topoImageURL(
+                                     baseURL: URL(string: "https://caddie.example")!, globalId: 31795, localHole: 1))
             }
         }
         .padding(16)
