@@ -352,6 +352,36 @@ final class DesignSnapshotTests: XCTestCase {
             named: "club-settings"
         )
 
+        // 各杆距离阶梯图 (ClubGappingLadder): the whole bag ordered by distance (long→short) with a
+        // proportional bar, so the gaps between clubs read at a glance; clubs without a recorded
+        // distance still list (showing 留空, no bar). Same club + distance data the bag screen loads.
+        // The bag screen is forced light (app root .preferredColorScheme(.light)), so it's captured
+        // light. Rendered standalone as a pure VStack (ImageRenderer/window: no ScrollView needed).
+        try captureScreen(
+            VStack {
+                ClubGappingLadder(entries: [
+                    .init(name: "一号木", yards: 232),
+                    .init(name: "三号木", yards: 214),
+                    .init(name: "三号小鸡腿", yards: 203),
+                    .init(name: "五号铁", yards: 181),
+                    .init(name: "六号铁", yards: 170),
+                    .init(name: "七号铁", yards: 158),
+                    .init(name: "八号铁", yards: 146),
+                    .init(name: "九号铁", yards: 133),
+                    .init(name: "P 杆", yards: 118),
+                    .init(name: "A 杆", yards: 104),
+                    .init(name: "54° 挖起杆", yards: 88),
+                    .init(name: "50° 挖起杆", yards: nil),
+                    .init(name: "58° 挖起杆", yards: nil),
+                    .init(name: "推杆", yards: nil),
+                ])
+                .padding(14)
+                Spacer(minLength: 0)
+            }
+            .background(HubStyle.grouped),
+            named: "club-ladder"
+        )
+
         // 复盘逐洞落点图: this round's actual shots (tee→landing→green) on the hole, dots by lie.
         let shotMapJSON = """
         {"found":true,"hole":1,"par":4,\
