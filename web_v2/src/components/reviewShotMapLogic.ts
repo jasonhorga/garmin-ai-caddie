@@ -152,6 +152,41 @@ export function shotLandingLabels(shots: RoundHoleShot[]): ShotLandingLabel[] {
   return labels
 }
 
+// Two full shots that finish close together — a layup and a short approach, or a
+// pair of green-side chips — drop their club pills on nearly the same pixel and stack
+// into one unreadable clump (ReviewHoleCanvas pins each pill dead-centre on its
+// landing). Nudge every colliding label vertically clear of the ones already placed,
+// keeping x on the true landing so the pill still sits over its own dot. The collision
+// box and dodge step scale with the overlay, so the spacing reads the same on a
+// compact par-3 render and a long par-5. Labels are processed in shot order, so each
+// earlier landing anchors in place and only the later, closer shots move.
+export function dodgeLabels(labels: ShotLandingLabel[], overlay: { w: number; h: number }): ShotLandingLabel[] {
+  // Round to whole pixels so a dodge step lands EXACTLY one gap away — a raw
+  // `h * 0.07` is a hair above its integer (28.000000000000004), which would judge a
+  // just-separated pill (distance 28) as still colliding and over-nudge it.
+  const gapY = Math.round(overlay.h * 0.07)
+  const gapX = Math.round(overlay.w * 0.14)
+  // Degenerate overlay (no size) → nothing to scale against; leave labels untouched.
+  if (gapY <= 0 || gapX <= 0) return labels
+  const placed: ShotLandingLabel[] = []
+  const clashesAt = (x: number, y: number): boolean =>
+    placed.some((p) => Math.abs(p.x - x) < gapX && Math.abs(p.y - y) < gapY)
+  for (const label of labels) {
+    let y = label.y
+    // Prefer nudging DOWN in gap-sized steps (open fairway usually sits below a
+    // green-side cluster); the frame bound guarantees the loop terminates.
+    while (clashesAt(label.x, y) && y + gapY <= overlay.h) y += gapY
+    // Still clashing means we hit the bottom edge → the open space is above instead
+    // (green low in frame). Retry upward from the original landing.
+    if (clashesAt(label.x, y)) {
+      y = label.y
+      while (clashesAt(label.x, y) && y - gapY >= 0) y -= gapY
+    }
+    placed.push({ x: label.x, y, text: label.text })
+  }
+  return placed
+}
+
 export interface TrajectoryGeometry {
   points: Array<[number, number]>
   landings: Array<[number, number]>
