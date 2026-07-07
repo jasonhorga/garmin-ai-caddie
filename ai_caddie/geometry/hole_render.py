@@ -232,3 +232,21 @@ def render_hole(global_id: int, local_hole: int, route, route_len: float, landin
     buf = io.BytesIO()
     small.save(buf, "JPEG", quality=80)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode(), meta
+
+
+def render_hole_overlay(global_id: int, local_hole: int, route, route_len: float) -> dict:
+    """只出 overlay meta(画框 + route px)——``render_hole`` 便宜的那半,**不渲任何像素**。
+
+    让复盘(round_shot_map)可以把**缓存好的 topo 底图**当底图,同时拿到与之逐字节一致的画框,
+    从而 shot 矢量仍对齐、且谁都不在"你看的时候"现画。形状同 ``render_hole`` 返回的 meta。
+    """
+    _md, by = load_mesh(global_id, local_hole)
+    project, sc, w, h, margin = _frame(by, route)
+    route_px = []
+    cum = 0.0
+    for i, pt in enumerate(route):
+        if i > 0:
+            cum += math.hypot(route[i][0] - route[i - 1][0], route[i][1] - route[i - 1][1])
+        x, y = project(tuple(pt))
+        route_px.append([round(x / SS, 1), round(y / SS, 1), round(cum, 1)])
+    return {"w": w // SS, "h": h // SS, "ppm": round(sc / SS, 4), "ln": round(route_len, 1), "route": route_px}
