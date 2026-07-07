@@ -303,6 +303,9 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             # 成员只写自己的(handler 线程 current_player_id)。路径无 target-player → 天然自限,
             # 分类同 POST /api/v2/annotations。
             or (path.startswith("/api/v2/history/rounds/") and path.endswith("/corrections"))
+            # 「打开即用」准备最近一盘:fire-and-forget 预热调用者自己的缓存,无 target-player
+            # → 自限,分类同 POST /api/v2/annotations。
+            or path == "/api/v2/history/prepare-recent"
         )
     return False
 
