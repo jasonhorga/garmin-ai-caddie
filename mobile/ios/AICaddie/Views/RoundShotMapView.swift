@@ -225,7 +225,7 @@ public struct RoundHoleShotMapScreen: View {
         .background(HubStyle.grouped)
         .navigationTitle(showsNavigationTitle ? "第 \(hole) 洞 · 落点" : "")
         .toolbar {
-            if let shotMap, shotMap.found, shotMap.map != nil, editModel != nil {
+            if let sm = shotMap, sm.found, sm.map != nil, editModel != nil {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(isEditing ? "完成" : "编辑") {
                         if isEditing {
