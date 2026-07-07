@@ -762,7 +762,7 @@ describe('CaddiePage', () => {
 
     const acceptableMiss = screen.getByLabelText('Decision acceptable miss')
     expect(within(acceptableMiss).getByText('历史深度偏向')).toBeInTheDocument()
-    expect(within(acceptableMiss).getByText('偏向深度 long')).toBeInTheDocument()
+    expect(within(acceptableMiss).getByText('偏向深度 偏长')).toBeInTheDocument()
     expect(within(acceptableMiss).getByText('避开模式 approach_short')).toBeInTheDocument()
     expect(within(acceptableMiss).getByRole('button', { name: 'Open source hist-approach-short' })).toBeInTheDocument()
   })

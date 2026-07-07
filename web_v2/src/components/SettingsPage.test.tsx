@@ -191,9 +191,9 @@ describe('SettingsPage', () => {
 
     const liveApps = screen.getByLabelText('实战应用配置')
     expect(within(liveApps).getByText('iOS 契约就绪')).toBeInTheDocument()
-    expect(within(liveApps).getByText('Watch 契约就绪')).toBeInTheDocument()
-    expect(within(liveApps).getByText('GPS, score, club, putt, penalty, note, photo, video')).toBeInTheDocument()
-    expect(within(liveApps).getByText('club, distance, score, putt, penalty')).toBeInTheDocument()
+    expect(within(liveApps).getByText('手表 契约就绪')).toBeInTheDocument()
+    expect(within(liveApps).getByText('GPS, 成绩, 球杆, 推杆, 罚杆, 备注, 照片, 视频')).toBeInTheDocument()
+    expect(within(liveApps).getByText('球杆, 距离, 成绩, 推杆, 罚杆')).toBeInTheDocument()
 
     const privacy = screen.getByLabelText('隐私配置')
     expect(within(privacy).getByRole('checkbox', { name: '状态响应不含密钥' })).toBeChecked()

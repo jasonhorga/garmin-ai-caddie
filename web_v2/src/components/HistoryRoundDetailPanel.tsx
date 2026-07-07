@@ -473,8 +473,8 @@ function RoundAiEvidence({ report, onSelectRef }: { report: ReviewReportResponse
           facts.map((fact, index) => (
             <div className="report-row" key={`${valueText(fact.label)}-${index}`}>
               <div className="report-row-main">
-                <strong>{valueText(fact.label ?? 'fact')}</strong>
-                <span>{valueText(fact.source ?? 'source')}</span>
+                <strong>{valueText(fact.label ?? '事实')}</strong>
+                <span>{valueText(fact.source ?? '来源')}</span>
                 <EvidenceValue value={fact.value} />
               </div>
               <SourceRefs refs={evidenceRefs(fact)} onSelectRef={onSelectRef} />
@@ -491,7 +491,7 @@ function RoundAiEvidence({ report, onSelectRef }: { report: ReviewReportResponse
           inferences.map((inference, index) => (
             <div className="report-row" key={`${valueText(inference.claim)}-${index}`}>
               <div className="report-row-main">
-                <strong>{valueText(inference.claim ?? 'Inference')}</strong>
+                <strong>{valueText(inference.claim ?? '推断')}</strong>
                 <div className="report-metadata">
                   {asStringArray(inference.factLabels).map((label) => <span key={`fact-${label}`} className="fact-chip muted">{label} 事实</span>)}
                   {asStringArray(inference.missingDataLabels).map((label) => <span key={`missing-${label}`} className="fact-chip muted">{label} 缺失</span>)}
@@ -512,7 +512,7 @@ function RoundAiEvidence({ report, onSelectRef }: { report: ReviewReportResponse
           missingData.map((item, index) => (
             <div className="report-row" key={`${valueText(item.label)}-${index}`}>
               <div className="report-row-main">
-                <strong>{valueText(item.label ?? 'missing')}</strong>
+                <strong>{valueText(item.label ?? '缺失项')}</strong>
                 <span>{valueText(item.state ?? item.reason ?? '待复核')}</span>
               </div>
               <SourceRefs refs={evidenceRefs(item)} onSelectRef={onSelectRef} />
@@ -529,8 +529,8 @@ function RoundAiEvidence({ report, onSelectRef }: { report: ReviewReportResponse
           unsupportedClaims.map((claim, index) => (
             <div className="report-row" key={`${valueText(claim.category)}-${index}`}>
               <div className="report-row-main">
-                <strong>{valueText(claim.category ?? 'claim')}</strong>
-                <span>{valueText(claim.claim ?? 'Unsupported claim')}</span>
+                <strong>{valueText(claim.category ?? '断言')}</strong>
+                <span>{valueText(claim.claim ?? '无依据断言')}</span>
                 {typeof claim.reason === 'string' ? <span>{claim.reason}</span> : null}
               </div>
               <SourceRefs refs={evidenceRefs(claim)} onSelectRef={onSelectRef} />
