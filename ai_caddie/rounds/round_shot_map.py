@@ -121,6 +121,34 @@ def build_round_hole_shot_map(
     )
     shots = round_corrections.apply_corrections(shots, corr)
 
+    # addShot(点地图加杆):px 反投影成世界坐标,造一杆合成落点插进顺序;shotmap 按序画线自动连前后。
+    # 空洞(shots 为空)也能加 → 永不变砖。
+    from_px = hole_render.overlay_unprojector(by, route)
+    _added = 0
+    for e in corr:
+        if e.get("op") != "addShot":
+            continue
+        px = e.get("px") or []
+        if len(px) != 2:
+            continue
+        lat, lon = shot_projection.pixel_to_world(float(px[0]), float(px[1]), ref_lat=ref_lat, ref_lon=ref_lon, from_px=from_px)
+        after = e.get("insertAfterShotId")
+        idx = 0
+        if after:
+            for i, s in enumerate(shots):
+                if round_corrections.mint_shot_id(s) == after:
+                    idx = i + 1
+                    break
+        prev = shots[idx - 1] if idx > 0 else None
+        start = dict(prev.get("end") or {}) if prev else {"lat": lat, "lon": lon}
+        shots.insert(idx, {
+            "id": f"m{_added}", "scorecardId": str(row.get("id")), "hole": hole,
+            "order": (prev.get("order") if prev else 0),
+            "start": {**start, "lie": e.get("lie")}, "end": {"lat": lat, "lon": lon},
+            "endLie": e.get("lie"), "clubName": e.get("club"), "type": "MANUAL", "manualAdded": True,
+        })
+        _added += 1
+
     plotted: list[dict[str, Any]] = []
     for shot in shots:
         start = (shot.get("start") or {})

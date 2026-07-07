@@ -74,6 +74,20 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         out = self._build([{"op": "setHolePenalty", "hole": 7, "value": 3}], hole=1)
         self.assertEqual(out["manualPenalty"], 0)
 
+    def test_add_shot_inserts_between_and_appears(self):
+        # 在 一号木(s:r1:201) 之后插一杆五号铁 → 出现在 一号木 和 七号铁 之间。
+        corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "fairway", "insertAfterShotId": "s:r1:201"}]
+        out = self._build(corr)
+        clubs = [s.get("club") for s in out["shots"]]
+        self.assertIn("五号铁", clubs)
+        self.assertLess(clubs.index("五号铁"), clubs.index("七号铁"))
+
+    def test_add_shot_on_empty_hole_does_not_crash(self):
+        # 永不变砖:空洞也能加回一杆。
+        corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "fairway", "insertAfterShotId": None}]
+        out = self._build(corr, shots=[])
+        self.assertTrue(any(s.get("club") == "五号铁" for s in out["shots"]))
+
 
 if __name__ == "__main__":
     unittest.main()

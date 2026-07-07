@@ -100,6 +100,8 @@ def _validate(event: dict[str, Any]) -> None:
             raise CorrectionError("setHolePenalty 的 value 必须是整数杆数")
     if op == "reorderShot" and not isinstance(event.get("order"), list):
         raise CorrectionError("reorderShot 需要 order 列表")
+    if op == "addShot" and not (isinstance(event.get("px"), list) and len(event.get("px")) == 2):
+        raise CorrectionError("addShot 需要 px=[x,y]")
 
 
 def append_correction(
