@@ -226,6 +226,21 @@ public final class SyncClient {
         return try decoder.decode(RoundHoleShotMap.self, from: data)
     }
 
+    /// Append one review-edit op to a round (`POST /api/v2/history/rounds/{ref}/corrections`): add /
+    /// edit / delete a shot, drag a landing, reorder, or set a hole's manual penalty. Writes to the
+    /// caller's own correction log (member-scoped), idempotent on `clientMutationId`. Succeeds (no
+    /// throw) on 2xx; the read-side shotmap applies the op on the next fetch. Original data untouched.
+    public func postRoundCorrection(roundRef: String, _ op: RoundCorrectionOp) async throws {
+        let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
+        var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)/corrections"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(to: &request)
+        request.httpBody = try encoder.encode(op)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+    }
+
     /// Single-round 复盘 detail (`GET /api/v2/history/rounds/{ref}`): hole-by-hole scorecard +
     /// phase summary + graceful missing-data. Used by RoundReviewView when the player taps a round.
     public func fetchRoundDetail(roundRef: String) async throws -> RoundDetail {

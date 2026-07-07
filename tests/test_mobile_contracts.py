@@ -3113,5 +3113,38 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("mappin.and.ellipse", glance_view)
 
 
+class RoundEditContractTests(unittest.TestCase):
+    """复盘编辑 iOS 接线不被后续删:稳定 shotId/罚杆模型 + op 载荷 + POST + 编辑控件都在源码里。"""
+
+    def test_shot_map_model_carries_stable_id_provenance_penalty(self):
+        model = _read_required_source(self, IOS_DIR / "Models" / "RoundShotMap.swift")
+        self.assertIn("shotId", model)
+        self.assertIn("clubSource", model)
+        self.assertIn("manualPenalty", model)
+
+    def test_correction_op_payload_covers_all_ops(self):
+        op = _read_required_source(self, IOS_DIR / "Models" / "RoundCorrection.swift")
+        for token in ["addShot", "reorderShot", "editField", "setHolePenalty", "deleteShot", "position", "insertAfterShotId"]:
+            self.assertIn(token, op)
+
+    def test_sync_client_posts_corrections(self):
+        sync = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        self.assertIn("postRoundCorrection", sync)
+        self.assertIn("/corrections", sync)
+
+    def test_edit_engine_is_optimistic(self):
+        engine = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
+        for token in ["addShot", "move", "editClub", "editLie", "delete", "reorder", "setPenalty", "isEditing"]:
+            self.assertIn(token, engine)
+
+    def test_edit_ui_controls_present(self):
+        comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
+        for token in ["RoundShotEditLayer", "ShotEditSheet", "AddShotSheet", "PenaltyStepper", "本洞罚杆"]:
+            self.assertIn(token, comps)
+        screen = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        self.assertIn("RoundEditModel", screen)
+        self.assertIn("编辑", screen)
+
+
 if __name__ == "__main__":
     unittest.main()

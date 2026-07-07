@@ -11,10 +11,16 @@ public struct RoundShotMapView: View {
     /// 服务端真实地形底图 URL(`…/holes/{hole}/topo.png`)。有则底图用它,否则/加载失败回退到
     /// payload 里的 flat 渲染图。两者共用同一投影,实际打球路线叠加层像素级对齐。
     public let topoURL: URL?
+    /// 非 nil = 编辑态:在同一投影帧上叠一层拖动手柄 + 点击加/改(见 RoundShotEditLayer)。
+    public let editModel: RoundEditModel?
+    public let editClubs: [String]
 
-    public init(shotMap: RoundHoleShotMap, topoURL: URL? = nil) {
+    public init(shotMap: RoundHoleShotMap, topoURL: URL? = nil,
+                editModel: RoundEditModel? = nil, editClubs: [String] = []) {
         self.shotMap = shotMap
         self.topoURL = topoURL
+        self.editModel = editModel
+        self.editClubs = editClubs
     }
 
     public var body: some View {
@@ -27,6 +33,11 @@ public struct RoundShotMapView: View {
                 }
             }
             .aspectRatio(CGFloat(overlay.w) / CGFloat(overlay.h), contentMode: .fit)
+            .overlay {
+                if let editModel {
+                    RoundShotEditLayer(editModel: editModel, overlay: overlay, clubs: editClubs)
+                }
+            }
             .overlay(alignment: .topLeading) { holeTag }
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
@@ -191,6 +202,8 @@ public struct RoundHoleShotMapScreen: View {
     @State private var shotMap: RoundHoleShotMap?
     @State private var isLoading = true
     @State private var errorText: String?
+    @State private var editModel: RoundEditModel?
+    @State private var isEditing = false
 
     public init(roundRef: String, hole: Int, apiBaseURL: URL? = nil, adminToken: String? = nil,
                 showsNavigationTitle: Bool = true) {
@@ -211,15 +224,36 @@ public struct RoundHoleShotMapScreen: View {
         }
         .background(HubStyle.grouped)
         .navigationTitle(showsNavigationTitle ? "第 \(hole) 洞 · 落点" : "")
+        .toolbar {
+            if let sm = shotMap, sm.found, sm.map != nil, editModel != nil {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(isEditing ? "完成" : "编辑") {
+                        if isEditing {
+                            isEditing = false
+                            Task { await editModel?.refetch(); shotMap = editModel?.map }
+                        } else {
+                            editModel?.enterEdit()
+                            isEditing = true
+                        }
+                    }
+                }
+            }
+        }
         .task(id: hole) { await load() }
     }
 
     @ViewBuilder private var content: some View {
         if let shotMap, shotMap.found, shotMap.map != nil {
-            VStack(spacing: 12) {
-                RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))
-                RoundShotMapLegend()
-                shotListCard(shotMap)
+            Group {
+                if isEditing, let editModel {
+                    RoundShotEditContent(editModel: editModel, topoURL: topoURL(for: shotMap))
+                } else {
+                    VStack(spacing: 12) {
+                        RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))
+                        RoundShotMapLegend()
+                        shotListCard(shotMap)
+                    }
+                }
             }
             .padding(14)
         } else {
@@ -281,7 +315,10 @@ public struct RoundHoleShotMapScreen: View {
         isLoading = true
         errorText = nil
         do {
-            shotMap = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchRoundShotMap(roundRef: roundRef, hole: hole)
+            let sync = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
+            let m = try await sync.fetchRoundShotMap(roundRef: roundRef, hole: hole)
+            shotMap = m
+            editModel = RoundEditModel(map: m, sync: sync, roundRef: roundRef)
         } catch {
             errorText = "这一洞落点暂时取不到"
         }
