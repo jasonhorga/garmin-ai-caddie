@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.history.history_round_detail import build_history_round_detail
+from ai_caddie.rounds import round_corrections
 from ai_caddie.rounds.round_shot_map import build_round_hole_shot_map
 
 from .data_source import load_history_data_for_mode
@@ -24,4 +25,5 @@ def load_round_hole_shot_map_response(
     round_ref: str, hole: int, *, player_id: str = OWNER_ID
 ) -> RoundHoleShotMapResponse:
     data, _mode = load_history_data_for_mode(player_id=player_id)
-    return RoundHoleShotMapResponse(**build_round_hole_shot_map(data, round_ref, hole))
+    corrections = round_corrections.load_correction_events(player_id, round_ref)
+    return RoundHoleShotMapResponse(**build_round_hole_shot_map(data, round_ref, hole, corrections=corrections))

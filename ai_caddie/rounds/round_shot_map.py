@@ -21,6 +21,7 @@ from ai_caddie.core.data import clean_club_name
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import hole_render, shot_projection
 from ai_caddie.history.history import HistoryData
+from ai_caddie.rounds import round_corrections
 
 SCHEMA = "ai-caddie-round-hole-shotmap-v1"
 
@@ -66,7 +67,10 @@ def _par_for(row: dict[str, Any], hole: int) -> int | None:
     return None
 
 
-def build_round_hole_shot_map(data: HistoryData, round_ref: str, hole: int) -> dict[str, Any]:
+def build_round_hole_shot_map(
+    data: HistoryData, round_ref: str, hole: int,
+    corrections: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     hole = _int(hole) or 0
     row = _match_round(data, round_ref)
     if row is None or hole < 1:
@@ -75,6 +79,8 @@ def build_round_hole_shot_map(data: HistoryData, round_ref: str, hole: int) -> d
 
     gid, local = _geometry_target(row, hole)
     par = _par_for(row, hole)
+    corr = corrections or []
+    manual_penalty = round_corrections.hole_penalty(corr, hole)
     try:
         md, by = hole_render.load_mesh(int(gid), int(local))
         route, route_len = course_prep.derive_route(md)
@@ -86,7 +92,7 @@ def build_round_hole_shot_map(data: HistoryData, round_ref: str, hole: int) -> d
         to_px = hole_render.overlay_projector(by, route)
     except Exception:
         return {"schema": SCHEMA, "found": True, "roundRef": str(row.get("id")), "hole": hole, "par": par,
-                "map": None, "shots": [],
+                "map": None, "shots": [], "manualPenalty": manual_penalty,
                 "missingData": [{"label": "geometry", "reason": "这一洞暂无球场几何,画不了落点图"}]}
 
     width, height = int(overlay["w"]), int(overlay["h"])
@@ -104,11 +110,13 @@ def build_round_hole_shot_map(data: HistoryData, round_ref: str, hole: int) -> d
         (s for s in data.shots if str(s.get("scorecardId")) in round_ids and _int(s.get("hole")) == hole),
         key=lambda s: _int(s.get("order")) or 0,
     )
+    shots = round_corrections.apply_corrections(shots, corr)
 
     plotted: list[dict[str, Any]] = []
     for shot in shots:
         start = (shot.get("start") or {})
         plotted.append({
+            "id": round_corrections.mint_shot_id(shot),
             "start": project(shot.get("start")),
             "end": project(shot.get("end")),
             # Resolved bag label (一号木 / 7I / 58° …) or None when Garmin logged the shot with no club
@@ -131,6 +139,7 @@ def build_round_hole_shot_map(data: HistoryData, round_ref: str, hole: int) -> d
     if needs_tee:
         target = plotted[0]["start"] if plotted and plotted[0]["start"] else green_px
         plotted.insert(0, {
+            "id": None,
             "start": tee_px,
             "end": target,
             "club": None,
@@ -153,5 +162,6 @@ def build_round_hole_shot_map(data: HistoryData, round_ref: str, hole: int) -> d
         "localHole": int(local),
         "map": {"image": image, "overlay": overlay},
         "shots": plotted,
+        "manualPenalty": manual_penalty,
         "missingData": [],
     }
