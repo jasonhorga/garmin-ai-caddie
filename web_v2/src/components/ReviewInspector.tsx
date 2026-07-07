@@ -19,6 +19,8 @@ interface ReviewInspectorProps {
   timeline: TimelineRow[]
   decision?: ReviewDecision | null
   shotsLoading?: boolean
+  // 这一洞用户手填的罚杆数(复盘修改层,默认 0)。>0 时在洞信息区显示一个只读徽标。
+  manualPenalty?: number
 }
 
 function toParText(toPar: number | null): string {
@@ -34,13 +36,21 @@ function holeSubtitle(par: number | null, score: number | null, toPar: number | 
   return `${parPart}${scorePart}${toParPart ? ` · ${toParPart}` : ''}`
 }
 
-export function ReviewInspector({ hole, par, score, toPar, timeline, decision, shotsLoading }: ReviewInspectorProps): React.ReactElement {
+export function ReviewInspector({ hole, par, score, toPar, timeline, decision, shotsLoading, manualPenalty }: ReviewInspectorProps): React.ReactElement {
+  const penalty = manualPenalty ?? 0
   return (
     <aside className="review-inspector" aria-label="杆序">
       <h3 className="review-inspector-title">
         杆序 · 第 {hole} 洞
         <span className="review-inspector-sub">（{holeSubtitle(par, score, toPar)}）</span>
       </h3>
+
+      {penalty > 0 ? (
+        <div className="review-manual-penalty" aria-label={`本洞手填罚杆 加 ${penalty}`}>
+          <span className="review-manual-penalty-tag" aria-hidden="true">改</span>
+          本洞手填罚杆 +{penalty}
+        </div>
+      ) : null}
 
       {timeline.length > 0 ? (
         <ol className="review-timeline">
@@ -52,6 +62,11 @@ export function ReviewInspector({ hole, par, score, toPar, timeline, decision, s
                   <div className="review-shot-head">
                     <span className="review-shot-club">{row.club}</span>
                     {row.distanceYd !== null ? <span className="review-shot-yd">{row.distanceYd} 码</span> : null}
+                    {row.corrected ? (
+                      <span className="review-corrected" title="你修正过这一杆(球杆或球位)" aria-label="已修正">
+                        改
+                      </span>
+                    ) : null}
                   </div>
                   {row.resultZh ? <div className="review-shot-result">{row.resultZh}</div> : null}
                 </div>

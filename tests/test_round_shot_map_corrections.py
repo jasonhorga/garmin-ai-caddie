@@ -50,11 +50,21 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         out = self._build([{"op": "editField", "shotId": "s:r1:202", "field": "club", "value": "九号铁"}])
         shot = next(s for s in out["shots"] if s.get("id") == "s:r1:202")
         self.assertEqual(shot["club"], "九号铁")
+        # Provenance surfaces so the client can mark the edited shot 已修正 (read-only web display).
+        self.assertEqual(shot.get("clubSource"), "manual")
 
     def test_edit_lie_changes_shot_lie(self):
         out = self._build([{"op": "editField", "shotId": "s:r1:202", "field": "lie", "value": "bunker"}])
         shot = next(s for s in out["shots"] if s.get("id") == "s:r1:202")
         self.assertEqual(shot["lie"], "bunker")
+        self.assertEqual(shot.get("lieSource"), "manual")
+
+    def test_untouched_shots_carry_no_manual_source(self):
+        # Only the edited shot is tagged; the other shot stays clean so 已修正 never shows on originals.
+        out = self._build([{"op": "editField", "shotId": "s:r1:202", "field": "club", "value": "九号铁"}])
+        other = next(s for s in out["shots"] if s.get("id") == "s:r1:201")
+        self.assertNotIn("clubSource", other)
+        self.assertNotIn("lieSource", other)
 
     def test_manual_penalty_surfaces_on_hole(self):
         out = self._build([{"op": "setHolePenalty", "hole": 1, "value": 2}])

@@ -7176,6 +7176,50 @@ button.round-detail-cell:hover {
   font-weight: 600;
 }
 
+/* 复盘只读来源标记(用户手动修正过的杆 / 手填罚杆)。统一用克制的琥珀色语汇:
+   「改」= 这条数据是你自己改的,不是 Garmin 原始记录。仅在真有修改时出现,不造假。 */
+.review-corrected {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  line-height: 1;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 2px 5px;
+  border-radius: 6px;
+  color: var(--bogey-text);
+  background: #fbf3df;
+  border: 1px solid #efdca6;
+}
+
+.review-manual-penalty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--bogey-text);
+  background: #fbf3df;
+  border: 1px solid #efdca6;
+}
+
+.review-manual-penalty-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--bogey);
+}
+
 .review-card {
   border: 1px solid var(--line);
   border-radius: 12px;
