@@ -114,11 +114,54 @@ def build_round_hole_shot_map(
         return [min(max(int(round(px)), 0), width - 1), min(max(int(round(py)), 0), height - 1)]
 
     round_ids = _round_ids(row)
+    rmap = round_corrections.reorder_map(corr)
     shots = sorted(
         (s for s in data.shots if str(s.get("scorecardId")) in round_ids and _int(s.get("hole")) == hole),
-        key=lambda s: _int(s.get("order")) or 0,
+        key=lambda s: rmap.get(round_corrections.mint_shot_id(s), 10_000 + (_int(s.get("order")) or 0)),
     )
     shots = round_corrections.apply_corrections(shots, corr)
+
+    # addShot(点地图加杆):px 反投影成世界坐标,造一杆合成落点插进顺序;shotmap 按序画线自动连前后。
+    # 空洞(shots 为空)也能加 → 永不变砖。
+    from_px = hole_render.overlay_unprojector(by, route)
+    _added = 0
+    for e in corr:
+        if e.get("op") != "addShot":
+            continue
+        px = e.get("px") or []
+        if len(px) != 2:
+            continue
+        lat, lon = shot_projection.pixel_to_world(float(px[0]), float(px[1]), ref_lat=ref_lat, ref_lon=ref_lon, from_px=from_px)
+        after = e.get("insertAfterShotId")
+        idx = 0
+        if after:
+            for i, s in enumerate(shots):
+                if round_corrections.mint_shot_id(s) == after:
+                    idx = i + 1
+                    break
+        prev = shots[idx - 1] if idx > 0 else None
+        start = dict(prev.get("end") or {}) if prev else {"lat": lat, "lon": lon}
+        shots.insert(idx, {
+            "id": f"m{_added}", "scorecardId": str(row.get("id")), "hole": hole,
+            "order": (prev.get("order") if prev else 0),
+            "start": {**start, "lie": e.get("lie")}, "end": {"lat": lat, "lon": lon},
+            "endLie": e.get("lie"), "clubName": e.get("club"), "type": "MANUAL", "manualAdded": True,
+        })
+        _added += 1
+
+    # editField position(拖动改落点):px 反投影成世界坐标,改这一杆的 end。作用于原始杆 + 手动加的杆。
+    pos_edits: dict[str, list[Any]] = {}
+    for e in corr:
+        if e.get("op") == "editField" and e.get("field") == "position" and e.get("shotId"):
+            v = e.get("value") or []
+            if len(v) == 2:
+                pos_edits[str(e["shotId"])] = v
+    if pos_edits:
+        for s in shots:
+            v = pos_edits.get(round_corrections.mint_shot_id(s))
+            if v:
+                lat, lon = shot_projection.pixel_to_world(float(v[0]), float(v[1]), ref_lat=ref_lat, ref_lon=ref_lon, from_px=from_px)
+                s["end"] = {**(s.get("end") or {}), "lat": lat, "lon": lon, "posSource": "manual"}
 
     plotted: list[dict[str, Any]] = []
     for shot in shots:

@@ -74,6 +74,29 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         out = self._build([{"op": "setHolePenalty", "hole": 7, "value": 3}], hole=1)
         self.assertEqual(out["manualPenalty"], 0)
 
+    def test_add_shot_inserts_between_and_appears(self):
+        # 在 一号木(s:r1:201) 之后插一杆五号铁 → 出现在 一号木 和 七号铁 之间。
+        corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "fairway", "insertAfterShotId": "s:r1:201"}]
+        out = self._build(corr)
+        clubs = [s.get("club") for s in out["shots"]]
+        self.assertIn("五号铁", clubs)
+        self.assertLess(clubs.index("五号铁"), clubs.index("七号铁"))
+
+    def test_add_shot_on_empty_hole_does_not_crash(self):
+        # 永不变砖:空洞也能加回一杆。
+        corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "fairway", "insertAfterShotId": None}]
+        out = self._build(corr, shots=[])
+        self.assertTrue(any(s.get("club") == "五号铁" for s in out["shots"]))
+
+    def test_edit_position_moves_landing_to_tapped_pixel(self):
+        shots = [{"id": 1, "scorecardId": "r1", "hole": 1, "order": 1, "clubName": "七号铁",
+                  "start": {"lat": 40.0, "lon": 116.5, "lie": "Fairway"}, "end": {"lat": 40.02, "lon": 116.5}}]
+        corr = [{"op": "editField", "shotId": "s:r1:1", "field": "position", "value": [400, 300]}]
+        out = self._build(corr, shots=shots)
+        shot = next(s for s in out["shots"] if s.get("id") == "s:r1:1")
+        # 拖到像素 (400,300):pixel_to_world → world → 再 project 回到 [400,300](在画框内)。
+        self.assertEqual(shot["end"], [400, 300])
+
 
 if __name__ == "__main__":
     unittest.main()

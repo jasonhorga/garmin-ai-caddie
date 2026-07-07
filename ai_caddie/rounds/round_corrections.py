@@ -24,9 +24,9 @@ from ai_caddie.history import history as _history
 
 SCHEMA = "ai-caddie-round-correction-v1"
 
-VALID_OPS = {"deleteShot", "restoreShot", "editField", "setHolePenalty", "addShot"}
+VALID_OPS = {"deleteShot", "restoreShot", "editField", "setHolePenalty", "addShot", "reorderShot"}
 # 只允许改这两样(球位纯描述、球杆展示用);其余字段不给编辑,守「不造假 + 极简」。
-EDITABLE_FIELDS = {"club", "lie"}
+EDITABLE_FIELDS = {"club", "lie", "position"}  # club/lie 走纯 apply;position 要几何,在 round_shot_map 生效
 _SAFE_REF = re.compile(r"[^A-Za-z0-9_.-]")
 
 
@@ -98,6 +98,10 @@ def _validate(event: dict[str, Any]) -> None:
             int(event.get("value"))
         except (TypeError, ValueError):
             raise CorrectionError("setHolePenalty 的 value 必须是整数杆数")
+    if op == "reorderShot" and not isinstance(event.get("order"), list):
+        raise CorrectionError("reorderShot 需要 order 列表")
+    if op == "addShot" and not (isinstance(event.get("px"), list) and len(event.get("px")) == 2):
+        raise CorrectionError("addShot 需要 px=[x,y]")
 
 
 def append_correction(
@@ -177,3 +181,12 @@ def hole_penalty(events: list[dict[str, Any]], hole: int) -> int:
             if v is not None:
                 val = v
     return val
+
+
+def reorder_map(events: list[dict[str, Any]]) -> dict[str, int]:
+    """落点顺序覆盖:最后一条 reorderShot 的 shotId→位次;无则 {}(shotmap 排序时:有覆盖用覆盖)。"""
+    order: list[str] = []
+    for e in events:
+        if e.get("op") == "reorderShot" and isinstance(e.get("order"), list):
+            order = [str(s) for s in e["order"]]
+    return {sid: i for i, sid in enumerate(order)}

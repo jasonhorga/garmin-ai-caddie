@@ -36,6 +36,10 @@ def _geometry_mocks():
         # deterministic projection: lat/lon → px (clamped to overlay bounds by the builder)
         patch.object(rsm.shot_projection, "project_world_to_pixel",
                      side_effect=lambda lat, lon, ref_lat, ref_lon, to_px: ((lat - 40.0) * 10000, (lon - 116.0) * 600)),
+        # 逆投影(加杆/拖动用):px→world,正好是上面 project 的逆。
+        patch.object(rsm.hole_render, "overlay_unprojector", return_value=lambda p: (p[0], p[1])),
+        patch.object(rsm.shot_projection, "pixel_to_world",
+                     side_effect=lambda px, py, ref_lat, ref_lon, from_px: (40.0 + px / 10000, 116.0 + py / 600)),
     ]
 
 

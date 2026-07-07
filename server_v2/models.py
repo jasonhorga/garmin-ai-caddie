@@ -474,13 +474,16 @@ class RoundHoleShotMapResponse(BaseModel):
 class RoundCorrectionRequest(BaseModel):
     """一条复盘修改事件:增/改/删一杆,或给某洞手填罚杆。见 ai_caddie/rounds/round_corrections.py。"""
 
-    op: str  # deleteShot | restoreShot | editField | setHolePenalty | addShot
+    op: str  # deleteShot | restoreShot | editField | setHolePenalty | addShot | reorderShot
     shotId: str | None = None
     hole: int | None = None
-    field: str | None = None  # editField 时:club | lie
-    value: Any = None
-    reason: str | None = None  # deleteShot 的删因(暂定球/练习挥/误检测…)
+    field: str | None = None  # editField 时:club | lie | position
+    value: Any = None  # editField position 时 = 落点像素 [px_x, px_y]
+    reason: str | None = None  # deleteShot 的删因(可选;iOS 不发即无)
     clientMutationId: str | None = None  # 幂等键
+    px: list[float] | None = None  # addShot:点地图的落点像素 [x, y]
+    insertAfterShotId: str | None = None  # addShot:插在这一杆之后(None=最前/空洞第一杆)
+    order: list[str] | None = None  # reorderShot:该洞落点的目标顺序(按 shotId 列)
 
 
 class RoundCorrectionResponse(BaseModel):

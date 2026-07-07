@@ -151,6 +151,28 @@ def overlay_projector(by, route):
     return to_px
 
 
+def overlay_unprojector(by, route):
+    """``overlay_projector`` 的逆:post-downsample 显示像素 ``(px,py)`` → 本地 2D 米 ``(east,north)``。
+
+    ``project`` 是仿射(把 tee→green 旋转对齐 + 缩放 + 居中);用三点(原点、+X 单位、+Y 单位)
+    求出 2x2 线性 + 平移再解逆。与 ``overlay_projector`` 的 ``/SS`` 约定一致,所以两者互逆。
+    """
+    import numpy as np
+
+    project, _sc, _w, _h, _margin = _frame(by, route)
+    o = np.array(project((0.0, 0.0)), dtype=float)
+    ex = np.array(project((1.0, 0.0)), dtype=float) - o
+    ey = np.array(project((0.0, 1.0)), dtype=float) - o
+    minv = np.linalg.inv(np.column_stack([ex, ey]))
+
+    def from_px(pt):
+        p = np.array([float(pt[0]) * SS, float(pt[1]) * SS], dtype=float) - o
+        xy = minv @ p
+        return (float(xy[0]), float(xy[1]))
+
+    return from_px
+
+
 def render_hole(global_id: int, local_hole: int, route, route_len: float, landing_m=None):
     """Render the hole. Returns (image_data_uri, overlay_meta).
 
