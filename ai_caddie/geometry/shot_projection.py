@@ -77,6 +77,21 @@ def project_world_to_pixel(
     return to_px(world_to_local(lat_deg, lon_deg, ref_lat=ref_lat, ref_lon=ref_lon))
 
 
+def pixel_to_world(
+    px: float,
+    py: float,
+    *,
+    ref_lat: float,
+    ref_lon: float,
+    from_px: Callable[[tuple[float, float]], tuple[float, float]],
+) -> tuple[float, float]:
+    """Display pixels → world WGS84 ``(lat, lon)``. The inverse of :func:`project_world_to_pixel`;
+    ``from_px`` MUST come from :func:`ai_caddie.geometry.hole_render.overlay_unprojector` (the exact
+    inverse of the ``to_px`` used to project), so a tapped pixel round-trips to its world coord."""
+    x, y = from_px((px, py))
+    return local_to_world(x, y, ref_lat=ref_lat, ref_lon=ref_lon)
+
+
 def _int_or_none(value: Any) -> int | None:
     try:
         return int(value)
