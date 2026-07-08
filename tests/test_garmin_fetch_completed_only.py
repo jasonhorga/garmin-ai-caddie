@@ -7,7 +7,12 @@ import unittest
 from pathlib import Path
 
 from ai_caddie.garmin import fetch as F
-from ai_caddie.garmin.fetch import _detail_complete, _scorecard_complete, _store_scorecard
+from ai_caddie.garmin.fetch import (
+    _detail_complete,
+    _reconcile_abandoned,
+    _scorecard_complete,
+    _store_scorecard,
+)
 
 
 class CompletedOnlyTests(unittest.TestCase):
@@ -61,6 +66,48 @@ class StoreScorecardTests(unittest.TestCase):
             _store_scorecard(out, self._detail(False), 1, 1, 555)
             self.assertTrue(out.exists())
             self.assertFalse(json.loads(out.read_text())["scorecardDetails"][0]["scorecard"]["inProgress"])
+
+
+class ReconcileAbandonedTests(unittest.TestCase):
+    """对账:放弃的局 Garmin 会删掉→不在列表。本地进行中且不在列表的 → 删;打完的即使不在列表也留。"""
+
+    def _write(self, sc_dir, sid, in_progress):
+        (sc_dir / f"{sid}.json").write_text(
+            json.dumps({"scorecardDetails": [{"scorecard": {"inProgress": in_progress}}]})
+        )
+
+    def test_removes_only_in_progress_missing_from_list(self):
+        with tempfile.TemporaryDirectory() as td:
+            sc_dir = Path(td) / "scorecards"; sc_dir.mkdir()
+            shot_dir = Path(td) / "shots"; shot_dir.mkdir()
+            old_sc, old_shot = F.SCORECARD_DIR, F.SHOT_DIR
+            F.SCORECARD_DIR, F.SHOT_DIR = sc_dir, shot_dir
+            try:
+                self._write(sc_dir, 100, False)  # 打完 + 在列表 → 留
+                self._write(sc_dir, 200, True)   # 进行中 + 在列表 → 留(还在打)
+                self._write(sc_dir, 300, True)   # 进行中 + 不在列表 → 放弃 → 删
+                (shot_dir / "300.json").write_text("{}")
+                self._write(sc_dir, 400, False)  # 打完 + 不在列表(窗口外)→ 留,别误删
+                _reconcile_abandoned([{"id": 100}, {"id": 200}])
+                self.assertTrue((sc_dir / "100.json").exists())
+                self.assertTrue((sc_dir / "200.json").exists())
+                self.assertFalse((sc_dir / "300.json").exists(), "放弃局该删")
+                self.assertFalse((shot_dir / "300.json").exists(), "放弃局的杆该删")
+                self.assertTrue((sc_dir / "400.json").exists(), "打完的即使不在列表也别删")
+            finally:
+                F.SCORECARD_DIR, F.SHOT_DIR = old_sc, old_shot
+
+    def test_empty_cards_is_noop(self):
+        with tempfile.TemporaryDirectory() as td:
+            sc_dir = Path(td) / "scorecards"; sc_dir.mkdir()
+            old_sc = F.SCORECARD_DIR
+            F.SCORECARD_DIR = sc_dir
+            try:
+                self._write(sc_dir, 500, True)  # 进行中,但 cards 空(拉取失败)→ 绝不删
+                _reconcile_abandoned([])
+                self.assertTrue((sc_dir / "500.json").exists(), "列表拉取失败时绝不删")
+            finally:
+                F.SCORECARD_DIR = old_sc
 
 
 if __name__ == "__main__":
