@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { LiveRoundPackageResponse } from '../types'
@@ -272,6 +272,44 @@ describe('MobilePackagePrepPanel', () => {
       capturedAt: undefined,
       ensureGeometry: true,
     })
+  })
+
+  it('shows a tee dropdown (colour + yards) from the tees endpoint and threads the chosen tee', async () => {
+    const onPrepareCourse = vi.fn()
+    const onLoadCourseTees = vi.fn(async () => ({
+      schema: 'ai-caddie-course-tees-v1' as const,
+      globalId: 31795,
+      defaultTeeBox: 'blue',
+      tees: [
+        { teeBox: 'black', name: 'Black', set: 1, yards: 6800, holeCount: 18, default: false },
+        { teeBox: 'blue', name: 'Blue', set: 2, yards: 6412, holeCount: 18, default: true },
+        { teeBox: 'white', name: 'White', set: 3, yards: 6001, holeCount: 18, default: false },
+      ],
+    }))
+
+    render(
+      <MobilePackagePrepPanel
+        state={{ status: 'idle' }}
+        onPrepareRound={vi.fn()}
+        onPrepareCourse={onPrepareCourse}
+        onLoadCourseTees={onLoadCourseTees}
+      />,
+    )
+
+    // Switching to 球场 mode (default gid 31795) triggers a tees fetch → the field becomes a dropdown.
+    await userEvent.click(screen.getByRole('radio', { name: '球场' }))
+    const teeSelect = await screen.findByRole('combobox', { name: '发球台' })
+    expect(onLoadCourseTees).toHaveBeenCalledWith(31795)
+    // Defaults to the course default tee, and options carry colour + yardage.
+    await waitFor(() => expect(teeSelect).toHaveValue('blue'))
+    expect(screen.getByRole('option', { name: '蓝 T · 6412 码' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '黑 T · 6800 码' })).toBeInTheDocument()
+
+    // Picking White threads tee_box=white into the prep request.
+    await userEvent.selectOptions(teeSelect, 'white')
+    await userEvent.type(screen.getByLabelText('实战球局编号'), 'live-black-knight')
+    await userEvent.click(screen.getByRole('button', { name: '生成离线包' }))
+    expect(onPrepareCourse).toHaveBeenCalledWith(31795, expect.objectContaining({ teeBox: 'white' }))
   })
 
   it('renders package readiness, coverage, weather, and missing data labels', () => {

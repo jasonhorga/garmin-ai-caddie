@@ -978,6 +978,25 @@ export interface MobileCoursePackageParams {
   ensureGeometry?: boolean
 }
 
+/// One selectable tee box for the pre-round picker (GET /api/v2/courses/{id}/tees): colour key
+/// (threads back as tee_box), display name, total yards (null when the tee has no geometry — honest),
+/// geometry set + hole count, and whether it is the course default (blue when present, else longest).
+export interface CourseTee {
+  teeBox: string
+  name: string
+  set?: number | null
+  yards?: number | null
+  holeCount?: number | null
+  default: boolean
+}
+
+export interface CourseTeesResponse {
+  schema: 'ai-caddie-course-tees-v1'
+  globalId: number
+  defaultTeeBox: string | null
+  tees: CourseTee[]
+}
+
 export type ReadinessState = 'ready' | 'degraded' | 'error'
 
 export interface ReadinessCheck {

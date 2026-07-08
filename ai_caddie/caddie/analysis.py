@@ -17,6 +17,7 @@ from ai_caddie.geometry.measure_prodgeometry_distances import (
 )
 
 from ai_caddie.core.data import (
+    available_prep_holes,
     build_club_profiles,
     clean_club_name,
     hazard_path,
@@ -106,6 +107,120 @@ def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[
             return match
 
     return max(tees, key=lambda t: float(t.get("target_distance_m") or 0.0))
+
+
+# Canonical tee colours → geometry set number, ordered longest tee (set 1) to shortest (set 5).
+# Mirrors TEE_SET_BY_BOX but deduped to one colour per set (gold/yellow both map to set 4 → gold is the
+# canonical key). The returned tee list reads back-tee → forward-tee, like Garmin's own picker order.
+_CANONICAL_TEES: list[tuple[str, int]] = [
+    ("black", 1),
+    ("blue", 2),
+    ("white", 3),
+    ("gold", 4),
+    ("red", 5),
+]
+
+# CourseView tee display names → canonical colour, tolerant of English + Chinese labels so a course's
+# OWN tee name (Garmin's label) can be pinned onto the matching geometry set. Unknown names stay
+# unmapped (the tee still lists by its geometry set, just under the generic colour title).
+_TEE_COLOR_ALIASES: dict[str, str] = {
+    "black": "black", "championship": "black", "champ": "black", "tips": "black", "back": "black",
+    "blue": "blue",
+    "white": "white",
+    "gold": "gold", "yellow": "gold",
+    "red": "red", "forward": "red", "ladies": "red",
+    "黑": "black", "蓝": "blue", "白": "white", "金": "gold", "黄": "gold", "红": "red",
+}
+
+
+def _normalize_tee_color(name: str | None) -> str | None:
+    """Best-effort map a CourseView tee display name (English or Chinese) to a canonical colour key."""
+    key = str(name or "").strip().lower()
+    if not key:
+        return None
+    if key in _TEE_COLOR_ALIASES:
+        return _TEE_COLOR_ALIASES[key]
+    for token, color in _TEE_COLOR_ALIASES.items():
+        if token in key:
+            return color
+    return None
+
+
+def course_tee_options(
+    global_id: int,
+    *,
+    tee_name_resolver: Any = None,
+    holes_resolver: Any = None,
+    geometry_loader: Any = None,
+) -> dict[str, Any]:
+    """The course's selectable tee boxes for the pre-round picker: each colour's total yards (summed
+    tee→target geometry, honestly ``None`` when a tee has no geometry — never faked), its geometry set
+    number, hole count and which is the default (blue when the course has it, else the longest tee).
+    Colour names come from the CourseView release when available. A course with neither geometry nor
+    CourseView names degrades to generic 长/中/短 tiers. Resolvers are injectable for hermetic tests."""
+    gid = int(global_id)
+
+    if tee_name_resolver is None:
+        def tee_name_resolver(_gid: int) -> list[str]:
+            try:
+                from ai_caddie.caddie.mobile_live import _courseview_tee_names
+                return _courseview_tee_names(_gid)
+            except Exception:
+                return []
+    resolve_holes = holes_resolver or available_prep_holes
+    resolve_geometry = geometry_loader or load_geometry
+
+    # Sum each geometry set's tee→target distance across every hole that carries geometry.
+    set_meters: dict[int, float] = {}
+    set_holes: dict[int, int] = {}
+    for hole in resolve_holes(gid):
+        tees = ((resolve_geometry(gid, int(hole)) or {}).get("hazards") or {}).get("tees") or []
+        for _color, set_num in _CANONICAL_TEES:
+            match = next((t for t in tees if set_num in (t.get("sets") or [])), None)
+            if not match:
+                continue
+            distance = match.get("target_distance_m")
+            if distance is None:
+                continue
+            set_meters[set_num] = set_meters.get(set_num, 0.0) + float(distance)
+            set_holes[set_num] = set_holes.get(set_num, 0) + 1
+
+    # Pin each course tee NAME (Garmin's own label) onto its canonical colour, when recognisable.
+    named_by_color: dict[str, str] = {}
+    for raw_name in (tee_name_resolver(gid) or []):
+        color = _normalize_tee_color(raw_name)
+        if color and color not in named_by_color:
+            named_by_color[color] = str(raw_name).strip()
+
+    tees_out: list[dict[str, Any]] = []
+    for color, set_num in _CANONICAL_TEES:
+        has_geometry = set_num in set_meters or set_num in set_holes
+        if not (has_geometry or color in named_by_color):
+            continue
+        meters = set_meters.get(set_num)
+        tees_out.append({
+            "teeBox": color,
+            "name": named_by_color.get(color) or color.title(),
+            "set": set_num,
+            "yards": int(round(meters * 1.09361)) if meters else None,
+            "holeCount": set_holes.get(set_num, 0),
+            "default": False,
+        })
+
+    # Neither geometry nor CourseView names → generic long/mid/short tiers (no yardage — honest).
+    if not tees_out:
+        tees_out = [
+            {"teeBox": "black", "name": "长台", "set": 1, "yards": None, "holeCount": 0, "default": False},
+            {"teeBox": "white", "name": "中台", "set": 3, "yards": None, "holeCount": 0, "default": False},
+            {"teeBox": "red", "name": "短台", "set": 5, "yards": None, "holeCount": 0, "default": False},
+        ]
+
+    boxes = [tee["teeBox"] for tee in tees_out]
+    default_box = "blue" if "blue" in boxes else min(tees_out, key=lambda tee: tee["set"])["teeBox"]
+    for tee in tees_out:
+        tee["default"] = tee["teeBox"] == default_box
+
+    return {"defaultTeeBox": default_box, "tees": tees_out}
 
 
 def _looks_like_tee_start(shot: dict[str, Any]) -> bool:

@@ -35,6 +35,8 @@ public struct RoundHomeView: View {
     public let onSync: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
+    /// 拉取所选球场的可选发球台(供「开始一场」的选台器);仅转发给 StartRoundView。
+    public let onLoadCourseTees: (Int) async -> [CourseTee]
     /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
     public let pendingLiveHole: Int?
     public let onConsumePendingLiveHole: () -> Void
@@ -65,6 +67,7 @@ public struct RoundHomeView: View {
         onSync: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
+        onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
         pendingLiveHole: Int? = nil,
         onConsumePendingLiveHole: @escaping () -> Void = {}
     ) {
@@ -90,6 +93,7 @@ public struct RoundHomeView: View {
         self.onSync = onSync
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
+        self.onLoadCourseTees = onLoadCourseTees
         self.pendingLiveHole = pendingLiveHole
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
     }
@@ -182,7 +186,8 @@ public struct RoundHomeView: View {
             onPrepareCompositeRound: onPrepareCompositeRound,
             onSaveBackendConfiguration: onSaveBackendConfiguration,
             onClearBackendConfiguration: onClearBackendConfiguration,
-            onConnectGarmin: { showSettings = true }
+            onConnectGarmin: { showSettings = true },
+            onLoadCourseTees: onLoadCourseTees
         )
     }
 

@@ -18,6 +18,9 @@ public struct StartRoundView: View {
     public let onClearBackendConfiguration: () -> Void
     /// 还没有球场时的「连接 Garmin」CTA:由 app 注入(打开 Garmin 连接流程),拉取球场后就能记分。
     public let onConnectGarmin: () -> Void
+    /// 拉取所选球场的可选发球台(GET /courses/{id}/tees:颜色 + 总码数 + 默认台)。
+    /// 离线/出错返回 [] → 选台器回退到球场自带的 CourseView Tee 名(无码数)。
+    public let onLoadCourseTees: (Int) async -> [CourseTee]
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var roundId: String
@@ -26,6 +29,8 @@ public struct StartRoundView: View {
     @State private var userPickedVenue = false
     @State private var teeBox: String
     @State private var nine: String
+    /// 所选球场的发球台列表(含码数/默认),来自 GET /courses/{id}/tees;为空则用球场自带 Tee 名。
+    @State private var fetchedTees: [CourseTee] = []
 
     public init(
         // 不在消费者界面里写死可读的原始局号(如 900001):没显式传时生成一个不透明的本地局号,
@@ -43,7 +48,8 @@ public struct StartRoundView: View {
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
-        onConnectGarmin: @escaping () -> Void = {}
+        onConnectGarmin: @escaping () -> Void = {},
+        onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] }
     ) {
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
@@ -57,6 +63,7 @@ public struct StartRoundView: View {
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onConnectGarmin = onConnectGarmin
+        self.onLoadCourseTees = onLoadCourseTees
         // Pre-select a real course (the given default, else the most-played) so the
         // primary action works out of the box instead of stranding on "manual entry".
         let mostPlayed = courseOptions.max { $0.roundCount < $1.roundCount }
@@ -106,6 +113,23 @@ public struct StartRoundView: View {
         .onChange(of: locationProvider.latestFix?.coordinate.latitude) { _, _ in
             // GPS arrived → if the player hasn't picked yet, jump to the nearest course.
             ensureDefaultSelection()
+        }
+        // 选了/换了球场 → 拉该球场的可选发球台(颜色 + 码数 + 默认),填充选台器。
+        .task(id: courseGlobalIdText) {
+            await loadTees()
+        }
+    }
+
+    /// Fetch the selected course's tee boxes (colour + yardage + default). Empty → keep the bundled
+    /// tee colours. When the current pick isn't offered by this course, jump to the course default.
+    private func loadTees() async {
+        guard let globalId = courseGlobalId else { return }
+        let tees = await onLoadCourseTees(globalId)
+        guard !tees.isEmpty else { return }
+        fetchedTees = tees
+        if !tees.contains(where: { $0.teeBox.lowercased() == teeBox.lowercased() }),
+           let fallback = tees.first(where: { $0.isDefault })?.teeBox ?? tees.first?.teeBox {
+            teeBox = fallback
         }
     }
 
@@ -225,11 +249,11 @@ public struct StartRoundView: View {
                     Spacer()
                     Menu {
                         ForEach(teeOptions, id: \.self) { tee in
-                            Button(zhTeeLabel(tee)) { teeBox = tee }
+                            Button(teeMenuLabel(tee)) { teeBox = tee }
                         }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(teeBox.isEmpty ? "默认" : zhTeeLabel(teeBox))
+                            Text(teeBox.isEmpty ? "默认" : teeMenuLabel(teeBox))
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(LiveHoleStyle.green)
                             Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
@@ -337,19 +361,41 @@ public struct StartRoundView: View {
         .buttonStyle(.plain)
     }
 
-    /// 发球台:优先用所选球场 Garmin CourseView 的真实 Tee(金/黑/蓝/白/红…),没有才回退通用集。
+    /// 发球台候选:优先用 /courses/{id}/tees 接口返回的台(带码数,back→forward 排序);没有则回退
+    /// 所选球场 Garmin CourseView 的真实 Tee 名(金/黑/蓝/白/红…);再没有才回退通用集。
     /// 内部保留原始 key(传给后端),仅显示中文。
     private var teeOptions: [String] {
+        let fetched = fetchedTees.map(\.teeBox)
         let courseTees = selectedSegment?.tees ?? []
-        let base = courseTees.isEmpty ? ["blue", "white", "red", "gold", "black", "green", "yellow", "silver"] : courseTees
+        let base = !fetched.isEmpty
+            ? fetched
+            : (courseTees.isEmpty ? ["blue", "white", "red", "gold", "black", "green", "yellow", "silver"] : courseTees)
         var seen = Set<String>()
         var result: [String] = []
-        for tee in [teeBox] + base {
+        for tee in base {
             let trimmed = tee.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, seen.insert(trimmed.lowercased()).inserted else { continue }
             result.append(trimmed)
         }
+        // 保证当前所选台一定可选,即使它不在解析出的列表里。
+        let currentTrimmed = teeBox.trimmingCharacters(in: .whitespaces)
+        if !currentTrimmed.isEmpty, seen.insert(currentTrimmed.lowercased()).inserted {
+            result.append(currentTrimmed)
+        }
         return result
+    }
+
+    /// 该台的总码数(来自接口),没有则 nil。
+    private func teeYards(_ tee: String) -> Int? {
+        fetchedTees.first { $0.teeBox.lowercased() == tee.lowercased() }?.yards
+    }
+
+    /// 选台菜单标签:中文台名 + 已知则附总码数,如「蓝 T · 6412 码」。
+    private func teeMenuLabel(_ tee: String) -> String {
+        if let yards = teeYards(tee) {
+            return "\(zhTeeLabel(tee)) · \(yards) 码"
+        }
+        return zhTeeLabel(tee)
     }
 
     private func zhTeeLabel(_ tee: String) -> String {

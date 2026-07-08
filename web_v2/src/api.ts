@@ -19,6 +19,7 @@ import type {
   ClubBagUpdateRequest,
   CoursePrepResponse,
   CourseSearchResponse,
+  CourseTeesResponse,
   HistoryOverviewResponse,
   HistoryDrilldownResponse,
   HistoryRoundDetailResponse,
@@ -228,6 +229,12 @@ export function fetchCoursePrep(
 
 export function fetchPrepTips(globalId: number, adminToken?: string): Promise<PrepTipsResponse> {
   return getJson<PrepTipsResponse>(`/api/v2/courses/${globalId}/prep-tips`, adminToken)
+}
+
+// The course's selectable tee boxes (colour + total yards + default) for the pre-round tee picker.
+// Public course knowledge (no player data) — the same list Garmin's new-round tee chooser shows.
+export function fetchCourseTees(globalId: number, adminToken?: string): Promise<CourseTeesResponse> {
+  return getJson<CourseTeesResponse>(`/api/v2/courses/${encodeURIComponent(String(globalId))}/tees`, adminToken)
 }
 
 export function fetchCaddieDecision(request: CaddieDecisionRequest, adminToken?: string): Promise<CaddieDecisionResponse> {
