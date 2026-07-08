@@ -33,6 +33,12 @@ services:
       - "${AI_CADDIE_API_PUBLISH_HOST:-127.0.0.1}:9000:9000"
     volumes:
       - ai-caddie-private:/var/lib/ai-caddie
+      # Decoded course geometry (~4557 meshes / ~3GB) is gitignored (see .dockerignore) so it is NOT
+      # baked into the image — bind-mount it from the host repo instead (populate the host dir via
+      # rsync). Without this the api only sees whatever geometry is left in the image layer, so most
+      # 复盘落点图 come back empty ("这一洞暂无落点数据") even for courses we've decoded.
+      - ./output/prodgeometry:/app/output/prodgeometry:ro
+      - ./output/prodgeometry_hazards:/app/output/prodgeometry_hazards:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/api/v2/health >/dev/null"]
       interval: 10s
