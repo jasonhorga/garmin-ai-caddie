@@ -45,6 +45,31 @@ class PrepareOrchestrationTests(unittest.TestCase):
         self.assertEqual(out["courses"], [222])
         self.assertEqual(out["holes"], 3)
 
+    def test_ensure_geometry_runs_before_prewarm(self):
+        order = []
+        pr.prepare_recent_round(
+            self._data_one_course(),
+            prewarm=lambda gid, holes: order.append(("prewarm", gid)),
+            warm_stats=lambda: None,
+            ensure_geometry=lambda gid, holes: order.append(("geometry", gid)),
+        )
+        # Geometry is ensured BEFORE its topo is prewarmed, so the render has geometry to draw.
+        self.assertEqual(order, [("geometry", 222), ("prewarm", 222)])
+
+    def test_ensure_geometry_failure_is_swallowed(self):
+        warmed = []
+
+        def boom(gid, holes):
+            raise RuntimeError("garmin down")
+
+        pr.prepare_recent_round(
+            self._data_one_course(),
+            prewarm=lambda gid, holes: None,
+            warm_stats=lambda: warmed.append(True),
+            ensure_geometry=boom,
+        )
+        self.assertEqual(warmed, [True])  # best-effort: a geometry failure never stops the rest
+
     def test_best_effort_prewarm_failure_does_not_crash_and_still_warms_stats(self):
         warmed = []
 
