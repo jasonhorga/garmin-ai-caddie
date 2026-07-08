@@ -48,8 +48,18 @@ final class ReviewEditUITests: XCTestCase {
         guard tapFirstHoleRow() else { save("nohole"); dump("nohole"); return }
         settle(6); save("03-shot-map"); dump("03-shot-map")
 
+        // Some holes are "这一洞暂无落点数据" (no geometry → no 编辑 toggle). Swipe the pager to a hole
+        // that actually has a map so the edit affordances are reachable (try up to 12 holes).
+        var reachedEdit = false
+        for i in 0..<12 {
+            if app.buttons["编辑"].waitForExistence(timeout: 3) { reachedEdit = true; break }
+            app.swipeLeft(); settle(2)
+            if i == 3 || i == 7 { save("03b-hole-\(i)"); dump("03b-hole-\(i)") }
+        }
+        guard reachedEdit else { save("noeditbtn"); dump("noeditbtn"); return }
+
         // ---- Enter edit mode → drag handles appear on every landing ----
-        guard tapButton("编辑") else { save("noeditbtn"); dump("noeditbtn"); return }
+        guard tapButton("编辑") else { save("noeditbtn2"); dump("noeditbtn2"); return }
         settle(3); save("04-edit-handles"); dump("04-edit-handles")
 
         // ---- 补一杆: tap empty map → the add sheet appears; cancel (no write) ----
