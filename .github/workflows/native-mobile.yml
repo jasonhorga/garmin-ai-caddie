@@ -62,13 +62,27 @@ jobs:
           UITEST_GPS_LAT: '40.083'
           UITEST_GPS_LON: '116.585'
         run: |
+          set -x
           # Launches the REAL app in the simulator (not ImageRenderer) pointed at the funnel with the
-          # owner token + a simulated GPS fix, navigates, and captures real screens. `|| true` while the
-          # navigation is being tightened so the screenshots/element-tree artifact is always collected.
+          # owner token + a simulated GPS fix, navigates, and captures real screens AND a screen-recorded
+          # video. Resolve + boot the exact iPhone 16 sim by UDID so simctl can record it while XCUITest
+          # drives the app on the same instance. `|| true` so screenshots/video artifacts always collect.
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          echo "iOS sim UDID: $UDID"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" || true
+          mkdir -p real-videos
+          # Record the simulator screen for the whole XCUITest run (background; SIGINT finalizes the mp4).
+          ( xcrun simctl io "$UDID" recordVideo --codec h264 --force real-videos/real-flow.mp4 ) &
+          REC_PID=$!
+          sleep 2
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieUITests \
-            -destination "$IOS_DESTINATION" || true
+            -destination "platform=iOS Simulator,id=$UDID" || true
+          kill -INT "$REC_PID" 2>/dev/null || true
+          sleep 4
+          ls -la real-videos || true
       - name: Collect real screenshots
         if: github.event_name == 'workflow_dispatch'
         run: |
@@ -81,6 +95,13 @@ jobs:
         with:
           name: real-screenshots
           path: real-screenshots/
+          if-no-files-found: warn
+      - name: Upload real video
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-video
+          path: real-videos/
           if-no-files-found: warn
       - name: Test Watch app target
         run: |
