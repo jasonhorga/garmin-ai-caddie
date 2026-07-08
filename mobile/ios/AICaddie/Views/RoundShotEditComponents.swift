@@ -84,7 +84,8 @@ public struct RoundShotEditLayer: View {
 
                 // Magnifier loupe: floats ABOVE the finger while dragging (设计 §5), showing the
                 // area the finger covers, magnified + crosshair, so the landing lands precisely.
-                if let loc = dragLocation, editModel.draggingShotId != nil {
+                // Gated on `movedFar` so a mere tap-to-edit doesn't flash the loupe.
+                if let loc = dragLocation, editModel.draggingShotId != nil, movedFar {
                     MagnifierLoupe(overlay: overlay, shots: editModel.map.shots,
                                    baseImage: baseImage, topoURL: topoURL,
                                    mapSize: geo.size, focus: loc, diameter: loupeDiameter)
