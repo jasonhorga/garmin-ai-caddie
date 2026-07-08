@@ -104,6 +104,248 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchHoleMap() throws {
+        // round-14 DESIGN REVIEW: Garmin-S70-style SPLIT hole view on the REAL backend render (gid31669
+        // h4, Par 5) — a par-5 SECOND shot that can't reach: LEFT column (第4洞·P5, 前/中/后果岭 = distance
+        // to the green, 实打 hero, 球童 lay-up club) | RIGHT map (YOU + heading arrow, two-segment caddie
+        // line you→lay-up→green, pin, reach arc, 距上一杆), gradient vignette into black, and the 12→9
+        // scoring ring whose corner segments curve along the rounded bezel. 46mm size.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5,
+            frontGreen: 273, centerGreen: 287, backGreen: 300,
+            playsLikeDelta: 8, lastShot: 200,
+            caddieClub: "3号木", caddieNote: "推进 · 留100",
+            ringPips: pips
+        )
+        .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
+        .background(Color.black)
+        try render(view, named: "watch-holeview")
+    }
+
+    @MainActor
+    func testRenderWatchHoleMapPlaysLike() throws {
+        // The 实打 TOGGLE state: tapping the distance block flips 后/中/前 to the slope-adjusted values with
+        // a ↑ arrow (here +8 uphill → plays longer). Everything else stays put — same decluttered layout.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5,
+            frontGreen: 273, centerGreen: 287, backGreen: 300,
+            playsLikeDelta: 8, lastShot: 200,
+            caddieClub: "3号木", caddieNote: "推进 · 留100",
+            ringPips: pips,
+            showPlaysLike: true
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holeview-pl")
+    }
+
+    @MainActor
+    func testRenderWatchHoleImageInCanvas() throws {
+        // De-risk: does the baked hole image render at all when drawn INSIDE a Canvas via context.draw
+        // under watchOS ImageRenderer? (This is exactly how WatchHoleMapView draws the map.) Image only,
+        // no overlays — if this is blank/nil the image path is the culprit, not the overlay geometry.
+        let view = Canvas { context, size in
+            #if canImport(UIKit)
+            if let ui = WatchHoleMapSample.image {
+                context.draw(context.resolve(Image(uiImage: ui)), in: CGRect(origin: .zero, size: size))
+            }
+            #endif
+        }
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-img-canvas")
+    }
+
+    @MainActor
+    func testRenderWatchClipImage() throws {
+        // De-risk: the split map panel draws the image inside a CLIPPED `drawLayer` (so the zoomed image
+        // doesn't bleed over the data column). Exercise exactly that — clip a rounded panel, draw the image
+        // in it — to confirm drawLayer+clip+image renders under watchOS ImageRenderer. If watch-holeview is
+        // blank but this is not, the culprit is elsewhere; if this is blank too, drawLayer/clip is the cause.
+        let view = Canvas { context, size in
+            let panel = CGRect(x: size.width * 0.38, y: 20, width: size.width * 0.58, height: size.height - 40)
+            let panelPath = Path(roundedRect: panel, cornerRadius: 10)
+            context.drawLayer { layer in
+                layer.clip(to: panelPath)
+                layer.fill(panelPath, with: .color(.green.opacity(0.3)))
+                #if canImport(UIKit)
+                if let ui = WatchHoleMapSample.image {
+                    layer.draw(layer.resolve(Image(uiImage: ui)),
+                               in: CGRect(x: panel.minX - 60, y: panel.minY - 40, width: panel.width + 200, height: panel.height + 200))
+                }
+                #endif
+            }
+        }
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-clip-image")
+    }
+
+    @MainActor
+    func testRenderWatchHoleMapCanvasOnly() throws {
+        // Bisect: the Canvas layer ONLY (no Text overlay). If this renders but watch-holeview does not,
+        // the culprit is the Text overlay; if both render, the Canvas rewrite fixed the nil cgImage.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5,
+            ringPips: pips,
+            showTextOverlay: false
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-hv-canvasonly")
+    }
+
+    // MARK: - Round-start flow screens (course → nine → tee → scorecard → hole grid)
+
+    @MainActor
+    func testRenderFlowCourse() throws {
+        let view = WatchCourseSelectView(rows: [
+            ("北京丽宫 · 山景", "Par 72 · 0.4 km", true),
+            ("华彬庄园", "Par 72 · 3.1 km", false),
+            ("九华山庄", "Par 71 · 8.6 km", false),
+        ])
+        try render(view, named: "flow-course")
+    }
+
+    @MainActor
+    func testRenderFlowNine() throws {
+        let view = WatchNineSelectView(title: "打几洞", options: [
+            (label: "全 18 洞", sub: "前九 + 后九", primary: true),
+            (label: "前 9 洞", sub: "1–9", primary: false),
+            (label: "后 9 洞", sub: "10–18", primary: false),
+        ])
+        try render(view, named: "flow-nine")
+    }
+
+    @MainActor
+    func testRenderFlowTee() throws {
+        let gold = Color(red: 1.0, green: 0.84, blue: 0.2)
+        let view = WatchTeeSelectView(title: "发球台", tees: [
+            (name: "蓝 T", yards: 6821, color: .blue, selected: false),
+            (name: "白 T", yards: 6200, color: .white, selected: true),
+            (name: "金 T", yards: 5750, color: gold, selected: false),
+            (name: "红 T", yards: 5210, color: .red, selected: false),
+        ])
+        try render(view, named: "flow-tee")
+    }
+
+    @MainActor
+    func testRenderFlowScorecard() throws {
+        let sc: [Int: Int] = [1: 4, 2: 6, 3: 2, 4: 5, 5: 4, 6: 3, 7: 6]
+        let pars: [Int: Int] = [1: 4, 2: 5, 3: 3, 4: 4, 5: 4, 6: 3, 7: 5, 8: 4, 9: 4,
+                                10: 4, 11: 5, 12: 3, 13: 4, 14: 4, 15: 3, 16: 5, 17: 4, 18: 4]
+        let holes: [(hole: Int, par: Int, score: Int?)] = (1...18).map { (hole: $0, par: pars[$0] ?? 4, score: sc[$0]) }
+        let view = WatchRoundScorecardView(holes: holes, toPar: 2)
+        try render(view, named: "flow-scorecard")
+    }
+
+    @MainActor
+    func testRenderFlowHoleGrid() throws {
+        let sc: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let holes: [(hole: Int, toPar: Int?, current: Bool)] = (1...18).map { (hole: $0, toPar: sc[$0], current: $0 == 4) }
+        let view = WatchHoleGridView(holes: holes)
+        try render(view, named: "flow-holes")
+    }
+
+    @MainActor
+    func testRenderWatchHoleMapZoom() throws {
+        // Zoomed full-map state (tap the map): data column hidden, map fills the width + zooms in, with a
+        // top-centre distance + zoom hints.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
+        let view = WatchHoleMapView(holeNumber: 4, par: 5, centerGreen: 287, ringPips: pips, fullMap: true)
+            .frame(width: 198, height: 242)
+            .background(Color.black)
+        try render(view, named: "watch-holeview-zoom")
+    }
+
+    @MainActor
+    func testRenderFlowHub() throws {
+        let view = WatchRoundHubView(course: "北京丽宫 · 山景", hole: 4, par: 5, toPar: 2)
+        try render(view, named: "flow-hub")
+    }
+
+    @MainActor
+    func testRenderFlowGreen() throws {
+        let view = WatchGreenPreviewView(front: 273, center: 287, back: 300)
+        try render(view, named: "flow-green")
+    }
+
+    @MainActor
+    func testRenderFlowTarget() throws {
+        let view = WatchTargetView(carry: 96, clear: 110)
+        try render(view, named: "flow-target")
+    }
+
+    @MainActor
+    func testRenderFlowNine9() throws {
+        let view = WatchNineSelectView(title: "先打哪个9", options: [
+            (label: "前九", sub: "1–9 · 3220 码", primary: true),
+            (label: "中九", sub: "10–18 · 3180 码", primary: false),
+            (label: "后九", sub: "19–27 · 3300 码", primary: false),
+        ])
+        try render(view, named: "flow-nine9")
+    }
+
+    @MainActor
+    func testRenderFlowPinPointer() throws {
+        let view = WatchPinPointerView(bearingDegrees: 38, distance: 152)
+        try render(view, named: "flow-pin")
+    }
+
+    @MainActor
+    func testRenderScoreEntry() throws {
+        try render(WatchScoreEntryView(hole: 4, par: 5, strokes: 6, putts: 2), named: "flow-score-entry")
+    }
+
+    @MainActor
+    func testRenderScoreFairway() throws {
+        try render(WatchScoreFairwayView(fairway: 0, penalty: 0), named: "flow-score-fw")
+    }
+
+    @MainActor
+    func testRenderEndRound() throws {
+        try render(WatchEndRoundView(course: "北京丽宫 · 山景", toPar: 5, strokes: 41, putts: 16, gir: 44, fir: 57), named: "flow-endround")
+    }
+
+    @MainActor
+    func testRenderCaddieDetail() throws {
+        try render(WatchCaddieDetailView(club: "3木 → PW", expStrokes: 2.8, onGreenPct: 64), named: "flow-caddie-detail")
+    }
+
+    @MainActor
+    func testRenderMeasure() throws {
+        try render(WatchMeasureView(youToPoint: 187, pointToGreen: 100), named: "flow-measure")
+    }
+
+    @MainActor
+    func testRenderGolfMenu() throws {
+        try render(WatchGolfMenuView(items: ["查看果岭", "球童建议", "更换球洞", "记分卡", "PinPointer", "测量击球", "结束球局"]), named: "flow-menu")
+    }
+
+    @MainActor
+    func testRenderClubStats() throws {
+        try render(WatchClubStatsView(clubs: [
+            (name: "1号木", dist: 245, acc: "±18"), (name: "3号木", dist: 218, acc: "±14"),
+            (name: "5号铁", dist: 178, acc: "±11"), (name: "7号铁", dist: 152, acc: "±9"),
+            (name: "PW", dist: 118, acc: "±7"),
+        ]), named: "flow-clubs")
+    }
+
+    @MainActor
+    func testRenderShots() throws {
+        try render(WatchShotsView(shots: [
+            (n: 1, club: "开球 3号木", dist: 218), (n: 2, club: "3号木", dist: 205), (n: 3, club: "PW", dist: 96),
+        ]), named: "flow-shots")
+    }
+
+    @MainActor
     func testRenderWatchScorecard() throws {
         let view = WatchScorecardView(
             holes: [
