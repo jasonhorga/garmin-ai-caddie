@@ -34,6 +34,9 @@ _KNOWN_PUBLIC = {
     # The realistic-topo base bitmap is pure course geometry (no source_ref, no owner data), public
     # exactly like /geometry/hole/.../map and /courses/{id}/prep — a hole with no geometry 404s.
     ("GET", "/api/v2/courses/{global_id}/holes/{hole}/topo.png"),
+    # The pre-round tee picker's list (colours + total yards + default) is pure course knowledge —
+    # no player data, no source_ref — public exactly like /topo.png and /geometry/hole/{}/coverage.
+    ("GET", "/api/v2/courses/{global_id}/tees"),
     # Fire-and-forget topo cache prewarm: pure course geometry (no owner data), a write only to the
     # server-side render cache. Public exactly like /topo.png + /prep; a geometry-less gid queues 0.
     ("POST", "/api/v2/courses/{global_id}/topo/prewarm"),
