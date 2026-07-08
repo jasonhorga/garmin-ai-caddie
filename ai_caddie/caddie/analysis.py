@@ -193,16 +193,26 @@ def course_tee_options(
             named_by_color[color] = str(raw_name).strip()
 
     tees_out: list[dict[str, Any]] = []
+    seen_yards: set[int] = set()
     for color, set_num in _CANONICAL_TEES:
         has_geometry = set_num in set_meters or set_num in set_holes
         if not (has_geometry or color in named_by_color):
             continue
         meters = set_meters.get(set_num)
+        yards = int(round(meters * 1.09361)) if meters else None
+        # Courses with fewer physical tee boxes than the 5 canonical colours map several sets onto the
+        # SAME tee (identical summed yardage) — e.g. one tee serving sets [1,2,5,6]. Show each distinct
+        # tee once; never list red at black's distance just because they share a tee box. (Was a real
+        # bug: 72/104 decoded courses returned red == black yardage.)
+        if yards is not None and yards in seen_yards:
+            continue
+        if yards is not None:
+            seen_yards.add(yards)
         tees_out.append({
             "teeBox": color,
             "name": named_by_color.get(color) or color.title(),
             "set": set_num,
-            "yards": int(round(meters * 1.09361)) if meters else None,
+            "yards": yards,
             "holeCount": set_holes.get(set_num, 0),
             "default": False,
         })

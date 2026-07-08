@@ -44,6 +44,22 @@ class CourseTeeOptionsTests(unittest.TestCase):
         # Ordered longest → shortest (set number ascending).
         self.assertEqual([tee["teeBox"] for tee in result["tees"]], ["black", "blue", "red"])
 
+    def test_shared_tee_box_deduped_red_not_equal_black(self) -> None:
+        # A course with only 3 physical tees: tee idx3 serves sets [6,5,2,1] (black+blue+red share it).
+        # Must show each distinct tee once — never red at black's distance (was 72/104 courses' bug).
+        per_hole = {"hazards": {"tees": [
+            {"tee_index": 1, "sets": [8, 4], "position": [0.0, 0.0], "target_distance_m": 313.0},
+            {"tee_index": 2, "sets": [7, 3], "position": [0.0, 0.0], "target_distance_m": 333.7},
+            {"tee_index": 3, "sets": [6, 5, 2, 1], "position": [0.0, 0.0], "target_distance_m": 350.6},
+        ]}}
+        result = course_tee_options(
+            30249, tee_name_resolver=lambda gid: [],
+            holes_resolver=lambda gid: [1], geometry_loader=lambda gid, hole: per_hole,
+        )
+        yards = [tee["yards"] for tee in result["tees"] if tee["yards"] is not None]
+        self.assertEqual(len(yards), len(set(yards)), "no two tees may share a yardage (shared tee box)")
+        self.assertEqual(len(result["tees"]), 3)  # 3 distinct physical tees, not 5 canonical colours
+
     def test_default_is_blue_when_present(self) -> None:
         result = course_tee_options(
             1,
