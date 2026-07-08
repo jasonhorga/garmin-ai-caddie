@@ -1417,6 +1417,27 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let tees: [String]?", course_options_model)
         self.assertIn("applySelectedCourse(globalIdText:", start_view)
         self.assertIn('Text("发球台")', start_view)
+        # 选发球台:候选来自 GET /courses/{id}/tees(颜色 + 总码数 + 默认台),端到端镜像 nine —
+        # StartRoundView 收 onLoadCourseTees 闭包 → LiveRoundAppModel.loadCourseTees → SyncClient.fetchCourseTees。
+        self.assertIn("public let onLoadCourseTees: (Int) async -> [CourseTee]", start_view)
+        self.assertIn("@State private var fetchedTees: [CourseTee] = []", start_view)
+        self.assertIn(".task(id: courseGlobalIdText)", start_view)  # 换球场即重拉发球台
+        self.assertIn("await onLoadCourseTees(globalId)", start_view)
+        self.assertIn("func teeMenuLabel(", start_view)  # 选台菜单:台名 + 码数
+        self.assertIn("\\(yards) 码", start_view)  # 显示该台总码数(不造假,缺则不显示)
+        self.assertIn("public func loadCourseTees(globalId: Int) async -> [CourseTee]", app_swift)
+        self.assertIn("syncClient.fetchCourseTees(globalId: globalId)", app_swift)
+        self.assertIn("onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) }", app_swift)
+        sync_client_tees = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        self.assertIn("public func fetchCourseTees(globalId: Int) async throws -> CourseTeesResponse", sync_client_tees)
+        self.assertIn("/api/v2/courses/\\(globalId)/tees", sync_client_tees)
+        # Hub 把选台闭包转发给它内部承载的 StartRoundView。
+        self.assertIn("public let onLoadCourseTees: (Int) async -> [CourseTee]", round_home)
+        self.assertIn("onLoadCourseTees: onLoadCourseTees", round_home)
+        # CourseTee 模型:JSON 的 default 字段映射到非关键字属性 isDefault;码数可空(诚实缺数)。
+        course_tee_model = _read_required_source(self, IOS_DIR / "Models" / "CourseTee.swift")
+        self.assertIn('case isDefault = "default"', course_tee_model)
+        self.assertIn("public let yards: Int?", course_tee_model)
         self.assertIn('Label("开始记分"', start_view)
         self.assertIn("onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)", start_view)
         self.assertIn("isPreparing", start_view)

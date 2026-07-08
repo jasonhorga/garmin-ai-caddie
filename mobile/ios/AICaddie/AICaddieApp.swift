@@ -94,6 +94,7 @@ public struct AICaddieApp: App {
                                 await model.clearBackendConfiguration()
                             }
                         },
+                        onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
                         pendingLiveHole: model.pendingLiveHole,
                         onConsumePendingLiveHole: {
                             model.consumePendingLiveHole()
@@ -132,7 +133,8 @@ public struct AICaddieApp: App {
                                     await model.clearBackendConfiguration()
                                 }
                             },
-                            onConnectGarmin: { showNoPackageSettings = true }
+                            onConnectGarmin: { showNoPackageSettings = true },
+                            onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) }
                         )
                         // First launch with no data: the empty-state CTA + this gear both open the
                         // Garmin-connect sheet so a signed-in user can pull their courses and score.
@@ -868,6 +870,19 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             syncStatus = "离线中,使用已保存数据"
             return nil
+        }
+    }
+
+    /// Load the course's selectable tee boxes (GET /courses/{id}/tees) for the 开始一场 picker —
+    /// colour + total yards + default. Returns [] offline / on error so the picker falls back to the
+    /// course's bundled CourseView tee colours (no yardage) rather than showing nothing.
+    public func loadCourseTees(globalId: Int) async -> [CourseTee] {
+        guard let syncClient else { return [] }
+        do {
+            return try await syncClient.fetchCourseTees(globalId: globalId).tees
+        } catch {
+            AICaddieLog.network.error("Course tees fetch failed (using bundled tees): \(String(describing: error), privacy: .public)")
+            return []
         }
     }
 
