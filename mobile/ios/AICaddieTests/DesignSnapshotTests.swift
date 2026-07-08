@@ -401,6 +401,38 @@ final class DesignSnapshotTests: XCTestCase {
                 .background(HubStyle.grouped),
             named: "round-shot-map"
         )
+
+        // 复盘编辑态 (PR2): same shot map with the edit layer → a drag-handle ring on every landing +
+        // the per-hole 罚杆 stepper. (Non-nil editModel = editing; the reorder List is empty in the
+        // snapshot because ImageRenderer/window doesn't render List content — verified on device/XCUITest.)
+        let editModel = RoundEditModel(map: shotMap, sync: SyncClient(baseURL: URL(string: "https://caddie.example")!), roundRef: "r1")
+        editModel.enterEdit()
+        try captureScreen(
+            VStack(spacing: 12) {
+                RoundShotMapView(shotMap: shotMap, editModel: editModel).frame(height: 420)
+                PenaltyStepper(value: 1) { _ in }.hubCard()
+            }
+            .padding(24)
+            .background(HubStyle.grouped),
+            named: "review-edit-handles"
+        )
+
+        // 拖动放大镜 loupe (PR2, 设计 §5): the circular magnifier that floats above the finger while
+        // dragging a landing — same base map + shots, magnified around the focus point, with a crosshair.
+        try captureScreen(
+            VStack {
+                Text("拖动放大镜").font(.caption).foregroundStyle(.secondary)
+                MagnifierLoupe(
+                    overlay: shotMap.map!.overlay, shots: shotMap.shots, baseImage: holeImage, topoURL: nil,
+                    mapSize: CGSize(width: CGFloat(mapW), height: CGFloat(mapH)),
+                    focus: CGPoint(x: 110, y: 120), diameter: 150, magnification: 2.4
+                )
+            }
+            .padding(40)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(HubStyle.grouped),
+            named: "review-edit-magnifier"
+        )
     }
 
     @MainActor

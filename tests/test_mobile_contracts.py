@@ -3145,6 +3145,27 @@ class RoundEditContractTests(unittest.TestCase):
         self.assertIn("RoundEditModel", screen)
         self.assertIn("编辑", screen)
 
+    def test_drag_to_move_and_magnifier_present(self):
+        """PR2 拖动改位置 + 放大镜:手柄拖动手势 + 拖动态 + loupe 都在源码里。"""
+        comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
+        for token in ["DragGesture", "draggingShotId", "MagnifierLoupe", "previewMove"]:
+            self.assertIn(token, comps)
+        model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
+        # Live drag preview updates locally without a POST (commit happens on release via move()).
+        self.assertIn("previewMove", model)
+
+    def test_landing_list_manual_reorder_present(self):
+        """PR2 落点列表手动重排:可重排列表 → .onMove → editModel.reorder。"""
+        comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
+        for token in ["RoundShotReorderList", ".onMove", "editModel.reorder"]:
+            self.assertIn(token, comps)
+
+    def test_pager_locks_paging_while_editing(self):
+        """PR2 编辑时锁横滑翻洞:编辑态上报 pager,pager 锁分页。"""
+        screen = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        for token in ["onEditingChange", "editingHoles"]:
+            self.assertIn(token, screen)
+
 
 if __name__ == "__main__":
     unittest.main()
