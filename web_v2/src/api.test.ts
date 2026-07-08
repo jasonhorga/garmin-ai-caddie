@@ -10,6 +10,7 @@ import {
   fetchAnnotationsForTarget,
   fetchCourseGeometryCoverage,
   fetchCoursePrep,
+  fetchCourseTees,
   fetchCourseReport,
   fetchCourseSearch,
   ensureHoleGeometry,
@@ -2811,5 +2812,34 @@ describe('admin players CRUD', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, statusText: 'Unauthorized' })))
 
     await expect(fetchAdminPlayers('bad')).rejects.toThrow('GET /api/v2/admin/players failed: 401 Unauthorized')
+  })
+})
+
+describe('course tees', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    vi.mocked(readPlayerToken).mockReturnValue(null)
+  })
+
+  it('fetches the public course tee list (colour + yards + default)', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-course-tees-v1',
+        globalId: 31795,
+        defaultTeeBox: 'blue',
+        tees: [{ teeBox: 'blue', name: 'Blue', set: 2, yards: 6412, holeCount: 18, default: true }],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchCourseTees(31795, 'admin-secret')
+
+    expect(result.defaultTeeBox).toBe('blue')
+    expect(result.tees[0].yards).toBe(6412)
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/tees', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
   })
 })

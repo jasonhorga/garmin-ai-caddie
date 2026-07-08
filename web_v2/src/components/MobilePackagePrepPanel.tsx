@@ -1,12 +1,32 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { fmtYd } from '../units'
 import { confidenceZh, coverageZh, dataModeZh, stateZh } from '../zhLabels'
 import type {
+  CourseTee,
+  CourseTeesResponse,
   MobileCourseOptionsResponse,
   LiveRoundPackageResponse,
   MobileCoursePackageParams,
   MobileRoundPackageParams,
 } from '../types'
+
+// 发球台颜色 key → 中文标签(镜像 iOS zhTeeLabel);接口返回的 name 作兜底(CourseView 自带名)。
+const TEE_BOX_ZH: Record<string, string> = {
+  blue: '蓝 T',
+  white: '白 T',
+  red: '红 T',
+  gold: '金 T',
+  black: '黑 T',
+  green: '绿 T',
+  yellow: '黄 T',
+  silver: '银 T',
+}
+
+// 选台下拉标签:中文台名 + 已知则附总码数(缺码数不显示,不造假)。
+function teeOptionLabel(tee: CourseTee): string {
+  const base = TEE_BOX_ZH[tee.teeBox.toLowerCase()] ?? tee.name
+  return tee.yards != null ? `${base} · ${tee.yards} 码` : base
+}
 
 type PackagePrepMode = 'round' | 'course'
 
@@ -27,6 +47,8 @@ interface MobilePackagePrepPanelProps {
   courseOptionsState?: MobileCourseOptionsState
   onPrepareRound: (roundId: string, params: MobileRoundPackageParams) => void | Promise<void>
   onPrepareCourse: (globalId: number, params: MobileCoursePackageParams) => void | Promise<void>
+  /// 拉取所选球场的可选发球台(颜色 + 总码数 + 默认);未提供时发球台退化为手输文本框。
+  onLoadCourseTees?: (globalId: number) => Promise<CourseTeesResponse>
   defaultRoundId?: string
   defaultCourseGlobalId?: string
   showAdminTokenInput?: boolean
@@ -196,6 +218,7 @@ export function MobilePackagePrepPanel({
   courseOptionsState = { status: 'idle' },
   onPrepareRound,
   onPrepareCourse,
+  onLoadCourseTees,
   defaultRoundId = '900001',
   defaultCourseGlobalId = '31795',
   showAdminTokenInput = false,
@@ -208,11 +231,42 @@ export function MobilePackagePrepPanel({
   const [selectedCourseOption, setSelectedCourseOption] = useState('')
   const [liveRoundId, setLiveRoundId] = useState('')
   const [teeBox, setTeeBox] = useState('')
+  const [courseTees, setCourseTees] = useState<CourseTee[]>([])
   const [capturedAt, setCapturedAt] = useState('')
   const [ensureGeometry, setEnsureGeometry] = useState(true)
   const courseOptions = courseOptionsState.status === 'ready' && Array.isArray(courseOptionsState.data.courses)
     ? courseOptionsState.data.courses
     : []
+
+  // 选了球场 → 拉该球场的可选发球台(颜色 + 总码数 + 默认),把发球台从手输框换成下拉。
+  useEffect(() => {
+    const gid = Number(courseGlobalId.trim())
+    const canLoad = mode === 'course' && Number.isInteger(gid) && gid > 0 && Boolean(onLoadCourseTees)
+    let cancelled = false
+    async function loadTees() {
+      if (!canLoad || !onLoadCourseTees) {
+        setCourseTees([])
+        return
+      }
+      try {
+        const response = await onLoadCourseTees(gid)
+        if (cancelled) return
+        const tees = response.tees ?? []
+        setCourseTees(tees)
+        // 默认选中球场默认台;仅当当前所选台不在该球场可选台里时才改(不覆盖用户明确选择)。
+        setTeeBox((prev) => {
+          if (tees.some((tee) => tee.teeBox.toLowerCase() === prev.toLowerCase())) return prev
+          return tees.find((tee) => tee.default)?.teeBox ?? response.defaultTeeBox ?? prev
+        })
+      } catch {
+        if (!cancelled) setCourseTees([])
+      }
+    }
+    void loadTees()
+    return () => {
+      cancelled = true
+    }
+  }, [mode, courseGlobalId, onLoadCourseTees])
 
   function handleCourseOptionChange(value: string) {
     setSelectedCourseOption(value)
@@ -314,7 +368,17 @@ export function MobilePackagePrepPanel({
             </label>
             <label>
               <span>发球台</span>
-              <input value={teeBox} onChange={(event) => setTeeBox(event.target.value)} spellCheck={false} />
+              {courseTees.length ? (
+                <select value={teeBox} onChange={(event) => setTeeBox(event.target.value)}>
+                  {courseTees.map((tee) => (
+                    <option key={tee.teeBox} value={tee.teeBox}>
+                      {teeOptionLabel(tee)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input value={teeBox} onChange={(event) => setTeeBox(event.target.value)} spellCheck={false} />
+              )}
             </label>
           </>
         )}
