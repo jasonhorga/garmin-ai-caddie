@@ -750,9 +750,27 @@ def _prepare_recent_bg(player_id: str) -> None:
     from ai_caddie.rounds.prepare_recent import prepare_recent_round
     from server_v2.history_stats import warm_stats_cache
 
+    def _ensure_geometry(gid: int, holes: list[int]) -> None:
+        # On-demand: fetch + decode any MISSING course geometry from Garmin CourseView, so a course we
+        # haven't decoded yet (a newly played one) fills in on the next sync/prewarm — its 复盘落点图
+        # then has real geometry. best-effort: a 404 (course pulled from Garmin) or a decode hiccup
+        # just leaves that hole empty, never crashes the background thread.
+        from ai_caddie.geometry.geometry_sync import ensure_prodgeometry, geometry_present
+
+        for hole in holes:
+            if geometry_present(int(gid), int(hole)):
+                continue
+            try:
+                ensure_prodgeometry(int(gid), int(hole))
+            except Exception:  # noqa: BLE001
+                pass
+
     try:
         data = load_history_data(player_id=player_id)
-        prepare_recent_round(data, prewarm=_prewarm_course_topo, warm_stats=warm_stats_cache)
+        prepare_recent_round(
+            data, prewarm=_prewarm_course_topo, warm_stats=warm_stats_cache,
+            ensure_geometry=_ensure_geometry,
+        )
     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
         import logging
 
