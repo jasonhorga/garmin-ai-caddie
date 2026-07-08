@@ -27,7 +27,9 @@ public struct WatchUITestRoot: View {
         case "home":
             WatchRoundHomeView(
                 courseName: "北京丽宫 · 前九", hole: 7, par: 4, holeCount: 9,
-                scoredHoles: 6, toPar: 3, distanceText: "152 码", pendingUploads: 2,
+                scoredHoles: 6, toPar: 3, distanceText: "152 码",
+                frontYd: 146, centerYd: 158, backYd: 171, caddieLine: "7 号铁 · 均 2.8 杆",
+                pendingUploads: 2,
                 ringPips: (1...18).map { WatchRingPip(hole: $0, toPar: Self.demoToPars[$0], isCurrent: $0 == 7) }
             )
         case "caddie-options":

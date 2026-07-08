@@ -74,12 +74,33 @@ final class WatchDesignSnapshotTests: XCTestCase {
             courseName: "北京丽宫 · 前九",
             hole: 7, par: 4, holeCount: 9,
             scoredHoles: 6, toPar: 3,
-            distanceText: "152 码", pendingUploads: 2,
+            distanceText: "152 码",
+            frontYd: 146, centerYd: 158, backYd: 171, caddieLine: "7 号铁 · 均 2.8 杆",
+            pendingUploads: 2,
             ringPips: pips
         )
         .frame(width: 198, height: 198)
         .background(Color.black)
         try render(view, named: "watch-round-home")
+    }
+
+    @MainActor
+    func testRenderWatchDistanceHero() throws {
+        // round-15 (unified spec §四 第一层「抬手一眼」): front/center/back green as the glance hero,
+        // center biggest (Garmin S70 parity), one-line caddie below.
+        let view = WatchDistanceHero(frontYd: 146, centerYd: 158, backYd: 171, caddieLine: "7 号铁 · 均 2.8 杆")
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-distance-hero")
+    }
+
+    @MainActor
+    func testRenderWatchDistanceHeroBig() throws {
+        // 大字模式:center fills the face for reading at arm's length; front/back shrink to a bottom row.
+        let view = WatchDistanceHero(frontYd: 146, centerYd: 158, backYd: 171, bigText: true)
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-distance-hero-big")
     }
 
     @MainActor

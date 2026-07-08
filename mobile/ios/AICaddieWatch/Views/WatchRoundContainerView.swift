@@ -22,6 +22,10 @@ public struct WatchRoundContainerView: View {
                 scoredHoles: model.scoredHoles,
                 toPar: model.toPar,
                 distanceText: distanceText,
+                frontYd: Self.yd(model.activeHoleState?.frontGreenM),
+                centerYd: Self.yd(model.activeHoleState?.centerGreenM),
+                backYd: Self.yd(model.activeHoleState?.backGreenM),
+                caddieLine: caddieLine,
                 pendingUploads: model.pendingUploads,
                 ringPips: model.allHoleStates.map {
                     WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
@@ -88,5 +92,21 @@ public struct WatchRoundContainerView: View {
     private var distanceText: String? {
         guard let distanceM = model.activeHoleState?.distanceM else { return nil }
         return "\(WatchUnits.yards(distanceM)) 码"
+    }
+
+    private static func yd(_ metres: Double?) -> Int? {
+        guard let metres else { return nil }
+        return WatchUnits.yards(metres)
+    }
+
+    // 一句话球童:建议球杆(+平均杆数,若有)。不给成功率(spec §四)。
+    private var caddieLine: String? {
+        guard let s = model.activeHoleState, let club = s.suggestedClub ?? s.selectedClub, !club.isEmpty else {
+            return nil
+        }
+        if let strokes = s.expectedStrokes {
+            return "\(club) · 均 \(String(format: "%.1f", strokes)) 杆"
+        }
+        return club
     }
 }
