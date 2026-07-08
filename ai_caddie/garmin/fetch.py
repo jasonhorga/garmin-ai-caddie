@@ -135,6 +135,40 @@ def fetch_clubs(s: requests.Session) -> dict:
     return out
 
 
+def _scorecard_complete(sc: dict) -> bool:
+    """Garmin marks a FINISHED round with ``inProgress=false`` (finished rounds also carry an
+    ``endTime``; in-progress ones don't). We only ever STORE finished rounds — a partial stored
+    mid-round would freeze at whatever state it was first synced and never fill in, and an abandoned
+    round would linger as junk. Old rounds predating the flag have no ``inProgress`` key → treated as
+    finished (they are). We key on ``inProgress`` alone so already-stored finished rounds are never
+    needlessly re-fetched."""
+    return not sc.get("inProgress", False)
+
+
+def _detail_complete(detail: dict) -> bool:
+    try:
+        return _scorecard_complete(detail["scorecardDetails"][0]["scorecard"])
+    except Exception:
+        return False
+
+
+def _local_complete(path: Path) -> bool:
+    try:
+        return _detail_complete(json.loads(path.read_text(encoding="utf-8")))
+    except Exception:
+        return False
+
+
+def _store_scorecard(out: Path, detail: dict, i: int, total: int, sid: Any) -> None:
+    """Write the scorecard only if the round is finished; leave in-progress ones unstored (they'll be
+    re-fetched next sync and saved once done). The existing local copy — if any — is left untouched."""
+    if _detail_complete(detail):
+        out.write_text(json.dumps(detail, ensure_ascii=False, indent=2))
+        print(f"  [{i:>3}/{total}] {sid} saved")
+    else:
+        print(f"  [{i:>3}/{total}] {sid} 进行中(inProgress)—— 暂不存,打完再拉")
+
+
 def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = False) -> None:
     SCORECARD_DIR.mkdir(exist_ok=True, parents=True)
     if with_shots:
@@ -148,7 +182,9 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
             continue
 
         out = SCORECARD_DIR / f"{sid}.json"
-        if not out.exists():
+        # Fetch if we don't have it, OR if what we have isn't the FINAL round yet (still inProgress) —
+        # so an in-progress round we synced early keeps getting refreshed until it's finished.
+        if not out.exists() or not _local_complete(out):
             try:
                 r = s.get(
                     f"{GOLF_BASE}/scorecard/detail",
@@ -173,8 +209,7 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
                     if r.status_code not in (401, 403):
                         r.raise_for_status()
                         auth_failures = 0
-                        out.write_text(json.dumps(r.json(), ensure_ascii=False, indent=2))
-                        print(f"  [{i:>3}/{len(cards)}] {sid} saved")
+                        _store_scorecard(out, r.json(), i, len(cards), sid)
                         time.sleep(0.5)
                         continue
                     auth_failures += 1
@@ -185,8 +220,7 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
                     continue
                 r.raise_for_status()
                 auth_failures = 0
-                out.write_text(json.dumps(r.json(), ensure_ascii=False, indent=2))
-                print(f"  [{i:>3}/{len(cards)}] {sid} saved")
+                _store_scorecard(out, r.json(), i, len(cards), sid)
                 time.sleep(0.5)
             except GarminAuthExpired:
                 raise
@@ -198,7 +232,8 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
             if i % 20 == 0:
                 print(f"  [{i:>3}/{len(cards)}] (cached, skipping)")
 
-        if with_shots:
+        # Shots only for FINISHED rounds we've stored — an in-progress round's shots would freeze too.
+        if with_shots and out.exists() and _local_complete(out):
             shot_out = SHOT_DIR / f"{sid}.json"
             if shot_out.exists():
                 continue
