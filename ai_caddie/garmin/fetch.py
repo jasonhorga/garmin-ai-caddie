@@ -160,13 +160,22 @@ def _local_complete(path: Path) -> bool:
 
 
 def _store_scorecard(out: Path, detail: dict, i: int, total: int, sid: Any) -> None:
-    """Write the scorecard only if the round is finished; leave in-progress ones unstored (they'll be
-    re-fetched next sync and saved once done). The existing local copy — if any — is left untouched."""
+    """A round lives in our data ONLY once it's finished. If Garmin still marks it in-progress we DROP
+    any copy we hold (scorecard + shots): an actively-played round re-appears when it's done; an
+    ABANDONED round stays in-progress on Garmin forever, so removing it makes it correctly vanish
+    instead of lingering as a frozen partial that pollutes the review and stats."""
     if _detail_complete(detail):
         out.write_text(json.dumps(detail, ensure_ascii=False, indent=2))
         print(f"  [{i:>3}/{total}] {sid} saved")
-    else:
-        print(f"  [{i:>3}/{total}] {sid} 进行中(inProgress)—— 暂不存,打完再拉")
+        return
+    dropped = ""
+    if out.exists():
+        out.unlink()
+        dropped = " —— 删掉已存的半截局"
+    shot_out = SHOT_DIR / f"{sid}.json"
+    if shot_out.exists():
+        shot_out.unlink()
+    print(f"  [{i:>3}/{total}] {sid} 进行中/已放弃(inProgress)—— 不入库{dropped}")
 
 
 def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = False) -> None:
