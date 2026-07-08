@@ -43,8 +43,10 @@ final class RealFlowUITests: XCTestCase {
             settle(6); save("03-history-list"); dump("03-history-list")
             if tapFirstRoundRow() {
                 settle(6); save("04-round-review"); dump("04-round-review")
-                // Into a hole's shot-map, then the review-edit core loop (edit toggle + tap-to-add sheet).
-                if tapContaining(["落点", "洞 · 落点", "逐洞落点", "球洞落点", "第 1 洞"]) {
+                // Tap a hole row (label like "1, 推 2, P5, 8") → that hole's shot-map (has the 编辑 toggle).
+                let holeRow = app.buttons.matching(NSPredicate(format: "label CONTAINS ', P'")).firstMatch
+                if holeRow.waitForExistence(timeout: 5), holeRow.isHittable {
+                    holeRow.tap()
                     settle(6); save("04b-shot-map"); dump("04b-shot-map")
                     if tapContaining(["编辑"]) {
                         settle(3); save("04c-edit-mode"); dump("04c-edit-mode")

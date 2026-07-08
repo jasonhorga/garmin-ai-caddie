@@ -76,10 +76,13 @@ jobs:
           ( xcrun simctl io "$UDID" recordVideo --codec h264 --force real-videos/real-flow.mp4 ) &
           REC_PID=$!
           sleep 2
+          # -parallel-testing-enabled NO stops Xcode cloning the sim for UI tests, so the app runs on
+          # the SAME booted sim we're screen-recording (a clone would leave the recording on home screen).
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieUITests \
-            -destination "platform=iOS Simulator,id=$UDID" || true
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -parallel-testing-enabled NO || true
           kill -INT "$REC_PID" 2>/dev/null || true
           sleep 4
           ls -la real-videos || true
