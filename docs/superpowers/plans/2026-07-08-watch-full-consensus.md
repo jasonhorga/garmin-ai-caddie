@@ -49,7 +49,8 @@ Fable 审计确认:主打球屏 + 走动刷新 + 叠加层所需的数据**今�
 
 ### Task 1.1 接 `WatchHoleMapView` 进 app + 改造成吃真数据
 - **文件:** 从 `origin/superpowers/watch-holeview-redesign` 取 `Views/WatchHoleMapView.swift` + `Views/WatchMapDraw.swift` 进 `mobile/ios/AICaddieWatch/`;改造:图从烤死样图 → 参数传入(`UIImage` + `holeImageProjection`);F/M/B/球童/上一杆/环从 `WatchRoundState` 传;叠加层(你/旗/落点/打球线)用 projection 把 GPS/几何点投到图像素。
-- **文件:** `Views/WatchRoundContainerView.swift`(`.home` 有图时 → `WatchHoleMapView`,无图 → #291 `WatchDistanceHero` 兜底)。
+- **文件:** `Views/WatchRoundContainerView.swift`(`.home` **有几何** → `WatchHoleMapView`;**无几何** → 纯记分兜底屏)。**兜底 = 只记分**:洞号 + Par + 计分器(−N＋)+ 一句「本洞无地图 / 距离数据」,**不显任何距离**——无网格 = 无果岭坐标 = 无距离,老实留空不编(前/中/后本身就是从几何算的,所以 #291 那个文字屏也没数据,不是兜底)。**#291(`WatchDistanceHero`)退休**:它 = 有几何时的大数字,已被洞视图的**大字模式**取代,不并入。
+- **几何覆盖现状(2026-07-08 实测)**:玩家打过 96 场,取几何后 **94 有几何**;剩 2 场(gid 31636/31637)Garmin CourseView **直接 404**(根本没有),= 唯二真·纯记分洞。新开的场靠按需取([[garmin-round-lifecycle]] 的 ensure_prodgeometry)自动补,取不到(404)才落纯记分。
 - **大字模式开关放这屏上**(spec D1:洞视图上,不是单独滑一页)。
 - 验收:快照 `watch-holemap` 对齐 `watch-holeview.png`(左列 洞号·Par + 球童 chip + 后/中/前[中最大] + 实打切换 + 上一杆 pill + 边缘成绩环);`watch-holemap-zoom` 对齐 `watch-holeview-zoom.png`(放大、环消失、「转表冠缩放」);`watch-holemap-pl` 对齐 `watch-holeview-pl.png`(实打 ↑8 金色)。
 
