@@ -178,6 +178,31 @@ def _store_scorecard(out: Path, detail: dict, i: int, total: int, sid: Any) -> N
     print(f"  [{i:>3}/{total}] {sid} 进行中/已放弃(inProgress)—— 不入库{dropped}")
 
 
+def _reconcile_abandoned(cards: list[dict]) -> None:
+    """Garmin DELETES an abandoned round outright (it does NOT linger as inProgress), so the fetch loop
+    never sees it to drop it. Reconcile against the list: any scorecard we stored that is (a) still
+    in-progress locally and (b) no longer in Garmin's list was abandoned — remove our frozen partial
+    (scorecard + shots) so it stops polluting the review/stats. A COMPLETED round missing from the list
+    is left alone (the list may be windowed); if the list came back empty (a failed fetch) do nothing."""
+    if not cards:
+        return
+    listed = {
+        str(c.get("id") or c.get("scorecardId"))
+        for c in cards
+        if (c.get("id") or c.get("scorecardId")) is not None
+    }
+    if not listed:
+        return
+    for p in sorted(SCORECARD_DIR.glob("*.json")):
+        if p.stem in listed or _local_complete(p):  # in Garmin's list, or a finished round → keep
+            continue
+        p.unlink()
+        shot = SHOT_DIR / f"{p.stem}.json"
+        if shot.exists():
+            shot.unlink()
+        print(f"  reconcile: {p.stem} 已从 Garmin 消失(放弃)—— 删掉本地半截局")
+
+
 def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = False) -> None:
     SCORECARD_DIR.mkdir(exist_ok=True, parents=True)
     if with_shots:
@@ -282,6 +307,8 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
             except Exception as e:
                 print(f"     shots for {sid} failed: {e}")
                 time.sleep(3)
+
+    _reconcile_abandoned(cards)
 
 
 def main() -> int:
