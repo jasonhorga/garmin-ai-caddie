@@ -168,6 +168,17 @@ public final class SyncClient {
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
     }
 
+    /// The course's selectable tee boxes (`GET /api/v2/courses/{id}/tees`): colour + total yards +
+    /// which is default — the pre-round picker list, same as Garmin's new-round tee chooser. Public
+    /// course knowledge (no player data); powers 开始一场's 发球台 selector with real yardage.
+    public func fetchCourseTees(globalId: Int) async throws -> CourseTeesResponse {
+        var request = URLRequest(url: endpointURL("/api/v2/courses/\(globalId)/tees"))
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(CourseTeesResponse.self, from: data)
+    }
+
     /// Compact 统计 payload (`GET /api/v2/history/stats/mobile`): basic / deep / periodic / course /
     /// club slices of the full stats build (~180KB, not the ~11MB full one). Used by StatsView.
     public func fetchMobileStats() async throws -> MobileStats {

@@ -1417,6 +1417,27 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let tees: [String]?", course_options_model)
         self.assertIn("applySelectedCourse(globalIdText:", start_view)
         self.assertIn('Text("发球台")', start_view)
+        # 选发球台:候选来自 GET /courses/{id}/tees(颜色 + 总码数 + 默认台),端到端镜像 nine —
+        # StartRoundView 收 onLoadCourseTees 闭包 → LiveRoundAppModel.loadCourseTees → SyncClient.fetchCourseTees。
+        self.assertIn("public let onLoadCourseTees: (Int) async -> [CourseTee]", start_view)
+        self.assertIn("@State private var fetchedTees: [CourseTee] = []", start_view)
+        self.assertIn(".task(id: courseGlobalIdText)", start_view)  # 换球场即重拉发球台
+        self.assertIn("await onLoadCourseTees(globalId)", start_view)
+        self.assertIn("func teeMenuLabel(", start_view)  # 选台菜单:台名 + 码数
+        self.assertIn("\\(yards) 码", start_view)  # 显示该台总码数(不造假,缺则不显示)
+        self.assertIn("public func loadCourseTees(globalId: Int) async -> [CourseTee]", app_swift)
+        self.assertIn("syncClient.fetchCourseTees(globalId: globalId)", app_swift)
+        self.assertIn("onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) }", app_swift)
+        sync_client_tees = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        self.assertIn("public func fetchCourseTees(globalId: Int) async throws -> CourseTeesResponse", sync_client_tees)
+        self.assertIn("/api/v2/courses/\\(globalId)/tees", sync_client_tees)
+        # Hub 把选台闭包转发给它内部承载的 StartRoundView。
+        self.assertIn("public let onLoadCourseTees: (Int) async -> [CourseTee]", round_home)
+        self.assertIn("onLoadCourseTees: onLoadCourseTees", round_home)
+        # CourseTee 模型:JSON 的 default 字段映射到非关键字属性 isDefault;码数可空(诚实缺数)。
+        course_tee_model = _read_required_source(self, IOS_DIR / "Models" / "CourseTee.swift")
+        self.assertIn('case isDefault = "default"', course_tee_model)
+        self.assertIn("public let yards: Int?", course_tee_model)
         self.assertIn('Label("开始记分"', start_view)
         self.assertIn("onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)", start_view)
         self.assertIn("isPreparing", start_view)
@@ -3144,6 +3165,27 @@ class RoundEditContractTests(unittest.TestCase):
         screen = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         self.assertIn("RoundEditModel", screen)
         self.assertIn("编辑", screen)
+
+    def test_drag_to_move_and_magnifier_present(self):
+        """PR2 拖动改位置 + 放大镜:手柄拖动手势 + 拖动态 + loupe 都在源码里。"""
+        comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
+        for token in ["DragGesture", "draggingShotId", "MagnifierLoupe", "previewMove"]:
+            self.assertIn(token, comps)
+        model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
+        # Live drag preview updates locally without a POST (commit happens on release via move()).
+        self.assertIn("previewMove", model)
+
+    def test_landing_list_manual_reorder_present(self):
+        """PR2 落点列表手动重排:可重排列表 → .onMove → editModel.reorder。"""
+        comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
+        for token in ["RoundShotReorderList", ".onMove", "editModel.reorder"]:
+            self.assertIn(token, comps)
+
+    def test_pager_locks_paging_while_editing(self):
+        """PR2 编辑时锁横滑翻洞:编辑态上报 pager,pager 锁分页。"""
+        screen = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        for token in ["onEditingChange", "editingHoles"]:
+            self.assertIn(token, screen)
 
 
 if __name__ == "__main__":

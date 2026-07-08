@@ -23,6 +23,7 @@ import {
   ingestPlayerRound,
   ROUNDS_FULL_LIMIT,
   fetchReadiness,
+  fetchCourseTees,
   fetchMobileCoursePackage,
   fetchMobileCourseOptions,
   fetchMobileReconciliation,
@@ -903,6 +904,7 @@ export default function App() {
               courseOptionsState={mobileCourseOptionsState}
               onPrepareRound={(roundId, params) => void handlePrepareMobileRoundPackage(roundId, params)}
               onPrepareCourse={(globalId, params) => void handlePrepareMobileCoursePackage(globalId, params)}
+              onLoadCourseTees={(globalId) => fetchCourseTees(globalId, currentAdminToken())}
               showAdminTokenInput={!syncStatus}
               adminTokenValue={adminToken}
               onAdminTokenChange={handleAdminTokenChange}

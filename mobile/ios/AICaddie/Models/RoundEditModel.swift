@@ -45,15 +45,34 @@ public final class RoundEditModel: ObservableObject {
         post(.add(px: px, club: club, lie: lie, after: afterShotId)) { await self.refetch() }
     }
 
-    /// Drag a landing to a new pixel.
+    /// Live drag preview: reposition the landing locally on every drag frame so both connecting lines
+    /// rubber-band under the finger. **No network** — the committed POST happens once on release (`move`).
+    public func previewMove(shotId: String, px: [Double]) {
+        applyLandingMove(shotId: shotId, px: px)
+    }
+
+    /// Drag a landing to a new pixel (on release): same local reposition as the live preview, then POST.
     public func move(shotId: String, px: [Double]) {
-        let endPx = [Int(px[0].rounded()), Int(px[1].rounded())]
-        replaceShot(shotId) { s in
-            RoundShot(shotId: s.shotId, start: s.start, end: endPx, club: s.club, lie: s.lie,
-                      endLie: s.endLie, shotType: s.shotType, order: s.order,
-                      clubSource: s.clubSource, lieSource: s.lieSource, synthetic: s.synthetic)
-        }
+        applyLandingMove(shotId: shotId, px: px)
         post(.move(shotId, px: px))
+    }
+
+    /// Move a landing point locally: set this shot's `end` **and the next shot's `start`** (the same
+    /// physical point) to the dragged pixel, so the incoming *and* outgoing lines follow the drag.
+    private func applyLandingMove(shotId: String, px: [Double]) {
+        guard let i = map.shots.firstIndex(where: { $0.id == shotId }) else { return }
+        let endPx = [Int(px[0].rounded()), Int(px[1].rounded())]
+        map.shots[i] = withEndpoints(map.shots[i], end: endPx)
+        let next = i + 1
+        if next < map.shots.count {
+            map.shots[next] = withEndpoints(map.shots[next], start: endPx)
+        }
+    }
+
+    private func withEndpoints(_ s: RoundShot, start: [Int]? = nil, end: [Int]? = nil) -> RoundShot {
+        RoundShot(shotId: s.shotId, start: start ?? s.start, end: end ?? s.end, club: s.club, lie: s.lie,
+                  endLie: s.endLie, shotType: s.shotType, order: s.order,
+                  clubSource: s.clubSource, lieSource: s.lieSource, synthetic: s.synthetic)
     }
 
     public func editClub(shotId: String, _ v: String) {

@@ -849,6 +849,25 @@ def course_search_endpoint(
     }
 
 
+@app.get("/api/v2/courses/{global_id}/tees")
+def course_tees(global_id: int) -> dict:
+    """The course's selectable tee boxes (colour + total yards + which is default) for the pre-round
+    tee picker — the same list Garmin's 'new round' shows. Pure course knowledge (no player data, no
+    source_ref), public exactly like /topo.png + /geometry/hole/{}/coverage: colour names from the
+    CourseView release, total yards summed from per-hole tee→target geometry (null when a tee has no
+    geometry — never faked), default = blue when the course has it else the longest tee. A course with
+    neither CourseView names nor geometry degrades to generic 长/中/短 tiers."""
+    from ai_caddie.caddie.analysis import course_tee_options
+
+    options = course_tee_options(int(global_id))
+    return {
+        "schema": "ai-caddie-course-tees-v1",
+        "globalId": int(global_id),
+        "defaultTeeBox": options["defaultTeeBox"],
+        "tees": options["tees"],
+    }
+
+
 @app.post("/api/v2/geometry/hole/{global_id}/{local_hole}/ensure", response_model=GeometryEnsureResponse)
 def geometry_hole_ensure(
     request: Request,
