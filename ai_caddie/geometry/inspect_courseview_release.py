@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -75,6 +76,34 @@ def load_release_pb(course_id: int, live: bool) -> bytes:
     if live:
         return fetch_bytes(f"{BASE}/course-layouts/{course_id}/releases/")
     return (COURSEVIEW / f"{course_id}_releases.pb").read_bytes()
+
+
+# The prodgeometry ZIP the decode pipeline wants — same family `/releases/` points at (the `/date`
+# layout also lists `latestr50cooks` + `geometryrendertest` variants we must NOT pick).
+_DATE_GEOM_RE = re.compile(
+    rb"https://securemaps\.garmin\.cn/golf/coursegenout/prodgeometry/[^\x00-\x1f\"'\s]+?/hole(\d+)/"
+    rb"[^\x00-\x1f\"'\s]+?\.zip[^\x00-\x1f\"'\s]*"
+)
+
+
+def load_layout_by_date(course_id: int, epoch_ms: int) -> bytes:
+    """The app's per-round layout endpoint: a course AS OF a play date. Unlike ``.../releases/`` (the
+    LATEST release, which 404s once a course's newest release is withdrawn), this historical endpoint
+    keeps serving the version that existed when the round was played."""
+    return fetch_bytes(f"{BASE}/course-layouts/{course_id}/date/{int(epoch_ms)}")
+
+
+def parse_date_layout(pb: bytes) -> dict:
+    """Extract per-hole prodgeometry ZIP URLs from a ``/date/{ts}`` layout response. It is a different
+    protobuf shape than ``/releases/`` (so ``inspect_release`` yields 0 holes), but it embeds the same
+    ``coursegenout/prodgeometry/4000`` ZIP URLs. Return the ``inspect_release`` shape (holes with
+    ``geometry_url``) so the decode pipeline (``process_hole``, which only needs hole# + geometry_url)
+    consumes it unchanged."""
+    holes: dict[int, dict] = {}
+    for match in _DATE_GEOM_RE.finditer(pb):
+        hole_no = int(match.group(1))
+        holes.setdefault(hole_no, {"hole": hole_no, "geometry_url": match.group(0).decode()})
+    return {"course_name": None, "release_id": None, "holes": [holes[k] for k in sorted(holes)]}
 
 
 def inspect_release(pb: bytes) -> dict:
