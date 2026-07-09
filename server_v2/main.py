@@ -735,12 +735,72 @@ def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> di
     holes = [hole for hole in available_prep_holes(global_id) if mesh_path(global_id, hole).exists()]
     if holes:
         background_tasks.add_task(_prewarm_course_topo, global_id, holes)
+        # Also warm the OWNER's prep JSON (备战 overview + 实战 per-hole) so those opens are instant,
+        # not just the topo bitmap. The owner is the primary player; both the web (on 备战 course
+        # select) and iOS (on live-round load) already POST here, so this covers both surfaces. Prep
+        # is player-scoped, so member prep still builds on demand (or via prepare-recent per member).
+        background_tasks.add_task(_prewarm_course_prep, global_id, holes, OWNER_ID)
     return {
         "schema": "ai-caddie-topo-prewarm-v1",
         "globalId": int(global_id),
         "holes": holes,
         "queued": len(holes),
     }
+
+
+def _build_course_prep(global_id: int, requested: list[int], render: bool,
+                       include_shots: bool, player_id: str) -> dict:
+    """Build the ``/api/v2/courses/{id}/prep`` response for these inputs (NO caching). Shared by the
+    prep endpoint and the background prep-warmer so both produce a byte-identical response under the
+    SAME cache key — a warmed key is therefore a straight hit for the later real request.
+
+    Each player reads their OWN model: the owner's history-derived ladder + shot scatter, or a
+    member's ladder blended from their own logged shots + manual bag — no player's distances or
+    shots leak to another (effective_club_ladder + prep_nine's loaders are isolated per player_id)."""
+    from ai_caddie.courses import course_prep
+
+    ladder = course_prep.effective_club_ladder(player_id)
+    nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
+                                 include_shots=include_shots, player_id=player_id)
+    return {
+        "schema": "ai-caddie-course-prep-v1",
+        "globalId": int(global_id),
+        "holeCount": len(nine),
+        "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
+        "holes": nine,
+    }
+
+
+def _prewarm_course_prep(global_id: int, holes: list[int], player_id: str) -> None:
+    """Warm ``player_id``'s prep_cache for this course so the first 备战 overview (holes=None → all
+    holes in ONE request) and each 实战 per-hole open (``fetchHolePrep`` → ``?holes=[h]``) is instant
+    instead of paying the ~2–19s ``prep_nine`` geometry build. Best-effort, sequential, idempotent
+    (a warm key returns instantly; a fingerprint change rebuilds); NEVER raises into the worker.
+
+    Warms ``render=True`` keys (the app/web always request the styled map) under the SAME
+    ``(gid, requested, render, include_shots, player)`` tuple the endpoint keys on — the overview
+    passes ``available_prep_holes(gid)`` verbatim and each per-hole passes ``[h]`` — so key alignment
+    is exact and the later real request is a cache hit, not a duplicate build."""
+    from ai_caddie.courses import course_prep, prep_cache
+
+    def _warm(requested: list[int]) -> None:
+        prep_cache.cached_course_prep(
+            global_id=global_id, requested=requested, render=True, include_shots=False,
+            player_id=player_id,
+            build=lambda: _build_course_prep(global_id, requested, True, False, player_id),
+        )
+
+    # 备战 overview: holes=None is served as available_prep_holes(gid) — warm that exact key first.
+    try:
+        _warm(course_prep.available_prep_holes(global_id))
+    except Exception:  # noqa: BLE001 - best-effort; a geometry-less/broken course never crashes the worker
+        pass
+    # 实战 per-hole: each hole the client opens as you play (fetchHolePrep does one ?holes=[h] per hole).
+    for hole in holes:
+        try:
+            _warm([int(hole)])
+        except Exception:  # noqa: BLE001
+            continue
 
 
 def _prepare_recent_bg(player_id: str) -> None:
@@ -770,6 +830,9 @@ def _prepare_recent_bg(player_id: str) -> None:
         prepare_recent_round(
             data, prewarm=_prewarm_course_topo, warm_stats=warm_stats_cache,
             ensure_geometry=_ensure_geometry,
+            # Warm THIS player's prep too (备战 overview + 实战 per-hole) so their newest round's
+            # course opens instantly — covers members, whose prep the topo endpoint (owner-only) skips.
+            warm_prep=lambda gid, holes: _prewarm_course_prep(gid, holes, player_id),
         )
     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
         import logging
@@ -815,26 +878,12 @@ def course_prep_nine(
 
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
-    def _build() -> dict:
-        # Each player reads their OWN model: the owner's history-derived ladder, or a member's
-        # ladder blended from their own logged shots + manual bag — no player's distances leak to
-        # another (effective_club_ladder + the player-scoped loaders are isolated per player_id).
-        ladder = course_prep.effective_club_ladder(player_id)
-        # Shot scatter is the player's OWN past end positions only: prep_nine reads solely the
-        # threaded player_id's tree, so a member sees their own shots and never the owner's.
-        nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
-                                     include_shots=include_shots, player_id=player_id)
-        return {
-            "schema": "ai-caddie-course-prep-v1",
-            "globalId": int(global_id),
-            "holeCount": len(nine),
-            "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
-            "holes": nine,
-        }
-
+    # The build is the module-level _build_course_prep so the background prep-warmer (_prewarm_course_prep)
+    # produces a byte-identical response under the SAME cache key — a pre-warmed key is a straight hit here.
     return prep_cache.cached_course_prep(
         global_id=global_id, requested=requested, render=render,
-        include_shots=include_shots, player_id=player_id, build=_build,
+        include_shots=include_shots, player_id=player_id,
+        build=lambda: _build_course_prep(global_id, requested, render, include_shots, player_id),
     )
 
 
