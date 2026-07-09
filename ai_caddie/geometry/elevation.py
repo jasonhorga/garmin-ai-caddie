@@ -134,8 +134,14 @@ def green_slope(green_mesh: Any, *, min_vertices: int = 8, flat_threshold_pct: f
         return {"available": False}
     a, b, _ = sol
     pct = math.hypot(a, b) * 100
+    # Centroid of the ground points — the anchor a client projects the break arrow from.
+    cx = sum(gx for gx, _, _ in pts) / len(pts)
+    cy = sum(gy for _, gy, _ in pts) / len(pts)
     if pct < flat_threshold_pct:
-        return {"available": True, "magnitudePct": round(pct, 1), "directionDeg": None, "flat": True}
-    # The ball breaks DOWNHILL — opposite the ascent gradient (a, b).
+        return {"available": True, "magnitudePct": round(pct, 1), "directionDeg": None, "flat": True,
+                "gradient": [round(a, 5), round(b, 5)], "centroid": [round(cx, 3), round(cy, 3)]}
+    # The ball breaks DOWNHILL — opposite the ascent gradient (a, b). directionDeg is in the (gx,gy)
+    # ground frame; a client with the topo projection (course_prep) re-expresses it in image px.
     direction = math.degrees(math.atan2(-b, -a)) % 360
-    return {"available": True, "magnitudePct": round(pct, 1), "directionDeg": round(direction), "flat": False}
+    return {"available": True, "magnitudePct": round(pct, 1), "directionDeg": round(direction), "flat": False,
+            "gradient": [round(a, 5), round(b, 5)], "centroid": [round(cx, 3), round(cy, 3)]}

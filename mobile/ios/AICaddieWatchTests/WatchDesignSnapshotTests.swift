@@ -203,6 +203,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             globalId: 31669, holeMap: hm,
             elevationDeltaM: 7,   // real mesh slope ⇒ 实打 shown
             greenSlopePct: 3.2,   // putt-read magnitude ⇒ 果岭坡 shown
+            greenSlopeDirDeg: 210,   // break arrow on the green
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         )
         // A few scored holes so the KEPT scoring ring has real pips (owner 2026-07-08).
