@@ -253,6 +253,41 @@ final class WatchEventBridgeTests: XCTestCase {
         }
     }
 
+    func testProjectToTopoPxMapsReferencePointsAndMidpoint() throws {
+        // watch P1c: affine projection from 3 refs. Unit square: (lon,lat)→(px,py) with lon→x, lat→y×100.
+        let refs: [(lat: Double, lon: Double, px: Double, py: Double)] = [
+            (lat: 0, lon: 0, px: 0, py: 0),
+            (lat: 0, lon: 1, px: 100, py: 0),
+            (lat: 1, lon: 0, px: 0, py: 100),
+        ]
+        let atRef0 = try XCTUnwrap(WatchEventBridge.projectToTopoPx(lat: 0, lon: 0, refs: refs))
+        XCTAssertEqual(atRef0[0], 0, accuracy: 0.001)
+        XCTAssertEqual(atRef0[1], 0, accuracy: 0.001)
+        let atRef1 = try XCTUnwrap(WatchEventBridge.projectToTopoPx(lat: 0, lon: 1, refs: refs))
+        XCTAssertEqual(atRef1[0], 100, accuracy: 0.001)
+        XCTAssertEqual(atRef1[1], 0, accuracy: 0.001)
+        let mid = try XCTUnwrap(WatchEventBridge.projectToTopoPx(lat: 0.5, lon: 0.5, refs: refs))
+        XCTAssertEqual(mid[0], 50, accuracy: 0.001)
+        XCTAssertEqual(mid[1], 50, accuracy: 0.001)
+        // Degenerate (collinear) refs → nil.
+        let bad: [(lat: Double, lon: Double, px: Double, py: Double)] = [
+            (lat: 0, lon: 0, px: 0, py: 0), (lat: 0, lon: 1, px: 100, py: 0), (lat: 0, lon: 2, px: 200, py: 0),
+        ]
+        XCTAssertNil(WatchEventBridge.projectToTopoPx(lat: 0.5, lon: 0.5, refs: bad))
+    }
+
+    func testMakeHoleMapUsesGpsYouOverrideElseTee() throws {
+        // route: tee [50,480] → mid [150,250] @200m → green [200,100] @400m.
+        let overlay = CoursePrepOverlay(w: 300, h: 500, ppm: 1, ln: 400,
+                                        route: [[50, 480, 0], [150, 250, 200], [200, 100, 400]])
+        let tee = try XCTUnwrap(WatchEventBridge.makeHoleMap(overlay: overlay, landingM: 240))
+        XCTAssertEqual(tee.you, [50, 480])                 // no GPS → tee
+        XCTAssertEqual(tee.pin, [200, 100])                // green = route end
+        let live = try XCTUnwrap(WatchEventBridge.makeHoleMap(overlay: overlay, landingM: 240, youPxOverride: [123, 456]))
+        XCTAssertEqual(live.you, [123, 456])               // GPS fix → projected position
+        XCTAssertEqual(live.pin, [200, 100])               // pin unchanged
+    }
+
     private func fixturePackage() throws -> LiveRoundPackage {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

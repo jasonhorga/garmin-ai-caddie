@@ -373,21 +373,42 @@ public final class WatchEventBridge: NSObject {
     /// same /topo.png pixel space the watch caches. `you` = tee, `pin` = green centre, `layup` = the
     /// recommended lay-up (at `landingM` along the route, default 60%), `apex`/`greenCtrl` = the mid-route
     /// points that make the you→lay-up / lay-up→green curves bend with the dogleg. nil for < 2 route points.
-    public static func makeHoleMap(overlay: CoursePrepOverlay, landingM: Double?) -> WatchHoleMap? {
+    public static func makeHoleMap(overlay: CoursePrepOverlay, landingM: Double?, youPxOverride: [Double]? = nil) -> WatchHoleMap? {
         let route = overlay.route
         guard route.count >= 2, let first = route.first, let last = route.last,
               first.count >= 3, last.count >= 3, last[2] > 0 else { return nil }
         let total = last[2]
         let layupM = min(max(landingM ?? total * 0.6, 0), total)
+        // watch P1c: `you` = the player's live GPS projected onto the topo (youPxOverride) when available,
+        // else the tee (route start) as the pre-GPS default.
+        let you = (youPxOverride?.count == 2) ? youPxOverride! : [first[0], first[1]]
         return WatchHoleMap(
             w: overlay.w,
             h: overlay.h,
-            you: [first[0], first[1]],
+            you: you,
             pin: [last[0], last[1]],
             layup: Self.interpRoute(route, atM: layupM),
             apex: Self.interpRoute(route, atM: layupM * 0.5),
             greenCtrl: Self.interpRoute(route, atM: layupM + (total - layupM) * 0.5)
         )
+    }
+
+    /// watch P1c: project a WGS84 point onto the /topo.png pixel space using the 3 affine reference points
+    /// (`holeImageProjection.refs`). Works in coords RELATIVE to ref[0] (a 2×2 solve) so the tiny lat/lon
+    /// deltas over a hole stay well-conditioned. Returns `[px, py]`, or nil if the refs are degenerate.
+    public static func projectToTopoPx(lat: Double, lon: Double, refs: [(lat: Double, lon: Double, px: Double, py: Double)]) -> [Double]? {
+        guard refs.count >= 3 else { return nil }
+        let o = refs[0], r1 = refs[1], r2 = refs[2]
+        let a = r1.lon - o.lon, b = r2.lon - o.lon
+        let c = r1.lat - o.lat, d = r2.lat - o.lat
+        let det = a * d - b * c
+        guard abs(det) > 1e-12 else { return nil }
+        let dlon = lon - o.lon, dlat = lat - o.lat
+        let s = (dlon * d - b * dlat) / det
+        let t = (a * dlat - dlon * c) / det
+        let px = o.px + s * (r1.px - o.px) + t * (r2.px - o.px)
+        let py = o.py + s * (r1.py - o.py) + t * (r2.py - o.py)
+        return [px, py]
     }
 
     /// Interpolate the route (points `[px, py, cumMetres]`, sorted by cumMetres) at `atM` metres,
