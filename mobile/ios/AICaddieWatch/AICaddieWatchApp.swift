@@ -17,8 +17,18 @@ public struct AICaddieWatchApp: App {
                     roundModel.config = newConfig
                 }
                 .onAppear {
-                    watchLocation.requestAuthorization()
-                    watchLocation.startUpdatingLocation()
+                    // Don't raise the location-permission dialog for -uitest-screen launches — it would
+                    // block EVERY watch screenshot. The live-gps uitest screen drives its own provider off
+                    // an injected route (UITEST_GPS_ROUTE), so it needs no App-level request.
+                    #if DEBUG
+                    let isUITest = WatchUITestRoot.requestedScreen() != nil
+                    #else
+                    let isUITest = false
+                    #endif
+                    if !isUITest {
+                        watchLocation.requestAuthorization()
+                        watchLocation.startUpdatingLocation()
+                    }
                 }
         }
     }

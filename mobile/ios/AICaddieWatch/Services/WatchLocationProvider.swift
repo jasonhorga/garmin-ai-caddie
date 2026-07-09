@@ -30,6 +30,13 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     @Published public private(set) var authorizationStatus: CLAuthorizationStatus
 
     private let simulatedFix: WatchLocationFix?
+    // watch P3 uitest: a MOVING route injected via UITEST_GPS_ROUTE ("lat,lon;lat,lon;…") — walked on a
+    // timer, emitting fixes, bypassing CoreLocation + the permission dialog (like simulatedFix but
+    // animated) so the live-GPS video shows "you" moving with zero simctl/permission dependency.
+    private let routeWaypoints: [CLLocationCoordinate2D]
+    private var routeTimer: Timer?
+    private var routeStep = 0
+    private let routeSteps = 42
 
     public init(manager: CLLocationManager = CLLocationManager()) {
         self.manager = manager
@@ -40,11 +47,19 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
                 coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
                 horizontalAccuracyM: 5,
                 capturedAt: ISO8601DateFormatter().string(from: Date()))
-            self.authorizationStatus = .authorizedWhenInUse
         } else {
             self.simulatedFix = nil
-            self.authorizationStatus = manager.authorizationStatus
         }
+        self.routeWaypoints = (env["UITEST_GPS_ROUTE"]).map { text in
+            text.split(separator: ";").compactMap { pair -> CLLocationCoordinate2D? in
+                let c = pair.split(separator: ",")
+                guard c.count == 2, let lat = Double(c[0]), let lon = Double(c[1]) else { return nil }
+                return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+            }
+        } ?? []
+        // Injected sources never touch the permission dialog.
+        self.authorizationStatus = (simulatedFix != nil || routeWaypoints.count >= 2)
+            ? .authorizedWhenInUse : manager.authorizationStatus
         super.init()
         self.manager.delegate = self
         self.manager.desiredAccuracy = kCLLocationAccuracyBest
@@ -55,7 +70,7 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     }
 
     public func requestAuthorization() {
-        if simulatedFix != nil {
+        if simulatedFix != nil || routeWaypoints.count >= 2 {
             authorizationStatus = .authorizedWhenInUse
             return
         }
@@ -67,7 +82,26 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
             latestFix = simulatedFix
             return
         }
+        if routeWaypoints.count >= 2 {
+            emitRouteFix()
+            routeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                self?.emitRouteFix()
+            }
+            return
+        }
         manager.startUpdatingLocation()
+    }
+
+    /// Lerp along the injected route (first→last) by `routeStep/routeSteps`, emitting a fix each tick.
+    private func emitRouteFix() {
+        guard let a = routeWaypoints.first, let b = routeWaypoints.last else { return }
+        let frac = min(1.0, Double(routeStep) / Double(routeSteps))
+        let coord = CLLocationCoordinate2D(
+            latitude: a.latitude + (b.latitude - a.latitude) * frac,
+            longitude: a.longitude + (b.longitude - a.longitude) * frac)
+        latestFix = WatchLocationFix(coordinate: coord, horizontalAccuracyM: 5,
+                                     capturedAt: formatter.string(from: Date()))
+        routeStep += 1
     }
 
     public func stopUpdatingLocation() { manager.stopUpdatingLocation() }

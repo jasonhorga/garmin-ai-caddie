@@ -169,21 +169,17 @@ jobs:
           BID=com.ai-caddie.mobile.watchkitapp
           xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$WATCH_UDID" || true
-          # Pre-grant location so no permission sheet blocks the live map; seed a first fix at the tee.
-          xcrun simctl privacy "$WATCH_UDID" grant location "$BID" 2>/dev/null || true
           xcrun simctl terminate "$WATCH_UDID" "$BID" 2>/dev/null || true
-          xcrun simctl location "$WATCH_UDID" set 40.0000,116.0000 2>/dev/null || true
-          xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen live-gps 2>/dev/null || true
-          sleep 3
           mkdir -p watch-gps-video
           ( xcrun simctl io "$WATCH_UDID" recordVideo --codec h264 --force watch-gps-video/watch-live-gps.mp4 ) &
           REC=$!
           sleep 2
-          # Walk the wrist tee -> near green: the you-dot moves up the fairway + F/M/B count down.
-          xcrun simctl location "$WATCH_UDID" start --speed=8 --distance=5 \
-            40.0000,116.0000 40.0016,116.0000 40.0032,116.0000 2>/dev/null || true
-          sleep 45
-          xcrun simctl location "$WATCH_UDID" clear 2>/dev/null || true
+          # Inject a MOVING route through the app's own provider (UITEST_GPS_ROUTE via SIMCTL_CHILD_*) — no
+          # permission dialog, no simctl location. The app walks tee->green over ~42s: you-dot moves up the
+          # fairway + F/M/B count down. (simctl privacy grant did NOT suppress the watch permission sheet.)
+          SIMCTL_CHILD_UITEST_GPS_ROUTE="40.0000,116.0000;40.0036,116.0000" \
+            xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen live-gps 2>/dev/null || true
+          sleep 48
           kill -INT $REC 2>/dev/null || true
           sleep 5
           ls -la watch-gps-video || true
