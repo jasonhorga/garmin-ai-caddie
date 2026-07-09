@@ -171,6 +171,11 @@ public struct CurrentHoleView: View {
             }
             currentCoordinate = latestFix.coordinate
             currentHorizontalAccuracyM = latestFix.horizontalAccuracyM
+            // watch P1c: push the live position to the watch so its hole-map 「你」 pans as you walk. Only
+            // when the hole map is up (holePrep loaded) — avoids chatter before the round view is ready.
+            if holePrep != nil {
+                sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+            }
         }
         .task(id: hole.number) {
             // Sync the selected club to the caddie's recommendation on a FRESH hole (so we never sit
@@ -973,11 +978,19 @@ public struct CurrentHoleView: View {
                 widthPx: hip?.widthPx, heightPx: hip?.heightPx,
                 refs: hip?.refs?.map { WatchProjectionRef(lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) })
             : nil
-        // watch P1b: pre-compute the hole-map overlay anchors (you=tee / pin=green / lay-up) from the
+        // watch P1b/P1c: pre-compute the hole-map overlay anchors (you / pin=green / lay-up) from the
         // centreline route so the watch draws the map on the cached /topo.png with no projection math.
+        // `you` follows the player's LIVE GPS (projected onto the topo via the same affine refs) when a
+        // fix is available, else falls back to the tee — so the map pans as you walk (companion mode).
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
+        let youPxOverride: [Double]? = {
+            guard let coord = currentCoordinate, let refs = hip?.refs, refs.count >= 3 else { return nil }
+            return WatchEventBridge.projectToTopoPx(
+                lat: coord.latitude, lon: coord.longitude,
+                refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) })
+        }()
         let holeMap: WatchHoleMap? = (holePrep?.map?.overlay).flatMap {
-            WatchEventBridge.makeHoleMap(overlay: $0, landingM: holePrep?.landingM)
+            WatchEventBridge.makeHoleMap(overlay: $0, landingM: holePrep?.landingM, youPxOverride: youPxOverride)
         }
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
