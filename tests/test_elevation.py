@@ -53,6 +53,26 @@ class ElevationTest(unittest.TestCase):
         self.assertEqual(elevation.plays_like_yards(150, 5.5), 150 + round(5.5 * elevation.YARD))
         self.assertEqual(elevation.plays_like_yards(150, -5.5), 150 - round(5.5 * elevation.YARD))
 
+    def test_green_slope_tilted_plane(self):
+        # elev = 0.1·gx (10% up toward +gx). gx=-x, so mesh y = 0.1·(-x) = -0.1x.
+        positions = [[float(x), -0.1 * x, float(z)] for x in (-10, 0, 10) for z in (-10, 0, 10)]
+        slope = elevation.green_slope({"meshes": [{"positions": positions}]})
+        self.assertTrue(slope["available"])
+        self.assertFalse(slope["flat"])
+        self.assertAlmostEqual(slope["magnitudePct"], 10.0, delta=0.1)
+        # Ball breaks DOWNHILL (toward -gx) → 180°.
+        self.assertEqual(slope["directionDeg"], 180)
+
+    def test_green_slope_flat_has_no_direction(self):
+        positions = [[float(x), 0.0, float(z)] for x in (-10, 0, 10) for z in (-10, 0, 10)]
+        slope = elevation.green_slope({"meshes": [{"positions": positions}]})
+        self.assertTrue(slope["available"])
+        self.assertTrue(slope["flat"])
+        self.assertIsNone(slope["directionDeg"])
+
+    def test_green_slope_unavailable_too_few_vertices(self):
+        self.assertFalse(elevation.green_slope({"meshes": [{"positions": [[0, 0, 0]]}]})["available"])
+
 
 if __name__ == "__main__":
     unittest.main()
