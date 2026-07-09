@@ -49,12 +49,15 @@ KNOWN_NON_HAZARD = {
 logger = logging.getLogger(__name__)
 
 
-def _log_unknown_meshes(names: Any) -> None:
+def _log_unknown_meshes(names: Any) -> list[str]:
     """Surface any decoded mesh that is neither an extracted feature nor a known cosmetic one, so a
-    genuinely new Garmin hazard type doesn't silently vanish the way Ocean/Beach did."""
-    for name in names:
-        if name not in FEATURES and name not in KNOWN_NON_HAZARD:
-            logger.warning("prodgeometry: unclassified mesh %r — add to FEATURES or KNOWN_NON_HAZARD", name)
+    genuinely new Garmin hazard type doesn't silently vanish the way Ocean/Beach did. Returns the
+    unclassified names (also logged) — returning them keeps the check testable even when a suite has
+    globally disabled logging (`assertLogs` can't capture under `logging.disable`)."""
+    unknown = [name for name in names if name not in FEATURES and name not in KNOWN_NON_HAZARD]
+    for name in unknown:
+        logger.warning("prodgeometry: unclassified mesh %r — add to FEATURES or KNOWN_NON_HAZARD", name)
+    return unknown
 
 
 def rounded_point(point: tuple[float, float]) -> list[float]:

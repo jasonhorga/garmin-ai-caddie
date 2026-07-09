@@ -2776,9 +2776,18 @@ class MobileContractTests(unittest.TestCase):
         for field in [
             "frontGreenM", "centerGreenM", "backGreenM", "playsLikeDistanceM",
             "elevationDeltaM", "lastShotDistanceM", "distanceFromLastShotM",
+            # watch P0.2: green F/M/B WGS84 coords (watch recomputes distance from its own GPS)
+            "frontGreenLat", "frontGreenLon", "centerGreenLat", "centerGreenLon",
+            "backGreenLat", "backGreenLon",
         ]:
             self.assertIn(f"public let {field}: Double?", bridge)
             self.assertIn(f"public let {field}: Double?", state_swift)
+        # watch P0.2: the topo geo→px projection — declared IDENTICALLY on phone encoder + watch decoder.
+        for src in (bridge, state_swift):
+            self.assertIn("public let holeImageProjection: WatchHoleImageProjection?", src)
+            self.assertIn("struct WatchHoleImageProjection", src)
+            self.assertIn("struct WatchProjectionRef", src)
+        self.assertIn("decodeIfPresent(WatchHoleImageProjection.self, forKey: .holeImageProjection)", state_swift)
         for decl in [
             "public let greenInRegulation: Bool?",
             "public let fairwayResult: String?",

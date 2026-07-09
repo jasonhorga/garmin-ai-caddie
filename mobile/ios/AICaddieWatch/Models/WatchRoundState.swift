@@ -69,6 +69,34 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     }
 }
 
+// watch P0.2: the topo image's geo→pixel mapping — 3 non-collinear reference points (each WGS84 +
+// its pixel on /topo.png); the watch fits an affine from them to project any lat/lon → pixel.
+public struct WatchProjectionRef: Codable, Equatable {
+    public let lat: Double
+    public let lon: Double
+    public let px: Double
+    public let py: Double
+
+    public init(lat: Double, lon: Double, px: Double, py: Double) {
+        self.lat = lat
+        self.lon = lon
+        self.px = px
+        self.py = py
+    }
+}
+
+public struct WatchHoleImageProjection: Codable, Equatable {
+    public let widthPx: Int?
+    public let heightPx: Int?
+    public let refs: [WatchProjectionRef]?
+
+    public init(widthPx: Int?, heightPx: Int?, refs: [WatchProjectionRef]?) {
+        self.widthPx = widthPx
+        self.heightPx = heightPx
+        self.refs = refs
+    }
+}
+
 public struct WatchRoundState: Codable, Equatable, Identifiable {
     public var id: String { "\(roundId)-\(hole)" }
     public var availableClubNames: [String] {
@@ -110,6 +138,15 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let greenInRegulation: Bool?
     public let fairwayResult: String?
     public let geometryCoverage: String?
+    // watch P0.2: green Front/Middle/Back WGS84 coords (so the watch recomputes F/M/B from its OWN GPS)
+    // + the topo image's geo→px projection (so the watch places its GPS/pin/landings on /topo.png).
+    public let frontGreenLat: Double?
+    public let frontGreenLon: Double?
+    public let centerGreenLat: Double?
+    public let centerGreenLon: Double?
+    public let backGreenLat: Double?
+    public let backGreenLon: Double?
+    public let holeImageProjection: WatchHoleImageProjection?
     // round-13 spec ②⑤: AI-caddie play options (激进/推荐/保守) + 障碍 carry intervals, pushed from
     // the phone. Additive/optional — default [] so older payloads decode unchanged.
     public let caddieOptions: [WatchCaddieOption]
@@ -146,6 +183,13 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case frontGreenM
         case centerGreenM
         case backGreenM
+        case frontGreenLat
+        case frontGreenLon
+        case centerGreenLat
+        case centerGreenLon
+        case backGreenLat
+        case backGreenLon
+        case holeImageProjection
         case playsLikeDistanceM
         case elevationDeltaM
         case lastShotDistanceM
@@ -187,6 +231,13 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         frontGreenM: Double? = nil,
         centerGreenM: Double? = nil,
         backGreenM: Double? = nil,
+        frontGreenLat: Double? = nil,
+        frontGreenLon: Double? = nil,
+        centerGreenLat: Double? = nil,
+        centerGreenLon: Double? = nil,
+        backGreenLat: Double? = nil,
+        backGreenLon: Double? = nil,
+        holeImageProjection: WatchHoleImageProjection? = nil,
         playsLikeDistanceM: Double? = nil,
         elevationDeltaM: Double? = nil,
         lastShotDistanceM: Double? = nil,
@@ -226,6 +277,13 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.frontGreenM = frontGreenM
         self.centerGreenM = centerGreenM
         self.backGreenM = backGreenM
+        self.frontGreenLat = frontGreenLat
+        self.frontGreenLon = frontGreenLon
+        self.centerGreenLat = centerGreenLat
+        self.centerGreenLon = centerGreenLon
+        self.backGreenLat = backGreenLat
+        self.backGreenLon = backGreenLon
+        self.holeImageProjection = holeImageProjection
         self.playsLikeDistanceM = playsLikeDistanceM
         self.elevationDeltaM = elevationDeltaM
         self.lastShotDistanceM = lastShotDistanceM
@@ -266,6 +324,13 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.evidenceSummary = try container.decodeIfPresent(String.self, forKey: .evidenceSummary)
         self.missingDataSummary = try container.decodeIfPresent(String.self, forKey: .missingDataSummary)
         self.frontGreenM = try container.decodeIfPresent(Double.self, forKey: .frontGreenM)
+        self.frontGreenLat = try container.decodeIfPresent(Double.self, forKey: .frontGreenLat)
+        self.frontGreenLon = try container.decodeIfPresent(Double.self, forKey: .frontGreenLon)
+        self.centerGreenLat = try container.decodeIfPresent(Double.self, forKey: .centerGreenLat)
+        self.centerGreenLon = try container.decodeIfPresent(Double.self, forKey: .centerGreenLon)
+        self.backGreenLat = try container.decodeIfPresent(Double.self, forKey: .backGreenLat)
+        self.backGreenLon = try container.decodeIfPresent(Double.self, forKey: .backGreenLon)
+        self.holeImageProjection = try container.decodeIfPresent(WatchHoleImageProjection.self, forKey: .holeImageProjection)
         self.centerGreenM = try container.decodeIfPresent(Double.self, forKey: .centerGreenM)
         self.backGreenM = try container.decodeIfPresent(Double.self, forKey: .backGreenM)
         self.playsLikeDistanceM = try container.decodeIfPresent(Double.self, forKey: .playsLikeDistanceM)
@@ -330,6 +395,13 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             frontGreenM: frontGreenM,
             centerGreenM: centerGreenM,
             backGreenM: backGreenM,
+            frontGreenLat: frontGreenLat,
+            frontGreenLon: frontGreenLon,
+            centerGreenLat: centerGreenLat,
+            centerGreenLon: centerGreenLon,
+            backGreenLat: backGreenLat,
+            backGreenLon: backGreenLon,
+            holeImageProjection: holeImageProjection,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,
             lastShotDistanceM: lastShotDistanceM,

@@ -950,6 +950,13 @@ public struct CurrentHoleView: View {
         let greenOK = green?.available == true
         let playsLike = holePrep?.playsLike
         let slopeM = playsLike?.available == true ? playsLike?.deltaM : nil
+        // watch P0.2: forward the topo geo→px projection so the watch overlays its own GPS/pin/landings.
+        let hip = holePrep?.holeImageProjection
+        let watchProj: WatchHoleImageProjection? = (hip?.available == true)
+            ? WatchHoleImageProjection(
+                widthPx: hip?.widthPx, heightPx: hip?.heightPx,
+                refs: hip?.refs?.map { WatchProjectionRef(lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) })
+            : nil
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
             hole: hole,
@@ -966,6 +973,13 @@ public struct CurrentHoleView: View {
             frontGreenM: greenOK ? green?.frontM : nil,
             centerGreenM: greenOK ? green?.middleM : nil,
             backGreenM: greenOK ? green?.backM : nil,
+            frontGreenLat: greenOK ? green?.frontLat : nil,
+            frontGreenLon: greenOK ? green?.frontLon : nil,
+            centerGreenLat: greenOK ? green?.middleLat : nil,
+            centerGreenLon: greenOK ? green?.middleLon : nil,
+            backGreenLat: greenOK ? green?.backLat : nil,
+            backGreenLon: greenOK ? green?.backLon : nil,
+            holeImageProjection: watchProj,
             playsLikeDistanceM: slopeM.flatMap { delta in distanceToPinMetres.map { $0 + delta } },
             elevationDeltaM: slopeM,
             geometryCoverage: hole.geometryCoverage.rawValue,
