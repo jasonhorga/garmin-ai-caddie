@@ -7,7 +7,7 @@ import UIKit
 /// dogleg). OB flood-filled to BLACK, and **brightened + saturated** (PIL ImageEnhance Color×1.42 /
 /// Brightness×1.12 / Contrast×1.16) so the fairway reads vibrant/high-contrast like Garmin's (design
 /// review: the raw render was too dark/muddy). Overlay 720×1120 at ppm≈1.442; px are the real prep route.
-enum WatchHoleMapSample {
+public enum WatchHoleMapSample {
     static let imageSize = CGSize(width: 720, height: 1120)
     static let ppm: CGFloat = 1.4419
     static let youPx = CGPoint(x: 504, y: 702)           // 2nd shot lie — 200 m from tee

@@ -38,7 +38,7 @@ public struct WatchHoleMapGeometry {
 
 extension WatchHoleMapSample {
     /// The baked design-review sample as a `WatchHoleMapGeometry` (snapshot default).
-    static var geometry: WatchHoleMapGeometry {
+    public static var geometry: WatchHoleMapGeometry {
         WatchHoleMapGeometry(
             image: image, imageSize: imageSize, youPx: youPx, pinPx: pinPx,
             layupPx: layupPx, apexPx: apexPx, greenCtrlPx: greenCtrlPx
