@@ -150,6 +150,22 @@
         }
       }
     },
+    "globalId": {
+      "type": ["integer", "null"]
+    },
+    "holeMap": {
+      "type": ["object", "null"],
+      "description": "watch P1b: five hole-map overlay anchors in /topo.png px space (phone-computed from the centreline route).",
+      "properties": {
+        "w": { "type": "integer" },
+        "h": { "type": "integer" },
+        "you": { "type": "array", "items": { "type": "number" } },
+        "pin": { "type": "array", "items": { "type": "number" } },
+        "layup": { "type": "array", "items": { "type": "number" } },
+        "apex": { "type": "array", "items": { "type": "number" } },
+        "greenCtrl": { "type": "array", "items": { "type": "number" } }
+      }
+    },
     "playsLikeDistanceM": {
       "type": ["number", "null"],
       "minimum": 0

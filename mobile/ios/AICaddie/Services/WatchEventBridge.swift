@@ -140,6 +140,19 @@ public struct WatchHoleImageProjection: Codable, Equatable {
     public let refs: [WatchProjectionRef]?
 }
 
+// watch P1b: the five hole-map overlay anchors (in /topo.png px space) the phone pre-computes from the
+// hole's centreline route, so the watch just draws the cached image + anchors. Mirrors WatchHoleMap on
+// the watch target (matched by JSON keys). Each point is `[px, py]`.
+public struct WatchHoleMap: Codable, Equatable {
+    public let w: Int
+    public let h: Int
+    public let you: [Double]
+    public let pin: [Double]
+    public let layup: [Double]
+    public let apex: [Double]
+    public let greenCtrl: [Double]
+}
+
 public struct WatchRoundStatePayload: Codable, Equatable {
     public let schema: String = "ai-caddie-watch-round-state-v1"
     public let roundId: String
@@ -177,6 +190,9 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let backGreenLat: Double?
     public let backGreenLon: Double?
     public let holeImageProjection: WatchHoleImageProjection?
+    // watch P1b: course global id (image-cache key) + pre-computed hole-map overlay anchors.
+    public let globalId: Int?
+    public let holeMap: WatchHoleMap?
     public let playsLikeDistanceM: Double?
     public let elevationDeltaM: Double?
     public let lastShotDistanceM: Double?
@@ -271,6 +287,8 @@ public final class WatchEventBridge: NSObject {
         backGreenLat: Double? = nil,
         backGreenLon: Double? = nil,
         holeImageProjection: WatchHoleImageProjection? = nil,
+        globalId: Int? = nil,
+        holeMap: WatchHoleMap? = nil,
         playsLikeDistanceM: Double? = nil,
         elevationDeltaM: Double? = nil,
         lastShotDistanceM: Double? = nil,
@@ -332,6 +350,8 @@ public final class WatchEventBridge: NSObject {
             backGreenLat: backGreenLat,
             backGreenLon: backGreenLon,
             holeImageProjection: holeImageProjection,
+            globalId: globalId,
+            holeMap: holeMap,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,
             lastShotDistanceM: lastShotDistanceM,
@@ -346,6 +366,46 @@ public final class WatchEventBridge: NSObject {
             penaltyCount: penaltyCount,
             caddieConfidence: confidenceLevel(from: decision, offlineOption: offlineSelected)
         )
+    }
+
+    /// watch P1b: pre-compute the five hole-map overlay anchors from the hole's centreline route so the
+    /// watch renders the map with zero projection math. `overlay.route` is `[[px, py, cumMetres]]` in the
+    /// same /topo.png pixel space the watch caches. `you` = tee, `pin` = green centre, `layup` = the
+    /// recommended lay-up (at `landingM` along the route, default 60%), `apex`/`greenCtrl` = the mid-route
+    /// points that make the you→lay-up / lay-up→green curves bend with the dogleg. nil for < 2 route points.
+    public static func makeHoleMap(overlay: CoursePrepOverlay, landingM: Double?) -> WatchHoleMap? {
+        let route = overlay.route
+        guard route.count >= 2, let first = route.first, let last = route.last,
+              first.count >= 3, last.count >= 3, last[2] > 0 else { return nil }
+        let total = last[2]
+        let layupM = min(max(landingM ?? total * 0.6, 0), total)
+        return WatchHoleMap(
+            w: overlay.w,
+            h: overlay.h,
+            you: [first[0], first[1]],
+            pin: [last[0], last[1]],
+            layup: Self.interpRoute(route, atM: layupM),
+            apex: Self.interpRoute(route, atM: layupM * 0.5),
+            greenCtrl: Self.interpRoute(route, atM: layupM + (total - layupM) * 0.5)
+        )
+    }
+
+    /// Interpolate the route (points `[px, py, cumMetres]`, sorted by cumMetres) at `atM` metres,
+    /// returning `[px, py]`. Clamps to the first/last point outside the range.
+    static func interpRoute(_ route: [[Double]], atM: Double) -> [Double] {
+        guard let first = route.first, first.count >= 3 else { return [0, 0] }
+        if atM <= first[2] { return [first[0], first[1]] }
+        for i in 0..<(route.count - 1) {
+            let a = route[i], b = route[i + 1]
+            guard a.count >= 3, b.count >= 3 else { continue }
+            if atM <= b[2] {
+                let span = b[2] - a[2]
+                let t = span > 0 ? (atM - a[2]) / span : 0
+                return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+            }
+        }
+        let last = route[route.count - 1]
+        return [last[0], last[1]]
     }
 
     public func sendStateToWatch(_ state: WatchRoundStatePayload) throws {

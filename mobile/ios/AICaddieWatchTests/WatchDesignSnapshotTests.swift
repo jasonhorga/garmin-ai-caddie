@@ -184,6 +184,34 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-container-scoring")
     }
 
+    @MainActor
+    func testRenderWatchRoundContainerHoleMap() throws {
+        // Phase 1b: the full .holeMap screen through the container — geometry built the REAL way
+        // (WatchHoleMapGeometry.from(pushed WatchHoleMap + cached topo)), hole data mapped from the seeded
+        // WatchRoundState (greens→码, suggestedClub), NO scoring ring, + the bottom-leading back-to-hub button.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wsnap-\(UUID().uuidString)", isDirectory: true)
+        let model = WatchRoundModel(store: WatchRoundStore(directoryURL: dir))
+        let hm = WatchHoleMap(
+            w: Int(WatchHoleMapSample.imageSize.width), h: Int(WatchHoleMapSample.imageSize.height),
+            you: [504, 702], pin: [435, 279], layup: [506, 403], apex: [556, 562], greenCtrl: [498, 375]
+        )
+        let state = WatchRoundState(
+            roundId: "r1", hole: 4, par: 5, distanceM: 262,
+            suggestedClub: "3号木", selectedClub: nil,
+            frontGreenM: 227, centerGreenM: 240, backGreenM: 251,
+            globalId: 31669, holeMap: hm,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        model.seedRound([state], activeHole: 4, courseName: "测试球场")
+        model.openHoleMap()
+        let geometry = try XCTUnwrap(WatchHoleMapGeometry.from(holeMap: hm, image: WatchHoleMapSample.image))
+        let view = WatchRoundContainerView(model: model, holeGeometry: geometry)
+            .frame(width: 198, height: 242)
+            .background(Color.black)
+        try render(view, named: "watch-container-holemap")
+    }
+
     /// A standalone round seeded into a real (temp-dir) store, so the container snapshot exercises the
     /// full `WatchRoundModel` → view wiring rather than hand-built props.
     @MainActor

@@ -405,7 +405,23 @@ public struct CurrentHoleView: View {
         holePrep = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
         // Re-push to the watch now that F/M/B + plays-like are available — the first push in
         // loadCaddieDecision can beat this fetch and would otherwise send nil green distances.
-        if holePrep != nil { sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption) }
+        if holePrep != nil {
+            sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+            // watch P1b: relay the clean topo bitmap so the watch renders the hole map offline. Keyed by
+            // the round hole number (what WatchRoundState.hole carries), fetched by the source local hole.
+            await pushTopoToWatch(globalId: mapGlobalId, sourceLocalHole: mapLocalHole, watchHole: hole.number)
+        }
+    }
+
+    /// watch P1b: fetch this hole's clean topo bitmap (/topo.png) and relay it to the watch over
+    /// WatchConnectivity (transferFile) so the watch draws the hole map from local storage. Best-effort —
+    /// a missing base URL / watch bridge / failed fetch just leaves the watch on the text hub.
+    private func pushTopoToWatch(globalId: Int, sourceLocalHole: Int, watchHole: Int) async {
+        guard let watchBridge, let caddieBaseURL,
+              globalId != 0,
+              let url = SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: globalId, localHole: sourceLocalHole),
+              let (data, _) = try? await URLSession.shared.data(from: url), !data.isEmpty else { return }
+        watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: data)
     }
 
     /// round-13 LIVE: 本洞前/中/后果岭(F/M/B)prep 数据,仅在 prep 几何可用时。distances 是 tee→green
@@ -957,6 +973,12 @@ public struct CurrentHoleView: View {
                 widthPx: hip?.widthPx, heightPx: hip?.heightPx,
                 refs: hip?.refs?.map { WatchProjectionRef(lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) })
             : nil
+        // watch P1b: pre-compute the hole-map overlay anchors (you=tee / pin=green / lay-up) from the
+        // centreline route so the watch draws the map on the cached /topo.png with no projection math.
+        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
+        let holeMap: WatchHoleMap? = (holePrep?.map?.overlay).flatMap {
+            WatchEventBridge.makeHoleMap(overlay: $0, landingM: holePrep?.landingM)
+        }
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
             hole: hole,
@@ -980,6 +1002,8 @@ public struct CurrentHoleView: View {
             backGreenLat: greenOK ? green?.backLat : nil,
             backGreenLon: greenOK ? green?.backLon : nil,
             holeImageProjection: watchProj,
+            globalId: mapGlobalId,
+            holeMap: holeMap,
             playsLikeDistanceM: slopeM.flatMap { delta in distanceToPinMetres.map { $0 + delta } },
             elevationDeltaM: slopeM,
             geometryCoverage: hole.geometryCoverage.rawValue,

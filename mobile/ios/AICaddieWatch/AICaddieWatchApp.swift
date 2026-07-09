@@ -36,7 +36,10 @@ public struct AICaddieWatchApp: App {
     private var standardContent: some View {
         if roundModel.round != nil {
             // round-12 P3.3: a standalone round in progress takes over the whole watch.
-            WatchRoundContainerView(model: roundModel)
+            // watch P1b: pass the active hole's map geometry (topo image + anchors). Recomputed every
+            // render — a @Published change on syncClient (incl. lastHoleImageKey when the image lands)
+            // re-renders this body, so the 「球道图」 entry appears as soon as the topo transfer completes.
+            WatchRoundContainerView(model: roundModel, holeGeometry: activeHoleGeometry)
         } else if let state = syncClient.currentState {
             // phone-coordinated companion glance (legacy single-hole push).
             WatchHoleView(
@@ -57,5 +60,13 @@ public struct AICaddieWatchApp: App {
 
     private func sendQuickInputEvent(_ event: WatchInputEvent) {
         try? syncClient.sendQuickInputEvent(event)
+    }
+
+    /// watch P1b: the active hole's render geometry — the phone-pushed overlay anchors (`holeMap`) + the
+    /// cached /topo.png. nil until both arrive, so the map entry stays hidden and we fall back to the hub.
+    private var activeHoleGeometry: WatchHoleMapGeometry? {
+        guard let s = roundModel.activeHoleState, let hm = s.holeMap, let gid = s.globalId else { return nil }
+        let img = syncClient.holeImageStore.image(globalId: gid, hole: s.hole)
+        return WatchHoleMapGeometry.from(holeMap: hm, image: img)
     }
 }

@@ -45,3 +45,24 @@ extension WatchHoleMapSample {
         )
     }
 }
+
+extension WatchHoleMapGeometry {
+    /// watch P1b: build the render geometry from a phone-pushed `WatchHoleMap` (pre-computed overlay
+    /// anchors in /topo.png px) + the cached topo image. Returns nil unless BOTH are present — the map
+    /// only shows once its base image has been received, otherwise the caller falls back to the text home.
+    public static func from(holeMap: WatchHoleMap?, image: UIImage?) -> WatchHoleMapGeometry? {
+        guard let hm = holeMap, let image = image else { return nil }
+        func point(_ a: [Double]) -> CGPoint {
+            CGPoint(x: a.count > 0 ? a[0] : 0, y: a.count > 1 ? a[1] : 0)
+        }
+        return WatchHoleMapGeometry(
+            image: image,
+            imageSize: CGSize(width: hm.w, height: hm.h),
+            youPx: point(hm.you),
+            pinPx: point(hm.pin),
+            layupPx: point(hm.layup),
+            apexPx: point(hm.apex),
+            greenCtrlPx: point(hm.greenCtrl)
+        )
+    }
+}

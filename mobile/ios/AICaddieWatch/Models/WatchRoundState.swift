@@ -97,6 +97,31 @@ public struct WatchHoleImageProjection: Codable, Equatable {
     }
 }
 
+// watch P1b: the five overlay anchor points (in /topo.png IMAGE-pixel space, w×h) the phone pre-computes
+// from the hole's centreline route so the watch renders the hole map WITHOUT any projection math — just
+// draws the cached image + these anchors. `you` = tee (pre-GPS start), `pin` = green centre, `layup` =
+// recommended lay-up, `apex`/`greenCtrl` = the you→lay-up / lay-up→green curve controls (on the route,
+// so the play line bends with the dogleg). Each point is `[px, py]`.
+public struct WatchHoleMap: Codable, Equatable {
+    public let w: Int
+    public let h: Int
+    public let you: [Double]
+    public let pin: [Double]
+    public let layup: [Double]
+    public let apex: [Double]
+    public let greenCtrl: [Double]
+
+    public init(w: Int, h: Int, you: [Double], pin: [Double], layup: [Double], apex: [Double], greenCtrl: [Double]) {
+        self.w = w
+        self.h = h
+        self.you = you
+        self.pin = pin
+        self.layup = layup
+        self.apex = apex
+        self.greenCtrl = greenCtrl
+    }
+}
+
 public struct WatchRoundState: Codable, Equatable, Identifiable {
     public var id: String { "\(roundId)-\(hole)" }
     public var availableClubNames: [String] {
@@ -147,6 +172,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let backGreenLat: Double?
     public let backGreenLon: Double?
     public let holeImageProjection: WatchHoleImageProjection?
+    // watch P1b: course global id (keys the cached /topo.png in WatchHoleImageStore) + the pre-computed
+    // hole-map overlay anchors. Both optional — older payloads (no map) fall back to the text home view.
+    public let globalId: Int?
+    public let holeMap: WatchHoleMap?
     // round-13 spec ②⑤: AI-caddie play options (激进/推荐/保守) + 障碍 carry intervals, pushed from
     // the phone. Additive/optional — default [] so older payloads decode unchanged.
     public let caddieOptions: [WatchCaddieOption]
@@ -190,6 +219,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case backGreenLat
         case backGreenLon
         case holeImageProjection
+        case globalId
+        case holeMap
         case playsLikeDistanceM
         case elevationDeltaM
         case lastShotDistanceM
@@ -238,6 +269,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         backGreenLat: Double? = nil,
         backGreenLon: Double? = nil,
         holeImageProjection: WatchHoleImageProjection? = nil,
+        globalId: Int? = nil,
+        holeMap: WatchHoleMap? = nil,
         playsLikeDistanceM: Double? = nil,
         elevationDeltaM: Double? = nil,
         lastShotDistanceM: Double? = nil,
@@ -284,6 +317,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.backGreenLat = backGreenLat
         self.backGreenLon = backGreenLon
         self.holeImageProjection = holeImageProjection
+        self.globalId = globalId
+        self.holeMap = holeMap
         self.playsLikeDistanceM = playsLikeDistanceM
         self.elevationDeltaM = elevationDeltaM
         self.lastShotDistanceM = lastShotDistanceM
@@ -331,6 +366,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.backGreenLat = try container.decodeIfPresent(Double.self, forKey: .backGreenLat)
         self.backGreenLon = try container.decodeIfPresent(Double.self, forKey: .backGreenLon)
         self.holeImageProjection = try container.decodeIfPresent(WatchHoleImageProjection.self, forKey: .holeImageProjection)
+        self.globalId = try container.decodeIfPresent(Int.self, forKey: .globalId)
+        self.holeMap = try container.decodeIfPresent(WatchHoleMap.self, forKey: .holeMap)
         self.centerGreenM = try container.decodeIfPresent(Double.self, forKey: .centerGreenM)
         self.backGreenM = try container.decodeIfPresent(Double.self, forKey: .backGreenM)
         self.playsLikeDistanceM = try container.decodeIfPresent(Double.self, forKey: .playsLikeDistanceM)
@@ -402,6 +439,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             backGreenLat: backGreenLat,
             backGreenLon: backGreenLon,
             holeImageProjection: holeImageProjection,
+            globalId: globalId,
+            holeMap: holeMap,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,
             lastShotDistanceM: lastShotDistanceM,
