@@ -2851,6 +2851,14 @@ class MobileContractTests(unittest.TestCase):
         home = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift")
         self.assertIn("hasHoleMap", home)
         self.assertIn("onHoleMap", home)
+        # watch P1f: no-geometry big-distance fallback (WatchDistanceHero) + 大字 toggle (spec D1).
+        hero = _read_required_source(self, WATCH_DIR / "Views" / "WatchDistanceHero.swift")
+        self.assertIn("struct WatchDistanceHero", hero)
+        self.assertIn("bigText", hero)
+        self.assertIn("WatchDistanceHero(", container)
+        self.assertIn("holeMapBigText", container)     # 大字 toggle state
+        self.assertIn("func hasHoleView(", container)  # entry gated on geometry OR a green distance
+        self.assertIn(".onTapGesture", container)      # tap toggles 大字
 
     def test_watch_glance_renders_and_live_screen_populates_green_distances(self) -> None:
         # round-13 LIVE: the watch caddie glance renders 前/中/后果岭 + 坡度 from WatchRoundState,

@@ -9,10 +9,20 @@ public struct WatchRoundContainerView: View {
     /// watch P1b: the active hole's render geometry (topo image + overlay anchors), built by the app from
     /// the pushed WatchHoleMap + cached /topo.png. nil ⇒ no map yet ⇒ the home 「球道图」 entry stays hidden.
     private let holeGeometry: WatchHoleMapGeometry?
+    /// watch P1f (spec D1 大字模式): tap the hole view to blow the center distance up for arm's-length /
+    /// bright-sun reading. Toggled on the .holeMap screen; the map + the no-geometry hero both honor it.
+    @State private var holeMapBigText = false
 
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil) {
         self.model = model
         self.holeGeometry = holeGeometry
+    }
+
+    /// watch P1f: the hole view has a map (geometry holes) or a big F/M/B hero (no-geometry fallback), and
+    /// a 大字 toggle that swaps either for the arm's-length center number. Shown when the hole has geometry
+    /// OR at least a center-green distance; the home 「本洞」 entry is gated on the same.
+    private func hasHoleView(_ s: WatchRoundState?) -> Bool {
+        holeGeometry != nil || (s?.centerGreenM != nil)
     }
 
     public var body: some View {
@@ -30,7 +40,7 @@ public struct WatchRoundContainerView: View {
                 ringPips: model.allHoleStates.map {
                     WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
                 },
-                hasHoleMap: holeGeometry != nil,
+                hasHoleMap: hasHoleView(model.activeHoleState),
                 onHoleMap: { model.openHoleMap() },
                 onScoreHole: { model.startScoringActiveHole() },
                 onPreviousHole: { model.goToPreviousHole() },
@@ -39,43 +49,21 @@ public struct WatchRoundContainerView: View {
                 onMenu: { model.openMenu() }
             )
         case .holeMap:
-            if let geometry = holeGeometry, let s = model.activeHoleState {
-                WatchHoleMapView(
-                    holeNumber: s.hole,
-                    par: s.par,
-                    frontGreen: WatchUnits.yards(s.frontGreenM ?? 0),
-                    centerGreen: WatchUnits.yards(s.centerGreenM ?? 0),
-                    backGreen: WatchUnits.yards(s.backGreenM ?? 0),
-                    playsLikeDelta: Int((s.elevationDeltaM ?? 0).rounded()),
-                    lastShot: WatchUnits.yards(s.lastShotDistanceM ?? 0),
-                    caddieClub: caddieClub(s),
-                    caddieNote: caddieNote(s),
-                    // owner 2026-07-08 (Fable audit): KEEP the scoring ring — 18-hole edge ring of the
-                    // round's real per-hole scores, current hole highlighted.
-                    ringPips: model.allHoleStates.map {
-                        WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
-                    },
-                    showTextOverlay: true,
-                    // owner 2026-07-08: KEEP 实打/plays-like — shown ONLY when the backend has a real
-                    // mesh-elevation slope (elevationDeltaM non-nil ⇒ playsLike.available), so it stays
-                    // honest: raw yardage on holes whose geometry carries no elevation.
-                    showPlaysLike: s.elevationDeltaM != nil,
-                    geometry: geometry
-                )
-                .overlay(alignment: .bottomLeading) {
-                    // Back to the home hub (score/next/menu live there). Bottom-leading keeps clear of the
-                    // watchOS clock (top-trailing) and the map's top-leading data column.
-                    Button(action: { model.backToHome() }) {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(7)
-                            .background(Circle().fill(.black.opacity(0.55)))
+            if let s = model.activeHoleState, hasHoleView(s) {
+                ZStack {
+                    if holeMapBigText {
+                        distanceHero(s, big: true)          // 大字模式: arm's-length center number
+                    } else if let geometry = holeGeometry {
+                        holeMapView(s, geometry)            // the real hole map
+                    } else {
+                        distanceHero(s, big: false)         // no-geometry fallback: big F/M/B hero
                     }
-                    .buttonStyle(.plain)
-                    .padding(.leading, 5)
-                    .padding(.bottom, 5)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black)
+                .contentShape(Rectangle())
+                .onTapGesture { holeMapBigText.toggle() }   // spec D1: tap toggles 大字
+                .overlay(alignment: .bottomLeading) { backToHubButton }
             } else {
                 // Geometry not ready (topo image still transferring) — return to the hub.
                 Color.black.onAppear { model.backToHome() }
@@ -146,5 +134,61 @@ public struct WatchRoundContainerView: View {
     private func caddieNote(_ s: WatchRoundState) -> String {
         if let note = s.targetNote, !note.isEmpty { return note }
         return s.caddieOptions.first?.label ?? ""
+    }
+
+    private func caddieLine(_ s: WatchRoundState) -> String? {
+        let club = caddieClub(s)
+        let note = caddieNote(s)
+        if club == "—" && note.isEmpty { return nil }
+        return note.isEmpty ? club : "\(club) · \(note)"
+    }
+
+    @ViewBuilder
+    private func holeMapView(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> some View {
+        WatchHoleMapView(
+            holeNumber: s.hole,
+            par: s.par,
+            frontGreen: WatchUnits.yards(s.frontGreenM ?? 0),
+            centerGreen: WatchUnits.yards(s.centerGreenM ?? 0),
+            backGreen: WatchUnits.yards(s.backGreenM ?? 0),
+            playsLikeDelta: Int((s.elevationDeltaM ?? 0).rounded()),
+            lastShot: WatchUnits.yards(s.lastShotDistanceM ?? 0),
+            caddieClub: caddieClub(s),
+            caddieNote: caddieNote(s),
+            // owner 2026-07-08 (Fable audit): KEEP the scoring ring — real per-hole scores, current hole hi.
+            ringPips: model.allHoleStates.map {
+                WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
+            },
+            showTextOverlay: true,
+            // owner 2026-07-08: KEEP 实打 — only when the backend has a real mesh-elevation slope
+            // (elevationDeltaM non-nil ⇒ playsLike.available), so it stays honest.
+            showPlaysLike: s.elevationDeltaM != nil,
+            geometry: geometry
+        )
+    }
+
+    private func distanceHero(_ s: WatchRoundState, big: Bool) -> some View {
+        WatchDistanceHero(
+            frontYd: s.frontGreenM.map { WatchUnits.yards($0) },
+            centerYd: s.centerGreenM.map { WatchUnits.yards($0) },
+            backYd: s.backGreenM.map { WatchUnits.yards($0) },
+            caddieLine: caddieLine(s),
+            bigText: big
+        )
+    }
+
+    private var backToHubButton: some View {
+        // Back to the home hub (score/next/menu live there). Bottom-leading keeps clear of the watchOS
+        // clock (top-trailing) and the map's top-leading data column.
+        Button(action: { model.backToHome() }) {
+            Image(systemName: "chevron.backward")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(7)
+                .background(Circle().fill(.black.opacity(0.55)))
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 5)
+        .padding(.bottom, 5)
     }
 }
