@@ -299,6 +299,32 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchHoleMapMeasured() throws {
+        // watch P2 选点测距: a tapped point → crosshair + distance-from-you pill (derived from 中 yardage).
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
+            lastShot: 0, ringPips: [],
+            measuredPxOverride: CGPoint(x: 470, y: 470)
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holemap-measured")
+    }
+
+    @MainActor
+    func testRenderWatchHoleMapPinDrag() throws {
+        // watch P2 拖旗: dragging the flag previews 到旗 from the moved pin.
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
+            lastShot: 0, ringPips: [],
+            pinDragOverride: CGSize(width: 16, height: 20)
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holemap-pindrag")
+    }
+
+    @MainActor
     private func render(_ view: some View, named name: String) throws {
         // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
