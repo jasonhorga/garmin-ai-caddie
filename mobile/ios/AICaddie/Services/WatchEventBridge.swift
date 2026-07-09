@@ -411,6 +411,26 @@ public final class WatchEventBridge: NSObject {
         try? WCSession.default.updateApplicationContext(["config": pendingConfig])
     }
 
+    /// watch P0.4: push a hole's topo image to the watch via a guaranteed-delivery file transfer, keyed
+    /// by {globalId, hole}. Called at round-start / hole-change so the watch has the current (+ next)
+    /// hole's map cached for offline play. Best-effort — a failure just leaves the watch mapless.
+    public func pushHoleImage(globalId: Int, hole: Int, imageData: Data) {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated else {
+            return
+        }
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("holeimg-\(globalId)-\(hole).img")
+        do {
+            if FileManager.default.fileExists(atPath: tmp.path) {
+                try? FileManager.default.removeItem(at: tmp)
+            }
+            try imageData.write(to: tmp, options: .atomic)
+            WCSession.default.transferFile(tmp, metadata: ["globalId": globalId, "hole": hole])
+        } catch {
+            // best-effort; the watch simply renders no map for this hole
+        }
+    }
+
     public func handleWatchInputMessage(_ message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
         guard let object = message["event"] as? [String: Any],
               JSONSerialization.isValidJSONObject(object),
