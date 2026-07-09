@@ -45,7 +45,8 @@ public struct RoundReviewView: View {
                     roundRef: roundRef, holes: roundHoles, startHole: item.hole,
                     apiBaseURL: apiBaseURL, adminToken: adminToken
                 )
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { shotMapHole = nil } } }
+                // 关闭整张落点图放 LEADING;子屏的「编辑/完成」在 TRAILING —— 免得进编辑后两个「完成」并排。
+                .toolbar { ToolbarItem(placement: .topBarLeading) { Button("关闭") { shotMapHole = nil } } }
             }
         }
     }
