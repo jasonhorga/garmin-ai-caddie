@@ -19,21 +19,21 @@ final class WatchTouchUITests: XCTestCase {
 
     func testHoleMapTouch() throws {
         // --- 01 选点测距: tap map center (far from "you" at ~0.69,0.72 → registers a measurement) ---
+        // ONE app session — a relaunch between gestures flashes the watchOS watch face into the recording
+        // (the earlier version did that and looked like a crash). Each gesture's result stays on screen
+        // (measure crosshair → dragged flag → 大字 badge); the 3.5s settles give the video a beat per step.
         launchMap()
         map(0.5, 0.5).tap()
-        settle(1); save("01-measure")
+        settle(3.5); save("01-measure")
 
-        // --- 02 拖旗: press-drag starting ON the pin. Pin canvas ≈ normalized (0.58, 0.17) for the baked
-        // sample; the gesture only grabs the flag if the drag STARTS within the pin's grab radius (widened
-        // to 80pt under -uitest-screen). Relaunch so 01's crosshair isn't in frame. ---
-        launchMap()
+        // 02 拖旗: press-drag from the pin (canvas ≈ (0.58,0.17) for the baked sample; grab radius widened
+        // to 80pt under -uitest-screen so the synthesized drag lands on the flag).
         map(0.58, 0.17).press(forDuration: 0.6, thenDragTo: map(0.66, 0.30))
-        settle(1); save("02-dragflag")
+        settle(3.5); save("02-dragflag")
 
-        // --- 03 大字: long-press (≥0.45s) toggles the host badge. ---
-        launchMap()
+        // 03 大字: long-press toggles the host badge.
         map(0.5, 0.55).press(forDuration: 0.6)
-        settle(1); save("03-bigtext")
+        settle(3.5); save("03-bigtext")
     }
 
     // MARK: - helpers
