@@ -55,13 +55,9 @@ public struct WatchUITestRoot: View {
         case "start":
             WatchStartView(phoneReachable: false)
         case "hole-map":
-            // Real hole map on the baked sample topo — for touch/XCUITest + screenshots.
-            WatchHoleMapView(
-                holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
-                playsLikeDelta: 8, lastShot: 200, caddieClub: "3号木", caddieNote: "推进 · 留100",
-                ringPips: (1...18).map { WatchRingPip(hole: $0, toPar: Self.demoToPars[$0], isCurrent: $0 == 4) },
-                geometry: WatchHoleMapSample.geometry
-            )
+            // Real hole map on the baked sample topo — the live-touch host (选点测距/拖旗 mutate the map's
+            // own @State; 大字 is an external callback so the host shows a badge) for XCUITest + screenshots.
+            WatchHoleMapUITestHost()
         case "distance-hero":
             WatchDistanceHero(frontYd: 248, centerYd: 262, backYd: 274, caddieLine: "3号木 · 稳妥")
         case "live-gps":
@@ -110,6 +106,28 @@ public struct WatchUITestRoot: View {
         caddieOptions: demoOptions, hazards: demoHazards,
         score: 4, putts: 2, penaltyCount: 0, caddieConfidence: "high"
     )
+}
+
+/// Live-touch host for the hole map. 大字(long-press) calls back out of the map, so the host holds the
+/// state and shows a visible badge — otherwise the "03-bigtext" shot would look identical to the others.
+/// The identifier gives the UI test a best-effort element to wait on (Canvas has no a11y children). DEBUG.
+private struct WatchHoleMapUITestHost: View {
+    @State private var bigText = false
+    var body: some View {
+        WatchHoleMapView(onToggleBigText: { bigText.toggle() })
+            .overlay(alignment: .topTrailing) {
+                if bigText {
+                    Text("大字")
+                        .font(.system(size: 13, weight: .heavy))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(.yellow))
+                        .foregroundStyle(.black)
+                        .padding(4)
+                        .accessibilityIdentifier("watch-bigtext-on")
+                }
+            }
+            .accessibilityIdentifier("watch-hole-map")
+    }
 }
 
 /// The moving-GPS demo hole map for the `live-gps` video lane: a real `WatchLocationProvider` (fed by

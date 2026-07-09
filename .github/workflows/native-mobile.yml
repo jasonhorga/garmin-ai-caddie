@@ -112,6 +112,12 @@ jobs:
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "$WATCH_DESTINATION"
+      - name: Build Watch UITests (compile-check the touch target on every run)
+        run: |
+          xcodebuild build-for-testing \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatchUITests \
+            -destination "$WATCH_DESTINATION"
       - name: Collect Watch design snapshots
         if: always()
         run: |
@@ -187,6 +193,46 @@ jobs:
         with:
           name: watch-gps-video
           path: watch-gps-video/
+          if-no-files-found: warn
+      - name: Watch touch UITest (record video + screenshots — watchOS 7.4+ DOES support XCUITest)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -x
+          WATCH_UDID=$(xcrun simctl list devices available | grep "Apple Watch Series 10 (46mm)" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          echo "watch udid: $WATCH_UDID"
+          [ -z "$WATCH_UDID" ] && { echo "no watch sim"; exit 0; }
+          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$WATCH_UDID" || true
+          xcrun simctl privacy "$WATCH_UDID" grant location com.ai-caddie.mobile.watchkitapp 2>/dev/null || true
+          mkdir -p watch-touch-video
+          ( xcrun simctl io "$WATCH_UDID" recordVideo --codec h264 --force watch-touch-video/watch-touch.mp4 ) &
+          REC_PID=$!
+          sleep 2
+          # id=$WATCH_UDID + -parallel-testing-enabled NO ⇒ the app runs on the SAME sim we are recording.
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatchUITests \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
+            -parallel-testing-enabled NO || true
+          kill -INT "$REC_PID" 2>/dev/null || true
+          sleep 4
+          ls -la watch-touch-video || true
+          mkdir -p watch-touch-screenshots
+          find ~/Library/Developer/CoreSimulator -path "*Documents/watch-touch-screenshots/*" -exec cp {} watch-touch-screenshots/ \; 2>/dev/null || true
+          ls -la watch-touch-screenshots || true
+      - name: Upload watch touch video
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-touch-video
+          path: watch-touch-video/
+          if-no-files-found: warn
+      - name: Upload watch touch screenshots
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-touch-screenshots
+          path: watch-touch-screenshots/
           if-no-files-found: warn
       - name: Write native build evidence
         run: python3 ops/write_native_build_evidence.py

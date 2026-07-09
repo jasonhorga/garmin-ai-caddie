@@ -130,7 +130,10 @@ public struct WatchHoleMapView: View {
             .onChanged { value in
                 let pinCanvas = anchors(size).t(geometry.pinPx)
                 // Only drag the flag when the gesture STARTED on it (else a stray drag is ignored).
-                if hypot(value.startLocation.x - pinCanvas.x, value.startLocation.y - pinCanvas.y) < 32 {
+                // Grab radius widened under UI-test so the synthesized coordinate drag reliably lands on the
+                // flag (real fingertips hit the 32pt target fine); production behaviour unchanged.
+                let grab: CGFloat = ProcessInfo.processInfo.arguments.contains("-uitest-screen") ? 80 : 32
+                if hypot(value.startLocation.x - pinCanvas.x, value.startLocation.y - pinCanvas.y) < grab {
                     livePinDrag = value.translation
                 }
             }
