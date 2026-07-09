@@ -19,6 +19,8 @@ public struct WatchRoundHomeView: View {
     public let onFinish: () -> Void
     public let onMenu: () -> Void
     public let ringPips: [WatchRingPip]   // round-13: 18-hole edge ring (empty = no ring)
+    public let hasHoleMap: Bool           // watch P1b: 本洞有真几何底图时才显示「球道图」入口
+    public let onHoleMap: () -> Void
 
     public init(
         courseName: String,
@@ -30,6 +32,8 @@ public struct WatchRoundHomeView: View {
         distanceText: String? = nil,
         pendingUploads: Int = 0,
         ringPips: [WatchRingPip] = [],
+        hasHoleMap: Bool = false,
+        onHoleMap: @escaping () -> Void = {},
         onScoreHole: @escaping () -> Void = {},
         onPreviousHole: @escaping () -> Void = {},
         onNextHole: @escaping () -> Void = {},
@@ -45,6 +49,8 @@ public struct WatchRoundHomeView: View {
         self.distanceText = distanceText
         self.pendingUploads = pendingUploads
         self.ringPips = ringPips
+        self.hasHoleMap = hasHoleMap
+        self.onHoleMap = onHoleMap
         self.onScoreHole = onScoreHole
         self.onPreviousHole = onPreviousHole
         self.onNextHole = onNextHole
@@ -84,6 +90,12 @@ public struct WatchRoundHomeView: View {
                         .font(.caption2)
                         .foregroundStyle(AICaddieDesignTokens.offline)
                 }
+            }
+            if hasHoleMap {
+                Button(action: onHoleMap) {
+                    Label("球道图", systemImage: "map.fill").frame(maxWidth: .infinity)
+                }
+                .tint(AICaddieDesignTokens.par)
             }
             Button(action: onScoreHole) {
                 Text("记这一洞").frame(maxWidth: .infinity)

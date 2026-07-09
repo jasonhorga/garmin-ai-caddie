@@ -362,6 +362,12 @@ class MobileContractTests(unittest.TestCase):
             "greenInRegulation": False,
             "fairwayResult": "center",
             "geometryCoverage": "ready",
+            "globalId": 31795,
+            "holeMap": {
+                "w": 360, "h": 530,
+                "you": [252.0, 351.0], "pin": [217.0, 139.0],
+                "layup": [253.0, 201.0], "apex": [278.0, 273.0], "greenCtrl": [235.0, 165.0],
+            },
             "caddieOptions": [
                 {"optionId": "safe", "label": "稳妥", "clubName": "9I", "carryM": 128.0, "expectedStrokes": 3.1, "confidence": "high"},
                 {"optionId": "stock", "label": "标准", "clubName": "8I", "carryM": 142.0, "expectedStrokes": 3.0, "confidence": "high"},
@@ -2805,6 +2811,46 @@ class MobileContractTests(unittest.TestCase):
         # phone builder forwards them, defaulted nil so existing call sites compile unchanged
         self.assertIn("frontGreenM: Double? = nil", bridge)
         self.assertIn("geometryCoverage: String? = nil", bridge)
+
+    def test_watch_offline_hole_map_render_wiring(self) -> None:
+        # watch P1b: the phone pre-computes the hole-map overlay anchors (WatchHoleMap) + pushes the
+        # /topo.png so the watch renders the hole map OFFLINE from local storage. The struct + globalId +
+        # holeMap fields must be declared IDENTICALLY on phone encoder (WatchEventBridge) and watch decoder
+        # (WatchRoundState) to keep the additionalProperties:false schema in lockstep.
+        bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
+        state_swift = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundState.swift")
+        for src in (bridge, state_swift):
+            self.assertIn("struct WatchHoleMap", src)
+            self.assertIn("public let globalId: Int?", src)
+            self.assertIn("public let holeMap: WatchHoleMap?", src)
+        # watch decodes + replays both (decodeIfPresent + applying() passthrough).
+        self.assertIn("decodeIfPresent(WatchHoleMap.self, forKey: .holeMap)", state_swift)
+        self.assertIn("decodeIfPresent(Int.self, forKey: .globalId)", state_swift)
+        self.assertIn("holeMap: holeMap", state_swift)   # applying() rebuild passthrough
+        self.assertIn("globalId: globalId", state_swift)
+        # phone builder: pre-computes anchors from the centreline route, defaulted nil at the call boundary.
+        self.assertIn("static func makeHoleMap(overlay: CoursePrepOverlay", bridge)
+        self.assertIn("func interpRoute(", bridge)
+        self.assertIn("holeMap: WatchHoleMap? = nil", bridge)
+        self.assertIn("globalId: Int? = nil", bridge)
+        # phone: CurrentHoleView computes holeMap + relays the topo bitmap to the watch.
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        self.assertIn("WatchEventBridge.makeHoleMap(overlay:", current_hole)
+        self.assertIn("func pushTopoToWatch(", current_hole)
+        self.assertIn("watchBridge.pushHoleImage(", current_hole)
+        # watch: geometry builder + the .holeMap screen wired into the container + reachable from home.
+        geometry = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapGeometry.swift")
+        self.assertIn("static func from(holeMap:", geometry)
+        container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
+        self.assertIn("case .holeMap:", container)
+        self.assertIn("WatchHoleMapView(", container)
+        self.assertIn("model.openHoleMap()", container)
+        model = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundModel.swift")
+        self.assertIn("case holeMap", model)
+        self.assertIn("func openHoleMap()", model)
+        home = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift")
+        self.assertIn("hasHoleMap", home)
+        self.assertIn("onHoleMap", home)
 
     def test_watch_glance_renders_and_live_screen_populates_green_distances(self) -> None:
         # round-13 LIVE: the watch caddie glance renders 前/中/后果岭 + 坡度 from WatchRoundState,

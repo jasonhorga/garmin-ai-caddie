@@ -16,6 +16,7 @@ public enum WatchRoundScreen: Equatable {
     case scorecard   // round-13: 计分卡逐洞列表
     case holeSelect  // round-13: 选洞
     case menu        // round-13: 菜单 hub(纯文字,S70 式)
+    case holeMap     // watch P1b: 全屏球道图(真几何底图 + 球童线/落点/旗)
 }
 
 public struct WatchRoundConfig: Equatable {
@@ -106,6 +107,7 @@ public final class WatchRoundModel: ObservableObject {
     public func openScorecard() { screen = .scorecard }
     public func openHoleSelect() { screen = .holeSelect }
     public func openMenu() { screen = .menu }
+    public func openHoleMap() { screen = .holeMap }
     public func backToHome() { screen = .home }
     public func selectHole(_ hole: Int) {
         setActiveHole(hole)
