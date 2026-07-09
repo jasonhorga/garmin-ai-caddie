@@ -119,6 +119,10 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     private let stateURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    /// watch P0.4: local cache of per-hole topo images the phone pushes via WatchConnectivity file
+    /// transfer, so the hole map renders offline mid-round. Read by `WatchHoleMapView`'s geometry.
+    public let holeImageStore = WatchHoleImageStore()
+    @Published public private(set) var lastHoleImageKey: String?
 
     public init(queueURL: URL, stateURL: URL? = nil) {
         self.queueURL = queueURL
@@ -412,5 +416,22 @@ extension WatchSyncClient: WCSessionDelegate {
 
     public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
         applyApplicationContext(applicationContext)
+    }
+
+    // watch P0.4: the phone pushes each hole's topo image via `transferFile`; cache it locally (keyed
+    // by the file's {globalId, hole} metadata) so the hole map renders offline while playing.
+    public func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        let meta = file.metadata ?? [:]
+        guard let gid = (meta["globalId"] as? Int) ?? (meta["globalId"] as? NSNumber)?.intValue,
+              let hole = (meta["hole"] as? Int) ?? (meta["hole"] as? NSNumber)?.intValue else {
+            return
+        }
+        do {
+            try holeImageStore.store(fileURL: file.fileURL, globalId: gid, hole: hole)
+            let key = WatchHoleImageStore.key(globalId: gid, hole: hole)
+            DispatchQueue.main.async { self.lastHoleImageKey = key }
+        } catch {
+            WatchLog.sync.error("Store hole image failed: \(String(describing: error), privacy: .public)")
+        }
     }
 }
