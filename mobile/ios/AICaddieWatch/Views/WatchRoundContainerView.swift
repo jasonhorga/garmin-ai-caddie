@@ -181,6 +181,7 @@ public struct WatchRoundContainerView: View {
             showPlaysLike: s.elevationDeltaM != nil,
             geometry: geometry,
             greenSlopePct: s.greenSlopePct,
+            greenSlopeDirDeg: s.greenSlopeDirDeg,
             onToggleBigText: { holeMapBigText = true }
         )
     }

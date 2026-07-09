@@ -377,16 +377,38 @@ def _hole_playslike(by: dict, route) -> dict:
         return {"available": False}
 
 
-def _green_slope(by: dict) -> dict:
+def _green_slope(by: dict, route) -> dict:
     """Green break arrow from the Green mesh elevation (v1, no DSKIMG). Wraps the single ``Green.drc``
-    mesh so ``elevation.collect_positions`` reads its vertices. Empty when the green mesh is missing."""
+    mesh so ``elevation.collect_positions`` reads its vertices, then RE-EXPRESSES the downhill break in
+    IMAGE-PIXEL bearing (projecting the green centroid + a 5 m downhill step through the same
+    ``overlay_projector`` the topo uses) so the client draws the arrow directly — no client-side frame
+    math. ``directionDeg`` becomes the px/screen bearing the ball breaks toward. Empty when no green mesh."""
     green = by.get("Green.drc") if isinstance(by, dict) else None
     if not green:
         return {"available": False}
     try:
-        return elevation.green_slope({"meshes": [green]})
+        slope = elevation.green_slope({"meshes": [green]})
     except Exception:
         return {"available": False}
+    grad = slope.get("gradient")
+    cent = slope.get("centroid")
+    out = {k: v for k, v in slope.items() if k not in ("gradient", "centroid")}
+    if not slope.get("available") or slope.get("flat") or not grad or not cent or not route:
+        return out
+    try:
+        a, b = grad
+        mag = math.hypot(a, b)
+        if mag > 1e-9:
+            ux, uy = -a / mag, -b / mag  # downhill unit in (gx,gy)
+            to_px = hole_render.overlay_projector(by, route)
+            p0 = to_px((cent[0], cent[1]))
+            p1 = to_px((cent[0] + ux * 5.0, cent[1] + uy * 5.0))
+            dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+            if math.hypot(dx, dy) > 1e-6:
+                out["directionDeg"] = round(math.degrees(math.atan2(dy, dx)) % 360)
+    except Exception:
+        pass
+    return out
 
 
 def _green_distances(by: dict, route, md: dict | None = None) -> dict:
@@ -652,7 +674,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         tee_club=tee_club, hazards=hazards,
         playsLike=_hole_playslike(by, route),
         greenDistances=_green_distances(by, route, md),
-        greenSlope=_green_slope(by),
+        greenSlope=_green_slope(by, route),
         holeImageProjection=_hole_image_projection(by, route, md),
     )
     result = prep.to_dict()

@@ -62,6 +62,10 @@ class ElevationTest(unittest.TestCase):
         self.assertAlmostEqual(slope["magnitudePct"], 10.0, delta=0.1)
         # Ball breaks DOWNHILL (toward -gx) → 180°.
         self.assertEqual(slope["directionDeg"], 180)
+        # gradient + centroid exposed for a client to project into image px.
+        self.assertAlmostEqual(slope["gradient"][0], 0.1, delta=0.001)
+        self.assertAlmostEqual(slope["gradient"][1], 0.0, delta=0.001)
+        self.assertAlmostEqual(slope["centroid"][0], 0.0, delta=0.001)
 
     def test_green_slope_flat_has_no_direction(self):
         positions = [[float(x), 0.0, float(z)] for x in (-10, 0, 10) for z in (-10, 0, 10)]

@@ -30,6 +30,20 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(cp._xy({"X": 1.0, "Y": 2.0}), (1.0, 2.0))
         self.assertEqual(cp._xy([3.0, 4.0]), (3.0, 4.0))
 
+    def test_green_slope_ground_bearing_without_route(self) -> None:
+        # elev = 0.1·gx → 10% up toward +gx; breaks toward -gx = 180° in the (gx,gy) ground frame.
+        # No route ⇒ no px re-expression, and the internal gradient/centroid are stripped from the payload.
+        green = {"positions": [[float(x), -0.1 * x, float(z)] for x in (-10, 0, 10) for z in (-10, 0, 10)]}
+        res = cp._green_slope({"Green.drc": green}, None)
+        self.assertTrue(res["available"])
+        self.assertFalse(res["flat"])
+        self.assertEqual(res["directionDeg"], 180)
+        self.assertNotIn("gradient", res)
+        self.assertNotIn("centroid", res)
+
+    def test_green_slope_missing_mesh(self) -> None:
+        self.assertFalse(cp._green_slope({}, None)["available"])
+
     def test_derive_route_from_dogleg(self) -> None:
         md = {"hole": {
             "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}, {"Sets": [5], "X": 0.0, "Y": 10.0}],
