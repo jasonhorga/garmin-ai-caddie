@@ -357,6 +357,8 @@ class MobileContractTests(unittest.TestCase):
             "backGreenM": 142.0,
             "playsLikeDistanceM": 138.0,
             "elevationDeltaM": 3.0,
+            "greenSlopePct": 3.2,
+            "greenSlopeDirDeg": 210.0,
             "lastShotDistanceM": 168.0,
             "distanceFromLastShotM": 142.0,
             "greenInRegulation": False,
@@ -2782,6 +2784,8 @@ class MobileContractTests(unittest.TestCase):
         for field in [
             "frontGreenM", "centerGreenM", "backGreenM", "playsLikeDistanceM",
             "elevationDeltaM", "lastShotDistanceM", "distanceFromLastShotM",
+            # watch P2 green slope (putt-read break): magnitude % + break bearing (topo frame).
+            "greenSlopePct", "greenSlopeDirDeg",
             # watch P0.2: green F/M/B WGS84 coords (watch recomputes distance from its own GPS)
             "frontGreenLat", "frontGreenLon", "centerGreenLat", "centerGreenLon",
             "backGreenLat", "backGreenLon",

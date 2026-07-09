@@ -989,6 +989,9 @@ public struct CurrentHoleView: View {
         let liveGreens = liveGreenMetres
         let playsLike = holePrep?.playsLike
         let slopeM = playsLike?.available == true ? playsLike?.deltaM : nil
+        // watch P2: green break arrow — only when the mesh gave a real, non-flat slope.
+        let greenSlope = holePrep?.greenSlope
+        let greenSlopeOK = greenSlope?.available == true && greenSlope?.flat != true
         // watch P0.2: forward the topo geo→px projection so the watch overlays its own GPS/pin/landings.
         let hip = holePrep?.holeImageProjection
         let watchProj: WatchHoleImageProjection? = (hip?.available == true)
@@ -1037,6 +1040,8 @@ public struct CurrentHoleView: View {
             holeMap: holeMap,
             playsLikeDistanceM: slopeM.flatMap { delta in distanceToPinMetres.map { $0 + delta } },
             elevationDeltaM: slopeM,
+            greenSlopePct: greenSlopeOK ? greenSlope?.magnitudePct : nil,
+            greenSlopeDirDeg: greenSlopeOK ? greenSlope?.directionDeg : nil,
             geometryCoverage: hole.geometryCoverage.rawValue,
             caddieOptions: watchCaddieOptions(decision),
             hazards: watchHazards()
