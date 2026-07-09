@@ -1035,7 +1035,7 @@ const TOPO_PNG_STUB = Buffer.from(
   'base64',
 )
 
-async function mockApi(page: Page): Promise<MockApiRecords> {
+export async function mockApi(page: Page): Promise<MockApiRecords> {
   // Recorded ?include_shots values of every /prep request: the scatter walk is
   // only honest if the page actually asked the server for yourShots.
   const prepIncludeShots: Array<string | null> = []
