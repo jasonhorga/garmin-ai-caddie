@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,12 @@ FEATURES = {
     "Bunker.drc": "bunker",
     "Lake.drc": "water",
     "LakeSide.drc": "water_edge",
+    # Seaside features — present in the SAME decoded geometry we already download, but the original
+    # (inland-only MVP) FEATURES dropped them → coastal courses lost real hazards. Mapped onto the
+    # EXISTING kinds (zero downstream change): sea = water, shoreline = water_edge, beach = sand.
+    "Ocean.drc": "water",
+    "OceanSide.drc": "water_edge",
+    "Beach.drc": "bunker",
     "Green.drc": "green",
     "Fairway.drc": "fairway",
     "Rough.drc": "rough",
@@ -30,6 +37,24 @@ FEATURES = {
     "TreeArea.drc": "tree_area",
     "PlayableBounds.drc": "playable_bounds",
 }
+
+# Meshes we deliberately IGNORE (cosmetic / structural / collision) — anything decoded that is NOT in
+# FEATURES and NOT here gets logged, so a genuinely new hazard type (e.g. WasteBunker/Stream) surfaces
+# instead of silently vanishing the way Ocean/Beach did.
+KNOWN_NON_HAZARD = {
+    "Fringe.drc", "IslandExt.drc", "PhysicsMesh.drc", "Cartpath.drc", "CliffUV2.drc",
+    "Cliff.drc", "VfxGreenA.drc", "VfxGreenB.drc", "VfxOcean.drc", "VfxStream.drc",
+}
+
+logger = logging.getLogger(__name__)
+
+
+def _log_unknown_meshes(names: Any) -> None:
+    """Surface any decoded mesh that is neither an extracted feature nor a known cosmetic one, so a
+    genuinely new Garmin hazard type doesn't silently vanish the way Ocean/Beach did."""
+    for name in names:
+        if name not in FEATURES and name not in KNOWN_NON_HAZARD:
+            logger.warning("prodgeometry: unclassified mesh %r — add to FEATURES or KNOWN_NON_HAZARD", name)
 
 
 def rounded_point(point: tuple[float, float]) -> list[float]:
@@ -47,6 +72,7 @@ def component_distance_to_point(component: dict[str, Any], point: tuple[float, f
 def export(decoded: dict[str, Any]) -> dict[str, Any]:
     hole = decoded["hole"]
     meshes = {mesh["name"]: mesh for mesh in decoded["meshes"]}
+    _log_unknown_meshes(meshes.keys())
     components_by_mesh = {
         source: mesh_components(meshes[source])
         for source in FEATURES
