@@ -356,6 +356,7 @@ class HolePrep:
     hazards: dict = field(default_factory=dict)
     playsLike: dict = field(default_factory=dict)  # round-13: {available, teeElevM, greenElevM, deltaM, deltaYd}
     greenDistances: dict = field(default_factory=dict)  # round-13 E3: {available, front/middle/back M+Yd}
+    holeImageProjection: dict = field(default_factory=dict)  # watch P0.1: geo→px anchors for the topo map
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -456,6 +457,36 @@ def _green_latlon(md: dict | None, front_pt, middle_pt, back_pt) -> dict:
         return out
     except Exception:
         return {}
+
+
+def _hole_image_projection(by: dict, route, md: dict | None = None) -> dict:
+    """The geo→pixel mapping for the hole's ``/topo.png``, so a CLIENT (watch/phone) can place its own
+    live GPS fix + the pin + landing points onto the same rendered map. Returns 3 NON-collinear
+    reference points, each as WGS84 (lat/lon) + its pixel on the map; the client fits an affine from
+    them (same 3-point technique as the server's ``overlay_unprojector``). ``widthPx``/``heightPx`` are
+    the display dims of ``/topo.png`` (``_frame`` size ÷ SS). Empty when the hole has no RefLat/RefLon
+    anchor — a geometry-only hole still ships the F/M/B distances, just can't be GPS-overlaid."""
+    if not route:
+        return {"available": False}
+    hole_meta = (md or {}).get("hole") or {}
+    ref_lat, ref_lon = hole_meta.get("RefLat"), hole_meta.get("RefLon")
+    if ref_lat is None or ref_lon is None:
+        return {"available": False}
+    try:
+        ref_lat, ref_lon = float(ref_lat), float(ref_lon)
+        to_px = hole_render.overlay_projector(by, route)
+        _project, _sc, w, h, _margin = hole_render._frame(by, route)
+        ss = hole_render.SS
+        # 3 non-collinear anchors (metres, (-mesh_x, mesh_z) frame). local→px is affine, so any 3
+        # non-collinear points define it exactly; local→WGS84 via the calibrated inverse.
+        refs = []
+        for lx, ly in ((0.0, 0.0), (120.0, 0.0), (0.0, 120.0)):
+            lat, lon = shot_projection.local_to_world(lx, ly, ref_lat=ref_lat, ref_lon=ref_lon)
+            px, py = to_px((lx, ly))
+            refs.append({"lat": round(lat, 7), "lon": round(lon, 7), "px": round(px, 1), "py": round(py, 1)})
+        return {"available": True, "widthPx": int(w // ss), "heightPx": int(h // ss), "refs": refs}
+    except Exception:
+        return {"available": False}
 
 
 def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
@@ -608,6 +639,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         tee_club=tee_club, hazards=hazards,
         playsLike=_hole_playslike(by, route),
         greenDistances=_green_distances(by, route, md),
+        holeImageProjection=_hole_image_projection(by, route, md),
     )
     result = prep.to_dict()
     if render:
