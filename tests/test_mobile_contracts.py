@@ -2869,6 +2869,29 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func yards(toImagePx", map_view) # derived px→码, no extra payload
         self.assertIn("onToggleBigText", container)     # map long-press bubbles 大字 up
 
+    def test_watch_native_gps_wiring(self) -> None:
+        # watch P3: the watch's OWN GPS recomputes you-px + green distances from the wrist (less phone
+        # dependence; base for standalone). Pure math is unit-tested; here we assert the plumbing exists.
+        geo = _read_required_source(self, WATCH_DIR / "Services" / "WatchGeoMath.swift")
+        self.assertIn("enum WatchGeoMath", geo)
+        self.assertIn("func projectToTopoPx", geo)   # mirrors the phone affine projection
+        self.assertIn("func metres(", geo)           # haversine
+        loc = _read_required_source(self, WATCH_DIR / "Services" / "WatchLocationProvider.swift")
+        self.assertIn("CLLocationManager", loc)
+        self.assertIn("didUpdateLocations", loc)
+        self.assertIn("UITEST_GPS_LAT", loc)         # deterministic test/snapshot injection
+        app = _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift")
+        self.assertIn("WatchLocationProvider", app)
+        self.assertIn("watchGreenYards", app)
+        self.assertIn("WatchGeoMath.projectToTopoPx", app)   # place YOU from the wrist fix
+        self.assertIn("func withYou(", _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapGeometry.swift"))
+        container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
+        self.assertIn("watchGreenYards", container)          # live F/M/B override
+        self.assertIn("func frontYd", container)             # effective (watch-GPS ?? phone) distance
+        # watch needs foreground location permission declared.
+        plist = _read_required_source(self, WATCH_DIR / "Info.plist")
+        self.assertIn("NSLocationWhenInUseUsageDescription", plist)
+
     def test_watch_glance_renders_and_live_screen_populates_green_distances(self) -> None:
         # round-13 LIVE: the watch caddie glance renders 前/中/后果岭 + 坡度 from WatchRoundState,
         # and the iPhone live screen populates them from the per-hole prep (greenDistances/playsLike,

@@ -34,6 +34,13 @@ public struct WatchHoleMapGeometry {
         self.apexPx = apexPx
         self.greenCtrlPx = greenCtrlPx
     }
+
+    /// watch P3: a copy with YOU relocated — used when the watch's own GPS places the player (the pin /
+    /// lay-up / route anchors are unchanged, only where "you" stand).
+    public func withYou(_ px: CGPoint) -> WatchHoleMapGeometry {
+        WatchHoleMapGeometry(image: image, imageSize: imageSize, youPx: px, pinPx: pinPx,
+                             layupPx: layupPx, apexPx: apexPx, greenCtrlPx: greenCtrlPx)
+    }
 }
 
 extension WatchHoleMapSample {
