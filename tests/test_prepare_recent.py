@@ -88,6 +88,39 @@ class PrepareOrchestrationTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(out, {"courses": [], "holes": 0})
 
+    def test_warms_prep_for_each_target_after_topo(self):
+        order = []
+        pr.prepare_recent_round(
+            self._data_one_course(),
+            prewarm=lambda gid, holes: order.append(("topo", gid, holes)),
+            warm_stats=lambda: None,
+            warm_prep=lambda gid, holes: order.append(("prep", gid, holes)),
+        )
+        # prep is warmed for the same (gid, holes) target, AFTER its topo (topo has the geometry the
+        # render needs; prep reuses it) — so 备战/实战 for the newest round's course opens instantly.
+        self.assertEqual(order, [("topo", 222, [1, 2, 3]), ("prep", 222, [1, 2, 3])])
+
+    def test_best_effort_prep_warm_failure_does_not_crash_and_still_warms_stats(self):
+        warmed = []
+
+        def boom(gid, holes):
+            raise RuntimeError("prep build blew up")
+
+        out = pr.prepare_recent_round(
+            self._data_one_course(), prewarm=lambda *a: None,
+            warm_stats=lambda: warmed.append(True), warm_prep=boom,
+        )
+        self.assertEqual(warmed, [True])   # 统计照烤
+        self.assertEqual(out["holes"], 3)  # 报告的是"目标"洞数
+
+    def test_warm_prep_is_optional(self):
+        # Omitting warm_prep (the pre-existing call shape) still runs topo + stats, no crash.
+        warmed = []
+        pr.prepare_recent_round(
+            self._data_one_course(), prewarm=lambda *a: None, warm_stats=lambda: warmed.append(True),
+        )
+        self.assertEqual(warmed, [True])
+
 
 if __name__ == "__main__":
     unittest.main()
