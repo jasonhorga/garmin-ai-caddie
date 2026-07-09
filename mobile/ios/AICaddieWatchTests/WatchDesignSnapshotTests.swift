@@ -223,6 +223,24 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-container-holemap")
     }
 
+    @MainActor
+    func testRenderWatchDistanceHero() throws {
+        // watch P1f: the no-geometry FALLBACK for the hole view — F/M/B hero (center biggest, Garmin S70).
+        let view = WatchDistanceHero(frontYd: 248, centerYd: 262, backYd: 274, caddieLine: "3号木 · 稳妥")
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-distance-hero")
+    }
+
+    @MainActor
+    func testRenderWatchDistanceHeroBig() throws {
+        // watch P1f (spec D1 大字模式): tapping the hole view blows the center number up for arm's-length.
+        let view = WatchDistanceHero(frontYd: 248, centerYd: 262, backYd: 274, caddieLine: "3号木 · 稳妥", bigText: true)
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-distance-hero-big")
+    }
+
     /// A standalone round seeded into a real (temp-dir) store, so the container snapshot exercises the
     /// full `WatchRoundModel` → view wiring rather than hand-built props.
     @MainActor
