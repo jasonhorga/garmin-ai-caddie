@@ -1128,7 +1128,9 @@ async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: stri
 // A PACED walkthrough for a demo SCREEN RECORDING (`video: 'on'` captures it). The smoke tests above run
 // too fast (4–7s) to watch; this holds each screen ~2.6s. Robust: a missing/renamed control is skipped,
 // never fails the recording. Same-file so it reuses mockApi (Playwright forbids importing another spec).
-test('paced demo walkthrough (for the web demo video)', async ({ page }) => {
+// GUARDED behind DEMO_VIDEO so the ~24s of deliberate pauses don't tax every PR's CI — run it on demand
+// (`DEMO_VIDEO=1 npx playwright test`) to regenerate the demo video, then download the web-flow-videos artifact.
+;(process.env.DEMO_VIDEO ? test : test.skip)('paced demo walkthrough (for the web demo video)', async ({ page }) => {
   test.setTimeout(150_000)
   await mockApi(page)
   const pause = (ms = 2600) => page.waitForTimeout(ms)
