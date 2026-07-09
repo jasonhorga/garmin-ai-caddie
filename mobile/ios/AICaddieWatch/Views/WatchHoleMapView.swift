@@ -40,6 +40,8 @@ public struct WatchHoleMapView: View {
     // without touch. Live interaction uses the @State below; the override wins when set.
     public let measuredPxOverride: CGPoint?
     public let pinDragOverride: CGSize?
+    /// watch P2 green slope: putt-read magnitude (%). Direction arrow deferred (needs on-green verify).
+    public let greenSlopePct: Double?
     /// 选点测距: the last tapped point in IMAGE-px space (a crosshair + distance-from-you pill).
     @State private var liveMeasuredPx: CGPoint?
     /// 拖旗: drag offset (canvas px) applied to the pin, so "中" previews "what if the flag were here".
@@ -66,6 +68,7 @@ public struct WatchHoleMapView: View {
         geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry,
         measuredPxOverride: CGPoint? = nil,
         pinDragOverride: CGSize? = nil,
+        greenSlopePct: Double? = nil,
         onToggleBigText: @escaping () -> Void = {}
     ) {
         self.holeNumber = holeNumber
@@ -85,6 +88,7 @@ public struct WatchHoleMapView: View {
         self.geometry = geometry
         self.measuredPxOverride = measuredPxOverride
         self.pinDragOverride = pinDragOverride
+        self.greenSlopePct = greenSlopePct
         self.onToggleBigText = onToggleBigText
     }
 
@@ -206,6 +210,14 @@ public struct WatchHoleMapView: View {
                     distLine("后", backGreen + d, backGrey, big: false)
                     distLine("中", centerGreen + d, pl ? golfYellow : .white, big: true)
                     distLine("前", frontGreen + d, frontBlue, big: false)
+                    // watch P2 green slope (putt read): magnitude only for now — a real break arrow needs
+                    // on-green verification, so we don't draw a possibly-wrong direction (不造假).
+                    if let slope = greenSlopePct, slope >= 0.5 {
+                        Text("果岭坡 \(String(format: "%.1f", slope))%")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(caddieGreen)
+                            .padding(.top, 3)
+                    }
                 }
                 .frame(width: size.width * 0.29, alignment: .leading)
                 .padding(.leading, size.width * 0.07)   // HIG safe-area margin — not jammed against the edge

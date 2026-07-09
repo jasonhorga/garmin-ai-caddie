@@ -173,6 +173,13 @@
     "elevationDeltaM": {
       "type": ["number", "null"]
     },
+    "greenSlopePct": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "greenSlopeDirDeg": {
+      "type": ["number", "null"]
+    },
     "lastShotDistanceM": {
       "type": ["number", "null"],
       "minimum": 0

@@ -195,6 +195,8 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let holeMap: WatchHoleMap?
     public let playsLikeDistanceM: Double?
     public let elevationDeltaM: Double?
+    public let greenSlopePct: Double?
+    public let greenSlopeDirDeg: Double?
     public let lastShotDistanceM: Double?
     public let distanceFromLastShotM: Double?
     public let greenInRegulation: Bool?
@@ -291,6 +293,8 @@ public final class WatchEventBridge: NSObject {
         holeMap: WatchHoleMap? = nil,
         playsLikeDistanceM: Double? = nil,
         elevationDeltaM: Double? = nil,
+        greenSlopePct: Double? = nil,
+        greenSlopeDirDeg: Double? = nil,
         lastShotDistanceM: Double? = nil,
         distanceFromLastShotM: Double? = nil,
         greenInRegulation: Bool? = nil,
@@ -354,6 +358,8 @@ public final class WatchEventBridge: NSObject {
             holeMap: holeMap,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,
+            greenSlopePct: greenSlopePct,
+            greenSlopeDirDeg: greenSlopeDirDeg,
             lastShotDistanceM: lastShotDistanceM,
             distanceFromLastShotM: distanceFromLastShotM,
             greenInRegulation: greenInRegulation,

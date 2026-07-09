@@ -180,6 +180,7 @@ public struct WatchRoundContainerView: View {
             // (elevationDeltaM non-nil ⇒ playsLike.available), so it stays honest.
             showPlaysLike: s.elevationDeltaM != nil,
             geometry: geometry,
+            greenSlopePct: s.greenSlopePct,
             onToggleBigText: { holeMapBigText = true }
         )
     }

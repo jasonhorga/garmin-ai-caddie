@@ -158,6 +158,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let backGreenM: Double?
     public let playsLikeDistanceM: Double?
     public let elevationDeltaM: Double?
+    // watch P2 green slope (putt-read break): magnitude % + the bearing (topo frame) the ball breaks toward.
+    public let greenSlopePct: Double?
+    public let greenSlopeDirDeg: Double?
     public let lastShotDistanceM: Double?
     public let distanceFromLastShotM: Double?
     public let greenInRegulation: Bool?
@@ -223,6 +226,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case holeMap
         case playsLikeDistanceM
         case elevationDeltaM
+        case greenSlopePct
+        case greenSlopeDirDeg
         case lastShotDistanceM
         case distanceFromLastShotM
         case greenInRegulation
@@ -273,6 +278,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         holeMap: WatchHoleMap? = nil,
         playsLikeDistanceM: Double? = nil,
         elevationDeltaM: Double? = nil,
+        greenSlopePct: Double? = nil,
+        greenSlopeDirDeg: Double? = nil,
         lastShotDistanceM: Double? = nil,
         distanceFromLastShotM: Double? = nil,
         greenInRegulation: Bool? = nil,
@@ -321,6 +328,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.holeMap = holeMap
         self.playsLikeDistanceM = playsLikeDistanceM
         self.elevationDeltaM = elevationDeltaM
+        self.greenSlopePct = greenSlopePct
+        self.greenSlopeDirDeg = greenSlopeDirDeg
         self.lastShotDistanceM = lastShotDistanceM
         self.distanceFromLastShotM = distanceFromLastShotM
         self.greenInRegulation = greenInRegulation
@@ -372,6 +381,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.backGreenM = try container.decodeIfPresent(Double.self, forKey: .backGreenM)
         self.playsLikeDistanceM = try container.decodeIfPresent(Double.self, forKey: .playsLikeDistanceM)
         self.elevationDeltaM = try container.decodeIfPresent(Double.self, forKey: .elevationDeltaM)
+        self.greenSlopePct = try container.decodeIfPresent(Double.self, forKey: .greenSlopePct)
+        self.greenSlopeDirDeg = try container.decodeIfPresent(Double.self, forKey: .greenSlopeDirDeg)
         self.lastShotDistanceM = try container.decodeIfPresent(Double.self, forKey: .lastShotDistanceM)
         self.distanceFromLastShotM = try container.decodeIfPresent(Double.self, forKey: .distanceFromLastShotM)
         self.greenInRegulation = try container.decodeIfPresent(Bool.self, forKey: .greenInRegulation)
@@ -443,6 +454,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             holeMap: holeMap,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,
+            greenSlopePct: greenSlopePct,
+            greenSlopeDirDeg: greenSlopeDirDeg,
             lastShotDistanceM: lastShotDistanceM,
             distanceFromLastShotM: distanceFromLastShotM,
             greenInRegulation: greenInRegulation,

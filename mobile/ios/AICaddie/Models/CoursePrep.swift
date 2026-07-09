@@ -138,11 +138,12 @@ public struct CoursePrepHole: Codable, Equatable {
     // round-13 LIVE: per-hole 前/中/后果岭 (F/M/B) + plays-like slope, served on /prep (no DEM).
     public let greenDistances: CoursePrepGreenDistances?
     public let playsLike: CoursePrepPlaysLike?
+    public let greenSlope: CoursePrepGreenSlope?
     // watch P0.1: geo→px anchors so a client can place its GPS/pin/landings on the topo map.
     public let holeImageProjection: CoursePrepHoleImageProjection?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, route, geometryCoverage, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection
+        case hole, par, route, geometryCoverage, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, greenSlope, holeImageProjection
         case parSource = "par_source"
         case blueYards = "blue_yards"
         case routeLenM = "route_len_m"
@@ -171,6 +172,7 @@ public struct CoursePrepHole: Codable, Equatable {
         self.map = try container.decodeIfPresent(CoursePrepMap.self, forKey: .map)
         self.greenDistances = try container.decodeIfPresent(CoursePrepGreenDistances.self, forKey: .greenDistances)
         self.playsLike = try container.decodeIfPresent(CoursePrepPlaysLike.self, forKey: .playsLike)
+        self.greenSlope = try container.decodeIfPresent(CoursePrepGreenSlope.self, forKey: .greenSlope)
         self.holeImageProjection = try container.decodeIfPresent(CoursePrepHoleImageProjection.self, forKey: .holeImageProjection)
     }
 }
@@ -197,6 +199,15 @@ public struct CoursePrepPlaysLike: Codable, Equatable {
     public let available: Bool
     public let deltaM: Double?
     public let deltaYd: Int?
+}
+
+/// Green-surface slope (putt-read break) from the green mesh elevation. `directionDeg` is the bearing in
+/// the hole/topo frame the ball breaks toward (downhill); nil when flat.
+public struct CoursePrepGreenSlope: Codable, Equatable {
+    public let available: Bool
+    public let magnitudePct: Double?
+    public let directionDeg: Double?
+    public let flat: Bool?
 }
 
 // watch P0.1: the topo image's geo→pixel mapping. 3 non-collinear reference points (each WGS84 +
