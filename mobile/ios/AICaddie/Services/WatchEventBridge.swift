@@ -126,6 +126,20 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     }
 }
 
+// watch P0.2 (phone-side mirror of the watch's WatchHoleImageProjection; same JSON keys).
+public struct WatchProjectionRef: Codable, Equatable {
+    public let lat: Double
+    public let lon: Double
+    public let px: Double
+    public let py: Double
+}
+
+public struct WatchHoleImageProjection: Codable, Equatable {
+    public let widthPx: Int?
+    public let heightPx: Int?
+    public let refs: [WatchProjectionRef]?
+}
+
 public struct WatchRoundStatePayload: Codable, Equatable {
     public let schema: String = "ai-caddie-watch-round-state-v1"
     public let roundId: String
@@ -155,6 +169,14 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let frontGreenM: Double?
     public let centerGreenM: Double?
     public let backGreenM: Double?
+    // watch P0.2: green F/M/B WGS84 coords + topo geo→px projection (mirror WatchRoundState keys).
+    public let frontGreenLat: Double?
+    public let frontGreenLon: Double?
+    public let centerGreenLat: Double?
+    public let centerGreenLon: Double?
+    public let backGreenLat: Double?
+    public let backGreenLon: Double?
+    public let holeImageProjection: WatchHoleImageProjection?
     public let playsLikeDistanceM: Double?
     public let elevationDeltaM: Double?
     public let lastShotDistanceM: Double?
@@ -242,6 +264,13 @@ public final class WatchEventBridge: NSObject {
         frontGreenM: Double? = nil,
         centerGreenM: Double? = nil,
         backGreenM: Double? = nil,
+        frontGreenLat: Double? = nil,
+        frontGreenLon: Double? = nil,
+        centerGreenLat: Double? = nil,
+        centerGreenLon: Double? = nil,
+        backGreenLat: Double? = nil,
+        backGreenLon: Double? = nil,
+        holeImageProjection: WatchHoleImageProjection? = nil,
         playsLikeDistanceM: Double? = nil,
         elevationDeltaM: Double? = nil,
         lastShotDistanceM: Double? = nil,
@@ -296,6 +325,13 @@ public final class WatchEventBridge: NSObject {
             frontGreenM: frontGreenM,
             centerGreenM: centerGreenM,
             backGreenM: backGreenM,
+            frontGreenLat: frontGreenLat,
+            frontGreenLon: frontGreenLon,
+            centerGreenLat: centerGreenLat,
+            centerGreenLon: centerGreenLon,
+            backGreenLat: backGreenLat,
+            backGreenLon: backGreenLon,
+            holeImageProjection: holeImageProjection,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,
             lastShotDistanceM: lastShotDistanceM,

@@ -127,6 +127,29 @@
       "type": ["number", "null"],
       "minimum": 0
     },
+    "frontGreenLat": { "type": ["number", "null"] },
+    "frontGreenLon": { "type": ["number", "null"] },
+    "centerGreenLat": { "type": ["number", "null"] },
+    "centerGreenLon": { "type": ["number", "null"] },
+    "backGreenLat": { "type": ["number", "null"] },
+    "backGreenLon": { "type": ["number", "null"] },
+    "holeImageProjection": {
+      "type": ["object", "null"],
+      "properties": {
+        "widthPx": { "type": ["integer", "null"] },
+        "heightPx": { "type": ["integer", "null"] },
+        "refs": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "properties": {
+              "lat": { "type": "number" }, "lon": { "type": "number" },
+              "px": { "type": "number" }, "py": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
     "playsLikeDistanceM": {
       "type": ["number", "null"],
       "minimum": 0
