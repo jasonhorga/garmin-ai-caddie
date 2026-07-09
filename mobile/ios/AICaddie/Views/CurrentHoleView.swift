@@ -33,6 +33,9 @@ public struct CurrentHoleView: View {
     @State private var selectedShotType: String
     @State private var selectedStrategyMode: String = "stock"
     @State private var holePrep: CoursePrepHole?
+    /// 本洞球道图是否在拉取中 —— 区分「加载中」(显示载入提示)和「这洞没几何」(暗底占位),
+    /// 免得 ~2s 的每洞 prep 拉取期间那块暗底看着像坏掉的黑图。
+    @State private var isLoadingHoleMap = false
     @State private var distanceToPinText: String = ""
     @State private var selectedLie: String = "fairway"
     @State private var currentCoordinate: CLLocationCoordinate2D?
@@ -245,10 +248,23 @@ public struct CurrentHoleView: View {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              topoURL: liveTopoURL)
         } else {
-            LinearGradient(
-                colors: [Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255), LivePlayStyle.base],
-                startPoint: .top, endPoint: .bottom
-            )
+            ZStack {
+                LinearGradient(
+                    colors: [Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255), LivePlayStyle.base],
+                    startPoint: .top, endPoint: .bottom
+                )
+                if isLoadingHoleMap {
+                    VStack(spacing: 8) {
+                        ProgressView().tint(.white)
+                        Text("载入球道图…").font(.footnote).foregroundStyle(.white.opacity(0.72))
+                    }
+                } else {
+                    VStack(spacing: 6) {
+                        Image(systemName: "map").font(.title3).foregroundStyle(.white.opacity(0.5))
+                        Text("这一洞暂无球道图").font(.footnote).foregroundStyle(.white.opacity(0.6))
+                    }
+                }
+            }
         }
     }
 
@@ -407,7 +423,9 @@ public struct CurrentHoleView: View {
             return
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
+        if holePrep == nil { isLoadingHoleMap = true }   // 只在首次(还没图)时显示载入态,刷新已有图不闪
         holePrep = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
+        isLoadingHoleMap = false
         // Re-push to the watch now that F/M/B + plays-like are available — the first push in
         // loadCaddieDecision can beat this fetch and would otherwise send nil green distances.
         if holePrep != nil {
