@@ -96,7 +96,8 @@ final class ReviewEditUITests: XCTestCase {
         settle(20)
     }
 
-    private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+    // Demo recordings: cap dead-time settles (waitForExistence guards the taps) so the video stays tight.
+    private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: min(seconds, 2.0)) }
 
     /// A screen coordinate at a normalized offset of the app window — used to tap/drag the Canvas map
     /// (its landings/handles are drawn, not accessibility elements, so there's nothing to query).

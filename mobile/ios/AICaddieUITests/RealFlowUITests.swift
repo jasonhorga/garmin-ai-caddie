@@ -102,7 +102,9 @@ final class RealFlowUITests: XCTestCase {
         settle(20)
     }
 
-    private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+    // Demo recordings: taps are guarded by waitForExistence, so the long per-screen settles were pure
+    // dead time in the screen recording. Cap them so the video stays tight (~a couple min, not nine).
+    private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: min(seconds, 2.0)) }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
     @discardableResult
