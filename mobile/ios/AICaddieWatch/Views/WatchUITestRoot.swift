@@ -54,6 +54,19 @@ public struct WatchUITestRoot: View {
             )
         case "start":
             WatchStartView(phoneReachable: false)
+        case "hole-map":
+            // Real hole map on the baked sample topo — for touch/XCUITest + screenshots.
+            WatchHoleMapView(
+                holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
+                playsLikeDelta: 8, lastShot: 200, caddieClub: "3号木", caddieNote: "推进 · 留100",
+                ringPips: (1...18).map { WatchRingPip(hole: $0, toPar: Self.demoToPars[$0], isCurrent: $0 == 4) },
+                geometry: WatchHoleMapSample.geometry
+            )
+        case "distance-hero":
+            WatchDistanceHero(frontYd: 248, centerYd: 262, backYd: 274, caddieLine: "3号木 · 稳妥")
+        case "live-gps":
+            // The moving-fix video lane: real WatchLocationProvider fed by `simctl location`.
+            WatchLiveGpsDemoView()
         default:
             Text("unknown uitest screen: \(screen)")
         }
@@ -97,5 +110,48 @@ public struct WatchUITestRoot: View {
         caddieOptions: demoOptions, hazards: demoHazards,
         score: 4, putts: 2, penaltyCount: 0, caddieConfidence: "high"
     )
+}
+
+/// The moving-GPS demo hole map for the `live-gps` video lane: a real `WatchLocationProvider` (fed by
+/// `xcrun simctl location start`) drives you-pixel (projected through demo refs onto the sample topo) and
+/// live F/M/B green yardage, exactly like the shipping App does — so `recordVideo` captures "you" walking
+/// down the fairway with the distances counting down. DEBUG/uitest only.
+struct WatchLiveGpsDemoView: View {
+    @StateObject private var loc = WatchLocationProvider()
+    // Demo refs map a small lat/lon region onto the sample topo px: tee→green up the fairway (+ one east
+    // point to fix the affine shear). The `simctl location` route below walks tee→green.
+    private let refs = [
+        WatchProjectionRef(lat: 40.0000, lon: 116.00000, px: 504, py: 702),  // tee
+        WatchProjectionRef(lat: 40.0036, lon: 116.00000, px: 435, py: 279),  // green (~400 m north)
+        WatchProjectionRef(lat: 40.0000, lon: 116.00117, px: 612, py: 716),  // ~100 m east
+    ]
+    private let greenLat = 40.0036, greenLon = 116.00000
+
+    var body: some View {
+        WatchHoleMapView(
+            holeNumber: 4, par: 5,
+            frontGreen: fmb(-6), centerGreen: fmb(0), backGreen: fmb(6),
+            lastShot: 0, caddieClub: "3号木", caddieNote: "推进",
+            ringPips: [], geometry: geo()
+        )
+        .onAppear {
+            loc.requestAuthorization()
+            loc.startUpdatingLocation()
+        }
+    }
+
+    private func geo() -> WatchHoleMapGeometry {
+        let base = WatchHoleMapSample.geometry
+        guard let fix = loc.latestFix,
+              let px = WatchGeoMath.projectToTopoPx(lat: fix.coordinate.latitude, lon: fix.coordinate.longitude, refs: refs)
+        else { return base }
+        return base.withYou(px)
+    }
+
+    private func fmb(_ deltaM: Double) -> Int {
+        guard let fix = loc.latestFix else { return 0 }
+        let c = fix.coordinate
+        return WatchGeoMath.yards(max(0, WatchGeoMath.metres(c.latitude, c.longitude, greenLat, greenLon) + deltaM))
+    }
 }
 #endif
