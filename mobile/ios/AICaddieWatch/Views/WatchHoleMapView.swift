@@ -36,6 +36,17 @@ public struct WatchHoleMapView: View {
     // watch P1: the topo image + overlay anchors (image-px). Defaults to the baked sample (snapshots);
     // the real playing view builds it from the fetched /topo.png + holeImageProjection.
     public let geometry: WatchHoleMapGeometry
+    // watch P2 (选点测距 / 拖旗): snapshot overrides so the measured-point + dragged-pin states render in CI
+    // without touch. Live interaction uses the @State below; the override wins when set.
+    public let measuredPxOverride: CGPoint?
+    public let pinDragOverride: CGSize?
+    /// 选点测距: the last tapped point in IMAGE-px space (a crosshair + distance-from-you pill).
+    @State private var liveMeasuredPx: CGPoint?
+    /// 拖旗: drag offset (canvas px) applied to the pin, so "中" previews "what if the flag were here".
+    @State private var livePinDrag: CGSize = .zero
+
+    private var measuredPx: CGPoint? { measuredPxOverride ?? liveMeasuredPx }
+    private var pinDrag: CGSize { pinDragOverride ?? livePinDrag }
 
     public init(
         holeNumber: Int = 4,
@@ -52,7 +63,10 @@ public struct WatchHoleMapView: View {
         showPlaysLike: Bool = false,
         fullMap: Bool = false,
         mapScale: CGFloat = 0.32,
-        geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry
+        geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry,
+        measuredPxOverride: CGPoint? = nil,
+        pinDragOverride: CGSize? = nil,
+        onToggleBigText: @escaping () -> Void = {}
     ) {
         self.holeNumber = holeNumber
         self.par = par
@@ -69,6 +83,53 @@ public struct WatchHoleMapView: View {
         self.fullMap = fullMap
         self.mapScale = mapScale
         self.geometry = geometry
+        self.measuredPxOverride = measuredPxOverride
+        self.pinDragOverride = pinDragOverride
+        self.onToggleBigText = onToggleBigText
+    }
+
+    private let onToggleBigText: () -> Void
+
+    /// Yards per image-pixel, derived from the known you→green pixel span vs the 中 green yardage — so
+    /// tap-to-measure needs no extra payload. nil if degenerate (no center distance / you==pin).
+    private var yardsPerPx: CGFloat? {
+        let span = hypot(geometry.pinPx.x - geometry.youPx.x, geometry.pinPx.y - geometry.youPx.y)
+        guard span > 1, centerGreen > 0 else { return nil }
+        return CGFloat(centerGreen) / span
+    }
+
+    private var currentScale: CGFloat { fullMap ? mapScale * 1.5 : mapScale }
+
+    /// Distance (码) from YOU to an image-px point, via `yardsPerPx`.
+    private func yards(toImagePx px: CGPoint) -> Int? {
+        guard let ypp = yardsPerPx else { return nil }
+        let d = hypot(px.x - geometry.youPx.x, px.y - geometry.youPx.y) * ypp
+        return Int(d.rounded())
+    }
+
+    /// Convert a canvas tap/drag location back to image-px (inverse of `anchors`).
+    private func imagePx(fromCanvas c: CGPoint, size: CGSize) -> CGPoint {
+        let a = anchors(size)
+        return CGPoint(x: (c.x - a.you.x) / currentScale + geometry.youPx.x,
+                       y: (c.y - a.you.y) / currentScale + geometry.youPx.y)
+    }
+
+    private func handleTap(_ location: CGPoint, size: CGSize) {
+        let a = anchors(size)
+        // Tapping the you-marker clears an existing measurement; otherwise measure to the tapped point.
+        if hypot(location.x - a.you.x, location.y - a.you.y) < 20 { liveMeasuredPx = nil; return }
+        liveMeasuredPx = imagePx(fromCanvas: location, size: size)
+    }
+
+    private func pinDragGesture(_ size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                let pinCanvas = anchors(size).t(geometry.pinPx)
+                // Only drag the flag when the gesture STARTED on it (else a stray drag is ignored).
+                if hypot(value.startLocation.x - pinCanvas.x, value.startLocation.y - pinCanvas.y) < 32 {
+                    livePinDrag = value.translation
+                }
+            }
     }
 
     // MARK: - Palette
@@ -82,15 +143,20 @@ public struct WatchHoleMapView: View {
     private let columnFrac: CGFloat = 0.38
 
     public var body: some View {
-        ZStack {
-            Canvas { context, size in
-                drawMap(&context, size: size)
-            }
-            if showTextOverlay {
-                GeometryReader { geo in
+        GeometryReader { geo in
+            ZStack {
+                Canvas { context, size in
+                    drawMap(&context, size: size)
+                }
+                if showTextOverlay {
                     overlay(geo.size)
                 }
             }
+            .contentShape(Rectangle())
+            // 拖旗: drag the flag; 选点测距: tap to measure; 大字: long-press. (Touch verified on device.)
+            .gesture(pinDragGesture(geo.size))
+            .simultaneousGesture(SpatialTapGesture().onEnded { handleTap($0.location, size: geo.size) })
+            .onLongPressGesture(minimumDuration: 0.45) { onToggleBigText() }
         }
         .background(Color.black)
     }
@@ -198,7 +264,8 @@ public struct WatchHoleMapView: View {
         let player = a.you
         let layup = a.t(geometry.layupPx)
         let apex = a.t(geometry.apexPx)
-        let green = a.t(geometry.pinPx)
+        // 拖旗: the flag follows the drag offset (canvas px), previewing "到旗" from a moved pin.
+        let green = CGPoint(x: a.t(geometry.pinPx).x + pinDrag.width, y: a.t(geometry.pinPx).y + pinDrag.height)
         let greenCtrl = a.t(geometry.greenCtrlPx)
 
         var drew = false
@@ -281,9 +348,37 @@ public struct WatchHoleMapView: View {
             context.draw(context.resolve(Text("上一杆 \(lastShot)").font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: lp)
         }
 
+        // 拖旗: live "到旗" distance from the dragged flag.
+        if pinDrag != .zero, let d = yards(toImagePx: imagePx(fromCanvas: green, size: size)) {
+            pill(&context, at: CGPoint(x: green.x, y: green.y - 20), text: "到旗 \(d)", tint: flagRed)
+        }
+        // 选点测距: crosshair + distance-from-you at the tapped point.
+        if let m = measuredPx {
+            let mc = a.t(m)
+            let r: CGFloat = 7
+            var cross = Path()
+            cross.move(to: CGPoint(x: mc.x - r, y: mc.y)); cross.addLine(to: CGPoint(x: mc.x + r, y: mc.y))
+            cross.move(to: CGPoint(x: mc.x, y: mc.y - r)); cross.addLine(to: CGPoint(x: mc.x, y: mc.y + r))
+            context.stroke(cross, with: .color(.white), style: StrokeStyle(lineWidth: 1.6))
+            context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
+                           with: .color(.white), style: StrokeStyle(lineWidth: 1.3))
+            if let d = yards(toImagePx: m) {
+                pill(&context, at: CGPoint(x: mc.x, y: mc.y - 18), text: "\(d) 码", tint: youBlue)
+            }
+        }
+
         // Scoring ring ONLY on the outermost hole map — not in the zoomed/focused state (matches Garmin:
         // the on-screen score indicator lives on the hole-info view, sub-screens are full content).
         if !fullMap { drawRing(&context, size: size) }
+    }
+
+    /// A small opaque distance pill centered at `p`, tinted by the marker it belongs to.
+    private func pill(_ context: inout GraphicsContext, at p: CGPoint, text: String, tint: Color) {
+        let w = CGFloat(text.count) * 8 + 20
+        let rect = CGRect(x: p.x - w / 2, y: p.y - 9, width: w, height: 18)
+        context.fill(Path(roundedRect: rect, cornerRadius: 9), with: .color(.black.opacity(0.72)))
+        context.stroke(Path(roundedRect: rect, cornerRadius: 9), with: .color(tint), style: StrokeStyle(lineWidth: 1))
+        context.draw(context.resolve(Text(text).font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: p)
     }
 
     /// 18 scoring bars along the rounded-rect perimeter, 12→9 o'clock; each a short SLICE of the perimeter

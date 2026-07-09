@@ -52,17 +52,22 @@ public struct WatchRoundContainerView: View {
             if let s = model.activeHoleState, hasHoleView(s) {
                 ZStack {
                     if holeMapBigText {
-                        distanceHero(s, big: true)          // 大字模式: arm's-length center number
+                        // 大字: tap anywhere to return to the map. (Map long-press turns it on.)
+                        distanceHero(s, big: true)
+                            .contentShape(Rectangle())
+                            .onTapGesture { holeMapBigText = false }
                     } else if let geometry = holeGeometry {
-                        holeMapView(s, geometry)            // the real hole map
+                        // Map owns its gestures: tap=选点测距, drag flag=拖旗, long-press=大字.
+                        holeMapView(s, geometry)
                     } else {
-                        distanceHero(s, big: false)         // no-geometry fallback: big F/M/B hero
+                        // No-geometry hero: tap → 大字 (there is no map to long-press).
+                        distanceHero(s, big: false)
+                            .contentShape(Rectangle())
+                            .onTapGesture { holeMapBigText = true }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black)
-                .contentShape(Rectangle())
-                .onTapGesture { holeMapBigText.toggle() }   // spec D1: tap toggles 大字
                 .overlay(alignment: .bottomLeading) { backToHubButton }
             } else {
                 // Geometry not ready (topo image still transferring) — return to the hub.
@@ -163,7 +168,8 @@ public struct WatchRoundContainerView: View {
             // owner 2026-07-08: KEEP 实打 — only when the backend has a real mesh-elevation slope
             // (elevationDeltaM non-nil ⇒ playsLike.available), so it stays honest.
             showPlaysLike: s.elevationDeltaM != nil,
-            geometry: geometry
+            geometry: geometry,
+            onToggleBigText: { holeMapBigText = true }
         )
     }
 

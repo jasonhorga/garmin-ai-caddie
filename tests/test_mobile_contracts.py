@@ -2858,7 +2858,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchDistanceHero(", container)
         self.assertIn("holeMapBigText", container)     # 大字 toggle state
         self.assertIn("func hasHoleView(", container)  # entry gated on geometry OR a green distance
-        self.assertIn(".onTapGesture", container)      # tap toggles 大字
+        self.assertIn(".onTapGesture", container)      # hero tap ↔ map
+        # watch P2 map interactions: 选点测距(tap→distance)+ 拖旗(drag flag)+ 大字(long-press).
+        map_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
+        self.assertIn("measuredPxOverride", map_view)   # 选点测距 state (+ snapshot override)
+        self.assertIn("pinDragOverride", map_view)      # 拖旗 state (+ snapshot override)
+        self.assertIn("SpatialTapGesture", map_view)    # tap → measure
+        self.assertIn("pinDragGesture", map_view)       # drag → move flag
+        self.assertIn("onLongPressGesture", map_view)   # long-press → 大字
+        self.assertIn("func yards(toImagePx", map_view) # derived px→码, no extra payload
+        self.assertIn("onToggleBigText", container)     # map long-press bubbles 大字 up
 
     def test_watch_glance_renders_and_live_screen_populates_green_distances(self) -> None:
         # round-13 LIVE: the watch caddie glance renders 前/中/后果岭 + 坡度 from WatchRoundState,
