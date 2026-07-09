@@ -454,6 +454,22 @@ public struct CurrentHoleView: View {
         return (front, middle, back)
     }
 
+    /// watch P1d LIVE 果岭测距(米):当前 GPS → 前/中/后果岭 haversine 米距,发给手表当 F/M/B,让手表
+    /// 成为真正的测距仪(距离随走动更新)。与 `liveGreenYards` 同源,但保留米制以复用手表侧 m→码 转换。
+    private var liveGreenMetres: (front: Double?, middle: Double?, back: Double?)? {
+        guard let fix = locationProvider.latestFix, let gd = liveGreenDistances else { return nil }
+        let here = fix.coordinate
+        func metres(_ lat: Double?, _ lon: Double?) -> Double? {
+            guard let lat, let lon else { return nil }
+            return GeoDistance.haversineMetres(here.latitude, here.longitude, lat, lon)
+        }
+        let front = metres(gd.frontLat, gd.frontLon)
+        let middle = metres(gd.middleLat, gd.middleLon)
+        let back = metres(gd.backLat, gd.backLon)
+        guard front != nil || middle != nil || back != nil else { return nil }
+        return (front, middle, back)
+    }
+
     /// 实时果岭测距当前是否生效(有 GPS 定位 + 该洞带果岭经纬度)→ 头部显示「实时」标记区分实时/静态。
     private var isGreenRangeLive: Bool { liveGreenYards != nil }
 
@@ -969,6 +985,8 @@ public struct CurrentHoleView: View {
         // distances (not live-GPS recomputed); nil on holes without usable geometry.
         let green = holePrep?.greenDistances
         let greenOK = green?.available == true
+        // watch P1d: prefer LIVE-GPS green distances (from where the player stands) over static tee→green.
+        let liveGreens = liveGreenMetres
         let playsLike = holePrep?.playsLike
         let slopeM = playsLike?.available == true ? playsLike?.deltaM : nil
         // watch P0.2: forward the topo geo→px projection so the watch overlays its own GPS/pin/landings.
@@ -1005,9 +1023,9 @@ public struct CurrentHoleView: View {
             targetLatitude: targetCoordinate?.latitude,
             targetLongitude: targetCoordinate?.longitude,
             targetKind: targetCoordinate == nil ? nil : "pin",
-            frontGreenM: greenOK ? green?.frontM : nil,
-            centerGreenM: greenOK ? green?.middleM : nil,
-            backGreenM: greenOK ? green?.backM : nil,
+            frontGreenM: liveGreens?.front ?? (greenOK ? green?.frontM : nil),
+            centerGreenM: liveGreens?.middle ?? (greenOK ? green?.middleM : nil),
+            backGreenM: liveGreens?.back ?? (greenOK ? green?.backM : nil),
             frontGreenLat: greenOK ? green?.frontLat : nil,
             frontGreenLon: greenOK ? green?.frontLon : nil,
             centerGreenLat: greenOK ? green?.middleLat : nil,

@@ -50,9 +50,16 @@ public struct WatchRoundContainerView: View {
                     lastShot: WatchUnits.yards(s.lastShotDistanceM ?? 0),
                     caddieClub: caddieClub(s),
                     caddieNote: caddieNote(s),
-                    ringPips: [],            // watch P1b: no scoring ring on the map (unified spec)
+                    // owner 2026-07-08 (Fable audit): KEEP the scoring ring — 18-hole edge ring of the
+                    // round's real per-hole scores, current hole highlighted.
+                    ringPips: model.allHoleStates.map {
+                        WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
+                    },
                     showTextOverlay: true,
-                    showPlaysLike: false,    // raw yardage — no slope-adjusted "实打" (no real DEM yet)
+                    // owner 2026-07-08: KEEP 实打/plays-like — shown ONLY when the backend has a real
+                    // mesh-elevation slope (elevationDeltaM non-nil ⇒ playsLike.available), so it stays
+                    // honest: raw yardage on holes whose geometry carries no elevation.
+                    showPlaysLike: s.elevationDeltaM != nil,
                     geometry: geometry
                 )
                 .overlay(alignment: .bottomLeading) {

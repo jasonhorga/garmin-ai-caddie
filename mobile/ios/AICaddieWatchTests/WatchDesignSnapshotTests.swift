@@ -201,9 +201,20 @@ final class WatchDesignSnapshotTests: XCTestCase {
             suggestedClub: "3号木", selectedClub: nil,
             frontGreenM: 227, centerGreenM: 240, backGreenM: 251,
             globalId: 31669, holeMap: hm,
+            elevationDeltaM: 7,   // real mesh slope ⇒ 实打 shown
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         )
-        model.seedRound([state], activeHole: 4, courseName: "测试球场")
+        // A few scored holes so the KEPT scoring ring has real pips (owner 2026-07-08).
+        let holes = [
+            WatchRoundState(roundId: "r1", hole: 1, par: 4, distanceM: 0, selectedClub: nil,
+                            score: 4, putts: 2, penaltyCount: 0, caddieConfidence: "offline"),
+            WatchRoundState(roundId: "r1", hole: 2, par: 3, distanceM: 0, selectedClub: nil,
+                            score: 2, putts: 1, penaltyCount: 0, caddieConfidence: "offline"),
+            WatchRoundState(roundId: "r1", hole: 3, par: 5, distanceM: 0, selectedClub: nil,
+                            score: 6, putts: 2, penaltyCount: 0, caddieConfidence: "offline"),
+            state,
+        ]
+        model.seedRound(holes, activeHole: 4, courseName: "测试球场")
         model.openHoleMap()
         let geometry = try XCTUnwrap(WatchHoleMapGeometry.from(holeMap: hm, image: WatchHoleMapSample.image))
         let view = WatchRoundContainerView(model: model, holeGeometry: geometry)
