@@ -79,6 +79,13 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run visual smoke
         run: npm run test:e2e
+      - name: Upload web flow videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-flow-videos
+          path: web_v2/test-results/**/*.webm
+          if-no-files-found: warn
 
   docker:
     # P1-7: nothing used to build the Docker images, so the deployed runtime — especially the sync
