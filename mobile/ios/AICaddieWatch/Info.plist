@@ -20,6 +20,8 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>用你的位置在球道图上定位「你」并实时计算到果岭前/中/后的距离。</string>
     <key>WKApplication</key>
     <true/>
     <key>WKCompanionAppBundleIdentifier</key>

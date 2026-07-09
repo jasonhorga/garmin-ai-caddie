@@ -13,10 +13,21 @@ public struct WatchRoundContainerView: View {
     /// bright-sun reading. Toggled on the .holeMap screen; the map + the no-geometry hero both honor it.
     @State private var holeMapBigText = false
 
-    public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil) {
+    /// watch P3: F/M/B green distances (码) from the watch's OWN GPS; when present they override the
+    /// phone-pushed static distances so the hole view is a live rangefinder even without the phone.
+    private let watchGreenYards: (front: Int?, center: Int?, back: Int?)?
+
+    public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
+                watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil) {
         self.model = model
         self.holeGeometry = holeGeometry
+        self.watchGreenYards = watchGreenYards
     }
+
+    // watch P3: effective F/M/B — the watch-GPS value when available, else the phone-pushed distance.
+    private func frontYd(_ s: WatchRoundState) -> Int { watchGreenYards?.front ?? WatchUnits.yards(s.frontGreenM ?? 0) }
+    private func centerYd(_ s: WatchRoundState) -> Int { watchGreenYards?.center ?? WatchUnits.yards(s.centerGreenM ?? 0) }
+    private func backYd(_ s: WatchRoundState) -> Int { watchGreenYards?.back ?? WatchUnits.yards(s.backGreenM ?? 0) }
 
     /// watch P1f: the hole view has a map (geometry holes) or a big F/M/B hero (no-geometry fallback), and
     /// a 大字 toggle that swaps either for the arm's-length center number. Shown when the hole has geometry
@@ -153,9 +164,9 @@ public struct WatchRoundContainerView: View {
         WatchHoleMapView(
             holeNumber: s.hole,
             par: s.par,
-            frontGreen: WatchUnits.yards(s.frontGreenM ?? 0),
-            centerGreen: WatchUnits.yards(s.centerGreenM ?? 0),
-            backGreen: WatchUnits.yards(s.backGreenM ?? 0),
+            frontGreen: frontYd(s),
+            centerGreen: centerYd(s),
+            backGreen: backYd(s),
             playsLikeDelta: Int((s.elevationDeltaM ?? 0).rounded()),
             lastShot: WatchUnits.yards(s.lastShotDistanceM ?? 0),
             caddieClub: caddieClub(s),
@@ -175,9 +186,9 @@ public struct WatchRoundContainerView: View {
 
     private func distanceHero(_ s: WatchRoundState, big: Bool) -> some View {
         WatchDistanceHero(
-            frontYd: s.frontGreenM.map { WatchUnits.yards($0) },
-            centerYd: s.centerGreenM.map { WatchUnits.yards($0) },
-            backYd: s.backGreenM.map { WatchUnits.yards($0) },
+            frontYd: watchGreenYards?.front ?? s.frontGreenM.map { WatchUnits.yards($0) },
+            centerYd: watchGreenYards?.center ?? s.centerGreenM.map { WatchUnits.yards($0) },
+            backYd: watchGreenYards?.back ?? s.backGreenM.map { WatchUnits.yards($0) },
             caddieLine: caddieLine(s),
             bigText: big
         )
