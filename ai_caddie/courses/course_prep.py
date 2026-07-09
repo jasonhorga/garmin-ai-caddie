@@ -356,6 +356,7 @@ class HolePrep:
     hazards: dict = field(default_factory=dict)
     playsLike: dict = field(default_factory=dict)  # round-13: {available, teeElevM, greenElevM, deltaM, deltaYd}
     greenDistances: dict = field(default_factory=dict)  # round-13 E3: {available, front/middle/back M+Yd}
+    greenSlope: dict = field(default_factory=dict)  # {available, magnitudePct, directionDeg (break dir), flat}
     holeImageProjection: dict = field(default_factory=dict)  # watch P0.1: geo→px anchors for the topo map
 
     def to_dict(self) -> dict:
@@ -372,6 +373,18 @@ def _hole_playslike(by: dict, route) -> dict:
         return {"available": False}
     try:
         return elevation.playslike(by, route[0], route[-1])
+    except Exception:
+        return {"available": False}
+
+
+def _green_slope(by: dict) -> dict:
+    """Green break arrow from the Green mesh elevation (v1, no DSKIMG). Wraps the single ``Green.drc``
+    mesh so ``elevation.collect_positions`` reads its vertices. Empty when the green mesh is missing."""
+    green = by.get("Green.drc") if isinstance(by, dict) else None
+    if not green:
+        return {"available": False}
+    try:
+        return elevation.green_slope({"meshes": [green]})
     except Exception:
         return {"available": False}
 
@@ -639,6 +652,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         tee_club=tee_club, hazards=hazards,
         playsLike=_hole_playslike(by, route),
         greenDistances=_green_distances(by, route, md),
+        greenSlope=_green_slope(by),
         holeImageProjection=_hole_image_projection(by, route, md),
     )
     result = prep.to_dict()
