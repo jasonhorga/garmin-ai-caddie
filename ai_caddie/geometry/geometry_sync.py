@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import threading
 from pathlib import Path
 from typing import Any
 
-from ai_caddie.geometry.inspect_courseview_release import COURSEVIEW, inspect_release, load_release_pb
+from ai_caddie.geometry.inspect_courseview_release import (
+    COURSEVIEW,
+    inspect_release,
+    load_layout_by_date,
+    load_release_pb,
+    parse_date_layout,
+)
 
 from ai_caddie.geometry.batch_prodgeometry_course import process_hole
 
@@ -55,6 +62,27 @@ def _player_profile_id() -> str | None:
     return None
 
 
+def _round_ts_ms(course_id: int) -> int | None:
+    """Epoch-ms of a stored round on this course (latest wins) — used to fetch the CourseView layout
+    AS OF a play date when the ``/releases/`` (latest) endpoint 404s on a withdrawn-latest course."""
+    best: int | None = None
+    for path in scorecard_files():
+        try:
+            sc = json.loads(path.read_text())["scorecardDetails"][0]["scorecard"]
+            ids = {sc.get("courseGlobalId"), sc.get("frontNineGlobalCourseId"), sc.get("backNineGlobalCourseId")}
+            if course_id not in ids:
+                continue
+            raw = sc.get("startTime") or sc.get("formattedStartTime")
+            if not raw:
+                continue
+            dt = datetime.datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            ms = int(dt.timestamp() * 1000)
+            best = ms if best is None else max(best, ms)
+        except Exception:
+            continue
+    return best
+
+
 def _release(course_id: int, *, live: bool | None = None) -> tuple[dict[str, Any], str]:
     errors: list[str] = []
     modes = (live,) if live is not None else (False, True)
@@ -67,6 +95,18 @@ def _release(course_id: int, *, live: bool | None = None) -> tuple[dict[str, Any
             return inspect_release(pb), "live" if mode else "cache"
         except Exception as exc:
             errors.append(f"{'live' if mode else 'cache'}: {exc}")
+    # Fallback: the LATEST release is gone (404) but the course still exists (an old course whose
+    # newest release Garmin withdrew). Fetch the historical layout AS OF a stored round's play date —
+    # exactly what the Garmin app does; it still serves the withdrawn-latest course's geometry.
+    ts = _round_ts_ms(course_id)
+    if ts is not None:
+        try:
+            layout = parse_date_layout(load_layout_by_date(course_id, ts))
+            if layout.get("holes"):
+                return layout, f"date:{ts}"
+            errors.append("date: no geometry URLs in layout")
+        except Exception as exc:
+            errors.append(f"date: {exc}")
     raise RuntimeError("; ".join(errors))
 
 
