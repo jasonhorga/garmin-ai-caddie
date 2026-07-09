@@ -1124,3 +1124,35 @@ async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: stri
     animations: 'disabled',
   })
 }
+
+// A PACED walkthrough for a demo SCREEN RECORDING (`video: 'on'` captures it). The smoke tests above run
+// too fast (4–7s) to watch; this holds each screen ~2.6s. Robust: a missing/renamed control is skipped,
+// never fails the recording. Same-file so it reuses mockApi (Playwright forbids importing another spec).
+test('paced demo walkthrough (for the web demo video)', async ({ page }) => {
+  test.setTimeout(150_000)
+  await mockApi(page)
+  const pause = (ms = 2600) => page.waitForTimeout(ms)
+  const tap = async (name: string, scopeNav = false) => {
+    try {
+      const root = scopeNav ? page.getByRole('navigation', { name: '辅助导航' }) : page
+      const b = root.getByRole('button', { name, exact: true }).first()
+      if (await b.isVisible({ timeout: 3500 })) { await b.click(); await pause(); return }
+    } catch { /* fall through */ }
+    try {
+      const t = page.getByText(name, { exact: false }).first()
+      if (await t.isVisible({ timeout: 2000 })) { await t.click(); await pause() }
+    } catch { /* skip missing control */ }
+  }
+  await page.goto('/')
+  await pause(3200)
+  await tap('统计')
+  await tap('趋势总览', true)
+  await pause(2000)
+  await tap('强弱分析', true)
+  await tap('复盘')
+  await tap('回放 Black Knight B 05-20')
+  await tap('备战')
+  await tap('球童沙盘')
+  await tap('球包')
+  await pause(2000)
+})
