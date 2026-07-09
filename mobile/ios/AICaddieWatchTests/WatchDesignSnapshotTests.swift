@@ -205,6 +205,43 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchHoleMap() throws {
+        // watch P1 (consensus 主打球屏 = watch-holeview.png): real-topo hole map (left data column +
+        // right map on the baked sample geometry) + F/M/B + caddie chip + edge scoring ring. Uses the
+        // default `WatchHoleMapSample.geometry`; the real playing view feeds a fetched image + projection.
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5,
+            frontGreen: 273, centerGreen: 287, backGreen: 300,
+            playsLikeDelta: 8, lastShot: 200,
+            caddieClub: "3号木", caddieNote: "推进 · 留100",
+            ringPips: pips
+        )
+        .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
+        .background(Color.black)
+        try render(view, named: "watch-holemap")
+    }
+
+    @MainActor
+    func testRenderWatchHoleMapPlaysLike() throws {
+        // 实打 TOGGLE: 后/中/前 flip to slope-adjusted values with a ↑ arrow (+8 uphill → plays longer).
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5,
+            frontGreen: 273, centerGreen: 287, backGreen: 300,
+            playsLikeDelta: 8, lastShot: 200,
+            caddieClub: "3号木", caddieNote: "推进 · 留100",
+            ringPips: pips,
+            showPlaysLike: true
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holemap-pl")
+    }
+
+    @MainActor
     private func render(_ view: some View, named name: String) throws {
         // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
