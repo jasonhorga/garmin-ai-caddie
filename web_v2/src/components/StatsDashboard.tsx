@@ -393,7 +393,7 @@ export function StatsDashboard({ stats, allStats, window: statsWindow, onWindowC
                 <span className="statsx-sgrow-val">−{fmt1(lossTotal)}</span>
               </div>
               <p className="statsx-note">
-                来自问题引擎的近期失杆估算(相对你的基线窗口)。逐杆基准的真·击杆优势尚未计算。
+                根据你最近几场的表现估算,数值越低说明这一环节丢杆越多。
               </p>
             </>
           ) : (
