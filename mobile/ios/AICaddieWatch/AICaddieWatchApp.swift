@@ -37,9 +37,16 @@ public struct AICaddieWatchApp: App {
     private var content: some View {
 #if DEBUG
         if let uitestScreen = WatchUITestRoot.requestedScreen() {
-            // `simctl launch ... -uitest-screen <name>`: render the real view with demo data so
-            // `simctl io screenshot` captures it (watchOS has no XCUITest). DEBUG-only.
-            WatchUITestRoot(screen: uitestScreen)
+            if uitestScreen == "wc-live" {
+                // Phone→watch WC interaction demo: render the REAL companion glance bound to the live
+                // syncClient — WatchStartView until the paired phone pushes state, then WatchHoleView with
+                // its 到旗 distance updating live. The App-level location request stays skipped (isUITest).
+                standardContent
+            } else {
+                // `simctl launch ... -uitest-screen <name>`: render the real view with demo data so
+                // `simctl io screenshot` captures it (watchOS has no XCUITest). DEBUG-only.
+                WatchUITestRoot(screen: uitestScreen)
+            }
         } else {
             standardContent
         }

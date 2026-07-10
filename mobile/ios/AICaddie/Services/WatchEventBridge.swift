@@ -450,6 +450,36 @@ public final class WatchEventBridge: NSObject {
         }
     }
 
+    #if DEBUG
+    /// UITEST-only demo push (`-uitest-screen wc-push-demo`): walk a synthetic live state from ~190y to
+    /// the green over `total` steps and send it over the REAL WatchConnectivity path, so a PAIRED watch
+    /// sim's companion glance (WatchHoleView) shows its 到旗 distance counting down as the phone pushes —
+    /// the phone→watch interaction, recordable on the watch sim. No real round / no backend write.
+    public func sendDemoState(step: Int, total: Int) {
+        let t = Double(min(max(step, 0), total)) / Double(max(total, 1))   // 0 → 1 approaching the green
+        let centerYd = 190.0 * (1 - t) + 6.0 * t
+        let toM = { (yd: Double) in yd / 1.09361 }
+        let payload = WatchRoundStatePayload(
+            roundId: "wc-demo", hole: 4, par: 5,
+            distanceM: toM(centerYd),
+            targetNote: "球道中央", targetLatitude: 40.0036, targetLongitude: 116.0, targetKind: "green",
+            suggestedClub: centerYd > 60 ? "3号木" : "劈起杆", selectedClub: nil,
+            availableClubs: [], shotType: nil, strategyMode: "stock", lie: "fairway",
+            offlineOptionId: nil, decisionId: nil, nextShotPrompt: nil, holePlanSummary: nil,
+            expectedStrokes: nil, expectedRemainingM: nil, evidenceSummary: nil, missingDataSummary: nil,
+            frontGreenM: toM(centerYd - 8), centerGreenM: toM(centerYd), backGreenM: toM(centerYd + 8),
+            frontGreenLat: nil, frontGreenLon: nil, centerGreenLat: nil, centerGreenLon: nil,
+            backGreenLat: nil, backGreenLon: nil, holeImageProjection: nil,
+            globalId: nil, holeMap: nil, playsLikeDistanceM: nil, elevationDeltaM: nil,
+            greenSlopePct: nil, greenSlopeDirDeg: nil, lastShotDistanceM: nil, distanceFromLastShotM: nil,
+            greenInRegulation: nil, fairwayResult: nil, geometryCoverage: nil,
+            caddieOptions: [], hazards: [],
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "med"
+        )
+        try? sendStateToWatch(payload)
+    }
+    #endif
+
     /// round-12 P3.4 (Watch standalone): hand the watch what it needs to reach the backend on its own
     /// (base URL + auth), so a standalone round can sync without the phone relaying each event. Sent via
     /// application context — latest-wins and delivered even when the watch isn't reachable now.
