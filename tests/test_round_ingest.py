@@ -137,6 +137,29 @@ class RoundIngestCoreTests(unittest.TestCase):
         with self.assertRaises(round_ingest.RoundIngestError):
             round_ingest.ingest_round("p_friend", [], _meta(), idempotency_key="x", root=self.root)
 
+    def test_watch_fairway_event_reduces_to_hit_miss(self) -> None:
+        # 上球道问法: 左/中/右 = on the fairway (hit); 没上 = miss.
+        holes = round_ingest._parse_events([
+            {"hole": 1, "kind": "score", "payload": {"strokes": 4}},
+            {"hole": 1, "kind": "fairway", "payload": {"result": "left"}},
+            {"hole": 2, "kind": "score", "payload": {"strokes": 5}},
+            {"hole": 2, "kind": "fairway", "payload": {"result": "miss"}},
+        ])
+        self.assertEqual(holes[1].fairway, "hit")
+        self.assertEqual(holes[2].fairway, "miss")
+
+    def test_watch_fairway_rejects_unknown_result(self) -> None:
+        with self.assertRaises(round_ingest.RoundIngestError):
+            round_ingest._parse_events([{"hole": 1, "kind": "fairway", "payload": {"result": "sideways"}}])
+
+    def test_explicit_watch_fairway_wins_over_derived(self) -> None:
+        # An explicit tap must survive the GPS-derived enrichment (which only fills when absent).
+        events = _events() + [{"hole": 1, "kind": "fairway", "payload": {"result": "miss"}}]
+        round_ingest.ingest_round("p_friend", events, _meta(), idempotency_key="rnd-fw", root=self.root)
+        row = history.load_raw_rounds(player_id="p_friend")[0]
+        hole1 = next(h for h in row["holes"] if h["number"] == 1)
+        self.assertEqual(hole1["fairway"], "miss")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -31,7 +31,7 @@ OWNER_ID = "me"
 
 _INDEX_SCHEMA = "ai-caddie-ingest-index-v1"
 _SHOT_TYPE_MAP = {"tee": "TEE", "approach": "APPROACH", "recovery": "RECOVERY"}
-_RELEVANT_KINDS = {"club", "location", "score", "putt", "penalty", "note"}
+_RELEVANT_KINDS = {"club", "location", "score", "putt", "penalty", "note", "fairway"}
 
 
 class RoundIngestError(Exception):
@@ -126,7 +126,7 @@ def _as_float(value: Any) -> float | None:
 
 
 class _HoleAccumulator:
-    __slots__ = ("strokes", "putts", "penalties", "shots", "notes")
+    __slots__ = ("strokes", "putts", "penalties", "shots", "notes", "fairway")
 
     def __init__(self) -> None:
         self.strokes: int | None = None
@@ -134,6 +134,9 @@ class _HoleAccumulator:
         self.penalties: int = 0
         self.shots: list[dict[str, Any]] = []
         self.notes: list[str] = []
+        # Explicit fairway-hit the player tapped on the watch (左/中/右→"hit", 没上→"miss"). When set it
+        # WINS over the GPS-derived one below — a deliberate on-course call beats a geometry guess.
+        self.fairway: str | None = None
 
 
 def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
@@ -192,6 +195,13 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
             note = payload.get("note")
             if isinstance(note, str) and note:
                 acc.notes.append(note)
+        elif kind == "fairway":
+            # Watch 上球道问法: 左/中/右 = 打上了球道(hit), 没上 = miss. Reduce to the scorecard's
+            # hit/miss so it feeds the existing 开球上球道 (tee_fairway_control) stat; last event wins.
+            result = payload.get("result")
+            if result not in {"left", "center", "right", "miss"}:
+                raise RoundIngestError("fairway event needs result left/center/right/miss")
+            acc.fairway = "miss" if result == "miss" else "hit"
 
     return holes
 
@@ -269,6 +279,10 @@ def _build_scorecard(
         if acc.strokes is None:
             continue
         hole_dict: dict[str, Any] = {"number": number, "strokes": acc.strokes}
+        # The player's explicit watch call wins: set it first so the GPS-derived helper below (which
+        # only fills fairway when absent) never overwrites a deliberate 上球道 tap.
+        if acc.fairway is not None:
+            hole_dict["fairway"] = acc.fairway
         # Manual rounds carry no Garmin gir/fairway -> derive REAL ones from per-shot GPS +
         # hole geometry. Only-when-absent (the helper never overwrites a present value) and
         # undeterminable values are omitted, so this is a pure add for no-Garmin members.

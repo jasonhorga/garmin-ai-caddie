@@ -7,6 +7,7 @@ public enum WatchInputKind: String, Codable, Equatable {
     case penalty
     case club
     case distance
+    case fairway
 }
 
 public struct WatchClubOption: Codable, Equatable, Identifiable {
@@ -263,6 +264,13 @@ public final class WatchEventBridge: NSObject {
                 kind: .club,
                 payload: payload
             )
+        case .fairway:
+            // 上球道问法: value is left/center/right/miss; backend reduces to hit/miss for the 开球上球道 stat.
+            guard let result = nonEmpty(event.value),
+                  ["left", "center", "right", "miss"].contains(result) else {
+                throw WatchEventBridgeError.invalidNumericInput
+            }
+            return liveEvent(event, kind: .fairway, payload: ["result": .string(result)])
         }
     }
 

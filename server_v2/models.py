@@ -46,7 +46,7 @@ AnnotationKind = Literal[
 MediaTargetType = Literal["round", "hole", "shot"]
 MediaKind = Literal["photo", "video"]
 MediaPrivacyState = Literal["private_local", "synced", "redacted"]
-LiveRoundEventKind = Literal["score", "club", "putt", "penalty", "note", "location", "photo", "video", "sync_marker"]
+LiveRoundEventKind = Literal["score", "club", "putt", "penalty", "note", "fairway", "location", "photo", "video", "sync_marker"]
 
 _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
     "score": ({"strokes"}, {"source"}),
@@ -67,6 +67,7 @@ _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
     "putt": ({"putts"}, {"source"}),
     "penalty": ({"penalties"}, {"source"}),
     "note": ({"note"}, {"source"}),
+    "fairway": ({"result"}, {"source"}),
     "location": (
         {"latitude", "longitude"},
         {"source", "horizontalAccuracyM", "altitudeM", "targetLatitude", "targetLongitude", "targetSource", "targetKind"},
@@ -93,6 +94,7 @@ _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
     "putt": {"putts": "number", "source": "string"},
     "penalty": {"penalties": "number", "source": "string"},
     "note": {"note": "string", "source": "string"},
+    "fairway": {"result": "string", "source": "string"},
     "location": {
         "latitude": "number",
         "longitude": "number",
@@ -133,6 +135,7 @@ _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
 _LIVE_EVENT_PAYLOAD_ENUMS: dict[tuple[str, str], set[str]] = {
     ("club", "shotType"): {"tee", "approach", "recovery"},
     ("club", "strategyMode"): {"protect_score", "stock", "attack"},
+    ("fairway", "result"): {"left", "center", "right", "miss"},
 }
 
 
