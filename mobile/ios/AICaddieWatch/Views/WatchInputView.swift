@@ -14,6 +14,8 @@ public struct WatchInputView: View {
     @State private var puttsDirty = false
     @State private var clubDirty = false
     @State private var distanceDirty = false
+    @State private var fairway = ""          // "" | left | center | right | miss (上球道问法)
+    @State private var fairwayDirty = false
 
     public init(state: WatchRoundState, clubs: [String], onEvent: @escaping (WatchInputEvent) -> Void = { _ in }) {
         self.state = state
@@ -44,6 +46,13 @@ public struct WatchInputView: View {
                 }
             }
             .disabled(inputClubs.isEmpty)
+            Picker("上球道", selection: $fairway) {
+                Text("—").tag("")
+                Text("左").tag("left")
+                Text("中").tag("center")
+                Text("右").tag("right")
+                Text("没上").tag("miss")
+            }
             Button("保存") {
                 if distanceDirty && hasClubContext {
                     // 显示/输入是码,但事件/状态(distanceM)与 Garmin 一致仍是米 → 边界换算回米。
@@ -58,13 +67,20 @@ public struct WatchInputView: View {
                 if clubDirty && hasClubContext {
                     emit(kind: .club, value: selectedClub)
                 }
+                if fairwayDirty && !fairway.isEmpty {
+                    emit(kind: .fairway, value: fairway)
+                }
                 distanceDirty = false
                 scoreDirty = false
                 puttsDirty = false
                 clubDirty = false
+                fairwayDirty = false
             }
         }
         .navigationTitle("输入")
+        .onChange(of: fairway) { _, _ in
+            fairwayDirty = true
+        }
         .onChange(of: distanceYd) { _, _ in
             distanceDirty = true
         }

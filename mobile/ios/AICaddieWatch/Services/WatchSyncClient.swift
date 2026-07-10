@@ -9,6 +9,7 @@ public enum WatchInputKind: String, Codable, Equatable {
     case penalty
     case club
     case distance
+    case fairway
 }
 
 public struct WatchInputEvent: Codable, Equatable, Identifiable {
