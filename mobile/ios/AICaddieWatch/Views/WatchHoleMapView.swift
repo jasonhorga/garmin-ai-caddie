@@ -387,7 +387,8 @@ public struct WatchHoleMapView: View {
 
         // 拖旗: live "到旗" distance from the dragged flag.
         if pinDrag != .zero, let d = yards(toImagePx: imagePx(fromCanvas: green, size: size)) {
-            pill(&context, at: CGPoint(x: green.x, y: green.y - 20), text: "到旗 \(d)", tint: flagRed)
+            pill(&context, at: CGPoint(x: green.x, y: green.y - 20), text: "到旗 \(d)", tint: flagRed,
+                 minX: mapLeft + 4, maxX: size.width - 4)
         }
         // 选点测距: crosshair + distance-from-you at the tapped point.
         if let m = measuredPx {
@@ -400,7 +401,8 @@ public struct WatchHoleMapView: View {
             context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
                            with: .color(.white), style: StrokeStyle(lineWidth: 1.3))
             if let d = yards(toImagePx: m) {
-                pill(&context, at: CGPoint(x: mc.x, y: mc.y - 18), text: "\(d) 码", tint: youBlue)
+                pill(&context, at: CGPoint(x: mc.x, y: mc.y - 18), text: "\(d) 码", tint: youBlue,
+                     minX: mapLeft + 4, maxX: size.width - 4)
             }
         }
 
@@ -409,13 +411,18 @@ public struct WatchHoleMapView: View {
         if !fullMap { drawRing(&context, size: size) }
     }
 
-    /// A small opaque distance pill centered at `p`, tinted by the marker it belongs to.
-    private func pill(_ context: inout GraphicsContext, at p: CGPoint, text: String, tint: Color) {
+    /// A small opaque distance pill centered at `p`, tinted by the marker it belongs to. `minX`/`maxX`
+    /// clamp the pill's CENTRE so its box never spills left of the map (over the caddie data column) or
+    /// off the right edge — only the label shifts; the crosshair/marker still sits at the true point.
+    private func pill(_ context: inout GraphicsContext, at p: CGPoint, text: String, tint: Color,
+                      minX: CGFloat = 0, maxX: CGFloat = .infinity) {
         let w = CGFloat(text.count) * 8 + 20
-        let rect = CGRect(x: p.x - w / 2, y: p.y - 9, width: w, height: 18)
+        let cx = max(min(p.x, maxX - w / 2), minX + w / 2)
+        let center = CGPoint(x: cx, y: p.y)
+        let rect = CGRect(x: cx - w / 2, y: p.y - 9, width: w, height: 18)
         context.fill(Path(roundedRect: rect, cornerRadius: 9), with: .color(.black.opacity(0.72)))
         context.stroke(Path(roundedRect: rect, cornerRadius: 9), with: .color(tint), style: StrokeStyle(lineWidth: 1))
-        context.draw(context.resolve(Text(text).font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: p)
+        context.draw(context.resolve(Text(text).font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: center)
     }
 
     /// 18 scoring bars along the rounded-rect perimeter, 12→9 o'clock; each a short SLICE of the perimeter
