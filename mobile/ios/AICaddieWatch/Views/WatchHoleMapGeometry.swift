@@ -8,6 +8,20 @@ import UIKit
 /// these to one baked sample; this makes them a value the view takes, so the real playing view can
 /// build them from the fetched `/topo.png` + `holeImageProjection` (project GPS / green / shots →
 /// image px), while snapshots keep using `WatchHoleMapSample.geometry`.
+/// A hazard placed on the hole map at the two intersections of the player's LINE OF PLAY with the
+/// hazard (near edge = 到前沿 / far edge = 越过后沿), in image-pixel space. Carry distances are derived
+/// from these px via the view's yards-per-pixel — no extra payload. (design-system #7)
+public struct WatchMapHazard: Equatable {
+    public let kind: String   // "bunker" | "water"
+    public let nearPx: CGPoint
+    public let farPx: CGPoint
+    public init(kind: String, nearPx: CGPoint, farPx: CGPoint) {
+        self.kind = kind
+        self.nearPx = nearPx
+        self.farPx = farPx
+    }
+}
+
 public struct WatchHoleMapGeometry {
     public let image: UIImage?
     public let imageSize: CGSize
@@ -16,6 +30,8 @@ public struct WatchHoleMapGeometry {
     public let layupPx: CGPoint
     public let apexPx: CGPoint
     public let greenCtrlPx: CGPoint
+    /// Hazards along the line of play (near/far px). Empty = none shown.
+    public let hazards: [WatchMapHazard]
 
     public init(
         image: UIImage?,
@@ -24,7 +40,8 @@ public struct WatchHoleMapGeometry {
         pinPx: CGPoint,
         layupPx: CGPoint,
         apexPx: CGPoint,
-        greenCtrlPx: CGPoint
+        greenCtrlPx: CGPoint,
+        hazards: [WatchMapHazard] = []
     ) {
         self.image = image
         self.imageSize = imageSize
@@ -33,13 +50,14 @@ public struct WatchHoleMapGeometry {
         self.layupPx = layupPx
         self.apexPx = apexPx
         self.greenCtrlPx = greenCtrlPx
+        self.hazards = hazards
     }
 
     /// watch P3: a copy with YOU relocated — used when the watch's own GPS places the player (the pin /
     /// lay-up / route anchors are unchanged, only where "you" stand).
     public func withYou(_ px: CGPoint) -> WatchHoleMapGeometry {
         WatchHoleMapGeometry(image: image, imageSize: imageSize, youPx: px, pinPx: pinPx,
-                             layupPx: layupPx, apexPx: apexPx, greenCtrlPx: greenCtrlPx)
+                             layupPx: layupPx, apexPx: apexPx, greenCtrlPx: greenCtrlPx, hazards: hazards)
     }
 }
 

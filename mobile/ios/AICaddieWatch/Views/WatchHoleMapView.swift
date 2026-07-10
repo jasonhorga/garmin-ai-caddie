@@ -311,6 +311,25 @@ public struct WatchHoleMapView: View {
         context.fill(Path(ellipseIn: lrect), with: .color(caddieGreen.opacity(0.9)))
         context.stroke(Path(ellipseIn: lrect), with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
 
+        // Hazards on the line of play (design-system #7): amber dots at the near/far crossings of your
+        // play line with the sand/water + 进/过 carry pills. Distances derive from yards(toImagePx:) —
+        // no extra payload. Only drawn when the geometry carries hazards (empty ⇒ nothing, existing snaps
+        // unaffected).
+        for hz in geometry.hazards {
+            let near = a.t(hz.nearPx)
+            let far = a.t(hz.farPx)
+            for p in [near, far] {
+                context.fill(Path(ellipseIn: CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)), with: .color(golfYellow))
+                context.stroke(Path(ellipseIn: CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)), with: .color(.black.opacity(0.55)), lineWidth: 1)
+            }
+            if let dFar = yards(toImagePx: hz.farPx) {
+                pill(&context, at: CGPoint(x: far.x, y: far.y - 15), text: "过 \(dFar)", tint: golfYellow)
+            }
+            if let dNear = yards(toImagePx: hz.nearPx) {
+                pill(&context, at: CGPoint(x: near.x, y: near.y + 15), text: "进 \(dNear)", tint: golfYellow)
+            }
+        }
+
         // Pin + flag.
         let pr: CGFloat = 5
         let pinRect = CGRect(x: green.x - pr, y: green.y - pr, width: pr * 2, height: pr * 2)

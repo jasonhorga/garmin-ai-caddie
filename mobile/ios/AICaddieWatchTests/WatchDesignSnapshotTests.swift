@@ -340,6 +340,29 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchHoleMapHazard() throws {
+        // #7 障碍上图: a sand bunker on the play line → amber near/far dots + 进/过 carry pills, on the
+        // REAL baked sample geometry (placed at 42%/52% along the actual you→pin line).
+        let base = WatchHoleMapSample.geometry
+        func lerp(_ t: CGFloat) -> CGPoint {
+            CGPoint(x: base.youPx.x + t * (base.pinPx.x - base.youPx.x),
+                    y: base.youPx.y + t * (base.pinPx.y - base.youPx.y))
+        }
+        let g = WatchHoleMapGeometry(
+            image: base.image, imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+            layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
+            hazards: [WatchMapHazard(kind: "bunker", nearPx: lerp(0.42), farPx: lerp(0.52))]
+        )
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
+            lastShot: 0, ringPips: [], fullMap: true, geometry: g
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holemap-hazard")
+    }
+
+    @MainActor
     func testRenderWatchClubPicker() throws {
         // #17 选杆浮层 — the face of shot detection.
         let view = WatchClubPickerView(
@@ -448,6 +471,32 @@ final class WatchDesignSnapshotTests: XCTestCase {
             .frame(width: 198)
             .background(Color.black)
         try render(view, named: "watch-settings")
+    }
+
+    @MainActor
+    func testRenderWatchAOD() throws {
+        // #22 AOD 息屏大字.
+        let view = WatchAODView(centerYd: 262, hole: 4, par: 5)
+            .frame(width: 198, height: 198)
+        try render(view, named: "watch-aod")
+    }
+
+    @MainActor
+    func testRenderWatchStatusSearching() throws {
+        // #25 GPS 异常.
+        let view = WatchStatusView(kind: .searching)
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-status-searching")
+    }
+
+    @MainActor
+    func testRenderWatchStatusLowBattery() throws {
+        // #25 低电.
+        let view = WatchStatusView(kind: .lowBattery)
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-status-lowbattery")
     }
 
     @MainActor
