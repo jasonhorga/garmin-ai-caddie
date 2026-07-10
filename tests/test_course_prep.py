@@ -44,6 +44,54 @@ class PureLogicTests(unittest.TestCase):
     def test_green_slope_missing_mesh(self) -> None:
         self.assertFalse(cp._green_slope({}, None)["available"])
 
+    @staticmethod
+    def _tilted_green_drc(a_gx: float, b_gy: float, center_gy: float = 100.0) -> dict:
+        """A connected 3×3 green (with faces, so mesh_components sees one component) centred at ground
+        ``(0, center_gy)`` and tilted ``elev = a_gx·gx + b_gy·gy``. On-disk shape: positions ``[x, y, z]``
+        with ground ``(gx, gy) = (-x, z)``, so ``x = -gx`` and ``z = gy``."""
+        gxs = (-8.0, 0.0, 8.0)
+        gys = (center_gy - 8.0, center_gy, center_gy + 8.0)
+        positions = [[-gx, a_gx * gx + b_gy * gy, gy] for gy in gys for gx in gxs]  # row-major, gy outer
+        faces = []
+        for i in range(2):
+            for j in range(2):
+                tl, tr, bl, br = i * 3 + j, i * 3 + j + 1, (i + 1) * 3 + j, (i + 1) * 3 + j + 1
+                faces.append([tl, tr, bl])
+                faces.append([tr, br, bl])
+        return {"positions": positions, "faces": faces}
+
+    def test_green_read_uphill_front_to_center(self) -> None:
+        # Green tilts up toward the back (higher gy). Ball = front edge (nearest the tee), pin = centre,
+        # so the read runs up-slope: uphill, straight, with a Chinese summary.
+        by = {"Green.drc": self._tilted_green_drc(0.0, 0.03)}
+        out = cp._green_read(by, [(0.0, 0.0), (0.0, 100.0)])
+        self.assertTrue(out["available"])
+        self.assertEqual(out["alongLabel"], "uphill")
+        self.assertAlmostEqual(out["alongPct"], 3.0, delta=0.2)
+        self.assertEqual(out["breakDir"], "straight")
+        self.assertTrue(out["summary"].startswith("上坡"))
+
+    def test_green_read_breaking_green(self) -> None:
+        # Green tilts across the front→centre line (higher toward +gx / the ball's right) ⇒ breaks left.
+        by = {"Green.drc": self._tilted_green_drc(0.03, 0.0)}
+        out = cp._green_read(by, [(0.0, 0.0), (0.0, 100.0)])
+        self.assertTrue(out["available"])
+        self.assertEqual(out["breakDir"], "left")
+        self.assertGreater(out["breakPct"], 0.5)
+
+    def test_green_read_missing_mesh(self) -> None:
+        self.assertFalse(cp._green_read({}, [(0.0, 0.0), (0.0, 100.0)])["available"])
+
+    def test_green_read_missing_route(self) -> None:
+        by = {"Green.drc": self._tilted_green_drc(0.0, 0.03)}
+        self.assertFalse(cp._green_read(by, None)["available"])
+        self.assertFalse(cp._green_read(by, [])["available"])
+
+    def test_holeprep_carries_green_read_field(self) -> None:
+        prep = cp.HolePrep(globalId=1, localHole=1, hole=1, par=4, par_source="estimate",
+                           blue_yards=400, route_len_m=366.0)
+        self.assertIn("greenRead", prep.to_dict())
+
     def test_derive_route_from_dogleg(self) -> None:
         md = {"hole": {
             "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}, {"Sets": [5], "X": 0.0, "Y": 10.0}],
