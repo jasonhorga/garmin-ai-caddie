@@ -24,10 +24,25 @@ public struct AICaddieApp: App {
         #endif
     }
 
+    /// UITEST-only: `-uitest-screen wc-push-demo` renders the phone→watch WatchConnectivity push demo
+    /// (pumps live distances to a paired watch sim) instead of the app. DEBUG-gated → always false in a
+    /// shipped build, so the WcPushDemoView branch is unreachable there.
+    private var isWcPushDemo: Bool {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-uitest-screen"), index + 1 < args.count else { return false }
+        return args[index + 1] == "wc-push-demo"
+        #else
+        return false
+        #endif
+    }
+
     public var body: some Scene {
         WindowGroup {
             Group {
-                if requiresSignIn {
+                if isWcPushDemo {
+                    WcPushDemoView()
+                } else if requiresSignIn {
                     SignInView(apiBaseURL: model.apiBaseURL) { session in
                         sessionStore.save(session)
                         Task { await model.bootstrap() }

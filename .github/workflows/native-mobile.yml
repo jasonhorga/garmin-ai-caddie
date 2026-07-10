@@ -230,6 +230,52 @@ jobs:
           name: watch-touch-screenshots
           path: watch-touch-screenshots/
           if-no-files-found: warn
+      - name: Watch↔phone WatchConnectivity interaction video (paired sims)
+        # On-demand only. Pairs an iPhone + Watch sim, runs the phone's wc-push-demo (pumps live
+        # distances over WatchConnectivity) while the watch runs wc-live (the real companion glance),
+        # and screen-records the WATCH so its 到旗 distance counts down as the phone pushes — the
+        # phone→watch interaction. Best-effort (|| true): a pairing/reachability miss still uploads
+        # whatever the watch showed, never fails the job.
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -x
+          PHONE=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          WATCH=$(xcrun simctl list devices available | grep "Apple Watch Series 10 (46mm)" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          echo "phone=$PHONE watch=$WATCH"
+          if [ -z "$PHONE" ] || [ -z "$WATCH" ]; then echo "missing sim, skip"; exit 0; fi
+          xcrun simctl pair "$WATCH" "$PHONE" 2>/dev/null || true
+          xcrun simctl boot "$PHONE" 2>/dev/null || true
+          xcrun simctl boot "$WATCH" 2>/dev/null || true
+          xcrun simctl bootstatus "$PHONE" || true
+          xcrun simctl bootstatus "$WATCH" || true
+          PHONE_APP=$(find ~/Library/Developer/Xcode/DerivedData -name "AICaddie.app" -path "*Debug-iphonesimulator*" 2>/dev/null | head -1)
+          WATCH_APP=$(find ~/Library/Developer/Xcode/DerivedData -name "AICaddieWatch.app" -path "*Debug-watchsimulator*" 2>/dev/null | head -1)
+          echo "phone_app=$PHONE_APP watch_app=$WATCH_APP"
+          [ -n "$PHONE_APP" ] && xcrun simctl install "$PHONE" "$PHONE_APP" || true
+          [ -n "$WATCH_APP" ] && xcrun simctl install "$WATCH" "$WATCH_APP" || true
+          PHONE_BID=com.ai-caddie.mobile
+          WATCH_BID=com.ai-caddie.mobile.watchkitapp
+          xcrun simctl terminate "$WATCH" "$WATCH_BID" 2>/dev/null || true
+          xcrun simctl launch "$WATCH" "$WATCH_BID" -uitest-screen wc-live 2>/dev/null || true
+          sleep 3
+          mkdir -p wc-videos
+          ( xcrun simctl io "$WATCH" recordVideo --codec h264 --force wc-videos/watch-wc.mp4 ) &
+          REC=$!
+          sleep 1
+          xcrun simctl terminate "$PHONE" "$PHONE_BID" 2>/dev/null || true
+          xcrun simctl launch "$PHONE" "$PHONE_BID" -uitest-screen wc-push-demo 2>/dev/null || true
+          sleep 20
+          xcrun simctl io "$WATCH" screenshot wc-videos/watch-wc-final.png 2>/dev/null || true
+          kill -INT "$REC" 2>/dev/null || true
+          sleep 4
+          ls -la wc-videos || true
+      - name: Upload watch↔phone WC video
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-wc-video
+          path: wc-videos/
+          if-no-files-found: warn
       - name: Write native build evidence
         run: python3 ops/write_native_build_evidence.py
       - name: Upload native build evidence
