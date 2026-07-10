@@ -324,6 +324,132 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-holemap-pindrag")
     }
 
+    // MARK: - design-system unification batch (2026-07-10): the missing / new screens
+
+    @MainActor
+    func testRenderWatchHoleMapZoom() throws {
+        // #6 放大态: full-map (data column hidden, map fills + zooms, ring gone).
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
+            lastShot: 200, caddieClub: "3号木", caddieNote: "推进 · 留100",
+            ringPips: [], fullMap: true
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holemap-zoom")
+    }
+
+    @MainActor
+    func testRenderWatchClubPicker() throws {
+        // #17 选杆浮层 — the face of shot detection.
+        let view = WatchClubPickerView(
+            hole: 7, toPinYd: 135,
+            clubs: [
+                WatchClubPickerView.Club(name: "七号铁", carryYd: 152),
+                WatchClubPickerView.Club(name: "八号铁", carryYd: 140),
+                WatchClubPickerView.Club(name: "六号铁", carryYd: 165),
+                WatchClubPickerView.Club(name: "挖起杆", carryYd: 95),
+            ],
+            recommended: "七号铁"
+        )
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-club-picker")
+    }
+
+    @MainActor
+    func testRenderWatchConfirm() throws {
+        // #18 确认页 — irreversible only.
+        let view = WatchConfirmView(title: "结束本场?", detail: "9 洞 · +5 · 保存并上传")
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-confirm")
+    }
+
+    @MainActor
+    func testRenderWatchPinPointer() throws {
+        // #5 旗向指引.
+        let view = WatchPinPointerView(bearingDeg: -22, distanceYd: 152)
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-pinpointer")
+    }
+
+    @MainActor
+    func testRenderWatchClubStats() throws {
+        // #14 球杆统计 (no ± band).
+        let view = WatchClubStatsView(rows: [
+            .init(club: "一号木", carryYd: 245),
+            .init(club: "三号木", carryYd: 218),
+            .init(club: "五号铁", carryYd: 178),
+            .init(club: "七号铁", carryYd: 152),
+            .init(club: "挖起杆", carryYd: 95),
+        ])
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-club-stats")
+    }
+
+    @MainActor
+    func testRenderWatchHoleDetail() throws {
+        // #12 洞详情 + 击球列表.
+        let view = WatchHoleDetailView(hole: 7, par: 4, score: 5, shots: [
+            .init(order: 1, club: "开球 一号木", yards: 245),
+            .init(order: 2, club: "七号铁", yards: 152),
+            .init(order: 3, club: "挖起杆", yards: 42),
+            .init(order: 4, club: "推杆", yards: nil),
+            .init(order: 5, club: "推杆", yards: nil),
+        ])
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-hole-detail")
+    }
+
+    @MainActor
+    func testRenderWatchCourseSelect() throws {
+        // #19 选球场.
+        let view = WatchCourseSelectView(courses: [
+            .init(name: "北京丽宫 · 山景", par: 72, km: 0.4),
+            .init(name: "华彬庄园", par: 72, km: 3.1),
+            .init(name: "九华山庄", par: 71, km: 8.6),
+        ])
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-course-select")
+    }
+
+    @MainActor
+    func testRenderWatchNineSelect() throws {
+        // #20 选 9/18.
+        let view = WatchNineSelectView()
+            .frame(width: 198)
+            .background(Color.black)
+        try render(view, named: "watch-nine-select")
+    }
+
+    @MainActor
+    func testRenderWatchTeeSelect() throws {
+        // #21 选发球台 (slope/rating).
+        let view = WatchTeeSelectView(tees: [
+            .init(name: "蓝 T", color: Color(red: 0.24, green: 0.61, blue: 1.0), yards: 6821, slope: 132),
+            .init(name: "白 T", color: .white, yards: 6200, slope: 126),
+            .init(name: "金 T", color: Color(red: 1.0, green: 0.83, blue: 0.28), yards: 5750, slope: 121),
+            .init(name: "红 T", color: Color(red: 1.0, green: 0.27, blue: 0.23), yards: 5210, slope: 118),
+        ], selected: "白 T")
+        .frame(width: 198)
+        .background(Color.black)
+        try render(view, named: "watch-tee-select")
+    }
+
+    @MainActor
+    func testRenderWatchSettings() throws {
+        // #15 设置.
+        let view = WatchSettingsView(gpsPrewarm: true, bigText: false, wristRight: false)
+            .frame(width: 198)
+            .background(Color.black)
+        try render(view, named: "watch-settings")
+    }
+
     @MainActor
     private func render(_ view: some View, named name: String) throws {
         // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).
