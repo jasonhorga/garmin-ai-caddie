@@ -495,6 +495,11 @@ def normalize_garmin_hole(scorecard_id: int | str, absolute_hole: int) -> dict[s
             "pixelSource": "garmin-shot-map" if had_pixel else "course-snapshot" if pixel_row else None,
         })
 
+    # Garmin's scorecard ``pinPosition`` is a FIXED green-CENTER reference point, NOT the day's
+    # real hole/flag location. Verified deterministically: the same hole played 4 months apart
+    # carried this point within <12m of itself, both sitting at green center. So ``pin`` here means
+    # "到果岭中心" (distance to green center) — a valid green-center anchor for geometry/distance,
+    # but it must NEVER be surfaced to the user as a live pin/flag position.
     pin = _loc_to_wgs84(raw_hole.get("pinPosition"))
     return {
         "id": str(scorecard_id),
@@ -550,6 +555,8 @@ def normalize_manual_hole(manual_round_id: str, absolute_hole: int | None = None
         "putts": raw.get("putts"),
         "penalties": raw.get("penalties"),
         "fairwayShotOutcome": raw.get("fairwayShotOutcome"),
+        # Same caveat as normalize_garmin_hole: a ``pin`` here is a green-CENTER reference, not a
+        # live flag position — surface it as "果岭中心", never as the day's real pin.
         "pin": raw.get("pin"),
         "shots": sorted(shots, key=lambda s: s.get("shotOrder") or 0),
     }
