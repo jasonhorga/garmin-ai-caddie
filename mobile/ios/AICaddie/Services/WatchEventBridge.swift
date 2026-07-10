@@ -450,6 +450,7 @@ public final class WatchEventBridge: NSObject {
         }
     }
 
+    #if DEBUG
     /// UITEST-only demo push (`-uitest-screen wc-push-demo`): walk a synthetic live state from ~190y to
     /// the green over `total` steps and send it over the REAL WatchConnectivity path, so a PAIRED watch
     /// sim's companion glance (WatchHoleView) shows its 到旗 distance counting down as the phone pushes —
@@ -477,6 +478,7 @@ public final class WatchEventBridge: NSObject {
         )
         try? sendStateToWatch(payload)
     }
+    #endif
 
     /// round-12 P3.4 (Watch standalone): hand the watch what it needs to reach the backend on its own
     /// (base URL + auth), so a standalone round can sync without the phone relaying each event. Sent via

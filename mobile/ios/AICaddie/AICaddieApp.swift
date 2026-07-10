@@ -41,7 +41,11 @@ public struct AICaddieApp: App {
         WindowGroup {
             Group {
                 if isWcPushDemo {
+                    #if DEBUG
                     WcPushDemoView()
+                    #else
+                    EmptyView()
+                    #endif
                 } else if requiresSignIn {
                     SignInView(apiBaseURL: model.apiBaseURL) { session in
                         sessionStore.save(session)

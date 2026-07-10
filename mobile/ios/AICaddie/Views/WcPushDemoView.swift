@@ -1,3 +1,4 @@
+#if DEBUG
 import SwiftUI
 
 /// UITEST-only screen (`-uitest-screen wc-push-demo`): pumps a "walking toward the green" live state to a
@@ -29,3 +30,4 @@ struct WcPushDemoView: View {
         }
     }
 }
+#endif
