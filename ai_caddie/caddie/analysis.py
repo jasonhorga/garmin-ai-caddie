@@ -757,6 +757,8 @@ def build_hole_analysis(
     shots = enrich_shots(hole, geometry)
     candidates = candidate_routes(hole, shots, geometry, club_profiles)
     quality = data_quality(hole, shots, geometry, club_profiles)
+    # ``hole["pin"]`` is Garmin's fixed green-CENTER reference (see normalize_garmin_hole in
+    # core/data.py), NOT the day's real flag — a green-center anchor for geometry/distance only.
     pin = dict(hole.get("pin") or {})
     ref_lat = (geometry.get("hazards") or {}).get("refLat")
     ref_lon = (geometry.get("hazards") or {}).get("refLon")
@@ -1327,6 +1329,9 @@ def overlay_geojson(analysis: dict[str, Any]) -> dict[str, Any]:
             "properties": {"layer": "target", "kind": "target", "local": _round_point(target_local)},
         })
 
+    # This "pin"-layer feature is Garmin's fixed green-CENTER reference (see core/data.py), NOT the
+    # day's real flag. The layer token is kept for the legacy tool's contract, but any renderer must
+    # treat/label it as green center ("果岭中心"), never as a live pin. No v2 endpoint serves this.
     pin = analysis.get("pin") or {}
     if pin.get("lat") is not None and pin.get("lon") is not None:
         pin_coord = (float(pin["lon"]), float(pin["lat"]))
