@@ -403,7 +403,7 @@ public final class OfflineStore {
                 case .missing:
                     break
                 }
-            case .note, .photo, .video, .syncMarker:
+            case .note, .fairway, .photo, .video, .syncMarker:
                 break
             }
             state.updatedAt = event.timestamp

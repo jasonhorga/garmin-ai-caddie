@@ -63,6 +63,9 @@ public final class WatchBackendClient {
             kind = "club"
             payload = clubPayload(for: event, clubName: event.contextClub ?? event.value)
             payload["distanceToPinM"] = Double(event.value) ?? 0
+        case .fairway:
+            kind = "fairway"
+            payload = ["result": event.value]
         }
         return [
             "schema": "ai-caddie-live-round-event-v1",

@@ -416,6 +416,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             nextSelectedClub = event.value
         case .distance:
             nextDistanceM = Double(event.value)
+        case .fairway:
+            break  // 上球道结果发去后端喂统计,不改本地即时的分数/推杆/距离
         }
         return WatchRoundState(
             roundId: roundId,
