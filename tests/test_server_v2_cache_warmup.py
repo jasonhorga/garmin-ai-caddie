@@ -17,6 +17,7 @@ underlying build with ``unittest.mock`` so we can assert a subsequent request is
 from __future__ import annotations
 
 import os
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -30,8 +31,28 @@ from server_v2.history_stats import (
 )
 
 
+_WARMER_THREAD_NAMES = ("stats-cache-warm", "prepare-recent-boot")
+
+
+def _drain_background_warmers(timeout: float = 30.0) -> None:
+    """Join any lingering lifespan-spawned warmer daemon threads so their ``_build_history_stats``
+    calls can't race a build-count spy in these tests. A no-op when none are alive."""
+    for thread in threading.enumerate():
+        if thread is threading.current_thread():
+            continue
+        if thread.name in _WARMER_THREAD_NAMES and thread.is_alive():
+            thread.join(timeout=timeout)
+
+
 class CacheWarmupTests(unittest.TestCase):
     def setUp(self) -> None:
+        # Any earlier test that used ``TestClient(app)`` as a context manager ran the FastAPI lifespan,
+        # which fires REAL background daemon threads ("stats-cache-warm" + "prepare-recent-boot") that
+        # call ``_build_history_stats`` and are never joined (production wants fire-and-forget). If one
+        # is still building when this file's exact-count ``_build_history_stats`` spy is active, its call
+        # inflates the count → the intermittent "4 != 3". Drain those threads first; unittest runs
+        # serially, so nothing new starts mid-test and the spy then sees only this test's warm.
+        _drain_background_warmers()
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
         # Fixture mode keeps the warm fast and deterministic and avoids depending on
