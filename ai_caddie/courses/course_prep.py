@@ -357,6 +357,7 @@ class HolePrep:
     playsLike: dict = field(default_factory=dict)  # round-13: {available, teeElevM, greenElevM, deltaM, deltaYd}
     greenDistances: dict = field(default_factory=dict)  # round-13 E3: {available, front/middle/back M+Yd}
     greenSlope: dict = field(default_factory=dict)  # {available, magnitudePct, directionDeg (break dir), flat}
+    greenRead: dict = field(default_factory=dict)  # 读推杆: {available, alongPct/Label, breakDir/Pct/Strength, summary}
     holeImageProjection: dict = field(default_factory=dict)  # watch P0.1: geo→px anchors for the topo map
 
     def to_dict(self) -> dict:
@@ -409,6 +410,37 @@ def _green_slope(by: dict, route) -> dict:
     except Exception:
         pass
     return out
+
+
+def _green_read(by: dict, route) -> dict:
+    """A fuller 读推杆 (putt read) along a representative front-edge→center-pin line, from the Green mesh
+    elevation (no DSKIMG). v1 ``greenSlope`` gives ONE overall break arrow; this decomposes that green
+    tilt into ALONG (uphill/downhill) and ACROSS (left/right break) the ball→pin line for a concrete
+    read + a Chinese summary. The pin = the green-center centroid and the ball = the green vertex
+    nearest the tee (front edge — a typical first-putt spot); the green COMPONENT is picked the same way
+    as ``_green_distances`` (nearest ``route[-1]``), so a multi-green tile reads THIS hole's green. The
+    plane itself is fit over the whole ``Green.drc`` (same as ``greenSlope``). Empty when there is no
+    green mesh/route, or the green is too flat/sparse to read honestly (``elevation.green_read`` gate)."""
+    green = by.get("Green.drc") if isinstance(by, dict) else None
+    if not isinstance(green, dict) or not green.get("positions") or not green.get("faces") or not route:
+        return {"available": False}
+    try:
+        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
+
+        comps = mesh_components(green)
+        if not comps:
+            return {"available": False}
+        tee = (float(route[0][0]), float(route[0][1]))
+        target = (float(route[-1][0]), float(route[-1][1]))
+        comp = min(comps, key=lambda c: math.hypot(c["centroid"][0] - target[0], c["centroid"][1] - target[1]))
+        verts = [p for tri in comp["triangles"] for p in tri]
+        if not verts:
+            return {"available": False}
+        pin_xy = comp["centroid"]
+        ball_xy = min(verts, key=lambda p: math.hypot(p[0] - tee[0], p[1] - tee[1]))
+        return elevation.green_read({"meshes": [green]}, ball_xy, pin_xy)
+    except Exception:
+        return {"available": False}
 
 
 def _green_distances(by: dict, route, md: dict | None = None) -> dict:
@@ -675,6 +707,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         playsLike=_hole_playslike(by, route),
         greenDistances=_green_distances(by, route, md),
         greenSlope=_green_slope(by, route),
+        greenRead=_green_read(by, route),
         holeImageProjection=_hole_image_projection(by, route, md),
     )
     result = prep.to_dict()
