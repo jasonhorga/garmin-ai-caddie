@@ -2955,6 +2955,14 @@ class MobileContractTests(unittest.TestCase):
         container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
         for token in ["case .scorecard", "case .holeSelect", "case .menu", "WatchScorecardView", "WatchHoleSelectView", "WatchMenuView"]:
             self.assertIn(token, container)
+        # Phase 2 本洞逐杆: standalone watch logs shots per hole (记一杆 → list), reachable from the menu.
+        self.assertIn("struct WatchShotLogView: View",
+                      _read_required_source(self, WATCH_DIR / "Views" / "WatchShotLogView.swift"))
+        for token in ["case shotLog", "struct WatchShot", "func logShot", "func openShotLog", "var activeHoleShots"]:
+            self.assertIn(token, model)
+        for token in ["case .shotLog", "WatchShotLogView("]:
+            self.assertIn(token, container)
+        self.assertIn("本洞逐杆", _read_required_source(self, WATCH_DIR / "Views" / "WatchMenuView.swift"))
         # round-13 spec ①: the 18-hole edge ring on HOME (hugs the rounded-rect screen edge).
         ring = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleRingView.swift")
         self.assertIn("struct WatchHoleRingView", ring)

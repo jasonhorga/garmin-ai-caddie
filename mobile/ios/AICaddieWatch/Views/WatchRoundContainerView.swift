@@ -88,6 +88,7 @@ public struct WatchRoundContainerView: View {
             WatchMenuView(
                 onScorecard: { model.openScorecard() },
                 onHoleSelect: { model.openHoleSelect() },
+                onShotLog: { model.openShotLog() },
                 onFinish: { model.requestFinish() },
                 onClose: { model.backToHome() }
             )
@@ -133,6 +134,13 @@ public struct WatchRoundContainerView: View {
                 pendingUploads: model.pendingUploads,
                 onConfirmFinish: { Task { await model.confirmFinish() } },
                 onKeepPlaying: { model.keepPlaying() }
+            )
+        case .shotLog:
+            WatchShotLogView(
+                shots: model.activeHoleShots,
+                clubs: WatchShotLogView.defaultClubs,
+                onLogShot: { model.logShot(club: $0) },
+                onClose: { model.backToHome() }
             )
         }
     }

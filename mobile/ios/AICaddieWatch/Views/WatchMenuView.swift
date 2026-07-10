@@ -5,17 +5,20 @@ import SwiftUI
 public struct WatchMenuView: View {
     public let onScorecard: () -> Void
     public let onHoleSelect: () -> Void
+    public let onShotLog: () -> Void
     public let onFinish: () -> Void
     public let onClose: () -> Void
 
     public init(
         onScorecard: @escaping () -> Void = {},
         onHoleSelect: @escaping () -> Void = {},
+        onShotLog: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
         onClose: @escaping () -> Void = {}
     ) {
         self.onScorecard = onScorecard
         self.onHoleSelect = onHoleSelect
+        self.onShotLog = onShotLog
         self.onFinish = onFinish
         self.onClose = onClose
     }
@@ -25,6 +28,7 @@ public struct WatchMenuView: View {
             Text("菜单").font(.headline.weight(.bold)).padding(.bottom, 2)
             menuRow("计分卡", action: onScorecard)
             menuRow("选洞", action: onHoleSelect)
+            menuRow("本洞逐杆", action: onShotLog)
             menuRow("结束本场", role: .destructive, action: onFinish)
             menuRow("继续打球", action: onClose)
         }

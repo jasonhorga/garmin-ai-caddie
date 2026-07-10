@@ -17,6 +17,21 @@ public enum WatchRoundScreen: Equatable {
     case holeSelect  // round-13: 选洞
     case menu        // round-13: 菜单 hub(纯文字,S70 式)
     case holeMap     // watch P1b: 全屏球道图(真几何底图 + 球童线/落点/旗)
+    case shotLog     // Phase 2: 本洞逐杆记录(记一杆 → 列表)
+}
+
+/// One logged shot on a hole (Phase 2 本洞逐杆). `n` is 1-based within the hole.
+public struct WatchShot: Codable, Equatable, Identifiable {
+    public let n: Int
+    public let club: String
+    public let yards: Int?
+    public var id: Int { n }
+
+    public init(n: Int, club: String, yards: Int? = nil) {
+        self.n = n
+        self.club = club
+        self.yards = yards
+    }
 }
 
 public struct WatchRoundConfig: Equatable {
@@ -213,6 +228,31 @@ public final class WatchRoundModel: ObservableObject {
             createdAt: now()
         )
         return try? store.record(event)
+    }
+
+    // MARK: - 本洞逐杆 (Phase 2)
+
+    /// Shots logged per hole this session (in-memory; each also uploads as a club event so the backend
+    /// gets per-shot club data). Keyed by hole number, so switching holes and back keeps each list.
+    @Published private var shotsByHole: [Int: [WatchShot]] = [:]
+
+    /// The active hole's logged shots (empty until you 记一杆).
+    public var activeHoleShots: [WatchShot] {
+        guard let hole = activeHoleState else { return [] }
+        return shotsByHole[hole.hole] ?? []
+    }
+
+    public func openShotLog() { screen = .shotLog }
+
+    /// 记一杆: append a shot (球杆 + 可选码数) to the active hole's list and record it as a club event.
+    /// No-op without an active hole / non-empty club.
+    public func logShot(club: String, yards: Int? = nil) {
+        let trimmed = club.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let hole = activeHoleState, !trimmed.isEmpty else { return }
+        var shots = shotsByHole[hole.hole] ?? []
+        shots.append(WatchShot(n: shots.count + 1, club: trimmed, yards: yards))
+        shotsByHole[hole.hole] = shots
+        round = record(hole: hole.hole, kind: .club, value: trimmed) ?? round
     }
 
     // MARK: - hole navigation
