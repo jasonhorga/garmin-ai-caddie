@@ -499,6 +499,46 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-status-lowbattery")
     }
 
+    // MARK: - 5-page app shell (control-spec 顶层五页 + design-system §2 五页)
+
+    @MainActor
+    func testRenderWatchAppShell() throws {
+        // Default state: 球道图 = 家, 居中 (selection 2). The 5 on-brand page dots show all pages with the
+        // MIDDLE one lit (proving home is centred + default). 横滑 = 翻页 (TabView(.page)); no 返回/×/∧∨.
+        let view = WatchAppShell()
+            .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
+            .background(Color.black)
+        try render(view, named: "watch-app-shell")
+    }
+
+    @MainActor
+    func testRenderWatchAppShellCaddie() throws {
+        // Swiped one page left of home → ② 球童建议; the 2nd dot lights.
+        let view = WatchAppShell(selection: 1)
+            .frame(width: 198, height: 242)
+            .background(Color.black)
+        try render(view, named: "watch-app-shell-caddie")
+    }
+
+    @MainActor
+    func testRenderWatchScoreChips() throws {
+        // Design-system §1 ScoreChip scale + SHAPE redundancy (圈/方/三角) for colour-blind + greyscale.
+        // 鹰 蓝◎ / 鸟 浅蓝○ / Par 绿无框 / 柏忌 黄□ / 双柏忌 橙⊡ / 三柏忌 红△ / 更差 紫△.
+        let bands: [(Int, String)] = [(-3, "1"), (-2, "2"), (-1, "3"), (0, "4"), (1, "5"), (2, "6"), (3, "7"), (4, "8")]
+        let view = VStack(spacing: 8) {
+            Text("ScoreChip 色阶 + 形状").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                ForEach(bands.indices, id: \.self) { i in
+                    ScoreChipView(toPar: bands[i].0, text: bands[i].1, diameter: 30)
+                }
+            }
+        }
+        .padding(10)
+        .frame(width: 260)
+        .background(Color.black)
+        try render(view, named: "watch-score-chips")
+    }
+
     @MainActor
     private func render(_ view: some View, named name: String) throws {
         // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).
