@@ -33,8 +33,7 @@ public struct WatchHoleDetailView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("第\(hole)洞 · Par \(par)").font(.system(size: 13, weight: .bold))
                 Spacer()
-                Text("\(score)").font(.system(size: 18, weight: .bold, design: .rounded)).monospacedDigit()
-                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: score - par))
+                ScoreChipView(toPar: score - par, text: "\(score)", diameter: 26)
             }
             ForEach(shots) { shot in
                 HStack(spacing: 7) {

@@ -53,9 +53,15 @@ public struct WatchScorecardView: View {
                             .frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
                         Text("Par \(row.par)").font(.caption2).foregroundStyle(.secondary)
                         Spacer()
-                        Text(row.score > 0 ? "\(row.score)" : "—")
-                            .font(.body.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: row.score > 0 ? row.score - row.par : nil))
+                        if row.score > 0 {
+                            // 形状接线(合并 Opus 地基 + Codex 接线思路):逐洞分用色盲安全的 ScoreChip
+                            // (圈=低于标准杆 / 无框=Par / 方=柏忌·双 / 三角=三柏忌+),Opus 的正确映射。
+                            ScoreChipView(toPar: row.score - row.par, text: "\(row.score)", diameter: 26)
+                        } else {
+                            Text("—")
+                                .font(.body.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .contentShape(Rectangle())
                 }
