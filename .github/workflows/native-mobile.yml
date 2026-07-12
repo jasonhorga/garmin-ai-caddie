@@ -139,6 +139,10 @@ jobs:
           echo "watch app: $APP"
           [ -n "$APP" ] && xcrun simctl install "$WATCH_UDID" "$APP" || true
           BID=com.ai-caddie.mobile.watchkitapp
+          # Pre-grant location so the system permission dialog never blocks the real screenshots/video
+          # (the app requests location on launch for the on-watch rangefinder).
+          xcrun simctl privacy "$WATCH_UDID" grant location-always "$BID" 2>/dev/null || true
+          xcrun simctl privacy "$WATCH_UDID" grant location "$BID" 2>/dev/null || true
           mkdir -p watch-real-screenshots
           for screen in home caddie-options hazards glance scorecard hole-select menu score finish start \
                         app-shell-0 app-shell-1 app-shell-2 app-shell-3 app-shell-4; do
