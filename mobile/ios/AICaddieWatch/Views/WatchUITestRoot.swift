@@ -54,6 +54,21 @@ public struct WatchUITestRoot: View {
             )
         case "start":
             WatchStartView(phoneReachable: false)
+        // 5-page app shell — the REAL running TabView (ImageRenderer can't rasterise .page content, but
+        // the live simulator does). `app-shell-N` launches at page N for per-page real screenshots;
+        // `app-shell-demo` auto-cycles the 5 pages with animation for a recorded 横滑 walk-through.
+        case "app-shell", "app-shell-2":
+            WatchAppShell(selection: 2)
+        case "app-shell-0":
+            WatchAppShell(selection: 0)
+        case "app-shell-1":
+            WatchAppShell(selection: 1)
+        case "app-shell-3":
+            WatchAppShell(selection: 3)
+        case "app-shell-4":
+            WatchAppShell(selection: 4)
+        case "app-shell-demo":
+            WatchAppShell(selection: 0, autoAdvance: true)
         default:
             Text("unknown uitest screen: \(screen)")
         }

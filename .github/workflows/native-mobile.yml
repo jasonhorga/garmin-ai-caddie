@@ -140,19 +140,38 @@ jobs:
           [ -n "$APP" ] && xcrun simctl install "$WATCH_UDID" "$APP" || true
           BID=com.ai-caddie.mobile.watchkitapp
           mkdir -p watch-real-screenshots
-          for screen in home caddie-options hazards glance scorecard hole-select menu score finish start; do
+          for screen in home caddie-options hazards glance scorecard hole-select menu score finish start \
+                        app-shell-0 app-shell-1 app-shell-2 app-shell-3 app-shell-4; do
             xcrun simctl terminate "$WATCH_UDID" "$BID" 2>/dev/null || true
             xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$screen" 2>/dev/null || true
             sleep 4
             xcrun simctl io "$WATCH_UDID" screenshot "watch-real-screenshots/watch-$screen.png" 2>/dev/null || true
           done
           ls -la watch-real-screenshots || true
+          # Record the REAL 5-page 横滑: launch the auto-advancing shell + screen-record ~18s.
+          mkdir -p watch-videos
+          xcrun simctl terminate "$WATCH_UDID" "$BID" 2>/dev/null || true
+          ( xcrun simctl io "$WATCH_UDID" recordVideo --codec h264 --force watch-videos/watch-shell-swipe.mp4 ) &
+          WVREC=$!
+          sleep 1
+          xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen app-shell-demo 2>/dev/null || true
+          sleep 18
+          kill -INT "$WVREC" 2>/dev/null || true
+          sleep 4
+          ls -la watch-videos || true
       - name: Upload watch real screenshots
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: watch-real-screenshots
           path: watch-real-screenshots/
+          if-no-files-found: warn
+      - name: Upload watch shell swipe video
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-shell-video
+          path: watch-videos/
           if-no-files-found: warn
       - name: Write native build evidence
         run: python3 ops/write_native_build_evidence.py

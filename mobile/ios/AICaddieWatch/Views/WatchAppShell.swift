@@ -17,9 +17,13 @@ import SwiftUI
 public struct WatchAppShell: View {
     /// 0 球局 · 1 球童 · 2 球道图(家)· 3 计分 · 4 旗向指引. Defaults to HOME (2).
     @State private var selection: Int
+    /// Demo-only (WatchUITestRoot `app-shell-demo`): auto-cycle the 5 pages with an animated page
+    /// transition so `simctl recordVideo` captures a real 横滑 walk-through. Never true in the real app.
+    private let autoAdvance: Bool
 
-    public init(selection: Int = 2) {
+    public init(selection: Int = 2, autoAdvance: Bool = false) {
         _selection = State(initialValue: selection)
+        self.autoAdvance = autoAdvance
     }
 
     public var body: some View {
@@ -38,6 +42,16 @@ public struct WatchAppShell: View {
                 .padding(.bottom, 3)
         }
         .background(Color.black)
+        .onAppear { if autoAdvance { scheduleDemoAdvance() } }
+    }
+
+    private func scheduleDemoAdvance() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+            withAnimation(.easeInOut(duration: 0.55)) {
+                selection = (selection + 1) % 5
+            }
+            scheduleDemoAdvance()
+        }
     }
 
     // MARK: - Pages (sample data mirrors the per-screen snapshot tests, so the shell is self-consistent:
