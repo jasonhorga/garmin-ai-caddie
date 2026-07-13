@@ -68,6 +68,8 @@ public struct WatchAppShell: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
+    // 家 · 球道图 = 满屏到表盘边缘(成绩环贴 bezel、地图用满整块表面,时间区也铺进去)。这是唯一
+    // 全出血的页;其余页(计分/球童/菜单/旗向)都尊重 safe area,天然留出上下呼吸。
     private var holeMapPage: some View {
         WatchHoleMapView(
             holeNumber: 4, par: 5,
@@ -75,11 +77,14 @@ public struct WatchAppShell: View {
             playsLikeDelta: 8, lastShot: 200,
             caddieClub: "3号木", caddieNote: "推进 · 留100"
         )
+        .ignoresSafeArea()
     }
 
+    // 计分 = 表单,不出血:居中 + 上下留白(不顶到时间/底边)。
     private var scorePage: some View {
         WatchScoreHoleView(hole: 4, par: 5, score: 5, putts: 2, penalty: 0)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     private var pinPointerPage: some View {
