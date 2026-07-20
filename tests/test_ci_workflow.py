@@ -59,7 +59,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(
             [
                 "set -euo pipefail",
-                'git diff --name-only "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py',
+                'git diff --name-only -z "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py',
             ],
             run_lines,
         )

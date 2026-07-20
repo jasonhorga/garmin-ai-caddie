@@ -50,7 +50,7 @@ jobs:
           AUTHORITY_RANGE: ${{ steps.canonical-authority-base.outputs.range }}
         run: |
           set -euo pipefail
-          git diff --name-only "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py
+          git diff --name-only -z "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py
       - name: Compile Python sources
         run: uv run python -m py_compile $(git ls-files '*.py')
       - name: Run backend tests
