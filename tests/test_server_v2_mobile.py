@@ -1026,7 +1026,15 @@ class ServerV2MobileTests(unittest.TestCase):
                         ],
                     },
                 )
-                log_text = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8")
+                all_duplicate_new_key = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "batch-3"},
+                    json={"roundId": "live-round-1", "events": [event]},
+                )
+                event_root = root / "data" / "mobile_events"
+                log_text = (event_root / "events.jsonl").read_text(encoding="utf-8")
+                log_rows = [json.loads(line) for line in log_text.splitlines()]
+                reservations = json.loads((event_root / "request_reservations.json").read_text(encoding="utf-8"))
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(
@@ -1061,10 +1069,134 @@ class ServerV2MobileTests(unittest.TestCase):
                 "serverSequence": 2,
             },
         )
+        self.assertEqual(
+            all_duplicate_new_key.json(),
+            {
+                "accepted": 0,
+                "duplicate": False,
+                "acceptedEventIds": [],
+                "duplicateEventIds": ["event-1"],
+                "serverSequence": 2,
+            },
+        )
+        for response in (first, second, mixed, all_duplicate_new_key):
+            self.assertEqual(
+                set(response.json()),
+                {"accepted", "duplicate", "acceptedEventIds", "duplicateEventIds", "serverSequence"},
+            )
         self.assertEqual(log_text.count("event-1"), 1)
         self.assertEqual(log_text.count("event-2"), 1)
         self.assertIn('"schema": "ai-caddie-live-round-event-v1"', log_text)
         self.assertNotIn("schema_", log_text)
+        self.assertEqual(
+            set(log_rows[0]),
+            {"roundId", "idempotencyKey", "serverSequence", "eventHash", "requestHash", "event"},
+        )
+        self.assertNotIn("eventId", log_rows[0])
+        self.assertEqual(log_rows[0]["event"]["eventId"], "event-1")
+        self.assertIn("live-round-1\nbatch-3", reservations["reservations"])
+
+    def test_mobile_event_batch_rejects_request_key_body_mismatch(self) -> None:
+        client = TestClient(app)
+        base_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                first = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "same-key"},
+                    json={
+                        "roundId": "live-round-1",
+                        "events": [{**base_event, "eventId": "event-1", "payload": {"strokes": 4}}],
+                    },
+                )
+                mismatch = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "same-key"},
+                    json={
+                        "roundId": "live-round-1",
+                        "events": [{**base_event, "eventId": "event-2", "payload": {"strokes": 5}}],
+                    },
+                )
+                rows = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(mismatch.status_code, 422)
+        self.assertEqual(mismatch.json()["detail"], "idempotency_key_body_mismatch")
+        self.assertEqual(len(rows), 1)
+
+    def test_mobile_event_batch_rejects_identity_envelope_mismatch(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "same-event",
+            "roundId": "live-round-1",
+            "clientId": "ios",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                first = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "first"},
+                    json={"roundId": "live-round-1", "events": [{**event, "payload": {"strokes": 4}}]},
+                )
+                mismatch = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "second"},
+                    json={"roundId": "live-round-1", "events": [{**event, "payload": {"strokes": 5}}]},
+                )
+                rows = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(mismatch.status_code, 422)
+        self.assertEqual(mismatch.json()["detail"], "identity_envelope_mismatch")
+        self.assertEqual(len(rows), 1)
+
+    def test_mobile_event_sanitizer_preserves_exact_identity_fields(self) -> None:
+        client = TestClient(app)
+        round_id = "token=round-secret"
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "token=event-secret",
+            "roundId": round_id,
+            "clientId": "token=client-secret",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "note",
+            "payload": {"note": "token=payload-secret", "source": "ios"},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                response = client.post(
+                    f"/api/v2/mobile/rounds/{round_id}/events",
+                    headers={"Idempotency-Key": "identity-sanitize"},
+                    json={"roundId": round_id, "events": [event]},
+                )
+                row = json.loads(
+                    (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8").splitlines()[0]
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["acceptedEventIds"], ["token=event-secret"])
+        self.assertEqual(row["roundId"], round_id)
+        self.assertEqual(row["event"]["roundId"], round_id)
+        self.assertEqual(row["event"]["clientId"], "token=client-secret")
+        self.assertEqual(row["event"]["eventId"], "token=event-secret")
+        self.assertNotIn("payload-secret", json.dumps(row))
 
     def test_mobile_event_batch_dedup_is_scoped_by_client_id(self) -> None:
         # round-12 sync spine: the SAME eventId from two DIFFERENT clients must BOTH be accepted (they
@@ -1245,6 +1377,14 @@ class ServerV2MobileTests(unittest.TestCase):
                     "/api/v2/mobile/rounds/live-round-1/events/ack",
                     json={"clientId": "ios-phone", "serverSequence": 1},
                 )
+                backwards_ack = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events/ack",
+                    json={"clientId": "ios-phone", "serverSequence": 0},
+                )
+                ahead_ack = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events/ack",
+                    json={"clientId": "ios-phone", "serverSequence": 3},
+                )
                 package_after_ack = client.get(
                     "/api/v2/mobile/rounds/live-round-1/package",
                     params={"client_id": "ios-phone"},
@@ -1283,6 +1423,10 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(ack.json()["ackedServerSequence"], 1)
         self.assertEqual(ack.json()["latestServerSequence"], 2)
         self.assertEqual(ack.json()["pendingEventCount"], 1)
+        self.assertEqual(backwards_ack.status_code, 200)
+        self.assertEqual(backwards_ack.json()["ackedServerSequence"], 1)
+        self.assertEqual(ahead_ack.status_code, 409)
+        self.assertEqual(ahead_ack.json()["detail"], "consumer_ack_ahead_of_stream")
 
         self.assertEqual(package_after_ack.status_code, 200)
         self.assertEqual(package_after_ack.json()["eventCursor"]["lastAckedServerSequence"], 1)
@@ -1291,6 +1435,19 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(replay_after_ack.json()["afterSequence"], 1)
         self.assertEqual(replay_after_ack.json()["eventCount"], 1)
         self.assertEqual(replay_after_ack.json()["events"][0]["event"]["eventId"], "club-1")
+
+    def test_mobile_event_ack_other_validation_errors_remain_422(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            with patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)):
+                response = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events/ack",
+                    json={"clientId": "", "serverSequence": 0},
+                )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "clientId is required")
 
     def test_mobile_event_replay_supports_after_sequence_and_limit(self) -> None:
         client = TestClient(app)

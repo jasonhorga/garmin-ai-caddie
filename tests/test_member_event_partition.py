@@ -45,6 +45,14 @@ class MemberEventPartitionTests(unittest.TestCase):
         self.assertIn("OWNER_NOTE", owner_log.read_text()); self.assertNotIn("A_NOTE", owner_log.read_text())
         self.assertIn("A_NOTE", a_log.read_text()); self.assertNotIn("OWNER_NOTE", a_log.read_text())
         self.assertNotIn("B_NOTE", a_log.read_text())
+        owner_reservations = owner_log.parent / "request_reservations.json"
+        a_reservations = a_log.parent / "request_reservations.json"
+        b_reservations = b_log.parent / "request_reservations.json"
+        self.assertTrue(owner_reservations.exists())
+        self.assertTrue(a_reservations.exists())
+        self.assertTrue(b_reservations.exists())
+        self.assertNotEqual(owner_reservations, a_reservations)
+        self.assertNotEqual(a_reservations, b_reservations)
 
     def test_member_writing_owner_round_id_never_touches_owner_log(self) -> None:
         # The owner already has events for R1; a member writing to the SAME round_id touches only

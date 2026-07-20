@@ -162,7 +162,8 @@ def ack_mobile_events_response(round_id: str, request: LiveRoundEventAckRequest,
             player_id=player_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        status_code = 409 if str(exc) == "consumer_ack_ahead_of_stream" else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return LiveRoundEventAckResponse(**result)
 
 

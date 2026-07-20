@@ -320,11 +320,11 @@ class MobileEventPlayerScopeTests(unittest.TestCase):
         result = ack_event_cursor("900001", client_id="c1", server_sequence=1, root=self.tmp, player_id="me")
         self.assertGreaterEqual(result["latestServerSequence"], 1)
 
-    def test_ack_event_cursor_non_owner_zero_sequence(self) -> None:
+    def test_ack_event_cursor_non_owner_rejects_ahead_of_empty_partition(self) -> None:
         from ai_caddie.caddie.mobile_live import ack_event_cursor
         self._seed()
-        result = ack_event_cursor("900001", client_id="c1", server_sequence=1, root=self.tmp, player_id="p_x")
-        self.assertEqual(result["latestServerSequence"], 0)
+        with self.assertRaisesRegex(ValueError, "^consumer_ack_ahead_of_stream$"):
+            ack_event_cursor("900001", client_id="c1", server_sequence=1, root=self.tmp, player_id="p_x")
 
 
 class RoundDetailAnnotationPlayerScopeTests(unittest.TestCase):

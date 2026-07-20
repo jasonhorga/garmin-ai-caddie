@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-import fcntl
 import json
 from pathlib import Path
 import re
 from typing import Any
 
 from ai_caddie.courses import course_prep
+from ai_caddie.caddie.mobile_event_store import FileEventStore
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
@@ -2233,22 +2233,7 @@ def _event_log_rows(
     # evidence_root (which nullifies non-owners to empty): a member now has a real home for their
     # own live events, and never sees the owner's or another member's (different path).
     path = mobile_event_log(root, player_id=player_id)
-    if not path.exists():
-        return []
-    rows: list[dict[str, Any]] = []
-    for fallback_sequence, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue  # tolerate a torn final append; one bad line must not 500 replay
-        if round_id is not None and str(row.get("roundId") or "") != str(round_id):
-            continue
-        if not row.get("serverSequence"):
-            row["serverSequence"] = fallback_sequence
-        rows.append(row)
-    return rows
+    return FileEventStore(path.parent).read_rows(round_id)
 
 
 def _latest_event_sequence(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
@@ -2266,49 +2251,9 @@ def _pending_event_count(round_id: str, *, after_sequence: int, root: Path | str
     )
 
 
-def _ack_key(round_id: str, client_id: str) -> str:
-    return f"{round_id}\n{client_id}"
-
-
-def _load_client_acks(root: Path | str | None = None, *, player_id: str = OWNER_ID) -> dict[str, dict[str, Any]]:
-    path = mobile_event_ack_store(root, player_id=player_id)
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    raw_rows = payload.get("acks", {})
-    if not isinstance(raw_rows, dict):
-        return {}
-    return {str(key): value for key, value in raw_rows.items() if isinstance(value, dict)}
-
-
-def _write_client_acks(acks: dict[str, dict[str, Any]], root: Path | str | None = None, *, player_id: str = OWNER_ID) -> None:
-    path = mobile_event_ack_store(root, player_id=player_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "schema": "ai-caddie-mobile-event-acks-v1",
-                "acks": acks,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-
 def _client_ack_sequence(round_id: str, client_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
-    row = _load_client_acks(root, player_id=player_id).get(_ack_key(round_id, client_id), {})
-    try:
-        return max(0, int(row.get("serverSequence") or 0))
-    except (TypeError, ValueError):
-        return 0
+    path = mobile_event_ack_store(root, player_id=player_id)
+    return FileEventStore(path.parent).read_ack(str(round_id), str(client_id))
 
 
 def _redact_mobile_text(value: str) -> str:
@@ -2359,90 +2304,22 @@ def append_event_batch(
     root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
-    for event in events:
-        event_round_id = event.get("roundId")
-        if event_round_id is not None and str(event_round_id) != str(round_id):
-            raise ValueError("event roundId does not match path")
     path = mobile_event_log(root, player_id=player_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    round_key = str(round_id)
-    # (eventId, clientId) for each requested event — clientId joins the dedup key so the same eventId
-    # from two different clients is not collapsed (round-12 sync spine; legacy clients send "").
-    requested_events = [
-        (str(event.get("eventId") or ""), str(event.get("clientId") or ""))
-        for event in events
-        if event.get("eventId")
+    store = FileEventStore(path.parent, sanitizer=_sanitized_live_event)
+    receipts = store.append_batch(str(round_id), events, request_key=idempotency_key)
+    accepted_event_ids = [receipt.event_id for receipt in receipts if receipt.status == "accepted" and receipt.event_id]
+    duplicate_event_ids = [
+        receipt.event_id
+        for receipt in receipts
+        if receipt.status == "duplicate_hash_match" and receipt.event_id
     ]
-    # round-12: the read (server_sequence + dedup sets) and the append MUST be one atomic critical
-    # section. Without it, two concurrent writers both read sequence N and both append rows with the
-    # same serverSequence + double-accept the same eventId (the read-then-write race). An exclusive
-    # flock on a sibling lock file serializes append_event_batch across processes and threads.
-    lock_path = path.with_name(path.name + ".lock")
-    with open(lock_path, "w", encoding="utf-8") as lock_handle:
-        fcntl.flock(lock_handle, fcntl.LOCK_EX)
-        existing_keys = set()
-        existing_event_ids = set()
-        server_sequence = 0
-        if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue  # torn final append must not 500 the events POST
-                server_sequence += 1
-                row_round_id = str(row.get("roundId") or "")
-                existing_keys.add((row_round_id, str(row.get("idempotencyKey") or "")))
-                event = row.get("event") or {}
-                if isinstance(event, dict) and event.get("eventId"):
-                    existing_event_ids.add(
-                        (row_round_id, str(event.get("clientId") or ""), str(event.get("eventId")))
-                    )
-        if (round_key, idempotency_key) in existing_keys:
-            return {
-                "accepted": 0,
-                "duplicate": True,
-                "acceptedEventIds": [],
-                "duplicateEventIds": [
-                    event_id
-                    for event_id, client_id in requested_events
-                    if (round_key, client_id, event_id) in existing_event_ids
-                ],
-                "serverSequence": server_sequence,
-            }
-        accepted_event_ids = []
-        duplicate_event_ids = []
-        with path.open("a", encoding="utf-8") as handle:
-            for event in events:
-                event = _sanitized_live_event(event)
-                event_id = str(event.get("eventId") or "")
-                client_id = str(event.get("clientId") or "")
-                event_key = (round_key, client_id, event_id)
-                if event_id and event_key in existing_event_ids:
-                    duplicate_event_ids.append(event_id)
-                    continue
-                server_sequence += 1
-                if event_id:
-                    existing_event_ids.add(event_key)
-                    accepted_event_ids.append(event_id)
-                handle.write(
-                    json.dumps(
-                        {
-                            "roundId": round_id,
-                            "idempotencyKey": idempotency_key,
-                            "serverSequence": server_sequence,
-                            "event": event,
-                        },
-                        sort_keys=True,
-                    ) + "\n"
-                )
+    request_preexisting = bool(receipts and receipts[0].request_preexisting)
     return {
         "accepted": len(accepted_event_ids),
-        "duplicate": False,
+        "duplicate": request_preexisting and not accepted_event_ids,
         "acceptedEventIds": accepted_event_ids,
         "duplicateEventIds": duplicate_event_ids,
-        "serverSequence": server_sequence,
+        "serverSequence": store.high_water(),
     }
 
 
@@ -2596,16 +2473,10 @@ def ack_event_cursor(
     clean_client_id = _clean_client_id(client_id)
     if not clean_client_id:
         raise ValueError("clientId is required")
+    path = mobile_event_ack_store(root, player_id=player_id)
+    store = FileEventStore(path.parent)
+    acked_sequence = store.ack(str(round_id), clean_client_id, int(server_sequence))
     latest_sequence = _latest_event_sequence(round_id, root=root, player_id=player_id)
-    acked_sequence = max(0, min(int(server_sequence), latest_sequence))
-    acks = _load_client_acks(root, player_id=player_id)
-    acks[_ack_key(str(round_id), clean_client_id)] = {
-        "roundId": str(round_id),
-        "clientId": clean_client_id,
-        "serverSequence": acked_sequence,
-        "updatedAt": _format_time(datetime.now(UTC)),
-    }
-    _write_client_acks(acks, root, player_id=player_id)
     return {
         "schema": "ai-caddie-mobile-event-ack-v1",
         "roundId": str(round_id),
