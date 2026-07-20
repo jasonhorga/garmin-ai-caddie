@@ -13,6 +13,7 @@ dependencies = [
     "keyring>=25.7.0",
     "matplotlib>=3.10.9",
     "opencv-python-headless>=4.13.0.92",
+    "pathspec>=0.12.1,<1",
     "pillow>=12.2.0",
     "psycopg[binary]>=3.2",
     "pyjwt[crypto]>=2.8",

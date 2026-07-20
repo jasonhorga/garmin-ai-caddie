@@ -1,0 +1,41 @@
+{
+  "schema": "ai-caddie-contract-authority-v1",
+  "authoritativeInputs": [
+    {
+      "path": "docs/superpowers/specs/2026-07-18-course-data-platform-and-unified-surfaces-design.md",
+      "sourceCommit": "38903466c39a06e17ca03f94e7f90fd0f216cbec",
+      "gitBlobOid": "467af3411a50f971ccb41781df75cd3e487278ea",
+      "sha256": "45095e1fb22ccaa7caf0e94cfcc6669f4e3315856df516c07c59577bce2aab91"
+    }
+  ],
+  "evidenceInputs": [
+    {"path": "docs/reviews/2026-07-15-watch-decision-and-task-tracker.md", "gitBlobOid": "1e418654c9774ae1682f1c11c1b0728e72c0a41f", "sha256": "5c0b3fd4d925e141572e67d018549ae442feabe542065677896daf2f1599bc1c"},
+    {"path": "docs/reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md", "gitBlobOid": "25563b0221075c3b5d46c3687bc180bd7a5cde78", "sha256": "4147d4f1a6d451fd7b5486c5b5f2072b67a23c86d708eeffdf6c90710a99e98e"},
+    {"path": "docs/reviews/2026-07-16-s70-virtual-caddie-and-map-mechanisms-evidence.md", "gitBlobOid": "4c2240467f8ab63fbd07f21b7a723dd4d1fb3744", "sha256": "f05ec8f32c48c7164bbf31fa08dc0582faa8851cdf315315f487d904af2fe856"},
+    {"path": "docs/superpowers/specs/2026-07-02-unified-tri-surface-spec.md", "sourceCommit": "b56bba70a5efcf772b2c6eeb91cad4da9a902511", "gitBlobOid": "af16b7f17a2b93cb75775292a4cf2ef5200d740a", "sha256": "75d53075a76d27a869a75e54cd4a0b42012494005554de8a8a6c8599fe5f30d9"},
+    {"path": "docs/superpowers/specs/2026-07-02-garmin-course-data-reference.md", "sourceCommit": "b56bba70a5efcf772b2c6eeb91cad4da9a902511", "gitBlobOid": "666bcc44114ce965458c92b74a401e193e21f5cf", "sha256": "4908fbf35806784c0394050a63124bd1237d54d181ea09514f8ad17c88188718"},
+    {"path": "docs/superpowers/specs/2026-07-03-garmin-data-to-features.md", "sourceCommit": "b56bba70a5efcf772b2c6eeb91cad4da9a902511", "gitBlobOid": "e4717d8dfa040189375fafe19c7814eccdb2de5f", "sha256": "c68732af5af5ed02e7f41ee799d61a5bb6450af2188a7c2d27dcb99bcf9c12e3"}
+  ],
+  "canonicalRoots": ["contracts/canonical"],
+  "legacyAdapters": [
+    {
+      "path": "mobile/contracts/watch_input_event.schema.json",
+      "mode": "adapter_only",
+      "allowedProperties": ["schema", "eventId", "roundId", "hole", "kind", "value", "createdAt", "contextClub", "shotType", "strategyMode", "lie", "distanceToPinM", "offlineOptionId", "decisionId"],
+      "forbiddenEnumValues": ["sync_marker"]
+    },
+    {
+      "path": "mobile/contracts/live_round_event.schema.json",
+      "mode": "v1_compatibility_only",
+      "allowedProperties": ["eventId", "roundId", "timestamp", "hole", "kind", "payload"],
+      "forbiddenEnumValues": ["sync_marker"]
+    }
+  ],
+  "forbiddenSymbols": [
+    {
+      "paths": ["contracts/canonical/**/*.json", "ai_caddie/rounds/**/*.py", "server_v2/round_ledger_api.py", "mobile/ios/AICaddieDomain/**/*.swift", "web_v2/src/contracts/**/*.ts"],
+      "values": ["serverSequence", "weatherSnapshot", "weatherByHole", "WatchInputEvent", "autoshot_candidate"]
+    }
+  ],
+  "generatedGroups": []
+}

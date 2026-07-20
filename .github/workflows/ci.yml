@@ -15,6 +15,8 @@ jobs:
       AI_CADDIE_DATA_MODE: fixture
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
           # The fixture API is launched via `uv run uvicorn ... &` below and the
@@ -25,6 +27,28 @@ jobs:
         # --frozen: fail if uv.lock has drifted from pyproject.toml, matching how the Docker
         # images install (uv sync --frozen). Keeps CI and the deployed image byte-identical (P1-7).
         run: uv sync --frozen
+      - name: Resolve canonical authority diff base
+        id: canonical-authority-base
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
+            test -n "$PR_BASE_SHA"
+            echo "range=${PR_BASE_SHA}...HEAD" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_NAME" == "push" && -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]]; then
+            echo "range=${PUSH_BEFORE_SHA}..HEAD" >> "$GITHUB_OUTPUT"
+          else
+            git rev-parse HEAD^ >/dev/null
+            echo "range=HEAD^..HEAD" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check canonical contract authority
+        env:
+          AUTHORITY_RANGE: ${{ steps.canonical-authority-base.outputs.range }}
+        run: git diff --name-only "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py
       - name: Compile Python sources
         run: uv run python -m py_compile $(git ls-files '*.py')
       - name: Run backend tests
