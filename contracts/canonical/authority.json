@@ -37,5 +37,18 @@
       "values": ["serverSequence", "weatherSnapshot", "weatherByHole", "WatchInputEvent", "autoshot_candidate"]
     }
   ],
-  "generatedGroups": []
+  "generatedGroups": [
+    {
+      "name": "canonical-contracts",
+      "sources": [
+        "contracts/canonical/**/*.json",
+        "tools/contracts/generate_contracts.py"
+      ],
+      "outputs": [
+        "ai_caddie/contracts/generated.py",
+        "mobile/ios/AICaddieDomain/GeneratedContracts.swift",
+        "web_v2/src/contracts/generated.ts"
+      ]
+    }
+  ]
 }
