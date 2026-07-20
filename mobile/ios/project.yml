@@ -13,6 +13,38 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
+  AICaddieDomain:
+    type: framework
+    platform: auto
+    supportedDestinations:
+      - iOS
+      - watchOS
+    sources:
+      - path: mobile/ios/AICaddieDomain
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.domain
+        GENERATE_INFOPLIST_FILE: YES
+
+  AICaddieDomainTests:
+    type: bundle.unit-test
+    platform: auto
+    supportedDestinations:
+      - iOS
+      - watchOS
+    sources:
+      - path: mobile/ios/AICaddieDomainTests
+        excludes:
+          - Fixtures
+      - path: mobile/ios/AICaddieDomainTests/Fixtures
+        buildPhase: resources
+    dependencies:
+      - target: AICaddieDomain
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.domain.tests
+        GENERATE_INFOPLIST_FILE: YES
+
   AICaddie:
     type: application
     platform: iOS
@@ -21,6 +53,7 @@ targets:
         excludes:
           - Info.plist
     dependencies:
+      - target: AICaddieDomain
       - target: AICaddieWatch
     info:
       path: AICaddie/Info.plist
@@ -72,6 +105,8 @@ targets:
       - path: mobile/ios/AICaddieWatch
         excludes:
           - Info.plist
+    dependencies:
+      - target: AICaddieDomain
     info:
       path: AICaddieWatch/Info.plist
     settings:
