@@ -51,6 +51,19 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("pull_request", triggers)
         self.assertNotIn("push", triggers)
 
+    def test_canonical_authority_check_propagates_git_diff_failures(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["backend"]["steps"]}
+        run_lines = steps["Check canonical contract authority"]["run"].splitlines()
+
+        self.assertEqual(
+            [
+                "set -euo pipefail",
+                'git diff --name-only "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py',
+            ],
+            run_lines,
+        )
+
     def test_private_trial_smoke_can_send_admin_token_header(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
         text = script.read_text(encoding="utf-8")
