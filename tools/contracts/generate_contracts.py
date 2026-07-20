@@ -2,8 +2,144 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
+
+
+_EVENT_KIND_REGISTRY_SCHEMA = "ai-caddie-event-kind-registry-v1"
+_REASON_CODE_REGISTRY_SCHEMA = "ai-caddie-reason-code-registry-v1"
+_EVENT_KIND_REGISTRY_KEYS = frozenset({"schema", "kinds"})
+_REASON_CODE_REGISTRY_KEYS = frozenset({"schema", "codes", "roundTransportLimits"})
+_SUBMISSION_CLASSES = frozenset(
+    {
+        "ordinary_event",
+        "resolution_prerequisite",
+        "ordinary_or_resolution_commit",
+        "resolution_commit_only",
+    }
+)
+_ROUND_TRANSPORT_LIMIT_KEYS = (
+    "maxHttpBodyBytes",
+    "maxEventsPerBatch",
+    "maxEventCanonicalBytes",
+    "maxEventJsonDepth",
+    "maxRawJsonDepth",
+    "maxJsonKeyCharacters",
+    "maxJsonStringCharacters",
+    "maxDeadLetterRetainedBytes",
+    "maxDeadLettersPerRound",
+    "maxDeadLetterPageSize",
+    "maxConsumerEpochCharacters",
+    "maxMergeSourceIncarnations",
+    "maxSyncPathIdCharacters",
+    "maxReplayPageSize",
+)
+_RAW_NAME = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*", re.ASCII)
+_SWIFT_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
+_SWIFT_RESERVED_WORDS = frozenset(
+    {
+        "Self",
+        "Type",
+        "actor",
+        "any",
+        "as",
+        "associatedtype",
+        "associativity",
+        "async",
+        "await",
+        "borrowing",
+        "break",
+        "case",
+        "catch",
+        "class",
+        "consume",
+        "consuming",
+        "continue",
+        "convenience",
+        "copy",
+        "default",
+        "defer",
+        "deinit",
+        "didSet",
+        "discard",
+        "distributed",
+        "do",
+        "dynamic",
+        "each",
+        "else",
+        "enum",
+        "extension",
+        "fallthrough",
+        "false",
+        "fileprivate",
+        "final",
+        "for",
+        "func",
+        "get",
+        "guard",
+        "if",
+        "import",
+        "in",
+        "indirect",
+        "infix",
+        "init",
+        "inout",
+        "internal",
+        "is",
+        "isolated",
+        "lazy",
+        "left",
+        "let",
+        "macro",
+        "mutating",
+        "nil",
+        "none",
+        "nonisolated",
+        "nonmutating",
+        "open",
+        "operator",
+        "optional",
+        "override",
+        "package",
+        "postfix",
+        "precedence",
+        "precedencegroup",
+        "prefix",
+        "private",
+        "protocol",
+        "public",
+        "repeat",
+        "required",
+        "rethrows",
+        "return",
+        "right",
+        "self",
+        "sending",
+        "set",
+        "some",
+        "static",
+        "struct",
+        "subscript",
+        "super",
+        "switch",
+        "throw",
+        "throws",
+        "true",
+        "try",
+        "typealias",
+        "unowned",
+        "var",
+        "weak",
+        "where",
+        "while",
+        "willSet",
+    }
+)
+_ROUND_EVENT_KIND_MEMBERS = frozenset(
+    {"rawValue", "init", "encode", "knownValues", "submissionClasses"}
+)
+_REASON_CODE_MEMBERS = frozenset({"rawValue", "init", "encode"})
 
 
 def _reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -38,6 +174,140 @@ def _swift_name(value: str) -> str:
     return head + "".join(part[:1].upper() + part[1:] for part in tail)
 
 
+def _require_object(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    return value
+
+
+def _require_exact_keys(value: dict[str, Any], expected: frozenset[str], label: str) -> None:
+    actual = frozenset(value)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        raise ValueError(
+            f"{label} keys must be exactly {sorted(expected)!r}; "
+            f"missing={missing!r}; extra={extra!r}"
+        )
+
+
+def _validate_raw_name(value: Any, label: str) -> str:
+    if not isinstance(value, str) or _RAW_NAME.fullmatch(value) is None:
+        raise ValueError(
+            f"{label} must match ASCII lower snake case "
+            f"[a-z][a-z0-9]*(?:_[a-z0-9]+)*; got {value!r}"
+        )
+    return value
+
+
+def _validate_swift_names(
+    raw_values: list[str],
+    type_name: str,
+    existing_members: frozenset[str],
+) -> dict[str, str]:
+    by_raw: dict[str, str] = {}
+    by_identifier: dict[str, str] = {}
+    for raw_value in sorted(raw_values):
+        identifier = _swift_name(raw_value)
+        if _SWIFT_IDENTIFIER.fullmatch(identifier) is None:
+            raise ValueError(
+                f"invalid Swift identifier in {type_name}: {identifier!r} from {raw_value!r}"
+            )
+        if identifier in _SWIFT_RESERVED_WORDS:
+            raise ValueError(
+                f"Swift reserved word in {type_name}: {identifier} from {raw_value!r}"
+            )
+        if identifier in existing_members:
+            raise ValueError(
+                f"{type_name} member collision: {identifier} from {raw_value!r}"
+            )
+        previous = by_identifier.get(identifier)
+        if previous is not None:
+            raise ValueError(
+                f"Swift identifier collision in {type_name}: {identifier} "
+                f"from {previous!r} and {raw_value!r}"
+            )
+        by_raw[raw_value] = identifier
+        by_identifier[identifier] = raw_value
+    return by_raw
+
+
+def _validate_event_registry(
+    raw_registry: Any,
+) -> tuple[list[str], dict[str, str], dict[str, str]]:
+    registry = _require_object(raw_registry, "event kind registry")
+    _require_exact_keys(registry, _EVENT_KIND_REGISTRY_KEYS, "event kind registry")
+    if registry["schema"] != _EVENT_KIND_REGISTRY_SCHEMA:
+        raise ValueError(
+            f"event kind registry schema must be {_EVENT_KIND_REGISTRY_SCHEMA!r}; "
+            f"got {registry['schema']!r}"
+        )
+    kinds_object = registry["kinds"]
+    if not isinstance(kinds_object, dict):
+        raise ValueError("event kind registry kinds must be an object")
+
+    kinds = sorted(kinds_object)
+    submission_classes: dict[str, str] = {}
+    for kind in kinds:
+        _validate_raw_name(kind, "event kind name")
+        rule = kinds_object[kind]
+        if not isinstance(rule, dict):
+            raise ValueError(f"event rule for {kind} must be an object")
+        submission_class = rule.get("submissionClass", "ordinary_event")
+        if not isinstance(submission_class, str) or submission_class not in _SUBMISSION_CLASSES:
+            raise ValueError(
+                f"submissionClass for {kind} must be one of {sorted(_SUBMISSION_CLASSES)!r}; "
+                f"got {submission_class!r}"
+            )
+        submission_classes[kind] = submission_class
+
+    swift_names = _validate_swift_names(kinds, "RoundEventKind", _ROUND_EVENT_KIND_MEMBERS)
+    return kinds, submission_classes, swift_names
+
+
+def _validate_reason_registry(
+    raw_registry: Any,
+) -> tuple[list[str], dict[str, int], dict[str, str]]:
+    registry = _require_object(raw_registry, "reason code registry")
+    _require_exact_keys(registry, _REASON_CODE_REGISTRY_KEYS, "reason code registry")
+    if registry["schema"] != _REASON_CODE_REGISTRY_SCHEMA:
+        raise ValueError(
+            f"reason code registry schema must be {_REASON_CODE_REGISTRY_SCHEMA!r}; "
+            f"got {registry['schema']!r}"
+        )
+    codes_value = registry["codes"]
+    if not isinstance(codes_value, list):
+        raise ValueError("reason code registry codes must be a list")
+
+    codes: list[str] = []
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for raw_code in codes_value:
+        code = _validate_raw_name(raw_code, "reason code name")
+        if code in seen:
+            duplicates.add(code)
+        seen.add(code)
+        codes.append(code)
+    if duplicates:
+        raise ValueError(f"reason codes must be unique; duplicates={sorted(duplicates)!r}")
+
+    limits_object = registry["roundTransportLimits"]
+    if not isinstance(limits_object, dict):
+        raise ValueError("roundTransportLimits must be an object")
+    expected_limit_keys = frozenset(_ROUND_TRANSPORT_LIMIT_KEYS)
+    _require_exact_keys(limits_object, expected_limit_keys, "roundTransportLimits")
+    limits: dict[str, int] = {}
+    for key in sorted(expected_limit_keys):
+        value = limits_object[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"roundTransportLimits.{key} must be a positive integer; got {value!r}")
+        limits[key] = value
+
+    sorted_codes = sorted(codes)
+    swift_names = _validate_swift_names(sorted_codes, "ReasonCode", _REASON_CODE_MEMBERS)
+    return sorted_codes, limits, swift_names
+
+
 def _swift_array(values: list[str]) -> str:
     return "[" + ", ".join(json.dumps(value) for value in values) + "]"
 
@@ -48,14 +318,9 @@ def generate_all(registry_root: Path, output_root: Path) -> dict[str, str]:
     events = _load(registry_root / "event_kind_registry.json")
     reasons = _load(registry_root / "reason_codes.json")
     descriptors = dict(sorted(canonical["objects"].items()))
+    kinds, submission_classes, swift_kind_names = _validate_event_registry(events)
+    reason_codes, limits, swift_reason_names = _validate_reason_registry(reasons)
     source_digest = _source_digest(registry_root)
-    kinds = sorted(events["kinds"])
-    submission_classes = {
-        kind: events["kinds"][kind].get("submissionClass", "ordinary_event")
-        for kind in kinds
-    }
-    reason_codes = sorted(reasons["codes"])
-    limits = reasons["roundTransportLimits"]
 
     python = (
         "# generated; do not edit\n"
@@ -76,11 +341,11 @@ def generate_all(registry_root: Path, output_root: Path) -> dict[str, str]:
         for name, raw in descriptors.items()
     )
     swift_kind_declarations = "".join(
-        f'\n    public static let {_swift_name(value)} = RoundEventKind(rawValue: "{value}")'
+        f'\n    public static let {swift_kind_names[value]} = RoundEventKind(rawValue: "{value}")'
         for value in kinds
     )
     swift_reasons = "\n".join(
-        f'    public static let {_swift_name(value)} = ReasonCode(rawValue: "{value}")'
+        f'    public static let {swift_reason_names[value]} = ReasonCode(rawValue: "{value}")'
         for value in reason_codes
     )
     swift_known_kinds = _swift_array(kinds)
