@@ -246,6 +246,20 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertNotIn("JWT_WEB", docker_text + compose_text)
         self.assertNotIn("connect-csrf-token", docker_text + compose_text)
 
+    def test_api_image_packages_and_smokes_canonical_contracts(self) -> None:
+        docker_text = Path("Dockerfile").read_text(encoding="utf-8")
+        workflow_text = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+        self.assertIn("COPY contracts/canonical/ ./contracts/canonical/", docker_text)
+        for required in [
+            "docker exec -i aicaddie-api /app/.venv/bin/python -",
+            "from ai_caddie.contracts.typed_ids import typed_id",
+            'Path("/app/contracts/canonical/fixtures/canonical_json_v1.json")',
+            'fixture["typedIds"].items()',
+            'typed_id(domain, fixture["value"])',
+        ]:
+            self.assertIn(required, workflow_text)
+
     def test_fly_manifest_uses_container_volume_and_secret_driven_admin_token(self) -> None:
         manifest = Path("fly.toml")
         self.assertTrue(manifest.exists(), "missing Fly API manifest")

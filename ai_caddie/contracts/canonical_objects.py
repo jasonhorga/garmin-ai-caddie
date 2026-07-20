@@ -41,6 +41,7 @@ class CanonicalObjectDescriptor:
     def validate_and_project(self, payload: Any) -> dict[str, Any]:
         if not isinstance(payload, Mapping):
             raise CanonicalObjectError(f"{self.domain_tag} payload must be an object")
+        snapshot = dict(payload)
         repo_root = Path(__file__).resolve().parents[2]
         schema_path, separator, fragment = self.schema_ref.partition("#")
         absolute_ref = (repo_root / schema_path).resolve().as_uri()
@@ -50,7 +51,7 @@ class CanonicalObjectDescriptor:
             {"$schema": "https://json-schema.org/draft/2020-12/schema", "$ref": absolute_ref},
             registry=_schema_registry(),
         )
-        errors = sorted(validator.iter_errors(dict(payload)), key=lambda item: list(item.path))
+        errors = sorted(validator.iter_errors(snapshot), key=lambda item: list(item.path))
         if errors:
             first = errors[0]
             location = "/".join(str(item) for item in first.absolute_path) or "<root>"
@@ -58,16 +59,16 @@ class CanonicalObjectDescriptor:
                 f"schema validation failed for {self.domain_tag} at {location}: {first.message}"
             )
 
-        keys = set(payload)
+        keys = set(snapshot)
         if self.included_fields == ("*",):
-            return {key: payload[key] for key in payload if key not in self.excluded_fields}
+            return {key: snapshot[key] for key in snapshot if key not in self.excluded_fields}
         included = set(self.included_fields)
         unclassified = keys - included - self.excluded_fields
         if unclassified:
             raise CanonicalObjectError(
                 f"unclassified fields for {self.domain_tag}: {sorted(unclassified)}"
             )
-        return {key: payload[key] for key in self.included_fields if key in payload}
+        return {key: snapshot[key] for key in self.included_fields if key in snapshot}
 
 
 class CanonicalObjectTable:

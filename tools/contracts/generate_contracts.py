@@ -92,4 +92,4 @@ if __name__ == "__main__":
     for relative, content in generate_all(Path("contracts/canonical"), Path(".")).items():
         target = Path(relative)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        target.write_bytes(content.encode("utf-8"))

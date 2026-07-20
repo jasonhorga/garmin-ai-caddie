@@ -131,6 +131,21 @@ jobs:
             sleep 2
           done
           if [ -z "$ok" ]; then docker logs aicaddie-api; exit 1; fi
+          # Exercise the packaged canonical schema registry and immutable typed-ID golden inside the
+          # production image, where repo-relative runtime resources must resolve under /app.
+          docker exec -i aicaddie-api /app/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from ai_caddie.contracts.typed_ids import typed_id
+
+          fixture_path = Path("/app/contracts/canonical/fixtures/canonical_json_v1.json")
+          fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+          for domain, expected in fixture["typedIds"].items():
+              actual = typed_id(domain, fixture["value"])
+              if actual != expected:
+                  raise SystemExit(f"typed ID mismatch for {domain}: {actual} != {expected}")
+          PY
           # The geometry read path resolves ROOT and imports the node-subprocess toolchain inside the
           # container; with no data it must return a STRUCTURED response, never a 500 crash.
           code=$(curl -s -o /tmp/geo.json -w '%{http_code}' --max-time 30 http://127.0.0.1:9000/api/v2/geometry/hole/31795/1)

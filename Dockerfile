@@ -25,6 +25,7 @@ COPY package.json package-lock.json ./
 COPY --from=node-deps /app/node_modules ./node_modules
 
 COPY ai_caddie/ ./ai_caddie/
+COPY contracts/canonical/ ./contracts/canonical/
 COPY server_v2/ ./server_v2/
 COPY ops/ ./ops/
 COPY alembic.ini ./

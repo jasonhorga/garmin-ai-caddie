@@ -3,15 +3,39 @@ from __future__ import annotations
 import ast
 import json
 import unittest
+from collections.abc import Iterator, Mapping
 from pathlib import Path
+from unittest.mock import patch
+
+import rfc8785
 
 from ai_caddie.contracts.canonical_json import (
     CanonicalJSONError,
     canonical_json_bytes,
     parse_canonical_json,
+    parse_unique_json,
 )
 from ai_caddie.contracts.canonical_objects import CanonicalObjectError
 from ai_caddie.contracts.typed_ids import typed_id
+
+
+class _StatefulCanonicalPayload(Mapping[str, object]):
+    def __init__(self) -> None:
+        self.reads: dict[str, int] = {}
+
+    def __getitem__(self, key: str) -> object:
+        self.reads[key] = self.reads.get(key, 0) + 1
+        if key == "a":
+            return "same"
+        if key == "z":
+            return 1 if self.reads[key] == 1 else -1
+        raise KeyError(key)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(("a", "z"))
+
+    def __len__(self) -> int:
+        return 2
 
 
 class CanonicalContractIdTests(unittest.TestCase):
@@ -36,6 +60,51 @@ class CanonicalContractIdTests(unittest.TestCase):
         with self.assertRaisesRegex(CanonicalJSONError, "duplicate object key: eventId"):
             parse_canonical_json(raw)
 
+    def test_parser_requires_strict_utf8_bytes(self) -> None:
+        with self.assertRaisesRegex(CanonicalJSONError, "UTF-8"):
+            parse_canonical_json('"not utf8 transport"'.encode("utf-16"))
+
+    def test_parser_rejects_integer_negative_zero_token(self) -> None:
+        with self.assertRaisesRegex(CanonicalJSONError, "negative zero"):
+            parse_canonical_json(b"-0")
+
+    def test_unique_parser_preserves_integer_negative_zero_for_event_validation(self) -> None:
+        try:
+            parsed = parse_unique_json(b'{"value":-0}')
+        except CanonicalJSONError as exc:
+            self.fail(f"transport parser rejected syntactically valid JSON: {exc}")
+        marker = parsed["value"]
+        self.assertIsInstance(marker, int)
+        self.assertIsNot(type(marker), int)
+        with self.assertRaisesRegex(CanonicalJSONError, "negative zero"):
+            canonical_json_bytes(marker)
+
+    def test_rejects_lone_surrogates_in_values_and_keys(self) -> None:
+        for value in ("\ud800", {"\udfff": "value"}):
+            with self.subTest(value=ascii(value)):
+                try:
+                    canonical_json_bytes(value)
+                except Exception as exc:
+                    self.assertIsInstance(exc, CanonicalJSONError)
+                    self.assertRegex(str(exc), "surrogate")
+                else:
+                    self.fail("lone surrogate was accepted")
+        for raw in (b'"\\ud800"', b'{"\\udfff":"value"}'):
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(CanonicalJSONError, "surrogate"):
+                    parse_canonical_json(raw)
+
+    def test_wraps_rfc8785_canonicalization_failures(self) -> None:
+        failure = rfc8785.CanonicalizationError("forced canonicalization failure")
+        with patch("ai_caddie.contracts.canonical_json.rfc8785.dumps", side_effect=failure):
+            try:
+                canonical_json_bytes({"a": "valid", "z": 1})
+            except Exception as exc:
+                self.assertIsInstance(exc, CanonicalJSONError)
+                self.assertRegex(str(exc), "forced canonicalization failure")
+            else:
+                self.fail("RFC8785 canonicalization failure was not raised")
+
     def test_domain_tags_prevent_cross_type_collision(self) -> None:
         payload = {"a": "same", "z": 1}
         self.assertNotEqual(
@@ -58,6 +127,13 @@ class CanonicalContractIdTests(unittest.TestCase):
             typed_id("CanonicalFixtureAlpha/v1", first),
             typed_id("CanonicalFixtureAlpha/v1", retry),
         )
+
+    def test_stateful_mapping_is_snapshotted_once_for_validation_projection_and_hashing(self) -> None:
+        payload = _StatefulCanonicalPayload()
+        expected = typed_id("CanonicalFixtureAlpha/v1", {"a": "same", "z": 1})
+
+        self.assertEqual(typed_id("CanonicalFixtureAlpha/v1", payload), expected)
+        self.assertEqual(payload.reads, {"a": 1, "z": 1})
 
     def test_checked_in_golden_bytes_and_ids_are_exact(self) -> None:
         fixture = json.loads(Path("contracts/canonical/fixtures/canonical_json_v1.json").read_text())
