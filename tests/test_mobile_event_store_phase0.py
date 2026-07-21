@@ -220,6 +220,98 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             [("duplicate_hash_match", 1), ("duplicate_hash_match", 2)],
         )
 
+    def test_reserved_middle_only_partial_request_is_rejected_without_mutation(self) -> None:
+        events = [_event("prefix-1"), _event("prefix-2"), _event("prefix-3")]
+        request_key = "middle-only-partial"
+        request_hash = _canonical_hash({"roundId": ROUND_A, "events": events})
+        middle_row = {
+            "roundId": ROUND_A,
+            "idempotencyKey": request_key,
+            "serverSequence": 1,
+            "eventHash": _canonical_hash(events[1]),
+            "requestHash": request_hash,
+            "event": events[1],
+        }
+        log_path = self.root / "events.jsonl"
+        log_path.write_text(json.dumps(middle_row) + "\n", encoding="utf-8")
+        reservation_path = self.root / "request_reservations.json"
+        reservation_path.write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-mobile-event-request-reservations-v1",
+                    "reservations": {
+                        f"{ROUND_A}\n{request_key}": {
+                            "roundId": ROUND_A,
+                            "idempotencyKey": request_key,
+                            "requestHash": request_hash,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        log_before = log_path.read_bytes()
+        reservations_before = reservation_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "^idempotency_key_body_mismatch$"):
+            FileEventStore(self.root).append_batch(
+                ROUND_A,
+                events,
+                request_key=request_key,
+            )
+
+        self.assertEqual(log_path.read_bytes(), log_before)
+        self.assertEqual(reservation_path.read_bytes(), reservations_before)
+
+    def test_reserved_reordered_partial_request_is_rejected_without_mutation(self) -> None:
+        events = [_event("prefix-1"), _event("prefix-2"), _event("prefix-3")]
+        request_key = "reordered-partial"
+        request_hash = _canonical_hash({"roundId": ROUND_A, "events": events})
+        reordered_rows = [
+            {
+                "roundId": ROUND_A,
+                "idempotencyKey": request_key,
+                "serverSequence": position,
+                "eventHash": _canonical_hash(event),
+                "requestHash": request_hash,
+                "event": event,
+            }
+            for position, event in enumerate([events[1], events[0]], start=1)
+        ]
+        log_path = self.root / "events.jsonl"
+        log_path.write_text(
+            "".join(json.dumps(row) + "\n" for row in reordered_rows),
+            encoding="utf-8",
+        )
+        reservation_path = self.root / "request_reservations.json"
+        reservation_path.write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-mobile-event-request-reservations-v1",
+                    "reservations": {
+                        f"{ROUND_A}\n{request_key}": {
+                            "roundId": ROUND_A,
+                            "idempotencyKey": request_key,
+                            "requestHash": request_hash,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        log_before = log_path.read_bytes()
+        reservations_before = reservation_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "^idempotency_key_body_mismatch$"):
+            FileEventStore(self.root).append_batch(
+                ROUND_A,
+                events,
+                request_key=request_key,
+            )
+
+        self.assertEqual(log_path.read_bytes(), log_before)
+        self.assertEqual(reservation_path.read_bytes(), reservations_before)
+
     def test_legacy_raw_reservation_rejects_partial_row_outside_reserved_body(self) -> None:
         events = [_event("reserved-1"), _event("reserved-2")]
         request_key = "legacy-raw-corrupt-partial"

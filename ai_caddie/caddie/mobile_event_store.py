@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Sequence
 from contextlib import contextmanager
 from copy import deepcopy
@@ -803,26 +802,15 @@ class FileEventStore:
         )
         normalized_stored_hashes = [self._event_hash(stored.row) for stored in ordered_matching_rows]
         incoming_hashes = [item.event_hash for item in prepared]
+        normalized_stored_roster_is_prefix = (
+            None not in normalized_stored_hashes
+            and normalized_stored_hashes == incoming_hashes[: len(normalized_stored_hashes)]
+        )
         complete_normalized_roster = (
             len(normalized_stored_hashes) == len(incoming_hashes)
-            and None not in normalized_stored_hashes
-            and normalized_stored_hashes == incoming_hashes
+            and normalized_stored_roster_is_prefix
         )
-        prepared_roster = Counter(
-            (item.identity, item.event_hash)
-            for item in prepared
-            if item.identity[2]
-        )
-        matching_roster: Counter[tuple[tuple[str, str, str], str]] = Counter()
-        for stored in matching_request_rows:
-            identity = self._event_identity(stored.row)
-            event_hash = self._event_hash(stored.row)
-            if identity is None or event_hash is None:
-                if not complete_normalized_roster:
-                    raise ValueError("idempotency_key_body_mismatch")
-                continue
-            matching_roster[(identity, event_hash)] += 1
-        if any(count > prepared_roster[slot] for slot, count in matching_roster.items()):
+        if not normalized_stored_roster_is_prefix:
             raise ValueError("idempotency_key_body_mismatch")
         raw_stored_events = [stored.raw_event for stored in ordered_matching_rows]
         legacy_raw_request_hash = (
