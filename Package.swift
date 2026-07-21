@@ -40,7 +40,8 @@ let package = Package(
         .testTarget(
             name: "AICaddieTests",
             dependencies: ["AICaddie"],
-            path: "mobile/ios/AICaddieTests"
+            path: "mobile/ios/AICaddieTests",
+            resources: [.copy("Fixtures")]
         ),
         .testTarget(
             name: "AICaddieWatchTests",

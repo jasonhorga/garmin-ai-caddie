@@ -11,6 +11,10 @@ _EVENT_KIND_REGISTRY_SCHEMA = "ai-caddie-event-kind-registry-v1"
 _REASON_CODE_REGISTRY_SCHEMA = "ai-caddie-reason-code-registry-v1"
 _EVENT_KIND_REGISTRY_KEYS = frozenset({"schema", "kinds"})
 _REASON_CODE_REGISTRY_KEYS = frozenset({"schema", "codes", "roundTransportLimits"})
+_MOBILE_EVENT_SANITIZER_FIXTURE = "fixtures/mobile_event_sanitizer_golden.json"
+_MOBILE_EVENT_SANITIZER_SWIFT_RESOURCE = (
+    "mobile/ios/AICaddieTests/Fixtures/mobile_event_sanitizer_golden.json"
+)
 _SUBMISSION_CLASSES = frozenset(
     {
         "ordinary_event",
@@ -447,8 +451,29 @@ public enum RoundTransportLimits {{
     }
 
 
+def generate_shared_resource_outputs(registry_root: Path) -> dict[str, bytes]:
+    source = registry_root / _MOBILE_EVENT_SANITIZER_FIXTURE
+    raw = source.read_bytes()
+    corpus = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_pairs)
+    if (
+        not isinstance(corpus, dict)
+        or set(corpus) != {"schema", "cases"}
+        or corpus.get("schema") != "ai-caddie-mobile-event-sanitizer-golden-v1"
+        or not isinstance(corpus.get("cases"), list)
+        or not corpus["cases"]
+    ):
+        raise ValueError("mobile event sanitizer golden corpus is invalid")
+    return {_MOBILE_EVENT_SANITIZER_SWIFT_RESOURCE: raw}
+
+
 if __name__ == "__main__":
-    for relative, content in generate_all(Path("contracts/canonical"), Path(".")).items():
+    registry_root = Path("contracts/canonical")
+    generated_bytes = {
+        relative: content.encode("utf-8")
+        for relative, content in generate_all(registry_root, Path(".")).items()
+    }
+    generated_bytes.update(generate_shared_resource_outputs(registry_root))
+    for relative, content in generated_bytes.items():
         target = Path(relative)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content.encode("utf-8"))
+        target.write_bytes(content)

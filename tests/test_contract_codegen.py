@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import hashlib
 import json
 import re
 import shutil
@@ -20,6 +21,12 @@ GENERATED_OUTPUTS = {
     "mobile/ios/AICaddieDomain/GeneratedContracts.swift",
     "web_v2/src/contracts/generated.ts",
 }
+SHARED_RESOURCE_OUTPUTS = {
+    "mobile/ios/AICaddieTests/Fixtures/mobile_event_sanitizer_golden.json",
+}
+MOBILE_EVENT_SANITIZER_SHA256 = (
+    "bc50f2ba6f1bff6c3894e201401237c5a0bb7e00d9c9c0a1e9e47b13429d328d"
+)
 
 EVENT_KIND_REGISTRY = {
     "schema": "ai-caddie-event-kind-registry-v1",
@@ -155,6 +162,22 @@ class ContractCodegenTests(unittest.TestCase):
             self.assertEqual(set(outputs), GENERATED_OUTPUTS)
             for relative, generated in outputs.items():
                 self.assertEqual(Path(relative).read_bytes(), generated.encode("utf-8"), relative)
+
+    def test_checked_in_mobile_event_sanitizer_resource_is_exact_byte_copy(self) -> None:
+        canonical_path = Path(
+            "contracts/canonical/fixtures/mobile_event_sanitizer_golden.json"
+        )
+        self.assertTrue(canonical_path.exists())
+        canonical = canonical_path.read_bytes()
+        outputs = contract_codegen.generate_shared_resource_outputs(
+            Path("contracts/canonical")
+        )
+
+        self.assertEqual(set(outputs), SHARED_RESOURCE_OUTPUTS)
+        self.assertEqual(hashlib.sha256(canonical).hexdigest(), MOBILE_EVENT_SANITIZER_SHA256)
+        for relative, generated in outputs.items():
+            self.assertEqual(generated, canonical, relative)
+            self.assertEqual(Path(relative).read_bytes(), canonical, relative)
 
     def test_checked_in_registries_match_all_frozen_normative_values(self) -> None:
         events = contract_codegen._load(Path("contracts/canonical/event_kind_registry.json"))
@@ -510,6 +533,13 @@ class ContractCodegenTests(unittest.TestCase):
             'name: "AICaddieWatch",\n            dependencies: ["AICaddieDomain"],',
             package,
         )
+        self.assertIn(
+            'name: "AICaddieTests",\n'
+            '            dependencies: ["AICaddie"],\n'
+            '            path: "mobile/ios/AICaddieTests",\n'
+            '            resources: [.copy("Fixtures")]',
+            package,
+        )
 
     def test_xcodegen_declares_multidestination_domain_targets_and_dependencies(self) -> None:
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
@@ -545,6 +575,19 @@ class ContractCodegenTests(unittest.TestCase):
         }
         self.assertEqual(watch_dependencies, {"AICaddieDomain"})
 
+        ios_tests = targets["AICaddieTests"]
+        self.assertIn(
+            {"path": "mobile/ios/AICaddieTests", "excludes": ["Fixtures"]},
+            ios_tests["sources"],
+        )
+        self.assertIn(
+            {
+                "path": "mobile/ios/AICaddieTests/Fixtures",
+                "buildPhase": "resources",
+            },
+            ios_tests["sources"],
+        )
+
     def test_main_writes_generated_outputs_as_explicit_utf8_bytes(self) -> None:
         source = Path("tools/contracts/generate_contracts.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -556,10 +599,19 @@ class ContractCodegenTests(unittest.TestCase):
             and node.func.attr == "write_bytes"
         ]
         self.assertEqual(len(calls), 1)
-        encoded = calls[0].args[0]
-        self.assertIsInstance(encoded, ast.Call)
-        assert isinstance(encoded, ast.Call)
-        self.assertIsInstance(encoded.func, ast.Attribute)
-        assert isinstance(encoded.func, ast.Attribute)
-        self.assertEqual(encoded.func.attr, "encode")
-        self.assertEqual([ast.literal_eval(arg) for arg in encoded.args], ["utf-8"])
+        written = calls[0].args[0]
+        self.assertIsInstance(written, ast.Name)
+        assert isinstance(written, ast.Name)
+        self.assertEqual(written.id, "content")
+        encode_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "encode"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "content"
+            and [ast.literal_eval(arg) for arg in node.args] == ["utf-8"]
+        ]
+        self.assertEqual(len(encode_calls), 1)
+        self.assertIn("generate_shared_resource_outputs(registry_root)", source)

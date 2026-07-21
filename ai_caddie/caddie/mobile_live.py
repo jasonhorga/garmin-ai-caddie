@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.courses import course_prep
-from ai_caddie.caddie.mobile_event_store import FileEventStore
+from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
@@ -2229,7 +2229,7 @@ def _event_log_rows(
     # evidence_root (which nullifies non-owners to empty): a member now has a real home for their
     # own live events, and never sees the owner's or another member's (different path).
     path = mobile_event_log(root, player_id=player_id)
-    return FileEventStore(path.parent).read_rows(round_id)
+    return open_mobile_event_store(path.parent).read_rows(round_id)
 
 
 def _latest_event_sequence(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
@@ -2249,7 +2249,7 @@ def _pending_event_count(round_id: str, *, after_sequence: int, root: Path | str
 
 def _client_ack_sequence(round_id: str, client_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
     path = mobile_event_ack_store(root, player_id=player_id)
-    return FileEventStore(path.parent).read_ack(str(round_id), str(client_id))
+    return open_mobile_event_store(path.parent).read_ack(str(round_id), str(client_id))
 
 
 def append_event_batch(
@@ -2261,7 +2261,7 @@ def append_event_batch(
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     path = mobile_event_log(root, player_id=player_id)
-    store = FileEventStore(path.parent)
+    store = open_mobile_event_store(path.parent)
     append_result = store.append_batch(str(round_id), events, request_key=idempotency_key)
     receipts = append_result.receipts
     accepted_event_ids = [receipt.event_id for receipt in receipts if receipt.status == "accepted" and receipt.event_id]
@@ -2431,7 +2431,7 @@ def ack_event_cursor(
     if not clean_client_id:
         raise ValueError("clientId is required")
     path = mobile_event_ack_store(root, player_id=player_id)
-    store = FileEventStore(path.parent)
+    store = open_mobile_event_store(path.parent)
     acked_sequence = store.ack(str(round_id), clean_client_id, int(server_sequence))
     latest_sequence = _latest_event_sequence(round_id, root=root, player_id=player_id)
     return {

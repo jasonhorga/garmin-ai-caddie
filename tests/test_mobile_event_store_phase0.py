@@ -75,6 +75,192 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             ["e1", "e2"],
         )
 
+    def test_legacy_raw_reservation_without_rows_recovers_only_exact_raw_body(self) -> None:
+        events = [
+            {
+                **_event("legacy-raw-1"),
+                "payload": {"note": "token=first-secret", "strokes": 4},
+            },
+            _event("legacy-raw-2"),
+        ]
+        raw_request_hash = _canonical_hash({"roundId": ROUND_A, "events": events})
+        reservation_path = self.root / "request_reservations.json"
+        reservation_path.write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-mobile-event-request-reservations-v1",
+                    "reservations": {
+                        f"{ROUND_A}\nlegacy-raw-zero": {
+                            "roundId": ROUND_A,
+                            "idempotencyKey": "legacy-raw-zero",
+                            "requestHash": raw_request_hash,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        same_effective_different_raw = [
+            {
+                **events[0],
+                "payload": {"note": "token=second-secret", "strokes": 4},
+            },
+            events[1],
+        ]
+        with self.assertRaisesRegex(ValueError, "^idempotency_key_body_mismatch$"):
+            FileEventStore(self.root).append_batch(
+                ROUND_A,
+                same_effective_different_raw,
+                request_key="legacy-raw-zero",
+            )
+        self.assertFalse((self.root / "events.jsonl").exists())
+
+        different_effective = [
+            {
+                **events[0],
+                "payload": {"note": "publicly different note", "strokes": 5},
+            },
+            events[1],
+        ]
+        with self.assertRaisesRegex(ValueError, "^idempotency_key_body_mismatch$"):
+            FileEventStore(self.root).append_batch(
+                ROUND_A,
+                different_effective,
+                request_key="legacy-raw-zero",
+            )
+        self.assertFalse((self.root / "events.jsonl").exists())
+
+        retry = FileEventStore(self.root).append_batch(
+            ROUND_A,
+            events,
+            request_key="legacy-raw-zero",
+        )
+
+        self.assertEqual([receipt.status for receipt in retry], ["accepted", "accepted"])
+        self.assertEqual(
+            [receipt.event_id for receipt in FileEventStore(self.root).read_events(ROUND_A)],
+            ["legacy-raw-1", "legacy-raw-2"],
+        )
+
+    def test_legacy_raw_reservation_with_partial_rows_recovers_only_exact_raw_body(self) -> None:
+        events = [
+            {
+                **_event("legacy-partial-1"),
+                "payload": {"note": "token=first-secret", "strokes": 4},
+            },
+            _event("legacy-partial-2"),
+        ]
+        request_key = "legacy-raw-partial"
+        raw_request_hash = _canonical_hash({"roundId": ROUND_A, "events": events})
+        raw_row = {
+            "roundId": ROUND_A,
+            "idempotencyKey": request_key,
+            "serverSequence": 1,
+            "eventHash": _canonical_hash(events[0]),
+            "requestHash": raw_request_hash,
+            "event": events[0],
+        }
+        (self.root / "events.jsonl").write_text(json.dumps(raw_row) + "\n", encoding="utf-8")
+        reservation_path = self.root / "request_reservations.json"
+        reservation_path.write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-mobile-event-request-reservations-v1",
+                    "reservations": {
+                        f"{ROUND_A}\n{request_key}": {
+                            "roundId": ROUND_A,
+                            "idempotencyKey": request_key,
+                            "requestHash": raw_request_hash,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        log_before = (self.root / "events.jsonl").read_bytes()
+
+        same_effective_different_raw = [
+            {
+                **events[0],
+                "payload": {"note": "token=second-secret", "strokes": 4},
+            },
+            events[1],
+        ]
+        with self.assertRaisesRegex(ValueError, "^idempotency_key_body_mismatch$"):
+            FileEventStore(self.root).append_batch(
+                ROUND_A,
+                same_effective_different_raw,
+                request_key=request_key,
+            )
+        self.assertEqual((self.root / "events.jsonl").read_bytes(), log_before)
+
+        retry = FileEventStore(self.root).append_batch(
+            ROUND_A,
+            events,
+            request_key=request_key,
+        )
+
+        self.assertEqual(
+            [(receipt.status, receipt.position) for receipt in retry],
+            [("duplicate_hash_match", 1), ("accepted", 2)],
+        )
+        self.assertEqual(
+            [receipt.event_id for receipt in FileEventStore(self.root).read_events(ROUND_A)],
+            ["legacy-partial-1", "legacy-partial-2"],
+        )
+
+        completed_retry = FileEventStore(self.root).append_batch(
+            ROUND_A,
+            events,
+            request_key=request_key,
+        )
+        self.assertEqual(
+            [(receipt.status, receipt.position) for receipt in completed_retry],
+            [("duplicate_hash_match", 1), ("duplicate_hash_match", 2)],
+        )
+
+    def test_legacy_raw_reservation_rejects_partial_row_outside_reserved_body(self) -> None:
+        events = [_event("reserved-1"), _event("reserved-2")]
+        request_key = "legacy-raw-corrupt-partial"
+        raw_request_hash = _canonical_hash({"roundId": ROUND_A, "events": events})
+        unrelated = _event("not-in-reserved-body")
+        raw_row = {
+            "roundId": ROUND_A,
+            "idempotencyKey": request_key,
+            "serverSequence": 1,
+            "eventHash": _canonical_hash(unrelated),
+            "requestHash": raw_request_hash,
+            "event": unrelated,
+        }
+        log_path = self.root / "events.jsonl"
+        log_path.write_text(json.dumps(raw_row) + "\n", encoding="utf-8")
+        (self.root / "request_reservations.json").write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-mobile-event-request-reservations-v1",
+                    "reservations": {
+                        f"{ROUND_A}\n{request_key}": {
+                            "roundId": ROUND_A,
+                            "idempotencyKey": request_key,
+                            "requestHash": raw_request_hash,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        before = log_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "^idempotency_key_body_mismatch$"):
+            FileEventStore(self.root).append_batch(
+                ROUND_A,
+                events,
+                request_key=request_key,
+            )
+
+        self.assertEqual(log_path.read_bytes(), before)
+
     def test_retry_after_second_event_crash_fills_every_missing_event(self) -> None:
         store = FileEventStore(self.root)
         events = [_event("e1"), _event("e2"), _event("e3")]
@@ -1035,6 +1221,31 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                 request_key="different-request",
             )
 
+    def test_production_store_matches_shared_cross_language_privacy_golden(self) -> None:
+        from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
+
+        fixture_path = (
+            Path(__file__).resolve().parents[1]
+            / "contracts"
+            / "canonical"
+            / "fixtures"
+            / "mobile_event_sanitizer_golden.json"
+        )
+        corpus = json.loads(fixture_path.read_text(encoding="utf-8"))
+        self.assertEqual(corpus["schema"], "ai-caddie-mobile-event-sanitizer-golden-v1")
+
+        for case in corpus["cases"]:
+            with self.subTest(case=case["name"]), tempfile.TemporaryDirectory() as tmp:
+                event = case["input"]
+                store = open_mobile_event_store(Path(tmp))
+                store.append_batch(
+                    str(event["roundId"]),
+                    [event],
+                    request_key=f"golden-{case['name']}",
+                )
+
+                self.assertEqual(store.read_rows(str(event["roundId"]))[0]["event"], case["expected"])
+
     def test_corrupt_request_reservation_store_is_not_overwritten(self) -> None:
         reservations = self.root / "request_reservations.json"
         reservations.write_text("{broken", encoding="utf-8")
@@ -1179,6 +1390,109 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                     set(repaired["acks"][f"{ROUND_A}\nios"]),
                     {"roundId", "clientId", "serverSequence", "updatedAt"},
                 )
+
+    def test_persisted_ack_ahead_of_committed_high_water_is_quarantined_before_replay(self) -> None:
+        from ai_caddie.caddie.mobile_live import (
+            append_event_batch,
+            mobile_event_ack_store,
+            replay_event_log,
+        )
+
+        root = self.root / "server-root"
+        append_event_batch(
+            ROUND_A,
+            [_event("replay-1"), _event("replay-2")],
+            idempotency_key="replay-seed",
+            root=root,
+        )
+        ack_path = mobile_event_ack_store(root)
+        store = FileEventStore(ack_path.parent)
+        ack_payload = {
+            "schema": "ai-caddie-mobile-event-acks-v1",
+            "acks": {
+                f"{ROUND_A}\nios": {
+                    "roundId": ROUND_A,
+                    "clientId": "ios",
+                    "serverSequence": 999,
+                    "updatedAt": "2026-07-21T00:00:00Z",
+                }
+            },
+        }
+        ack_path.write_text(json.dumps(ack_payload), encoding="utf-8")
+        corrupt_bytes = ack_path.read_bytes()
+        expected_backup = ack_path.parent / (
+            "client_acks.json.corrupt." + hashlib.sha256(corrupt_bytes).hexdigest()
+        )
+
+        replay = replay_event_log(ROUND_A, client_id="ios", root=root)
+
+        self.assertEqual(replay["afterSequence"], 0)
+        self.assertEqual(
+            [row["event"]["eventId"] for row in replay["events"]],
+            ["replay-1", "replay-2"],
+        )
+        self.assertFalse(ack_path.exists())
+        self.assertEqual(expected_backup.read_bytes(), corrupt_bytes)
+        self.assertEqual(store.read_ack(ROUND_A, "ios"), 0)
+        self.assertEqual(list(ack_path.parent.glob("client_acks.json.corrupt.*")), [expected_backup])
+
+    def test_persisted_ack_ahead_of_committed_high_water_is_quarantined_before_ack(self) -> None:
+        store = FileEventStore(self.root)
+        store.append_batch(
+            ROUND_A,
+            [_event("ack-1"), _event("ack-2")],
+            request_key="ack-seed",
+        )
+        ack_payload = {
+            "schema": "ai-caddie-mobile-event-acks-v1",
+            "acks": {
+                f"{ROUND_A}\nios": {
+                    "roundId": ROUND_A,
+                    "clientId": "ios",
+                    "serverSequence": 999,
+                    "updatedAt": "2026-07-21T00:00:00Z",
+                }
+            },
+        }
+        store.acks.write_text(json.dumps(ack_payload), encoding="utf-8")
+        corrupt_bytes = store.acks.read_bytes()
+        expected_backup = store.acks.with_name(
+            "client_acks.json.corrupt." + hashlib.sha256(corrupt_bytes).hexdigest()
+        )
+
+        self.assertEqual(store.ack(ROUND_A, "ios", 1), 1)
+
+        self.assertEqual(expected_backup.read_bytes(), corrupt_bytes)
+        repaired = json.loads(store.acks.read_text(encoding="utf-8"))
+        self.assertEqual(repaired["acks"][f"{ROUND_A}\nios"]["serverSequence"], 1)
+        self.assertEqual(list(self.root.glob("client_acks.json.corrupt.*")), [expected_backup])
+
+    def test_persisted_ack_ahead_is_quarantined_even_when_new_ack_is_also_ahead(self) -> None:
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("ack-1")], request_key="ack-seed")
+        ack_payload = {
+            "schema": "ai-caddie-mobile-event-acks-v1",
+            "acks": {
+                f"{ROUND_A}\nios": {
+                    "roundId": ROUND_A,
+                    "clientId": "ios",
+                    "serverSequence": 999,
+                    "updatedAt": "2026-07-21T00:00:00Z",
+                }
+            },
+        }
+        store.acks.write_text(json.dumps(ack_payload), encoding="utf-8")
+        corrupt_bytes = store.acks.read_bytes()
+        expected_backup = store.acks.with_name(
+            "client_acks.json.corrupt." + hashlib.sha256(corrupt_bytes).hexdigest()
+        )
+
+        with self.assertRaisesRegex(ValueError, "^consumer_ack_ahead_of_stream$"):
+            store.ack(ROUND_A, "ios", 2)
+
+        self.assertFalse(store.acks.exists())
+        self.assertEqual(expected_backup.read_bytes(), corrupt_bytes)
+        self.assertEqual(store.read_ack(ROUND_A, "ios"), 0)
 
     def test_ack_ahead_of_partition_global_high_water_is_rejected(self) -> None:
         store = FileEventStore(self.root)
@@ -1409,28 +1723,28 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         )
         self.assertEqual(store.ack(ROUND_A, "ios-phone", 2), 2)
 
-    def test_target_marker_stays_hidden_until_directory_barrier_succeeds(self) -> None:
+    def test_replace_success_with_persistently_failed_directory_fsync_hides_target(self) -> None:
         store = FileEventStore(self.root)
         store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
-        base_length = store.log.stat().st_size
-        original_write_committed_length = store._write_committed_length
+        original_replace = os.replace
         original_fsync_directory = FileEventStore._fsync_directory
-        barrier_required = False
+        target_marker_replaced = False
+        target_replace_count = 0
 
-        def write_target_then_report_uncertain(marker: object) -> None:
-            nonlocal barrier_required
-            original_write_committed_length(marker)  # type: ignore[arg-type]
-            if marker.committed_byte_length > base_length:  # type: ignore[attr-defined]
-                barrier_required = True
-                raise OSError("target-marker-replace-uncertain")
+        def track_target_replace(source: object, destination: object, *args: object, **kwargs: object) -> None:
+            nonlocal target_marker_replaced, target_replace_count
+            original_replace(source, destination, *args, **kwargs)  # type: ignore[arg-type]
+            if Path(destination) == store.commit_marker:
+                target_marker_replaced = True
+                target_replace_count += 1
 
         def fail_uncertain_barrier(candidate: FileEventStore, directory: Path | None = None) -> None:
-            if barrier_required:
+            if target_marker_replaced:
                 raise OSError("target-marker-directory-barrier-failed")
             original_fsync_directory(candidate, directory)
 
         with (
-            mock.patch.object(store, "_write_committed_length", new=write_target_then_report_uncertain),
+            mock.patch("ai_caddie.caddie.mobile_event_store.os.replace", new=track_target_replace),
             mock.patch.object(FileEventStore, "_fsync_directory", new=fail_uncertain_barrier),
         ):
             with self.assertRaisesRegex(OSError, "target-marker-directory-barrier-failed"):
@@ -1440,13 +1754,24 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                     request_key="uncertain-target",
                 )
 
+            self.assertTrue(target_marker_replaced)
+            self.assertEqual(target_replace_count, 1)
+            committed = json.loads(store.commit_marker.read_text(encoding="utf-8"))
+            pending = json.loads(store.pending_commit.read_text(encoding="utf-8"))
+            self.assertEqual(committed["committedByteLength"], pending["targetByteLength"])
+            self.assertEqual(
+                committed["committedPrefixSha256"],
+                pending["targetCommittedPrefixSha256"],
+            )
+
             restarted = FileEventStore(self.root)
-            for operation in (
-                restarted.read_rows,
-                restarted.high_water,
-            ):
-                with self.assertRaisesRegex(OSError, "target-marker-directory-barrier-failed"):
-                    operation()
+            for _ in range(2):
+                for operation in (
+                    restarted.read_rows,
+                    restarted.high_water,
+                ):
+                    with self.assertRaisesRegex(OSError, "target-marker-directory-barrier-failed"):
+                        operation()
             with self.assertRaisesRegex(OSError, "target-marker-directory-barrier-failed"):
                 restarted.ack(ROUND_A, "ios-phone", 2)
             self.assertFalse(restarted.acks.exists())
@@ -1457,6 +1782,13 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             ["seed", "uncertain-target"],
         )
         self.assertEqual(recovered.high_water(), 2)
+        retry = recovered.append_batch(
+            ROUND_A,
+            [_event("uncertain-target")],
+            request_key="uncertain-target",
+        )
+        self.assertEqual([(row.status, row.position) for row in retry], [("duplicate_hash_match", 2)])
+        self.assertFalse(recovered.pending_commit.exists())
         self.assertEqual(recovered.ack(ROUND_A, "ios-phone", 2), 2)
 
     def test_pending_cleanup_failure_and_stale_restart_preserve_committed_target(self) -> None:

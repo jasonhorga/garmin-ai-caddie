@@ -78,6 +78,10 @@ targets:
     platform: iOS
     sources:
       - path: mobile/ios/AICaddieTests
+        excludes:
+          - Fixtures
+      - path: mobile/ios/AICaddieTests/Fixtures
+        buildPhase: resources
     dependencies:
       - target: AICaddie
     settings:

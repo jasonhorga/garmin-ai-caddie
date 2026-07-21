@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public struct PendingMediaAttachment: Codable, Equatable, Identifiable {
     public let id: String
@@ -123,9 +128,23 @@ public final class OfflineStore {
     private let pendingMediaIndexURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let syncEventLogFile: (URL) throws -> Void
+    private let syncEventLogDirectory: (URL) throws -> Void
     private let eventLogLock = NSLock()
 
-    public init(directoryURL: URL) {
+    public convenience init(directoryURL: URL) {
+        self.init(
+            directoryURL: directoryURL,
+            syncEventLogFile: { try Self.synchronizeFile(at: $0) },
+            syncEventLogDirectory: { try Self.synchronizeDirectory(at: $0) }
+        )
+    }
+
+    init(
+        directoryURL: URL,
+        syncEventLogFile: @escaping (URL) throws -> Void,
+        syncEventLogDirectory: @escaping (URL) throws -> Void
+    ) {
         self.directoryURL = directoryURL
         self.logURL = directoryURL.appendingPathComponent("events.jsonl")
         self.packagesDirectoryURL = directoryURL.appendingPathComponent("packages", isDirectory: true)
@@ -135,6 +154,8 @@ public final class OfflineStore {
         self.pendingMediaIndexURL = directoryURL.appendingPathComponent("pending_media.jsonl")
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
+        self.syncEventLogFile = syncEventLogFile
+        self.syncEventLogDirectory = syncEventLogDirectory
     }
 
     public convenience init() {
@@ -245,7 +266,7 @@ public final class OfflineStore {
     }
 
     private func appendEventUnlocked(_ event: LiveRoundEvent) throws {
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try ensureEventLogDirectoryDurable()
         let transport = transportEvent(event)
         var encoded = try encoder.encode(transport)
         encoded.append(Data([0x0A]))
@@ -256,7 +277,7 @@ public final class OfflineStore {
             try handle.synchronize()
             try handle.close()
         } else {
-            try encoded.write(to: logURL, options: [.atomic])
+            try writeEventLogAtomicallyAndDurably(encoded)
         }
         AICaddieLog.storage.debug("Saved live event \(String(describing: transport.kind), privacy: .public) hole \(transport.hole, privacy: .public)")
     }
@@ -597,6 +618,45 @@ public final class OfflineStore {
         return try operation()
     }
 
+    private static func synchronizeFile(at url: URL) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        do {
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
+        }
+    }
+
+    private static func synchronizeDirectory(at url: URL) throws {
+        let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_RDONLY)
+        }
+        guard descriptor >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { _ = close(descriptor) }
+        guard fsync(descriptor) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+    }
+
+    private func ensureEventLogDirectoryDurable() throws {
+        let alreadyExists = FileManager.default.fileExists(atPath: directoryURL.path)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        if !alreadyExists {
+            try syncEventLogDirectory(directoryURL.deletingLastPathComponent())
+        }
+    }
+
+    private func writeEventLogAtomicallyAndDurably(_ data: Data) throws {
+        try data.write(to: logURL, options: [.atomic])
+        try syncEventLogFile(logURL)
+        try syncEventLogDirectory(directoryURL)
+    }
+
     private func repairTornEventLogEOFIfNeededUnlocked() throws {
         guard FileManager.default.fileExists(atPath: logURL.path) else {
             return
@@ -611,11 +671,11 @@ public final class OfflineStore {
         if (try? decoder.decode(LiveRoundEvent.self, from: tail)) != nil {
             var terminated = data
             terminated.append(Data([0x0A]))
-            try terminated.write(to: logURL, options: [.atomic])
+            try writeEventLogAtomicallyAndDurably(terminated)
             return
         }
         let durablePrefix = lastNewline.map { Data(data[...$0]) } ?? Data()
-        try durablePrefix.write(to: logURL, options: [.atomic])
+        try writeEventLogAtomicallyAndDurably(durablePrefix)
     }
 
     private func replayIdentity(_ event: LiveRoundEvent) -> ReplayEventIdentity {
@@ -735,7 +795,7 @@ public final class OfflineStore {
     private func rewriteEventsUnlocked(_ events: [LiveRoundEvent]) throws {
         try repairTornEventLogEOFIfNeededUnlocked()
         _ = try loadEventsUnlocked(strict: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try ensureEventLogDirectoryDurable()
         let lines = try events.map { event in
             String(data: try encoder.encode(transportEvent(event)), encoding: .utf8) ?? "{}"
         }
@@ -744,7 +804,7 @@ public final class OfflineStore {
         if !events.isEmpty {
             data.append(Data([0x0A]))
         }
-        try data.write(to: logURL, options: [.atomic])
+        try writeEventLogAtomicallyAndDurably(data)
     }
 
     private func defaultLiveHoleState(

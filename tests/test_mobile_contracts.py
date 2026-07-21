@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
 import plistlib
 from pathlib import Path
@@ -1571,6 +1573,10 @@ class MobileContractTests(unittest.TestCase):
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
         store_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "OfflineStoreTests.swift")
+        app_model_tests = _read_required_source(
+            self,
+            IOS_DIR.parent / "AICaddieTests" / "LiveRoundAppModelTests.swift",
+        )
 
         self.assertIn("private struct ReplayEventIdentity: Hashable", offline_store)
         self.assertIn("clientId: event.clientId ?? \"\"", offline_store)
@@ -1589,6 +1595,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("testApplyReplayEventsThrowsWhenAnyPageEventFailsToPersist", store_tests)
         self.assertIn("XCTAssertEqual(try store.loadEvents(), [phone, watch])", store_tests)
         self.assertIn("XCTAssertThrowsError", store_tests)
+        self.assertIn("testLaterConflictWithinReplayPageDoesNotAcknowledgeThatPage", app_model_tests)
+        self.assertIn('XCTAssertFalse(paths.contains("/api/v2/mobile/rounds/', app_model_tests)
+        self.assertIn('/events/ack"))', app_model_tests)
+        self.assertIn('events.contains { $0.eventId == "durable-prefix" }', app_model_tests)
 
     def test_ios_replay_repairs_torn_eof_and_reloads_before_ack_gate(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -1610,7 +1620,19 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("testApplyReplayEventsRepairsTornEOFTailAndReloadsBeforeAckGate", store_tests)
         self.assertIn("testApplyReplayEventsRejectsMalformedMiddleLineBeforePageCanAck", store_tests)
+        self.assertIn("testReplayFirstLogCreationRequiresFileAndDirectoryDurabilityBeforeSuccess", store_tests)
+        self.assertIn("testTornTailReplacementRequiresFileAndDirectoryDurabilityBeforeReplaySuccess", store_tests)
         self.assertIn("XCTAssertEqual(try store.loadEvents(), [existing, replayed])", store_tests)
+        self.assertIn("import Darwin", offline_store)
+        self.assertIn("syncEventLogFile: @escaping (URL) throws -> Void", offline_store)
+        self.assertIn("syncEventLogDirectory: @escaping (URL) throws -> Void", offline_store)
+        self.assertIn("private func writeEventLogAtomicallyAndDurably", offline_store)
+        self.assertIn("try syncEventLogFile(logURL)", offline_store)
+        self.assertIn("try syncEventLogDirectory(directoryURL)", offline_store)
+        self.assertGreaterEqual(
+            offline_store.count("try writeEventLogAtomicallyAndDurably("),
+            3,
+        )
 
     def test_ios_sync_client_supports_server_event_replay_and_ack(self) -> None:
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
@@ -2171,6 +2193,66 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("offlineStore: offlineStore", round_home)
         self.assertIn("offlineStore: OfflineStore? = nil", current_hole)
         self.assertIn("offlineStore: offlineStore", current_hole)
+
+    def test_mobile_privacy_sanitizer_has_one_factory_and_shared_cross_language_golden(self) -> None:
+        event_store = _read_required_source(self, Path("ai_caddie/caddie/mobile_event_store.py"))
+        mobile_live = _read_required_source(self, Path("ai_caddie/caddie/mobile_live.py"))
+        reconciliation = _read_required_source(
+            self,
+            Path("ai_caddie/caddie/mobile_reconciliation.py"),
+        )
+        store_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "OfflineStoreTests.swift")
+        canonical_fixture = Path(
+            "contracts/canonical/fixtures/mobile_event_sanitizer_golden.json"
+        )
+        swift_fixture = (
+            IOS_DIR.parent
+            / "AICaddieTests"
+            / "Fixtures"
+            / "mobile_event_sanitizer_golden.json"
+        )
+
+        self.assertTrue(canonical_fixture.exists())
+        self.assertTrue(swift_fixture.exists())
+        canonical_bytes = canonical_fixture.read_bytes()
+        self.assertEqual(swift_fixture.read_bytes(), canonical_bytes)
+        self.assertEqual(
+            hashlib.sha256(canonical_bytes).hexdigest(),
+            "bc50f2ba6f1bff6c3894e201401237c5a0bb7e00d9c9c0a1e9e47b13429d328d",
+        )
+        corpus = json.loads(canonical_bytes)
+        self.assertEqual(corpus["schema"], "ai-caddie-mobile-event-sanitizer-golden-v1")
+        self.assertGreaterEqual(len(corpus["cases"]), 4)
+        self.assertIn("def open_mobile_event_store", event_store)
+        self.assertIn("sanitizer=sanitize_mobile_event", event_store)
+        self.assertNotIn("FileEventStore(", mobile_live)
+        self.assertNotIn("FileEventStore(", reconciliation)
+        self.assertIn("open_mobile_event_store(", mobile_live)
+        self.assertIn("open_mobile_event_store(", reconciliation)
+        direct_constructors: list[str] = []
+        store_module = Path("ai_caddie/caddie/mobile_event_store.py")
+        for root in (Path("ai_caddie"), Path("server_v2")):
+            for path in root.rglob("*.py"):
+                if path == store_module:
+                    continue
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    called_name = (
+                        node.func.id
+                        if isinstance(node.func, ast.Name)
+                        else node.func.attr
+                        if isinstance(node.func, ast.Attribute)
+                        else ""
+                    )
+                    if called_name == "FileEventStore":
+                        direct_constructors.append(f"{path}:{node.lineno}")
+        self.assertEqual(direct_constructors, [])
+        self.assertIn("mobile_event_sanitizer_golden", store_tests)
+        self.assertIn("Bundle.module", store_tests)
+        self.assertIn("Bundle(for: OfflineStoreTests.self)", store_tests)
+        self.assertIn("testPrivacySanitizerMatchesSharedCrossLanguageGoldenCorpus", store_tests)
 
     def test_ios_garmin_session_connector_surface_imports_session_material_without_passwords(self) -> None:
         session_client = _read_required_source(self, IOS_DIR / "Services" / "GarminSessionClient.swift")

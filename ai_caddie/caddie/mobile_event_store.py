@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from contextlib import contextmanager
 from copy import deepcopy
@@ -155,10 +156,15 @@ def sanitize_mobile_event(event: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return sanitized
     sanitized_payload = dict(payload)
-    if str(sanitized.get("kind") or "") in {"photo", "video"} and sanitized_payload.get(
-        "fileURL"
+    if (
+        str(sanitized.get("kind") or "") in {"photo", "video"}
+        and "fileURL" in sanitized_payload
     ):
-        sanitized_payload["fileURL"] = REDACTED_LOCAL_MEDIA_URL
+        file_url = sanitized_payload["fileURL"]
+        if (isinstance(file_url, str) and file_url) or (
+            file_url is not None and not isinstance(file_url, str)
+        ):
+            sanitized_payload["fileURL"] = REDACTED_LOCAL_MEDIA_URL
     sanitized["payload"] = sanitized_payload
     return sanitized
 
@@ -762,6 +768,7 @@ class FileEventStore:
         round_id: str,
         request_key: str,
         request_hash: str,
+        raw_request_hash: str,
         prepared: list[_PreparedEvent],
         stored_rows: list[_StoredRow],
         reservations: dict[str, dict[str, Any]],
@@ -801,6 +808,22 @@ class FileEventStore:
             and None not in normalized_stored_hashes
             and normalized_stored_hashes == incoming_hashes
         )
+        prepared_roster = Counter(
+            (item.identity, item.event_hash)
+            for item in prepared
+            if item.identity[2]
+        )
+        matching_roster: Counter[tuple[tuple[str, str, str], str]] = Counter()
+        for stored in matching_request_rows:
+            identity = self._event_identity(stored.row)
+            event_hash = self._event_hash(stored.row)
+            if identity is None or event_hash is None:
+                if not complete_normalized_roster:
+                    raise ValueError("idempotency_key_body_mismatch")
+                continue
+            matching_roster[(identity, event_hash)] += 1
+        if any(count > prepared_roster[slot] for slot, count in matching_roster.items()):
+            raise ValueError("idempotency_key_body_mismatch")
         raw_stored_events = [stored.raw_event for stored in ordered_matching_rows]
         legacy_raw_request_hash = (
             _sha256({"roundId": round_id, "events": raw_stored_events})
@@ -808,18 +831,20 @@ class FileEventStore:
             and all(isinstance(event, dict) for event in raw_stored_events)
             else None
         )
+        compatible_request_hashes = {request_hash, raw_request_hash}
+        if legacy_raw_request_hash is not None:
+            compatible_request_hashes.add(legacy_raw_request_hash)
         if (
             reservation is not None
-            and reservation["requestHash"] != request_hash
-            and reservation["requestHash"] != legacy_raw_request_hash
+            and reservation["requestHash"] not in compatible_request_hashes
         ):
             raise ValueError("idempotency_key_body_mismatch")
-        if len(row_request_hashes) > 1:
-            raise ValueError("idempotency_key_body_mismatch")
+        # A recovered legacy batch may retain raw-hash prefix rows while its newly appended tail
+        # uses the effective sanitized hash. Only those hashes proven from this exact retry body
+        # are compatible; any third value still fails closed.
         if (
             row_request_hashes
-            and row_request_hashes != {request_hash}
-            and row_request_hashes != {legacy_raw_request_hash}
+            and not row_request_hashes.issubset(compatible_request_hashes)
         ):
             raise ValueError("idempotency_key_body_mismatch")
         if legacy_request_rows:
@@ -925,6 +950,12 @@ class FileEventStore:
         idempotency_key = str(request_key)
         with self._locked(self.event_lock):
             prepared = self._prepare_events(round_key, events)
+            raw_request_hash = _sha256(
+                {
+                    "roundId": round_key,
+                    "events": [_normalized_event_for_hash(event) for event in events],
+                }
+            )
             request_hash = _sha256(
                 {
                     "roundId": round_key,
@@ -938,6 +969,7 @@ class FileEventStore:
                 round_id=round_key,
                 request_key=idempotency_key,
                 request_hash=request_hash,
+                raw_request_hash=raw_request_hash,
                 prepared=prepared,
                 stored_rows=stored_rows,
                 reservations=reservations,
@@ -1110,9 +1142,27 @@ class FileEventStore:
             return ({}, raw) if strict else ({}, None)
 
     def read_ack(self, round_id: str, consumer_id: str) -> int:
-        acks, _corrupt = self._load_acks(strict=False)
-        row = acks.get(self._ack_key(str(round_id), str(consumer_id)), {})
-        return max(0, int(row.get("serverSequence") or 0))
+        with self._locked(self.event_lock, shared=True):
+            committed_high_water = self._high_water_unlocked()
+            with self._locked(self.ack_lock):
+                acks = self._load_safe_acks_unlocked(committed_high_water)
+                row = acks.get(self._ack_key(str(round_id), str(consumer_id)), {})
+                return max(0, int(row.get("serverSequence") or 0))
+
+    def _load_safe_acks_unlocked(
+        self,
+        committed_high_water: int,
+    ) -> dict[str, dict[str, Any]]:
+        acks, corrupt = self._load_acks(strict=True)
+        if corrupt is None and any(
+            int(row["serverSequence"]) > committed_high_water
+            for row in acks.values()
+        ):
+            corrupt = self.acks.read_bytes()
+        if corrupt is not None:
+            self._quarantine_corrupt_ack(corrupt)
+            return {}
+        return acks
 
     def _quarantine_corrupt_ack(self, raw: bytes) -> None:
         digest = hashlib.sha256(raw).hexdigest()
@@ -1130,13 +1180,11 @@ class FileEventStore:
         client_key = str(consumer_id)
         requested = max(0, int(position))
         with self._locked(self.event_lock, shared=True):
-            if requested > self._high_water_unlocked():
-                raise ValueError("consumer_ack_ahead_of_stream")
+            committed_high_water = self._high_water_unlocked()
             with self._locked(self.ack_lock):
-                acks, corrupt = self._load_acks(strict=True)
-                if corrupt is not None:
-                    self._quarantine_corrupt_ack(corrupt)
-                    acks = {}
+                acks = self._load_safe_acks_unlocked(committed_high_water)
+                if requested > committed_high_water:
+                    raise ValueError("consumer_ack_ahead_of_stream")
                 key = self._ack_key(round_key, client_key)
                 current = max(0, int(acks.get(key, {}).get("serverSequence") or 0))
                 acked = max(current, requested)
@@ -1198,3 +1246,9 @@ class FileEventStore:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+
+def open_mobile_event_store(root: Path | str) -> FileEventStore:
+    """Construct the only production v1 store authority with the privacy sanitizer injected."""
+
+    return FileEventStore(root, sanitizer=sanitize_mobile_event)

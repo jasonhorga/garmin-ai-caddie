@@ -7,7 +7,7 @@ from typing import Any
 
 from ai_caddie.reports.annotations import add_annotation, list_annotations
 from ai_caddie.caddie.decision import audit_decision, store_decision_audit
-from ai_caddie.caddie.mobile_event_store import FileEventStore
+from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
 
@@ -28,7 +28,7 @@ def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str
     # path to data/players/<id>/data/mobile_events/... and read empty).
     path = mobile_event_log(root, player_id=player_id)
     rows: list[dict[str, Any]] = []
-    for row in FileEventStore(path.parent).read_rows(round_id):
+    for row in open_mobile_event_store(path.parent).read_rows(round_id):
         event = row.get("event")
         if isinstance(event, dict):
             rows.append({**event, "serverSequence": row.get("serverSequence")})
