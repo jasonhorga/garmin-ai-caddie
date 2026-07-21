@@ -1583,6 +1583,28 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("XCTAssertEqual(try store.loadEvents(), [phone, watch])", store_tests)
         self.assertIn("XCTAssertThrowsError", store_tests)
 
+    def test_ios_replay_repairs_torn_eof_and_reloads_before_ack_gate(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        store_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "OfflineStoreTests.swift")
+
+        self.assertIn("case eventLogCorrupt", offline_store)
+        self.assertIn("private let eventLogLock = NSLock()", offline_store)
+        self.assertIn("try repairTornEventLogEOFIfNeededUnlocked()", offline_store)
+        strict_reload = offline_store.index("let durableEvents = try loadEventsStrictlyForReplayUnlocked()")
+        apply_return = offline_store.index("return appendedAny", strict_reload)
+        self.assertLess(strict_reload, apply_return)
+
+        apply_page = app_swift.index("try offlineStore.applyReplayEvents(replay.events.map(\\.event))")
+        replay_cursor = app_swift.index("latestCursor = replay.nextCursor")
+        replay_ack = app_swift.index("syncClient.ackEventCursor(roundId: roundId, serverSequence: latestCursor)")
+        self.assertLess(apply_page, replay_cursor)
+        self.assertLess(replay_cursor, replay_ack)
+
+        self.assertIn("testApplyReplayEventsRepairsTornEOFTailAndReloadsBeforeAckGate", store_tests)
+        self.assertIn("testApplyReplayEventsRejectsMalformedMiddleLineBeforePageCanAck", store_tests)
+        self.assertIn("XCTAssertEqual(try store.loadEvents(), [existing, replayed])", store_tests)
+
     def test_ios_sync_client_supports_server_event_replay_and_ack(self) -> None:
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
         sync_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "SyncClientTests.swift")

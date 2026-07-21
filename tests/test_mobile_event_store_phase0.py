@@ -1135,10 +1135,10 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         base_length = store.log.stat().st_size
         original_write_committed_length = store._write_committed_length
 
-        def fail_marker_advancement(committed_byte_length: int) -> None:
-            if committed_byte_length > base_length:
+        def fail_marker_advancement(marker: object) -> None:
+            if marker.committed_byte_length > base_length:  # type: ignore[attr-defined]
                 raise OSError("commit-marker-failed")
-            original_write_committed_length(committed_byte_length)
+            original_write_committed_length(marker)  # type: ignore[arg-type]
 
         with mock.patch.object(store, "_write_committed_length", new=fail_marker_advancement):
             with self.assertRaisesRegex(OSError, "commit-marker-failed"):
@@ -1178,9 +1178,9 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         base_length = store.log.stat().st_size
         original_write_committed_length = store._write_committed_length
 
-        def write_target_then_report_error(committed_byte_length: int) -> None:
-            original_write_committed_length(committed_byte_length)
-            if committed_byte_length > base_length:
+        def write_target_then_report_error(marker: object) -> None:
+            original_write_committed_length(marker)  # type: ignore[arg-type]
+            if marker.committed_byte_length > base_length:  # type: ignore[attr-defined]
                 raise OSError("marker-reported-error-after-replace")
 
         with mock.patch.object(store, "_write_committed_length", new=write_target_then_report_error):
@@ -1369,6 +1369,140 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                     candidate.read_rows()
                 with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
                     candidate.high_water()
+
+    def test_commit_marker_cannot_end_inside_a_jsonl_row_even_with_matching_prefix_hash(self) -> None:
+        operations = {
+            "read": lambda store: store.read_rows(),
+            "high-water": lambda store: store.high_water(),
+            "ack": lambda store: store.ack(ROUND_A, "ios-phone", 0),
+            "append": lambda store: store.append_batch(
+                ROUND_A,
+                [_event("after-corrupt-marker")],
+                request_key="after-corrupt-marker",
+            ),
+        }
+        for label, operation in operations.items():
+            with self.subTest(operation=label), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                store = FileEventStore(root)
+                store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+                raw_log = store.log.read_bytes()
+                marker = json.loads(store.commit_marker.read_text(encoding="utf-8"))
+                cut = raw_log.index(b'"eventId"') + 5
+                self.assertNotEqual(raw_log[cut - 1 : cut], b"\n")
+                marker["committedByteLength"] = cut
+                if "committedPrefixSha256" in marker:
+                    marker["committedPrefixSha256"] = hashlib.sha256(raw_log[:cut]).hexdigest()
+                store.commit_marker.write_text(json.dumps(marker), encoding="utf-8")
+
+                with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+                    operation(FileEventStore(root))
+
+    def test_pending_target_requires_exact_event_count_and_semantic_storage_rows(self) -> None:
+        def create_pending_state(root: Path, *, corrupt_kind: str) -> FileEventStore:
+            store = FileEventStore(root)
+            store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+            with mock.patch.object(
+                store,
+                "_advance_committed_length",
+                side_effect=OSError("hold-marker-at-base"),
+            ):
+                with self.assertRaisesRegex(OSError, "hold-marker-at-base"):
+                    store.append_batch(
+                        ROUND_A,
+                        [_event("pending-tail")],
+                        request_key="pending-tail",
+                    )
+
+            pending = json.loads(store.pending_commit.read_text(encoding="utf-8"))
+            if corrupt_kind == "event-count":
+                pending["eventCount"] = int(pending["eventCount"]) + 1
+            else:
+                base_length = int(pending["baseCommittedByteLength"])
+                malformed_tail = json.dumps({"not": "a-storage-row"}).encode("utf-8") + b"\n"
+                prefix = store.log.read_bytes()[:base_length]
+                store.log.write_bytes(prefix + malformed_tail)
+                pending["targetByteLength"] = base_length + len(malformed_tail)
+                pending["tailSha256"] = hashlib.sha256(malformed_tail).hexdigest()
+                pending["eventCount"] = 1
+                if "targetCommittedPrefixSha256" in pending:
+                    pending["targetCommittedPrefixSha256"] = hashlib.sha256(
+                        prefix + malformed_tail
+                    ).hexdigest()
+            store.pending_commit.write_text(json.dumps(pending), encoding="utf-8")
+            return FileEventStore(root)
+
+        operations = {
+            "read": lambda store: store.read_rows(),
+            "high-water": lambda store: store.high_water(),
+            "ack": lambda store: store.ack(ROUND_A, "ios-phone", 1),
+            "recovery": lambda store: store.append_batch(
+                ROUND_A,
+                [_event("after-invalid-pending")],
+                request_key="after-invalid-pending",
+            ),
+        }
+        for corrupt_kind in ("event-count", "storage-row"):
+            for operation_name, operation in operations.items():
+                with (
+                    self.subTest(corrupt_kind=corrupt_kind, operation=operation_name),
+                    tempfile.TemporaryDirectory() as tmp,
+                ):
+                    candidate = create_pending_state(Path(tmp), corrupt_kind=corrupt_kind)
+                    with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+                        operation(candidate)
+
+    def test_optional_client_id_missing_and_none_share_normalized_legacy_hashes(self) -> None:
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        legacy_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "legacy-client-id",
+            "roundId": ROUND_A,
+            "timestamp": "2026-07-21T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+            "payload": {"strokes": 4},
+        }
+        legacy_row = {
+            "roundId": ROUND_A,
+            "idempotencyKey": "legacy-client-id-request",
+            "serverSequence": 1,
+            "eventHash": _canonical_hash(legacy_event),
+            "requestHash": _canonical_hash({"roundId": ROUND_A, "events": [legacy_event]}),
+            "event": legacy_event,
+        }
+        (self.root / "events.jsonl").write_text(json.dumps(legacy_row) + "\n", encoding="utf-8")
+        request = LiveRoundEventBatchRequest.model_validate(
+            {"roundId": ROUND_A, "events": [legacy_event]}
+        )
+        production_event = request.events[0].model_dump(by_alias=True)
+        self.assertIn("clientId", production_event)
+        self.assertIsNone(production_event["clientId"])
+
+        try:
+            original_key_retry = FileEventStore(self.root).append_batch(
+                ROUND_A,
+                [production_event],
+                request_key="legacy-client-id-request",
+            )
+            new_key_retry = FileEventStore(self.root).append_batch(
+                ROUND_A,
+                [production_event],
+                request_key="new-client-id-request",
+            )
+        except ValueError as exc:
+            self.fail(f"optional clientId normalization rejected an exact retry: {exc}")
+
+        self.assertEqual(
+            [(receipt.status, receipt.position) for receipt in original_key_retry],
+            [("duplicate_hash_match", 1)],
+        )
+        self.assertEqual(
+            [(receipt.status, receipt.position) for receipt in new_key_retry],
+            [("duplicate_hash_match", 1)],
+        )
+        self.assertEqual(len(FileEventStore(self.root).read_rows()), 1)
 
     def test_corrupt_ack_store_resends_from_zero_then_recovers_without_losing_bad_bytes(self) -> None:
         store = FileEventStore(self.root)

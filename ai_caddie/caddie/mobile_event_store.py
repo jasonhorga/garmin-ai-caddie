@@ -25,8 +25,8 @@ EVENT_COMMIT_FILENAME = "events.jsonl.commit.json"
 EVENT_PENDING_COMMIT_FILENAME = "events.jsonl.pending.json"
 ACK_SCHEMA = "ai-caddie-mobile-event-acks-v1"
 RESERVATION_SCHEMA = "ai-caddie-mobile-event-request-reservations-v1"
-EVENT_COMMIT_SCHEMA = "ai-caddie-mobile-event-commit-v1"
-EVENT_PENDING_COMMIT_SCHEMA = "ai-caddie-mobile-event-pending-commit-v1"
+EVENT_COMMIT_SCHEMA = "ai-caddie-mobile-event-commit-v2"
+EVENT_PENDING_COMMIT_SCHEMA = "ai-caddie-mobile-event-pending-commit-v2"
 _IDENTITY_FIELDS = ("roundId", "clientId", "eventId")
 
 
@@ -71,11 +71,21 @@ class _StoredLog:
 
 
 @dataclass(frozen=True)
+class _CommitMarker:
+    committed_byte_length: int
+    committed_prefix_sha256: str
+    legacy_baseline_byte_length: int
+
+
+@dataclass(frozen=True)
 class _PendingCommit:
     base_committed_byte_length: int
+    base_committed_prefix_sha256: str
     target_byte_length: int
+    target_committed_prefix_sha256: str
     tail_sha256: str
     event_count: int
+    legacy_baseline_byte_length: int
 
 
 def _format_time(value: datetime) -> str:
@@ -95,6 +105,13 @@ def _canonical_v1_bytes(value: Any) -> bytes:
 
 def _sha256(value: Any) -> str:
     return hashlib.sha256(_canonical_v1_bytes(value)).hexdigest()
+
+
+def _normalized_event_for_hash(event: dict[str, Any]) -> dict[str, Any]:
+    normalized = deepcopy(event)
+    if normalized.get("clientId") is None:
+        normalized["clientId"] = None
+    return normalized
 
 
 class FileEventStore:
@@ -151,7 +168,7 @@ class FileEventStore:
             and all(character in "0123456789abcdef" for character in value)
         )
 
-    def _load_committed_length(self) -> int | None:
+    def _load_commit_marker(self) -> _CommitMarker | None:
         try:
             raw = self.commit_marker.read_bytes()
         except FileNotFoundError:
@@ -162,47 +179,72 @@ class FileEventStore:
             raise ValueError("event_commit_store_corrupt") from exc
         if (
             not isinstance(payload, dict)
-            or set(payload) != {"schema", "committedByteLength"}
+            or set(payload)
+            != {
+                "schema",
+                "committedByteLength",
+                "committedPrefixSha256",
+                "legacyBaselineByteLength",
+            }
             or payload.get("schema") != EVENT_COMMIT_SCHEMA
-            or not isinstance(payload.get("committedByteLength"), int)
-            or isinstance(payload.get("committedByteLength"), bool)
+            or any(
+                not isinstance(payload.get(field), int) or isinstance(payload.get(field), bool)
+                for field in ("committedByteLength", "legacyBaselineByteLength")
+            )
             or payload["committedByteLength"] < 0
+            or payload["legacyBaselineByteLength"] < 0
+            or payload["legacyBaselineByteLength"] > payload["committedByteLength"]
+            or not self._is_sha256(payload.get("committedPrefixSha256"))
         ):
             raise ValueError("event_commit_store_corrupt")
-        return int(payload["committedByteLength"])
+        return _CommitMarker(
+            committed_byte_length=int(payload["committedByteLength"]),
+            committed_prefix_sha256=str(payload["committedPrefixSha256"]),
+            legacy_baseline_byte_length=int(payload["legacyBaselineByteLength"]),
+        )
 
-    def _write_committed_length(self, committed_byte_length: int) -> None:
-        if committed_byte_length < 0:
+    def _write_committed_length(self, marker: _CommitMarker) -> None:
+        if (
+            marker.committed_byte_length < 0
+            or marker.legacy_baseline_byte_length < 0
+            or marker.legacy_baseline_byte_length > marker.committed_byte_length
+            or not self._is_sha256(marker.committed_prefix_sha256)
+        ):
             raise ValueError("event_commit_store_corrupt")
         self._atomic_write_json(
             self.commit_marker,
             {
                 "schema": EVENT_COMMIT_SCHEMA,
-                "committedByteLength": committed_byte_length,
+                "committedByteLength": marker.committed_byte_length,
+                "committedPrefixSha256": marker.committed_prefix_sha256,
+                "legacyBaselineByteLength": marker.legacy_baseline_byte_length,
             },
         )
 
     def _advance_committed_length(
         self,
         *,
-        base_committed_byte_length: int,
-        target_byte_length: int,
+        base_marker: _CommitMarker,
+        target_marker: _CommitMarker,
     ) -> None:
         try:
-            self._write_committed_length(target_byte_length)
+            self._write_committed_length(target_marker)
             return
         except BaseException:
             pending = self._load_pending_commit()
-            committed = self._load_committed_length()
+            committed = self._load_commit_marker()
             actual_size = self._event_log_size()
             if (
                 pending is None
-                or pending.base_committed_byte_length != base_committed_byte_length
-                or pending.target_byte_length != target_byte_length
-                or committed != target_byte_length
-                or not self._pending_target_matches(pending, actual_size)
+                or self._pending_base_marker(pending) != base_marker
+                or self._pending_target_marker(pending) != target_marker
+                or committed != target_marker
             ):
                 raise
+            self._validate_commit_marker(target_marker, actual_size)
+            if self._pending_marker_state(target_marker, pending) != "target":
+                raise
+            self._validate_pending_target(pending, actual_size)
             # The exact target replacement is already present. Re-fsync the directory while the
             # event lock is still exclusive so a post-replace error cannot expose an indeterminate
             # marker; after this succeeds the target is a durable committed prefix.
@@ -221,6 +263,7 @@ class FileEventStore:
             "baseCommittedByteLength",
             "targetByteLength",
             "eventCount",
+            "legacyBaselineByteLength",
         )
         if (
             not isinstance(payload, dict)
@@ -228,9 +271,12 @@ class FileEventStore:
             != {
                 "schema",
                 "baseCommittedByteLength",
+                "baseCommittedPrefixSha256",
                 "targetByteLength",
+                "targetCommittedPrefixSha256",
                 "tailSha256",
                 "eventCount",
+                "legacyBaselineByteLength",
             }
             or payload.get("schema") != EVENT_PENDING_COMMIT_SCHEMA
             or any(
@@ -240,14 +286,21 @@ class FileEventStore:
             or payload["baseCommittedByteLength"] < 0
             or payload["targetByteLength"] <= payload["baseCommittedByteLength"]
             or payload["eventCount"] <= 0
+            or payload["legacyBaselineByteLength"] < 0
+            or payload["legacyBaselineByteLength"] > payload["baseCommittedByteLength"]
+            or not self._is_sha256(payload.get("baseCommittedPrefixSha256"))
+            or not self._is_sha256(payload.get("targetCommittedPrefixSha256"))
             or not self._is_sha256(payload.get("tailSha256"))
         ):
             raise ValueError("event_commit_store_corrupt")
         return _PendingCommit(
             base_committed_byte_length=int(payload["baseCommittedByteLength"]),
+            base_committed_prefix_sha256=str(payload["baseCommittedPrefixSha256"]),
             target_byte_length=int(payload["targetByteLength"]),
+            target_committed_prefix_sha256=str(payload["targetCommittedPrefixSha256"]),
             tail_sha256=str(payload["tailSha256"]),
             event_count=int(payload["eventCount"]),
+            legacy_baseline_byte_length=int(payload["legacyBaselineByteLength"]),
         )
 
     def _write_pending_commit(self, pending: _PendingCommit) -> None:
@@ -256,9 +309,12 @@ class FileEventStore:
             {
                 "schema": EVENT_PENDING_COMMIT_SCHEMA,
                 "baseCommittedByteLength": pending.base_committed_byte_length,
+                "baseCommittedPrefixSha256": pending.base_committed_prefix_sha256,
                 "targetByteLength": pending.target_byte_length,
+                "targetCommittedPrefixSha256": pending.target_committed_prefix_sha256,
                 "tailSha256": pending.tail_sha256,
                 "eventCount": pending.event_count,
+                "legacyBaselineByteLength": pending.legacy_baseline_byte_length,
             },
         )
 
@@ -285,36 +341,148 @@ class FileEventStore:
             raise ValueError("event_commit_store_corrupt")
         return value
 
-    def _pending_target_matches(self, pending: _PendingCommit, actual_size: int) -> bool:
-        if pending.target_byte_length > actual_size:
-            return False
-        tail = self._read_log_range(
-            pending.base_committed_byte_length,
-            pending.target_byte_length,
+    def _validate_storage_rows(self, raw: bytes, *, expected_event_count: int | None) -> None:
+        if not raw:
+            if expected_event_count not in (None, 0):
+                raise ValueError("event_commit_store_corrupt")
+            return
+        if not raw.endswith(b"\n"):
+            raise ValueError("event_commit_store_corrupt")
+        lines = raw.splitlines(keepends=True)
+        if expected_event_count is not None and len(lines) != expected_event_count:
+            raise ValueError("event_commit_store_corrupt")
+        previous_sequence = 0
+        batch_context: tuple[str, str, str] | None = None
+        required_fields = {
+            "roundId",
+            "idempotencyKey",
+            "serverSequence",
+            "eventHash",
+            "requestHash",
+            "event",
+        }
+        for raw_line in lines:
+            if not raw_line.endswith(b"\n") or not raw_line.strip():
+                raise ValueError("event_commit_store_corrupt")
+            try:
+                row = json.loads(raw_line.decode("utf-8"))
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise ValueError("event_commit_store_corrupt") from exc
+            if not isinstance(row, dict) or not required_fields.issubset(row):
+                raise ValueError("event_commit_store_corrupt")
+            round_id = row.get("roundId")
+            request_key = row.get("idempotencyKey")
+            event = row.get("event")
+            sequence = row.get("serverSequence")
+            if (
+                not isinstance(round_id, str)
+                or not isinstance(request_key, str)
+                or not isinstance(sequence, int)
+                or isinstance(sequence, bool)
+                or sequence <= previous_sequence
+                or not self._is_sha256(row.get("eventHash"))
+                or not self._is_sha256(row.get("requestHash"))
+                or not self._is_legacy_compatible_event(event)
+            ):
+                raise ValueError("event_commit_store_corrupt")
+            if event.get("roundId") is not None and str(event.get("roundId")) != round_id:
+                raise ValueError("event_commit_store_corrupt")
+            if row["eventHash"] != _sha256(_normalized_event_for_hash(event)):
+                raise ValueError("event_commit_store_corrupt")
+            previous_sequence = sequence
+            if expected_event_count is not None:
+                context = (round_id, request_key, str(row["requestHash"]))
+                if batch_context is None:
+                    batch_context = context
+                elif batch_context != context:
+                    raise ValueError("event_commit_store_corrupt")
+
+    def _validate_commit_marker(self, marker: _CommitMarker, actual_size: int) -> None:
+        if (
+            marker.committed_byte_length > actual_size
+            or marker.legacy_baseline_byte_length > marker.committed_byte_length
+        ):
+            raise ValueError("event_commit_store_corrupt")
+        prefix = self._read_log_range(0, marker.committed_byte_length)
+        if marker.committed_byte_length and not prefix.endswith(b"\n"):
+            raise ValueError("event_commit_store_corrupt")
+        if (
+            marker.legacy_baseline_byte_length
+            and prefix[marker.legacy_baseline_byte_length - 1 : marker.legacy_baseline_byte_length]
+            != b"\n"
+        ):
+            raise ValueError("event_commit_store_corrupt")
+        if hashlib.sha256(prefix).hexdigest() != marker.committed_prefix_sha256:
+            raise ValueError("event_commit_store_corrupt")
+        self._validate_storage_rows(
+            prefix[marker.legacy_baseline_byte_length :],
+            expected_event_count=None,
         )
-        return hashlib.sha256(tail).hexdigest() == pending.tail_sha256
+
+    @staticmethod
+    def _pending_base_marker(pending: _PendingCommit) -> _CommitMarker:
+        return _CommitMarker(
+            committed_byte_length=pending.base_committed_byte_length,
+            committed_prefix_sha256=pending.base_committed_prefix_sha256,
+            legacy_baseline_byte_length=pending.legacy_baseline_byte_length,
+        )
+
+    @staticmethod
+    def _pending_target_marker(pending: _PendingCommit) -> _CommitMarker:
+        return _CommitMarker(
+            committed_byte_length=pending.target_byte_length,
+            committed_prefix_sha256=pending.target_committed_prefix_sha256,
+            legacy_baseline_byte_length=pending.legacy_baseline_byte_length,
+        )
+
+    def _pending_marker_state(self, marker: _CommitMarker, pending: _PendingCommit) -> str:
+        if marker == self._pending_base_marker(pending):
+            return "base"
+        if marker == self._pending_target_marker(pending):
+            return "target"
+        raise ValueError("event_commit_store_corrupt")
+
+    def _validate_pending_target(self, pending: _PendingCommit, actual_size: int) -> None:
+        if pending.target_byte_length > actual_size:
+            raise ValueError("event_commit_store_corrupt")
+        target_prefix = self._read_log_range(0, pending.target_byte_length)
+        if (
+            pending.base_committed_byte_length
+            and target_prefix[
+                pending.base_committed_byte_length - 1 : pending.base_committed_byte_length
+            ]
+            != b"\n"
+        ):
+            raise ValueError("event_commit_store_corrupt")
+        if not target_prefix.endswith(b"\n"):
+            raise ValueError("event_commit_store_corrupt")
+        base_prefix = target_prefix[: pending.base_committed_byte_length]
+        tail = target_prefix[pending.base_committed_byte_length :]
+        if hashlib.sha256(base_prefix).hexdigest() != pending.base_committed_prefix_sha256:
+            raise ValueError("event_commit_store_corrupt")
+        if hashlib.sha256(target_prefix).hexdigest() != pending.target_committed_prefix_sha256:
+            raise ValueError("event_commit_store_corrupt")
+        if hashlib.sha256(tail).hexdigest() != pending.tail_sha256:
+            raise ValueError("event_commit_store_corrupt")
+        self._validate_storage_rows(tail, expected_event_count=pending.event_count)
 
     def _visible_committed_length_unlocked(self) -> int:
         actual_size = self._event_log_size()
-        committed = self._load_committed_length()
+        committed = self._load_commit_marker()
         pending = self._load_pending_commit()
         if committed is None:
             if pending is not None:
                 raise ValueError("event_commit_store_corrupt")
             return actual_size
+        self._validate_commit_marker(committed, actual_size)
         if pending is None:
-            if committed > actual_size:
-                raise ValueError("event_commit_store_corrupt")
-            return committed
-        if committed == pending.base_committed_byte_length:
-            if committed > actual_size:
-                raise ValueError("event_commit_store_corrupt")
-            return committed
-        if committed == pending.target_byte_length:
-            if not self._pending_target_matches(pending, actual_size):
-                raise ValueError("event_commit_store_corrupt")
-            return committed
-        raise ValueError("event_commit_store_corrupt")
+            return committed.committed_byte_length
+        state = self._pending_marker_state(committed, pending)
+        if actual_size >= pending.target_byte_length:
+            self._validate_pending_target(pending, actual_size)
+        if state == "target":
+            self._validate_pending_target(pending, actual_size)
+        return committed.committed_byte_length
 
     def _stored_log(self) -> _StoredLog:
         committed_byte_length = self._visible_committed_length_unlocked()
@@ -431,7 +599,13 @@ class FileEventStore:
                 str(event.get("clientId") or ""),
                 str(event.get("eventId") or ""),
             )
-            prepared.append(_PreparedEvent(sanitized, identity, _sha256(sanitized)))
+            prepared.append(
+                _PreparedEvent(
+                    sanitized,
+                    identity,
+                    _sha256(_normalized_event_for_hash(sanitized)),
+                )
+            )
         return prepared
 
     @staticmethod
@@ -494,7 +668,11 @@ class FileEventStore:
     @staticmethod
     def _event_hash(row: dict[str, Any]) -> str | None:
         event = row.get("event")
-        return _sha256(event) if FileEventStore._is_legacy_compatible_event(event) else None
+        return (
+            _sha256(_normalized_event_for_hash(event))
+            if FileEventStore._is_legacy_compatible_event(event)
+            else None
+        )
 
     def _preflight_request(
         self,
@@ -530,19 +708,43 @@ class FileEventStore:
 
         if any(not self._is_legacy_compatible_stored_row(stored.row) for stored in matching_request_rows):
             raise ValueError("idempotency_key_body_mismatch")
-        if reservation is not None and reservation["requestHash"] != request_hash:
+        ordered_matching_rows = sorted(
+            matching_request_rows,
+            key=lambda stored: (stored.position, stored.line_number),
+        )
+        normalized_stored_hashes = [self._event_hash(stored.row) for stored in ordered_matching_rows]
+        incoming_hashes = [item.event_hash for item in prepared]
+        complete_normalized_roster = (
+            len(normalized_stored_hashes) == len(incoming_hashes)
+            and None not in normalized_stored_hashes
+            and normalized_stored_hashes == incoming_hashes
+        )
+        legacy_raw_request_hash = (
+            _sha256(
+                {
+                    "roundId": round_id,
+                    "events": [stored.row["event"] for stored in ordered_matching_rows],
+                }
+            )
+            if complete_normalized_roster
+            else None
+        )
+        if (
+            reservation is not None
+            and reservation["requestHash"] != request_hash
+            and reservation["requestHash"] != legacy_raw_request_hash
+        ):
             raise ValueError("idempotency_key_body_mismatch")
-        if row_request_hashes and row_request_hashes != {request_hash}:
+        if len(row_request_hashes) > 1:
+            raise ValueError("idempotency_key_body_mismatch")
+        if (
+            row_request_hashes
+            and row_request_hashes != {request_hash}
+            and row_request_hashes != {legacy_raw_request_hash}
+        ):
             raise ValueError("idempotency_key_body_mismatch")
         if legacy_request_rows:
-            if row_request_hashes:
-                raise ValueError("idempotency_key_body_mismatch")
-            legacy_hashes = [
-                self._event_hash(stored.row)
-                for stored in sorted(legacy_request_rows, key=lambda stored: (stored.position, stored.line_number))
-            ]
-            incoming_hashes = [item.event_hash for item in prepared]
-            if None in legacy_hashes or legacy_hashes != incoming_hashes:
+            if not complete_normalized_roster:
                 raise ValueError("idempotency_key_body_mismatch")
             request_preexisting = True
         elif matching_request_rows:
@@ -586,32 +788,51 @@ class FileEventStore:
             raise ValueError("event_commit_store_corrupt") from exc
         self._fsync_directory()
 
+    def _seal_legacy_baseline_unlocked(self, actual_size: int) -> _CommitMarker:
+        if actual_size:
+            if self._read_log_range(actual_size - 1, actual_size) != b"\n":
+                try:
+                    with self.log.open("ab") as handle:
+                        handle.write(b"\n")
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                except FileNotFoundError as exc:
+                    raise ValueError("event_commit_store_corrupt") from exc
+                self._fsync_directory()
+                actual_size += 1
+        prefix = self._read_log_range(0, actual_size)
+        marker = _CommitMarker(
+            committed_byte_length=actual_size,
+            committed_prefix_sha256=hashlib.sha256(prefix).hexdigest(),
+            legacy_baseline_byte_length=actual_size,
+        )
+        self._write_committed_length(marker)
+        return marker
+
     def _recover_event_log_unlocked(self) -> int:
         actual_size = self._event_log_size()
-        committed = self._load_committed_length()
+        committed = self._load_commit_marker()
         pending = self._load_pending_commit()
         if committed is None:
             if pending is not None:
                 raise ValueError("event_commit_store_corrupt")
-            self._write_committed_length(actual_size)
-            return actual_size
+            return self._seal_legacy_baseline_unlocked(actual_size).committed_byte_length
+        self._validate_commit_marker(committed, actual_size)
         if pending is None:
-            if committed > actual_size:
-                raise ValueError("event_commit_store_corrupt")
-            self._truncate_event_log(committed)
-            return committed
-        if committed == pending.base_committed_byte_length:
-            if committed > actual_size:
-                raise ValueError("event_commit_store_corrupt")
-            self._truncate_event_log(committed)
+            self._truncate_event_log(committed.committed_byte_length)
+            return committed.committed_byte_length
+        state = self._pending_marker_state(committed, pending)
+        if actual_size >= pending.target_byte_length:
+            self._validate_pending_target(pending, actual_size)
+        if state == "base":
+            self._truncate_event_log(committed.committed_byte_length)
             self._clear_pending_commit()
-            return committed
-        if committed == pending.target_byte_length:
-            if not self._pending_target_matches(pending, actual_size):
-                raise ValueError("event_commit_store_corrupt")
-            self._truncate_event_log(committed)
+            return committed.committed_byte_length
+        if state == "target":
+            self._validate_pending_target(pending, actual_size)
+            self._truncate_event_log(committed.committed_byte_length)
             self._clear_pending_commit()
-            return committed
+            return committed.committed_byte_length
         raise ValueError("event_commit_store_corrupt")
 
     def append_batch(
@@ -626,7 +847,10 @@ class FileEventStore:
         with self._locked(self.event_lock):
             prepared = self._prepare_events(round_key, events)
             request_hash = _sha256(
-                {"roundId": round_key, "events": [item.event for item in prepared]}
+                {
+                    "roundId": round_key,
+                    "events": [_normalized_event_for_hash(item.event) for item in prepared],
+                }
             )
             stored_log = self._stored_log()
             stored_rows = list(stored_log.rows)
@@ -709,46 +933,56 @@ class FileEventStore:
             json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
             for row in rows
         ]
+        tail = b"".join(encoded_rows)
+        self._validate_storage_rows(tail, expected_event_count=len(rows))
         self._ensure_root_durable()
-        committed_byte_length = self._load_committed_length()
-        if committed_byte_length is None or self._load_pending_commit() is not None:
+        base_marker = self._load_commit_marker()
+        if base_marker is None or self._load_pending_commit() is not None:
             raise ValueError("event_commit_store_corrupt")
-        if self._event_log_size() != committed_byte_length:
+        actual_size = self._event_log_size()
+        if actual_size != base_marker.committed_byte_length:
             raise ValueError("event_commit_store_corrupt")
+        self._validate_commit_marker(base_marker, actual_size)
         with self.log.open("a+b") as handle:
-            separator = b""
-            if committed_byte_length:
-                handle.seek(committed_byte_length - 1)
-                if handle.read(1) != b"\n":
-                    separator = b"\n"
-            tail_digest = hashlib.sha256()
-            tail_digest.update(separator)
-            tail_byte_length = len(separator)
-            for encoded in encoded_rows:
-                tail_digest.update(encoded)
-                tail_byte_length += len(encoded)
-            target_byte_length = committed_byte_length + tail_byte_length
+            handle.seek(0)
+            prefix_digest = hashlib.sha256()
+            remaining = base_marker.committed_byte_length
+            while remaining:
+                chunk = handle.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise ValueError("event_commit_store_corrupt")
+                prefix_digest.update(chunk)
+                remaining -= len(chunk)
+            if prefix_digest.hexdigest() != base_marker.committed_prefix_sha256:
+                raise ValueError("event_commit_store_corrupt")
+            target_digest = prefix_digest.copy()
+            target_digest.update(tail)
+            target_marker = _CommitMarker(
+                committed_byte_length=base_marker.committed_byte_length + len(tail),
+                committed_prefix_sha256=target_digest.hexdigest(),
+                legacy_baseline_byte_length=base_marker.legacy_baseline_byte_length,
+            )
             self._write_pending_commit(
                 _PendingCommit(
-                    base_committed_byte_length=committed_byte_length,
-                    target_byte_length=target_byte_length,
-                    tail_sha256=tail_digest.hexdigest(),
+                    base_committed_byte_length=base_marker.committed_byte_length,
+                    base_committed_prefix_sha256=base_marker.committed_prefix_sha256,
+                    target_byte_length=target_marker.committed_byte_length,
+                    target_committed_prefix_sha256=target_marker.committed_prefix_sha256,
+                    tail_sha256=hashlib.sha256(tail).hexdigest(),
                     event_count=len(rows),
+                    legacy_baseline_byte_length=base_marker.legacy_baseline_byte_length,
                 )
             )
             handle.seek(0, os.SEEK_END)
-            if handle.tell() != committed_byte_length:
+            if handle.tell() != base_marker.committed_byte_length:
                 raise ValueError("event_commit_store_corrupt")
-            if separator:
-                handle.write(separator)
-            for encoded in encoded_rows:
-                handle.write(encoded)
+            handle.write(tail)
             handle.flush()
             os.fsync(handle.fileno())
         self._fsync_directory()
         self._advance_committed_length(
-            base_committed_byte_length=committed_byte_length,
-            target_byte_length=target_byte_length,
+            base_marker=base_marker,
+            target_marker=target_marker,
         )
         self._clear_pending_commit()
 

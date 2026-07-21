@@ -106,6 +106,75 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertFalse(try store.applyReplayEvents([durable]))
     }
 
+    func testApplyReplayEventsRepairsTornEOFTailAndReloadsBeforeAckGate() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        let store = OfflineStore(directoryURL: directory)
+        let existing = LiveRoundEvent(
+            eventId: "existing",
+            roundId: "round-1",
+            clientId: "ios-phone",
+            timestamp: "2026-07-21T00:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(4)]
+        )
+        let replayed = LiveRoundEvent(
+            eventId: "replayed-after-torn-tail",
+            roundId: "round-1",
+            clientId: "apple-watch",
+            timestamp: "2026-07-21T00:00:01Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(5)]
+        )
+        var tornLog = try JSONEncoder().encode(existing)
+        tornLog.append(Data([0x0A]))
+        tornLog.append(Data(#"{"eventId":"torn"#.utf8))
+        try tornLog.write(to: logURL, options: [.atomic])
+
+        XCTAssertTrue(try store.applyReplayEvents([replayed]))
+        XCTAssertEqual(try store.loadEvents(), [existing, replayed])
+        XCTAssertEqual(try Data(contentsOf: logURL).last, 0x0A)
+    }
+
+    func testApplyReplayEventsRejectsMalformedMiddleLineBeforePageCanAck() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        let store = OfflineStore(directoryURL: directory)
+        let existing = LiveRoundEvent(
+            eventId: "existing",
+            roundId: "round-1",
+            clientId: "ios-phone",
+            timestamp: "2026-07-21T00:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(4)]
+        )
+        let replayed = LiveRoundEvent(
+            eventId: "must-not-ack",
+            roundId: "round-1",
+            clientId: "apple-watch",
+            timestamp: "2026-07-21T00:00:01Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(5)]
+        )
+        var corruptLog = try JSONEncoder().encode(existing)
+        corruptLog.append(Data([0x0A]))
+        corruptLog.append(Data("{broken}\n".utf8))
+        try corruptLog.write(to: logURL, options: [.atomic])
+
+        XCTAssertThrowsError(try store.applyReplayEvents([replayed])) { error in
+            XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt)
+        }
+        XCTAssertEqual(try store.loadEvents(), [existing])
+    }
+
     func testAppendSyncMarkerPersistsAcknowledgementMetadata() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
