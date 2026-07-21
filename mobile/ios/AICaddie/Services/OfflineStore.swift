@@ -98,6 +98,16 @@ private enum NullableNumberPayload {
     case number(Double)
 }
 
+enum OfflineStoreError: Error, Equatable {
+    case replayIdentityEnvelopeMismatch
+}
+
+private struct ReplayEventIdentity: Hashable {
+    let roundId: String
+    let clientId: String
+    let eventId: String
+}
+
 public final class OfflineStore {
     private let directoryURL: URL
     private let logURL: URL
@@ -243,6 +253,43 @@ public final class OfflineStore {
         try loadEvents().contains { event in
             event.eventId == eventId
         }
+    }
+
+    public func applyReplayEvents(_ replayEvents: [LiveRoundEvent]) throws -> Bool {
+        var eventsByIdentity: [ReplayEventIdentity: LiveRoundEvent] = [:]
+        for event in try loadEvents() {
+            let identity = ReplayEventIdentity(
+                roundId: event.roundId,
+                clientId: event.clientId ?? "",
+                eventId: event.eventId
+            )
+            if let existing = eventsByIdentity[identity] {
+                guard existing == event else {
+                    throw OfflineStoreError.replayIdentityEnvelopeMismatch
+                }
+                continue
+            }
+            eventsByIdentity[identity] = event
+        }
+
+        var appendedAny = false
+        for event in replayEvents {
+            let identity = ReplayEventIdentity(
+                roundId: event.roundId,
+                clientId: event.clientId ?? "",
+                eventId: event.eventId
+            )
+            if let existing = eventsByIdentity[identity] {
+                guard existing == event else {
+                    throw OfflineStoreError.replayIdentityEnvelopeMismatch
+                }
+                continue
+            }
+            try appendEvent(event)
+            eventsByIdentity[identity] = event
+            appendedAny = true
+        }
+        return appendedAny
     }
 
     public func loadEvents() throws -> [LiveRoundEvent] {

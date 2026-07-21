@@ -21,8 +21,12 @@ EVENT_LOCK_FILENAME = "events.jsonl.lock"
 ACK_FILENAME = "client_acks.json"
 ACK_LOCK_FILENAME = "client_acks.json.lock"
 RESERVATION_FILENAME = "request_reservations.json"
+EVENT_COMMIT_FILENAME = "events.jsonl.commit.json"
+EVENT_PENDING_COMMIT_FILENAME = "events.jsonl.pending.json"
 ACK_SCHEMA = "ai-caddie-mobile-event-acks-v1"
 RESERVATION_SCHEMA = "ai-caddie-mobile-event-request-reservations-v1"
+EVENT_COMMIT_SCHEMA = "ai-caddie-mobile-event-commit-v1"
+EVENT_PENDING_COMMIT_SCHEMA = "ai-caddie-mobile-event-pending-commit-v1"
 _IDENTITY_FIELDS = ("roundId", "clientId", "eventId")
 
 
@@ -66,6 +70,14 @@ class _StoredLog:
     high_water: int
 
 
+@dataclass(frozen=True)
+class _PendingCommit:
+    base_committed_byte_length: int
+    target_byte_length: int
+    tail_sha256: str
+    event_count: int
+
+
 def _format_time(value: datetime) -> str:
     return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -105,6 +117,8 @@ class FileEventStore:
         self.acks = self.root / ACK_FILENAME
         self.ack_lock = self.root / ACK_LOCK_FILENAME
         self.reservations = self.root / RESERVATION_FILENAME
+        self.commit_marker = self.root / EVENT_COMMIT_FILENAME
+        self.pending_commit = self.root / EVENT_PENDING_COMMIT_FILENAME
         self._sanitizer = sanitizer
 
     @contextmanager
@@ -123,17 +137,204 @@ class FileEventStore:
             return None
         return position if position > 0 else None
 
+    def _event_log_size(self) -> int:
+        try:
+            return self.log.stat().st_size
+        except FileNotFoundError:
+            return 0
+
+    @staticmethod
+    def _is_sha256(value: Any) -> bool:
+        return (
+            isinstance(value, str)
+            and len(value) == 64
+            and all(character in "0123456789abcdef" for character in value)
+        )
+
+    def _load_committed_length(self) -> int | None:
+        try:
+            raw = self.commit_marker.read_bytes()
+        except FileNotFoundError:
+            return None
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ValueError("event_commit_store_corrupt") from exc
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"schema", "committedByteLength"}
+            or payload.get("schema") != EVENT_COMMIT_SCHEMA
+            or not isinstance(payload.get("committedByteLength"), int)
+            or isinstance(payload.get("committedByteLength"), bool)
+            or payload["committedByteLength"] < 0
+        ):
+            raise ValueError("event_commit_store_corrupt")
+        return int(payload["committedByteLength"])
+
+    def _write_committed_length(self, committed_byte_length: int) -> None:
+        if committed_byte_length < 0:
+            raise ValueError("event_commit_store_corrupt")
+        self._atomic_write_json(
+            self.commit_marker,
+            {
+                "schema": EVENT_COMMIT_SCHEMA,
+                "committedByteLength": committed_byte_length,
+            },
+        )
+
+    def _advance_committed_length(
+        self,
+        *,
+        base_committed_byte_length: int,
+        target_byte_length: int,
+    ) -> None:
+        try:
+            self._write_committed_length(target_byte_length)
+            return
+        except BaseException:
+            pending = self._load_pending_commit()
+            committed = self._load_committed_length()
+            actual_size = self._event_log_size()
+            if (
+                pending is None
+                or pending.base_committed_byte_length != base_committed_byte_length
+                or pending.target_byte_length != target_byte_length
+                or committed != target_byte_length
+                or not self._pending_target_matches(pending, actual_size)
+            ):
+                raise
+            # The exact target replacement is already present. Re-fsync the directory while the
+            # event lock is still exclusive so a post-replace error cannot expose an indeterminate
+            # marker; after this succeeds the target is a durable committed prefix.
+            self._fsync_directory()
+
+    def _load_pending_commit(self) -> _PendingCommit | None:
+        try:
+            raw = self.pending_commit.read_bytes()
+        except FileNotFoundError:
+            return None
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ValueError("event_commit_store_corrupt") from exc
+        integer_fields = (
+            "baseCommittedByteLength",
+            "targetByteLength",
+            "eventCount",
+        )
+        if (
+            not isinstance(payload, dict)
+            or set(payload)
+            != {
+                "schema",
+                "baseCommittedByteLength",
+                "targetByteLength",
+                "tailSha256",
+                "eventCount",
+            }
+            or payload.get("schema") != EVENT_PENDING_COMMIT_SCHEMA
+            or any(
+                not isinstance(payload.get(field), int) or isinstance(payload.get(field), bool)
+                for field in integer_fields
+            )
+            or payload["baseCommittedByteLength"] < 0
+            or payload["targetByteLength"] <= payload["baseCommittedByteLength"]
+            or payload["eventCount"] <= 0
+            or not self._is_sha256(payload.get("tailSha256"))
+        ):
+            raise ValueError("event_commit_store_corrupt")
+        return _PendingCommit(
+            base_committed_byte_length=int(payload["baseCommittedByteLength"]),
+            target_byte_length=int(payload["targetByteLength"]),
+            tail_sha256=str(payload["tailSha256"]),
+            event_count=int(payload["eventCount"]),
+        )
+
+    def _write_pending_commit(self, pending: _PendingCommit) -> None:
+        self._atomic_write_json(
+            self.pending_commit,
+            {
+                "schema": EVENT_PENDING_COMMIT_SCHEMA,
+                "baseCommittedByteLength": pending.base_committed_byte_length,
+                "targetByteLength": pending.target_byte_length,
+                "tailSha256": pending.tail_sha256,
+                "eventCount": pending.event_count,
+            },
+        )
+
+    def _clear_pending_commit(self) -> None:
+        try:
+            self.pending_commit.unlink()
+        except FileNotFoundError:
+            return
+        self._fsync_directory()
+
+    def _read_log_range(self, start: int, end: int) -> bytes:
+        if start < 0 or end < start:
+            raise ValueError("event_commit_store_corrupt")
+        length = end - start
+        if length == 0:
+            return b""
+        try:
+            with self.log.open("rb") as handle:
+                handle.seek(start)
+                value = handle.read(length)
+        except FileNotFoundError as exc:
+            raise ValueError("event_commit_store_corrupt") from exc
+        if len(value) != length:
+            raise ValueError("event_commit_store_corrupt")
+        return value
+
+    def _pending_target_matches(self, pending: _PendingCommit, actual_size: int) -> bool:
+        if pending.target_byte_length > actual_size:
+            return False
+        tail = self._read_log_range(
+            pending.base_committed_byte_length,
+            pending.target_byte_length,
+        )
+        return hashlib.sha256(tail).hexdigest() == pending.tail_sha256
+
+    def _visible_committed_length_unlocked(self) -> int:
+        actual_size = self._event_log_size()
+        committed = self._load_committed_length()
+        pending = self._load_pending_commit()
+        if committed is None:
+            if pending is not None:
+                raise ValueError("event_commit_store_corrupt")
+            return actual_size
+        if pending is None:
+            if committed > actual_size:
+                raise ValueError("event_commit_store_corrupt")
+            return committed
+        if committed == pending.base_committed_byte_length:
+            if committed > actual_size:
+                raise ValueError("event_commit_store_corrupt")
+            return committed
+        if committed == pending.target_byte_length:
+            if not self._pending_target_matches(pending, actual_size):
+                raise ValueError("event_commit_store_corrupt")
+            return committed
+        raise ValueError("event_commit_store_corrupt")
+
     def _stored_log(self) -> _StoredLog:
-        if not self.log.exists():
+        committed_byte_length = self._visible_committed_length_unlocked()
+        if committed_byte_length == 0:
             return _StoredLog((), 0)
         rows: list[_StoredRow] = []
         try:
             handle = self.log.open("rb")
-        except FileNotFoundError:
-            return _StoredLog((), 0)
+        except FileNotFoundError as exc:
+            raise ValueError("event_commit_store_corrupt") from exc
         running_high_water = 0
         with handle:
-            for line_number, raw_line in enumerate(handle, start=1):
+            remaining = committed_byte_length
+            line_number = 0
+            while remaining > 0:
+                raw_line = handle.readline(remaining)
+                if not raw_line:
+                    raise ValueError("event_commit_store_corrupt")
+                remaining -= len(raw_line)
+                line_number += 1
                 if not raw_line.strip():
                     running_high_water = max(running_high_water, line_number)
                     continue
@@ -370,6 +571,49 @@ class FileEventStore:
 
         return request_preexisting
 
+    def _truncate_event_log(self, committed_byte_length: int) -> None:
+        actual_size = self._event_log_size()
+        if actual_size < committed_byte_length:
+            raise ValueError("event_commit_store_corrupt")
+        if actual_size == committed_byte_length:
+            return
+        try:
+            with self.log.open("r+b") as handle:
+                handle.truncate(committed_byte_length)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except FileNotFoundError as exc:
+            raise ValueError("event_commit_store_corrupt") from exc
+        self._fsync_directory()
+
+    def _recover_event_log_unlocked(self) -> int:
+        actual_size = self._event_log_size()
+        committed = self._load_committed_length()
+        pending = self._load_pending_commit()
+        if committed is None:
+            if pending is not None:
+                raise ValueError("event_commit_store_corrupt")
+            self._write_committed_length(actual_size)
+            return actual_size
+        if pending is None:
+            if committed > actual_size:
+                raise ValueError("event_commit_store_corrupt")
+            self._truncate_event_log(committed)
+            return committed
+        if committed == pending.base_committed_byte_length:
+            if committed > actual_size:
+                raise ValueError("event_commit_store_corrupt")
+            self._truncate_event_log(committed)
+            self._clear_pending_commit()
+            return committed
+        if committed == pending.target_byte_length:
+            if not self._pending_target_matches(pending, actual_size):
+                raise ValueError("event_commit_store_corrupt")
+            self._truncate_event_log(committed)
+            self._clear_pending_commit()
+            return committed
+        raise ValueError("event_commit_store_corrupt")
+
     def append_batch(
         self,
         round_id: str,
@@ -404,6 +648,8 @@ class FileEventStore:
                     "requestHash": request_hash,
                 }
                 self._write_reservations(reservations)
+
+            self._recover_event_log_unlocked()
 
             positions: dict[tuple[str, str, str], tuple[str, int]] = {}
             for stored in stored_rows:
@@ -464,18 +710,47 @@ class FileEventStore:
             for row in rows
         ]
         self._ensure_root_durable()
+        committed_byte_length = self._load_committed_length()
+        if committed_byte_length is None or self._load_pending_commit() is not None:
+            raise ValueError("event_commit_store_corrupt")
+        if self._event_log_size() != committed_byte_length:
+            raise ValueError("event_commit_store_corrupt")
         with self.log.open("a+b") as handle:
-            handle.seek(0, os.SEEK_END)
-            size = handle.tell()
-            if size:
-                handle.seek(-1, os.SEEK_END)
+            separator = b""
+            if committed_byte_length:
+                handle.seek(committed_byte_length - 1)
                 if handle.read(1) != b"\n":
-                    handle.write(b"\n")
+                    separator = b"\n"
+            tail_digest = hashlib.sha256()
+            tail_digest.update(separator)
+            tail_byte_length = len(separator)
+            for encoded in encoded_rows:
+                tail_digest.update(encoded)
+                tail_byte_length += len(encoded)
+            target_byte_length = committed_byte_length + tail_byte_length
+            self._write_pending_commit(
+                _PendingCommit(
+                    base_committed_byte_length=committed_byte_length,
+                    target_byte_length=target_byte_length,
+                    tail_sha256=tail_digest.hexdigest(),
+                    event_count=len(rows),
+                )
+            )
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() != committed_byte_length:
+                raise ValueError("event_commit_store_corrupt")
+            if separator:
+                handle.write(separator)
             for encoded in encoded_rows:
                 handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
         self._fsync_directory()
+        self._advance_committed_length(
+            base_committed_byte_length=committed_byte_length,
+            target_byte_length=target_byte_length,
+        )
+        self._clear_pending_commit()
 
     def _load_acks(self, *, strict: bool) -> tuple[dict[str, dict[str, Any]], bytes | None]:
         if not self.acks.exists():

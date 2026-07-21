@@ -779,6 +779,9 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             request_key="legacy-key",
         )
         log_path.write_text(json.dumps(legacy_rows[0]) + "\n", encoding="utf-8")
+        # This case models a pre-marker legacy partial roster. Rewriting a marker-owned committed
+        # prefix shorter is correctly commit-store corruption, so remove the upgrade marker first.
+        (self.root / "events.jsonl.commit.json").unlink()
         reservation_path = self.root / "request_reservations.json"
         log_before = log_path.read_bytes()
         reservations_before = reservation_path.read_bytes()
@@ -1070,6 +1073,303 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(results["replay"]["eventCount"], 1)
         self.assertEqual(results["ack"], 1)
 
+    def test_event_fsync_failure_keeps_tail_invisible_until_exact_restart_retry(self) -> None:
+        from ai_caddie.caddie.mobile_live import mobile_event_log, replay_event_log
+
+        root = self.root / "event-fsync-failure-root"
+        log_path = mobile_event_log(root)
+        store = FileEventStore(log_path.parent)
+        store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+        original_fsync = os.fsync
+        failed_event_fsync = False
+
+        def fail_after_event_flush(descriptor: int) -> None:
+            nonlocal failed_event_fsync
+            try:
+                target = os.readlink(f"/proc/self/fd/{descriptor}")
+            except OSError:
+                target = ""
+            if target == str(log_path) and not failed_event_fsync:
+                failed_event_fsync = True
+                raise OSError("event-fsync-failed")
+            original_fsync(descriptor)
+
+        with mock.patch("ai_caddie.caddie.mobile_event_store.os.fsync", new=fail_after_event_flush):
+            with self.assertRaisesRegex(OSError, "event-fsync-failed"):
+                store.append_batch(
+                    ROUND_A,
+                    [_event("tail-1"), _event("tail-2")],
+                    request_key="failed-tail",
+                )
+
+        self.assertTrue(failed_event_fsync)
+        self.assertIn(b'"eventId": "tail-1"', log_path.read_bytes())
+        restarted = FileEventStore(log_path.parent)
+        self.assertEqual([row["event"]["eventId"] for row in restarted.read_rows()], ["seed"])
+        self.assertEqual(restarted.high_water(), 1)
+        replay = replay_event_log(ROUND_A, after_sequence=1, root=root)
+        self.assertEqual(replay["eventCount"], 0)
+        self.assertEqual(replay["latestServerSequence"], 1)
+        with self.assertRaisesRegex(ValueError, "^consumer_ack_ahead_of_stream$"):
+            restarted.ack(ROUND_A, "ios-phone", 2)
+
+        retry = restarted.append_batch(
+            ROUND_A,
+            [_event("tail-1"), _event("tail-2")],
+            request_key="failed-tail",
+        )
+
+        self.assertEqual(
+            [(receipt.status, receipt.position) for receipt in retry],
+            [("accepted", 2), ("accepted", 3)],
+        )
+        self.assertEqual(
+            [row["event"]["eventId"] for row in restarted.read_rows()],
+            ["seed", "tail-1", "tail-2"],
+        )
+        self.assertEqual(restarted.ack(ROUND_A, "ios-phone", 3), 3)
+
+    def test_commit_marker_failure_hides_tail_and_different_retry_cannot_bless_it(self) -> None:
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+        base_length = store.log.stat().st_size
+        original_write_committed_length = store._write_committed_length
+
+        def fail_marker_advancement(committed_byte_length: int) -> None:
+            if committed_byte_length > base_length:
+                raise OSError("commit-marker-failed")
+            original_write_committed_length(committed_byte_length)
+
+        with mock.patch.object(store, "_write_committed_length", new=fail_marker_advancement):
+            with self.assertRaisesRegex(OSError, "commit-marker-failed"):
+                store.append_batch(
+                    ROUND_A,
+                    [_event("marker-tail")],
+                    request_key="marker-request",
+                )
+
+        self.assertIn(b'"eventId": "marker-tail"', store.log.read_bytes())
+        self.assertEqual([row["event"]["eventId"] for row in store.read_rows()], ["seed"])
+        self.assertEqual(store.high_water(), 1)
+
+        restarted = FileEventStore(self.root)
+        with self.assertRaisesRegex(ValueError, "^idempotency_key_body_mismatch$"):
+            restarted.append_batch(
+                ROUND_A,
+                [_event("different-body")],
+                request_key="marker-request",
+            )
+        self.assertEqual([row["event"]["eventId"] for row in restarted.read_rows()], ["seed"])
+        self.assertEqual(restarted.high_water(), 1)
+        exact_retry = restarted.append_batch(
+            ROUND_A,
+            [_event("marker-tail")],
+            request_key="marker-request",
+        )
+        self.assertEqual([(row.status, row.position) for row in exact_retry], [("accepted", 2)])
+        self.assertEqual(
+            [row["event"]["eventId"] for row in restarted.read_rows()],
+            ["seed", "marker-tail"],
+        )
+
+    def test_post_replace_marker_error_reconciles_exact_committed_target(self) -> None:
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+        base_length = store.log.stat().st_size
+        original_write_committed_length = store._write_committed_length
+
+        def write_target_then_report_error(committed_byte_length: int) -> None:
+            original_write_committed_length(committed_byte_length)
+            if committed_byte_length > base_length:
+                raise OSError("marker-reported-error-after-replace")
+
+        with mock.patch.object(store, "_write_committed_length", new=write_target_then_report_error):
+            result = store.append_batch(
+                ROUND_A,
+                [_event("exact-target")],
+                request_key="exact-target",
+            )
+
+        self.assertEqual([(row.status, row.position) for row in result], [("accepted", 2)])
+        self.assertFalse(store.pending_commit.exists())
+        self.assertEqual(
+            [row["event"]["eventId"] for row in store.read_rows()],
+            ["seed", "exact-target"],
+        )
+        self.assertEqual(store.ack(ROUND_A, "ios-phone", 2), 2)
+
+    def test_pending_cleanup_failure_and_stale_restart_preserve_committed_target(self) -> None:
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+        stale_pending: list[bytes] = []
+
+        def unlink_then_fail_directory_fsync() -> None:
+            stale_pending.append(store.pending_commit.read_bytes())
+            store.pending_commit.unlink()
+            raise OSError("pending-directory-fsync-failed")
+
+        with mock.patch.object(store, "_clear_pending_commit", new=unlink_then_fail_directory_fsync):
+            with self.assertRaisesRegex(OSError, "pending-directory-fsync-failed"):
+                store.append_batch(
+                    ROUND_A,
+                    [_event("committed-target")],
+                    request_key="committed-request",
+                )
+
+        self.assertEqual(len(stale_pending), 1)
+        self.assertFalse(store.pending_commit.exists())
+        self.assertEqual(
+            [row["event"]["eventId"] for row in store.read_rows()],
+            ["seed", "committed-target"],
+        )
+        self.assertEqual(store.ack(ROUND_A, "ios-phone", 2), 2)
+        committed_log = store.log.read_bytes()
+
+        # Simulate a crash where the unlink was visible before the failed directory fsync but the
+        # old pending directory entry reappears after restart. Marker-at-target is already committed.
+        store.pending_commit.write_bytes(stale_pending[0])
+        restarted = FileEventStore(self.root)
+        self.assertEqual(
+            [row["event"]["eventId"] for row in restarted.read_rows()],
+            ["seed", "committed-target"],
+        )
+        original_fsync = os.fsync
+        event_log_fsyncs = 0
+
+        def count_event_log_fsync(descriptor: int) -> None:
+            nonlocal event_log_fsyncs
+            try:
+                target = os.readlink(f"/proc/self/fd/{descriptor}")
+            except OSError:
+                target = ""
+            if target == str(store.log):
+                event_log_fsyncs += 1
+            original_fsync(descriptor)
+
+        with mock.patch("ai_caddie.caddie.mobile_event_store.os.fsync", new=count_event_log_fsync):
+            exact_retry = restarted.append_batch(
+                ROUND_A,
+                [_event("committed-target")],
+                request_key="committed-request",
+            )
+
+        self.assertEqual([(row.status, row.position) for row in exact_retry], [("duplicate_hash_match", 2)])
+        self.assertEqual(event_log_fsyncs, 0)
+        self.assertFalse(restarted.pending_commit.exists())
+        self.assertEqual(restarted.log.read_bytes(), committed_log)
+        self.assertEqual(restarted.read_ack(ROUND_A, "ios-phone"), 2)
+
+    def test_restart_discards_untracked_partial_tail_before_reusing_invisible_position(self) -> None:
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+        with store.log.open("ab") as handle:
+            handle.write(b'{"partial":')
+
+        restarted = FileEventStore(self.root)
+        self.assertEqual([row["event"]["eventId"] for row in restarted.read_rows()], ["seed"])
+        self.assertEqual(restarted.high_water(), 1)
+
+        receipt = restarted.append_batch(
+            ROUND_A,
+            [_event("after-partial")],
+            request_key="after-partial",
+        )[0]
+
+        self.assertEqual(receipt.position, 2)
+        self.assertNotIn(b'{"partial":', restarted.log.read_bytes())
+        self.assertEqual(
+            [row["event"]["eventId"] for row in restarted.read_rows()],
+            ["seed", "after-partial"],
+        )
+
+    def test_commit_visibility_metadata_corruption_never_falls_back_to_full_log(self) -> None:
+        legacy = {
+            "roundId": ROUND_A,
+            "idempotencyKey": "legacy",
+            "event": _event("legacy"),
+        }
+        marker_name = "events.jsonl.commit.json"
+        pending_name = "events.jsonl.pending.json"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "events.jsonl").write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+            self.assertEqual(
+                [row["event"]["eventId"] for row in FileEventStore(root).read_rows()],
+                ["legacy"],
+            )
+
+        corrupt_payloads = {
+            "corrupt marker": (marker_name, "{broken"),
+            "out-of-bounds marker": (
+                marker_name,
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-mobile-event-commit-v1",
+                        "committedByteLength": 999999,
+                    }
+                ),
+            ),
+            "pending without marker": (
+                pending_name,
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-mobile-event-pending-commit-v1",
+                        "baseCommittedByteLength": 0,
+                        "targetByteLength": 1,
+                        "tailSha256": "0" * 64,
+                        "eventCount": 1,
+                    }
+                ),
+            ),
+        }
+        for label, (metadata_name, metadata_payload) in corrupt_payloads.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "events.jsonl").write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+                (root / metadata_name).write_text(metadata_payload, encoding="utf-8")
+                candidate = FileEventStore(root)
+                with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+                    candidate.read_rows()
+                with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+                    candidate.high_water()
+
+        for label, pending_payload_factory in {
+            "corrupt pending": lambda _length: "{broken",
+            "target digest mismatch": lambda length: json.dumps(
+                {
+                    "schema": "ai-caddie-mobile-event-pending-commit-v1",
+                    "baseCommittedByteLength": 0,
+                    "targetByteLength": length,
+                    "tailSha256": "0" * 64,
+                    "eventCount": 1,
+                }
+            ),
+        }.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                log_path = root / "events.jsonl"
+                log_path.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+                committed_length = log_path.stat().st_size
+                (root / marker_name).write_text(
+                    json.dumps(
+                        {
+                            "schema": "ai-caddie-mobile-event-commit-v1",
+                            "committedByteLength": committed_length,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (root / pending_name).write_text(
+                    pending_payload_factory(committed_length),
+                    encoding="utf-8",
+                )
+                candidate = FileEventStore(root)
+                with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+                    candidate.read_rows()
+                with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+                    candidate.high_water()
+
     def test_corrupt_ack_store_resends_from_zero_then_recovers_without_losing_bad_bytes(self) -> None:
         store = FileEventStore(self.root)
         store.append_batch(ROUND_A, [_event("e1")], request_key="seed")
@@ -1097,6 +1397,8 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(store.acks.name, "client_acks.json")
         self.assertEqual(store.ack_lock.name, "client_acks.json.lock")
         self.assertEqual(store.reservations.name, "request_reservations.json")
+        self.assertEqual(store.commit_marker.name, "events.jsonl.commit.json")
+        self.assertEqual(store.pending_commit.name, "events.jsonl.pending.json")
 
     def test_first_write_fsyncs_each_new_directory_entry_in_creation_order(self) -> None:
         root = self.root / "level-one" / "level-two" / "mobile_events"
@@ -1159,6 +1461,8 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(log_open_count, 1)
         self.assertEqual(log_fsync_count, 1)
         self.assertEqual(len(store.read_rows()), 5000)
+        self.assertTrue(store.commit_marker.exists())
+        self.assertFalse(store.pending_commit.exists())
 
 
 if __name__ == "__main__":

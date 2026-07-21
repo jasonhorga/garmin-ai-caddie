@@ -663,7 +663,7 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// round-12 sync spine (gap f): pull events authored by OTHER clients via the replay endpoint and
-    /// merge them into the local event log (idempotent by eventId), then re-project the round state.
+    /// merge them into the local event log (idempotent by full server identity), then re-project.
     /// Best-effort: a pull failure never fails the push. Today this is a no-op for a single client
     /// (no other clients' events exist); it activates the moment the watch/web write to the same round.
     /// NOTE: re-projection folds by local-log order; cross-client SAME-field ordering uses the
@@ -677,23 +677,15 @@ public final class LiveRoundAppModel: ObservableObject {
             guard let replay = try? await syncClient.fetchEventReplay(roundId: roundId, afterSequence: cursor, limit: 200) else {
                 return
             }
-            var batchPersisted = true
-            for item in replay.events {
-                let alreadyLocal = (try? offlineStore.containsEvent(eventId: item.event.eventId)) ?? false
-                if !alreadyLocal {
-                    do {
-                        try offlineStore.appendEvent(item.event)
-                        appliedAny = true
-                    } catch {
-                        // P1-2: a local append failed — do NOT advance/ack past it, or the server treats
-                        // these events as delivered and never resends them (permanent on-disk loss).
-                        batchPersisted = false
-                        break
-                    }
-                }
+            do {
+                let pageAppliedAny = try offlineStore.applyReplayEvents(replay.events.map(\.event))
+                appliedAny = appliedAny || pageAppliedAny
+            } catch {
+                // A missing or conflicting local envelope leaves the whole page unacknowledged.
+                // Already-appended prefix events are exact-identity idempotent on the next replay.
+                break
             }
-            // Only advance the cursor for a fully-persisted batch; ack below covers just what's durable.
-            if !batchPersisted { break }
+            // Only a fully-present or fully-persisted page advances the durable replay cursor.
             latestCursor = replay.nextCursor
             cursor = replay.nextCursor
             if !replay.hasMore { break }

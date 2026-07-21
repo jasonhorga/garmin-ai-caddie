@@ -1513,15 +1513,14 @@ class MobileContractTests(unittest.TestCase):
         # Consumer sync-status copy (de-engineered): "no sync server" → 未联网,稍后同步.
         self.assertIn("未联网,稍后同步", app_swift)
         # round-12 P2.3: syncPendingEvents PULLS other clients' events (not push-only) — merge into the
-        # local log idempotently by eventId, then re-project. Wires the previously-unused fetchEventReplay.
+        # local log idempotently by full server identity, then re-project.
         self.assertIn("pullAndApplyRemoteEvents(roundId:", app_swift)
         self.assertIn("syncClient.fetchEventReplay(roundId:", app_swift)
-        self.assertIn("offlineStore.containsEvent(eventId:", app_swift)
+        self.assertIn("try offlineStore.applyReplayEvents(replay.events.map(\\.event))", app_swift)
         self.assertIn("liveRoundState = try? offlineStore.restoreLiveRoundState(roundId: roundId, package: package)", app_swift)
         # P1-2: a failed local append must NOT advance/ack the cursor, or the server treats the dropped
-        # events as delivered and never resends them. The error-swallowing `try?` append is gone.
-        self.assertIn("try offlineStore.appendEvent(item.event)", app_swift)
-        self.assertNotIn("try? offlineStore.appendEvent(item.event)", app_swift)
+        # events as delivered and never resends them. Page application remains throwing.
+        self.assertNotIn("try? offlineStore.applyReplayEvents", app_swift)
 
         self.assertIn("func loadPendingEvents(roundId:", offline_store)
         self.assertIn("lastIndex(where:", offline_store)
@@ -1555,11 +1554,34 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"serverSequence": .number(Double(result.serverSequence))', offline_store)
         self.assertIn("offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)", app_swift)
         self.assertNotIn("syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)", app_swift)
-        replay_persist = app_swift.index("try offlineStore.appendEvent(item.event)")
+        replay_persist = app_swift.index("try offlineStore.applyReplayEvents(replay.events.map(\\.event))")
         replay_cursor = app_swift.index("latestCursor = replay.nextCursor")
         replay_ack = app_swift.index("syncClient.ackEventCursor(roundId: roundId, serverSequence: latestCursor)")
         self.assertLess(replay_persist, replay_cursor)
         self.assertLess(replay_cursor, replay_ack)
+
+    def test_ios_replay_uses_full_identity_envelope_and_page_ack_gate(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        store_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "OfflineStoreTests.swift")
+
+        self.assertIn("private struct ReplayEventIdentity: Hashable", offline_store)
+        self.assertIn("clientId: event.clientId ?? \"\"", offline_store)
+        self.assertIn("public func applyReplayEvents(_ replayEvents: [LiveRoundEvent]) throws -> Bool", offline_store)
+        self.assertIn("guard existing == event else", offline_store)
+        self.assertIn("throw OfflineStoreError.replayIdentityEnvelopeMismatch", offline_store)
+
+        apply_page = app_swift.index("try offlineStore.applyReplayEvents(replay.events.map(\\.event))")
+        replay_cursor = app_swift.index("latestCursor = replay.nextCursor")
+        replay_ack = app_swift.index("syncClient.ackEventCursor(roundId: roundId, serverSequence: latestCursor)")
+        self.assertLess(apply_page, replay_cursor)
+        self.assertLess(replay_cursor, replay_ack)
+        self.assertNotIn("containsEvent(eventId: item.event.eventId)", app_swift)
+
+        self.assertIn("testApplyReplayEventsUsesFullIdentityAndRequiresEqualEnvelope", store_tests)
+        self.assertIn("testApplyReplayEventsThrowsWhenAnyPageEventFailsToPersist", store_tests)
+        self.assertIn("XCTAssertEqual(try store.loadEvents(), [phone, watch])", store_tests)
+        self.assertIn("XCTAssertThrowsError", store_tests)
 
     def test_ios_sync_client_supports_server_event_replay_and_ack(self) -> None:
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")

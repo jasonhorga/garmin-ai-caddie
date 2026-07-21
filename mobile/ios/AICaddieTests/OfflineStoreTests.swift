@@ -36,6 +36,76 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(events.last?.kind, .syncMarker)
     }
 
+    func testApplyReplayEventsUsesFullIdentityAndRequiresEqualEnvelope() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let phone = LiveRoundEvent(
+            eventId: "shared-event-id",
+            roundId: "round-1",
+            clientId: "ios-phone",
+            timestamp: "2026-07-21T00:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(4)]
+        )
+        let watch = LiveRoundEvent(
+            eventId: "shared-event-id",
+            roundId: "round-1",
+            clientId: "apple-watch",
+            timestamp: "2026-07-21T00:00:01Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(5)]
+        )
+
+        XCTAssertTrue(try store.applyReplayEvents([phone, watch, phone]))
+        XCTAssertEqual(try store.loadEvents(), [phone, watch])
+        XCTAssertFalse(try store.applyReplayEvents([phone, watch]))
+
+        let conflictingPhone = LiveRoundEvent(
+            eventId: phone.eventId,
+            roundId: phone.roundId,
+            clientId: phone.clientId,
+            timestamp: phone.timestamp,
+            hole: phone.hole,
+            kind: phone.kind,
+            payload: ["strokes": .number(6)]
+        )
+        XCTAssertThrowsError(try store.applyReplayEvents([conflictingPhone])) { error in
+            XCTAssertEqual(error as? OfflineStoreError, .replayIdentityEnvelopeMismatch)
+        }
+        XCTAssertEqual(try store.loadEvents(), [phone, watch])
+    }
+
+    func testApplyReplayEventsThrowsWhenAnyPageEventFailsToPersist() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let durable = LiveRoundEvent(
+            eventId: "durable-first",
+            roundId: "round-1",
+            clientId: nil,
+            timestamp: "2026-07-21T00:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(4)]
+        )
+        let unencodable = LiveRoundEvent(
+            eventId: "fails-second",
+            roundId: "round-1",
+            clientId: "apple-watch",
+            timestamp: "2026-07-21T00:00:01Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(Double.nan)]
+        )
+
+        XCTAssertThrowsError(try store.applyReplayEvents([durable, unencodable]))
+        XCTAssertEqual(try store.loadEvents(), [durable])
+        XCTAssertFalse(try store.applyReplayEvents([durable]))
+    }
+
     func testAppendSyncMarkerPersistsAcknowledgementMetadata() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
