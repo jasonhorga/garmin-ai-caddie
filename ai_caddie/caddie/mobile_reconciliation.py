@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from ai_caddie.reports.annotations import add_annotation, list_annotations
 from ai_caddie.caddie.decision import audit_decision, store_decision_audit
+from ai_caddie.caddie.mobile_event_store import FileEventStore
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
 
@@ -20,20 +20,11 @@ def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str
     # itself, so pass player_id here (NOT a pre-resolved evidence_root, which would double-nest the
     # path to data/players/<id>/data/mobile_events/... and read empty).
     path = mobile_event_log(root, player_id=player_id)
-    if not path.exists():
-        return []
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue  # tolerate a torn final append; never 500 the read path
-        if str(row.get("roundId")) == str(round_id):
-            event = row.get("event")
-            if isinstance(event, dict):
-                rows.append({"serverSequence": row.get("serverSequence"), **event})
+    for row in FileEventStore(path.parent).read_rows(round_id):
+        event = row.get("event")
+        if isinstance(event, dict):
+            rows.append({**event, "serverSequence": row.get("serverSequence")})
     return rows
 
 

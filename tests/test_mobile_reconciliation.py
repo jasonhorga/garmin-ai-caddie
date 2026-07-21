@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -9,10 +10,57 @@ from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
 from ai_caddie.history.history import HistoryData
 from ai_caddie.caddie.mobile_live import append_event_batch
-from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
+from ai_caddie.caddie.mobile_reconciliation import (
+    _event_rows,
+    apply_mobile_reconciliation_suggestions,
+    reconcile_mobile_round_events,
+)
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_reconciliation_skips_non_utf8_torn_bytes_and_processes_later_row(self) -> None:
+        from ai_caddie.caddie.mobile_live import mobile_event_log
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = mobile_event_log(root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            durable_row = {
+                "roundId": "900001",
+                "idempotencyKey": "later-note",
+                "serverSequence": 7,
+                "event": {
+                    "eventId": "later-note",
+                    "roundId": "900001",
+                    "hole": 7,
+                    "kind": "note",
+                    "payload": {"note": "Process the valid row after corrupt bytes."},
+                },
+            }
+            path.write_bytes(
+                b'\xff\xfe{"torn":\n'
+                + json.dumps(durable_row, sort_keys=True).encode("utf-8")
+                + b"\n"
+            )
+
+            try:
+                rows = _event_rows("900001", root=root)
+                result = reconcile_mobile_round_events(
+                    "900001",
+                    fixture_history_data(),
+                    root=root,
+                )
+            except UnicodeDecodeError as exc:
+                self.fail(f"reconciliation raised UnicodeDecodeError: {exc}")
+
+        self.assertEqual(rows[0]["eventId"], "later-note")
+        self.assertEqual(rows[0]["serverSequence"], 7)
+        suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
+        self.assertEqual(
+            suggestions["later-note:hole-note"]["payload"]["text"],
+            "Process the valid row after corrupt bytes.",
+        )
+
     def test_reconciles_local_events_against_synced_round_facts(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

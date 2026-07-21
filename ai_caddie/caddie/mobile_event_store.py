@@ -125,11 +125,8 @@ class FileEventStore:
                     continue
                 row = dict(parsed)
                 explicit_position = self._explicit_position(row)
-                if explicit_position is None:
-                    position = running_high_water + 1
-                else:
-                    position = explicit_position
-                running_high_water = max(running_high_water, position)
+                position = max(explicit_position or 0, running_high_water + 1)
+                running_high_water = position
                 row["serverSequence"] = position
                 rows.append(_StoredRow(row=row, position=position, line_number=line_number))
         return rows

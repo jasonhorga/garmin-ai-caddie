@@ -311,6 +311,87 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(next_receipt.position, 9)
         self.assertEqual(store.high_water(), 9)
 
+    def test_descending_and_duplicate_explicit_sequences_normalize_in_physical_order(self) -> None:
+        legacy_rows = [
+            {
+                "roundId": ROUND_A,
+                "idempotencyKey": event_id,
+                "event": _event(event_id),
+                **({"serverSequence": sequence} if sequence is not None else {}),
+            }
+            for sequence, event_id in [
+                (7, "leading-seven"),
+                (3, "descending-three"),
+                (7, "duplicate-seven"),
+                (None, "missing-sequence"),
+            ]
+        ]
+        (self.root / "events.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in legacy_rows),
+            encoding="utf-8",
+        )
+        store = FileEventStore(self.root)
+
+        self.assertEqual([row["serverSequence"] for row in store.read_rows()], [7, 8, 9, 10])
+        next_receipt = store.append_batch(ROUND_A, [_event("next")], request_key="next")[0]
+
+        self.assertEqual(next_receipt.position, 11)
+        self.assertEqual(store.high_water(), 11)
+
+    def test_replay_limit_one_visits_descending_and_duplicate_legacy_rows_once(self) -> None:
+        from ai_caddie.caddie.mobile_live import mobile_event_log, replay_event_log
+
+        root = self.root / "replay-root"
+        path = mobile_event_log(root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        legacy_rows = [
+            {
+                "roundId": ROUND_A,
+                "idempotencyKey": event_id,
+                "event": _event(event_id),
+                **({"serverSequence": sequence} if sequence is not None else {}),
+            }
+            for sequence, event_id in [
+                (7, "leading-seven"),
+                (3, "descending-three"),
+                (7, "duplicate-seven"),
+                (None, "missing-sequence"),
+            ]
+        ]
+        path.write_text(
+            "".join(json.dumps(row) + "\n" for row in legacy_rows),
+            encoding="utf-8",
+        )
+
+        cursor = 0
+        seen_event_ids: list[str] = []
+        seen_cursors: list[int] = []
+        for _ in legacy_rows:
+            page = replay_event_log(
+                ROUND_A,
+                after_sequence=cursor,
+                limit=1,
+                root=root,
+            )
+            self.assertEqual(page["eventCount"], 1)
+            seen_event_ids.append(page["events"][0]["event"]["eventId"])
+            cursor = page["nextCursor"]
+            seen_cursors.append(cursor)
+
+        exhausted = replay_event_log(
+            ROUND_A,
+            after_sequence=cursor,
+            limit=1,
+            root=root,
+        )
+
+        self.assertEqual(
+            seen_event_ids,
+            ["leading-seven", "descending-three", "duplicate-seven", "missing-sequence"],
+        )
+        self.assertEqual(seen_cursors, [7, 8, 9, 10])
+        self.assertEqual(exhausted["eventCount"], 0)
+
     def test_torn_eof_is_separated_from_the_next_durable_json_row(self) -> None:
         (self.root / "events.jsonl").write_bytes(b'{"torn":')
         store = FileEventStore(self.root)
