@@ -285,7 +285,7 @@ class FileEventStore:
         if row_request_hashes and row_request_hashes != {request_hash}:
             raise ValueError("idempotency_key_body_mismatch")
         if legacy_request_rows:
-            if reservation is not None or row_request_hashes:
+            if row_request_hashes:
                 raise ValueError("idempotency_key_body_mismatch")
             legacy_hashes = [
                 self._event_hash(stored.row)

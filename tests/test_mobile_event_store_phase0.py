@@ -420,7 +420,7 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual([(row.status, row.position) for row in duplicate], [("duplicate_hash_match", 7)])
         self.assertEqual(len(store.read_rows()), 1)
 
-    def test_exact_legacy_request_retry_is_upgraded_to_a_durable_reservation(self) -> None:
+    def test_exact_legacy_request_upgrade_remains_retryable_across_restarts(self) -> None:
         events = [_event("legacy-1"), _event("legacy-2")]
         legacy_rows = [
             {
@@ -435,15 +435,83 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             "".join(json.dumps(row) + "\n" for row in legacy_rows),
             encoding="utf-8",
         )
-        store = FileEventStore(self.root)
+        log_before = (self.root / "events.jsonl").read_bytes()
 
-        retry = store.append_batch(ROUND_A, events, request_key="legacy-key")
+        upgraded_retry = FileEventStore(self.root).append_batch(
+            ROUND_A,
+            events,
+            request_key="legacy-key",
+        )
 
-        self.assertEqual([receipt.status for receipt in retry], ["duplicate_hash_match", "duplicate_hash_match"])
-        self.assertTrue(all(receipt.request_preexisting for receipt in retry))
-        reservations = json.loads((self.root / "request_reservations.json").read_text(encoding="utf-8"))
+        expected = [
+            ("duplicate_hash_match", 1, True),
+            ("duplicate_hash_match", 2, True),
+        ]
+        self.assertEqual(
+            [
+                (receipt.status, receipt.position, receipt.request_preexisting)
+                for receipt in upgraded_retry
+            ],
+            expected,
+        )
+        reservation_path = self.root / "request_reservations.json"
+        reservations = json.loads(reservation_path.read_text(encoding="utf-8"))
         self.assertIn(f"{ROUND_A}\nlegacy-key", reservations["reservations"])
-        self.assertEqual(len(store.read_rows()), 2)
+        reservations_after_upgrade = reservation_path.read_bytes()
+
+        for _ in range(2):
+            retry = FileEventStore(self.root).append_batch(
+                ROUND_A,
+                events,
+                request_key="legacy-key",
+            )
+
+            self.assertEqual(
+                [
+                    (receipt.status, receipt.position, receipt.request_preexisting)
+                    for receipt in retry
+                ],
+                expected,
+            )
+            self.assertEqual((self.root / "events.jsonl").read_bytes(), log_before)
+            self.assertEqual(reservation_path.read_bytes(), reservations_after_upgrade)
+            self.assertEqual(len(FileEventStore(self.root).read_rows()), 2)
+
+    def test_matching_reservation_does_not_bless_partial_legacy_roster(self) -> None:
+        events = [_event("legacy-1"), _event("legacy-2")]
+        legacy_rows = [
+            {
+                "roundId": ROUND_A,
+                "idempotencyKey": "legacy-key",
+                "serverSequence": position,
+                "event": event,
+            }
+            for position, event in enumerate(events, start=1)
+        ]
+        log_path = self.root / "events.jsonl"
+        log_path.write_text(
+            "".join(json.dumps(row) + "\n" for row in legacy_rows),
+            encoding="utf-8",
+        )
+        FileEventStore(self.root).append_batch(
+            ROUND_A,
+            events,
+            request_key="legacy-key",
+        )
+        log_path.write_text(json.dumps(legacy_rows[0]) + "\n", encoding="utf-8")
+        reservation_path = self.root / "request_reservations.json"
+        log_before = log_path.read_bytes()
+        reservations_before = reservation_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "^idempotency_key_body_mismatch$"):
+            FileEventStore(self.root).append_batch(
+                ROUND_A,
+                events,
+                request_key="legacy-key",
+            )
+
+        self.assertEqual(log_path.read_bytes(), log_before)
+        self.assertEqual(reservation_path.read_bytes(), reservations_before)
 
     def test_unprovable_legacy_request_retry_is_rejected_as_body_mismatch(self) -> None:
         legacy = {
