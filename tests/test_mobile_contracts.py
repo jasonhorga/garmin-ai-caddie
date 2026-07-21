@@ -8,6 +8,7 @@ from unittest.mock import patch
 import unittest
 
 from jsonschema import Draft202012Validator
+import yaml
 
 from ai_caddie.history import stats_cache
 from ai_caddie.reports.annotations import add_annotation
@@ -1234,7 +1235,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertGreaterEqual(project.count("- Info.plist"), 2)
         self.assertIn("xcodegen generate --spec mobile/ios/project.yml", readme)
         self.assertIn("xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj", readme)
-        self.assertNotIn("- Fixtures", project)
+        app_target = yaml.safe_load(project)["targets"]["AICaddie"]
+        app_excludes = {
+            excluded
+            for source in app_target["sources"]
+            for excluded in source.get("excludes", [])
+        }
+        self.assertNotIn("Fixtures", app_excludes)
 
     def test_ios_and_watch_info_plists_declare_required_live_permissions(self) -> None:
         ios_plist = _read_required_source(self, IOS_DIR / "Info.plist")
