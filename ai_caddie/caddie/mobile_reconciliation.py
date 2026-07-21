@@ -12,6 +12,13 @@ from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
 
 
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
     # The mobile event log is per-player partitioned (mobile_live.mobile_event_log): the owner keeps
     # the flat shared log; a member's live events live under their own partition. Read the ACTING
@@ -43,7 +50,7 @@ def _round_row(round_id: str, data: HistoryData) -> dict[str, Any]:
 def _hole_scores(round_row: dict[str, Any]) -> dict[int, dict[str, Any]]:
     scores: dict[int, dict[str, Any]] = {}
     for index, hole in enumerate(round_row.get("holes") or [], start=1):
-        number = int(hole.get("number") or index)
+        number = _safe_int(hole.get("number")) or index
         scores[number] = {
             "strokes": hole.get("strokes"),
             "putts": hole.get("putts"),
@@ -62,7 +69,9 @@ def _shot_facts(round_id: str, data: HistoryData) -> list[dict[str, Any]]:
             shot_round_id = shot.get("scorecardId")
         if str(shot_round_id) != requested:
             continue
-        hole = int(shot.get("hole") or 0)
+        hole = _safe_int(shot.get("hole")) or 0
+        if hole <= 0:
+            continue
         per_hole[hole] = per_hole.get(hole, 0) + 1
         facts.append(
             {
@@ -202,13 +211,13 @@ def _annotation_suggestions(
     for row in garmin_only:
         if row.get("kind") != "club":
             continue
-        hole = int(row.get("hole") or 0)
+        hole = _safe_int(row.get("hole")) or 0
         garmin_shots_by_hole.setdefault(hole, []).append(row)
 
     for row in local_only:
         event_id = str(row.get("eventId") or "")
         kind = str(row.get("kind") or "")
-        hole = int(row.get("hole") or 0)
+        hole = _safe_int(row.get("hole")) or 0
         local_value = row.get("localValue")
         if not event_id:
             continue
@@ -347,7 +356,9 @@ def reconcile_mobile_round_events(
     for event in events:
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         kind = str(event.get("kind") or "")
-        hole = int(event.get("hole") or 0)
+        hole = _safe_int(event.get("hole")) or 0
+        if hole <= 0:
+            continue
         audit = _candidate_audit(event)
         if audit:
             candidate_audits.append(audit)

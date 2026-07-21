@@ -1554,7 +1554,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"duplicateEventIds": .array(result.duplicateEventIds.map { .string($0) })', offline_store)
         self.assertIn('"serverSequence": .number(Double(result.serverSequence))', offline_store)
         self.assertIn("offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)", app_swift)
-        self.assertIn("syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)", app_swift)
+        self.assertNotIn("syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)", app_swift)
+        replay_persist = app_swift.index("try offlineStore.appendEvent(item.event)")
+        replay_cursor = app_swift.index("latestCursor = replay.nextCursor")
+        replay_ack = app_swift.index("syncClient.ackEventCursor(roundId: roundId, serverSequence: latestCursor)")
+        self.assertLess(replay_persist, replay_cursor)
+        self.assertLess(replay_cursor, replay_ack)
 
     def test_ios_sync_client_supports_server_event_replay_and_ack(self) -> None:
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")

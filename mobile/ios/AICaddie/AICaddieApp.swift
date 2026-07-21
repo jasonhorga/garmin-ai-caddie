@@ -649,7 +649,6 @@ public final class LiveRoundAppModel: ObservableObject {
                     idempotencyKey: idempotencyKey(roundId: package.roundId, events: events)
                 )
                 try offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)
-                _ = try? await syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
                 let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
                 syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"

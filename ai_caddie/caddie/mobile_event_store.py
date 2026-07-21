@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
@@ -34,6 +35,18 @@ class EventReceipt:
 
 
 @dataclass(frozen=True)
+class AppendBatchResult(Sequence[EventReceipt]):
+    receipts: tuple[EventReceipt, ...]
+    server_sequence: int
+
+    def __getitem__(self, index: int | slice) -> EventReceipt | tuple[EventReceipt, ...]:
+        return self.receipts[index]
+
+    def __len__(self) -> int:
+        return len(self.receipts)
+
+
+@dataclass(frozen=True)
 class _PreparedEvent:
     event: dict[str, Any]
     identity: tuple[str, str, str]
@@ -45,6 +58,12 @@ class _StoredRow:
     row: dict[str, Any]
     position: int
     line_number: int
+
+
+@dataclass(frozen=True)
+class _StoredLog:
+    rows: tuple[_StoredRow, ...]
+    high_water: int
 
 
 def _format_time(value: datetime) -> str:
@@ -89,10 +108,10 @@ class FileEventStore:
         self._sanitizer = sanitizer
 
     @contextmanager
-    def _locked(self, path: Path) -> Iterator[None]:
-        self.root.mkdir(parents=True, exist_ok=True)
+    def _locked(self, path: Path, *, shared: bool = False) -> Iterator[None]:
+        self._ensure_root_durable()
         with path.open("a+", encoding="utf-8") as handle:
-            fcntl.flock(handle, fcntl.LOCK_EX)
+            fcntl.flock(handle, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
             yield
 
     @staticmethod
@@ -104,40 +123,64 @@ class FileEventStore:
             return None
         return position if position > 0 else None
 
-    def _stored_rows(self) -> list[_StoredRow]:
+    def _stored_log(self) -> _StoredLog:
         if not self.log.exists():
-            return []
+            return _StoredLog((), 0)
         rows: list[_StoredRow] = []
         try:
             handle = self.log.open("rb")
         except FileNotFoundError:
-            return []
+            return _StoredLog((), 0)
         running_high_water = 0
         with handle:
             for line_number, raw_line in enumerate(handle, start=1):
                 if not raw_line.strip():
+                    running_high_water = max(running_high_water, line_number)
                     continue
                 try:
                     parsed = json.loads(raw_line.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
+                except (UnicodeDecodeError, ValueError):
+                    running_high_water = max(running_high_water, line_number)
                     continue
                 if not isinstance(parsed, dict):
+                    running_high_water = max(running_high_water, line_number)
                     continue
                 row = dict(parsed)
                 explicit_position = self._explicit_position(row)
-                position = max(explicit_position or 0, running_high_water + 1)
+                position = max(explicit_position or 0, running_high_water + 1, line_number)
                 running_high_water = position
                 row["serverSequence"] = position
                 rows.append(_StoredRow(row=row, position=position, line_number=line_number))
-        return rows
+        return _StoredLog(tuple(rows), running_high_water)
+
+    def _stored_rows(self) -> list[_StoredRow]:
+        return list(self._stored_log().rows)
+
+    @staticmethod
+    def _is_legacy_compatible_event(event: Any) -> bool:
+        if not isinstance(event, dict):
+            return False
+        if "hole" not in event or event.get("hole") is None:
+            return True
+        try:
+            int(event["hole"])
+        except (TypeError, ValueError, OverflowError):
+            return False
+        return True
+
+    @classmethod
+    def _is_legacy_compatible_stored_row(cls, row: dict[str, Any]) -> bool:
+        return cls._is_legacy_compatible_event(row.get("event"))
 
     def read_rows(self, round_id: str | None = None) -> list[dict[str, Any]]:
         round_key = None if round_id is None else str(round_id)
-        return [
-            dict(stored.row)
-            for stored in self._stored_rows()
-            if round_key is None or str(stored.row.get("roundId") or "") == round_key
-        ]
+        with self._locked(self.event_lock, shared=True):
+            return [
+                dict(stored.row)
+                for stored in self._stored_rows()
+                if self._is_legacy_compatible_stored_row(stored.row)
+                and (round_key is None or str(stored.row.get("roundId") or "") == round_key)
+            ]
 
     def read_events(self, round_id: str) -> list[EventReceipt]:
         receipts: list[EventReceipt] = []
@@ -155,7 +198,11 @@ class FileEventStore:
         return receipts
 
     def high_water(self) -> int:
-        return max((stored.position for stored in self._stored_rows()), default=0)
+        with self._locked(self.event_lock, shared=True):
+            return self._high_water_unlocked()
+
+    def _high_water_unlocked(self) -> int:
+        return self._stored_log().high_water
 
     def _sanitize_event(self, event: dict[str, Any]) -> dict[str, Any]:
         source = deepcopy(event)
@@ -199,7 +246,7 @@ class FileEventStore:
             return {}
         try:
             payload = json.loads(self.reservations.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
             raise ValueError("request_reservation_store_corrupt") from exc
         if (
             not isinstance(payload, dict)
@@ -235,7 +282,7 @@ class FileEventStore:
     @staticmethod
     def _event_identity(row: dict[str, Any]) -> tuple[str, str, str] | None:
         event = row.get("event")
-        if not isinstance(event, dict) or not event.get("eventId"):
+        if not FileEventStore._is_legacy_compatible_event(event) or not event.get("eventId"):
             return None
         return (
             str(row.get("roundId") or ""),
@@ -246,7 +293,7 @@ class FileEventStore:
     @staticmethod
     def _event_hash(row: dict[str, Any]) -> str | None:
         event = row.get("event")
-        return _sha256(event) if isinstance(event, dict) else None
+        return _sha256(event) if FileEventStore._is_legacy_compatible_event(event) else None
 
     def _preflight_request(
         self,
@@ -280,6 +327,8 @@ class FileEventStore:
             if not isinstance(stored.row.get("requestHash"), str) or not stored.row.get("requestHash")
         ]
 
+        if any(not self._is_legacy_compatible_stored_row(stored.row) for stored in matching_request_rows):
+            raise ValueError("idempotency_key_body_mismatch")
         if reservation is not None and reservation["requestHash"] != request_hash:
             raise ValueError("idempotency_key_body_mismatch")
         if row_request_hashes and row_request_hashes != {request_hash}:
@@ -327,7 +376,7 @@ class FileEventStore:
         events: list[dict[str, Any]],
         *,
         request_key: str,
-    ) -> list[EventReceipt]:
+    ) -> AppendBatchResult:
         round_key = str(round_id)
         idempotency_key = str(request_key)
         with self._locked(self.event_lock):
@@ -335,7 +384,8 @@ class FileEventStore:
             request_hash = _sha256(
                 {"roundId": round_key, "events": [item.event for item in prepared]}
             )
-            stored_rows = self._stored_rows()
+            stored_log = self._stored_log()
+            stored_rows = list(stored_log.rows)
             reservations = self._load_reservations()
             request_preexisting = self._preflight_request(
                 round_id=round_key,
@@ -365,8 +415,9 @@ class FileEventStore:
                 if existing is None or stored.position < existing[1]:
                     positions[identity] = (event_hash, stored.position)
 
-            high_water = max((stored.position for stored in stored_rows), default=0)
+            high_water = stored_log.high_water
             receipts: list[EventReceipt] = []
+            rows_to_append: list[dict[str, Any]] = []
             for item in prepared:
                 existing = positions.get(item.identity) if item.identity[2] else None
                 if existing is not None:
@@ -388,7 +439,7 @@ class FileEventStore:
                     "requestHash": request_hash,
                     "event": item.event,
                 }
-                self._append_row(row)
+                rows_to_append.append(row)
                 if item.identity[2]:
                     positions[item.identity] = (item.event_hash, high_water)
                 receipts.append(
@@ -399,11 +450,20 @@ class FileEventStore:
                         request_preexisting=request_preexisting,
                     )
                 )
-            return receipts
+            self._append_rows(rows_to_append)
+            return AppendBatchResult(tuple(receipts), high_water)
 
     def _append_row(self, row: dict[str, Any]) -> None:
-        encoded = json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
-        self.root.mkdir(parents=True, exist_ok=True)
+        self._append_rows([row])
+
+    def _append_rows(self, rows: list[dict[str, Any]]) -> None:
+        if not rows:
+            return
+        encoded_rows = [
+            json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
+            for row in rows
+        ]
+        self._ensure_root_durable()
         with self.log.open("a+b") as handle:
             handle.seek(0, os.SEEK_END)
             size = handle.tell()
@@ -411,7 +471,8 @@ class FileEventStore:
                 handle.seek(-1, os.SEEK_END)
                 if handle.read(1) != b"\n":
                     handle.write(b"\n")
-            handle.write(encoded)
+            for encoded in encoded_rows:
+                handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
         self._fsync_directory()
@@ -476,28 +537,29 @@ class FileEventStore:
         round_key = str(round_id)
         client_key = str(consumer_id)
         requested = max(0, int(position))
-        with self._locked(self.ack_lock):
-            if requested > self.high_water():
+        with self._locked(self.event_lock, shared=True):
+            if requested > self._high_water_unlocked():
                 raise ValueError("consumer_ack_ahead_of_stream")
-            acks, corrupt = self._load_acks(strict=True)
-            if corrupt is not None:
-                self._quarantine_corrupt_ack(corrupt)
-                acks = {}
-            key = self._ack_key(round_key, client_key)
-            current = max(0, int(acks.get(key, {}).get("serverSequence") or 0))
-            acked = max(current, requested)
-            if key not in acks or acked != current:
-                acks[key] = {
-                    "roundId": round_key,
-                    "clientId": client_key,
-                    "serverSequence": acked,
-                    "updatedAt": _format_time(datetime.now(UTC)),
-                }
-                self._atomic_write_json(self.acks, {"schema": ACK_SCHEMA, "acks": acks})
-            return acked
+            with self._locked(self.ack_lock):
+                acks, corrupt = self._load_acks(strict=True)
+                if corrupt is not None:
+                    self._quarantine_corrupt_ack(corrupt)
+                    acks = {}
+                key = self._ack_key(round_key, client_key)
+                current = max(0, int(acks.get(key, {}).get("serverSequence") or 0))
+                acked = max(current, requested)
+                if key not in acks or acked != current:
+                    acks[key] = {
+                        "roundId": round_key,
+                        "clientId": client_key,
+                        "serverSequence": acked,
+                        "updatedAt": _format_time(datetime.now(UTC)),
+                    }
+                    self._atomic_write_json(self.acks, {"schema": ACK_SCHEMA, "acks": acks})
+                return acked
 
     def _atomic_write_json(self, path: Path, payload: dict[str, Any]) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
+        self._ensure_root_durable()
         descriptor, temporary_name = tempfile.mkstemp(
             dir=self.root,
             prefix=f".{path.name}.",
@@ -519,9 +581,27 @@ class FileEventStore:
                 pass
             raise
 
-    def _fsync_directory(self) -> None:
+    def _ensure_root_durable(self) -> None:
+        missing: list[Path] = []
+        current = self.root
+        while not current.exists():
+            missing.append(current)
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        for directory in reversed(missing):
+            try:
+                directory.mkdir()
+            except FileExistsError:
+                if not directory.is_dir():
+                    raise
+            self._fsync_directory(directory.parent)
+
+    def _fsync_directory(self, directory: Path | None = None) -> None:
+        target = self.root if directory is None else directory
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        descriptor = os.open(self.root, flags)
+        descriptor = os.open(target, flags)
         try:
             os.fsync(descriptor)
         finally:

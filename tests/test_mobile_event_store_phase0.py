@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -52,7 +53,7 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         store = FileEventStore(self.root)
         events = [_event("e1"), _event("e2")]
 
-        with mock.patch.object(store, "_append_row", side_effect=OSError("crash-before-first")):
+        with mock.patch.object(store, "_append_rows", side_effect=OSError("crash-before-first")):
             with self.assertRaisesRegex(OSError, "crash-before-first"):
                 store.append_batch(ROUND_A, events, request_key="batch-1")
 
@@ -77,17 +78,13 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
     def test_retry_after_second_event_crash_fills_every_missing_event(self) -> None:
         store = FileEventStore(self.root)
         events = [_event("e1"), _event("e2"), _event("e3")]
-        original_append = store._append_row
-        calls = 0
+        original_append = store._append_rows
 
-        def crash_on_second(row: dict[str, object]) -> None:
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                raise OSError("crash-on-second")
-            original_append(row)
+        def crash_after_first(rows: list[dict[str, object]]) -> None:
+            original_append(rows[:1])
+            raise OSError("crash-on-second")
 
-        with mock.patch.object(store, "_append_row", side_effect=crash_on_second):
+        with mock.patch.object(store, "_append_rows", side_effect=crash_after_first):
             with self.assertRaisesRegex(OSError, "crash-on-second"):
                 store.append_batch(ROUND_A, events, request_key="batch-1")
 
@@ -112,17 +109,13 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
 
         root = self.root / "adapter-root"
         events = [_event("e1"), _event("e2"), _event("e3")]
-        original_append = FileEventStore._append_row
-        calls = 0
+        original_append = FileEventStore._append_rows
 
-        def crash_on_second(store: FileEventStore, row: dict[str, object]) -> None:
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                raise OSError("adapter-crash")
-            original_append(store, row)
+        def crash_after_first(store: FileEventStore, rows: list[dict[str, object]]) -> None:
+            original_append(store, rows[:1])
+            raise OSError("adapter-crash")
 
-        with mock.patch.object(FileEventStore, "_append_row", new=crash_on_second):
+        with mock.patch.object(FileEventStore, "_append_rows", new=crash_after_first):
             with self.assertRaisesRegex(OSError, "adapter-crash"):
                 append_event_batch(
                     ROUND_A,
@@ -163,6 +156,104 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                 "duplicateEventIds": ["e1", "e2", "e3"],
                 "serverSequence": 3,
             },
+        )
+
+    def test_mobile_adapter_returns_append_lock_sequence_snapshot(self) -> None:
+        from ai_caddie.caddie.mobile_live import append_event_batch
+
+        root = self.root / "adapter-root"
+        first_append_finished = threading.Event()
+        allow_first_response = threading.Event()
+        original_append = FileEventStore.append_batch
+
+        def pause_after_first_append(
+            store: FileEventStore,
+            round_id: str,
+            events: list[dict[str, object]],
+            *,
+            request_key: str,
+        ):
+            result = original_append(store, round_id, events, request_key=request_key)
+            if request_key == "phone-batch":
+                first_append_finished.set()
+                if not allow_first_response.wait(timeout=5):
+                    raise AssertionError("timed out waiting for concurrent writer")
+            return result
+
+        with mock.patch.object(FileEventStore, "append_batch", new=pause_after_first_append):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                phone_future = executor.submit(
+                    append_event_batch,
+                    ROUND_A,
+                    [_event("phone", client_id="ios-phone")],
+                    idempotency_key="phone-batch",
+                    root=root,
+                )
+                self.assertTrue(first_append_finished.wait(timeout=5))
+                watch_result = append_event_batch(
+                    ROUND_A,
+                    [_event("watch", client_id="apple-watch")],
+                    idempotency_key="watch-batch",
+                    root=root,
+                )
+                allow_first_response.set()
+                phone_result = phone_future.result(timeout=5)
+
+        self.assertEqual(
+            set(phone_result),
+            {"accepted", "duplicate", "acceptedEventIds", "duplicateEventIds", "serverSequence"},
+        )
+        self.assertEqual(phone_result["serverSequence"], 1)
+        self.assertEqual(watch_result["serverSequence"], 2)
+
+    def test_phone_first_replay_persists_watch_event_before_acking_page(self) -> None:
+        from ai_caddie.caddie.mobile_live import ack_event_cursor, append_event_batch, replay_event_log
+
+        root = self.root / "server-root"
+        append_event_batch(
+            ROUND_A,
+            [_event("watch-1", client_id="apple-watch")],
+            idempotency_key="watch-batch",
+            root=root,
+        )
+        phone_push = append_event_batch(
+            ROUND_A,
+            [_event("phone-2", client_id="ios-phone")],
+            idempotency_key="phone-batch",
+            root=root,
+        )
+
+        replay = replay_event_log(ROUND_A, client_id="ios-phone", root=root)
+
+        self.assertEqual(phone_push["serverSequence"], 2)
+        self.assertEqual(
+            [row["event"]["eventId"] for row in replay["events"]],
+            ["watch-1", "phone-2"],
+        )
+        self.assertEqual(replay["nextCursor"], 2)
+
+        phone_local = FileEventStore(self.root / "phone-local")
+        for row in replay["events"]:
+            phone_local.append_batch(
+                ROUND_A,
+                [row["event"]],
+                request_key=f"replay-{row['serverSequence']}",
+            )
+        ack = ack_event_cursor(
+            ROUND_A,
+            client_id="ios-phone",
+            server_sequence=replay["nextCursor"],
+            root=root,
+        )
+
+        self.assertEqual(
+            [receipt.event_id for receipt in phone_local.read_events(ROUND_A)],
+            ["watch-1", "phone-2"],
+        )
+        self.assertEqual(ack["ackedServerSequence"], 2)
+        self.assertEqual(
+            replay_event_log(ROUND_A, client_id="ios-phone", root=root)["eventCount"],
+            0,
         )
 
     def test_same_request_key_with_different_sanitized_body_is_rejected(self) -> None:
@@ -285,6 +376,52 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(store.high_water(), 8)
         self.assertEqual([row["event"]["eventId"] for row in store.read_rows()], ["legacy", "next"])
 
+    def test_physical_line_floor_keeps_new_event_ahead_of_legacy_ack(self) -> None:
+        from ai_caddie.caddie.mobile_live import mobile_event_log, replay_event_log
+
+        root = self.root / "legacy-ack-root"
+        log_path = mobile_event_log(root)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        legacy = {
+            "roundId": ROUND_A,
+            "idempotencyKey": "legacy",
+            "event": _event("legacy"),
+        }
+        log_path.write_bytes(b"{malformed\n\n" + json.dumps(legacy).encode("utf-8") + b"\n")
+        ack_path = log_path.parent / "client_acks.json"
+        ack_path.write_text(
+            json.dumps(
+                {
+                    "schema": "ai-caddie-mobile-event-acks-v1",
+                    "acks": {
+                        f"{ROUND_A}\nios-phone": {
+                            "roundId": ROUND_A,
+                            "clientId": "ios-phone",
+                            "serverSequence": 2,
+                            "updatedAt": "2026-07-21T00:00:00Z",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        store = FileEventStore(log_path.parent)
+
+        next_receipt = store.append_batch(
+            ROUND_A,
+            [_event("next")],
+            request_key="next",
+        )[0]
+        replay = replay_event_log(ROUND_A, client_id="ios-phone", root=root)
+
+        self.assertEqual([row["serverSequence"] for row in store.read_rows()], [3, 4])
+        self.assertGreater(next_receipt.position, 2)
+        self.assertEqual(
+            [row["event"]["eventId"] for row in replay["events"]],
+            ["legacy", "next"],
+        )
+        self.assertEqual(replay["nextCursor"], 4)
+
     def test_legacy_missing_sequence_advances_from_running_file_high_water(self) -> None:
         legacy_rows = [
             {
@@ -391,6 +528,149 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         )
         self.assertEqual(seen_cursors, [7, 8, 9, 10])
         self.assertEqual(exhausted["eventCount"], 0)
+
+    def test_malformed_rows_are_skipped_before_later_valid_event(self) -> None:
+        from ai_caddie.caddie.mobile_live import build_round_state, mobile_event_log, replay_event_log
+        from ai_caddie.caddie.mobile_reconciliation import reconcile_mobile_round_events
+        from ai_caddie.core.fixtures import fixture_history_data
+
+        round_id = "900001"
+        root = self.root / "malformed-root"
+        log_path = mobile_event_log(root)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        invalid_event_row = {
+            "roundId": round_id,
+            "idempotencyKey": "invalid-event",
+            "event": "not-an-object",
+        }
+        invalid_hole_row = {
+            "roundId": round_id,
+            "idempotencyKey": "invalid-hole",
+            "event": {
+                **_event("invalid-hole", round_id=round_id),
+                "hole": "not-int",
+            },
+        }
+        valid_row = {
+            "roundId": round_id,
+            "idempotencyKey": "valid",
+            "event": {
+                **_event("valid", round_id=round_id),
+                "hole": 1,
+            },
+        }
+        huge_integer_row = (
+            '{"roundId":"900001","idempotencyKey":"huge","serverSequence":'
+            + ("9" * 5000)
+            + ',"event":{"eventId":"huge","roundId":"900001","hole":1}}\n'
+        )
+        log_path.write_text(
+            json.dumps(invalid_event_row)
+            + "\n"
+            + json.dumps(invalid_hole_row)
+            + "\n"
+            + huge_integer_row
+            + json.dumps(valid_row)
+            + "\n",
+            encoding="utf-8",
+        )
+        store = FileEventStore(log_path.parent)
+
+        try:
+            rows = store.read_rows(round_id)
+            replay = replay_event_log(round_id, after_sequence=0, limit=1, root=root)
+            state = build_round_state(round_id, root=root)
+            reconciliation = reconcile_mobile_round_events(
+                round_id,
+                fixture_history_data(),
+                root=root,
+            )
+        except (TypeError, ValueError) as exc:
+            self.fail(f"malformed stored row escaped compatibility filtering: {exc}")
+
+        self.assertEqual([row["event"]["eventId"] for row in rows], ["valid"])
+        self.assertEqual(rows[0]["serverSequence"], 4)
+        self.assertEqual(replay["eventCount"], 1)
+        self.assertEqual(replay["events"][0]["event"]["eventId"], "valid")
+        self.assertFalse(replay["hasMore"])
+        self.assertEqual(state["latestServerSequence"], 4)
+        self.assertEqual(state["activeHole"], 1)
+        self.assertEqual(reconciliation["summary"]["eventCount"], 1)
+
+    def test_trailing_corrupt_physical_lines_prevent_sequence_reuse(self) -> None:
+        legacy = {
+            "roundId": ROUND_A,
+            "idempotencyKey": "legacy",
+            "event": _event("legacy"),
+        }
+        (self.root / "events.jsonl").write_bytes(
+            json.dumps(legacy).encode("utf-8") + b"\n{malformed\n\n"
+        )
+        store = FileEventStore(self.root)
+
+        receipt = store.append_batch(ROUND_A, [_event("next")], request_key="next")[0]
+
+        self.assertEqual(receipt.position, 4)
+        self.assertEqual(store.high_water(), 4)
+
+    def test_matching_request_hash_does_not_bless_unprovable_stored_event(self) -> None:
+        incoming = _event("incoming")
+        corrupt = {
+            "roundId": ROUND_A,
+            "idempotencyKey": "same-key",
+            "serverSequence": 1,
+            "requestHash": _canonical_hash({"roundId": ROUND_A, "events": [incoming]}),
+            "event": "not-an-object",
+        }
+        log_path = self.root / "events.jsonl"
+        log_path.write_text(json.dumps(corrupt) + "\n", encoding="utf-8")
+        before = log_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "^idempotency_key_body_mismatch$"):
+            FileEventStore(self.root).append_batch(
+                ROUND_A,
+                [incoming],
+                request_key="same-key",
+            )
+
+        self.assertEqual(log_path.read_bytes(), before)
+        self.assertFalse((self.root / "request_reservations.json").exists())
+
+    def test_mobile_consumers_defensively_skip_non_integer_holes(self) -> None:
+        from ai_caddie.caddie.mobile_live import build_round_state
+        from ai_caddie.caddie.mobile_reconciliation import reconcile_mobile_round_events
+        from ai_caddie.core.fixtures import fixture_history_data
+
+        malformed = {
+            "roundId": "900001",
+            "serverSequence": 1,
+            "event": {
+                **_event("invalid-hole", round_id="900001"),
+                "hole": float("inf"),
+            },
+        }
+        valid = {
+            "roundId": "900001",
+            "serverSequence": 2,
+            "event": {
+                **_event("valid-hole", round_id="900001"),
+                "hole": 1,
+            },
+        }
+
+        with mock.patch.object(FileEventStore, "read_rows", return_value=[malformed, valid]):
+            try:
+                state = build_round_state("900001", root=self.root)
+                reconciliation = reconcile_mobile_round_events(
+                    "900001",
+                    fixture_history_data(),
+                    root=self.root,
+                )
+            except (TypeError, ValueError) as exc:
+                self.fail(f"mobile consumer trusted an invalid hole conversion: {exc}")
+
+        self.assertEqual(state["activeHole"], 1)
+        self.assertEqual(reconciliation["summary"]["eventCount"], 2)
 
     def test_torn_eof_is_separated_from_the_next_durable_json_row(self) -> None:
         (self.root / "events.jsonl").write_bytes(b'{"torn":')
@@ -617,6 +897,23 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(reservations.read_bytes(), before)
         self.assertFalse((self.root / "events.jsonl").exists())
 
+    def test_over_limit_integer_in_request_reservation_store_maps_to_corrupt_error(self) -> None:
+        reservations = self.root / "request_reservations.json"
+        reservations.write_text(
+            '{"schema":"ai-caddie-mobile-event-request-reservations-v1",'
+            '"reservations":{},"unexpected":'
+            + ("9" * 5000)
+            + "}",
+            encoding="utf-8",
+        )
+        before = reservations.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "^request_reservation_store_corrupt$"):
+            FileEventStore(self.root).append_batch(ROUND_A, [_event("e1")], request_key="batch")
+
+        self.assertEqual(reservations.read_bytes(), before)
+        self.assertFalse((self.root / "events.jsonl").exists())
+
     def test_request_reservation_schema_rejects_extra_keys_and_invalid_hashes(self) -> None:
         valid_hash = "a" * 64
         valid_row = {
@@ -697,6 +994,82 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(max(results), 7)
         self.assertEqual(FileEventStore(self.root).read_ack(ROUND_A, "ios"), 7)
 
+    def test_event_readers_and_ack_wait_for_event_fsync(self) -> None:
+        from ai_caddie.caddie.mobile_live import mobile_event_log, replay_event_log
+
+        root = self.root / "durability-root"
+        log_path = mobile_event_log(root)
+        store = FileEventStore(log_path.parent)
+        original_fsync = os.fsync
+        writer_at_event_fsync = threading.Event()
+        allow_event_fsync = threading.Event()
+        event_fsync_blocked = False
+        block_guard = threading.Lock()
+
+        def blocking_fsync(descriptor: int) -> None:
+            nonlocal event_fsync_blocked
+            try:
+                target = os.readlink(f"/proc/self/fd/{descriptor}")
+            except OSError:
+                target = ""
+            should_block = False
+            if target == str(log_path):
+                with block_guard:
+                    if not event_fsync_blocked:
+                        event_fsync_blocked = True
+                        should_block = True
+            if should_block:
+                writer_at_event_fsync.set()
+                if not allow_event_fsync.wait(timeout=5):
+                    raise AssertionError("timed out at event durability barrier")
+            original_fsync(descriptor)
+
+        completed = threading.Event()
+        started = {name: threading.Event() for name in ("read", "high_water", "replay", "ack")}
+        results: dict[str, object] = {}
+
+        def run_reader(name: str, operation: object) -> None:
+            started[name].set()
+            try:
+                results[name] = operation()
+            finally:
+                completed.set()
+
+        with mock.patch("ai_caddie.caddie.mobile_event_store.os.fsync", new=blocking_fsync):
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                writer = executor.submit(
+                    store.append_batch,
+                    ROUND_A,
+                    [_event("durable")],
+                    request_key="durable",
+                )
+                self.assertTrue(writer_at_event_fsync.wait(timeout=5))
+                readers = [
+                    executor.submit(run_reader, "read", store.read_rows),
+                    executor.submit(run_reader, "high_water", store.high_water),
+                    executor.submit(
+                        run_reader,
+                        "replay",
+                        lambda: replay_event_log(ROUND_A, root=root),
+                    ),
+                    executor.submit(run_reader, "ack", lambda: store.ack(ROUND_A, "ios", 1)),
+                ]
+                for reader_started in started.values():
+                    self.assertTrue(reader_started.wait(timeout=5))
+                completed_before_fsync = completed.wait(timeout=0.25)
+                ack_durable_before_event = store.acks.exists()
+                allow_event_fsync.set()
+                writer.result(timeout=5)
+                for reader in readers:
+                    reader.result(timeout=5)
+
+        self.assertFalse(completed_before_fsync)
+        self.assertFalse(ack_durable_before_event)
+        self.assertEqual([row["event"]["eventId"] for row in results["read"]], ["durable"])
+        self.assertEqual(results["high_water"], 1)
+        self.assertEqual(results["replay"]["eventCount"], 1)
+        self.assertEqual(results["ack"], 1)
+
     def test_corrupt_ack_store_resends_from_zero_then_recovers_without_losing_bad_bytes(self) -> None:
         store = FileEventStore(self.root)
         store.append_batch(ROUND_A, [_event("e1")], request_key="seed")
@@ -724,6 +1097,68 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(store.acks.name, "client_acks.json")
         self.assertEqual(store.ack_lock.name, "client_acks.json.lock")
         self.assertEqual(store.reservations.name, "request_reservations.json")
+
+    def test_first_write_fsyncs_each_new_directory_entry_in_creation_order(self) -> None:
+        root = self.root / "level-one" / "level-two" / "mobile_events"
+        store = FileEventStore(root)
+        original_fsync = os.fsync
+        directory_fsyncs: list[Path] = []
+
+        def record_fsync(descriptor: int) -> None:
+            try:
+                target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+            except OSError:
+                target = Path("/") / "unavailable"
+            if target.is_dir():
+                directory_fsyncs.append(target.resolve())
+            original_fsync(descriptor)
+
+        with mock.patch("ai_caddie.caddie.mobile_event_store.os.fsync", new=record_fsync):
+            store.append_batch(ROUND_A, [_event("first")], request_key="first")
+
+        self.assertEqual(
+            directory_fsyncs[:3],
+            [
+                self.root.resolve(),
+                (self.root / "level-one").resolve(),
+                (self.root / "level-one" / "level-two").resolve(),
+            ],
+        )
+
+    def test_large_batch_opens_and_fsyncs_event_log_once(self) -> None:
+        store = FileEventStore(self.root)
+        events = [_event(f"event-{index}") for index in range(5000)]
+        original_open = Path.open
+        log_open_count = 0
+        log_fsync_count = 0
+
+        def counting_open(path: Path, *args: object, **kwargs: object):
+            nonlocal log_open_count
+            if path == store.log:
+                log_open_count += 1
+            return original_open(path, *args, **kwargs)
+
+        def counting_fsync(descriptor: int) -> None:
+            nonlocal log_fsync_count
+            try:
+                target = os.readlink(f"/proc/self/fd/{descriptor}")
+            except OSError:
+                target = ""
+            if target == str(store.log):
+                log_fsync_count += 1
+
+        with (
+            mock.patch.object(Path, "open", new=counting_open),
+            mock.patch("ai_caddie.caddie.mobile_event_store.os.fsync", new=counting_fsync),
+        ):
+            result = store.append_batch(ROUND_A, events, request_key="large-batch")
+
+        self.assertEqual(len(result), 5000)
+        self.assertEqual(result.server_sequence, 5000)
+        self.assertEqual(result[-1].position, 5000)
+        self.assertEqual(log_open_count, 1)
+        self.assertEqual(log_fsync_count, 1)
+        self.assertEqual(len(store.read_rows()), 5000)
 
 
 if __name__ == "__main__":

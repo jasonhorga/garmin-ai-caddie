@@ -304,7 +304,7 @@ def _course_location(row: dict[str, Any]) -> tuple[float | None, float | None]:
 def _safe_int(value: Any) -> int | None:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -2239,7 +2239,7 @@ def _event_log_rows(
 def _latest_event_sequence(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
     latest = 0
     for row in _event_log_rows(round_id, root=root, player_id=player_id):
-        latest = max(latest, int(row.get("serverSequence") or 0))
+        latest = max(latest, _safe_int(row.get("serverSequence")) or 0)
     return latest
 
 
@@ -2247,7 +2247,7 @@ def _pending_event_count(round_id: str, *, after_sequence: int, root: Path | str
     return sum(
         1
         for row in _event_log_rows(round_id, root=root, player_id=player_id)
-        if int(row.get("serverSequence") or 0) > after_sequence
+        if (_safe_int(row.get("serverSequence")) or 0) > after_sequence
     )
 
 
@@ -2306,7 +2306,8 @@ def append_event_batch(
 ) -> dict[str, Any]:
     path = mobile_event_log(root, player_id=player_id)
     store = FileEventStore(path.parent, sanitizer=_sanitized_live_event)
-    receipts = store.append_batch(str(round_id), events, request_key=idempotency_key)
+    append_result = store.append_batch(str(round_id), events, request_key=idempotency_key)
+    receipts = append_result.receipts
     accepted_event_ids = [receipt.event_id for receipt in receipts if receipt.status == "accepted" and receipt.event_id]
     duplicate_event_ids = [
         receipt.event_id
@@ -2319,7 +2320,7 @@ def append_event_batch(
         "duplicate": request_preexisting and not accepted_event_ids,
         "acceptedEventIds": accepted_event_ids,
         "duplicateEventIds": duplicate_event_ids,
-        "serverSequence": store.high_water(),
+        "serverSequence": append_result.server_sequence,
     }
 
 
@@ -2334,7 +2335,7 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
     """
     rows = sorted(
         _event_log_rows(round_id, root=root, player_id=player_id),
-        key=lambda row: int(row.get("serverSequence") or 0),
+        key=lambda row: _safe_int(row.get("serverSequence")) or 0,
     )
     holes: dict[int, dict[str, Any]] = {}
     field_clients: dict[tuple[int, str], set[str]] = {}
@@ -2346,11 +2347,11 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
             field_clients.setdefault((hole_no, field), set()).add(client_id)
 
     for row in rows:
-        latest_sequence = max(latest_sequence, int(row.get("serverSequence") or 0))
+        latest_sequence = max(latest_sequence, _safe_int(row.get("serverSequence")) or 0)
         event = row.get("event")
         if not isinstance(event, dict):
             continue
-        hole_no = int(event.get("hole") or 0)
+        hole_no = _safe_int(event.get("hole")) or 0
         if hole_no <= 0:
             continue
         kind = str(event.get("kind") or "")
@@ -2434,7 +2435,7 @@ def replay_event_log(
     matching_rows = [
         row
         for row in _event_log_rows(round_id, root=root, player_id=player_id)
-        if int(row.get("serverSequence") or 0) > start_sequence
+        if (_safe_int(row.get("serverSequence")) or 0) > start_sequence
     ]
     selected_rows = matching_rows[:bounded_limit]
     events: list[dict[str, Any]] = []
@@ -2442,7 +2443,7 @@ def replay_event_log(
         event = row.get("event") if isinstance(row.get("event"), dict) else {}
         events.append(
             {
-                "serverSequence": int(row.get("serverSequence") or 0),
+                "serverSequence": _safe_int(row.get("serverSequence")) or 0,
                 "idempotencyKey": str(row.get("idempotencyKey") or ""),
                 "event": event,
             }
