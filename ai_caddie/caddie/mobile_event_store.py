@@ -12,8 +12,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 from typing import Any, Callable, Iterator
+
+from ai_caddie.llm.llm_providers import redact_secret_text
 
 
 EVENT_LOG_FILENAME = "events.jsonl"
@@ -28,6 +31,8 @@ RESERVATION_SCHEMA = "ai-caddie-mobile-event-request-reservations-v1"
 EVENT_COMMIT_SCHEMA = "ai-caddie-mobile-event-commit-v2"
 EVENT_PENDING_COMMIT_SCHEMA = "ai-caddie-mobile-event-pending-commit-v2"
 _IDENTITY_FIELDS = ("roundId", "clientId", "eventId")
+REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
+REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 
 
 @dataclass(frozen=True)
@@ -60,6 +65,7 @@ class _PreparedEvent:
 @dataclass(frozen=True)
 class _StoredRow:
     row: dict[str, Any]
+    raw_event: Any
     position: int
     line_number: int
 
@@ -114,6 +120,49 @@ def _normalized_event_for_hash(event: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _redact_mobile_text(value: str) -> str:
+    redacted = redact_secret_text(value)
+    redacted = re.sub(
+        r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*[^,\s;)]+",
+        r"\1=[REDACTED]",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s+[^\s,;)]+",
+        r"\1 [REDACTED]",
+        redacted,
+    )
+    return redacted
+
+
+def _redact_mobile_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _redact_mobile_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_mobile_value(item) for item in value]
+    if isinstance(value, str):
+        return _redact_mobile_text(value)
+    return value
+
+
+def sanitize_mobile_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Return the one effective legacy-v1 mobile transport envelope."""
+
+    sanitized = _redact_mobile_value(deepcopy(event))
+    if not isinstance(sanitized, dict):
+        raise ValueError("event sanitizer must return an object")
+    payload = sanitized.get("payload")
+    if not isinstance(payload, dict):
+        return sanitized
+    sanitized_payload = dict(payload)
+    if str(sanitized.get("kind") or "") in {"photo", "video"} and sanitized_payload.get(
+        "fileURL"
+    ):
+        sanitized_payload["fileURL"] = REDACTED_LOCAL_MEDIA_URL
+    sanitized["payload"] = sanitized_payload
+    return sanitized
+
+
 class FileEventStore:
     """Store one physical player's v1 event partition.
 
@@ -136,7 +185,7 @@ class FileEventStore:
         self.reservations = self.root / RESERVATION_FILENAME
         self.commit_marker = self.root / EVENT_COMMIT_FILENAME
         self.pending_commit = self.root / EVENT_PENDING_COMMIT_FILENAME
-        self._sanitizer = sanitizer
+        self._additional_sanitizer = sanitizer
 
     @contextmanager
     def _locked(self, path: Path, *, shared: bool = False) -> Iterator[None]:
@@ -167,6 +216,16 @@ class FileEventStore:
             and len(value) == 64
             and all(character in "0123456789abcdef" for character in value)
         )
+
+    @staticmethod
+    def _is_ack_timestamp(value: Any) -> bool:
+        if not isinstance(value, str):
+            return False
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return False
+        return parsed.strftime("%Y-%m-%dT%H:%M:%SZ") == value
 
     def _load_commit_marker(self) -> _CommitMarker | None:
         try:
@@ -482,6 +541,10 @@ class FileEventStore:
             self._validate_pending_target(pending, actual_size)
         if state == "target":
             self._validate_pending_target(pending, actual_size)
+            # A target marker left beside its pending intent may be the result of a successful
+            # replace followed by a failed directory fsync. Re-establish that barrier before any
+            # reader, replay, state fold, or ACK is allowed to observe the target prefix.
+            self._fsync_directory()
         return committed.committed_byte_length
 
     def _stored_log(self) -> _StoredLog:
@@ -515,11 +578,23 @@ class FileEventStore:
                     running_high_water = max(running_high_water, line_number)
                     continue
                 row = dict(parsed)
+                raw_event = deepcopy(row.get("event"))
+                if isinstance(raw_event, dict):
+                    row["event"] = self._sanitize_event(raw_event)
+                    if "eventHash" in row and self._is_legacy_compatible_event(row["event"]):
+                        row["eventHash"] = _sha256(_normalized_event_for_hash(row["event"]))
                 explicit_position = self._explicit_position(row)
                 position = max(explicit_position or 0, running_high_water + 1, line_number)
                 running_high_water = position
                 row["serverSequence"] = position
-                rows.append(_StoredRow(row=row, position=position, line_number=line_number))
+                rows.append(
+                    _StoredRow(
+                        row=row,
+                        raw_event=raw_event,
+                        position=position,
+                        line_number=line_number,
+                    )
+                )
         return _StoredLog(tuple(rows), running_high_water)
 
     def _stored_rows(self) -> list[_StoredRow]:
@@ -545,7 +620,7 @@ class FileEventStore:
         round_key = None if round_id is None else str(round_id)
         with self._locked(self.event_lock, shared=True):
             return [
-                dict(stored.row)
+                deepcopy(stored.row)
                 for stored in self._stored_rows()
                 if self._is_legacy_compatible_stored_row(stored.row)
                 and (round_key is None or str(stored.row.get("roundId") or "") == round_key)
@@ -575,7 +650,14 @@ class FileEventStore:
 
     def _sanitize_event(self, event: dict[str, Any]) -> dict[str, Any]:
         source = deepcopy(event)
-        sanitized = self._sanitizer(deepcopy(source)) if self._sanitizer is not None else deepcopy(source)
+        candidate = (
+            self._additional_sanitizer(deepcopy(source))
+            if self._additional_sanitizer is not None
+            else deepcopy(source)
+        )
+        if not isinstance(candidate, dict):
+            raise ValueError("event sanitizer must return an object")
+        sanitized = sanitize_mobile_event(candidate)
         if not isinstance(sanitized, dict):
             raise ValueError("event sanitizer must return an object")
         sanitized = dict(sanitized)
@@ -719,14 +801,11 @@ class FileEventStore:
             and None not in normalized_stored_hashes
             and normalized_stored_hashes == incoming_hashes
         )
+        raw_stored_events = [stored.raw_event for stored in ordered_matching_rows]
         legacy_raw_request_hash = (
-            _sha256(
-                {
-                    "roundId": round_id,
-                    "events": [stored.row["event"] for stored in ordered_matching_rows],
-                }
-            )
+            _sha256({"roundId": round_id, "events": raw_stored_events})
             if complete_normalized_roster
+            and all(isinstance(event, dict) for event in raw_stored_events)
             else None
         )
         if (
@@ -999,29 +1078,33 @@ class FileEventStore:
             payload = json.loads(raw.decode("utf-8"))
             if (
                 not isinstance(payload, dict)
+                or set(payload) != {"schema", "acks"}
                 or payload.get("schema") != ACK_SCHEMA
                 or not isinstance(payload.get("acks"), dict)
             ):
                 raise ValueError
             acks: dict[str, dict[str, Any]] = {}
             for key, row in payload["acks"].items():
-                if not isinstance(row, dict):
+                if (
+                    not isinstance(row, dict)
+                    or set(row) != {"roundId", "clientId", "serverSequence", "updatedAt"}
+                ):
                     raise ValueError
                 round_id = row.get("roundId")
                 client_id = row.get("clientId")
-                if not isinstance(round_id, str) or not isinstance(client_id, str):
+                position = row.get("serverSequence")
+                if (
+                    not isinstance(round_id, str)
+                    or not isinstance(client_id, str)
+                    or not isinstance(position, int)
+                    or isinstance(position, bool)
+                    or position < 0
+                    or not self._is_ack_timestamp(row.get("updatedAt"))
+                ):
                     raise ValueError
                 if str(key) != self._ack_key(round_id, client_id):
                     raise ValueError
-                try:
-                    position = int(row.get("serverSequence") or 0)
-                except (TypeError, ValueError, OverflowError) as exc:
-                    raise ValueError from exc
-                if position < 0:
-                    raise ValueError
-                clean_row = dict(row)
-                clean_row["serverSequence"] = position
-                acks[str(key)] = clean_row
+                acks[str(key)] = dict(row)
             return acks, None
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
             return ({}, raw) if strict else ({}, None)

@@ -718,7 +718,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 )
                 let uploadResponse = try await mediaUploadClient.uploadMediaWithRetry(request)
                 try? await mediaUploadClient.analyzeMedia(mediaId: uploadResponse.media.id)
-                try offlineStore.attachUploadedMediaId(eventId: media.eventId, mediaId: uploadResponse.media.id)
                 uploadedIds.insert(media.id)
             } catch {
                 AICaddieLog.network.error("Pending media upload failed: \(String(describing: error), privacy: .public)")

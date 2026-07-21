@@ -2136,8 +2136,13 @@ class MobileContractTests(unittest.TestCase):
         # P2: loadPendingMedia skips a torn final line (non-atomic append) instead of throwing and
         # dropping ALL pending media — the same truncation guard as loadEvents.
         self.assertIn("Skipping malformed pending-media line", offline_store)
-        self.assertIn("func attachUploadedMediaId(eventId: String, mediaId: String)", offline_store)
-        self.assertIn('payload["mediaId"] = .string(mediaId)', offline_store)
+        # Event envelopes are immutable once queued. Real local URLs stay solely in the pending
+        # attachment store; a later upload must not rewrite the event under the same idempotency key.
+        self.assertNotIn("attachUploadedMediaId", offline_store)
+        self.assertIn("REDACTED_LOCAL_MEDIA_URL", offline_store)
+        self.assertIn("transportEvent", offline_store)
+        self.assertIn("try loadEventsUnlocked(strict: true)", offline_store)
+        self.assertNotIn("try? loadEventsUnlocked(strict: false)", offline_store)
         self.assertIn("func removePendingMedia", offline_store)
         self.assertIn("data.write(to: fileURL, options: [.atomic])", offline_store)
 
@@ -2156,7 +2161,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("Data(contentsOf: media.fileURL)", app_swift)
         self.assertIn("let uploadResponse = try await mediaUploadClient.uploadMediaWithRetry(request)", app_swift)
         self.assertIn("try? await mediaUploadClient.analyzeMedia(mediaId: uploadResponse.media.id)", app_swift)
-        self.assertIn("try offlineStore.attachUploadedMediaId(eventId: media.eventId, mediaId: uploadResponse.media.id)", app_swift)
+        self.assertNotIn("attachUploadedMediaId", app_swift)
         self.assertIn("offlineStore.removePendingMedia", app_swift)
         self.assertIn("continue", app_swift)
         self.assertIn("inferredMimeType(fileName: media.fileName, mediaKind: media.mediaKind)", app_swift)

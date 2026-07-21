@@ -78,6 +78,178 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.loadEvents(), [phone, watch])
     }
 
+    func testMediaTransportEnvelopeSanitizesNewAndLegacyRowsBeforeReplayComparison() throws {
+        let rawEvent = LiveRoundEvent(
+            eventId: "private-photo",
+            roundId: "round-1",
+            clientId: "ios-phone",
+            timestamp: "2026-07-21T00:00:00Z",
+            hole: 1,
+            kind: .photo,
+            payload: [
+                "assetLocalId": .string("photo.jpg"),
+                "fileURL": .string("file:///private/mobile/photo.jpg"),
+                "mediaType": .string("photo"),
+                "note": .string("token=legacy-secret from /home/mobile/private-note.txt"),
+            ]
+        )
+        let transportEvent = LiveRoundEvent(
+            eventId: rawEvent.eventId,
+            roundId: rawEvent.roundId,
+            clientId: rawEvent.clientId,
+            timestamp: rawEvent.timestamp,
+            hole: rawEvent.hole,
+            kind: rawEvent.kind,
+            payload: [
+                "assetLocalId": .string("photo.jpg"),
+                "fileURL": .string("[REDACTED_LOCAL_MEDIA_URL]"),
+                "mediaType": .string("photo"),
+                "note": .string("token=[REDACTED] from [REDACTED_PATH]"),
+            ]
+        )
+
+        let newDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let newStore = OfflineStore(directoryURL: newDirectory)
+        try newStore.appendEvent(rawEvent)
+
+        XCTAssertEqual(try newStore.loadEvents(), [transportEvent])
+        let durableText = try XCTUnwrap(
+            String(
+                data: Data(contentsOf: newDirectory.appendingPathComponent("events.jsonl")),
+                encoding: .utf8
+            )
+        )
+        XCTAssertFalse(durableText.contains("file:///private"))
+        XCTAssertFalse(durableText.contains("legacy-secret"))
+        XCTAssertFalse(try newStore.applyReplayEvents([transportEvent]))
+
+        let conflicting = LiveRoundEvent(
+            eventId: transportEvent.eventId,
+            roundId: transportEvent.roundId,
+            clientId: transportEvent.clientId,
+            timestamp: transportEvent.timestamp,
+            hole: transportEvent.hole,
+            kind: transportEvent.kind,
+            payload: [
+                "assetLocalId": .string("photo.jpg"),
+                "fileURL": .string("[REDACTED_LOCAL_MEDIA_URL]"),
+                "mediaType": .string("photo"),
+                "note": .string("genuinely different public note"),
+            ]
+        )
+        XCTAssertThrowsError(try newStore.applyReplayEvents([conflicting])) { error in
+            XCTAssertEqual(error as? OfflineStoreError, .replayIdentityEnvelopeMismatch)
+        }
+
+        let legacyDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        var rawLegacyLine = try JSONEncoder().encode(rawEvent)
+        rawLegacyLine.append(Data([0x0A]))
+        try rawLegacyLine.write(
+            to: legacyDirectory.appendingPathComponent("events.jsonl"),
+            options: [.atomic]
+        )
+        let legacyStore = OfflineStore(directoryURL: legacyDirectory)
+        XCTAssertFalse(try legacyStore.applyReplayEvents([transportEvent]))
+        XCTAssertEqual(try legacyStore.loadEvents(), [transportEvent])
+    }
+
+    func testAppendAndDiscardFailClosedOnMalformedMiddleEventRow() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let store = OfflineStore(directoryURL: directory)
+        let first = LiveRoundEvent(
+            eventId: "first",
+            roundId: "round-1",
+            timestamp: "2026-07-21T00:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(4)]
+        )
+        let last = LiveRoundEvent(
+            eventId: "last",
+            roundId: "round-1",
+            timestamp: "2026-07-21T00:00:01Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(5)]
+        )
+        var corruptLog = try JSONEncoder().encode(first)
+        corruptLog.append(Data([0x0A]))
+        corruptLog.append(Data("{broken}\n".utf8))
+        corruptLog.append(try JSONEncoder().encode(last))
+        corruptLog.append(Data([0x0A]))
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        try corruptLog.write(to: logURL, options: [.atomic])
+        let original = try Data(contentsOf: logURL)
+
+        XCTAssertThrowsError(
+            try store.appendEvent(
+                LiveRoundEvent(
+                    eventId: "must-not-append",
+                    roundId: "round-1",
+                    timestamp: "2026-07-21T00:00:02Z",
+                    hole: 1,
+                    kind: .score,
+                    payload: ["strokes": .number(6)]
+                )
+            )
+        ) { error in
+            XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt)
+        }
+        XCTAssertEqual(try Data(contentsOf: logURL), original)
+
+        XCTAssertThrowsError(try store.discardRound(roundId: "round-1")) { error in
+            XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt)
+        }
+        XCTAssertEqual(try Data(contentsOf: logURL), original)
+    }
+
+    func testLaterMediaUploadSuccessKeepsResponseLostRetryBodyAndKeyExact() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let attachment = try store.savePendingMedia(
+            data: Data("image".utf8),
+            eventId: "photo-event",
+            roundId: "round-1",
+            hole: 1,
+            targetId: "round-1:1",
+            assetLocalId: "photo.jpg",
+            mediaKind: "photo",
+            fileName: "photo.jpg",
+            capturedAt: "2026-07-21T00:00:00Z"
+        )
+        let event = LiveRoundEventBuilder(
+            roundId: "round-1",
+            idFactory: { "photo-event" },
+            now: { Date(timeIntervalSince1970: 1_774_051_200) }
+        ).makePhotoEvent(
+            hole: 1,
+            assetLocalId: attachment.assetLocalId,
+            fileURL: attachment.fileURL,
+            note: nil,
+            mediaId: nil
+        )
+        try store.appendEvent(event)
+
+        let beforeEvents = try store.loadPendingEvents(roundId: "round-1")
+        let beforeBody = try JSONEncoder().encode(EventBatch(roundId: "round-1", events: beforeEvents))
+        let beforeKey = "round-1-" + beforeEvents.map(\.eventId).joined(separator: "-")
+
+        // The event POST response was lost, then the independently queued media upload succeeded.
+        try store.removePendingMedia(ids: Set([attachment.id]))
+
+        let afterEvents = try store.loadPendingEvents(roundId: "round-1")
+        let afterBody = try JSONEncoder().encode(EventBatch(roundId: "round-1", events: afterEvents))
+        let afterKey = "round-1-" + afterEvents.map(\.eventId).joined(separator: "-")
+        XCTAssertEqual(afterBody, beforeBody)
+        XCTAssertEqual(afterKey, beforeKey)
+    }
+
     func testApplyReplayEventsThrowsWhenAnyPageEventFailsToPersist() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

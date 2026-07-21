@@ -110,6 +110,9 @@ private struct ReplayEventIdentity: Hashable {
     let eventId: String
 }
 
+private let REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
+private let REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
+
 public final class OfflineStore {
     private let directoryURL: URL
     private let logURL: URL
@@ -219,29 +222,32 @@ public final class OfflineStore {
     /// cached package, and drop its events from the log so a discarded round never
     /// resurfaces on relaunch or syncs to the backend.
     public func discardRound(roundId: String) throws {
-        try? FileManager.default.removeItem(at: currentPackageURL)
-        try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
         try withEventLogLock {
-            let remaining = (try? loadEventsUnlocked(strict: false))?.filter { $0.roundId != roundId } ?? []
+            try repairTornEventLogEOFIfNeededUnlocked()
+            let remaining = try loadEventsUnlocked(strict: true).filter { $0.roundId != roundId }
             if remaining.isEmpty {
                 try? FileManager.default.removeItem(at: logURL)
             } else {
                 try rewriteEventsUnlocked(remaining)
             }
         }
+        try? FileManager.default.removeItem(at: currentPackageURL)
+        try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
         AICaddieLog.storage.debug("Discarded round \(roundId, privacy: .public)")
     }
 
     public func appendEvent(_ event: LiveRoundEvent) throws {
         try withEventLogLock {
             try repairTornEventLogEOFIfNeededUnlocked()
+            _ = try loadEventsUnlocked(strict: true)
             try appendEventUnlocked(event)
         }
     }
 
     private func appendEventUnlocked(_ event: LiveRoundEvent) throws {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        var encoded = try encoder.encode(event)
+        let transport = transportEvent(event)
+        var encoded = try encoder.encode(transport)
         encoded.append(Data([0x0A]))
         if FileManager.default.fileExists(atPath: logURL.path) {
             let handle = try FileHandle(forWritingTo: logURL)
@@ -252,7 +258,7 @@ public final class OfflineStore {
         } else {
             try encoded.write(to: logURL, options: [.atomic])
         }
-        AICaddieLog.storage.debug("Saved live event \(String(describing: event.kind), privacy: .public) hole \(event.hole, privacy: .public)")
+        AICaddieLog.storage.debug("Saved live event \(String(describing: transport.kind), privacy: .public) hole \(transport.hole, privacy: .public)")
     }
 
     public func containsEvent(eventId: String) throws -> Bool {
@@ -264,12 +270,13 @@ public final class OfflineStore {
     public func applyReplayEvents(_ replayEvents: [LiveRoundEvent]) throws -> Bool {
         try withEventLogLock {
             try repairTornEventLogEOFIfNeededUnlocked()
+            let transportReplayEvents = replayEvents.map { transportEvent($0) }
             var eventsByIdentity = try replayEventsByIdentity(
                 try loadEventsStrictlyForReplayUnlocked()
             )
 
             var appendedAny = false
-            for event in replayEvents {
+            for event in transportReplayEvents {
                 let identity = replayIdentity(event)
                 if let existing = eventsByIdentity[identity] {
                     guard existing == event else {
@@ -284,7 +291,7 @@ public final class OfflineStore {
 
             let durableEvents = try loadEventsStrictlyForReplayUnlocked()
             let durableEventsByIdentity = try replayEventsByIdentity(durableEvents)
-            for event in replayEvents {
+            for event in transportReplayEvents {
                 guard let durable = durableEventsByIdentity[replayIdentity(event)] else {
                     throw OfflineStoreError.replayDurabilityVerificationFailed
                 }
@@ -327,7 +334,8 @@ public final class OfflineStore {
                 continue
             }
             do {
-                events.append(try decoder.decode(LiveRoundEvent.self, from: Data(line)))
+                let decoded = try decoder.decode(LiveRoundEvent.self, from: Data(line))
+                events.append(transportEvent(decoded))
             } catch {
                 if strict {
                     throw OfflineStoreError.eventLogCorrupt
@@ -521,34 +529,6 @@ public final class OfflineStore {
         return attachment
     }
 
-    public func attachUploadedMediaId(eventId: String, mediaId: String) throws {
-        try withEventLogLock {
-            let events = try loadEventsUnlocked(strict: false)
-            var changed = false
-            let updatedEvents = events.map { event -> LiveRoundEvent in
-                guard event.eventId == eventId, event.kind == .photo || event.kind == .video else {
-                    return event
-                }
-                var payload = event.payload
-                payload["mediaId"] = .string(mediaId)
-                changed = true
-                return LiveRoundEvent(
-                    schema: event.schema,
-                    eventId: event.eventId,
-                    roundId: event.roundId,
-                    clientId: event.clientId,
-                    timestamp: event.timestamp,
-                    hole: event.hole,
-                    kind: event.kind,
-                    payload: payload
-                )
-            }
-            if changed {
-                try rewriteEventsUnlocked(updatedEvents)
-            }
-        }
-    }
-
     public func loadPendingMedia(roundId: String? = nil) throws -> [PendingMediaAttachment] {
         guard FileManager.default.fileExists(atPath: pendingMediaIndexURL.path) else {
             return []
@@ -663,6 +643,79 @@ public final class OfflineStore {
         return eventsByIdentity
     }
 
+    private func transportEvent(_ event: LiveRoundEvent) -> LiveRoundEvent {
+        var payload = event.payload.mapValues { transportValue($0) }
+        if event.kind == .photo || event.kind == .video {
+            switch payload["fileURL"] {
+            case .some(.string(let value)) where !value.isEmpty:
+                payload["fileURL"] = .string(REDACTED_LOCAL_MEDIA_URL)
+            case .some(.bool(_)), .some(.number(_)), .some(.object(_)), .some(.array(_)):
+                payload["fileURL"] = .string(REDACTED_LOCAL_MEDIA_URL)
+            case .none, .some(.null), .some(.string(_)):
+                break
+            }
+        }
+        return LiveRoundEvent(
+            schema: event.schema,
+            eventId: event.eventId,
+            roundId: event.roundId,
+            clientId: event.clientId,
+            timestamp: event.timestamp,
+            hole: event.hole,
+            kind: event.kind,
+            payload: payload
+        )
+    }
+
+    private func transportValue(_ value: JSONValue) -> JSONValue {
+        switch value {
+        case .string(let text):
+            return .string(redactedTransportText(text))
+        case .object(let object):
+            return .object(object.mapValues { transportValue($0) })
+        case .array(let array):
+            return .array(array.map { transportValue($0) })
+        case .number(_), .bool(_), .null:
+            return value
+        }
+    }
+
+    private func redactedTransportText(_ text: String) -> String {
+        let replacements: [(pattern: String, template: String)] = [
+            (#"(?i)authorization\s+bearer\s+[a-z0-9._~+/=-]+"#, "authorization [REDACTED]"),
+            (#"(?i)bearer\s+[a-z0-9._~+/=-]+"#, "Bearer [REDACTED]"),
+            (
+                #"(?i)(authorization|cookie|connect-csrf-token|csrf|token|access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key)\s*[:=]\s*[^,\s]+"#,
+                "$1=[REDACTED]"
+            ),
+            (
+                #"(?i)\b(authorization|cookie|connect-csrf-token|csrf|token|access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key)\s+[^\s,;)]+"#,
+                "$1 [REDACTED]"
+            ),
+            (#"(?i)file://[^\s,)]+"#, REDACTED_MOBILE_PATH),
+            (#"/(?:home|Users|private|tmp|var)/[^\s,)]+"#, REDACTED_MOBILE_PATH),
+            (#"[A-Za-z]:\\Users\\[^\s,)]+"#, REDACTED_MOBILE_PATH),
+            (
+                #"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*[^,\s;)]+"#,
+                "$1=[REDACTED]"
+            ),
+            (
+                #"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s+[^\s,;)]+"#,
+                "$1 [REDACTED]"
+            ),
+        ]
+        return replacements.reduce(text) { value, replacement in
+            guard let expression = try? NSRegularExpression(pattern: replacement.pattern) else {
+                return value
+            }
+            return expression.stringByReplacingMatches(
+                in: value,
+                range: NSRange(value.startIndex..<value.endIndex, in: value),
+                withTemplate: replacement.template
+            )
+        }
+    }
+
     private func appendPendingMedia(_ attachment: PendingMediaAttachment) throws {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let encoded = try encoder.encode(attachment)
@@ -680,9 +733,11 @@ public final class OfflineStore {
     }
 
     private func rewriteEventsUnlocked(_ events: [LiveRoundEvent]) throws {
+        try repairTornEventLogEOFIfNeededUnlocked()
+        _ = try loadEventsUnlocked(strict: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let lines = try events.map { event in
-            String(data: try encoder.encode(event), encoding: .utf8) ?? "{}"
+            String(data: try encoder.encode(transportEvent(event)), encoding: .utf8) ?? "{}"
         }
         .joined(separator: "\n")
         var data = Data(lines.utf8)

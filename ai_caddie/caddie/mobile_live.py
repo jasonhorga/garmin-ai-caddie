@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
-import re
 from typing import Any
 
 from ai_caddie.courses import course_prep
@@ -17,7 +16,6 @@ from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.history.history_stats import _effective_score_data
 from ai_caddie.reports.report_labels_zh import issue_label_zh
 from ai_caddie.history.stats_cache import cached_build_history_stats
-from ai_caddie.llm.llm_providers import redact_secret_text
 from ai_caddie.llm.weather_context import (
     WeatherTransport,
     build_weather_snapshot,
@@ -33,8 +31,6 @@ OFFLINE_STALE_AFTER_HOURS = 6
 OFFLINE_EXPIRES_AFTER_HOURS = 24
 LIVE_SHOT_TYPES = ["tee", "approach", "recovery"]
 MANUAL_NOTE_KINDS = {"strategy_note", "hole_note", "round_note", "weather_context_note"}
-REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
-REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 PLAYER_PROFILE_SOURCE_REF_LIMIT = 30
 PLAYER_PROFILE_SIGNAL_REF_LIMIT = 12
 COURSE_OPTION_LIMIT = 24
@@ -2256,46 +2252,6 @@ def _client_ack_sequence(round_id: str, client_id: str, *, root: Path | str | No
     return FileEventStore(path.parent).read_ack(str(round_id), str(client_id))
 
 
-def _redact_mobile_text(value: str) -> str:
-    redacted = redact_secret_text(value)
-    redacted = re.sub(r"(?i)file://[^\s,)]+", REDACTED_MOBILE_PATH, redacted)
-    redacted = re.sub(r"/(?:home|Users|private|tmp|var)/[^\s,)]+", REDACTED_MOBILE_PATH, redacted)
-    redacted = re.sub(r"[A-Za-z]:\\Users\\[^\s,)]+", REDACTED_MOBILE_PATH, redacted)
-    redacted = re.sub(
-        r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*[^,\s;)]+",
-        r"\1=[REDACTED]",
-        redacted,
-    )
-    redacted = re.sub(
-        r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s+[^\s,;)]+",
-        r"\1 [REDACTED]",
-        redacted,
-    )
-    return redacted
-
-
-def _redact_mobile_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _redact_mobile_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_redact_mobile_value(item) for item in value]
-    if isinstance(value, str):
-        return _redact_mobile_text(value)
-    return value
-
-
-def _sanitized_live_event(event: dict[str, Any]) -> dict[str, Any]:
-    sanitized = _redact_mobile_value(dict(event))
-    payload = sanitized.get("payload")
-    if not isinstance(payload, dict):
-        return sanitized
-    sanitized_payload = dict(payload)
-    if str(sanitized.get("kind") or "") in {"photo", "video"} and sanitized_payload.get("fileURL"):
-        sanitized_payload["fileURL"] = REDACTED_LOCAL_MEDIA_URL
-    sanitized["payload"] = sanitized_payload
-    return sanitized
-
-
 def append_event_batch(
     round_id: str,
     events: list[dict[str, Any]],
@@ -2305,7 +2261,7 @@ def append_event_batch(
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     path = mobile_event_log(root, player_id=player_id)
-    store = FileEventStore(path.parent, sanitizer=_sanitized_live_event)
+    store = FileEventStore(path.parent)
     append_result = store.append_batch(str(round_id), events, request_key=idempotency_key)
     receipts = append_result.receipts
     accepted_event_ids = [receipt.event_id for receipt in receipts if receipt.status == "accepted" and receipt.event_id]
