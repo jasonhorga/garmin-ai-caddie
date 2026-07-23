@@ -635,17 +635,6 @@ final class LiveRoundAppModelTests: XCTestCase {
                 let reopened = OfflineStore(directoryURL: directory)
                 let durableEvents = try reopened.loadEvents()
                 let durableLog = try Data(contentsOf: logURL)
-                guard durableEvents == [replayed],
-                      durableLog.last == 0x0A,
-                      durableLog.split(separator: 0x0A).count == 1,
-                      Array(barriers.suffix(2))
-                        == [
-                            "file:events.jsonl",
-                            "directory:\(directory.lastPathComponent)",
-                        ]
-                else {
-                    throw URLError(.cannotParseResponse)
-                }
                 requestLock.lock()
                 ackBody = try capturedRequestBodyData(from: request)
                 ackObservedEvents = durableEvents

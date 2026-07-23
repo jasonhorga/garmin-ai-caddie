@@ -1,6 +1,22 @@
 import XCTest
 @testable import AICaddie
 
+private func makeCustomAnchoredOfflineStore(
+    directoryURL: URL,
+    trustedDirectoryAnchor: URL,
+    syncEventLogFile: @escaping (URL) throws -> Void,
+    syncEventLogDirectory: @escaping (URL) throws -> Void
+) -> OfflineStore {
+    // Baseline adapter: the current injected initializer has no anchor input. GREEN changes only
+    // this wiring to the internal anchor seam; the containment assertions remain unchanged.
+    _ = trustedDirectoryAnchor
+    return OfflineStore(
+        directoryURL: directoryURL,
+        syncEventLogFile: syncEventLogFile,
+        syncEventLogDirectory: syncEventLogDirectory
+    )
+}
+
 final class OfflineStoreTests: XCTestCase {
     private enum TestDurabilityFailure: Error {
         case directorySync
@@ -744,7 +760,7 @@ final class OfflineStoreTests: XCTestCase {
     }
 
     func testNestedDirectoryBarrierFailuresRetryAllAncestorsBeforeEventMutation() throws {
-        let trustedAnchor = FileManager.default.homeDirectoryForCurrentUser
+        let trustedAnchor = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
             .standardizedFileURL.resolvingSymlinksInPath()
         let testRoot = trustedAnchor.appendingPathComponent(
             ".aicaddie-directory-barrier-\(UUID().uuidString)",
@@ -851,6 +867,106 @@ final class OfflineStoreTests: XCTestCase {
             )
             XCTAssertLessThan(eventFileIndex, storeDirectoryIndex)
             XCTAssertEqual(try retryStore.loadEvents(), [event])
+        }
+    }
+
+    func testDefaultStoreFixesTrustedAnchorToResolvedAppContainerHome() throws {
+        let anchor = Mirror(reflecting: OfflineStore()).children.first {
+            $0.label == "trustedDirectoryAnchor"
+        }?.value as? URL
+        XCTAssertEqual(
+            try XCTUnwrap(anchor),
+            URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .standardizedFileURL.resolvingSymlinksInPath()
+        )
+    }
+
+    func testCustomAnchorRejectsWritableSiblingDotDotAndSymlinkEscapesBeforeMutation() throws {
+        let suiteRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let trustedAnchor = suiteRoot.appendingPathComponent("trusted", isDirectory: true)
+        let outsideRoot = suiteRoot.appendingPathComponent("trusted-escape", isDirectory: true)
+        try FileManager.default.createDirectory(at: trustedAnchor, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: suiteRoot) }
+        let outsideLink = trustedAnchor.appendingPathComponent("outside-link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(
+            at: outsideLink,
+            withDestinationURL: outsideRoot
+        )
+        let replayed = LiveRoundEvent(
+            eventId: "must-not-escape-custom-anchor",
+            roundId: "round-1",
+            clientId: "apple-watch",
+            timestamp: "2026-07-23T00:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(4)]
+        )
+        let operations: [(String, (OfflineStore) throws -> Void)] = [
+            ("append", { try $0.appendEvent(replayed) }),
+            ("replay", { _ = try $0.applyReplayEvents([replayed]) }),
+        ]
+
+        for escapeFamily in ["sibling", "dot-dot", "symlink"] {
+            for (operationName, operation) in operations {
+                let target: URL
+                switch escapeFamily {
+                case "sibling":
+                    target = outsideRoot.appendingPathComponent(
+                        "sibling-\(operationName)",
+                        isDirectory: true
+                    )
+                case "dot-dot":
+                    target = URL(
+                        fileURLWithPath:
+                            "\(trustedAnchor.path)/nested/../../trusted-escape/dot-dot-\(operationName)",
+                        isDirectory: true
+                    )
+                default:
+                    target = outsideLink.appendingPathComponent(
+                        "symlink-\(operationName)",
+                        isDirectory: true
+                    )
+                }
+                let resolvedTarget = target.standardizedFileURL.resolvingSymlinksInPath()
+                let anchorComponents = trustedAnchor.standardizedFileURL
+                    .resolvingSymlinksInPath().pathComponents
+                XCTAssertNotEqual(
+                    Array(resolvedTarget.pathComponents.prefix(anchorComponents.count)),
+                    anchorComponents,
+                    "invalid test setup: \(escapeFamily)-\(operationName)"
+                )
+                var fileCallbacks: [URL] = []
+                var directoryCallbacks: [URL] = []
+                let store = makeCustomAnchoredOfflineStore(
+                    directoryURL: target,
+                    trustedDirectoryAnchor: trustedAnchor,
+                    syncEventLogFile: { fileCallbacks.append($0) },
+                    syncEventLogDirectory: { directoryCallbacks.append($0) }
+                )
+                let context = "\(escapeFamily)-\(operationName)"
+
+                XCTAssertThrowsError(try operation(store), context) { error in
+                    XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt, context)
+                }
+                XCTAssertTrue(fileCallbacks.isEmpty, "\(context) reached a file callback")
+                XCTAssertTrue(
+                    directoryCallbacks.isEmpty,
+                    "\(context) reached a directory callback"
+                )
+                XCTAssertFalse(
+                    FileManager.default.fileExists(atPath: resolvedTarget.path),
+                    "\(context) created the escaped store"
+                )
+                XCTAssertFalse(
+                    FileManager.default.fileExists(
+                        atPath: resolvedTarget.appendingPathComponent("events.jsonl").path
+                    ),
+                    "\(context) created an escaped event log"
+                )
+                try? FileManager.default.removeItem(at: resolvedTarget)
+            }
         }
     }
 

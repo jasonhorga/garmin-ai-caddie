@@ -38,6 +38,8 @@ jobs:
             -only-testing:AICaddieTests/OfflineStoreTests/testCompleteJSONPrefixFollowedByTornSuffixFailsClosedAndPreservesBytes \
             -only-testing:AICaddieTests/OfflineStoreTests/testReplayFirstLogCreationRequiresFileAndDirectoryDurabilityBeforeSuccess \
             -only-testing:AICaddieTests/OfflineStoreTests/testNestedDirectoryBarrierFailuresRetryAllAncestorsBeforeEventMutation \
+            -only-testing:AICaddieTests/OfflineStoreTests/testDefaultStoreFixesTrustedAnchorToResolvedAppContainerHome \
+            -only-testing:AICaddieTests/OfflineStoreTests/testCustomAnchorRejectsWritableSiblingDotDotAndSymlinkEscapesBeforeMutation \
             -only-testing:AICaddieTests/OfflineStoreTests/testTornTailReplacementRequiresFileAndDirectoryDurabilityBeforeReplaySuccess \
             -only-testing:AICaddieTests/LiveRoundAppModelTests/testResponseLostEventRetryStaysExactAfterLaterMediaUploadSuccess \
             -only-testing:AICaddieTests/LiveRoundAppModelTests/testTornEOFReplayReopensDurablyBeforeHTTPAck \
