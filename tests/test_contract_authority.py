@@ -373,6 +373,52 @@ class ContractAuthorityTests(unittest.TestCase):
                 finally:
                     fixture.close()
 
+    def test_registry_fragment_percent_decodes_before_json_pointer_resolution(self) -> None:
+        fixture = AuthorityFixture.with_registry()
+        self.addCleanup(fixture.close)
+        payload = fixture._registry_payload()
+        payload["objects"]["First"]["schemaRef"] = (
+            "contracts/canonical/test.schema.json#/space%20key"
+        )
+        fixture.write(
+            "contracts/canonical/test.schema.json",
+            json.dumps({"space key": {"type": "object"}}),
+        )
+        fixture.write(
+            "contracts/canonical/canonical_object_registry.json", json.dumps(payload)
+        )
+
+        fixture.verify()
+
+    def test_registry_fragment_rejects_invalid_percent_encoding(self) -> None:
+        cases = (
+            ("/bad%ZZ", "bad%ZZ"),
+            ("/%FF", "%FF"),
+        )
+        for fragment, raw_key in cases:
+            with self.subTest(fragment=fragment):
+                fixture = AuthorityFixture.with_registry()
+                try:
+                    payload = fixture._registry_payload()
+                    payload["objects"]["First"]["schemaRef"] = (
+                        f"contracts/canonical/test.schema.json#{fragment}"
+                    )
+                    fixture.write(
+                        "contracts/canonical/test.schema.json",
+                        json.dumps({raw_key: {"type": "object"}}),
+                    )
+                    fixture.write(
+                        "contracts/canonical/canonical_object_registry.json",
+                        json.dumps(payload),
+                    )
+
+                    with self.assertRaisesRegex(
+                        AuthorityViolation, "unresolved canonical schemaRef"
+                    ):
+                        fixture.verify()
+                finally:
+                    fixture.close()
+
     def test_registry_projection_fields_must_be_non_empty_and_unique(self) -> None:
         cases = (
             ("includedFields", ["id", "id"]),
@@ -422,7 +468,12 @@ class ContractAuthorityTests(unittest.TestCase):
 
     def test_manifest_rejects_duplicate_keys_malformed_json_and_invalid_utf8(self) -> None:
         cases = (
-            b'{"schema":"first","schema":"second"}',
+            (
+                b'{"schema":"unsupported","schema":"ai-caddie-contract-authority-v1",'
+                b'"authoritativeInputs":[],"evidenceInputs":[],'
+                b'"canonicalRoots":["contracts/canonical"],"legacyAdapters":[],'
+                b'"forbiddenSymbols":[],"generatedGroups":[]}'
+            ),
             b'{"schema":',
             b"\xff\xfe",
         )
@@ -489,6 +540,32 @@ class ContractAuthorityTests(unittest.TestCase):
                     with self.assertRaisesRegex(
                         AuthorityViolation, "invalid forbidden symbol pattern"
                     ):
+                        fixture.verify()
+                finally:
+                    fixture.close()
+
+    def test_gitwildmatch_declarations_require_a_positive_include_pattern(self) -> None:
+        cases = (
+            {
+                "forbiddenSymbols": [{
+                    "paths": ["!protected.py"],
+                    "values": ["weatherSnapshot"],
+                }]
+            },
+            {
+                "generatedGroups": [{
+                    "name": "generated",
+                    "sources": ["!source.json"],
+                    "outputs": ["generated.py"],
+                }]
+            },
+        )
+        for changes in cases:
+            with self.subTest(changes=changes):
+                fixture = AuthorityFixture()
+                try:
+                    fixture.write_manifest(**changes)
+                    with self.assertRaisesRegex(AuthorityViolation, "positive.*pattern"):
                         fixture.verify()
                 finally:
                     fixture.close()
@@ -720,7 +797,10 @@ class ContractAuthorityTests(unittest.TestCase):
         for target, raw in (
             ("contracts/canonical/canonical_object_registry.json", b"{malformed"),
             ("contracts/canonical/canonical_object_registry.json", b"\xff"),
-            ("contracts/canonical/test.schema.json", b'{"x":1,"x":2}'),
+            (
+                "contracts/canonical/test.schema.json",
+                b'{"$defs":{"value":{"title":"first","title":"second"}}}',
+            ),
             ("contracts/canonical/test.schema.json", b"\xff"),
         ):
             with self.subTest(target=target, raw=raw):
@@ -728,6 +808,27 @@ class ContractAuthorityTests(unittest.TestCase):
                 try:
                     fixture.write_bytes(target, raw)
                     with self.assertRaises(AuthorityViolation):
+                        fixture.verify()
+                finally:
+                    fixture.close()
+
+    def test_referenced_schema_rejects_non_finite_json_constants(self) -> None:
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant):
+                fixture = AuthorityFixture.with_registry()
+                try:
+                    fixture.write_bytes(
+                        "contracts/canonical/test.schema.json",
+                        (
+                            '{"$defs":{"value":{"const":'
+                            + constant
+                            + "}}}"
+                        ).encode("ascii"),
+                    )
+
+                    with self.assertRaisesRegex(
+                        AuthorityViolation, "non-finite JSON constant"
+                    ):
                         fixture.verify()
                 finally:
                     fixture.close()
@@ -768,6 +869,25 @@ class ContractAuthorityTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AuthorityViolation, "changed path.*regular file"):
             fixture.check(["changed-directory"])
+
+    def test_existing_changed_file_must_be_readable_without_matching_a_rule(self) -> None:
+        fixture = AuthorityFixture()
+        self.addCleanup(fixture.close)
+        fixture.write_manifest()
+        relative = "unmatched.bin"
+        fixture.write_bytes(relative, b"content")
+        (fixture.root / relative).chmod(0)
+
+        with self.assertRaisesRegex(AuthorityViolation, "cannot read changed path"):
+            fixture.check([relative])
+
+    def test_changed_path_below_a_file_is_treated_as_deleted(self) -> None:
+        fixture = AuthorityFixture()
+        self.addCleanup(fixture.close)
+        fixture.write_manifest()
+        fixture.write("parent", "replacement file\n")
+
+        self.assertIsNone(fixture.check(["parent/deleted.py"]))
 
     def test_changed_paths_must_be_normalized_repository_relative_values(self) -> None:
         for relative in ("/absolute.py", "../escape.py", "dir/../escape.py", "dir//file.py"):
@@ -1122,6 +1242,18 @@ class ContractAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(AuthorityViolation, "duplicate generated output"):
             fixture.verify()
 
+    def test_generated_group_rejects_duplicate_source_patterns(self) -> None:
+        fixture = AuthorityFixture()
+        self.addCleanup(fixture.close)
+        fixture.write_manifest(generatedGroups=[{
+            "name": "canonical",
+            "sources": ["source.json", "source.json"],
+            "outputs": ["generated.py"],
+        }])
+
+        with self.assertRaisesRegex(AuthorityViolation, "duplicate generated source"):
+            fixture.verify()
+
     def test_generated_output_cannot_also_match_its_source_pattern(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1142,3 +1274,24 @@ class ContractAuthorityTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(AuthorityViolation, "also matches a source"):
                 check_authority(root, changed_paths=[])
+
+    def test_generated_output_cannot_match_another_groups_source_pattern(self) -> None:
+        fixture = AuthorityFixture()
+        self.addCleanup(fixture.close)
+        fixture.write_manifest(generatedGroups=[
+            {
+                "name": "source-owner",
+                "sources": ["shared/**/*.json"],
+                "outputs": ["generated/source_owner.py"],
+            },
+            {
+                "name": "output-owner",
+                "sources": ["other/source.json"],
+                "outputs": ["shared/generated.json"],
+            },
+        ])
+
+        with self.assertRaisesRegex(
+            AuthorityViolation, "source-owner.*shared/generated.json"
+        ):
+            fixture.verify()

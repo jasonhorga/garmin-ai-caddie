@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
+import errno
 import hashlib
+import json
 import os
 import re
 import stat
@@ -9,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote_to_bytes
 
 import pathspec
 
@@ -43,11 +45,16 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return value
 
 
+def _reject_non_finite_constant(value: str) -> Any:
+    raise AuthorityViolation(f"non-finite JSON constant: {value}")
+
+
 def _load_unique_json(path: Path) -> Any:
     try:
         return json.loads(
             path.read_text(encoding="utf-8"),
             object_pairs_hook=_reject_duplicate_pairs,
+            parse_constant=_reject_non_finite_constant,
         )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise AuthorityViolation(f"invalid JSON: {path}: {exc}") from exc
@@ -188,6 +195,12 @@ def _strings(value: Any) -> list[str]:
 
 def _json_pointer_exists(path: Path, fragment: str) -> bool:
     value: Any = _load_unique_json(path)
+    if re.search(r"%(?![0-9A-Fa-f]{2})", fragment):
+        return False
+    try:
+        fragment = unquote_to_bytes(fragment).decode("utf-8")
+    except UnicodeDecodeError:
+        return False
     if fragment == "":
         return True
     if not fragment.startswith("/"):
@@ -248,21 +261,32 @@ def _repo_relative_path(
 
 def _compile_gitwildmatch(patterns: list[str], *, label: str) -> pathspec.PathSpec:
     try:
-        return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+        matcher = pathspec.PathSpec.from_lines("gitwildmatch", patterns)
     except (ValueError, re.error) as exc:
         raise AuthorityViolation(f"invalid {label}: {exc}") from exc
+    if not any(pattern.include is True for pattern in matcher.patterns):
+        raise AuthorityViolation(f"invalid {label}: expected a positive include pattern")
+    return matcher
 
 
 def _existing_regular_file(path: Path, *, label: str) -> bool:
     try:
         mode = path.lstat().st_mode
-    except FileNotFoundError:
-        return False
     except OSError as exc:
+        if exc.errno in {errno.ENOENT, errno.ENOTDIR}:
+            return False
         raise AuthorityViolation(f"cannot inspect {label}: {path}: {exc}") from exc
     if not stat.S_ISREG(mode):
         raise AuthorityViolation(f"{label} is not a regular file: {path}")
     return True
+
+
+def _require_readable_file(path: Path, *, label: str) -> None:
+    try:
+        with path.open("rb") as stream:
+            stream.read(1)
+    except OSError as exc:
+        raise AuthorityViolation(f"cannot read {label}: {path}: {exc}") from exc
 
 
 def _read_bytes(path: Path, *, label: str) -> bytes:
@@ -304,7 +328,10 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
     changed: set[str] = set()
     for value in changed_paths:
         relative = _repo_relative_path(root, value, label="changed path")
-        _existing_regular_file(root / relative, label=f"changed path {relative!r}")
+        changed_path = root / relative
+        changed_label = f"changed path {relative!r}"
+        if _existing_regular_file(changed_path, label=changed_label):
+            _require_readable_file(changed_path, label=changed_label)
         changed.add(relative)
     manifest_relative = manifest_path.relative_to(root).as_posix()
     roots_list: list[Path] = []
@@ -409,17 +436,15 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
         generated_groups.append((group, sources, outputs))
 
     generated_output_owners: dict[str, str] = {}
+    generated_source_matchers: dict[str, pathspec.PathSpec] = {}
     for group, sources, outputs in generated_groups:
+        if len(sources) != len(set(sources)):
+            violations.append(f"duplicate generated source inside group {group['name']}")
         if len(outputs) != len(set(outputs)):
             violations.append(f"duplicate generated output inside group {group['name']}")
-        source_matcher = _compile_gitwildmatch(
+        generated_source_matchers[group["name"]] = _compile_gitwildmatch(
             sources, label=f"generated source pattern for {group['name']}"
         )
-        for output in outputs:
-            if source_matcher.match_file(output):
-                violations.append(
-                    f"generated output also matches a source in {group['name']}: {output}"
-                )
         for output in outputs:
             previous = generated_output_owners.setdefault(output, group["name"])
             if previous != group["name"]:
@@ -427,10 +452,17 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
                     f"multiple generated owners for {output}: {previous}, {group['name']}"
                 )
 
+    for _, _, outputs in generated_groups:
+        for output in outputs:
+            for source_group, source_matcher in generated_source_matchers.items():
+                if source_matcher.match_file(output):
+                    violations.append(
+                        "generated output also matches a source in "
+                        f"{source_group}: {output}"
+                    )
+
     for group, sources, outputs in generated_groups:
-        source_matcher = _compile_gitwildmatch(
-            sources, label=f"generated source pattern for {group['name']}"
-        )
+        source_matcher = generated_source_matchers[group["name"]]
         changed_sources = {relative for relative in changed if source_matcher.match_file(relative)}
         changed_outputs = changed & set(outputs)
         if changed_sources and not changed_outputs:
