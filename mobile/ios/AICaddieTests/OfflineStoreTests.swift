@@ -683,6 +683,16 @@ final class OfflineStoreTests: XCTestCase {
         invalidUTF8.append(contentsOf: [0xE9, 0x28])
         invalidUTF8.append(Data(tornSuffix.utf8))
         nonRepairableTails.append((name: "invalid-utf8", bytes: invalidUTF8))
+        var invalidShortThreeByteUTF8 = Data(#"{"value":"bad "#.utf8)
+        invalidShortThreeByteUTF8.append(contentsOf: [0xE9, 0x28])
+        nonRepairableTails.append(
+            (name: "invalid-short-three-byte-utf8", bytes: invalidShortThreeByteUTF8)
+        )
+        var invalidShortFourByteUTF8 = Data(#"{"value":"bad "#.utf8)
+        invalidShortFourByteUTF8.append(contentsOf: [0xF0, 0x90, 0x28])
+        nonRepairableTails.append(
+            (name: "invalid-short-four-byte-utf8", bytes: invalidShortFourByteUTF8)
+        )
 
         for (prefixFamily, nonRepairableTail) in nonRepairableTails {
             for operation in ["load", "replay", "append"] {
