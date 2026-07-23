@@ -1104,7 +1104,12 @@ def _offline_caddie_options(
         median = float(profile.get("median_m") or 0)
         p10 = float(profile.get("p10_m") or median)
         p90 = float(profile.get("p90_m") or median)
-        carry = max(median, p90) if option_id == "attack" else median
+        # round-12 (offline parity with the online _tee_candidate_routes._carry): ONE distance per club —
+        # a club flies its median. "attack" differs by line / risk (higher base riskScore + risk_edge
+        # surface), NOT by inflating the SAME club's carry to p90. Fixes: a par-4/5 tee where
+        # _shot_option_clubs picks stock==attack==driver used to emit the SAME driver at median AND p90
+        # as two different "distances" (用户: 一号木不该「保守/激进」两个距离).
+        carry = median
         near_risks, line_risks = _option_risks(avoid_zones, carry)
         risk_score = base_risk[option_id] + len(near_risks) * 1.5 + len(line_risks) * 1.0
         sample_size = int(profile.get("sampleSize") or 0)
