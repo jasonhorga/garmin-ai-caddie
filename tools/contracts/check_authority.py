@@ -543,10 +543,19 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
     return violations
 
 
-if __name__ == "__main__":
+def _main() -> int:
     repo = Path.cwd()
     raw_paths = sys.stdin.buffer.read()
     if raw_paths and not raw_paths.endswith(b"\0"):
         raise AuthorityViolation("changed path input is not NUL-terminated")
     changed_paths = [os.fsdecode(value) for value in raw_paths[:-1].split(b"\0")] if raw_paths else []
     check_authority(repo, changed_paths=changed_paths)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(_main())
+    except AuthorityViolation as exc:
+        print(f"authority violation: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None

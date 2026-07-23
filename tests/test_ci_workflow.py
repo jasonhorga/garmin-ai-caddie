@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -62,7 +64,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual(
             [
                 "set -euo pipefail",
-                'git diff --name-only -z "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py',
+                'git diff --no-renames --name-only -z "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py',
             ],
             run_lines,
         )
@@ -202,6 +204,118 @@ class CIWorkflowTests(unittest.TestCase):
 
             self.assertNotEqual(0, result.returncode)
             self.assertIn("definitely-missing-ref..HEAD", result.stderr)
+
+    def test_canonical_authority_step_rejects_source_rename_outside_generated_pattern(
+        self,
+    ) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        steps = {
+            step.get("name"): step for step in workflow["jobs"]["backend"]["steps"]
+        }
+        script = steps["Check canonical contract authority"]["run"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "diff.renames", "true"], cwd=root, check=True
+            )
+            (root / "contracts/canonical").mkdir(parents=True)
+            (root / "generated").mkdir()
+            (root / "tools/contracts").mkdir(parents=True)
+            (root / "contracts/canonical/authority.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-contract-authority-v1",
+                        "authoritativeInputs": [],
+                        "evidenceInputs": [],
+                        "canonicalRoots": ["contracts/canonical"],
+                        "legacyAdapters": [],
+                        "forbiddenSymbols": [],
+                        "generatedGroups": [
+                            {
+                                "name": "generated-contracts",
+                                "sources": ["contracts/canonical/**/*.schema.json"],
+                                "outputs": ["generated/contracts.py"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            source = "contracts/canonical/source.schema.json"
+            destination = "archive/source.schema.json"
+            (root / source).write_text('{"type":"object"}\n', encoding="utf-8")
+            (root / "generated/contracts.py").write_text(
+                "GENERATED = True\n", encoding="utf-8"
+            )
+            (root / "tools/contracts/check_authority.py").write_text(
+                Path("tools/contracts/check_authority.py").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git", "-c", "user.name=CI Test", "-c",
+                    "user.email=ci@example.invalid", "commit", "-qm", "initial",
+                ],
+                cwd=root,
+                check=True,
+            )
+            base = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+            (root / "archive").mkdir()
+            subprocess.run(["git", "mv", source, destination], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git", "-c", "user.name=CI Test", "-c",
+                    "user.email=ci@example.invalid", "commit", "-qm", "rename source",
+                ],
+                cwd=root,
+                check=True,
+            )
+            authority_range = f"{base}..HEAD"
+            detected = subprocess.run(
+                ["git", "diff", "--name-only", "-z", authority_range],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(destination.encode() + b"\0", detected.stdout)
+
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            uv = bin_dir / "uv"
+            uv.write_text(
+                "#!/bin/sh\n"
+                "set -eu\n"
+                'test "$1" = run\n'
+                'test "$2" = python\n'
+                "shift 2\n"
+                'exec "$CI_TEST_PYTHON" "$@"\n',
+                encoding="utf-8",
+            )
+            uv.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-c", script],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "AUTHORITY_RANGE": authority_range,
+                    "CI_TEST_PYTHON": sys.executable,
+                    "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                },
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode, result.stderr)
+            self.assertIn(
+                "generated group generated-contracts changed a source without an owned output",
+                result.stderr,
+            )
 
     def test_private_trial_smoke_can_send_admin_token_header(self) -> None:
         script = Path("ops/smoke_private_trial.sh")

@@ -230,6 +230,26 @@ class ContractAuthorityTests(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn(message, result.stderr)
 
+    def test_cli_reports_policy_violations_without_a_traceback(self) -> None:
+        fixture = AuthorityFixture()
+        self.addCleanup(fixture.close)
+        fixture.write_manifest()
+        checker = Path(__file__).resolve().parents[1] / "tools/contracts/check_authority.py"
+
+        result = subprocess.run(
+            [sys.executable, str(checker)],
+            cwd=fixture.root,
+            input=b"../escape.py\0",
+            capture_output=True,
+        )
+
+        self.assertEqual(1, result.returncode)
+        self.assertEqual(
+            b"authority violation: invalid changed path: '../escape.py'\n",
+            result.stderr,
+        )
+        self.assertNotIn(b"Traceback", result.stderr)
+
     def test_manifest_sha256_drift_fails(self) -> None:
         fixture = AuthorityFixture.with_pinned_input()
         self.addCleanup(fixture.close)
