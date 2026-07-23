@@ -37,6 +37,7 @@ jobs:
             -only-testing:AICaddieTests/OfflineStoreTests/testPrivacySanitizerCoversGeneratedPathAndUnicodeFamilies \
             -only-testing:AICaddieTests/OfflineStoreTests/testCompleteJSONPrefixFollowedByTornSuffixFailsClosedAndPreservesBytes \
             -only-testing:AICaddieTests/OfflineStoreTests/testGenuinelyIncompleteJSONPrefixesRemainRepairable \
+            -only-testing:AICaddieTests/OfflineStoreTests/testReplayRepairsOnlyValidIncompleteJSONGrammarPrefixes \
             -only-testing:AICaddieTests/OfflineStoreTests/testReplayFirstLogCreationRequiresFileAndDirectoryDurabilityBeforeSuccess \
             -only-testing:AICaddieTests/OfflineStoreTests/testNestedDirectoryBarrierFailuresRetryAllAncestorsBeforeEventMutation \
             -only-testing:AICaddieTests/OfflineStoreTests/testDefaultStoreFixesTrustedAnchorToResolvedAppContainerHome \

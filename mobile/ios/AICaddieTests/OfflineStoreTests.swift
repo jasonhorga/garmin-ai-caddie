@@ -613,6 +613,132 @@ final class OfflineStoreTests: XCTestCase {
         }
     }
 
+    func testReplayRepairsOnlyValidIncompleteJSONGrammarPrefixes() throws {
+        struct PrefixCase {
+            let name: String
+            let bytes: Data
+            let isRepairable: Bool
+        }
+
+        var unescapedControl = Data(#"{"value":"bad"#.utf8)
+        unescapedControl.append(0x01)
+        let maximumJSONNestingDepth = 128
+        let cases = [
+            PrefixCase(name: "incomplete-number", bytes: Data("1e".utf8), isRepairable: true),
+            PrefixCase(name: "invalid-number", bytes: Data("1eX".utf8), isRepairable: false),
+            PrefixCase(name: "incomplete-literal", bytes: Data("tru".utf8), isRepairable: true),
+            PrefixCase(name: "invalid-literal", bytes: Data("truX".utf8), isRepairable: false),
+            PrefixCase(
+                name: "incomplete-unicode-escape",
+                bytes: Data(#"{"value":"\u12"#.utf8),
+                isRepairable: true
+            ),
+            PrefixCase(
+                name: "invalid-string-escape",
+                bytes: Data(#"{"value":"\x"#.utf8),
+                isRepairable: false
+            ),
+            PrefixCase(
+                name: "incomplete-container",
+                bytes: Data(#"{"value":[1,2"#.utf8),
+                isRepairable: true
+            ),
+            PrefixCase(
+                name: "unescaped-control",
+                bytes: unescapedControl,
+                isRepairable: false
+            ),
+            PrefixCase(
+                name: "trailing-comma",
+                bytes: Data(#"{"value":1,}"#.utf8),
+                isRepairable: false
+            ),
+            PrefixCase(
+                name: "missing-colon",
+                bytes: Data(#"{"value" 1}"#.utf8),
+                isRepairable: false
+            ),
+            PrefixCase(
+                name: "complete-whitespace-torn-suffix",
+                bytes: Data("true \r\t {\"eventId\":\"torn\"".utf8),
+                isRepairable: false
+            ),
+            PrefixCase(
+                name: "nesting-at-limit",
+                bytes: Data(String(repeating: "[", count: maximumJSONNestingDepth).utf8),
+                isRepairable: true
+            ),
+            PrefixCase(
+                name: "nesting-over-limit",
+                bytes: Data(String(repeating: "[", count: maximumJSONNestingDepth + 1).utf8),
+                isRepairable: false
+            ),
+        ]
+
+        for testCase in cases {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            let existing = LiveRoundEvent(
+                eventId: "existing-grammar-\(testCase.name)",
+                roundId: "round-1",
+                clientId: "ios-phone",
+                timestamp: "2026-07-21T00:00:00Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(4)]
+            )
+            let replayed = LiveRoundEvent(
+                eventId: "replayed-grammar-\(testCase.name)",
+                roundId: "round-1",
+                clientId: "apple-watch",
+                timestamp: "2026-07-21T00:00:01Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(5)]
+            )
+            let logURL = directory.appendingPathComponent("events.jsonl")
+            var corruptLog = try JSONEncoder().encode(existing)
+            corruptLog.append(0x0A)
+            corruptLog.append(testCase.bytes)
+            try corruptLog.write(to: logURL, options: [.atomic])
+            let original = try Data(contentsOf: logURL)
+            var fileCallbacks: [URL] = []
+            var directoryCallbacks: [URL] = []
+            let store = OfflineStore(
+                directoryURL: directory,
+                syncEventLogFile: { fileCallbacks.append($0) },
+                syncEventLogDirectory: { directoryCallbacks.append($0) }
+            )
+
+            if testCase.isRepairable {
+                XCTAssertTrue(try store.applyReplayEvents([replayed]), testCase.name)
+                XCTAssertEqual(
+                    try store.loadEvents(),
+                    [existing, replayed],
+                    testCase.name
+                )
+            } else {
+                XCTAssertThrowsError(
+                    try store.applyReplayEvents([replayed]),
+                    testCase.name
+                ) { error in
+                    XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt, testCase.name)
+                }
+                XCTAssertEqual(try Data(contentsOf: logURL), original, testCase.name)
+                XCTAssertTrue(fileCallbacks.isEmpty, "\(testCase.name) attempted file repair")
+                XCTAssertTrue(
+                    directoryCallbacks.isEmpty,
+                    "\(testCase.name) attempted directory repair"
+                )
+            }
+        }
+    }
+
+
     func testCompleteInvalidJSONValuesAtEOFFailClosedAndPreserveBytes() throws {
         let invalidValues = [
             #"{"schema":"ai-caddie-live-round-event-v1"}"#,
