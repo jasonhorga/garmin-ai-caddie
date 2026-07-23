@@ -1,5 +1,5 @@
 // generated; do not edit
-public let canonicalContractSourceSHA256 = "d15178ffb567437d32e3c2b7acf361eaf846672efb9d6814a3ac9587eee08eb1"
+public let canonicalContractSourceSHA256 = "1359a0c0c7706ed95a1c120e765cbc9cde23ca2347de2c430174236d7b928149"
 
 public struct CanonicalObjectDescriptor: Sendable, Equatable {
     public let objectName: String

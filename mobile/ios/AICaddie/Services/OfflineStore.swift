@@ -339,29 +339,35 @@ public final class OfflineStore {
             return []
         }
         let data = try Data(contentsOf: logURL)
+        guard !data.isEmpty else {
+            return []
+        }
         if strict, !data.isEmpty, data.last != 0x0A {
             throw OfflineStoreError.eventLogCorrupt
         }
+        let hasTrailingNewline = data.last == 0x0A
         var lines = data.split(separator: 0x0A, omittingEmptySubsequences: false)
-        if data.last == 0x0A, lines.last?.isEmpty == true {
+        if hasTrailingNewline, lines.last?.isEmpty == true {
             lines.removeLast()
         }
         var events: [LiveRoundEvent] = []
-        for line in lines {
+        for (index, line) in lines.enumerated() {
             if line.isEmpty {
-                if strict {
-                    throw OfflineStoreError.eventLogCorrupt
-                }
-                continue
+                throw OfflineStoreError.eventLogCorrupt
             }
             do {
                 let decoded = try decoder.decode(LiveRoundEvent.self, from: Data(line))
                 events.append(transportEvent(decoded))
             } catch {
-                if strict {
-                    throw OfflineStoreError.eventLogCorrupt
+                let lineData = Data(line)
+                let isUnterminatedFinalLine = !hasTrailingNewline && index == lines.count - 1
+                if !strict,
+                   isUnterminatedFinalLine,
+                   !Self.isCompleteJSONValue(lineData) {
+                    AICaddieLog.storage.error("Skipping torn event-log EOF fragment: \(String(describing: error), privacy: .public)")
+                    continue
                 }
-                AICaddieLog.storage.error("Skipping malformed event line (truncation/schema): \(String(describing: error), privacy: .public)")
+                throw OfflineStoreError.eventLogCorrupt
             }
         }
         return events
@@ -674,8 +680,15 @@ public final class OfflineStore {
             try writeEventLogAtomicallyAndDurably(terminated)
             return
         }
+        if Self.isCompleteJSONValue(tail) {
+            throw OfflineStoreError.eventLogCorrupt
+        }
         let durablePrefix = lastNewline.map { Data(data[...$0]) } ?? Data()
         try writeEventLogAtomicallyAndDurably(durablePrefix)
+    }
+
+    private static func isCompleteJSONValue(_ data: Data) -> Bool {
+        (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
     }
 
     private func replayIdentity(_ event: LiveRoundEvent) -> ReplayEventIdentity {
@@ -716,11 +729,11 @@ public final class OfflineStore {
             }
         }
         return LiveRoundEvent(
-            schema: event.schema,
+            schema: redactedTransportText(event.schema),
             eventId: event.eventId,
             roundId: event.roundId,
             clientId: event.clientId,
-            timestamp: event.timestamp,
+            timestamp: redactedTransportText(event.timestamp),
             hole: event.hole,
             kind: event.kind,
             payload: payload
@@ -742,8 +755,8 @@ public final class OfflineStore {
 
     private func redactedTransportText(_ text: String) -> String {
         let replacements: [(pattern: String, template: String)] = [
-            (#"(?i)authorization\s+bearer\s+[a-z0-9._~+/=-]+"#, "authorization [REDACTED]"),
-            (#"(?i)bearer\s+[a-z0-9._~+/=-]+"#, "Bearer [REDACTED]"),
+            (#"(?i)authorization\s+bearer\s+[^\s,;)]+"#, "authorization [REDACTED]"),
+            (#"(?i)bearer\s+[^\s,;)]+"#, "Bearer [REDACTED]"),
             (
                 #"(?i)(authorization|cookie|connect-csrf-token|csrf|token|access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key)\s*[:=]\s*[^,\s]+"#,
                 "$1=[REDACTED]"
@@ -753,8 +766,9 @@ public final class OfflineStore {
                 "$1 [REDACTED]"
             ),
             (#"(?i)file://[^\s,)]+"#, REDACTED_MOBILE_PATH),
-            (#"/(?:home|Users|private|tmp|var)/[^\s,)]+"#, REDACTED_MOBILE_PATH),
-            (#"[A-Za-z]:\\Users\\[^\s,)]+"#, REDACTED_MOBILE_PATH),
+            (#"\\\\[^\s,;)]+"#, REDACTED_MOBILE_PATH),
+            (#"(?i)(?<![a-z0-9])[a-z]:\\[^\s,;)]+"#, REDACTED_MOBILE_PATH),
+            (#"(^|[\s=(\[{'"])/(?!/)[^\s,;)]+"#, "$1\(REDACTED_MOBILE_PATH)"),
             (
                 #"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*[^,\s;)]+"#,
                 "$1=[REDACTED]"

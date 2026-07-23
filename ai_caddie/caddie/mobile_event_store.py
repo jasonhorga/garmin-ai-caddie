@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Any, Callable, Iterator
+from typing import Any, BinaryIO, Callable, Iterator
 
 from ai_caddie.llm.llm_providers import redact_secret_text
 
@@ -197,6 +197,9 @@ class FileEventStore:
         self._ensure_root_durable()
         with path.open("a+", encoding="utf-8") as handle:
             fcntl.flock(handle, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+            handle.flush()
+            os.fsync(handle.fileno())
+            self._fsync_directory()
             yield
 
     @staticmethod
@@ -389,21 +392,60 @@ class FileEventStore:
             return
         self._fsync_directory()
 
-    def _read_log_range(self, start: int, end: int) -> bytes:
+    def _read_log_range(
+        self,
+        start: int,
+        end: int,
+        *,
+        handle: BinaryIO | None = None,
+    ) -> bytes:
         if start < 0 or end < start:
             raise ValueError("event_commit_store_corrupt")
         length = end - start
         if length == 0:
             return b""
-        try:
-            with self.log.open("rb") as handle:
-                handle.seek(start)
-                value = handle.read(length)
-        except FileNotFoundError as exc:
-            raise ValueError("event_commit_store_corrupt") from exc
+        if handle is not None:
+            handle.seek(start)
+            value = handle.read(length)
+        else:
+            try:
+                with self.log.open("rb") as opened:
+                    opened.seek(start)
+                    value = opened.read(length)
+            except FileNotFoundError as exc:
+                raise ValueError("event_commit_store_corrupt") from exc
         if len(value) != length:
             raise ValueError("event_commit_store_corrupt")
         return value
+
+    def _validate_untracked_suffix(
+        self,
+        committed_byte_length: int,
+        actual_size: int,
+        *,
+        handle: BinaryIO | None = None,
+    ) -> None:
+        if actual_size <= committed_byte_length:
+            return
+        suffix = self._read_log_range(
+            committed_byte_length,
+            actual_size,
+            handle=handle,
+        )
+        if b"\n" in suffix or not suffix.startswith(b"{"):
+            raise ValueError("event_commit_store_corrupt")
+        try:
+            text = suffix.decode("utf-8")
+        except UnicodeDecodeError:
+            return
+        try:
+            json.loads(text)
+        except json.JSONDecodeError:
+            try:
+                json.JSONDecoder().raw_decode(text)
+            except json.JSONDecodeError:
+                return
+        raise ValueError("event_commit_store_corrupt")
 
     def _validate_storage_rows(self, raw: bytes, *, expected_event_count: int | None) -> None:
         if not raw:
@@ -461,13 +503,19 @@ class FileEventStore:
                 elif batch_context != context:
                     raise ValueError("event_commit_store_corrupt")
 
-    def _validate_commit_marker(self, marker: _CommitMarker, actual_size: int) -> None:
+    def _validate_commit_marker(
+        self,
+        marker: _CommitMarker,
+        actual_size: int,
+        *,
+        handle: BinaryIO | None = None,
+    ) -> None:
         if (
             marker.committed_byte_length > actual_size
             or marker.legacy_baseline_byte_length > marker.committed_byte_length
         ):
             raise ValueError("event_commit_store_corrupt")
-        prefix = self._read_log_range(0, marker.committed_byte_length)
+        prefix = self._read_log_range(0, marker.committed_byte_length, handle=handle)
         if marker.committed_byte_length and not prefix.endswith(b"\n"):
             raise ValueError("event_commit_store_corrupt")
         if (
@@ -506,10 +554,16 @@ class FileEventStore:
             return "target"
         raise ValueError("event_commit_store_corrupt")
 
-    def _validate_pending_target(self, pending: _PendingCommit, actual_size: int) -> None:
-        if pending.target_byte_length > actual_size:
+    def _validate_pending_target(
+        self,
+        pending: _PendingCommit,
+        actual_size: int,
+        *,
+        handle: BinaryIO | None = None,
+    ) -> None:
+        if pending.target_byte_length != actual_size:
             raise ValueError("event_commit_store_corrupt")
-        target_prefix = self._read_log_range(0, pending.target_byte_length)
+        target_prefix = self._read_log_range(0, pending.target_byte_length, handle=handle)
         if (
             pending.base_committed_byte_length
             and target_prefix[
@@ -528,9 +582,13 @@ class FileEventStore:
             raise ValueError("event_commit_store_corrupt")
         if hashlib.sha256(tail).hexdigest() != pending.tail_sha256:
             raise ValueError("event_commit_store_corrupt")
+        self._validate_storage_rows(
+            target_prefix[pending.legacy_baseline_byte_length :],
+            expected_event_count=None,
+        )
         self._validate_storage_rows(tail, expected_event_count=pending.event_count)
 
-    def _visible_committed_length_unlocked(self) -> int:
+    def _visible_committed_length_unlocked(self, *, handle: BinaryIO | None = None) -> int:
         actual_size = self._event_log_size()
         committed = self._load_commit_marker()
         pending = self._load_pending_commit()
@@ -538,31 +596,39 @@ class FileEventStore:
             if pending is not None:
                 raise ValueError("event_commit_store_corrupt")
             return actual_size
-        self._validate_commit_marker(committed, actual_size)
+        self._validate_commit_marker(committed, actual_size, handle=handle)
         if pending is None:
+            self._validate_untracked_suffix(
+                committed.committed_byte_length,
+                actual_size,
+                handle=handle,
+            )
             return committed.committed_byte_length
         state = self._pending_marker_state(committed, pending)
         if actual_size >= pending.target_byte_length:
-            self._validate_pending_target(pending, actual_size)
+            self._validate_pending_target(pending, actual_size, handle=handle)
         if state == "target":
-            self._validate_pending_target(pending, actual_size)
+            self._validate_pending_target(pending, actual_size, handle=handle)
             # A target marker left beside its pending intent may be the result of a successful
             # replace followed by a failed directory fsync. Re-establish that barrier before any
             # reader, replay, state fold, or ACK is allowed to observe the target prefix.
             self._fsync_directory()
         return committed.committed_byte_length
 
-    def _stored_log(self) -> _StoredLog:
-        committed_byte_length = self._visible_committed_length_unlocked()
+    def _stored_log(self, *, handle: BinaryIO | None = None) -> _StoredLog:
+        committed_byte_length = self._visible_committed_length_unlocked(handle=handle)
         if committed_byte_length == 0:
             return _StoredLog((), 0)
         rows: list[_StoredRow] = []
-        try:
-            handle = self.log.open("rb")
-        except FileNotFoundError as exc:
-            raise ValueError("event_commit_store_corrupt") from exc
+        owns_handle = handle is None
+        if handle is None:
+            try:
+                handle = self.log.open("rb")
+            except FileNotFoundError as exc:
+                raise ValueError("event_commit_store_corrupt") from exc
         running_high_water = 0
-        with handle:
+        try:
+            handle.seek(0)
             remaining = committed_byte_length
             line_number = 0
             while remaining > 0:
@@ -600,10 +666,13 @@ class FileEventStore:
                         line_number=line_number,
                     )
                 )
+        finally:
+            if owns_handle:
+                handle.close()
         return _StoredLog(tuple(rows), running_high_water)
 
-    def _stored_rows(self) -> list[_StoredRow]:
-        return list(self._stored_log().rows)
+    def _stored_rows(self, *, handle: BinaryIO | None = None) -> list[_StoredRow]:
+        return list(self._stored_log(handle=handle).rows)
 
     @staticmethod
     def _is_legacy_compatible_event(event: Any) -> bool:
@@ -801,7 +870,32 @@ class FileEventStore:
             key=lambda stored: (stored.position, stored.line_number),
         )
         normalized_stored_hashes = [self._event_hash(stored.row) for stored in ordered_matching_rows]
-        incoming_hashes = [item.event_hash for item in prepared]
+        incoming_identities: dict[tuple[str, str, str], str] = {}
+        for item in prepared:
+            if not item.identity[2]:
+                continue
+            previous_hash = incoming_identities.get(item.identity)
+            if previous_hash is not None and previous_hash != item.event_hash:
+                raise ValueError("identity_envelope_mismatch")
+            incoming_identities[item.identity] = item.event_hash
+
+        exact_identities_committed_by_other_requests: set[tuple[str, str, str]] = set()
+        for stored in stored_rows:
+            if str(stored.row.get("idempotencyKey") or "") == request_key:
+                continue
+            identity = self._event_identity(stored.row)
+            if identity is None:
+                continue
+            expected_hash = incoming_identities.get(identity)
+            if expected_hash is not None and self._event_hash(stored.row) == expected_hash:
+                exact_identities_committed_by_other_requests.add(identity)
+        append_candidates = [
+            item
+            for item in prepared
+            if not item.identity[2]
+            or item.identity not in exact_identities_committed_by_other_requests
+        ]
+        incoming_hashes = [item.event_hash for item in append_candidates]
         normalized_stored_roster_is_prefix = (
             None not in normalized_stored_hashes
             and normalized_stored_hashes == incoming_hashes[: len(normalized_stored_hashes)]
@@ -816,6 +910,7 @@ class FileEventStore:
         legacy_raw_request_hash = (
             _sha256({"roundId": round_id, "events": raw_stored_events})
             if complete_normalized_roster
+            and len(append_candidates) == len(prepared)
             and all(isinstance(event, dict) for event in raw_stored_events)
             else None
         )
@@ -842,15 +937,6 @@ class FileEventStore:
         elif matching_request_rows:
             request_preexisting = True
 
-        incoming_identities: dict[tuple[str, str, str], str] = {}
-        for item in prepared:
-            if not item.identity[2]:
-                continue
-            previous_hash = incoming_identities.get(item.identity)
-            if previous_hash is not None and previous_hash != item.event_hash:
-                raise ValueError("identity_envelope_mismatch")
-            incoming_identities[item.identity] = item.event_hash
-
         stored_identity_hashes: dict[tuple[str, str, str], set[str]] = {}
         for stored in stored_rows:
             identity = self._event_identity(stored.row)
@@ -865,34 +951,55 @@ class FileEventStore:
 
         return request_preexisting
 
-    def _truncate_event_log(self, committed_byte_length: int) -> None:
+    def _truncate_event_log(
+        self,
+        committed_byte_length: int,
+        *,
+        handle: BinaryIO | None = None,
+    ) -> None:
         actual_size = self._event_log_size()
         if actual_size < committed_byte_length:
             raise ValueError("event_commit_store_corrupt")
         if actual_size == committed_byte_length:
             return
-        try:
-            with self.log.open("r+b") as handle:
-                handle.truncate(committed_byte_length)
-                handle.flush()
-                os.fsync(handle.fileno())
-        except FileNotFoundError as exc:
-            raise ValueError("event_commit_store_corrupt") from exc
+        if handle is not None:
+            handle.truncate(committed_byte_length)
+            handle.flush()
+            os.fsync(handle.fileno())
+        else:
+            try:
+                with self.log.open("r+b") as opened:
+                    opened.truncate(committed_byte_length)
+                    opened.flush()
+                    os.fsync(opened.fileno())
+            except FileNotFoundError as exc:
+                raise ValueError("event_commit_store_corrupt") from exc
         self._fsync_directory()
 
-    def _seal_legacy_baseline_unlocked(self, actual_size: int) -> _CommitMarker:
+    def _seal_legacy_baseline_unlocked(
+        self,
+        actual_size: int,
+        *,
+        handle: BinaryIO | None = None,
+    ) -> _CommitMarker:
         if actual_size:
-            if self._read_log_range(actual_size - 1, actual_size) != b"\n":
-                try:
-                    with self.log.open("ab") as handle:
-                        handle.write(b"\n")
-                        handle.flush()
-                        os.fsync(handle.fileno())
-                except FileNotFoundError as exc:
-                    raise ValueError("event_commit_store_corrupt") from exc
+            if self._read_log_range(actual_size - 1, actual_size, handle=handle) != b"\n":
+                if handle is not None:
+                    handle.seek(0, os.SEEK_END)
+                    handle.write(b"\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                else:
+                    try:
+                        with self.log.open("ab") as opened:
+                            opened.write(b"\n")
+                            opened.flush()
+                            os.fsync(opened.fileno())
+                    except FileNotFoundError as exc:
+                        raise ValueError("event_commit_store_corrupt") from exc
                 self._fsync_directory()
                 actual_size += 1
-        prefix = self._read_log_range(0, actual_size)
+        prefix = self._read_log_range(0, actual_size, handle=handle)
         marker = _CommitMarker(
             committed_byte_length=actual_size,
             committed_prefix_sha256=hashlib.sha256(prefix).hexdigest(),
@@ -901,28 +1008,36 @@ class FileEventStore:
         self._write_committed_length(marker)
         return marker
 
-    def _recover_event_log_unlocked(self) -> int:
+    def _recover_event_log_unlocked(self, *, handle: BinaryIO | None = None) -> int:
         actual_size = self._event_log_size()
         committed = self._load_commit_marker()
         pending = self._load_pending_commit()
         if committed is None:
             if pending is not None:
                 raise ValueError("event_commit_store_corrupt")
-            return self._seal_legacy_baseline_unlocked(actual_size).committed_byte_length
-        self._validate_commit_marker(committed, actual_size)
+            return self._seal_legacy_baseline_unlocked(
+                actual_size,
+                handle=handle,
+            ).committed_byte_length
+        self._validate_commit_marker(committed, actual_size, handle=handle)
         if pending is None:
-            self._truncate_event_log(committed.committed_byte_length)
+            self._validate_untracked_suffix(
+                committed.committed_byte_length,
+                actual_size,
+                handle=handle,
+            )
+            self._truncate_event_log(committed.committed_byte_length, handle=handle)
             return committed.committed_byte_length
         state = self._pending_marker_state(committed, pending)
         if actual_size >= pending.target_byte_length:
-            self._validate_pending_target(pending, actual_size)
+            self._validate_pending_target(pending, actual_size, handle=handle)
         if state == "base":
-            self._truncate_event_log(committed.committed_byte_length)
+            self._truncate_event_log(committed.committed_byte_length, handle=handle)
             self._clear_pending_commit()
             return committed.committed_byte_length
         if state == "target":
-            self._validate_pending_target(pending, actual_size)
-            self._truncate_event_log(committed.committed_byte_length)
+            self._validate_pending_target(pending, actual_size, handle=handle)
+            self._truncate_event_log(committed.committed_byte_length, handle=handle)
             self._clear_pending_commit()
             return committed.committed_byte_length
         raise ValueError("event_commit_store_corrupt")
@@ -937,95 +1052,103 @@ class FileEventStore:
         round_key = str(round_id)
         idempotency_key = str(request_key)
         with self._locked(self.event_lock):
-            prepared = self._prepare_events(round_key, events)
-            raw_request_hash = _sha256(
-                {
-                    "roundId": round_key,
-                    "events": [_normalized_event_for_hash(event) for event in events],
-                }
+            event_log_context = (
+                self.log.open("r+b") if self.log.exists() else nullcontext(None)
             )
-            request_hash = _sha256(
-                {
-                    "roundId": round_key,
-                    "events": [_normalized_event_for_hash(item.event) for item in prepared],
-                }
-            )
-            stored_log = self._stored_log()
-            stored_rows = list(stored_log.rows)
-            reservations = self._load_reservations()
-            request_preexisting = self._preflight_request(
-                round_id=round_key,
-                request_key=idempotency_key,
-                request_hash=request_hash,
-                raw_request_hash=raw_request_hash,
-                prepared=prepared,
-                stored_rows=stored_rows,
-                reservations=reservations,
-            )
+            with event_log_context as event_log_handle:
+                prepared = self._prepare_events(round_key, events)
+                raw_request_hash = _sha256(
+                    {
+                        "roundId": round_key,
+                        "events": [_normalized_event_for_hash(event) for event in events],
+                    }
+                )
+                request_hash = _sha256(
+                    {
+                        "roundId": round_key,
+                        "events": [_normalized_event_for_hash(item.event) for item in prepared],
+                    }
+                )
+                self._recover_event_log_unlocked(handle=event_log_handle)
+                stored_log = self._stored_log(handle=event_log_handle)
+                stored_rows = list(stored_log.rows)
+                reservations = self._load_reservations()
+                request_preexisting = self._preflight_request(
+                    round_id=round_key,
+                    request_key=idempotency_key,
+                    request_hash=request_hash,
+                    raw_request_hash=raw_request_hash,
+                    prepared=prepared,
+                    stored_rows=stored_rows,
+                    reservations=reservations,
+                )
 
-            reservation_key = self._reservation_key(round_key, idempotency_key)
-            if reservation_key not in reservations:
-                reservations[reservation_key] = {
-                    "roundId": round_key,
-                    "idempotencyKey": idempotency_key,
-                    "requestHash": request_hash,
-                }
-                self._write_reservations(reservations)
+                reservation_key = self._reservation_key(round_key, idempotency_key)
+                if reservation_key not in reservations:
+                    reservations[reservation_key] = {
+                        "roundId": round_key,
+                        "idempotencyKey": idempotency_key,
+                        "requestHash": request_hash,
+                    }
+                    self._write_reservations(reservations)
 
-            self._recover_event_log_unlocked()
+                positions: dict[tuple[str, str, str], tuple[str, int]] = {}
+                for stored in stored_rows:
+                    identity = self._event_identity(stored.row)
+                    event_hash = self._event_hash(stored.row)
+                    if identity is None or event_hash is None:
+                        continue
+                    existing = positions.get(identity)
+                    if existing is None or stored.position < existing[1]:
+                        positions[identity] = (event_hash, stored.position)
 
-            positions: dict[tuple[str, str, str], tuple[str, int]] = {}
-            for stored in stored_rows:
-                identity = self._event_identity(stored.row)
-                event_hash = self._event_hash(stored.row)
-                if identity is None or event_hash is None:
-                    continue
-                existing = positions.get(identity)
-                if existing is None or stored.position < existing[1]:
-                    positions[identity] = (event_hash, stored.position)
-
-            high_water = stored_log.high_water
-            receipts: list[EventReceipt] = []
-            rows_to_append: list[dict[str, Any]] = []
-            for item in prepared:
-                existing = positions.get(item.identity) if item.identity[2] else None
-                if existing is not None:
+                high_water = stored_log.high_water
+                receipts: list[EventReceipt] = []
+                rows_to_append: list[dict[str, Any]] = []
+                for item in prepared:
+                    existing = positions.get(item.identity) if item.identity[2] else None
+                    if existing is not None:
+                        receipts.append(
+                            EventReceipt(
+                                event_id=item.identity[2],
+                                status="duplicate_hash_match",
+                                position=existing[1],
+                                request_preexisting=request_preexisting,
+                            )
+                        )
+                        continue
+                    high_water += 1
+                    row = {
+                        "roundId": round_key,
+                        "idempotencyKey": idempotency_key,
+                        "serverSequence": high_water,
+                        "eventHash": item.event_hash,
+                        "requestHash": request_hash,
+                        "event": item.event,
+                    }
+                    rows_to_append.append(row)
+                    if item.identity[2]:
+                        positions[item.identity] = (item.event_hash, high_water)
                     receipts.append(
                         EventReceipt(
                             event_id=item.identity[2],
-                            status="duplicate_hash_match",
-                            position=existing[1],
+                            status="accepted",
+                            position=high_water,
                             request_preexisting=request_preexisting,
                         )
                     )
-                    continue
-                high_water += 1
-                row = {
-                    "roundId": round_key,
-                    "idempotencyKey": idempotency_key,
-                    "serverSequence": high_water,
-                    "eventHash": item.event_hash,
-                    "requestHash": request_hash,
-                    "event": item.event,
-                }
-                rows_to_append.append(row)
-                if item.identity[2]:
-                    positions[item.identity] = (item.event_hash, high_water)
-                receipts.append(
-                    EventReceipt(
-                        event_id=item.identity[2],
-                        status="accepted",
-                        position=high_water,
-                        request_preexisting=request_preexisting,
-                    )
-                )
-            self._append_rows(rows_to_append)
-            return AppendBatchResult(tuple(receipts), high_water)
+                if event_log_handle is None:
+                    self._append_rows(rows_to_append)
+                else:
+                    self._append_rows(rows_to_append, handle=event_log_handle)
+                return AppendBatchResult(tuple(receipts), high_water)
 
-    def _append_row(self, row: dict[str, Any]) -> None:
-        self._append_rows([row])
-
-    def _append_rows(self, rows: list[dict[str, Any]]) -> None:
+    def _append_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        handle: BinaryIO | None = None,
+    ) -> None:
         if not rows:
             return
         encoded_rows = [
@@ -1041,13 +1164,14 @@ class FileEventStore:
         actual_size = self._event_log_size()
         if actual_size != base_marker.committed_byte_length:
             raise ValueError("event_commit_store_corrupt")
-        self._validate_commit_marker(base_marker, actual_size)
-        with self.log.open("a+b") as handle:
-            handle.seek(0)
+        self._validate_commit_marker(base_marker, actual_size, handle=handle)
+        event_log_context = self.log.open("a+b") if handle is None else nullcontext(handle)
+        with event_log_context as event_log_handle:
+            event_log_handle.seek(0)
             prefix_digest = hashlib.sha256()
             remaining = base_marker.committed_byte_length
             while remaining:
-                chunk = handle.read(min(1024 * 1024, remaining))
+                chunk = event_log_handle.read(min(1024 * 1024, remaining))
                 if not chunk:
                     raise ValueError("event_commit_store_corrupt")
                 prefix_digest.update(chunk)
@@ -1072,12 +1196,12 @@ class FileEventStore:
                     legacy_baseline_byte_length=base_marker.legacy_baseline_byte_length,
                 )
             )
-            handle.seek(0, os.SEEK_END)
-            if handle.tell() != base_marker.committed_byte_length:
+            event_log_handle.seek(0, os.SEEK_END)
+            if event_log_handle.tell() != base_marker.committed_byte_length:
                 raise ValueError("event_commit_store_corrupt")
-            handle.write(tail)
-            handle.flush()
-            os.fsync(handle.fileno())
+            event_log_handle.write(tail)
+            event_log_handle.flush()
+            os.fsync(event_log_handle.fileno())
         self._fsync_directory()
         self._advance_committed_length(
             base_marker=base_marker,

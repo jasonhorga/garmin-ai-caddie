@@ -292,18 +292,29 @@ final class OfflineStoreTests: XCTestCase {
         )
         try store.appendEvent(event)
 
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
         let beforeEvents = try store.loadPendingEvents(roundId: "round-1")
-        let beforeBody = try JSONEncoder().encode(EventBatch(roundId: "round-1", events: beforeEvents))
+        let beforeBatch = try decoder.decode(
+            EventBatch.self,
+            from: encoder.encode(EventBatch(roundId: "round-1", events: beforeEvents))
+        )
         let beforeKey = "round-1-" + beforeEvents.map(\.eventId).joined(separator: "-")
+        let beforeLog = try Data(contentsOf: logURL)
 
         // The event POST response was lost, then the independently queued media upload succeeded.
         try store.removePendingMedia(ids: Set([attachment.id]))
 
         let afterEvents = try store.loadPendingEvents(roundId: "round-1")
-        let afterBody = try JSONEncoder().encode(EventBatch(roundId: "round-1", events: afterEvents))
+        let afterBatch = try decoder.decode(
+            EventBatch.self,
+            from: encoder.encode(EventBatch(roundId: "round-1", events: afterEvents))
+        )
         let afterKey = "round-1-" + afterEvents.map(\.eventId).joined(separator: "-")
-        XCTAssertEqual(afterBody, beforeBody)
+        XCTAssertEqual(afterBatch, beforeBatch)
         XCTAssertEqual(afterKey, beforeKey)
+        XCTAssertEqual(try Data(contentsOf: logURL), beforeLog)
     }
 
     func testApplyReplayEventsThrowsWhenAnyPageEventFailsToPersist() throws {
@@ -366,6 +377,57 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertTrue(try store.applyReplayEvents([replayed]))
         XCTAssertEqual(try store.loadEvents(), [existing, replayed])
         XCTAssertEqual(try Data(contentsOf: logURL).last, 0x0A)
+    }
+
+    func testCompleteInvalidJSONValuesAtEOFFailClosedAndPreserveBytes() throws {
+        let invalidValues = [
+            #"{"schema":"ai-caddie-live-round-event-v1"}"#,
+            #"["not-a-live-round-event"]"#,
+            "null",
+        ]
+        for invalidValue in invalidValues {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let logURL = directory.appendingPathComponent("events.jsonl")
+            let existing = LiveRoundEvent(
+                eventId: "existing",
+                roundId: "round-1",
+                clientId: "ios-phone",
+                timestamp: "2026-07-21T00:00:00Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(4)]
+            )
+            let replayed = LiveRoundEvent(
+                eventId: "must-not-bless-invalid-tail",
+                roundId: "round-1",
+                clientId: "apple-watch",
+                timestamp: "2026-07-21T00:00:01Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(5)]
+            )
+            var corruptLog = try JSONEncoder().encode(existing)
+            corruptLog.append(Data([0x0A]))
+            corruptLog.append(Data(invalidValue.utf8))
+            try corruptLog.write(to: logURL, options: [.atomic])
+            let original = try Data(contentsOf: logURL)
+            let store = OfflineStore(directoryURL: directory)
+
+            XCTAssertThrowsError(try store.loadEvents(), invalidValue) { error in
+                XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt)
+            }
+            XCTAssertEqual(try Data(contentsOf: logURL), original, invalidValue)
+            XCTAssertThrowsError(try store.applyReplayEvents([replayed]), invalidValue) { error in
+                XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt)
+            }
+            XCTAssertEqual(try Data(contentsOf: logURL), original, invalidValue)
+            XCTAssertThrowsError(try store.appendEvent(replayed), invalidValue) { error in
+                XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt)
+            }
+            XCTAssertEqual(try Data(contentsOf: logURL), original, invalidValue)
+        }
     }
 
     func testReplayFirstLogCreationRequiresFileAndDirectoryDurabilityBeforeSuccess() throws {
@@ -491,11 +553,16 @@ final class OfflineStoreTests: XCTestCase {
         corruptLog.append(Data([0x0A]))
         corruptLog.append(Data("{broken}\n".utf8))
         try corruptLog.write(to: logURL, options: [.atomic])
+        let original = try Data(contentsOf: logURL)
 
         XCTAssertThrowsError(try store.applyReplayEvents([replayed])) { error in
             XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt)
         }
-        XCTAssertEqual(try store.loadEvents(), [existing])
+        XCTAssertEqual(try Data(contentsOf: logURL), original)
+        XCTAssertThrowsError(try store.loadEvents()) { error in
+            XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt)
+        }
+        XCTAssertEqual(try Data(contentsOf: logURL), original)
     }
 
     func testAppendSyncMarkerPersistsAcknowledgementMetadata() throws {

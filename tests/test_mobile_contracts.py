@@ -2218,7 +2218,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(swift_fixture.read_bytes(), canonical_bytes)
         self.assertEqual(
             hashlib.sha256(canonical_bytes).hexdigest(),
-            "bc50f2ba6f1bff6c3894e201401237c5a0bb7e00d9c9c0a1e9e47b13429d328d",
+            "88fa86cb65ad5aa729838880244411cd8f459bc2771e74c882117295d326c07e",
         )
         corpus = json.loads(canonical_bytes)
         self.assertEqual(corpus["schema"], "ai-caddie-mobile-event-sanitizer-golden-v1")

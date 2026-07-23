@@ -138,6 +138,53 @@
           "count": 0
         }
       }
+    },
+    {
+      "name": "structural_fields_paths_unicode_bearers_and_exact_identity",
+      "input": {
+        "schema": "token=structural-secret from /opt/caddie/schema.json",
+        "eventId": "\\\\identity-server\\share\\event",
+        "roundId": "/srv/identity/round",
+        "clientId": "Bearer ı",
+        "timestamp": "Bearer İ /etc/caddie/timestamp.txt",
+        "hole": 5,
+        "kind": "note",
+        "payload": {
+          "note": "Bearer ı from /srv/caddie/private.txt",
+          "nested": {
+            "paths": [
+              "\\\\fileserver\\rounds\\secret.json",
+              "C:\\users\\alice\\lowercase.txt",
+              "Z:\\ProgramData\\caddie\\secret.txt",
+              "/mnt/caddie/generalized.txt",
+              "https://example.test/opt/public"
+            ],
+            "unicodeCredential": "Bearer 密钥Δ"
+          }
+        }
+      },
+      "expected": {
+        "schema": "token=[REDACTED] from [REDACTED_PATH]",
+        "eventId": "\\\\identity-server\\share\\event",
+        "roundId": "/srv/identity/round",
+        "clientId": "Bearer ı",
+        "timestamp": "Bearer [REDACTED] [REDACTED_PATH]",
+        "hole": 5,
+        "kind": "note",
+        "payload": {
+          "note": "Bearer [REDACTED] from [REDACTED_PATH]",
+          "nested": {
+            "paths": [
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "https://example.test/opt/public"
+            ],
+            "unicodeCredential": "Bearer [REDACTED]"
+          }
+        }
+      }
     }
   ]
 }

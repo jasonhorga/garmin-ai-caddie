@@ -39,7 +39,7 @@ SHARED_RESOURCE_OUTPUTS = {
     "mobile/ios/AICaddieTests/Fixtures/mobile_event_sanitizer_golden.json",
 }
 MOBILE_EVENT_SANITIZER_SHA256 = (
-    "bc50f2ba6f1bff6c3894e201401237c5a0bb7e00d9c9c0a1e9e47b13429d328d"
+    "88fa86cb65ad5aa729838880244411cd8f459bc2771e74c882117295d326c07e"
 )
 
 EVENT_KIND_REGISTRY = {
