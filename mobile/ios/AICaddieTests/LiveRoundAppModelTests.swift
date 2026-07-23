@@ -164,6 +164,30 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
     }
 }
 
+private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
+    if let body = request.httpBody {
+        return body
+    }
+    guard let stream = request.httpBodyStream else {
+        throw URLError(.zeroByteResource)
+    }
+    stream.open()
+    defer { stream.close() }
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 1024)
+    while stream.hasBytesAvailable {
+        let readCount = stream.read(&buffer, maxLength: buffer.count)
+        if readCount < 0 {
+            throw stream.streamError ?? URLError(.cannotDecodeContentData)
+        }
+        if readCount == 0 {
+            break
+        }
+        data.append(buffer, count: readCount)
+    }
+    return data
+}
+
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
     func testResponseLostEventRetryStaysExactAfterLaterMediaUploadSuccess() async throws {
@@ -253,7 +277,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             case "/api/v2/mobile/rounds/\(package.roundId)/events":
                 let captured = (
                     cycle: currentCycle,
-                    body: try XCTUnwrap(request.httpBody),
+                    body: try capturedRequestBodyData(from: request),
                     key: try XCTUnwrap(request.value(forHTTPHeaderField: "Idempotency-Key")),
                     log: try Data(contentsOf: logURL)
                 )
