@@ -156,6 +156,28 @@ class CanonicalContractIdTests(unittest.TestCase):
                 with self.assertRaisesRegex(CanonicalJSONError, "UTF-8"):
                     parser(raw)
 
+    def test_transport_parsers_normalize_malformed_json_syntax_errors(self) -> None:
+        cases = (
+            ("unclosed root array", b"[1,2"),
+            ("missing nested object value", b'{"outer":{"value":}}'),
+        )
+        for label, raw in cases:
+            for parser in (parse_unique_json, parse_canonical_json):
+                with self.subTest(label=label, parser=parser.__name__):
+                    try:
+                        parser(raw)
+                    except Exception as exc:
+                        self.assertIsInstance(exc, CanonicalJSONError)
+                    else:
+                        self.fail("malformed JSON syntax was accepted")
+
+    def test_transport_parsers_reject_non_finite_json_constants(self) -> None:
+        for raw in (b"NaN", b"Infinity", b"-Infinity"):
+            for parser in (parse_unique_json, parse_canonical_json):
+                with self.subTest(raw=raw, parser=parser.__name__):
+                    with self.assertRaisesRegex(CanonicalJSONError, "non-finite"):
+                        parser(raw)
+
     def test_parser_rejects_integer_negative_zero_token(self) -> None:
         with self.assertRaisesRegex(CanonicalJSONError, "negative zero"):
             parse_canonical_json(b"-0")
@@ -168,6 +190,11 @@ class CanonicalContractIdTests(unittest.TestCase):
                 b'{"value":9007199254740992}',
                 "safe range",
             ),
+            (
+                "unsafe integral float",
+                b'{"value":9007199254740992.0}',
+                "safe integer",
+            ),
             ("non-NFC string", b'{"value":"e\\u0301"}', "NFC"),
         )
 
@@ -177,10 +204,13 @@ class CanonicalContractIdTests(unittest.TestCase):
                     parsed = parse_unique_json(raw)
                 except CanonicalJSONError as exc:
                     self.fail(f"transport parser rejected syntactically valid JSON: {exc}")
-                with self.assertRaisesRegex(CanonicalJSONError, message):
-                    canonical_json_bytes(parsed)
-                with self.assertRaisesRegex(CanonicalJSONError, message):
-                    parse_canonical_json(raw)
+                for validator, value in (
+                    (canonical_json_bytes, parsed),
+                    (parse_canonical_json, raw),
+                ):
+                    with self.subTest(validator=validator.__name__):
+                        with self.assertRaisesRegex(CanonicalJSONError, message):
+                            validator(value)
 
         marker = parse_unique_json(b'{"value":-0}')["value"]
         self.assertIsInstance(marker, int)
