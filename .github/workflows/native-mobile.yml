@@ -32,7 +32,13 @@ jobs:
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
-            -destination "$IOS_DESTINATION"
+            -destination "$IOS_DESTINATION" \
+            -only-testing:AICaddieTests/OfflineStoreTests/testPrivacySanitizerCoversGeneratedPathAndUnicodeFamilies \
+            -only-testing:AICaddieTests/OfflineStoreTests/testCompleteJSONPrefixFollowedByTornSuffixFailsClosedAndPreservesBytes \
+            -only-testing:AICaddieTests/OfflineStoreTests/testReplayFirstLogCreationRequiresFileAndDirectoryDurabilityBeforeSuccess \
+            -only-testing:AICaddieTests/OfflineStoreTests/testNestedDirectoryBarrierFailuresRetryAllAncestorsBeforeEventMutation \
+            -only-testing:AICaddieTests/LiveRoundAppModelTests/testResponseLostEventRetryStaysExactAfterLaterMediaUploadSuccess \
+            -only-testing:AICaddieTests/LiveRoundAppModelTests/testExactReplayDirectoryBarrierFaultNeverSendsHTTPAck
       - name: Collect design snapshots
         if: always()
         run: |
