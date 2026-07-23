@@ -665,7 +665,7 @@ final class OfflineStoreTests: XCTestCase {
     }
 
     func testCompleteJSONPrefixFollowedByTornSuffixFailsClosedAndPreservesBytes() throws {
-        let completePrefixes = [
+        let completeOrInvalidPrefixes = [
             "object": #"{"schema":"complete-but-invalid"}"#,
             "array": #"["complete-but-invalid"]"#,
             "null": "null",
@@ -673,8 +673,18 @@ final class OfflineStoreTests: XCTestCase {
             "number": "-12.5e+3",
             "true": "true",
             "false": "false",
+            "invalid-string-escape": #"{"value":"bad\x"#,
         ]
-        for (prefixFamily, completePrefix) in completePrefixes {
+        let tornSuffix = #"{"eventId":"torn""#
+        var nonRepairableTails = completeOrInvalidPrefixes.map { name, prefix in
+            (name: name, bytes: Data((prefix + tornSuffix).utf8))
+        }
+        var invalidUTF8 = Data(#"{"value":"bad "#.utf8)
+        invalidUTF8.append(contentsOf: [0xE9, 0x28])
+        invalidUTF8.append(Data(tornSuffix.utf8))
+        nonRepairableTails.append((name: "invalid-utf8", bytes: invalidUTF8))
+
+        for (prefixFamily, nonRepairableTail) in nonRepairableTails {
             for operation in ["load", "replay", "append"] {
                 let directory = FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -703,7 +713,7 @@ final class OfflineStoreTests: XCTestCase {
                 )
                 var corruptLog = try JSONEncoder().encode(existing)
                 corruptLog.append(Data([0x0A]))
-                corruptLog.append(Data((completePrefix + #"{"eventId":"torn""#).utf8))
+                corruptLog.append(nonRepairableTail)
                 try corruptLog.write(to: logURL, options: [.atomic])
                 let original = try Data(contentsOf: logURL)
                 var repairFileBarriers: [URL] = []
