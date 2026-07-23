@@ -557,6 +557,62 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: logURL).last, 0x0A)
     }
 
+    func testGenuinelyIncompleteJSONPrefixesRemainRepairable() throws {
+        let tornKey = Data(#"{"eventId"#.utf8)
+        var partialEscape = Data(#"{"eventId":"torn"#.utf8)
+        partialEscape.append(0x5C)
+        var truncatedUTF8 = Data(#"{"eventId":"torn "#.utf8)
+        truncatedUTF8.append(contentsOf: Array("雪".utf8).prefix(2))
+        let tornPrefixes: [(name: String, bytes: Data)] = [
+            ("torn-key", tornKey),
+            ("partial-escape", partialEscape),
+            ("truncated-utf8", truncatedUTF8),
+        ]
+
+        for testCase in tornPrefixes {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            let logURL = directory.appendingPathComponent("events.jsonl")
+            let existing = LiveRoundEvent(
+                eventId: "existing-\(testCase.name)",
+                roundId: "round-1",
+                clientId: "ios-phone",
+                timestamp: "2026-07-21T00:00:00Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(4)]
+            )
+            let replayed = LiveRoundEvent(
+                eventId: "replayed-\(testCase.name)",
+                roundId: "round-1",
+                clientId: "apple-watch",
+                timestamp: "2026-07-21T00:00:01Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(5)]
+            )
+            var tornLog = try JSONEncoder().encode(existing)
+            tornLog.append(0x0A)
+            tornLog.append(testCase.bytes)
+            try tornLog.write(to: logURL, options: [.atomic])
+            let store = OfflineStore(directoryURL: directory)
+
+            XCTAssertTrue(try store.applyReplayEvents([replayed]), testCase.name)
+            XCTAssertEqual(
+                try store.loadEvents(),
+                [existing, replayed],
+                testCase.name
+            )
+            let repaired = try Data(contentsOf: logURL)
+            XCTAssertEqual(repaired.last, 0x0A, testCase.name)
+            XCTAssertEqual(repaired.split(separator: 0x0A).count, 2, testCase.name)
+        }
+    }
+
     func testCompleteInvalidJSONValuesAtEOFFailClosedAndPreserveBytes() throws {
         let invalidValues = [
             #"{"schema":"ai-caddie-live-round-event-v1"}"#,
@@ -613,6 +669,10 @@ final class OfflineStoreTests: XCTestCase {
             "object": #"{"schema":"complete-but-invalid"}"#,
             "array": #"["complete-but-invalid"]"#,
             "null": "null",
+            "string-escaped-unicode": #""escaped \"quote\" \\ snowman \u2603 雪""#,
+            "number": "-12.5e+3",
+            "true": "true",
+            "false": "false",
         ]
         for (prefixFamily, completePrefix) in completePrefixes {
             for operation in ["load", "replay", "append"] {
