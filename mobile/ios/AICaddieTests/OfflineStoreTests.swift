@@ -212,6 +212,101 @@ final class OfflineStoreTests: XCTestCase {
         }
     }
 
+    func testPrivacySanitizerCoversGeneratedPathAndUnicodeFamilies() throws {
+        var pathInputs: [String] = []
+        var pathExpected: [String] = []
+        for rootName in ["alpha", "opt", "srv-custom", "数据"] {
+            for boundary in ["", "path:", "source:", "value=", "("] {
+                pathInputs.append("\(boundary)/\(rootName)/private/file.txt")
+                pathExpected.append("\(boundary)[REDACTED_PATH]")
+            }
+        }
+        for driveLetter in ["C", "c", "Z", "z"] {
+            for separator in ["\\", "/"] {
+                pathInputs.append(
+                    "drive=\(driveLetter):\(separator)users\(separator)alice\(separator)private.txt"
+                )
+                pathExpected.append("drive=[REDACTED_PATH]")
+            }
+        }
+        pathInputs.append(contentsOf: [
+            #"\\fileserver\rounds\private.json"#,
+            "//fileserver/rounds/private.json",
+            "file:///var/mobile/private.json",
+            "FILE://server/share/private.json",
+        ])
+        pathExpected.append(contentsOf: Array(repeating: "[REDACTED_PATH]", count: 4))
+        let preservedURLs = [
+            "https://example.test/opt/public",
+            "http://example.test/srv/public",
+            "custom://host/root/public",
+        ]
+        let bearerInputs = ["Bearer İ", "Bearer ı", "Bearer 密钥Δ"]
+        let event = LiveRoundEvent(
+            schema: "source:/schema-root/private.json token=structural-secret",
+            eventId: "//identity-server/share/event",
+            roundId: "/identity-root/round",
+            clientId: "Bearer ı",
+            timestamp: "Bearer İ path:/clock-root/private.txt",
+            hole: 1,
+            kind: .note,
+            payload: [
+                "paths": .array(pathInputs.map(JSONValue.string)),
+                "urls": .array(preservedURLs.map(JSONValue.string)),
+                "bearers": .array(bearerInputs.map(JSONValue.string)),
+            ]
+        )
+        let localMedia = LiveRoundEvent(
+            eventId: "local-media-placeholder",
+            roundId: event.roundId,
+            clientId: "ios-phone",
+            timestamp: "2026-07-23T00:00:00Z",
+            hole: 1,
+            kind: .photo,
+            payload: [
+                "fileURL": .string("[REDACTED_LOCAL_MEDIA_URL]"),
+                "note": .string("public"),
+            ]
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+
+        try store.appendEvent(event)
+        try store.appendEvent(localMedia)
+        let events = try store.loadEvents()
+        let sanitized = try XCTUnwrap(events.first)
+        let sanitizedMedia = try XCTUnwrap(events.last)
+
+        XCTAssertEqual(sanitized.eventId, event.eventId)
+        XCTAssertEqual(sanitized.roundId, event.roundId)
+        XCTAssertEqual(sanitized.clientId, event.clientId)
+        XCTAssertEqual(
+            sanitized.schema,
+            "source:[REDACTED_PATH] token=[REDACTED]"
+        )
+        XCTAssertEqual(
+            sanitized.timestamp,
+            "Bearer [REDACTED] path:[REDACTED_PATH]"
+        )
+        XCTAssertEqual(
+            sanitized.payload["paths"],
+            .array(pathExpected.map(JSONValue.string))
+        )
+        XCTAssertEqual(
+            sanitized.payload["urls"],
+            .array(preservedURLs.map(JSONValue.string))
+        )
+        XCTAssertEqual(
+            sanitized.payload["bearers"],
+            .array(Array(repeating: .string("Bearer [REDACTED]"), count: bearerInputs.count))
+        )
+        XCTAssertEqual(
+            sanitizedMedia.payload["fileURL"],
+            .string("[REDACTED_LOCAL_MEDIA_URL]")
+        )
+    }
+
     func testAppendAndDiscardFailClosedOnMalformedMiddleEventRow() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -430,6 +525,54 @@ final class OfflineStoreTests: XCTestCase {
         }
     }
 
+    func testCompleteJSONPrefixFollowedByTornSuffixFailsClosedAndPreservesBytes() throws {
+        for operation in ["load", "replay", "append"] {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let logURL = directory.appendingPathComponent("events.jsonl")
+            let existing = LiveRoundEvent(
+                eventId: "existing",
+                roundId: "round-1",
+                clientId: "ios-phone",
+                timestamp: "2026-07-21T00:00:00Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(4)]
+            )
+            let incoming = LiveRoundEvent(
+                eventId: "must-not-bless-composite-tail",
+                roundId: "round-1",
+                clientId: "apple-watch",
+                timestamp: "2026-07-21T00:00:01Z",
+                hole: 1,
+                kind: .note,
+                payload: ["note": .string("must remain absent")]
+            )
+            var corruptLog = try JSONEncoder().encode(existing)
+            corruptLog.append(Data([0x0A]))
+            corruptLog.append(Data(#"{"schema":"complete-but-invalid"}{"eventId":"torn""#.utf8))
+            try corruptLog.write(to: logURL, options: [.atomic])
+            let original = try Data(contentsOf: logURL)
+            let store = OfflineStore(directoryURL: directory)
+
+            do {
+                switch operation {
+                case "load":
+                    _ = try store.loadEvents()
+                case "replay":
+                    _ = try store.applyReplayEvents([incoming])
+                default:
+                    try store.appendEvent(incoming)
+                }
+                XCTFail("\(operation) accepted a complete corrupt JSON prefix")
+            } catch {
+                XCTAssertEqual(error as? OfflineStoreError, .eventLogCorrupt, operation)
+            }
+            XCTAssertEqual(try Data(contentsOf: logURL), original, operation)
+        }
+    }
+
     func testReplayFirstLogCreationRequiresFileAndDirectoryDurabilityBeforeSuccess() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -464,11 +607,118 @@ final class OfflineStoreTests: XCTestCase {
             ["file:events.jsonl", "directory:\(directory.lastPathComponent)"]
         )
 
-        // The replace may already be visible despite an uncertain directory barrier. A normal
-        // retry must reuse the exact durable envelope rather than duplicate or conflict it.
-        let restarted = OfflineStore(directoryURL: directory)
-        XCTAssertFalse(try restarted.applyReplayEvents([replayed]))
-        XCTAssertEqual(try restarted.loadEvents(), [replayed])
+        // The replace may already be visible despite an uncertain directory barrier. Exact reuse
+        // must establish a fresh file + directory barrier before a successful page result.
+        var uncertainRetryBarriers: [String] = []
+        let uncertainRetry = OfflineStore(
+            directoryURL: directory,
+            syncEventLogFile: { url in
+                uncertainRetryBarriers.append("file:\(url.lastPathComponent)")
+            },
+            syncEventLogDirectory: { url in
+                uncertainRetryBarriers.append("directory:\(url.lastPathComponent)")
+                if url == directory {
+                    throw TestDurabilityFailure.directorySync
+                }
+            }
+        )
+        XCTAssertThrowsError(try uncertainRetry.applyReplayEvents([replayed])) { error in
+            XCTAssertEqual(error as? TestDurabilityFailure, .directorySync)
+        }
+        XCTAssertEqual(
+            Array(uncertainRetryBarriers.suffix(2)),
+            ["file:events.jsonl", "directory:\(directory.lastPathComponent)"]
+        )
+
+        var successfulRetryBarriers: [String] = []
+        let successfulRetry = OfflineStore(
+            directoryURL: directory,
+            syncEventLogFile: { url in
+                successfulRetryBarriers.append("file:\(url.lastPathComponent)")
+            },
+            syncEventLogDirectory: { url in
+                successfulRetryBarriers.append("directory:\(url.lastPathComponent)")
+            }
+        )
+        XCTAssertFalse(try successfulRetry.applyReplayEvents([replayed]))
+        XCTAssertEqual(
+            Array(successfulRetryBarriers.suffix(2)),
+            ["file:events.jsonl", "directory:\(directory.lastPathComponent)"]
+        )
+        XCTAssertEqual(try successfulRetry.loadEvents(), [replayed])
+    }
+
+    func testNestedDirectoryBarrierFailuresRetryAllAncestorsBeforeEventMutation() throws {
+        for failedIndex in 0..<3 {
+            let trustedAnchor = FileManager.default.temporaryDirectory.standardizedFileURL
+            let levelOne = trustedAnchor.appendingPathComponent(
+                "aicaddie-directory-barrier-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            defer { try? FileManager.default.removeItem(at: levelOne) }
+            let levelTwo = levelOne.appendingPathComponent("level-two", isDirectory: true)
+            let storeDirectory = levelTwo.appendingPathComponent("mobile-events", isDirectory: true)
+            let creationParents = [trustedAnchor, levelOne, levelTwo]
+            let failedParent = creationParents[failedIndex]
+            var failedOnce = false
+            var firstAttemptBarriers: [URL] = []
+            let event = LiveRoundEvent(
+                eventId: "nested-\(failedIndex)",
+                roundId: "round-1",
+                clientId: "ios-phone",
+                timestamp: "2026-07-23T00:00:00Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(4)]
+            )
+            let failingStore = OfflineStore(
+                directoryURL: storeDirectory,
+                syncEventLogFile: { _ in
+                    XCTFail("event file mutated before all directory barriers")
+                },
+                syncEventLogDirectory: { url in
+                    firstAttemptBarriers.append(url.standardizedFileURL)
+                    if url.standardizedFileURL == failedParent.standardizedFileURL,
+                       !failedOnce {
+                        failedOnce = true
+                        throw TestDurabilityFailure.directorySync
+                    }
+                }
+            )
+
+            XCTAssertThrowsError(try failingStore.appendEvent(event)) { error in
+                XCTAssertEqual(error as? TestDurabilityFailure, .directorySync)
+            }
+            XCTAssertTrue(failedOnce, "creation barrier \(failedIndex) was never exercised")
+            XCTAssertEqual(firstAttemptBarriers.last, failedParent.standardizedFileURL)
+            let logURL = storeDirectory.appendingPathComponent("events.jsonl")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: logURL.path))
+
+            var retryBarriers: [URL] = []
+            let retryStore = OfflineStore(
+                directoryURL: storeDirectory,
+                syncEventLogFile: { _ in
+                    XCTAssertEqual(
+                        Array(retryBarriers.prefix(creationParents.count)),
+                        creationParents.map(\.standardizedFileURL)
+                    )
+                },
+                syncEventLogDirectory: { url in
+                    retryBarriers.append(url.standardizedFileURL)
+                    if retryBarriers.count <= creationParents.count {
+                        XCTAssertFalse(FileManager.default.fileExists(atPath: logURL.path))
+                    }
+                }
+            )
+
+            try retryStore.appendEvent(event)
+
+            XCTAssertEqual(
+                Array(retryBarriers.prefix(creationParents.count)),
+                creationParents.map(\.standardizedFileURL)
+            )
+            XCTAssertEqual(try retryStore.loadEvents(), [event])
+        }
     }
 
     func testTornTailReplacementRequiresFileAndDirectoryDurabilityBeforeReplaySuccess() throws {
