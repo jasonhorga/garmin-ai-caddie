@@ -4,6 +4,7 @@ import json
 import hashlib
 import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -96,7 +97,9 @@ def _validate_authority_manifest(value: Any) -> dict[str, Any]:
             ):
                 raise AuthorityViolation(f"invalid {key} declaration")
 
-    _string_list(value["canonicalRoots"], label="canonicalRoots")
+    canonical_roots = _string_list(value["canonicalRoots"], label="canonicalRoots")
+    if not canonical_roots:
+        raise AuthorityViolation("invalid canonicalRoots: expected a non-empty string list")
     for adapter in value["legacyAdapters"]:
         if not isinstance(adapter, dict) or set(adapter) != {
             "path", "mode", "allowedProperties", "forbiddenEnumValues",
@@ -115,9 +118,14 @@ def _validate_authority_manifest(value: Any) -> dict[str, Any]:
     for rule in value["forbiddenSymbols"]:
         if not isinstance(rule, dict) or set(rule) != {"paths", "values"}:
             raise AuthorityViolation("invalid forbidden symbol declaration")
-        _string_list(rule["paths"], label="forbidden symbol paths")
+        paths = _string_list(rule["paths"], label="forbidden symbol paths")
+        if not paths:
+            raise AuthorityViolation(
+                "invalid forbidden symbol paths: expected a non-empty string list"
+            )
         _string_list(rule["values"], label="forbidden symbol values")
 
+    generated_names: set[str] = set()
     for group in value["generatedGroups"]:
         if (
             not isinstance(group, dict)
@@ -126,8 +134,19 @@ def _validate_authority_manifest(value: Any) -> dict[str, Any]:
             or not group["name"]
         ):
             raise AuthorityViolation("invalid generated group declaration")
-        _string_list(group["sources"], label="generated group sources")
-        _string_list(group["outputs"], label="generated group outputs")
+        if group["name"] in generated_names:
+            raise AuthorityViolation(f"duplicate generated group name: {group['name']}")
+        generated_names.add(group["name"])
+        sources = _string_list(group["sources"], label="generated group sources")
+        outputs = _string_list(group["outputs"], label="generated group outputs")
+        if not sources:
+            raise AuthorityViolation(
+                "invalid generated group sources: expected a non-empty string list"
+            )
+        if not outputs:
+            raise AuthorityViolation(
+                "invalid generated group outputs: expected a non-empty string list"
+            )
     return value
 
 
@@ -175,8 +194,17 @@ def _json_pointer_exists(path: Path, fragment: str) -> bool:
         return False
     try:
         for raw in fragment[1:].split("/"):
+            if re.search(r"~(?:[^01]|$)", raw):
+                return False
             token = raw.replace("~1", "/").replace("~0", "~")
-            value = value[int(token)] if isinstance(value, list) else value[token]
+            if isinstance(value, list):
+                if not re.fullmatch(r"0|[1-9][0-9]*", token, flags=re.ASCII):
+                    return False
+                value = value[int(token)]
+            elif isinstance(value, dict):
+                value = value[token]
+            else:
+                return False
     except (KeyError, IndexError, TypeError, ValueError):
         return False
     return True
@@ -190,6 +218,10 @@ def _repo_relative_path(
     body = value[1:] if allow_gitwildmatch and value.startswith("!") else value
     if allow_gitwildmatch and value.startswith("!!"):
         raise AuthorityViolation(f"invalid {label}: {value!r}")
+    if allow_gitwildmatch and body.startswith("#"):
+        raise AuthorityViolation(f"invalid {label}: comment-only pattern {value!r}")
+    if allow_gitwildmatch and body != body.strip():
+        raise AuthorityViolation(f"invalid {label}: non-normalized pattern {value!r}")
     segments = body.split("/")
     if (
         not body
@@ -205,15 +237,62 @@ def _repo_relative_path(
         if allow_gitwildmatch and any(marker in segment for marker in "*?["):
             break
         static_segments.append(segment)
-    resolved = root.joinpath(*static_segments).resolve()
+    try:
+        resolved = root.joinpath(*static_segments).resolve()
+    except (OSError, RuntimeError) as exc:
+        raise AuthorityViolation(f"invalid {label}: {value!r}: {exc}") from exc
     if resolved != root and root not in resolved.parents:
         raise AuthorityViolation(f"invalid {label}: {value!r}")
     return value
 
 
+def _compile_gitwildmatch(patterns: list[str], *, label: str) -> pathspec.PathSpec:
+    try:
+        return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+    except (ValueError, re.error) as exc:
+        raise AuthorityViolation(f"invalid {label}: {exc}") from exc
+
+
+def _existing_regular_file(path: Path, *, label: str) -> bool:
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise AuthorityViolation(f"cannot inspect {label}: {path}: {exc}") from exc
+    if not stat.S_ISREG(mode):
+        raise AuthorityViolation(f"{label} is not a regular file: {path}")
+    return True
+
+
+def _read_bytes(path: Path, *, label: str) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise AuthorityViolation(f"cannot read {label}: {path}: {exc}") from exc
+
+
+def _read_utf8_text(path: Path, *, label: str) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise AuthorityViolation(f"cannot read {label}: {path}: {exc}") from exc
+
+
+def _require_directory(path: Path, *, label: str) -> None:
+    try:
+        mode = path.lstat().st_mode
+    except OSError as exc:
+        raise AuthorityViolation(f"{label} is not a directory: {path}: {exc}") from exc
+    if not stat.S_ISDIR(mode):
+        raise AuthorityViolation(f"{label} is not a directory: {path}")
+
+
 def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
     root = root.resolve()
     manifest_path = root / "contracts/canonical/authority.json"
+    if not _existing_regular_file(manifest_path, label="authority manifest"):
+        raise AuthorityViolation(f"authority manifest is missing: {manifest_path}")
     manifest = _validate_authority_manifest(_load_unique_json(manifest_path))
     violations: list[str] = []
     legacy_adapters: list[tuple[dict[str, Any], str]] = []
@@ -222,14 +301,19 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
         if _LEGACY_ADAPTER_MODES.get(relative) != adapter["mode"]:
             raise AuthorityViolation(f"legacy adapter mode mismatch: {relative}")
         legacy_adapters.append((adapter, relative))
-    changed = {
-        _repo_relative_path(root, value, label="changed path") for value in changed_paths
-    }
+    changed: set[str] = set()
+    for value in changed_paths:
+        relative = _repo_relative_path(root, value, label="changed path")
+        _existing_regular_file(root / relative, label=f"changed path {relative!r}")
+        changed.add(relative)
     manifest_relative = manifest_path.relative_to(root).as_posix()
-    roots = tuple(
-        (root / _repo_relative_path(root, value, label="canonical root path")).resolve()
-        for value in manifest["canonicalRoots"]
-    )
+    roots_list: list[Path] = []
+    for value in manifest["canonicalRoots"]:
+        relative = _repo_relative_path(root, value, label="canonical root path")
+        canonical_root = root / relative
+        _require_directory(canonical_root, label=f"canonical root {relative!r}")
+        roots_list.append(canonical_root.resolve())
+    roots = tuple(roots_list)
 
     for collection, label in (
         (manifest["authoritativeInputs"], "authoritative input path"),
@@ -238,10 +322,11 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
         for item in collection:
             relative = _repo_relative_path(root, item["path"], label=label)
             path = root / relative
-            if not path.is_file():
+            input_label = f"{label.removesuffix(' path')} {relative!r}"
+            if not _existing_regular_file(path, label=input_label):
                 violations.append(f"declared authority input missing: {relative}")
                 continue
-            actual_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+            actual_sha = hashlib.sha256(_read_bytes(path, label=input_label)).hexdigest()
             if actual_sha != item["sha256"]:
                 violations.append(f"pinned input sha256 mismatch: {relative}")
             current_blob = _git_output(root, "hash-object", "--", relative)
@@ -265,10 +350,21 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
                     violations.append(f"pinned input working blob mismatch: {relative}")
 
     for adapter, relative in legacy_adapters:
-        if relative not in changed or not (root / relative).is_file():
+        if relative not in changed:
+            continue
+        if not _existing_regular_file(
+            root / relative, label=f"legacy adapter {relative!r}"
+        ):
             continue
         payload = _load_unique_json(root / relative)
-        properties = set(payload.get("properties") or {})
+        if not isinstance(payload, dict):
+            raise AuthorityViolation(f"malformed legacy contract: {relative}: expected object")
+        raw_properties = payload.get("properties", {})
+        if not isinstance(raw_properties, dict):
+            raise AuthorityViolation(
+                f"malformed legacy contract: {relative}: properties must be an object"
+            )
+        properties = set(raw_properties)
         unexpected = properties - set(adapter["allowedProperties"])
         if unexpected:
             violations.append(f"legacy contract expanded: {relative}: {sorted(unexpected)}")
@@ -283,16 +379,16 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
             )
             for value in rule["paths"]
         ]
-        matcher = pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+        matcher = _compile_gitwildmatch(patterns, label="forbidden symbol pattern")
         for relative in changed:
             if relative == manifest_relative:
                 continue
             if not matcher.match_file(relative):
                 continue
             path = root / relative
-            if not path.is_file():
+            if not _existing_regular_file(path, label=f"protected path {relative!r}"):
                 continue
-            content = path.read_text(encoding="utf-8")
+            content = _read_utf8_text(path, label=f"protected path {relative!r}")
             for symbol in rule["values"]:
                 token = rf"(?<![A-Za-z0-9_]){re.escape(symbol)}(?![A-Za-z0-9_])"
                 if re.search(token, content):
@@ -316,7 +412,9 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
     for group, sources, outputs in generated_groups:
         if len(outputs) != len(set(outputs)):
             violations.append(f"duplicate generated output inside group {group['name']}")
-        source_matcher = pathspec.PathSpec.from_lines("gitwildmatch", sources)
+        source_matcher = _compile_gitwildmatch(
+            sources, label=f"generated source pattern for {group['name']}"
+        )
         for output in outputs:
             if source_matcher.match_file(output):
                 violations.append(
@@ -330,7 +428,9 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
                 )
 
     for group, sources, outputs in generated_groups:
-        source_matcher = pathspec.PathSpec.from_lines("gitwildmatch", sources)
+        source_matcher = _compile_gitwildmatch(
+            sources, label=f"generated source pattern for {group['name']}"
+        )
         changed_sources = {relative for relative in changed if source_matcher.match_file(relative)}
         changed_outputs = changed & set(outputs)
         if changed_sources and not changed_outputs:
@@ -343,7 +443,7 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
             )
 
     registry_path = root / "contracts/canonical/canonical_object_registry.json"
-    if registry_path.is_file():
+    if _existing_regular_file(registry_path, label="canonical object registry"):
         registry = _validate_registry(_load_unique_json(registry_path))
         if registry.get("canonicalization") != "RFC8785+AI-Caddie-v1":
             violations.append("canonical object registry has wrong canonicalization")
@@ -376,9 +476,13 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
             if (
                 not isinstance(included, list) or not included
                 or not all(isinstance(value, str) for value in included)
+                or not all(included)
+                or len(included) != len(set(included))
                 or ("*" in included and included != ["*"])
                 or not isinstance(excluded, list)
                 or not all(isinstance(value, str) for value in excluded)
+                or not all(excluded)
+                or len(excluded) != len(set(excluded))
                 or set(included) & set(excluded)
             ):
                 violations.append(f"invalid canonical field projection: {name}")
@@ -389,11 +493,17 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
             schema_path = _repo_relative_path(
                 root, schema_path, label=f"canonical schemaRef path for {name}"
             )
-            resolved = (root / schema_path).resolve()
+            schema_file = root / schema_path
+            if not _existing_regular_file(
+                schema_file, label=f"canonical schemaRef for {name}"
+            ):
+                violations.append(f"unresolved canonical schemaRef: {name}")
+                continue
+            resolved = schema_file.resolve()
             if not any(resolved == value or value in resolved.parents for value in roots):
                 violations.append(f"schemaRef escapes canonical roots: {name}")
                 continue
-            if not resolved.is_file() or not _json_pointer_exists(resolved, fragment):
+            if not _json_pointer_exists(resolved, fragment):
                 violations.append(f"unresolved canonical schemaRef: {name}")
 
     if violations:

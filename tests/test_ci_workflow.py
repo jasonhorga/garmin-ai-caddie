@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -63,6 +66,142 @@ class CIWorkflowTests(unittest.TestCase):
             ],
             run_lines,
         )
+
+    def test_canonical_authority_uses_one_full_history_checkout_and_exact_ranges(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        backend_steps = workflow["jobs"]["backend"]["steps"]
+        checkout_steps = [
+            step for step in backend_steps if step.get("uses") == "actions/checkout@v4"
+        ]
+        self.assertEqual(1, len(checkout_steps))
+        self.assertEqual(0, checkout_steps[0]["with"]["fetch-depth"])
+
+        steps = {step.get("name"): step for step in backend_steps}
+        resolver = steps["Resolve canonical authority diff base"]
+        self.assertEqual("canonical-authority-base", resolver["id"])
+        self.assertEqual(
+            {
+                "EVENT_NAME": "${{ github.event_name }}",
+                "PR_BASE_SHA": "${{ github.event.pull_request.base.sha }}",
+                "PUSH_BEFORE_SHA": "${{ github.event.before }}",
+            },
+            resolver["env"],
+        )
+        self.assertEqual(
+            [
+                "set -euo pipefail",
+                'if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then',
+                '  test -n "$PR_BASE_SHA"',
+                '  echo "range=${PR_BASE_SHA}...HEAD" >> "$GITHUB_OUTPUT"',
+                'elif [[ "$EVENT_NAME" == "push" && -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]]; then',
+                '  echo "range=${PUSH_BEFORE_SHA}..HEAD" >> "$GITHUB_OUTPUT"',
+                "else",
+                "  git rev-parse HEAD^ >/dev/null",
+                '  echo "range=HEAD^..HEAD" >> "$GITHUB_OUTPUT"',
+                "fi",
+            ],
+            resolver["run"].splitlines(),
+        )
+
+    def test_canonical_authority_range_resolver_executes_event_semantics(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        steps = {
+            step.get("name"): step for step in workflow["jobs"]["backend"]["steps"]
+        }
+        script = steps["Resolve canonical authority diff base"]["run"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            for index in (1, 2):
+                (root / "tracked.txt").write_text(f"{index}\n", encoding="utf-8")
+                subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True)
+                subprocess.run(
+                    [
+                        "git", "-c", "user.name=CI Test", "-c",
+                        "user.email=ci@example.invalid", "commit", "-qm", f"commit {index}",
+                    ],
+                    cwd=root, check=True,
+                )
+            base = subprocess.run(
+                ["git", "rev-parse", "HEAD^"], cwd=root, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+
+            scenarios = (
+                ("pull_request", base, "", f"range={base}...HEAD"),
+                ("pull_request_target", base, "", f"range={base}...HEAD"),
+                ("push", "", base, f"range={base}..HEAD"),
+                ("push", "", "0" * 40, "range=HEAD^..HEAD"),
+                ("workflow_dispatch", "", "", "range=HEAD^..HEAD"),
+            )
+            for index, (event, pr_base, push_before, expected) in enumerate(scenarios):
+                with self.subTest(event=event, push_before=push_before):
+                    output = root / f"github-output-{index}"
+                    env = {
+                        **os.environ,
+                        "EVENT_NAME": event,
+                        "PR_BASE_SHA": pr_base,
+                        "PUSH_BEFORE_SHA": push_before,
+                        "GITHUB_OUTPUT": str(output),
+                    }
+                    result = subprocess.run(
+                        ["bash", "-c", script], cwd=root, env=env,
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(expected, output.read_text(encoding="utf-8").strip())
+
+            missing_pr_base = subprocess.run(
+                ["bash", "-c", script], cwd=root,
+                env={
+                    **os.environ,
+                    "EVENT_NAME": "pull_request",
+                    "PR_BASE_SHA": "",
+                    "PUSH_BEFORE_SHA": "",
+                    "GITHUB_OUTPUT": str(root / "missing-pr-output"),
+                },
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(0, missing_pr_base.returncode)
+
+    def test_canonical_authority_invalid_diff_range_fails_the_exact_ci_step(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        steps = {
+            step.get("name"): step for step in workflow["jobs"]["backend"]["steps"]
+        }
+        script = steps["Check canonical contract authority"]["run"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            (root / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git", "-c", "user.name=CI Test", "-c",
+                    "user.email=ci@example.invalid", "commit", "-qm", "initial",
+                ],
+                cwd=root, check=True,
+            )
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            uv = bin_dir / "uv"
+            uv.write_text("#!/bin/sh\ncat >/dev/null\nexit 0\n", encoding="utf-8")
+            uv.chmod(0o755)
+
+            result = subprocess.run(
+                ["bash", "-c", script], cwd=root,
+                env={
+                    **os.environ,
+                    "AUTHORITY_RANGE": "definitely-missing-ref..HEAD",
+                    "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                },
+                capture_output=True, text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("definitely-missing-ref..HEAD", result.stderr)
 
     def test_private_trial_smoke_can_send_admin_token_header(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
