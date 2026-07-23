@@ -110,6 +110,7 @@ ROUND_TRANSPORT_LIMITS = {
     "maxSyncPathIdCharacters": 128,
     "maxReplayPageSize": 500,
 }
+JAVASCRIPT_MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
 REASON_CODE_REGISTRY = {
     "schema": "ai-caddie-reason-code-registry-v1",
@@ -493,6 +494,112 @@ class ContractCodegenTests(unittest.TestCase):
                 },
             )
 
+    def test_event_kind_declarations_are_exact_sorted_and_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root, registry_root, _ = self._copy_contract_repo(tmp)
+            out_of_order_kinds = {
+                "zeta_defaulted_event": {
+                    "payloadRef": "contracts/canonical/future.schema.json",
+                    "futureNormativeField": {"preserved": True},
+                },
+                "gamma_commit_eligible": {
+                    "submissionClass": "ordinary_or_resolution_commit",
+                },
+                "beta_commit_only": {
+                    "submissionClass": "resolution_commit_only",
+                },
+                "alpha_resolution_opened": {
+                    "submissionClass": "resolution_prerequisite",
+                    "anotherFutureField": ["preserved"],
+                },
+            }
+            self._write_json(
+                registry_root / "event_kind_registry.json",
+                {"schema": EVENT_KIND_REGISTRY["schema"], "kinds": out_of_order_kinds},
+            )
+
+            outputs = contract_codegen.generate_all(registry_root, repo_root)
+            repeated_outputs = contract_codegen.generate_all(registry_root, repo_root)
+            self.assertEqual(set(outputs), GENERATED_OUTPUTS)
+            self.assertEqual(
+                {relative: content.encode("utf-8") for relative, content in outputs.items()},
+                {
+                    relative: content.encode("utf-8")
+                    for relative, content in repeated_outputs.items()
+                },
+            )
+
+            python_declarations = [
+                line
+                for line in outputs["ai_caddie/contracts/generated.py"].splitlines()
+                if line.startswith(("EVENT_KINDS = ", "EVENT_SUBMISSION_CLASSES = "))
+            ]
+            self.assertEqual(
+                python_declarations,
+                [
+                    "EVENT_KINDS = ('alpha_resolution_opened', 'beta_commit_only', "
+                    "'gamma_commit_eligible', 'zeta_defaulted_event')",
+                    "EVENT_SUBMISSION_CLASSES = {'alpha_resolution_opened': "
+                    "'resolution_prerequisite', 'beta_commit_only': "
+                    "'resolution_commit_only', 'gamma_commit_eligible': "
+                    "'ordinary_or_resolution_commit', 'zeta_defaulted_event': "
+                    "'ordinary_event'}",
+                ],
+            )
+
+            swift = outputs["mobile/ios/AICaddieDomain/GeneratedContracts.swift"]
+            swift_kind_section = swift[
+                swift.index("public struct RoundEventKind") : swift.index(
+                    "\n\npublic struct ReasonCode"
+                )
+            ]
+            self.assertEqual(
+                swift_kind_section,
+                """public struct RoundEventKind: RawRepresentable, Codable, Hashable, Sendable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public init(from decoder: Decoder) throws {
+        self.rawValue = try decoder.singleValueContainer().decode(String.self)
+    }
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+    public static let knownValues: Set<String> = ["alpha_resolution_opened", "beta_commit_only", "gamma_commit_eligible", "zeta_defaulted_event"]
+    public static let submissionClasses: [String: RoundEventSubmissionClass] = [
+        "alpha_resolution_opened": .resolutionPrerequisite,
+        "beta_commit_only": .resolutionCommitOnly,
+        "gamma_commit_eligible": .ordinaryOrResolutionCommit,
+        "zeta_defaulted_event": .ordinaryEvent,
+    ]
+    public static let alphaResolutionOpened = RoundEventKind(rawValue: "alpha_resolution_opened")
+    public static let betaCommitOnly = RoundEventKind(rawValue: "beta_commit_only")
+    public static let gammaCommitEligible = RoundEventKind(rawValue: "gamma_commit_eligible")
+    public static let zetaDefaultedEvent = RoundEventKind(rawValue: "zeta_defaulted_event")
+}""",
+            )
+
+            typescript_declarations = [
+                line
+                for line in outputs["web_v2/src/contracts/generated.ts"].splitlines()
+                if line.startswith(
+                    ("export const roundEventKinds = ", "export const roundEventSubmissionClasses = ")
+                )
+            ]
+            self.assertEqual(
+                typescript_declarations,
+                [
+                    'export const roundEventKinds = ["alpha_resolution_opened", '
+                    '"beta_commit_only", "gamma_commit_eligible", '
+                    '"zeta_defaulted_event"] as const',
+                    'export const roundEventSubmissionClasses = {"alpha_resolution_opened": '
+                    '"resolution_prerequisite", "beta_commit_only": '
+                    '"resolution_commit_only", "gamma_commit_eligible": '
+                    '"ordinary_or_resolution_commit", "zeta_defaulted_event": '
+                    '"ordinary_event"} as const',
+                ],
+            )
+
     def test_rejects_invalid_names_and_swift_identifier_collisions(self) -> None:
         invalid_cases: list[tuple[str, dict[str, Any], dict[str, Any], str]] = []
 
@@ -573,6 +680,76 @@ class ContractCodegenTests(unittest.TestCase):
                 self._write_json(registry_root / "reason_codes.json", reasons)
                 with self.assertRaisesRegex(ValueError, message):
                     contract_codegen.generate_all(registry_root, repo_root)
+
+    def test_accepts_max_safe_integer_for_every_transport_limit(self) -> None:
+        for key in ROUND_TRANSPORT_LIMITS:
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
+                repo_root, registry_root, _ = self._copy_contract_repo(tmp)
+                reasons = copy.deepcopy(REASON_CODE_REGISTRY)
+                reasons["roundTransportLimits"][key] = JAVASCRIPT_MAX_SAFE_INTEGER
+                self._write_json(registry_root / "reason_codes.json", reasons)
+
+                outputs = contract_codegen.generate_all(registry_root, repo_root)
+                python_namespace: dict[str, object] = {}
+                exec(outputs["ai_caddie/contracts/generated.py"], python_namespace)
+                self.assertEqual(
+                    python_namespace["ROUND_TRANSPORT_LIMITS"][key],
+                    JAVASCRIPT_MAX_SAFE_INTEGER,
+                )
+                swift_match = re.search(
+                    rf"^\s+public static let {re.escape(key)} = ([0-9]+)$",
+                    outputs["mobile/ios/AICaddieDomain/GeneratedContracts.swift"],
+                    re.MULTILINE,
+                )
+                self.assertIsNotNone(swift_match, key)
+                assert swift_match is not None
+                self.assertEqual(int(swift_match.group(1)), JAVASCRIPT_MAX_SAFE_INTEGER)
+                self.assertEqual(
+                    self._typescript_const(
+                        outputs["web_v2/src/contracts/generated.ts"],
+                        "roundTransportLimits",
+                    )[key],
+                    JAVASCRIPT_MAX_SAFE_INTEGER,
+                )
+
+    def test_rejects_above_max_safe_integer_for_every_transport_limit(self) -> None:
+        invalid_value = JAVASCRIPT_MAX_SAFE_INTEGER + 1
+        for key in ROUND_TRANSPORT_LIMITS:
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
+                repo_root, registry_root, _ = self._copy_contract_repo(tmp)
+                reasons = copy.deepcopy(REASON_CODE_REGISTRY)
+                reasons["roundTransportLimits"][key] = invalid_value
+                self._write_json(registry_root / "reason_codes.json", reasons)
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    rf"^roundTransportLimits\.{re.escape(key)} must be a positive integer "
+                    rf"no greater than {JAVASCRIPT_MAX_SAFE_INTEGER}; got {invalid_value}$",
+                ):
+                    contract_codegen.generate_all(registry_root, repo_root)
+
+    def test_rejects_invalid_scalar_for_every_transport_limit(self) -> None:
+        invalid_values = (
+            ("bool", True),
+            ("float", 1.5),
+            ("zero", 0),
+            ("negative", -1),
+        )
+        for key in ROUND_TRANSPORT_LIMITS:
+            for label, invalid_value in invalid_values:
+                with (
+                    self.subTest(key=key, invalid=label),
+                    tempfile.TemporaryDirectory() as tmp,
+                ):
+                    repo_root, registry_root, _ = self._copy_contract_repo(tmp)
+                    reasons = copy.deepcopy(REASON_CODE_REGISTRY)
+                    reasons["roundTransportLimits"][key] = invalid_value
+                    self._write_json(registry_root / "reason_codes.json", reasons)
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        rf"roundTransportLimits\.{re.escape(key)}.*positive integer",
+                    ):
+                        contract_codegen.generate_all(registry_root, repo_root)
 
     def test_swift_package_declares_shared_domain_targets_and_resources(self) -> None:
         package = Path("Package.swift").read_text(encoding="utf-8")

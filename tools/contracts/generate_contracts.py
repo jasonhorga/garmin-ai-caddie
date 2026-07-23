@@ -39,6 +39,7 @@ _ROUND_TRANSPORT_LIMIT_KEYS = (
     "maxSyncPathIdCharacters",
     "maxReplayPageSize",
 )
+_JAVASCRIPT_MAX_SAFE_INTEGER = 9_007_199_254_740_991
 _RAW_NAME = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*", re.ASCII)
 _SWIFT_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
 _SWIFT_RESERVED_WORDS = frozenset(
@@ -303,8 +304,16 @@ def _validate_reason_registry(
     limits: dict[str, int] = {}
     for key in sorted(expected_limit_keys):
         value = limits_object[key]
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ValueError(f"roundTransportLimits.{key} must be a positive integer; got {value!r}")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value <= 0
+            or value > _JAVASCRIPT_MAX_SAFE_INTEGER
+        ):
+            raise ValueError(
+                f"roundTransportLimits.{key} must be a positive integer no greater than "
+                f"{_JAVASCRIPT_MAX_SAFE_INTEGER}; got {value!r}"
+            )
         limits[key] = value
 
     sorted_codes = sorted(codes)
