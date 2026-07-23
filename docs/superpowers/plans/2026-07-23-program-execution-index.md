@@ -99,7 +99,7 @@ enough to mark `VERIFIED`.
 |---|---|---|---|
 | Plan 1 Task 1 authority gate | `VERIFIED` | `41fca67`, `3f6016e`, `362f26c`, `a28ae70`, `819f9f2`, `71149b7`; [verification record](../reviews/2026-07-23-plan1-task1-authority-gate-verification.md) | Dependency satisfied; Task 2 verified |
 | Plan 1 Task 2 CanonicalJSON/typed IDs | `VERIFIED` | `07bcb61`, `c00ebef`, `16044d4`, `f308056`, `09770d7`; [verification record](../reviews/2026-07-23-plan1-task2-canonical-json-typed-id-verification.md) | POP → verify/fix Plan 1 Task 3 |
-| Plan 1 Task 3 registries/generated declarations | `CANDIDATE_IMPLEMENTED` | `cfac7cf`, `7a6fa22` | Registry/codegen audit and remote drift tests |
+| Plan 1 Task 3 registries/generated declarations | `VERIFIED` | `cfac7cf`, `7a6fa22`, `b6b818a`; [verification record](../reviews/2026-07-23-plan1-task3-registry-codegen-verification.md) | POP → verify/fix Plan 1 Task 4 |
 | Plan 1 Task 4 mobile event durability | `CANDIDATE_IMPLEMENTED` | `964fef2` through `8ef2996` | Recovery/ordering requirement audit and native/static evidence |
 | Plan 1 Tasks 5–14 including 13a | `PENDING` | Dossier only | Extract the next bounded task card after Tasks 1–4 are verified |
 | Plan 2 B1–B17 | `PENDING` | Dossier and pre-existing reusable code only | Baseline acquisition/install dependency audit |
