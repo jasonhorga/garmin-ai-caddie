@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import json
 import unittest
 from collections.abc import Iterator, Mapping
@@ -15,8 +14,15 @@ from ai_caddie.contracts.canonical_json import (
     parse_canonical_json,
     parse_unique_json,
 )
-from ai_caddie.contracts.canonical_objects import CanonicalObjectError
+from ai_caddie.contracts.canonical_objects import (
+    GENERATED_CANONICAL_OBJECTS,
+    CanonicalObjectDescriptor,
+    CanonicalObjectError,
+)
 from ai_caddie.contracts.typed_ids import typed_id
+
+
+JAVASCRIPT_MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
 
 class _StatefulCanonicalPayload(Mapping[str, object]):
@@ -39,6 +45,87 @@ class _StatefulCanonicalPayload(Mapping[str, object]):
 
 
 class CanonicalContractIdTests(unittest.TestCase):
+    def test_accepts_all_json_value_types_nesting_and_safe_integer_boundaries(self) -> None:
+        cases = (
+            ("null", None, b"null"),
+            ("true", True, b"true"),
+            ("false", False, b"false"),
+            ("zero", 0, b"0"),
+            (
+                "minimum safe integer",
+                -JAVASCRIPT_MAX_SAFE_INTEGER,
+                b"-9007199254740991",
+            ),
+            (
+                "maximum safe integer",
+                JAVASCRIPT_MAX_SAFE_INTEGER,
+                b"9007199254740991",
+            ),
+            (
+                "minimum safe integral float",
+                float(-JAVASCRIPT_MAX_SAFE_INTEGER),
+                b"-9007199254740991",
+            ),
+            (
+                "maximum safe integral float",
+                float(JAVASCRIPT_MAX_SAFE_INTEGER),
+                b"9007199254740991",
+            ),
+            ("finite fraction", 1.5, b"1.5"),
+            ("empty string", "", b'""'),
+            ("NFC string", "\u00e9", b'"\xc3\xa9"'),
+            ("empty array", [], b"[]"),
+            ("empty object", {}, b"{}"),
+            (
+                "nested arrays and objects with NFC keys and values",
+                {"z": [None, True, False, {"\u00e9": "\u00e9"}], "a": 0},
+                b'{"a":0,"z":[null,true,false,{"\xc3\xa9":"\xc3\xa9"}]}',
+            ),
+        )
+
+        for label, value, expected in cases:
+            with self.subTest(label=label):
+                self.assertEqual(canonical_json_bytes(value), expected)
+
+    def test_rejects_all_noncanonical_or_unsupported_python_values(self) -> None:
+        cases = (
+            (
+                "positive unsafe integer",
+                JAVASCRIPT_MAX_SAFE_INTEGER + 1,
+                "safe range",
+            ),
+            (
+                "negative unsafe integer",
+                -JAVASCRIPT_MAX_SAFE_INTEGER - 1,
+                "safe range",
+            ),
+            (
+                "positive unsafe integral float",
+                float(JAVASCRIPT_MAX_SAFE_INTEGER + 1),
+                "safe integer",
+            ),
+            (
+                "negative unsafe integral float",
+                float(-JAVASCRIPT_MAX_SAFE_INTEGER - 1),
+                "safe integer",
+            ),
+            ("NaN", float("nan"), "non-finite"),
+            ("positive infinity", float("inf"), "non-finite"),
+            ("negative infinity", float("-inf"), "non-finite"),
+            ("negative zero", -0.0, "negative zero"),
+            ("non-NFC value", "e\u0301", "NFC"),
+            ("non-NFC key", {"e\u0301": "value"}, "NFC"),
+            ("non-string key", {1: "value"}, "keys must be strings"),
+            ("tuple", (), "unsupported canonical type: tuple"),
+            ("set", set(), "unsupported canonical type: set"),
+            ("bytes", b"value", "unsupported canonical type: bytes"),
+        )
+
+        for label, value, message in cases:
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(CanonicalJSONError, message):
+                    canonical_json_bytes(value)
+
     def test_orders_keys_and_preserves_exact_utf8(self) -> None:
         self.assertEqual(
             canonical_json_bytes({"z": 1, "a": "球场"}),
@@ -55,29 +142,49 @@ class CanonicalContractIdTests(unittest.TestCase):
         with self.assertRaisesRegex(CanonicalJSONError, "safe integer"):
             canonical_json_bytes({"value": 9_007_199_254_740_992.0})
 
-    def test_strict_parser_rejects_duplicate_object_keys(self) -> None:
+    def test_transport_parsers_reject_duplicate_object_keys(self) -> None:
         raw = Path("contracts/canonical/fixtures/canonical_json_duplicate_key.json").read_bytes()
-        with self.assertRaisesRegex(CanonicalJSONError, "duplicate object key: eventId"):
-            parse_canonical_json(raw)
+        for parser in (parse_unique_json, parse_canonical_json):
+            with self.subTest(parser=parser.__name__):
+                with self.assertRaisesRegex(CanonicalJSONError, "duplicate object key: eventId"):
+                    parser(raw)
 
-    def test_parser_requires_strict_utf8_bytes(self) -> None:
-        with self.assertRaisesRegex(CanonicalJSONError, "UTF-8"):
-            parse_canonical_json('"not utf8 transport"'.encode("utf-16"))
+    def test_transport_parsers_require_strict_utf8_bytes(self) -> None:
+        raw = '"not utf8 transport"'.encode("utf-16")
+        for parser in (parse_unique_json, parse_canonical_json):
+            with self.subTest(parser=parser.__name__):
+                with self.assertRaisesRegex(CanonicalJSONError, "UTF-8"):
+                    parser(raw)
 
     def test_parser_rejects_integer_negative_zero_token(self) -> None:
         with self.assertRaisesRegex(CanonicalJSONError, "negative zero"):
             parse_canonical_json(b"-0")
 
-    def test_unique_parser_preserves_integer_negative_zero_for_event_validation(self) -> None:
-        try:
-            parsed = parse_unique_json(b'{"value":-0}')
-        except CanonicalJSONError as exc:
-            self.fail(f"transport parser rejected syntactically valid JSON: {exc}")
-        marker = parsed["value"]
+    def test_unique_parser_defers_canonical_semantic_value_validation(self) -> None:
+        cases = (
+            ("integer negative zero", b'{"value":-0}', "negative zero"),
+            (
+                "unsafe integer",
+                b'{"value":9007199254740992}',
+                "safe range",
+            ),
+            ("non-NFC string", b'{"value":"e\\u0301"}', "NFC"),
+        )
+
+        for label, raw, message in cases:
+            with self.subTest(label=label):
+                try:
+                    parsed = parse_unique_json(raw)
+                except CanonicalJSONError as exc:
+                    self.fail(f"transport parser rejected syntactically valid JSON: {exc}")
+                with self.assertRaisesRegex(CanonicalJSONError, message):
+                    canonical_json_bytes(parsed)
+                with self.assertRaisesRegex(CanonicalJSONError, message):
+                    parse_canonical_json(raw)
+
+        marker = parse_unique_json(b'{"value":-0}')["value"]
         self.assertIsInstance(marker, int)
         self.assertIsNot(type(marker), int)
-        with self.assertRaisesRegex(CanonicalJSONError, "negative zero"):
-            canonical_json_bytes(marker)
 
     def test_rejects_lone_surrogates_in_values_and_keys(self) -> None:
         for value in ("\ud800", {"\udfff": "value"}):
@@ -113,12 +220,66 @@ class CanonicalContractIdTests(unittest.TestCase):
         )
 
     def test_unknown_domain_fails_before_hashing(self) -> None:
-        with self.assertRaisesRegex(CanonicalObjectError, "unregistered canonical domain"):
-            typed_id("NotRegistered/v1", {"a": "same", "z": 1})
+        with patch("ai_caddie.contracts.typed_ids._typed_digest") as typed_digest:
+            with self.assertRaisesRegex(CanonicalObjectError, "unregistered canonical domain"):
+                typed_id("NotRegistered/v1", {"a": "same", "z": 1})
+        typed_digest.assert_not_called()
 
     def test_schema_invalid_payload_fails_before_hashing(self) -> None:
-        with self.assertRaisesRegex(CanonicalObjectError, "schema validation failed"):
-            typed_id("CanonicalFixtureAlpha/v1", {"a": "same", "z": "one"})
+        with patch("ai_caddie.contracts.typed_ids._typed_digest") as typed_digest:
+            with self.assertRaisesRegex(CanonicalObjectError, "schema validation failed"):
+                typed_id("CanonicalFixtureAlpha/v1", {"a": "same", "z": "one"})
+        typed_digest.assert_not_called()
+
+    def test_complete_schema_validation_precedes_wildcard_and_explicit_projection(self) -> None:
+        descriptors = (
+            (
+                "wildcard",
+                GENERATED_CANONICAL_OBJECTS.require_domain("CanonicalFixtureAlpha/v1"),
+            ),
+            (
+                "explicit",
+                CanonicalObjectDescriptor(
+                    object_name="ExplicitCanonicalFixture",
+                    domain_tag="ExplicitCanonicalFixture/v1",
+                    schema_ref="contracts/canonical/canonical_fixture_v1.schema.json",
+                    included_fields=("a", "z"),
+                    excluded_fields=frozenset({"transportNote"}),
+                ),
+            ),
+        )
+        valid = {"a": "same", "z": 1, "transportNote": "delivery metadata"}
+        invalid_excluded = {"a": "same", "z": 1, "transportNote": "x" * 129}
+
+        for branch, descriptor in descriptors:
+            with self.subTest(branch=branch, payload="valid excluded field"):
+                self.assertEqual(
+                    descriptor.validate_and_project(valid),
+                    {"a": "same", "z": 1},
+                )
+            with self.subTest(branch=branch, payload="invalid excluded field"):
+                with self.assertRaisesRegex(
+                    CanonicalObjectError,
+                    "schema validation failed.*transportNote",
+                ):
+                    descriptor.validate_and_project(invalid_excluded)
+
+    def test_explicit_projection_rejects_schema_allowed_but_unclassified_fields(self) -> None:
+        descriptor = CanonicalObjectDescriptor(
+            object_name="ExplicitCanonicalFixture",
+            domain_tag="ExplicitCanonicalFixture/v1",
+            schema_ref="contracts/canonical/canonical_fixture_v1.schema.json",
+            included_fields=("a", "z"),
+            excluded_fields=frozenset(),
+        )
+
+        with self.assertRaisesRegex(
+            CanonicalObjectError,
+            "unclassified fields.*transportNote",
+        ):
+            descriptor.validate_and_project(
+                {"a": "same", "z": 1, "transportNote": "schema allowed"}
+            )
 
     def test_excluded_transport_field_does_not_change_semantic_id(self) -> None:
         first = {"a": "same", "z": 1, "transportNote": "first delivery"}

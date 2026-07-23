@@ -21,6 +21,20 @@ GENERATED_OUTPUTS = {
     "mobile/ios/AICaddieDomain/GeneratedContracts.swift",
     "web_v2/src/contracts/generated.ts",
 }
+CANONICAL_OBJECT_DESCRIPTORS = {
+    "CanonicalFixtureAlpha": {
+        "domainTag": "CanonicalFixtureAlpha/v1",
+        "schemaRef": "contracts/canonical/canonical_fixture_v1.schema.json",
+        "includedFields": ["*"],
+        "excludedFields": ["transportNote"],
+    },
+    "CanonicalFixtureBeta": {
+        "domainTag": "CanonicalFixtureBeta/v1",
+        "schemaRef": "contracts/canonical/canonical_fixture_v1.schema.json",
+        "includedFields": ["*"],
+        "excludedFields": ["transportNote"],
+    },
+}
 SHARED_RESOURCE_OUTPUTS = {
     "mobile/ios/AICaddieTests/Fixtures/mobile_event_sanitizer_golden.json",
 }
@@ -156,6 +170,33 @@ class ContractCodegenTests(unittest.TestCase):
         assert match is not None
         return json.loads(match.group(1))
 
+    def _swift_canonical_descriptors(self, source: str) -> dict[str, dict[str, Any]]:
+        section = source.split("public enum GeneratedCanonicalObjects", 1)[1].split(
+            "public enum RoundEventSubmissionClass", 1
+        )[0]
+        quoted = r'("(?:\\.|[^"\\])*")'
+        rows = re.findall(
+            rf"^\s+{quoted}: CanonicalObjectDescriptor\("
+            rf"objectName: {quoted}, domainTag: {quoted}, schemaRef: {quoted}, "
+            rf"includedFields: (\[[^\n]*\]), excludedFields: (\[[^\n]*\])\),$",
+            section,
+            re.MULTILINE,
+        )
+        descriptors: dict[str, dict[str, Any]] = {}
+        for domain_key, object_name, domain_tag, schema_ref, included, excluded in rows:
+            normalized_domain_key = json.loads(domain_key)
+            normalized_name = json.loads(object_name)
+            normalized_domain_tag = json.loads(domain_tag)
+            self.assertEqual(normalized_domain_key, normalized_domain_tag)
+            self.assertNotIn(normalized_name, descriptors)
+            descriptors[normalized_name] = {
+                "domainTag": normalized_domain_tag,
+                "schemaRef": json.loads(schema_ref),
+                "includedFields": json.loads(included),
+                "excludedFields": json.loads(excluded),
+            }
+        return descriptors
+
     def test_checked_in_outputs_match_all_canonical_sources(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             outputs = contract_codegen.generate_all(Path("contracts/canonical"), Path(tmp))
@@ -259,6 +300,28 @@ class ContractCodegenTests(unittest.TestCase):
             "export type RoundEventKind = typeof roundEventKinds[number] | (string & {})",
             typescript,
         )
+
+    def test_generated_canonical_descriptors_are_exact_and_identical_in_all_languages(self) -> None:
+        outputs = contract_codegen.generate_all(Path("contracts/canonical"), Path("."))
+
+        python_namespace: dict[str, object] = {}
+        exec(outputs["ai_caddie/contracts/generated.py"], python_namespace)
+        python_descriptors = python_namespace["CANONICAL_OBJECT_DESCRIPTORS"]
+        swift_descriptors = self._swift_canonical_descriptors(
+            outputs["mobile/ios/AICaddieDomain/GeneratedContracts.swift"]
+        )
+        typescript_descriptors = self._typescript_const(
+            outputs["web_v2/src/contracts/generated.ts"],
+            "canonicalObjectDescriptors",
+        )
+
+        for language, descriptors in (
+            ("Python", python_descriptors),
+            ("Swift", swift_descriptors),
+            ("TypeScript", typescript_descriptors),
+        ):
+            with self.subTest(language=language):
+                self.assertEqual(descriptors, CANONICAL_OBJECT_DESCRIPTORS)
 
     def test_swift_name_is_deterministic_lower_camel_case(self) -> None:
         self.assertEqual(
