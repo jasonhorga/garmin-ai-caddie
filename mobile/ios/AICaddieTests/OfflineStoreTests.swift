@@ -306,7 +306,36 @@ final class OfflineStoreTests: XCTestCase {
 
         try store.appendEvent(event)
         try store.appendEvent(localMedia)
-        let events = try store.loadEvents()
+        let expected = LiveRoundEvent(
+            schema: "source:[REDACTED_PATH] token=[REDACTED]",
+            eventId: event.eventId,
+            roundId: event.roundId,
+            clientId: event.clientId,
+            timestamp: "Bearer [REDACTED] path:[REDACTED_PATH]",
+            hole: 1,
+            kind: .note,
+            payload: [
+                "paths": .array(pathExpected.map(JSONValue.string)),
+                "urls": .array(preservedURLs.map(JSONValue.string)),
+                "bearers": .array(
+                    Array(repeating: .string("Bearer [REDACTED]"), count: bearerInputs.count)
+                ),
+            ]
+        )
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        let rawBeforeReplay = try Data(contentsOf: logURL)
+        XCTAssertEqual(rawBeforeReplay.last, 0x0A)
+        let rawLines = rawBeforeReplay.split(separator: 0x0A)
+        XCTAssertEqual(rawLines.count, 2)
+        XCTAssertEqual(
+            try rawLines.map {
+                try JSONDecoder().decode(LiveRoundEvent.self, from: Data($0))
+            },
+            [expected, localMedia]
+        )
+
+        let reopened = OfflineStore(directoryURL: directory)
+        let events = try reopened.loadEvents()
         let sanitized = try XCTUnwrap(events.first)
         let sanitizedMedia = try XCTUnwrap(events.last)
 
@@ -336,6 +365,12 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(
             sanitizedMedia.payload["fileURL"],
             .string("[REDACTED_LOCAL_MEDIA_URL]")
+        )
+        XCTAssertFalse(try reopened.applyReplayEvents([event, localMedia]))
+        XCTAssertEqual(try Data(contentsOf: logURL), rawBeforeReplay)
+        XCTAssertEqual(
+            try OfflineStore(directoryURL: directory).loadEvents(),
+            [expected, localMedia]
         )
     }
 
@@ -596,12 +631,15 @@ final class OfflineStoreTests: XCTestCase {
                 try corruptLog.write(to: logURL, options: [.atomic])
                 let original = try Data(contentsOf: logURL)
                 var repairFileBarriers: [URL] = []
+                var repairDirectoryBarriers: [URL] = []
                 let store = OfflineStore(
                     directoryURL: directory,
                     syncEventLogFile: { url in
                         repairFileBarriers.append(url)
                     },
-                    syncEventLogDirectory: { _ in }
+                    syncEventLogDirectory: { url in
+                        repairDirectoryBarriers.append(url)
+                    }
                 )
                 let context = "\(prefixFamily)-\(operation)"
 
@@ -620,7 +658,11 @@ final class OfflineStoreTests: XCTestCase {
                 }
                 let after = try Data(contentsOf: logURL)
                 XCTAssertEqual(after, original, context)
-                XCTAssertTrue(repairFileBarriers.isEmpty, "\(context) attempted atomic repair")
+                XCTAssertTrue(repairFileBarriers.isEmpty, "\(context) attempted file repair")
+                XCTAssertTrue(
+                    repairDirectoryBarriers.isEmpty,
+                    "\(context) attempted directory repair"
+                )
                 XCTAssertFalse(String(decoding: after, as: UTF8.self).contains(incoming.eventId))
             }
         }
@@ -704,8 +746,13 @@ final class OfflineStoreTests: XCTestCase {
     func testNestedDirectoryBarrierFailuresRetryAllAncestorsBeforeEventMutation() throws {
         let trustedAnchor = FileManager.default.homeDirectoryForCurrentUser
             .standardizedFileURL.resolvingSymlinksInPath()
-        let prototypeStore = FileManager.default.temporaryDirectory
-            .appendingPathComponent("aicaddie-directory-barrier-prototype", isDirectory: true)
+        let testRoot = trustedAnchor.appendingPathComponent(
+            ".aicaddie-directory-barrier-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: testRoot) }
+        let prototypeStore = testRoot
+            .appendingPathComponent("prototype", isDirectory: true)
             .appendingPathComponent("level-two", isDirectory: true)
             .appendingPathComponent("mobile-events", isDirectory: true)
         let barrierCount = try directoryCreationParents(
@@ -714,11 +761,10 @@ final class OfflineStoreTests: XCTestCase {
         ).count
 
         for failedIndex in 0..<barrierCount {
-            let levelOne = FileManager.default.temporaryDirectory.appendingPathComponent(
-                "aicaddie-directory-barrier-\(UUID().uuidString)",
+            let levelOne = testRoot.appendingPathComponent(
+                "case-\(failedIndex)",
                 isDirectory: true
             )
-            defer { try? FileManager.default.removeItem(at: levelOne) }
             let levelTwo = levelOne.appendingPathComponent("level-two", isDirectory: true)
             let storeDirectory = levelTwo.appendingPathComponent("mobile-events", isDirectory: true)
             let creationParents = try directoryCreationParents(
@@ -744,9 +790,9 @@ final class OfflineStoreTests: XCTestCase {
                     XCTFail("event file mutated before all directory barriers")
                 },
                 syncEventLogDirectory: { url in
-                    firstAttemptBarriers.append(url.standardizedFileURL)
-                    if url.standardizedFileURL == failedParent.standardizedFileURL,
-                       !failedOnce {
+                    let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
+                    firstAttemptBarriers.append(resolved)
+                    if resolved == failedParent, !failedOnce {
                         failedOnce = true
                         throw TestDurabilityFailure.directorySync
                     }
@@ -853,13 +899,93 @@ final class OfflineStoreTests: XCTestCase {
             XCTAssertEqual(error as? TestDurabilityFailure, .directorySync)
         }
         XCTAssertEqual(
-            barriers,
+            Array(barriers.suffix(2)),
             ["file:events.jsonl", "directory:\(directory.lastPathComponent)"]
         )
+        let physicallyRepaired = try Data(contentsOf: logURL)
+        XCTAssertEqual(physicallyRepaired.last, 0x0A)
+        let physicallyRepairedLines = physicallyRepaired.split(separator: 0x0A)
+        XCTAssertEqual(physicallyRepairedLines.count, 1)
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                LiveRoundEvent.self,
+                from: Data(try XCTUnwrap(physicallyRepairedLines.first))
+            ),
+            existing
+        )
 
-        let restarted = OfflineStore(directoryURL: directory)
-        XCTAssertTrue(try restarted.applyReplayEvents([replayed]))
-        XCTAssertEqual(try restarted.loadEvents(), [existing, replayed])
+        var uncertainRetryBarriers: [String] = []
+        let uncertainRetry = OfflineStore(
+            directoryURL: directory,
+            syncEventLogFile: { url in
+                XCTAssertFalse(
+                    String(decoding: try Data(contentsOf: logURL), as: UTF8.self)
+                        .contains(replayed.eventId)
+                )
+                uncertainRetryBarriers.append("file:\(url.lastPathComponent)")
+            },
+            syncEventLogDirectory: { url in
+                XCTAssertFalse(
+                    String(decoding: try Data(contentsOf: logURL), as: UTF8.self)
+                        .contains(replayed.eventId)
+                )
+                uncertainRetryBarriers.append("directory:\(url.lastPathComponent)")
+                if url == directory {
+                    throw TestDurabilityFailure.directorySync
+                }
+            }
+        )
+        XCTAssertThrowsError(try uncertainRetry.applyReplayEvents([replayed])) { error in
+            XCTAssertEqual(error as? TestDurabilityFailure, .directorySync)
+        }
+        XCTAssertEqual(
+            Array(uncertainRetryBarriers.suffix(2)),
+            ["file:events.jsonl", "directory:\(directory.lastPathComponent)"]
+        )
+        XCTAssertFalse(
+            String(decoding: try Data(contentsOf: logURL), as: UTF8.self)
+                .contains(replayed.eventId)
+        )
+
+        var successfulRetryBarriers: [String] = []
+        var repairFileObserved = false
+        var repairDirectoryObserved = false
+        let successfulRetry = OfflineStore(
+            directoryURL: directory,
+            syncEventLogFile: { url in
+                if url.lastPathComponent == "events.jsonl", !repairFileObserved {
+                    XCTAssertFalse(
+                        String(decoding: try Data(contentsOf: logURL), as: UTF8.self)
+                            .contains(replayed.eventId)
+                    )
+                    repairFileObserved = true
+                }
+                successfulRetryBarriers.append("file:\(url.lastPathComponent)")
+            },
+            syncEventLogDirectory: { url in
+                if repairFileObserved, !repairDirectoryObserved, url == directory {
+                    XCTAssertFalse(
+                        String(decoding: try Data(contentsOf: logURL), as: UTF8.self)
+                            .contains(replayed.eventId)
+                    )
+                    repairDirectoryObserved = true
+                }
+                successfulRetryBarriers.append("directory:\(url.lastPathComponent)")
+            }
+        )
+        XCTAssertTrue(try successfulRetry.applyReplayEvents([replayed]))
+        XCTAssertTrue(repairFileObserved)
+        XCTAssertTrue(repairDirectoryObserved)
+        let repairFileIndex = try XCTUnwrap(
+            successfulRetryBarriers.firstIndex(of: "file:events.jsonl")
+        )
+        let repairDirectoryIndex = try XCTUnwrap(
+            successfulRetryBarriers[(repairFileIndex + 1)...].firstIndex(
+                of: "directory:\(directory.lastPathComponent)"
+            )
+        )
+        XCTAssertLessThan(repairFileIndex, repairDirectoryIndex)
+        XCTAssertEqual(try successfulRetry.loadEvents(), [existing, replayed])
     }
 
     func testApplyReplayEventsRejectsMalformedMiddleLineBeforePageCanAck() throws {

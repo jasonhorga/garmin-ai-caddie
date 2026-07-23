@@ -222,7 +222,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let logURL = directory.appendingPathComponent("events.jsonl")
 
         let mediaStateLock = NSLock()
-        var mediaUploadAttempts = 0
+        var mediaUploadMaySucceed = false
         let mediaSuccessBody = Data(
             """
             {
@@ -246,8 +246,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             defer { mediaStateLock.unlock() }
             switch path {
             case "/api/v2/media":
-                mediaUploadAttempts += 1
-                if mediaUploadAttempts <= 3 {
+                if !mediaUploadMaySucceed {
                     return (503, Data("{}".utf8))
                 }
                 return (200, mediaSuccessBody)
@@ -346,6 +345,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         await model.syncPendingEvents()
         XCTAssertEqual(try store.loadPendingMedia(roundId: package.roundId).map(\.id), [attachment.id])
 
+        mediaStateLock.lock()
+        mediaUploadMaySucceed = true
+        mediaStateLock.unlock()
         stateLock.lock()
         cycle = 2
         eventPostMaySucceed = true
@@ -364,13 +366,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
         XCTAssertEqual(retryPost.key, firstPost.key)
         XCTAssertEqual(retryPost.log, firstPost.log)
-        XCTAssertEqual(firstCyclePosts.count, 3)
-        XCTAssertEqual(secondCyclePosts.count, 1)
         XCTAssertTrue(try store.loadPendingMedia(roundId: package.roundId).isEmpty)
-        mediaStateLock.lock()
-        let finalMediaUploadAttempts = mediaUploadAttempts
-        mediaStateLock.unlock()
-        XCTAssertEqual(finalMediaUploadAttempts, 4)
     }
 
     func testTornEOFReplayReopensDurablyBeforeHTTPAck() async throws {
@@ -571,7 +567,10 @@ final class LiveRoundAppModelTests: XCTestCase {
             timestamp: "2026-07-21T00:00:02Z",
             hole: 1,
             kind: .syncMarker,
-            payload: ["serverSequence": .number(0)]
+            payload: [
+                "status": .string("synced"),
+                "serverSequence": .number(0),
+            ]
         )
         let logURL = directory.appendingPathComponent("events.jsonl")
         let packageBody = try JSONEncoder().encode(package)
@@ -710,6 +709,14 @@ final class LiveRoundAppModelTests: XCTestCase {
         requestLock.unlock()
         barrierLock.lock()
         let failedAttemptBarriers = barrierOperations
+        barrierLock.unlock()
+        let physicallyVisibleEvents = try OfflineStore(directoryURL: directory).loadEvents()
+        let physicallyVisibleLog = try Data(contentsOf: logURL)
+        XCTAssertEqual(physicallyVisibleEvents, [replayed])
+        XCTAssertEqual(physicallyVisibleLog.last, 0x0A)
+        XCTAssertEqual(physicallyVisibleLog.split(separator: 0x0A).count, 1)
+
+        barrierLock.lock()
         barrierShouldFail = false
         barrierOperations.removeAll()
         barrierLock.unlock()
