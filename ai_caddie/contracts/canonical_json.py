@@ -80,6 +80,13 @@ def _parse_integer(token: str) -> int:
     return int(token)
 
 
+def _parse_float(token: str) -> float:
+    value = float(token)
+    if not math.isfinite(value):
+        raise CanonicalJSONError(f"non-finite number: {token}")
+    return value
+
+
 def parse_canonical_json(raw: str | bytes) -> Any:
     value = parse_unique_json(raw)
     _validate(value)
@@ -104,6 +111,7 @@ def parse_unique_json(raw: str | bytes) -> Any:
             raw,
             object_pairs_hook=_reject_duplicate_pairs,
             parse_int=_parse_integer,
+            parse_float=_parse_float,
             parse_constant=lambda token: (_ for _ in ()).throw(
                 CanonicalJSONError(f"non-finite number: {token}")
             ),

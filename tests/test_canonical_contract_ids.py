@@ -178,6 +178,13 @@ class CanonicalContractIdTests(unittest.TestCase):
                     with self.assertRaisesRegex(CanonicalJSONError, "non-finite"):
                         parser(raw)
 
+    def test_transport_parsers_reject_exponent_overflow_as_non_finite(self) -> None:
+        for raw in (b"1e400", b"-1e400"):
+            for parser in (parse_unique_json, parse_canonical_json):
+                with self.subTest(raw=raw, parser=parser.__name__):
+                    with self.assertRaisesRegex(CanonicalJSONError, "non-finite"):
+                        parser(raw)
+
     def test_parser_rejects_integer_negative_zero_token(self) -> None:
         with self.assertRaisesRegex(CanonicalJSONError, "negative zero"):
             parse_canonical_json(b"-0")
