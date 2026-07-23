@@ -97,8 +97,8 @@ enough to mark `VERIFIED`.
 
 | Slice | Status | Current evidence | Next proof |
 |---|---|---|---|
-| Plan 1 Task 1 authority gate | `VERIFIED` | `41fca67`, `3f6016e`, `362f26c`, `a28ae70`, `819f9f2`, `71149b7`; [verification record](../reviews/2026-07-23-plan1-task1-authority-gate-verification.md) | POP → verify/fix Plan 1 Task 2 |
-| Plan 1 Task 2 CanonicalJSON/typed IDs | `CANDIDATE_IMPLEMENTED` | `07bcb61`, `c00ebef` | Requirement audit, cross-language fixtures, remote focused tests |
+| Plan 1 Task 1 authority gate | `VERIFIED` | `41fca67`, `3f6016e`, `362f26c`, `a28ae70`, `819f9f2`, `71149b7`; [verification record](../reviews/2026-07-23-plan1-task1-authority-gate-verification.md) | Dependency satisfied; Task 2 verified |
+| Plan 1 Task 2 CanonicalJSON/typed IDs | `VERIFIED` | `07bcb61`, `c00ebef`, `16044d4`, `f308056`, `09770d7`; [verification record](../reviews/2026-07-23-plan1-task2-canonical-json-typed-id-verification.md) | POP → verify/fix Plan 1 Task 3 |
 | Plan 1 Task 3 registries/generated declarations | `CANDIDATE_IMPLEMENTED` | `cfac7cf`, `7a6fa22` | Registry/codegen audit and remote drift tests |
 | Plan 1 Task 4 mobile event durability | `CANDIDATE_IMPLEMENTED` | `964fef2` through `8ef2996` | Recovery/ordering requirement audit and native/static evidence |
 | Plan 1 Tasks 5–14 including 13a | `PENDING` | Dossier only | Extract the next bounded task card after Tasks 1–4 are verified |
