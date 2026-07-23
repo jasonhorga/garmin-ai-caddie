@@ -97,7 +97,7 @@ enough to mark `VERIFIED`.
 
 | Slice | Status | Current evidence | Next proof |
 |---|---|---|---|
-| Plan 1 Task 1 authority gate | `CANDIDATE_IMPLEMENTED` | `41fca67`, `3f6016e`, `362f26c` | Requirement audit, remote focused tests, two-stage review |
+| Plan 1 Task 1 authority gate | `VERIFIED` | `41fca67`, `3f6016e`, `362f26c`, `a28ae70`, `819f9f2`, `71149b7`; [verification record](../reviews/2026-07-23-plan1-task1-authority-gate-verification.md) | POP → verify/fix Plan 1 Task 2 |
 | Plan 1 Task 2 CanonicalJSON/typed IDs | `CANDIDATE_IMPLEMENTED` | `07bcb61`, `c00ebef` | Requirement audit, cross-language fixtures, remote focused tests |
 | Plan 1 Task 3 registries/generated declarations | `CANDIDATE_IMPLEMENTED` | `cfac7cf`, `7a6fa22` | Registry/codegen audit and remote drift tests |
 | Plan 1 Task 4 mobile event durability | `CANDIDATE_IMPLEMENTED` | `964fef2` through `8ef2996` | Recovery/ordering requirement audit and native/static evidence |
