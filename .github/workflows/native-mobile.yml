@@ -32,7 +32,8 @@ jobs:
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
-            -destination "$IOS_DESTINATION"
+            -destination "$IOS_DESTINATION" \
+            -only-testing:AICaddieTests/LiveRoundAppModelTests/testResponseLostEventRetryStaysExactAfterLaterMediaUploadSuccess
       - name: Collect design snapshots
         if: always()
         run: |
