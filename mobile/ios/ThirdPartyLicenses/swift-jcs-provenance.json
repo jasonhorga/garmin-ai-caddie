@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/minacle/swift-jcs",
+  "commit": "1e69befe76f5445696e821811402c586dd2186d8",
+  "license": "Unlicense",
+  "files": {
+    "JSONCanonicalization.swift": "22a38cf5cda61062cf3a61688474e4dba796a8eea1bfb2ca8c977587deddbc9c",
+    "NumberSerializer.swift": "acdedc57a40e8ceb66ff640a82d84b7e340617670aff955b4679df43b3816502",
+    "StringSerializer.swift": "cbb40f06dbb35c43ca9db9e0637cb6baaaf82844d673476363c548556ec91464",
+    "UNLICENSE": "b5065838cbac452dfc855ba6e6e031481ad2c68406f70d21ead9321374653e6c"
+  }
+}
