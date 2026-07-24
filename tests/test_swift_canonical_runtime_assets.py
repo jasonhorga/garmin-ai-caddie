@@ -349,9 +349,12 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
                 }
             ],
         )
-        self.assertIn({"target": "SwiftJCS"}, domain["dependencies"])
         self.assertIn(
-            {"target": "SwiftJCS"},
+            {"target": "SwiftJCS", "link": True},
+            domain["dependencies"],
+        )
+        self.assertIn(
+            {"target": "SwiftJCS", "link": True},
             targets["AICaddieDomainTests"]["dependencies"],
         )
 

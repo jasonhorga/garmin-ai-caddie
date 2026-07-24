@@ -813,14 +813,20 @@ class ContractCodegenTests(unittest.TestCase):
             },
             domain["sources"],
         )
-        self.assertIn({"target": "SwiftJCS"}, domain["dependencies"])
+        self.assertIn(
+            {"target": "SwiftJCS", "link": True},
+            domain["dependencies"],
+        )
 
         domain_tests = targets["AICaddieDomainTests"]
         self.assertEqual(domain_tests["type"], "bundle.unit-test")
         self.assertEqual(domain_tests["platform"], "auto")
         self.assertEqual(set(domain_tests["supportedDestinations"]), {"iOS", "watchOS"})
         self.assertIn({"target": "AICaddieDomain"}, domain_tests["dependencies"])
-        self.assertIn({"target": "SwiftJCS"}, domain_tests["dependencies"])
+        self.assertIn(
+            {"target": "SwiftJCS", "link": True},
+            domain_tests["dependencies"],
+        )
         self.assertIn(
             {"path": "mobile/ios/AICaddieDomainTests", "excludes": ["Fixtures"]},
             domain_tests["sources"],
