@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import math
 import re
@@ -11,6 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import rfc8785
 import yaml
 
 
@@ -198,6 +200,24 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
                 f"vector generator did not create {VECTOR_FIXTURE}",
             )
             self.assertEqual(regenerated.read_bytes(), fixture.read_bytes())
+
+    def test_every_vector_expected_matches_locked_python_rfc8785(self) -> None:
+        path = ROOT / VECTOR_FIXTURE
+        self.assertTrue(
+            path.is_file(),
+            f"missing checked-in RFC 8785 number fixture: {VECTOR_FIXTURE}",
+        )
+        self.assertEqual(importlib.metadata.version("rfc8785"), "0.1.4")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(len(payload), 2_048)
+
+        for row in payload:
+            bits = int(row["bitPatternHex"], 16)
+            self.assertEqual(
+                row["expected"],
+                rfc8785.dumps(_as_double(bits)).decode("ascii"),
+                row["bitPatternHex"],
+            )
 
     def test_swift_package_copies_domain_fixtures_byte_for_byte(self) -> None:
         package = (ROOT / "Package.swift").read_text(encoding="utf-8")

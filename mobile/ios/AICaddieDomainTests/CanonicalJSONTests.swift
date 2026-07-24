@@ -232,6 +232,12 @@ final class CanonicalJSONTests: XCTestCase {
             ),
             #"{"value":9007199254740991}"#
         )
+        XCTAssertEqual(
+            try utf8String(
+                CanonicalJSON.data(EncodableIntegerPayload(value: minimum))
+            ),
+            #"{"value":-9007199254740991}"#
+        )
 
         XCTAssertThrowsError(
             try CanonicalJSON.data(JSONValue.integer(maximum + 1))
@@ -248,6 +254,21 @@ final class CanonicalJSONTests: XCTestCase {
         XCTAssertThrowsError(
             try CanonicalJSON.data(
                 EncodableIntegerPayload(value: maximum + 1)
+            )
+        )
+        XCTAssertThrowsError(
+            try CanonicalJSON.data(
+                EncodableIntegerPayload(value: minimum - 1)
+            )
+        )
+        XCTAssertThrowsError(
+            try CanonicalJSON.data(
+                EncodableDoublePayload(value: 9_007_199_254_740_992.0)
+            )
+        )
+        XCTAssertThrowsError(
+            try CanonicalJSON.data(
+                EncodableDoublePayload(value: -9_007_199_254_740_992.0)
             )
         )
     }
@@ -275,9 +296,17 @@ final class CanonicalJSONTests: XCTestCase {
             "\u{E000}": .integer(2),
             "\u{1F600}": .integer(1),
         ])
+        let generic: [String: Int64] = [
+            "\u{E000}": 2,
+            "\u{1F600}": 1,
+        ]
 
         XCTAssertEqual(
             try utf8String(CanonicalJSON.data(value)),
+            "{\"\u{1F600}\":1,\"\u{E000}\":2}"
+        )
+        XCTAssertEqual(
+            try utf8String(CanonicalJSON.data(generic)),
             "{\"\u{1F600}\":1,\"\u{E000}\":2}"
         )
     }
