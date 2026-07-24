@@ -94,6 +94,40 @@ final class CanonicalJSONTests: XCTestCase {
         )
     }
 
+    private func assertCanonicalPathsRejectNegativeZero(
+        _ value: JSONValue,
+        _ label: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(
+            try CanonicalJSON.data(value),
+            "CanonicalJSON accepted \(label)",
+            file: file,
+            line: line
+        ) { error in
+            XCTAssertEqual(
+                error as? CanonicalJSONError,
+                .negativeZero,
+                file: file,
+                line: line
+            )
+        }
+        XCTAssertThrowsError(
+            try TypedID.make(domain: "RawNegativeZero/v1", value: value),
+            "TypedID accepted \(label)",
+            file: file,
+            line: line
+        ) { error in
+            XCTAssertEqual(
+                error as? CanonicalJSONError,
+                .negativeZero,
+                file: file,
+                line: line
+            )
+        }
+    }
+
     private func numberVectorURL() throws -> URL {
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
@@ -251,6 +285,75 @@ final class CanonicalJSONTests: XCTestCase {
         )
         XCTAssertThrowsError(
             try CanonicalJSON.data(EncodableDoublePayload(value: -0.0))
+        )
+    }
+
+    func testRawTopLevelNegativeZeroPreservesSignForPublicRejection() throws {
+        for literal in ["-0", "-0.0"] {
+            let decoded = try JSONDecoder().decode(
+                JSONValue.self,
+                from: Data(literal.utf8)
+            )
+            if case .number(let number) = decoded {
+                XCTAssertTrue(number.isZero, literal)
+                XCTAssertEqual(number.sign, .minus, literal)
+            } else {
+                XCTFail("\(literal) decoded without its negative-zero sign: \(decoded)")
+            }
+            assertCanonicalPathsRejectNegativeZero(
+                decoded,
+                "top-level raw \(literal)"
+            )
+        }
+    }
+
+    func testRawNestedNegativeZeroPreservesSignForPublicRejection() throws {
+        for literal in ["-0", "-0.0"] {
+            let source = Data(
+                #"{"outer":[{"inner":\#(literal)}]}"#.utf8
+            )
+            let decoded = try JSONDecoder().decode(JSONValue.self, from: source)
+
+            if case .object(let root) = decoded,
+               case .array(let outer)? = root["outer"],
+               case .object(let nested)? = outer.first,
+               case .number(let number)? = nested["inner"] {
+                XCTAssertTrue(number.isZero, literal)
+                XCTAssertEqual(number.sign, .minus, literal)
+            } else {
+                XCTFail("nested \(literal) decoded without its negative-zero sign: \(decoded)")
+            }
+            assertCanonicalPathsRejectNegativeZero(
+                decoded,
+                "recursively nested raw \(literal)"
+            )
+        }
+    }
+
+    func testRawPositiveZeroControlsRemainAcceptedAndKeepNumberCasesDistinct() throws {
+        let integerZero = try JSONDecoder().decode(
+            JSONValue.self,
+            from: Data("0".utf8)
+        )
+        let decimalZero = try JSONDecoder().decode(
+            JSONValue.self,
+            from: Data("0.0".utf8)
+        )
+        let fractionalNumber = try JSONDecoder().decode(
+            JSONValue.self,
+            from: Data("0.5".utf8)
+        )
+
+        XCTAssertEqual(integerZero, .integer(0))
+        XCTAssertEqual(fractionalNumber, .number(0.5))
+        XCTAssertNotEqual(JSONValue.integer(0), JSONValue.number(0.0))
+        XCTAssertEqual(try utf8String(CanonicalJSON.data(integerZero)), "0")
+        XCTAssertEqual(try utf8String(CanonicalJSON.data(decimalZero)), "0")
+        XCTAssertNoThrow(
+            try TypedID.make(domain: "RawPositiveZero/v1", value: integerZero)
+        )
+        XCTAssertNoThrow(
+            try TypedID.make(domain: "RawPositiveZero/v1", value: decimalZero)
         )
     }
 

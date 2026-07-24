@@ -417,20 +417,43 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
         self.assertIn("-project mobile/ios/AICaddieNative.xcodeproj", ios_test)
         self.assertIn("-scheme AICaddie", ios_test)
 
-        visibility_gate = steps["Reject public SwiftJCS consumer bypass"]["run"]
+        visibility_step = steps["Verify SwiftJCS consumer boundaries"]
+        self.assertEqual(visibility_step["if"], "always()")
+        visibility_gate = visibility_step["run"]
+        self.assertIn('name: "ExternalAICaddieConsumer"', visibility_gate)
+        self.assertIn("platforms: [.macOS(.v13)]", visibility_gate)
+        self.assertIn(
+            '.package(name: "AICaddieSource", path: "$GITHUB_WORKSPACE")',
+            visibility_gate,
+        )
+        self.assertEqual(visibility_gate.count(".product("), 2)
+        self.assertEqual(visibility_gate.count('name: "AICaddieDomain"'), 2)
+        self.assertIn("--target PositiveConsumer", visibility_gate)
+        self.assertIn("--target ExplicitSwiftJCSConsumer", visibility_gate)
         self.assertIn("import AICaddieDomain", visibility_gate)
         self.assertIn("JSONValue.null", visibility_gate)
         self.assertIn("CanonicalJSON.data", visibility_gate)
         self.assertIn("TypedID.make", visibility_gate)
-        self.assertIn("JSONCanonicalization", visibility_gate)
+        self.assertEqual(visibility_gate.count("import SwiftJCS"), 2)
+        self.assertEqual(
+            visibility_gate.count("JSONCanonicalization.data"),
+            2,
+        )
+        self.assertIn("ditto", visibility_gate)
+        self.assertIn('"$DOMAIN_FRAMEWORK"', visibility_gate)
+        self.assertIn(
+            '"$FRAMEWORK_ARTIFACT/AICaddieDomain.framework"',
+            visibility_gate,
+        )
+        self.assertNotIn('-I "$(dirname "$DOMAIN_FRAMEWORK")"', visibility_gate)
         self.assertIn("xcrun swiftc -typecheck", visibility_gate)
         self.assertLess(
             visibility_gate.index("CanonicalJSON.data"),
             visibility_gate.index("JSONCanonicalization"),
         )
-        self.assertIn(
-            "cannot find 'JSONCanonicalization' in scope",
-            visibility_gate,
+        self.assertEqual(
+            visibility_gate.count("no such module 'SwiftJCS'"),
+            2,
         )
 
 

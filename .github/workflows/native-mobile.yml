@@ -33,12 +33,83 @@ jobs:
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
             -destination "$IOS_DESTINATION"
-      - name: Reject public SwiftJCS consumer bypass
+      - name: Verify SwiftJCS consumer boundaries
+        if: always()
         run: |
+          set -euo pipefail
+
+          PACKAGE_CONSUMER="$RUNNER_TEMP/swift-package-consumer"
+          mkdir -p \
+            "$PACKAGE_CONSUMER/Sources/PositiveConsumer" \
+            "$PACKAGE_CONSUMER/Sources/ExplicitSwiftJCSConsumer"
+          cat > "$PACKAGE_CONSUMER/Package.swift" <<SWIFT
+          // swift-tools-version: 5.9
+          import PackageDescription
+          let package = Package(
+              name: "ExternalAICaddieConsumer",
+              platforms: [.macOS(.v13)],
+              dependencies: [
+                  .package(name: "AICaddieSource", path: "$GITHUB_WORKSPACE"),
+              ],
+              targets: [
+                  .executableTarget(
+                      name: "PositiveConsumer",
+                      dependencies: [
+                          .product(
+                              name: "AICaddieDomain",
+                              package: "AICaddieSource"
+                          ),
+                      ]
+                  ),
+                  .executableTarget(
+                      name: "ExplicitSwiftJCSConsumer",
+                      dependencies: [
+                          .product(
+                              name: "AICaddieDomain",
+                              package: "AICaddieSource"
+                          ),
+                      ]
+                  ),
+              ]
+          )
+          SWIFT
+          cat > "$PACKAGE_CONSUMER/Sources/PositiveConsumer/main.swift" <<'SWIFT'
+          import AICaddieDomain
+          let value = JSONValue.null
+          _ = try CanonicalJSON.data(value)
+          _ = try TypedID.make(domain: "VisibilityProbe/v1", value: value)
+          SWIFT
+          cat > "$PACKAGE_CONSUMER/Sources/ExplicitSwiftJCSConsumer/main.swift" <<'SWIFT'
+          import Foundation
+          import SwiftJCS
+          _ = try JSONCanonicalization.data(
+              withJSONObject: NSNumber(value: -0.0)
+          )
+          SWIFT
+          swift build \
+            --package-path "$PACKAGE_CONSUMER" \
+            --target PositiveConsumer
+          set +e
+          SWIFTPM_DIAGNOSTIC=$(swift build \
+            --package-path "$PACKAGE_CONSUMER" \
+            --target ExplicitSwiftJCSConsumer 2>&1)
+          SWIFTPM_STATUS=$?
+          set -e
+          printf '%s\n' "$SWIFTPM_DIAGNOSTIC"
+          test "$SWIFTPM_STATUS" -ne 0
+          grep -F "no such module 'SwiftJCS'" <<< "$SWIFTPM_DIAGNOSTIC"
+
           DOMAIN_FRAMEWORK=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
             -type d -path '*/Build/Products/Debug-iphonesimulator/AICaddieDomain.framework' \
             -print -quit)
           test -n "$DOMAIN_FRAMEWORK"
+          FRAMEWORK_ARTIFACT="$RUNNER_TEMP/aicaddie-domain-artifact"
+          mkdir -p "$FRAMEWORK_ARTIFACT"
+          ditto \
+            "$DOMAIN_FRAMEWORK" \
+            "$FRAMEWORK_ARTIFACT/AICaddieDomain.framework"
+          test ! -e "$FRAMEWORK_ARTIFACT/SwiftJCS.swiftmodule"
+          test ! -e "$FRAMEWORK_ARTIFACT/libSwiftJCS.a"
           POSITIVE_CONSUMER="$RUNNER_TEMP/AICaddieDomainPositiveConsumer.swift"
           cat > "$POSITIVE_CONSUMER" <<'SWIFT'
           import AICaddieDomain
@@ -50,29 +121,29 @@ jobs:
           SWIFT
           CONSUMER="$RUNNER_TEMP/AICaddieDomainConsumer.swift"
           cat > "$CONSUMER" <<'SWIFT'
-          import AICaddieDomain
-          _ = JSONCanonicalization.self
+          import SwiftJCS
+          _ = try JSONCanonicalization.data(
+              withJSONObject: ["unchecked": -0.0]
+          )
           SWIFT
           SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
           ARCH=$(uname -m)
           xcrun swiftc -typecheck \
             -target "$ARCH-apple-ios17.0-simulator" \
             -sdk "$SDK" \
-            -F "$(dirname "$DOMAIN_FRAMEWORK")" \
-            -I "$(dirname "$DOMAIN_FRAMEWORK")" \
+            -F "$FRAMEWORK_ARTIFACT" \
             "$POSITIVE_CONSUMER"
           set +e
-          DIAGNOSTIC=$(xcrun swiftc -typecheck \
+          FRAMEWORK_DIAGNOSTIC=$(xcrun swiftc -typecheck \
             -target "$ARCH-apple-ios17.0-simulator" \
             -sdk "$SDK" \
-            -F "$(dirname "$DOMAIN_FRAMEWORK")" \
-            -I "$(dirname "$DOMAIN_FRAMEWORK")" \
+            -F "$FRAMEWORK_ARTIFACT" \
             "$CONSUMER" 2>&1)
-          STATUS=$?
+          FRAMEWORK_STATUS=$?
           set -e
-          printf '%s\n' "$DIAGNOSTIC"
-          test "$STATUS" -ne 0
-          grep -F "cannot find 'JSONCanonicalization' in scope" <<< "$DIAGNOSTIC"
+          printf '%s\n' "$FRAMEWORK_DIAGNOSTIC"
+          test "$FRAMEWORK_STATUS" -ne 0
+          grep -F "no such module 'SwiftJCS'" <<< "$FRAMEWORK_DIAGNOSTIC"
       - name: Collect design snapshots
         if: always()
         run: |
