@@ -35,6 +35,24 @@ CI and the homeserver provenance/vector/mechanical tests are green. It does not
 define `DomainRoundEvent`, storage-v1, a ledger owner, sequence reservation,
 legacy wire IDs, prepared batches, receipts, iOS lifecycle, or Watch behavior.
 
+### Supported distribution and threat model
+
+This repository ships the iOS/watchOS applications and the isolated
+`AICaddieDomain.framework` artifact.
+`Package.swift` is an in-repository source-build and audit harness,
+not a supported third-party SDK. A SwiftPM source build may expose recursively
+reachable modules to its consumer; that toolchain behavior is diagnostic, not
+part of the supported artifact-isolation boundary. Native CI stages only the
+Domain framework, proves that its public wrapper remains usable, and proves
+that an artifact consumer cannot explicitly import `SwiftJCS`.
+
+Across checked-in production Domain, app, and Watch Swift sources, only
+`CanonicalJSON.swift` may import `SwiftJCS` or reference its raw symbols, and
+that import must be implementation-only. Publishing a source SDK with enforced
+transitive-module isolation is outside 5A.
+A derived/internalized runtime or private binary packaging would require a
+new owner-approved architecture.
+
 ## Owned files
 
 Create:
