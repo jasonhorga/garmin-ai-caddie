@@ -450,6 +450,19 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
             '"$FRAMEWORK_ARTIFACT/AICaddieDomain.framework"',
             visibility_gate,
         )
+        self.assertIn("BOUNDARY_FAILURES", visibility_gate)
+        self.assertIn(
+            "External SwiftPM product consumer imported SwiftJCS",
+            visibility_gate,
+        )
+        self.assertIn(
+            "Isolated AICaddieDomain framework consumer could not use wrapper",
+            visibility_gate,
+        )
+        self.assertIn(
+            "Isolated framework consumer imported SwiftJCS",
+            visibility_gate,
+        )
         self.assertNotIn('-I "$(dirname "$DOMAIN_FRAMEWORK")"', visibility_gate)
         self.assertIn("xcrun swiftc -typecheck", visibility_gate)
         self.assertLess(

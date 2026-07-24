@@ -102,8 +102,15 @@ jobs:
           SWIFTPM_STATUS=$?
           set -e
           printf '%s\n' "$SWIFTPM_DIAGNOSTIC"
-          test "$SWIFTPM_STATUS" -ne 0
-          grep -F "no such module 'SwiftJCS'" <<< "$SWIFTPM_DIAGNOSTIC"
+          BOUNDARY_FAILURES=0
+          if [ "$SWIFTPM_STATUS" -eq 0 ]; then
+            echo "::error::External SwiftPM product consumer imported SwiftJCS"
+            BOUNDARY_FAILURES=$((BOUNDARY_FAILURES + 1))
+          elif ! grep -F "no such module 'SwiftJCS'" \
+            <<< "$SWIFTPM_DIAGNOSTIC"; then
+            echo "::error::SwiftPM negative consumer failed for an unexpected reason"
+            BOUNDARY_FAILURES=$((BOUNDARY_FAILURES + 1))
+          fi
 
           DOMAIN_FRAMEWORK=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
             -type d -path '*/Build/Products/Debug-iphonesimulator/AICaddieDomain.framework' \
@@ -132,12 +139,13 @@ jobs:
               withJSONObject: ["unchecked": -0.0]
           )
           SWIFT
-          xcrun swiftc -typecheck \
+          set +e
+          FRAMEWORK_POSITIVE_DIAGNOSTIC=$(xcrun swiftc -typecheck \
             -target "$ARCH-apple-ios17.0-simulator" \
             -sdk "$SDK" \
             -F "$FRAMEWORK_ARTIFACT" \
-            "$POSITIVE_CONSUMER"
-          set +e
+            "$POSITIVE_CONSUMER" 2>&1)
+          FRAMEWORK_POSITIVE_STATUS=$?
           FRAMEWORK_DIAGNOSTIC=$(xcrun swiftc -typecheck \
             -target "$ARCH-apple-ios17.0-simulator" \
             -sdk "$SDK" \
@@ -145,9 +153,21 @@ jobs:
             "$CONSUMER" 2>&1)
           FRAMEWORK_STATUS=$?
           set -e
+          printf '%s\n' "$FRAMEWORK_POSITIVE_DIAGNOSTIC"
           printf '%s\n' "$FRAMEWORK_DIAGNOSTIC"
-          test "$FRAMEWORK_STATUS" -ne 0
-          grep -F "no such module 'SwiftJCS'" <<< "$FRAMEWORK_DIAGNOSTIC"
+          if [ "$FRAMEWORK_POSITIVE_STATUS" -ne 0 ]; then
+            echo "::error::Isolated AICaddieDomain framework consumer could not use wrapper"
+            BOUNDARY_FAILURES=$((BOUNDARY_FAILURES + 1))
+          fi
+          if [ "$FRAMEWORK_STATUS" -eq 0 ]; then
+            echo "::error::Isolated framework consumer imported SwiftJCS"
+            BOUNDARY_FAILURES=$((BOUNDARY_FAILURES + 1))
+          elif ! grep -F "no such module 'SwiftJCS'" \
+            <<< "$FRAMEWORK_DIAGNOSTIC"; then
+            echo "::error::Framework negative consumer failed for an unexpected reason"
+            BOUNDARY_FAILURES=$((BOUNDARY_FAILURES + 1))
+          fi
+          test "$BOUNDARY_FAILURES" -eq 0
       - name: Collect design snapshots
         if: always()
         run: |
