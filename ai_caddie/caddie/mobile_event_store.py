@@ -120,8 +120,268 @@ def _normalized_event_for_hash(event: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _classify_json_prefix(data: bytes) -> str:
+    """Classify one JSON text as complete, appendably incomplete, or invalid."""
+
+    maximum_nesting_depth = 128
+    index = 0
+    document_state = "expecting_root"
+    frames: list[tuple[str, str]] = []
+
+    def finish_value() -> bool:
+        nonlocal document_state
+        if not frames:
+            if document_state != "expecting_root":
+                return False
+            document_state = "after_root"
+            return True
+        kind, state = frames[-1]
+        if kind == "array" and state in {"first_value_or_end", "value_after_comma"}:
+            frames[-1] = (kind, "comma_or_end")
+            return True
+        if kind == "object" and state == "value":
+            frames[-1] = (kind, "comma_or_end")
+            return True
+        return False
+
+    def scan_utf8_scalar(start: int) -> tuple[str, int]:
+        first = data[start]
+        if 0xC2 <= first <= 0xDF:
+            length, second_low, second_high = 2, 0x80, 0xBF
+        elif first == 0xE0:
+            length, second_low, second_high = 3, 0xA0, 0xBF
+        elif 0xE1 <= first <= 0xEC or 0xEE <= first <= 0xEF:
+            length, second_low, second_high = 3, 0x80, 0xBF
+        elif first == 0xED:
+            length, second_low, second_high = 3, 0x80, 0x9F
+        elif first == 0xF0:
+            length, second_low, second_high = 4, 0x90, 0xBF
+        elif 0xF1 <= first <= 0xF3:
+            length, second_low, second_high = 4, 0x80, 0xBF
+        elif first == 0xF4:
+            length, second_low, second_high = 4, 0x80, 0x8F
+        else:
+            return "invalid", start
+        if start + 1 >= len(data):
+            return "incomplete", start
+        if not second_low <= data[start + 1] <= second_high:
+            return "invalid", start
+        for offset in range(2, length):
+            if start + offset >= len(data):
+                return "incomplete", start
+            if not 0x80 <= data[start + offset] <= 0xBF:
+                return "invalid", start
+        return "complete", start + length
+
+    def scan_string(start: int) -> tuple[str, int]:
+        cursor = start + 1
+        while cursor < len(data):
+            byte = data[cursor]
+            if byte == 0x22:
+                return "complete", cursor + 1
+            if byte == 0x5C:
+                cursor += 1
+                if cursor >= len(data):
+                    return "incomplete", cursor
+                escape = data[cursor]
+                if escape in b'"/\\bfnrt':
+                    cursor += 1
+                    continue
+                if escape != 0x75:
+                    return "invalid", cursor
+                cursor += 1
+                for _ in range(4):
+                    if cursor >= len(data):
+                        return "incomplete", cursor
+                    if data[cursor] not in b"0123456789ABCDEFabcdef":
+                        return "invalid", cursor
+                    cursor += 1
+                continue
+            if byte <= 0x1F:
+                return "invalid", cursor
+            if byte >= 0x80:
+                classification, next_cursor = scan_utf8_scalar(cursor)
+                if classification != "complete":
+                    return classification, cursor
+                cursor = next_cursor
+                continue
+            cursor += 1
+        return "incomplete", cursor
+
+    def scan_literal(start: int, literal: bytes) -> tuple[str, int]:
+        for offset, expected in enumerate(literal):
+            if start + offset >= len(data):
+                return "incomplete", start
+            if data[start + offset] != expected:
+                return "invalid", start
+        return "complete", start + len(literal)
+
+    def scan_number(start: int) -> tuple[str, int]:
+        cursor = start
+        if data[cursor] == 0x2D:
+            cursor += 1
+            if cursor >= len(data):
+                return "incomplete", cursor
+        if data[cursor] == 0x30:
+            cursor += 1
+        elif 0x31 <= data[cursor] <= 0x39:
+            cursor += 1
+            while cursor < len(data) and 0x30 <= data[cursor] <= 0x39:
+                cursor += 1
+        else:
+            return "invalid", cursor
+        if cursor < len(data) and data[cursor] == 0x2E:
+            cursor += 1
+            if cursor >= len(data):
+                return "incomplete", cursor
+            if not 0x30 <= data[cursor] <= 0x39:
+                return "invalid", cursor
+            while cursor < len(data) and 0x30 <= data[cursor] <= 0x39:
+                cursor += 1
+        if cursor < len(data) and data[cursor] in (0x45, 0x65):
+            cursor += 1
+            if cursor >= len(data):
+                return "incomplete", cursor
+            if data[cursor] in (0x2B, 0x2D):
+                cursor += 1
+                if cursor >= len(data):
+                    return "incomplete", cursor
+            if not 0x30 <= data[cursor] <= 0x39:
+                return "invalid", cursor
+            while cursor < len(data) and 0x30 <= data[cursor] <= 0x39:
+                cursor += 1
+        return "complete", cursor
+
+    def consume_value() -> str | None:
+        nonlocal index
+        if index >= len(data):
+            return "incomplete"
+        byte = data[index]
+        if byte in (0x7B, 0x5B):
+            if len(frames) >= maximum_nesting_depth:
+                return "invalid"
+            index += 1
+            frames.append(
+                ("object", "first_key_or_end")
+                if byte == 0x7B
+                else ("array", "first_value_or_end")
+            )
+            return None
+        if byte == 0x22:
+            result = scan_string(index)
+        elif byte == 0x74:
+            result = scan_literal(index, b"true")
+        elif byte == 0x66:
+            result = scan_literal(index, b"false")
+        elif byte == 0x6E:
+            result = scan_literal(index, b"null")
+        elif byte == 0x2D or 0x30 <= byte <= 0x39:
+            result = scan_number(index)
+        else:
+            return "invalid"
+        classification, next_index = result
+        if classification != "complete":
+            return classification
+        index = next_index
+        return None if finish_value() else "invalid"
+
+    while True:
+        while index < len(data) and data[index] in (0x09, 0x0A, 0x0D, 0x20):
+            index += 1
+        if index == len(data):
+            if not frames and document_state == "after_root":
+                return "complete"
+            return "incomplete"
+        if not frames:
+            if document_state != "expecting_root":
+                return "invalid"
+            terminal = consume_value()
+            if terminal is not None:
+                return terminal
+            continue
+
+        frame_index = len(frames) - 1
+        kind, state = frames[frame_index]
+        byte = data[index]
+        if kind == "array":
+            if state == "first_value_or_end" and byte == 0x5D:
+                index += 1
+                frames.pop()
+                if not finish_value():
+                    return "invalid"
+            elif state in {"first_value_or_end", "value_after_comma"}:
+                terminal = consume_value()
+                if terminal is not None:
+                    return terminal
+            elif state == "comma_or_end" and byte == 0x2C:
+                index += 1
+                frames[frame_index] = (kind, "value_after_comma")
+            elif state == "comma_or_end" and byte == 0x5D:
+                index += 1
+                frames.pop()
+                if not finish_value():
+                    return "invalid"
+            else:
+                return "invalid"
+            continue
+
+        if state == "first_key_or_end" and byte == 0x7D:
+            index += 1
+            frames.pop()
+            if not finish_value():
+                return "invalid"
+        elif state in {"first_key_or_end", "key_after_comma"}:
+            if byte != 0x22:
+                return "invalid"
+            classification, next_index = scan_string(index)
+            if classification != "complete":
+                return classification
+            index = next_index
+            frames[frame_index] = (kind, "colon")
+        elif state == "colon":
+            if byte != 0x3A:
+                return "invalid"
+            index += 1
+            frames[frame_index] = (kind, "value")
+        elif state == "value":
+            terminal = consume_value()
+            if terminal is not None:
+                return terminal
+        elif state == "comma_or_end" and byte == 0x2C:
+            index += 1
+            frames[frame_index] = (kind, "key_after_comma")
+        elif state == "comma_or_end" and byte == 0x7D:
+            index += 1
+            frames.pop()
+            if not finish_value():
+                return "invalid"
+        else:
+            return "invalid"
+
+
 def _redact_mobile_text(value: str) -> str:
     redacted = redact_secret_text(value)
+    # The shared LLM redactor intentionally recognizes only its historical path
+    # families.  Mobile envelopes additionally treat forward-slash drive paths,
+    # forward-slash UNC paths, and named ``label:/absolute`` path boundaries as
+    # local filesystem authority.  Requiring a start/delimiter before each path
+    # keeps complete non-file URLs (including URL paths that look like drives or
+    # UNC shares) byte-exact.
+    redacted = re.sub(
+        r"(?i)(^|[\s=(\[{'\"])[a-z]:[\\/][^\s,;)]+",
+        rf"\1{REDACTED_MOBILE_PATH}",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(^|[\s=(\[{'\"])//[^\s,;)]+",
+        rf"\1{REDACTED_MOBILE_PATH}",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(?i)(^|[\s=(\[{'\"])([a-z_][a-z0-9_-]*):/(?!/)[^\s,;)]+",
+        rf"\1\2:{REDACTED_MOBILE_PATH}",
+        redacted,
+    )
     redacted = re.sub(
         r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*[^,\s;)]+",
         r"\1=[REDACTED]",
@@ -182,7 +442,8 @@ class FileEventStore:
         *,
         sanitizer: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
-        self.root = Path(root)
+        self.root = Path(root).expanduser().resolve(strict=False)
+        self._trusted_root_anchor = Path(self.root.anchor)
         self.log = self.root / EVENT_LOG_FILENAME
         self.event_lock = self.root / EVENT_LOCK_FILENAME
         self.acks = self.root / ACK_FILENAME
@@ -434,17 +695,8 @@ class FileEventStore:
         )
         if b"\n" in suffix or not suffix.startswith(b"{"):
             raise ValueError("event_commit_store_corrupt")
-        try:
-            text = suffix.decode("utf-8")
-        except UnicodeDecodeError:
+        if _classify_json_prefix(suffix) == "incomplete":
             return
-        try:
-            json.loads(text)
-        except json.JSONDecodeError:
-            try:
-                json.JSONDecoder().raw_decode(text)
-            except json.JSONDecodeError:
-                return
         raise ValueError("event_commit_store_corrupt")
 
     def _validate_storage_rows(self, raw: bytes, *, expected_event_count: int | None) -> None:
@@ -1334,21 +1586,20 @@ class FileEventStore:
             raise
 
     def _ensure_root_durable(self) -> None:
-        missing: list[Path] = []
-        current = self.root
-        while not current.exists():
-            missing.append(current)
-            parent = current.parent
-            if parent == current:
-                break
-            current = parent
-        for directory in reversed(missing):
+        current = self._trusted_root_anchor
+        for component in self.root.relative_to(self._trusted_root_anchor).parts:
+            directory = current / component
             try:
                 directory.mkdir()
             except FileExistsError:
                 if not directory.is_dir():
                     raise
-            self._fsync_directory(directory.parent)
+            # Re-establish every parent-entry barrier for each fresh store use,
+            # even when an earlier process already created the directory.  No
+            # lock, log, marker, reservation, or ACK mutation happens until the
+            # complete root-to-store chain succeeds.
+            self._fsync_directory(current)
+            current = directory
 
     def _fsync_directory(self, directory: Path | None = None) -> None:
         target = self.root if directory is None else directory
