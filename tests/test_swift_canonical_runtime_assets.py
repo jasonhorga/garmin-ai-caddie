@@ -255,39 +255,74 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
                 row["bitPatternHex"],
             )
 
-    def test_vendor_serializer_has_no_production_bypass_calls(self) -> None:
-        domain_root = ROOT / "mobile/ios/AICaddieDomain"
-        bypasses: list[str] = []
-        for path in domain_root.rglob("*.swift"):
-            if path.is_relative_to(ROOT / VENDOR_ROOT):
-                continue
-            for line_number, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(),
-                start=1,
-            ):
-                if "_serializeNumber(" not in line:
-                    continue
-                if re.search(r"\bfunc\s+_serializeNumber\s*\(", line):
-                    continue
-                bypasses.append(f"{path.relative_to(ROOT)}:{line_number}")
-        self.assertEqual(bypasses, [])
-
-        vendor_api_calls: list[str] = []
-        for path in domain_root.rglob("*.swift"):
-            if path.is_relative_to(ROOT / VENDOR_ROOT):
-                continue
-            for line_number, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(),
-                start=1,
-            ):
-                if "JSONCanonicalization." in line:
-                    vendor_api_calls.append(
-                        f"{path.relative_to(ROOT)}:{line_number}"
-                    )
-        self.assertEqual(
-            [entry.rsplit(":", 1)[0] for entry in vendor_api_calls],
-            ["mobile/ios/AICaddieDomain/CanonicalJSON.swift"],
+    def test_only_canonical_wrapper_can_reach_vendor_runtime(self) -> None:
+        production_roots = (
+            "mobile/ios/AICaddieDomain",
+            "mobile/ios/AICaddie",
+            "mobile/ios/AICaddieWatch",
         )
+        listed = subprocess.run(
+            ["git", "ls-files", "--", *production_roots],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            listed.returncode,
+            0,
+            f"git ls-files failed:\n{listed.stderr}",
+        )
+        sources = [
+            ROOT / relative
+            for relative in listed.stdout.splitlines()
+            if relative.endswith(".swift")
+            and "ThirdParty" not in Path(relative).parts
+            and not any(part.endswith("Tests") for part in Path(relative).parts)
+        ]
+        self.assertTrue(sources, "missing checked-in production Swift sources")
+
+        imports: list[tuple[str, str]] = []
+        vendor_references: list[tuple[str, str]] = []
+        vendor_symbols = (
+            "JSONCanonicalization",
+            "_serializeNumber",
+            "_serialize",
+        )
+        for path in sources:
+            relative = path.relative_to(ROOT).as_posix()
+            for line in path.read_text(encoding="utf-8").splitlines():
+                code = line.split("//", 1)[0]
+                if re.search(r"\bimport\s+SwiftJCS\b", code):
+                    imports.append((relative, code.strip()))
+                for symbol in vendor_symbols:
+                    for _ in re.finditer(rf"\b{re.escape(symbol)}\b", code):
+                        vendor_references.append((relative, symbol))
+
+        wrapper = "mobile/ios/AICaddieDomain/CanonicalJSON.swift"
+        self.assertEqual(
+            imports,
+            [(wrapper, "@_implementationOnly import SwiftJCS")],
+        )
+        self.assertEqual(
+            vendor_references,
+            [(wrapper, "JSONCanonicalization")],
+        )
+
+    def test_task_card_freezes_artifact_distribution_boundary(self) -> None:
+        card = (
+            ROOT
+            / "docs/superpowers/task-cards/2026-07-24-plan1-task5a-swift-canonical-runtime.md"
+        ).read_text(encoding="utf-8")
+        for literal in (
+            "`AICaddieDomain.framework`",
+            "`Package.swift` is an in-repository source-build and audit harness",
+            "not a supported third-party SDK",
+            "derived/internalized runtime or private binary packaging",
+            "new owner-approved architecture",
+        ):
+            with self.subTest(literal=literal):
+                self.assertIn(literal, card)
 
     def test_swift_package_isolates_swift_jcs_as_non_product_target(self) -> None:
         package = (ROOT / "Package.swift").read_text(encoding="utf-8")
@@ -367,7 +402,8 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
         domain_tests = (
             ROOT / "mobile/ios/AICaddieDomainTests/CanonicalJSONTests.swift"
         ).read_text(encoding="utf-8")
-        self.assertIn("import SwiftJCS", wrapper.splitlines())
+        self.assertIn("@_implementationOnly import SwiftJCS", wrapper.splitlines())
+        self.assertNotIn("import SwiftJCS", wrapper.splitlines())
         self.assertNotIn("@_exported import SwiftJCS", wrapper)
         self.assertIn("@testable import SwiftJCS", domain_tests.splitlines())
 
@@ -450,19 +486,21 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
             '"$FRAMEWORK_ARTIFACT/AICaddieDomain.framework"',
             visibility_gate,
         )
-        self.assertIn("BOUNDARY_FAILURES", visibility_gate)
+        self.assertNotIn("BOUNDARY_FAILURES", visibility_gate)
         self.assertIn(
-            "External SwiftPM product consumer imported SwiftJCS",
+            "SwiftPM source-build audit harness exposes transitively reachable SwiftJCS by design",
             visibility_gate,
         )
         self.assertIn(
-            "Isolated AICaddieDomain framework consumer could not use wrapper",
+            "SwiftPM toolchain now isolates SwiftJCS from the source-build audit harness",
             visibility_gate,
         )
+        self.assertIn("SWIFTPM_STATUS", visibility_gate)
         self.assertIn(
-            "Isolated framework consumer imported SwiftJCS",
+            "FRAMEWORK_STATUS",
             visibility_gate,
         )
+        self.assertNotIn("FRAMEWORK_POSITIVE_STATUS", visibility_gate)
         self.assertNotIn('-I "$(dirname "$DOMAIN_FRAMEWORK")"', visibility_gate)
         self.assertIn("xcrun swiftc -typecheck", visibility_gate)
         self.assertLess(
