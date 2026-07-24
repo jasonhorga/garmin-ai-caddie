@@ -15,6 +15,11 @@ private struct EncodableIntegerPayload: Encodable {
     let value: Int64
 }
 
+private struct EncodableCanonicalFixture: Encodable {
+    let z: Int64
+    let a: String
+}
+
 final class CanonicalJSONTests: XCTestCase {
     private func utf8String(_ data: Data) throws -> String {
         try XCTUnwrap(String(data: data, encoding: .utf8))
@@ -89,9 +94,14 @@ final class CanonicalJSONTests: XCTestCase {
             "z": .integer(1),
             "a": .string("球场"),
         ])
+        let generic = EncodableCanonicalFixture(z: 1, a: "球场")
 
         XCTAssertEqual(
             lowercaseHex(try CanonicalJSON.data(value)),
+            "7b2261223a22e79083e59cba222c227a223a317d"
+        )
+        XCTAssertEqual(
+            lowercaseHex(try CanonicalJSON.data(generic)),
             "7b2261223a22e79083e59cba222c227a223a317d"
         )
     }
@@ -101,6 +111,7 @@ final class CanonicalJSONTests: XCTestCase {
             "z": .integer(1),
             "a": .string("球场"),
         ])
+        let generic = EncodableCanonicalFixture(z: 1, a: "球场")
 
         XCTAssertEqual(
             try TypedID.make(domain: "CanonicalFixtureAlpha/v1", value: value),
@@ -108,6 +119,20 @@ final class CanonicalJSONTests: XCTestCase {
         )
         XCTAssertEqual(
             try TypedID.make(domain: "CanonicalFixtureBeta/v1", value: value),
+            "f65b7f4bfaf68ad4a2005ebfd6c4a163b351c39fc0c59efb8ec83aace6295b44"
+        )
+        XCTAssertEqual(
+            try TypedID.make(
+                domain: "CanonicalFixtureAlpha/v1",
+                value: generic
+            ),
+            "a2fcc54ce2819d6ae58a7f40ffc9d6837ca3104c222eb391c8e7c204282309b3"
+        )
+        XCTAssertEqual(
+            try TypedID.make(
+                domain: "CanonicalFixtureBeta/v1",
+                value: generic
+            ),
             "f65b7f4bfaf68ad4a2005ebfd6c4a163b351c39fc0c59efb8ec83aace6295b44"
         )
     }
@@ -140,17 +165,18 @@ final class CanonicalJSONTests: XCTestCase {
 
     func testTypedIDRequiresNonEmptyASCIIDomainWithoutEmbeddedNUL() throws {
         let value = JSONValue.object(["a": .integer(1)])
+        let generic = EncodableCanonicalFixture(z: 1, a: "球场")
 
-        XCTAssertThrowsError(try TypedID.make(domain: "", value: value))
-        XCTAssertThrowsError(
-            try TypedID.make(domain: "Café/v1", value: value)
-        )
-        XCTAssertThrowsError(
-            try TypedID.make(domain: "Cafe\u{301}/v1", value: value)
-        )
-        XCTAssertThrowsError(
-            try TypedID.make(domain: "A\u{0000}B/v1", value: value)
-        )
+        for domain in ["", "Café/v1", "Cafe\u{301}/v1", "A\u{0000}B/v1"] {
+            XCTAssertThrowsError(
+                try TypedID.make(domain: domain, value: value),
+                "JSONValue overload accepted domain \(domain.debugDescription)"
+            )
+            XCTAssertThrowsError(
+                try TypedID.make(domain: domain, value: generic),
+                "generic overload accepted domain \(domain.debugDescription)"
+            )
+        }
     }
 
     func testNegativeZeroIsRejectedForTypedAndGenericEncodableInputs() throws {
@@ -241,6 +267,18 @@ final class CanonicalJSONTests: XCTestCase {
         XCTAssertEqual(
             try utf8String(CanonicalJSON.data(value)),
             #"{"a":{"x":null,"y":2},"z":["line\nquote\"slash\\tab\tcontrol\u0001",false]}"#
+        )
+    }
+
+    func testObjectPropertiesUseUTF16CodeUnitOrdering() throws {
+        let value: JSONValue = .object([
+            "\u{E000}": .integer(2),
+            "\u{1F600}": .integer(1),
+        ])
+
+        XCTAssertEqual(
+            try utf8String(CanonicalJSON.data(value)),
+            "{\"\u{1F600}\":1,\"\u{E000}\":2}"
         )
     }
 
