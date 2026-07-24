@@ -101,7 +101,8 @@ enough to mark `VERIFIED`.
 | Plan 1 Task 2 CanonicalJSON/typed IDs | `VERIFIED` | `07bcb61`, `c00ebef`, `16044d4`, `f308056`, `09770d7`; [verification record](../reviews/2026-07-23-plan1-task2-canonical-json-typed-id-verification.md) | POP → verify/fix Plan 1 Task 3 |
 | Plan 1 Task 3 registries/generated declarations | `VERIFIED` | `cfac7cf`, `7a6fa22`, `b6b818a`; [verification record](../reviews/2026-07-23-plan1-task3-registry-codegen-verification.md) | POP → verify/fix Plan 1 Task 4 |
 | Plan 1 Task 4 mobile event durability | `VERIFIED` | `1d94f4e`, `83c9167`; [verification record](../reviews/2026-07-24-plan1-task4-mobile-event-durability-verification.md) | POP → extract Plan 1 Task 5 as small packets |
-| Plan 1 Tasks 5–14 including 13a | `PENDING` | Dossier only | Extract Task 5 into independently terminable packets before implementation |
+| Plan 1 Task 5 local storage-v1 and v1 transport | `IN_PROGRESS` | [packet map](../task-cards/2026-07-24-plan1-task5-packet-map.md); [5A card](../task-cards/2026-07-24-plan1-task5a-swift-canonical-runtime.md) | Task 5A behavioral RED → Swift canonical runtime |
+| Plan 1 Tasks 6–14 including 13a | `PENDING` | Dossier only | Activate only after dependency/first-milestone POP check |
 | Plan 2 B1–B17 | `PENDING` | Dossier and pre-existing reusable code only | Baseline acquisition/install dependency audit |
 | Plan 3 C1–C16 | `RESEARCH` | Dossier and historical parsers/data | Run without blocking baseline product; promote per capability only |
 | Plan 4 D00–D15 | `PENDING` | Dossier and pre-existing UI/runtime code only | Move manual milestone path as early as real dependencies allow |
@@ -150,7 +151,7 @@ A task is `VERIFIED` only when the ledger can point to all of:
 - **Overall:** deliver the locked S70 unified product and all retained program
   capabilities.
 - **Current phase:** prove and finish the canonical reliability foundation.
-- **Current drill-down:** Plan 1 Task 5 packet extraction and dependency check.
+- **Current drill-down:** Plan 1 Task 5A Swift canonical runtime.
 - **POP:** after each verified task, return here and select the next dependency
   on the first production milestone rather than following the deepest document
   branch.
@@ -160,10 +161,8 @@ A task is `VERIFIED` only when the ledger can point to all of:
 ## 9. Immediate task order
 
 1. Plan 1 Tasks 1–4 are `VERIFIED` with dedicated evidence records.
-2. Extract Plan 1 Task 5 into small packets with explicit outcomes, owned
-   files, REDs, exclusions, and review/termination gates.
-3. Implement and verify those packets in dependency order without treating the
-   complete Task 5 dossier as one review unit.
-4. Recompute the first-milestone dependency path before selecting each later
+2. Execute and verify Task 5A–5J from the bounded packet map; only one packet is
+   an implementation/review unit at a time.
+3. Recompute the first-milestone dependency path before selecting each later
    slice; do not reinstate the obsolete global `Plan 3 C1–C16 before Plan 2 B8`
    gate.
