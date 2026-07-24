@@ -451,6 +451,21 @@ final class CanonicalJSONTests: XCTestCase {
         }
     }
 
+    func testPinnedVendorRawNumberSmokeOracle() throws {
+        let cases: [(UInt64, String)] = [
+            (0x0000000000000001, "5e-324"),
+            (0x4340000000000000, "9007199254740992"),
+        ]
+
+        for (bits, expected) in cases {
+            XCTAssertEqual(
+                try _serializeNumber(Double(bitPattern: bits)),
+                expected,
+                String(format: "%016llx", bits)
+            )
+        }
+    }
+
     func testEveryCheckedInRFC8785NumberVectorMatchesExpectedLiteral() throws {
         let vectors = try JSONDecoder().decode(
             [NumberVector].self,
