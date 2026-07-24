@@ -34,6 +34,7 @@ targets:
           - ThirdParty/SwiftJCS
     dependencies:
       - target: SwiftJCS
+        link: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.domain
@@ -54,6 +55,7 @@ targets:
     dependencies:
       - target: AICaddieDomain
       - target: SwiftJCS
+        link: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.domain.tests
